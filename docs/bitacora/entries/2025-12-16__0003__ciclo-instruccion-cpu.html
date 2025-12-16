@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementación del Ciclo de Instrucción de la CPU - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Implementación del Ciclo de Instrucción de la CPU</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-16
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0003
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-16__0002__mmu-basica.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó la clase <code>CPU</code> que unifica los Registros y la MMU para crear el ciclo de instrucción Fetch-Decode-Execute.
+                    Se implementaron los primeros 3 opcodes básicos: NOP (0x00), LD A,d8 (0x3E) y LD B,d8 (0x06).
+                    Se creó una suite completa de tests unitarios con 6 tests, todos pasando correctamente.
+                    La CPU ahora puede ejecutar instrucciones secuencialmente, marcando el primer "latido" funcional del emulador.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El <strong>Ciclo de Instrucción</strong> es el proceso fundamental que hace que una CPU funcione.
+                    Sin él, la CPU es solo una estructura de datos estática. Es el "latido" que convierte el hardware en una máquina ejecutable.
+                </p>
+
+                <h3>El Ciclo Fetch-Decode-Execute</h3>
+                <p>
+                    Toda instrucción de la Game Boy sigue el mismo ciclo básico:
+                </p>
+                <ol>
+                    <li><strong>Fetch (Buscar):</strong> Lee el byte en la dirección apuntada por el Program Counter (PC). Este byte es el <strong>opcode</strong> (código de operación).</li>
+                    <li><strong>Increment (Incrementar):</strong> Avanza el PC para apuntar al siguiente byte. Esto es crítico porque el PC debe moverse secuencialmente.</li>
+                    <li><strong>Decode (Decodificar):</strong> Identifica qué operación representa el opcode (ej: "cargar valor en registro A").</li>
+                    <li><strong>Execute (Ejecutar):</strong> Realiza la operación identificada, posiblemente leyendo operandos adicionales de memoria o modificando registros.</li>
+                </ol>
+                <p>
+                    Este ciclo se repite indefinidamente mientras la consola está encendida, ejecutando miles de instrucciones por segundo.
+                </p>
+
+                <h3>Opcodes e Instrucciones</h3>
+                <p>
+                    Un <strong>opcode</strong> es un byte (0x00 a 0xFF) que identifica una operación específica.
+                    La Game Boy tiene aproximadamente 500 opcodes diferentes, aunque algunos se repiten con diferentes operandos.
+                </p>
+                <p>
+                    <strong>Instrucciones implementadas en este paso:</strong>
+                </p>
+                <ul>
+                    <li><strong>0x00 - NOP (No Operation):</strong> No hace nada, solo consume 1 ciclo de máquina. Útil para alineamiento de tiempo y relleno.</li>
+                    <li><strong>0x3E - LD A, d8:</strong> Carga un valor inmediato de 8 bits (d8) en el registro A. Lee el siguiente byte de memoria y lo almacena en A.</li>
+                    <li><strong>0x06 - LD B, d8:</strong> Similar a LD A, d8 pero carga el valor en el registro B.</li>
+                </ul>
+
+                <h3>M-Cycles vs T-Cycles (Ciclos de Máquina vs Ciclos de Reloj)</h3>
+                <p>
+                    La Game Boy usa dos tipos de ciclos para medir el tiempo:
+                </p>
+                <ul>
+                    <li><strong>M-Cycle (Machine Cycle):</strong> Un ciclo de máquina corresponde a una operación de memoria (lectura o escritura). Es la unidad más útil para medir cuánto tarda una instrucción.</li>
+                    <li><strong>T-Cycle (Clock Cycle):</strong> Un ciclo de reloj es la unidad básica de tiempo del hardware. En la Game Boy, típicamente 1 M-Cycle = 4 T-Cycles.</li>
+                </ul>
+                <p>
+                    <strong>Por ahora contamos M-Cycles</strong> porque es más simple y suficiente para validar que las instrucciones se ejecutan correctamente.
+                    Más adelante necesitaremos T-Cycles para sincronización precisa con otros componentes (PPU, APU, timers).
+                </p>
+
+                <h3>Program Counter (PC) y Ejecución Secuencial</h3>
+                <p>
+                    El <strong>Program Counter (PC)</strong> es un registro de 16 bits que apunta a la siguiente instrucción a ejecutar.
+                    Después de cada instrucción, el PC avanza automáticamente. Esto permite ejecución secuencial de instrucciones en memoria.
+                </p>
+                <p>
+                    <strong>Ejemplo:</strong> Si tenemos las instrucciones en memoria:
+                </p>
+                <ul>
+                    <li>0x0100: 0x3E (LD A, d8)</li>
+                    <li>0x0101: 0x42 (operando: valor a cargar)</li>
+                    <li>0x0102: 0x00 (NOP)</li>
+                </ul>
+                <p>
+                    La ejecución es:
+                </p>
+                <ol>
+                    <li>PC = 0x0100, lee 0x3E, ejecuta LD A, d8 (lee 0x42 de 0x0101), PC = 0x0102</li>
+                    <li>PC = 0x0102, lee 0x00, ejecuta NOP, PC = 0x0103</li>
+                </ol>
+
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - CPU Instruction Set y arquitectura LR35902
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó la clase <code>CPU</code> que unifica los componentes anteriores (Registers y MMU) para crear
+                    un ciclo de instrucción funcional. La implementación es modular y extensible, preparada para añadir los 500 opcodes restantes.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>Clase CPU:</strong> Gestiona el ciclo Fetch-Decode-Execute y mantiene referencias a Registers y MMU</li>
+                    <li><strong>Método step():</strong> Ejecuta una sola instrucción, devuelve los ciclos consumidos</li>
+                    <li><strong>Método fetch_byte():</strong> Helper que lee un byte de memoria en la dirección PC y avanza PC automáticamente</li>
+                    <li><strong>Método _execute_opcode():</strong> Dispatch de opcodes usando if/elif (compatible con Python 3.9+, preparado para match/case cuando se migre a 3.10+)</li>
+                    <li><strong>Opcodes implementados:</strong> NOP (0x00), LD A,d8 (0x3E), LD B,d8 (0x06)</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Inyección de dependencias:</strong> La CPU recibe la MMU en el constructor, permitiendo tests con mocks y mejor modularidad.</li>
+                    <li><strong>Helper fetch_byte():</strong> Facilita la lectura de operandos inmediatos sin repetir código de avance de PC.</li>
+                    <li><strong>Manejo de opcodes no implementados:</strong> Lanza <code>NotImplementedError</code> con información útil (opcode y PC) para facilitar debugging.</li>
+                    <li><strong>Logging:</strong> Se usa logging en lugar de print() para trazas de depuración (DEBUG level) que pueden activarse/desactivarse.</li>
+                    <li><strong>Compatibilidad Python:</strong> Se usa if/elif en lugar de match/case para mantener compatibilidad con Python 3.9 (el entorno actual usa 3.9.6). Se documentó un TODO para migrar a match/case cuando se actualice a Python 3.10+.</li>
+                </ul>
+
+                <h3>Estructura del código</h3>
+                <p>
+                    La clase CPU sigue un patrón claro:
+                </p>
+                <pre><code>CPU
+├── __init__(mmu)          # Inicializa registros y guarda referencia a MMU
+├── step()                 # Ciclo principal: fetch → decode → execute
+├── fetch_byte()           # Helper para leer operandos e incrementar PC
+└── _execute_opcode()      # Dispatch de opcodes</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Nuevo archivo con la clase CPU e implementación del ciclo de instrucción (170 líneas)</li>
+                    <li><code>src/cpu/__init__.py</code> - Actualizado para exportar la clase CPU</li>
+                    <li><code>tests/test_cpu_core.py</code> - Nuevo archivo con suite completa de tests (6 tests, 204 líneas)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests unitarios que valida:
+                </p>
+                <ul>
+                    <li><strong>Test 1 (test_nop):</strong> Verifica que NOP avanza PC en 1 byte y consume 1 ciclo</li>
+                    <li><strong>Test 2 (test_ld_a_d8):</strong> Verifica que LD A, d8 carga el valor correcto, avanza PC en 2 bytes y consume 2 ciclos</li>
+                    <li><strong>Test 3 (test_ld_b_d8):</strong> Verifica que LD B, d8 funciona igual que LD A, d8 pero en el registro B</li>
+                    <li><strong>Test 4 (test_unimplemented_opcode_raises):</strong> Verifica que opcodes no implementados lanzan NotImplementedError</li>
+                    <li><strong>Test 5 (test_fetch_byte_helper):</strong> Verifica que fetch_byte() lee correctamente y avanza PC</li>
+                    <li><strong>Test 6 (test_multiple_instructions_sequential):</strong> Verifica ejecución secuencial de múltiples instrucciones</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> ✅ <strong>6 tests pasando</strong> (ejecutado con pytest)
+                </p>
+                <p>
+                    <strong>Validación adicional:</strong>
+                </p>
+                <ul>
+                    <li>Verificación de que PC avanza correctamente después de cada instrucción</li>
+                    <li>Verificación de que los registros se actualizan correctamente con valores inmediatos</li>
+                    <li>Verificación de que los ciclos se cuentan correctamente</li>
+                    <li>Sin errores de linting (verificado con read_lints)</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs - CPU Instruction Set: Referencia para opcodes y ciclos de máquina</li>
+                    <li>Pan Docs - LR35902 Architecture: Arquitectura general del procesador</li>
+                </ul>
+                <p>
+                    <em>Nota: Implementación clean-room basada únicamente en documentación técnica pública.
+                    No se consultó código de otros emuladores (mGBA, Gambatte, SameBoy, etc.).</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Ciclo Fetch-Decode-Execute:</strong> Es el bucle fundamental que hace funcionar una CPU. Sin este ciclo, los registros y la memoria son solo estructuras de datos estáticas.</li>
+                        <li><strong>Program Counter (PC):</strong> Debe avanzar automáticamente después de cada instrucción para permitir ejecución secuencial. El helper fetch_byte() facilita esto.</li>
+                        <li><strong>Opcodes:</strong> Son bytes que identifican operaciones. La mayoría de opcodes tienen operandos que siguen inmediatamente después en memoria.</li>
+                        <li><strong>M-Cycles:</strong> Por ahora contamos M-Cycles (ciclos de máquina) porque es más simple. Más adelante necesitaremos T-Cycles para sincronización precisa.</li>
+                        <li><strong>Modularidad:</strong> La CPU depende de MMU pero no viceversa. Esto permite tests independientes y mejor arquitectura.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Timing preciso:</strong> Algunas instrucciones pueden tener variaciones en timing dependiendo de condiciones. Esto se validará con tests ROM cuando implementemos más opcodes.</li>
+                        <li><strong>Interrupciones:</strong> El ciclo de instrucción debe poder ser interrumpido. Esto se implementará más adelante.</li>
+                        <li><strong>Opcodes CB (prefijo):</strong> La Game Boy tiene un prefijo especial 0xCB que cambia el significado de los siguientes 256 opcodes. Esto se implementará más adelante.</li>
+                        <li><strong>Opcodes condicionales:</strong> Muchas instrucciones tienen versiones condicionales que dependen de flags. Necesitaremos lógica de branching.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Asumido (a validar con tests ROM):</strong>
+                    </p>
+                    <ul>
+                        <li>El timing de M-Cycles es correcto según Pan Docs (NOP=1, LD r8,d8=2). Se validará con ejecución de programas reales.</li>
+                        <li>El comportamiento de opcodes no implementados (NotImplementedError) es correcto para desarrollo. En un emulador completo, todos los opcodes deben estar implementados.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar más opcodes de carga (LD): LD C,d8, LD D,d8, LD E,d8, LD H,d8, LD L,d8</li>
+                    <li>[ ] Implementar opcodes de carga entre registros (LD r8, r8)</li>
+                    <li>[ ] Implementar opcodes de carga desde/hacia memoria (LD A,(HL), LD (HL),A, etc.)</li>
+                    <li>[ ] Implementar opcodes aritméticos básicos (ADD, SUB, INC, DEC)</li>
+                    <li>[ ] Implementar opcodes de salto (JP, JR) para cambiar el flujo de ejecución</li>
+                    <li>[ ] Organizar los opcodes de forma escalable (tabla de dispatch, módulos separados)</li>
+                    <li>[ ] Migrar a Python 3.10+ y usar match/case para dispatch de opcodes</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
