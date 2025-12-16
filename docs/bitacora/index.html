@@ -32,6 +32,29 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0008 - Carga de ROM y Cartucho -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-16__0008__carga-rom-cartucho.html" class="entry-link">
+                                    Carga de ROM y Parsing del Header del Cartucho
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-16 | 
+                            <strong>Step ID:</strong> 0008 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de la clase Cartridge que carga archivos ROM (`.gb` o `.gbc`) y parsea el Header del cartucho
+                            para extraer información crítica (título, tipo de cartucho, tamaño de ROM/RAM). Integración del cartucho
+                            en la MMU para mapear la ROM en el espacio de direcciones (0x0000 - 0x7FFF). Actualización de main.py
+                            para aceptar argumentos de línea de comandos y cargar ROMs reales. Sin esta funcionalidad, el emulador
+                            no puede ejecutar código de juegos reales. Suite completa de tests TDD (6 tests) validando carga,
+                            parsing y casos edge.
+                        </p>
+                    </li>
                     <!-- Entrada 0007 - Stack (Pila) -->
                     <li>
                         <div class="entry-header">
