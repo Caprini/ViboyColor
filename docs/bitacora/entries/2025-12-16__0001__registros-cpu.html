@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementación de los Registros de la CPU (LR35902) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Implementación de los Registros de la CPU (LR35902)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-16
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0001
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-16__0000__bootstrap.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó la clase <code>Registers</code> que gestiona todos los registros de la CPU LR35902 de la Game Boy.
+                    Se incluyen registros de 8 bits (A, B, C, D, E, H, L, F), registros de 16 bits (PC, SP) y pares virtuales de 16 bits (AF, BC, DE, HL).
+                    Se implementó la peculiaridad hardware del registro F (bits bajos siempre 0) y helpers completos para manejo de flags.
+                    Se creó una suite completa de tests unitarios con 15 tests, todos pasando correctamente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La Game Boy utiliza una CPU híbrida basada en arquitectura Z80/8080 denominada <strong>LR35902</strong>.
+                    La peculiaridad principal es que tiene registros de 8 bits que pueden combinarse en pares virtuales de 16 bits
+                    para direccionamiento y operaciones aritméticas.
+                </p>
+
+                <h3>Registros de 8 bits</h3>
+                <ul>
+                    <li><strong>A (Acumulador):</strong> Registro principal para operaciones aritméticas y lógicas</li>
+                    <li><strong>B, C, D, E, H, L:</strong> Registros de propósito general</li>
+                    <li><strong>F (Flags):</strong> Registro de estado con peculiaridad hardware: los 4 bits bajos siempre son 0</li>
+                </ul>
+
+                <h3>Pares virtuales de 16 bits</h3>
+                <p>
+                    Estos no son registros físicos separados, sino combinaciones lógicas de registros de 8 bits:
+                </p>
+                <ul>
+                    <li><strong>AF:</strong> A (byte alto) + F (byte bajo, pero solo bits 4-7 válidos)</li>
+                    <li><strong>BC:</strong> B (byte alto) + C (byte bajo) - usado frecuentemente para contadores y direcciones</li>
+                    <li><strong>DE:</strong> D (byte alto) + E (byte bajo) - usado para direcciones y datos</li>
+                    <li><strong>HL:</strong> H (byte alto) + L (byte bajo) - muy usado para direccionamiento indirecto</li>
+                </ul>
+
+                <h3>Registros de 16 bits</h3>
+                <ul>
+                    <li><strong>PC (Program Counter):</strong> Contador de programa, apunta a la siguiente instrucción a ejecutar</li>
+                    <li><strong>SP (Stack Pointer):</strong> Puntero de pila para llamadas a subrutinas y manejo de interrupciones</li>
+                </ul>
+
+                <h3>Flags del registro F</h3>
+                <p>
+                    El registro F almacena el estado de la CPU mediante flags (banderas) en los bits altos:
+                </p>
+                <ul>
+                    <li><strong>Bit 7 (Z - Zero):</strong> Se activa cuando el resultado de una operación es cero</li>
+                    <li><strong>Bit 6 (N - Subtract):</strong> Indica si la última operación fue una resta</li>
+                    <li><strong>Bit 5 (H - Half Carry):</strong> Indica carry del bit 3 al 4 (nibble bajo)</li>
+                    <li><strong>Bit 4 (C - Carry):</strong> Indica carry del bit 7 (overflow en suma o borrow en resta)</li>
+                </ul>
+
+                <p>
+                    <strong>Peculiaridad hardware importante:</strong> Los 4 bits bajos (0-3) del registro F siempre son 0 en el hardware real.
+                    Esto no es una convención de software, sino una característica física del chip.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó la clase <code>Registers</code> en Python con tipado estricto y documentación educativa completa.
+                    Todas las operaciones aseguran wrap-around correcto usando máscaras bitwise.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>Clase Registers:</strong> Gestiona todos los registros de la CPU con métodos getters/setters individuales</li>
+                    <li><strong>Métodos para pares virtuales:</strong> get_af, set_af, get_bc, set_bc, get_de, set_de, get_hl, set_hl</li>
+                    <li><strong>Helpers para flags:</strong> set_flag, clear_flag, check_flag, y métodos individuales (get_flag_z, etc.)</li>
+                    <li><strong>Constantes de flags:</strong> FLAG_Z, FLAG_N, FLAG_H, FLAG_C con valores hexadecimales</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Wrap-around explícito:</strong> Todas las operaciones de escritura aplican máscaras (<code>& 0xFF</code> para 8 bits, <code>& 0xFFFF</code> para 16 bits) para simular el comportamiento del hardware</li>
+                    <li><strong>Máscara del registro F:</strong> Se aplica <code>REGISTER_F_MASK = 0xF0</code> en todas las escrituras a F para garantizar que los bits bajos siempre sean 0</li>
+                    <li><strong>Operaciones bitwise para pares:</strong> Los pares de 16 bits se combinan usando <code>(byte_alto << 8) | byte_bajo</code> y se separan con <code>(valor >> 8) & 0xFF</code> y <code>valor & 0xFF</code></li>
+                    <li><strong>Métodos individuales por registro:</strong> Se proporcionan getters/setters individuales para facilitar el uso futuro en la implementación de opcodes</li>
+                </ul>
+
+                <h3>Estructura de paquetes</h3>
+                <p>
+                    Se crearon archivos <code>__init__.py</code> en <code>src/cpu/</code> y <code>tests/</code> para convertir las carpetas en paquetes Python válidos.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/__init__.py</code> - Inicialización del módulo CPU (nuevo)</li>
+                    <li><code>src/cpu/registers.py</code> - Clase Registers con todos los registros y flags (nuevo, 361 líneas)</li>
+                    <li><code>tests/__init__.py</code> - Inicialización del módulo de tests (nuevo)</li>
+                    <li><code>tests/test_registers.py</code> - Suite completa de tests unitarios (nuevo, 321 líneas)</li>
+                    <li><code>INFORME_COMPLETO.md</code> - Actualización de la bitácora (modificado)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se implementó una suite completa de tests unitarios con <code>pytest</code>:
+                </p>
+                <ul>
+                    <li><strong>Test 1 - Wrap-around en registros de 8 bits:</strong> Verifica que valores > 255 hacen wrap-around correctamente (256 → 0, valores negativos se convierten correctamente)</li>
+                    <li><strong>Test 2 - Pares de 16 bits:</strong> Verifica que leer/escribir pares virtuales (BC, DE, HL, AF) modifica correctamente los registros individuales y viceversa</li>
+                    <li><strong>Test 3 - Máscara del registro F:</strong> Verifica que el registro F ignora los 4 bits bajos (0xFF → 0xF0, 0x0F → 0x00)</li>
+                    <li><strong>Test 4 - Helpers de flags:</strong> Verifica set_flag, clear_flag, check_flag y métodos individuales (get_flag_z, get_flag_n, get_flag_h, get_flag_c)</li>
+                    <li><strong>Tests adicionales:</strong> PC, SP, inicialización por defecto</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> 15 tests en total, todos pasando correctamente (0.38s).
+                </p>
+                <p>
+                    Se verificó que no hay errores de linting en los archivos creados.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs:</strong> Game Boy CPU Manual - Descripción general de los registros y flags</li>
+                    <li><strong>Conocimiento general de arquitectura:</strong> Conceptos de registros en CPUs de 8 bits y pares virtuales de 16 bits</li>
+                </ul>
+                <p>
+                    <em>Nota: La implementación se basó en conocimiento general de arquitectura de CPUs y las especificaciones generales del LR35902.
+                    La peculiaridad del registro F (bits bajos siempre 0) es una característica conocida del hardware real de la Game Boy.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Pares virtuales:</strong> Los registros de 16 bits como BC no son registros físicos separados, sino combinaciones lógicas de registros de 8 bits usando operaciones bitwise. La combinación se hace con <code>(byte_alto << 8) | byte_bajo</code> y la separación con shift right y máscaras.</li>
+                        <li><strong>Máscara del registro F:</strong> El hardware real de la Game Boy fuerza físicamente los bits bajos de F a 0. No es una convención de software, sino una limitación del chip. Por eso aplicamos la máscara 0xF0 en todas las escrituras.</li>
+                        <li><strong>Wrap-around:</strong> Es crítico para simular correctamente el comportamiento del hardware. Los valores que exceden el rango válido deben hacer wrap-around usando operaciones de módulo implementadas con máscaras bitwise.</li>
+                        <li><strong>Flags como bits individuales:</strong> Cada flag es un bit específico en el registro F. Se pueden activar/desactivar usando operaciones OR y AND con máscaras específicas (FLAG_Z = 0x80, FLAG_C = 0x10, etc.).</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Valores iniciales de registros:</strong> Los valores exactos de los registros al inicio del boot de la Game Boy. Pendiente de verificar con documentación o tests ROMs permitidas.</li>
+                        <li><strong>Comportamiento de flags en operaciones complejas:</strong> El comportamiento específico de los flags (especialmente H y C) en operaciones aritméticas complejas se implementará cuando se cree la ALU (Arithmetic Logic Unit).</li>
+                        <li><strong>Orden de inicialización:</strong> Si hay algún orden específico o estado inicial particular que deban tener los registros al iniciar el emulador.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el comportamiento de wrap-around usando máscaras bitwise es correcto para todos los casos.
+                        Esta es una suposición estándar en emulación, pero se validará con tests más complejos cuando se implementen las operaciones aritméticas reales.
+                    </p>
+                    <p>
+                        Se asume que la implementación de los pares virtuales usando operaciones bitwise es correcta.
+                        Esto es consistente con cómo funcionan las CPUs reales, pero se validará completamente cuando se implementen opcodes que usen estos pares.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar la Unidad de Gestión de Memoria (MMU) para mapeo de direcciones</li>
+                    <li>[ ] Implementar sistema de carga de ROMs</li>
+                    <li>[ ] Implementar memoria RAM y VRAM</li>
+                    <li>[ ] Implementar registros de I/O básicos</li>
+                    <li>[ ] Comenzar implementación de la ALU para operaciones aritméticas básicas</li>
+                    <li>[ ] Implementar decodificación básica de opcodes (empezar con opcodes simples como NOP)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
