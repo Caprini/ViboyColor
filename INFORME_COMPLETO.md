@@ -1,5 +1,73 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-16 - Implementación de Saltos y Control de Flujo
+
+### Conceptos Hardware Implementados
+
+**Saltos Absolutos (JP nn)**: La instrucción JP nn carga una dirección absoluta de 16 bits directamente en el Program Counter (PC). Permite saltar a cualquier posición del espacio de direcciones. La dirección se lee en formato Little-Endian: el byte menos significativo (LSB) en la dirección más baja.
+
+**Saltos Relativos (JR e)**: La instrucción JR e suma un offset de 8 bits (con signo) al PC actual. El offset se suma DESPUÉS de leer toda la instrucción (opcode + offset). Permite saltos más compactos (2 bytes vs 3 bytes) pero con alcance limitado (-128 a +127 bytes).
+
+**Two's Complement (Complemento a 2)**: Concepto crítico para representar números negativos en 8 bits. Un mismo byte puede representar valores diferentes según el contexto:
+- Sin signo (unsigned): 0x00-0xFF = 0-255
+- Con signo (signed): 0x00-0x7F = 0-127, 0x80-0xFF = -128 a -1
+
+Fórmula de conversión en Python: `val if val < 128 else val - 256`
+
+**Ejemplo crítico**: El byte `0xFE` representa 254 en unsigned, pero -2 en signed. Si no se convierte correctamente, un salto `JR -2` saltaría hacia adelante (a 0x0200) en lugar de retroceder (a 0x0100), rompiendo bucles infinitos.
+
+**Timing Condicional**: Las instrucciones de salto condicional (ej: JR NZ, e) tienen diferentes tiempos de ejecución según si se cumple o no la condición:
+- Si se toma el salto (condición verdadera): 3 M-Cycles
+- Si NO se toma (condición falsa): 2 M-Cycles
+
+Esto refleja el comportamiento real del hardware: cuando no se toma el salto, la CPU no necesita calcular la nueva dirección ni actualizar el PC, ahorrando un ciclo.
+
+#### Tareas Completadas:
+
+1. **Helpers en `CPU` (`src/cpu/core.py`)**:
+   - `fetch_word()`: Lee una palabra de 16 bits (Little-Endian) y avanza PC en 2 bytes. Usado por JP nn.
+   - `_read_signed_byte()`: Lee un byte y lo convierte a entero con signo usando Two's Complement. Usado por instrucciones JR.
+
+2. **Opcodes Implementados**:
+   - **0xC3 - JP nn**: Salto absoluto incondicional. Lee dirección de 16 bits y la carga en PC. Consume 4 M-Cycles.
+   - **0x18 - JR e**: Salto relativo incondicional. Lee offset de 8 bits (signed) y lo suma al PC actual. Consume 3 M-Cycles.
+   - **0x20 - JR NZ, e**: Salto relativo condicional. Salta solo si Z flag está desactivado (Z == 0). Consume 3 M-Cycles si salta, 2 M-Cycles si no salta.
+
+3. **Tests Unitarios (`tests/test_cpu_jumps.py`)**:
+   - **Tests de JP nn (2 tests)**: Validación de salto absoluto a diferentes direcciones, incluyendo wrap-around.
+   - **Tests de JR e (5 tests)**: Validación de saltos relativos positivos (+5, +127), negativos (-2, -128), y offset cero. Test crítico: `test_jr_relative_negative` que verifica que 0xFE se interpreta como -2, no como 254.
+   - **Tests de JR NZ, e (4 tests)**: Validación de saltos condicionales con diferentes estados del flag Z. Tests críticos: `test_jr_nz_taken` (3 ciclos) y `test_jr_nz_not_taken` (2 ciclos) que verifican el timing condicional.
+   - **11 tests en total, todos pasando ✅**
+
+#### Archivos Afectados:
+- `src/cpu/core.py` - Añadidos helpers fetch_word() y _read_signed_byte(), implementados opcodes JP nn, JR e y JR NZ,e
+- `tests/test_cpu_jumps.py` - Nuevo archivo con 11 tests exhaustivos para saltos
+- `docs/bitacora/index.html` - Actualizado con nueva entrada 0005
+- `docs/bitacora/entries/2025-12-16__0005__saltos-control-flujo.html` - Nueva entrada de bitácora
+- `INFORME_COMPLETO.md` - Este archivo
+
+#### Cómo se Validó:
+- Tests manuales en Python verificando conversión signed (0xFE → -2)
+- Tests manuales verificando JR -2 retrocede correctamente
+- Tests manuales verificando timing condicional (2 ciclos si no salta, 3 si salta)
+- Ejecución de suite completa de 11 tests unitarios
+- Verificación de sintaxis y linting sin errores
+
+#### Lo que Entiendo Ahora:
+- **Two's Complement en 8 bits**: Un mismo byte puede representar valores diferentes según el contexto (unsigned vs signed). La conversión correcta es crítica para saltos relativos negativos. Sin esta conversión, los bucles infinitos no funcionarían.
+- **Timing condicional**: Las instrucciones condicionales tienen diferentes tiempos de ejecución según si se cumple o no la condición, reflejando el comportamiento real del hardware.
+- **Offset relativo**: El offset en JR se suma al PC DESPUÉS de leer toda la instrucción, no al inicio. Esto es importante para calcular correctamente la dirección de destino.
+
+#### Lo que Falta Confirmar:
+- **Otras condiciones de salto**: Solo se implementó JR NZ. Faltan JR Z, JR NC, JR C (condiciones basadas en flags C y Z).
+- **JP condicionales**: Existen versiones condicionales de JP (JP NZ, JP Z, etc.) que aún no están implementadas.
+- **CALL y RET**: Para ejecutar subrutinas (funciones), se necesitan CALL (llamada) y RET (retorno), que requieren una pila (stack) funcional. Esto será el siguiente paso.
+
+#### Hipótesis y Suposiciones:
+La implementación del timing condicional (3 ciclos si salta, 2 si no) está basada en la documentación de Pan Docs. No se ha verificado con hardware real, pero es la especificación estándar aceptada por la comunidad de emulación.
+
+---
+
 ## 2025-12-16 - Implementación del Ciclo de Instrucción de la CPU
 
 ### Conceptos Hardware Implementados

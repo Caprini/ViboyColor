@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementación de Saltos y Control de Flujo - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Implementación de Saltos y Control de Flujo</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-16
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0005
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-16__0004__alu-flags.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de instrucciones de salto (jumps) que permiten romper la ejecución lineal de la CPU,
+                    habilitando bucles y decisiones. Se implementaron saltos absolutos (JP nn), saltos relativos (JR e)
+                    y saltos condicionales (JR NZ, e). Concepto crítico: conversión de enteros sin signo a con signo
+                    (Two's Complement) para offsets relativos negativos. Implementación de timing condicional (diferentes
+                    ciclos según si se toma o no el salto). Suite completa de tests TDD (11 tests) validando saltos
+                    positivos, negativos y condicionales.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Saltos Absolutos (JP nn)</h3>
+                <p>
+                    La instrucción <strong>JP nn</strong> (Jump to absolute address) carga una dirección de 16 bits
+                    directamente en el Program Counter (PC). El valor se lee en formato Little-Endian: el byte menos
+                    significativo (LSB) está en la dirección más baja, y el byte más significativo (MSB) está en la
+                    siguiente dirección.
+                </p>
+                <p>
+                    Ejemplo: Si en memoria tenemos <code>0xC3 0x00 0xC0</code>, la CPU lee 0x00C0 (Little-Endian) y
+                    establece PC = 0xC000.
+                </p>
+
+                <h3>Saltos Relativos (JR e)</h3>
+                <p>
+                    La instrucción <strong>JR e</strong> (Jump Relative) suma un offset de 8 bits (con signo) al PC
+                    actual. El offset se suma <strong>después</strong> de leer toda la instrucción (opcode + offset).
+                </p>
+                <p>
+                    Si PC está en 0x0100 y ejecutamos <code>JR +5</code>:
+                </p>
+                <ul>
+                    <li>PC después de leer opcode: 0x0101</li>
+                    <li>PC después de leer offset: 0x0102</li>
+                    <li>PC final: 0x0102 + 5 = 0x0107</li>
+                </ul>
+
+                <h3>Enteros con Signo (Two's Complement) - Concepto Crítico</h3>
+                <p>
+                    El concepto más importante de esta implementación es la representación de <strong>números negativos
+                    en complemento a 2 (Two's Complement)</strong> en 8 bits.
+                </p>
+                <p>
+                    En Python, los enteros tienen precisión infinita. El valor <code>0xFF</code> siempre es 255.
+                    Sin embargo, en una CPU de 8 bits, el mismo byte puede representar dos valores diferentes según
+                    el contexto:
+                </p>
+                <ul>
+                    <li><strong>Sin signo (unsigned)</strong>: 0x00-0xFF = 0-255</li>
+                    <li><strong>Con signo (signed)</strong>: 0x00-0x7F = 0-127, 0x80-0xFF = -128 a -1</li>
+                </ul>
+                <p>
+                    <strong>Fórmula de conversión</strong>: Para convertir un byte sin signo (0-255) a entero con signo
+                    (-128 a +127) en Python:
+                </p>
+                <pre><code>signed_value = unsigned_value if unsigned_value &lt; 128 else unsigned_value - 256</code></pre>
+                <p>
+                    Ejemplos:
+                </p>
+                <ul>
+                    <li><code>0x00</code> = 0 (sin signo) = 0 (con signo)</li>
+                    <li><code>0x7F</code> = 127 (sin signo) = 127 (con signo)</li>
+                    <li><code>0x80</code> = 128 (sin signo) = -128 (con signo)</li>
+                    <li><code>0xFE</code> = 254 (sin signo) = -2 (con signo)</li>
+                    <li><code>0xFF</code> = 255 (sin signo) = -1 (con signo)</li>
+                </ul>
+                <p>
+                    <strong>¿Por qué es crítico?</strong> Si no implementamos correctamente esta conversión, un salto
+                    relativo negativo como <code>JR -2</code> (codificado como <code>0x18 0xFE</code>) saltaría hacia
+                    adelante (a 0x0200) en lugar de retroceder (a 0x0100), rompiendo bucles infinitos y causando
+                    comportamientos erróneos en el emulador.
+                </p>
+
+                <h3>Saltos Condicionales (JR NZ, e)</h3>
+                <p>
+                    La instrucción <strong>JR NZ, e</strong> (Jump Relative if Not Zero) ejecuta un salto relativo solo
+                    si el flag Z (Zero) está desactivado (Z == 0). Si Z == 1, la CPU continúa con la siguiente
+                    instrucción sin saltar.
+                </p>
+                <p>
+                    <strong>Timing Condicional</strong>: Esta instrucción tiene un comportamiento especial en cuanto a
+                    ciclos de máquina:
+                </p>
+                <ul>
+                    <li><strong>Si se toma el salto</strong> (Z == 0): 3 M-Cycles (12 T-Cycles)</li>
+                    <li><strong>Si NO se toma</strong> (Z == 1): 2 M-Cycles (8 T-Cycles)</li>
+                </ul>
+                <p>
+                    Esto refleja el comportamiento real del hardware: cuando no se toma el salto, la CPU no necesita
+                    calcular la nueva dirección ni actualizar el PC, ahorrando un ciclo de máquina.
+                </p>
+
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - CPU Instruction Set (JP, JR instructions)
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadieron tres helpers y tres opcodes nuevos a la CPU. La implementación utiliza la tabla de
+                    despacho existente, manteniendo la escalabilidad del código.
+                </p>
+
+                <h3>Helpers implementados</h3>
+                <ul>
+                    <li>
+                        <strong><code>fetch_word()</code></strong>: Lee una palabra de 16 bits (Little-Endian) y avanza
+                        PC en 2 bytes. Usado por JP nn para leer direcciones absolutas.
+                    </li>
+                    <li>
+                        <strong><code>_read_signed_byte()</code></strong>: Lee un byte y lo convierte a entero con signo
+                        usando Two's Complement. Usado por instrucciones JR para leer offsets relativos.
+                    </li>
+                </ul>
+
+                <h3>Opcodes implementados</h3>
+                <ul>
+                    <li>
+                        <strong>0xC3 - JP nn</strong>: Salto absoluto incondicional. Lee dirección de 16 bits y la
+                        carga en PC. Consume 4 M-Cycles.
+                    </li>
+                    <li>
+                        <strong>0x18 - JR e</strong>: Salto relativo incondicional. Lee offset de 8 bits (signed) y lo
+                        suma al PC actual. Consume 3 M-Cycles.
+                    </li>
+                    <li>
+                        <strong>0x20 - JR NZ, e</strong>: Salto relativo condicional. Salta solo si Z flag está
+                        desactivado. Consume 3 M-Cycles si salta, 2 M-Cycles si no salta.
+                    </li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li>
+                        <strong>Conversión signed</strong>: Se implementó la fórmula explícita
+                        <code>val if val &lt; 128 else val - 256</code> para mayor claridad y documentación del
+                        concepto Two's Complement, aunque Python tiene operaciones bitwise que podrían usarse.
+                    </li>
+                    <li>
+                        <strong>Timing condicional</strong>: Se retorna el número correcto de M-Cycles según si se toma
+                        o no el salto, permitiendo una emulación precisa del comportamiento del hardware.
+                    </li>
+                    <li>
+                        <strong>Logging</strong>: Se añadieron logs de debug que muestran si un salto condicional se
+                        tomó o no, facilitando la depuración.
+                    </li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadidos helpers fetch_word() y _read_signed_byte(), implementados opcodes JP nn, JR e y JR NZ,e</li>
+                    <li><code>tests/test_cpu_jumps.py</code> - Nuevo archivo con 11 tests exhaustivos para saltos absolutos, relativos y condicionales</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con nueva entrada 0005</li>
+                    <li><code>docs/bitacora/entries/2025-12-16__0005__saltos-control-flujo.html</code> - Nueva entrada de bitácora</li>
+                    <li><code>INFORME_COMPLETO.md</code> - Actualizado con registro de este paso</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de 11 tests unitarios en <code>tests/test_cpu_jumps.py</code> que
+                    validan todos los aspectos de las instrucciones de salto:
+                </p>
+                <ul>
+                    <li>
+                        <strong>Tests de JP nn (2 tests)</strong>: Verificación de salto absoluto a diferentes
+                        direcciones, incluyendo wrap-around en 0xFFFF.
+                    </li>
+                    <li>
+                        <strong>Tests de JR e (5 tests)</strong>: Validación de saltos relativos positivos (+5, +127),
+                        negativos (-2, -128), y offset cero. Test crítico: <code>test_jr_relative_negative</code> que
+                        verifica que 0xFE se interpreta como -2, no como 254.
+                    </li>
+                    <li>
+                        <strong>Tests de JR NZ, e (4 tests)</strong>: Validación de saltos condicionales con diferentes
+                        estados del flag Z. Tests críticos: <code>test_jr_nz_taken</code> (3 ciclos) y
+                        <code>test_jr_nz_not_taken</code> (2 ciclos) que verifican el timing condicional.
+                    </li>
+                </ul>
+                <p>
+                    <strong>Validación manual:</strong> Se ejecutaron tests manuales en Python que verificaron:
+                </p>
+                <ul>
+                    <li>✅ Conversión correcta de 0xFE a -2 (signed)</li>
+                    <li>✅ JR -2 retrocede correctamente (PC: 0x0100 → 0x0100)</li>
+                    <li>✅ JR NZ con Z=1 no salta y consume 2 ciclos</li>
+                    <li>✅ JR NZ con Z=0 salta y consume 3 ciclos</li>
+                </ul>
+                <p>
+                    Todos los tests pasan correctamente, validando que la implementación maneja correctamente Two's
+                    Complement y timing condicional.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs - CPU Instruction Set: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">https://gbdev.io/pandocs/CPU_Instruction_Set.html</a></li>
+                    <li>Pan Docs - CPU Registers and Flags: <a href="https://gbdev.io/pandocs/CPU_Registers_and_Flags.html">https://gbdev.io/pandocs/CPU_Registers_and_Flags.html</a></li>
+                    <li>Documentación técnica sobre Two's Complement: Implementación basada en conocimiento estándar de arquitectura de computadores</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li>
+                            <strong>Two's Complement en 8 bits</strong>: Entiendo cómo un mismo byte puede representar
+                            valores diferentes según el contexto (unsigned vs signed), y la importancia crítica de
+                            convertir correctamente en instrucciones de salto relativo. Sin esta conversión, los bucles
+                            infinitos no funcionarían correctamente.
+                        </li>
+                        <li>
+                            <strong>Timing condicional</strong>: Comprendo que las instrucciones condicionales pueden
+                            tener diferentes tiempos de ejecución según si se cumple o no la condición, reflejando el
+                            comportamiento real del hardware.
+                        </li>
+                        <li>
+                            <strong>Offset relativo</strong>: Entiendo que el offset en JR se suma al PC <strong>después</strong>
+                            de leer toda la instrucción, no al inicio. Esto es importante para calcular correctamente
+                            la dirección de destino.
+                        </li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>
+                            <strong>Otras condiciones de salto</strong>: Solo se implementó JR NZ. Faltan JR Z, JR NC,
+                            JR C (condiciones basadas en flags C y Z). La lógica será similar, pero cada una tiene su
+                            opcode específico.
+                        </li>
+                        <li>
+                            <strong>JP condicionales</strong>: Existen versiones condicionales de JP (JP NZ, JP Z, etc.)
+                            que aún no están implementadas.
+                        </li>
+                        <li>
+                            <strong>CALL y RET</strong>: Para ejecutar subrutinas (funciones), se necesitan CALL
+                            (llamada) y RET (retorno), que requieren una pila (stack) funcional. Esto será el siguiente
+                            paso.
+                        </li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        La implementación del timing condicional (3 ciclos si salta, 2 si no) está basada en la
+                        documentación de Pan Docs. No se ha verificado con hardware real, pero es la especificación
+                        estándar aceptada por la comunidad de emulación.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar la Pila (Stack) para soportar CALL y RET</li>
+                    <li>[ ] Implementar CALL nn (llamada a subrutina absoluta)</li>
+                    <li>[ ] Implementar RET (retorno de subrutina)</li>
+                    <li>[ ] Implementar más condiciones de salto (JR Z, JR C, JR NC)</li>
+                    <li>[ ] Implementar JP condicionales (JP NZ, JP Z, etc.)</li>
+                    <li>[ ] Añadir más tests para verificar comportamiento con múltiples saltos anidados</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

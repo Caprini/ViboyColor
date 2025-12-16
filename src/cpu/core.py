@@ -371,3 +371,95 @@ class CPU:
         )
         return 2
 
+    # ========== Handlers de Saltos (Jumps) ==========
+
+    def _op_jp_nn(self) -> int:
+        """
+        JP nn (Jump to absolute address) - Opcode 0xC3
+        
+        Salta incondicionalmente a la dirección absoluta especificada.
+        Lee una dirección de 16 bits (Little-Endian) y la carga en PC.
+        
+        Ejemplo:
+        - Si en memoria hay: 0xC3 0x00 0xC0
+        - Lee 0x00C0 (Little-Endian de 0x00 0xC0)
+        - PC se establece en 0xC000
+        
+        Returns:
+            4 M-Cycles (fetch opcode + fetch 2 bytes de dirección)
+            
+        Fuente: Pan Docs - Instruction Set (JP nn)
+        """
+        target_addr = self.fetch_word()
+        self.registers.set_pc(target_addr)
+        logger.debug(f"JP 0x{target_addr:04X} -> PC=0x{self.registers.get_pc():04X}")
+        return 4
+
+    def _op_jr_e(self) -> int:
+        """
+        JR e (Jump Relative) - Opcode 0x18
+        
+        Salto relativo incondicional. Lee un byte con signo (offset) y lo suma
+        al PC actual (después de leer la instrucción completa).
+        
+        El offset se interpreta como complemento a 2:
+        - 0x00-0x7F: Saltos hacia adelante (0 a +127 bytes)
+        - 0x80-0xFF: Saltos hacia atrás (-128 a -1 bytes)
+        
+        Importante: El offset se suma al PC DESPUÉS de leer toda la instrucción
+        (opcode + offset). Si PC está en 0x0100 y leemos JR 5:
+        - PC después de leer opcode: 0x0101
+        - PC después de leer offset: 0x0102
+        - PC final: 0x0102 + 5 = 0x0107
+        
+        Returns:
+            3 M-Cycles (fetch opcode + fetch offset + ejecutar salto)
+            
+        Fuente: Pan Docs - Instruction Set (JR e)
+        """
+        offset = self._read_signed_byte()
+        current_pc = self.registers.get_pc()
+        new_pc = (current_pc + offset) & 0xFFFF
+        self.registers.set_pc(new_pc)
+        logger.debug(
+            f"JR {offset:+d} (0x{offset & 0xFF:02X}) "
+            f"PC: 0x{current_pc:04X} -> 0x{new_pc:04X}"
+        )
+        return 3
+
+    def _op_jr_nz_e(self) -> int:
+        """
+        JR NZ, e (Jump Relative if Not Zero) - Opcode 0x20
+        
+        Salto relativo condicional. Lee un byte con signo (offset) y salta solo
+        si el flag Z (Zero) está desactivado (Z == 0).
+        
+        El offset funciona igual que en JR e (complemento a 2).
+        
+        Timing condicional:
+        - Si Z == 0 (condición verdadera): 3 M-Cycles (salta)
+        - Si Z == 1 (condición falsa): 2 M-Cycles (no salta, solo lee)
+        
+        Returns:
+            3 M-Cycles si salta, 2 M-Cycles si no salta
+            
+        Fuente: Pan Docs - Instruction Set (JR NZ, e)
+        """
+        offset = self._read_signed_byte()
+        
+        # Verificar condición: Z flag debe estar desactivado (Z == 0)
+        if not self.registers.get_flag_z():
+            # Condición verdadera: ejecutar salto
+            current_pc = self.registers.get_pc()
+            new_pc = (current_pc + offset) & 0xFFFF
+            self.registers.set_pc(new_pc)
+            logger.debug(
+                f"JR NZ, {offset:+d} (TAKEN) "
+                f"PC: 0x{current_pc:04X} -> 0x{new_pc:04X}"
+            )
+            return 3  # 3 M-Cycles si salta
+        else:
+            # Condición falsa: no saltar, continuar ejecución
+            logger.debug(f"JR NZ, {offset:+d} (NOT TAKEN) Z flag set")
+            return 2  # 2 M-Cycles si no salta
+
