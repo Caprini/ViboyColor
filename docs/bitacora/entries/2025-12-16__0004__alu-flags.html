@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementación de la ALU y Gestión de Flags - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Implementación de la ALU y Gestión de Flags</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-16
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0004
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-16__0003__ciclo-instruccion-cpu.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de la ALU (Unidad Aritmética Lógica) de la CPU con gestión correcta de flags,
+                    especialmente el Half-Carry (H) que es crítico para la instrucción DAA y el manejo de números decimales.
+                    Refactorización de la CPU para usar una tabla de despacho (dispatch table) en lugar de if/elif,
+                    mejorando la escalabilidad del código. Implementación de los opcodes ADD A, d8 (0xC6) y SUB d8 (0xD6).
+                    Suite completa de tests TDD (5 tests) validando operaciones aritméticas y flags.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La <strong>ALU (Unidad Aritmética Lógica)</strong> es el componente de la CPU responsable de realizar
+                    operaciones aritméticas (suma, resta) y lógicas (AND, OR, XOR). En la Game Boy, la ALU opera sobre
+                    valores de 8 bits y actualiza un conjunto de <strong>flags</strong> que indican el estado del resultado.
+                </p>
+                
+                <h3>Los Flags de la CPU LR35902</h3>
+                <p>
+                    La CPU mantiene 4 flags principales en el registro F (solo bits altos válidos):
+                </p>
+                <ul>
+                    <li><strong>Z (Zero, bit 7):</strong> Se activa cuando el resultado de una operación es cero.</li>
+                    <li><strong>N (Subtract, bit 6):</strong> Indica si la última operación fue una resta (1) o suma (0).</li>
+                    <li><strong>H (Half-Carry, bit 5):</strong> Indica si hubo carry/borrow del bit 3 al 4 (nibble bajo).</li>
+                    <li><strong>C (Carry, bit 4):</strong> Indica si hubo carry/borrow del bit 7 (overflow/underflow de 8 bits).</li>
+                </ul>
+
+                <h3>El Half-Carry: La "Bestia Negra" de los Emuladores</h3>
+                <p>
+                    El flag <strong>Half-Carry (H)</strong> es especialmente crítico y a menudo malentendido. Indica si hubo
+                    un "carry" (en suma) o "borrow" (en resta) entre el nibble bajo (bits 0-3) y el nibble alto (bits 4-7).
+                </p>
+                <p>
+                    <strong>¿Por qué es importante?</strong> La instrucción <code>DAA (Decimal Adjust Accumulator)</code>
+                    utiliza el flag H para convertir números binarios a BCD (Binary Coded Decimal). Sin H correcto, los
+                    números decimales en juegos (puntuaciones, vidas, contadores) se mostrarán corruptos.
+                </p>
+                <p>
+                    <strong>Fórmulas:</strong>
+                </p>
+                <ul>
+                    <li><strong>Suma:</strong> H = 1 si <code>(A & 0xF) + (value & 0xF) > 0xF</code></li>
+                    <li><strong>Resta:</strong> H = 1 si <code>(A & 0xF) < (value & 0xF)</code></li>
+                </ul>
+                <p>
+                    <strong>Ejemplo:</strong> Sumar 15 (0x0F) + 1 (0x01) = 16 (0x10). El nibble bajo pasa de 0xF a 0x0
+                    con carry al nibble alto. H se activa porque <code>0xF + 0x1 = 0x10</code> (excede 0xF).
+                </p>
+
+                <h3>Diferencia entre Carry (C) y Half-Carry (H)</h3>
+                <p>
+                    - <strong>Carry (C):</strong> Detecta overflow/underflow de 8 bits completos (bit 7).<br>
+                    - <strong>Half-Carry (H):</strong> Detecta overflow/underflow del nibble bajo (bit 3 a 4).
+                </p>
+                <p>
+                    Ambos son independientes: una suma puede activar H sin activar C (ej: 0x0F + 0x01), o ambos
+                    (ej: 0xFF + 0x01).
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se refactorizó la CPU para usar una <strong>tabla de despacho (dispatch table)</strong> en lugar de
+                    una cadena de if/elif. Esto mejora la escalabilidad y el rendimiento, y es compatible con Python 3.9+.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>Tabla de despacho:</strong> Diccionario <code>_opcode_table</code> que mapea opcodes a funciones manejadoras.</li>
+                    <li><strong>Helper <code>_add()</code>:</strong> Suma un valor al registro A y actualiza flags Z, N, H, C correctamente.</li>
+                    <li><strong>Helper <code>_sub()</code>:</strong> Resta un valor del registro A y actualiza flags Z, N, H, C correctamente.</li>
+                    <li><strong>Handlers de opcodes:</strong> Funciones individuales para cada opcode (<code>_op_nop()</code>, <code>_op_add_a_d8()</code>, etc.).</li>
+                    <li><strong>Opcodes implementados:</strong> 0xC6 (ADD A, d8) y 0xD6 (SUB d8).</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>1. Tabla de despacho vs if/elif:</strong> Se eligió un diccionario para mejor escalabilidad.
+                    Cada opcode se mapea a una función, facilitando la adición de nuevos opcodes sin modificar lógica
+                    condicional. Compatible con Python 3.9+ (no requiere match/case de Python 3.10+).
+                </p>
+                <p>
+                    <strong>2. Helpers privados para ALU:</strong> Los métodos <code>_add()</code> y <code>_sub()</code> son
+                    privados y reutilizables. Futuros opcodes que sumen/resten (ADD A, B; SUB A, C; etc.) pueden reutilizar
+                    estos helpers, asegurando consistencia en la gestión de flags.
+                </p>
+                <p>
+                    <strong>3. Fórmulas de Half-Carry:</strong> Se implementaron según documentación técnica (Pan Docs).
+                    Para suma: <code>(A & 0xF) + (value & 0xF) > 0xF</code>. Para resta: <code>(A & 0xF) < (value & 0xF)</code>.
+                </p>
+                <p>
+                    <strong>4. Wrap-around explícito:</strong> Todas las operaciones aplican máscaras <code>& 0xFF</code>
+                    para asegurar wrap-around de 8 bits, simulando el comportamiento del hardware real.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Refactorizado para usar tabla de despacho, implementados helpers ALU y opcodes 0xC6/0xD6</li>
+                    <li><code>tests/test_alu.py</code> - Nuevo archivo con 5 tests TDD para validar ALU y flags</li>
+                    <li><code>INFORME_COMPLETO.md</code> - Actualizado con entrada de bitácora</li>
+                    <li><code>docs/bitacora/entries/2025-12-16__0004__alu-flags.html</code> - Nueva entrada de bitácora web</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con nueva entrada</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests TDD en <code>tests/test_alu.py</code> con 5 tests:
+                </p>
+                <ul>
+                    <li><strong>test_add_basic:</strong> Suma básica 10 + 5 = 15, verifica flags Z=0, N=0, H=0, C=0</li>
+                    <li><strong>test_add_half_carry:</strong> Suma 15 + 1 = 16, verifica que H se activa (CRÍTICO para DAA)</li>
+                    <li><strong>test_add_full_carry:</strong> Suma 255 + 1 = 0 (wrap-around), verifica Z=1, H=1, C=1</li>
+                    <li><strong>test_sub_basic:</strong> Resta básica 10 - 5 = 5, verifica flags Z=0, N=1, H=0, C=0</li>
+                    <li><strong>test_sub_half_carry:</strong> Resta 16 - 1 = 15, verifica que H se activa (half-borrow)</li>
+                </ul>
+                <p>
+                    <strong>Validación:</strong> Todos los tests pasan correctamente. La sintaxis del código fue verificada
+                    con <code>py_compile</code>. Los tests validan especialmente el Half-Carry, que es crítico para la
+                    futura implementación de DAA.
+                </p>
+                <p>
+                    <strong>Nota:</strong> Los tests se ejecutan usando el ciclo completo de la CPU (fetch-decode-execute),
+                    no solo los helpers ALU, asegurando que la integración funciona correctamente.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs:</strong> CPU Flags, Instruction Set (ADD, SUB)</li>
+                    <li><strong>Z80/8080 Architecture Manual:</strong> Explicación de Half-Carry y su uso en DAA</li>
+                    <li><strong>Game Boy CPU Manual:</strong> Comportamiento de flags en operaciones aritméticas</li>
+                </ul>
+                <p>
+                    <em>Nota: Las fórmulas de Half-Carry están basadas en documentación técnica estándar de arquitecturas
+                    Z80/8080, de las cuales la LR35902 es derivada.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Half-Carry:</strong> Es un flag que detecta overflow/underflow del nibble bajo (bits 0-3).
+                            Es crítico para DAA y el manejo de números decimales en juegos. Sin H correcto, las puntuaciones
+                            y contadores se mostrarán corruptos.</li>
+                        <li><strong>Tabla de despacho:</strong> Un diccionario que mapea opcodes a funciones es más escalable
+                            que if/elif, especialmente cuando hay 256 opcodes posibles. Compatible con Python 3.9+.</li>
+                        <li><strong>Helpers reutilizables:</strong> Los métodos <code>_add()</code> y <code>_sub()</code> pueden
+                            ser reutilizados por múltiples opcodes (ADD A, B; ADD A, C; SUB A, B; etc.), asegurando consistencia.</li>
+                        <li><strong>Fórmulas de flags:</strong> H en suma: <code>(A & 0xF) + (value & 0xF) > 0xF</code>.
+                            H en resta: <code>(A & 0xF) < (value & 0xF)</code>. C en suma: <code>(A + value) > 0xFF</code>.
+                            C en resta: <code>A < value</code>.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento de flags en operaciones con carry previo:</strong> Cuando se implementen
+                            instrucciones ADC (Add with Carry) y SBC (Subtract with Carry), habrá que verificar cómo se
+                            combinan los flags con el carry previo.</li>
+                        <li><strong>Timing exacto de flags:</strong> Los flags se actualizan inmediatamente después de la
+                            operación, pero falta verificar si hay casos edge donde el timing sea crítico (probablemente
+                            no, pero es algo a tener en cuenta).</li>
+                        <li><strong>Validación con ROMs de test:</strong> Aunque los tests unitarios pasan, sería ideal
+                            validar con ROMs de test redistribuibles que prueben operaciones aritméticas y DAA.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición principal:</strong> Las fórmulas de Half-Carry implementadas son correctas según
+                        la documentación técnica consultada. Sin embargo, no he podido verificar directamente con hardware
+                        real o ROMs de test comerciales (que no podemos distribuir). La implementación se basa en:
+                    </p>
+                    <ul>
+                        <li>Documentación técnica estándar (Pan Docs, manuales Z80/8080)</li>
+                        <li>Tests unitarios que validan casos conocidos (15+1, 255+1, etc.)</li>
+                        <li>Lógica matemática del comportamiento esperado</li>
+                    </ul>
+                    <p>
+                        <strong>Plan de validación futura:</strong> Cuando se implemente DAA, si los números decimales
+                        se muestran correctamente en juegos, confirmará que H está bien implementado. Si hay corrupción,
+                        habrá que revisar las fórmulas.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar más opcodes aritméticos (ADD A, B; ADD A, C; SUB A, B; etc.) reutilizando helpers ALU</li>
+                    <li>[ ] Implementar instrucciones ADC (Add with Carry) y SBC (Subtract with Carry)</li>
+                    <li>[ ] Implementar operaciones lógicas (AND, OR, XOR) con gestión de flags</li>
+                    <li>[ ] Implementar DAA (Decimal Adjust Accumulator) que utiliza el flag H</li>
+                    <li>[ ] Validar con ROMs de test redistribuibles que prueben operaciones aritméticas</li>
+                    <li>[ ] Expandir la tabla de despacho con más opcodes del set de instrucciones</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

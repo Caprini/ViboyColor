@@ -388,3 +388,88 @@ Se ha configurado el entorno de desarrollo profesional del proyecto ViboyColor.
 
 ---
 
+### 2025-12-16 — Implementación de la ALU y Gestión de Flags (Step 0004)
+
+#### Resumen:
+Implementación de la ALU (Unidad Aritmética Lógica) de la CPU con gestión correcta de flags, especialmente el Half-Carry (H) que es crítico para la instrucción DAA y el manejo de números decimales en juegos. Refactorización de la CPU para usar una tabla de despacho (dispatch table) en lugar de if/elif, mejorando la escalabilidad. Implementación de los opcodes ADD A, d8 (0xC6) y SUB d8 (0xD6). Suite completa de tests TDD (5 tests) validando operaciones aritméticas y flags.
+
+#### Concepto de Hardware:
+La **ALU (Unidad Aritmética Lógica)** es el componente de la CPU responsable de realizar operaciones aritméticas (suma, resta) y lógicas. En la Game Boy, la ALU opera sobre valores de 8 bits y actualiza un conjunto de **flags** que indican el estado del resultado.
+
+**Los Flags de la CPU LR35902:**
+- **Z (Zero, bit 7):** Se activa cuando el resultado es cero
+- **N (Subtract, bit 6):** Indica si la última operación fue una resta (1) o suma (0)
+- **H (Half-Carry, bit 5):** Indica si hubo carry/borrow del bit 3 al 4 (nibble bajo)
+- **C (Carry, bit 4):** Indica si hubo carry/borrow del bit 7 (overflow/underflow de 8 bits)
+
+**El Half-Carry: La "Bestia Negra" de los Emuladores**
+
+El flag **Half-Carry (H)** es especialmente crítico. Indica si hubo un "carry" (en suma) o "borrow" (en resta) entre el nibble bajo (bits 0-3) y el nibble alto (bits 4-7).
+
+**¿Por qué es importante?** La instrucción `DAA (Decimal Adjust Accumulator)` utiliza el flag H para convertir números binarios a BCD (Binary Coded Decimal). Sin H correcto, los números decimales en juegos (puntuaciones, vidas, contadores) se mostrarán corruptos.
+
+**Fórmulas:**
+- **Suma:** H = 1 si `(A & 0xF) + (value & 0xF) > 0xF`
+- **Resta:** H = 1 si `(A & 0xF) < (value & 0xF)`
+
+**Ejemplo:** Sumar 15 (0x0F) + 1 (0x01) = 16 (0x10). El nibble bajo pasa de 0xF a 0x0 con carry al nibble alto. H se activa porque `0xF + 0x1 = 0x10` (excede 0xF).
+
+#### Implementación:
+
+1. **Refactorización a Tabla de Despacho (`src/cpu/core.py`)**:
+   - Reemplazado el sistema if/elif por un diccionario `_opcode_table` que mapea opcodes a funciones manejadoras
+   - Compatible con Python 3.9+ (no requiere match/case de Python 3.10+)
+   - Cada opcode tiene su propia función handler (ej: `_op_nop()`, `_op_add_a_d8()`, `_op_sub_d8()`)
+   - Mejora la escalabilidad: añadir nuevos opcodes es tan simple como añadir una entrada al diccionario
+
+2. **Helpers ALU (`_add()` y `_sub()`)**:
+   - **`_add(value)`**: Suma un valor al registro A y actualiza flags Z, N, H, C
+     - Fórmula H: `(A & 0xF) + (value & 0xF) > 0xF`
+     - Fórmula C: `(A + value) > 0xFF`
+   - **`_sub(value)`**: Resta un valor del registro A y actualiza flags Z, N, H, C
+     - Fórmula H: `(A & 0xF) < (value & 0xF)`
+     - Fórmula C: `A < value`
+   - Helpers privados y reutilizables: futuros opcodes (ADD A, B; SUB A, C; etc.) pueden reutilizarlos
+
+3. **Opcodes Implementados**:
+   - **0xC6 (ADD A, d8)**: Suma el siguiente byte de memoria al registro A. 2 M-Cycles.
+   - **0xD6 (SUB d8)**: Resta el siguiente byte de memoria del registro A. 2 M-Cycles.
+
+4. **Tests TDD (`tests/test_alu.py`)**:
+   - **test_add_basic**: Suma 10 + 5 = 15, verifica flags Z=0, N=0, H=0, C=0
+   - **test_add_half_carry**: Suma 15 + 1 = 16, verifica que H se activa (CRÍTICO para DAA)
+   - **test_add_full_carry**: Suma 255 + 1 = 0 (wrap-around), verifica Z=1, H=1, C=1
+   - **test_sub_basic**: Resta 10 - 5 = 5, verifica flags Z=0, N=1, H=0, C=0
+   - **test_sub_half_carry**: Resta 16 - 1 = 15, verifica que H se activa (half-borrow)
+
+#### Archivos Afectados:
+- `src/cpu/core.py` - Refactorizado para usar tabla de despacho, implementados helpers ALU y opcodes 0xC6/0xD6
+- `tests/test_alu.py` - Nuevo archivo con 5 tests TDD para validar ALU y flags
+- `INFORME_COMPLETO.md` - Este archivo (entrada de bitácora)
+- `docs/bitacora/entries/2025-12-16__0004__alu-flags.html` - Nueva entrada de bitácora web
+- `docs/bitacora/index.html` - Actualizado con nueva entrada
+
+#### Cómo se Validó:
+- Ejecución de tests: **5 tests pasando** en `tests/test_alu.py`
+- Verificación de sintaxis con `py_compile`: sin errores
+- Validación de flags especialmente Half-Carry en casos críticos (15+1, 16-1)
+- Tests ejecutan el ciclo completo de la CPU (fetch-decode-execute), no solo helpers ALU
+
+#### Lo que Entiendo Ahora:
+- **Half-Carry:** Es un flag que detecta overflow/underflow del nibble bajo (bits 0-3). Es crítico para DAA y el manejo de números decimales. Sin H correcto, las puntuaciones y contadores se mostrarán corruptos.
+- **Tabla de despacho:** Un diccionario que mapea opcodes a funciones es más escalable que if/elif, especialmente cuando hay 256 opcodes posibles. Compatible con Python 3.9+.
+- **Helpers reutilizables:** Los métodos `_add()` y `_sub()` pueden ser reutilizados por múltiples opcodes (ADD A, B; ADD A, C; SUB A, B; etc.), asegurando consistencia en la gestión de flags.
+- **Fórmulas de flags:** H en suma: `(A & 0xF) + (value & 0xF) > 0xF`. H en resta: `(A & 0xF) < (value & 0xF)`. C en suma: `(A + value) > 0xFF`. C en resta: `A < value`.
+
+#### Lo que Falta Confirmar:
+- **Comportamiento de flags en operaciones con carry previo:** Cuando se implementen instrucciones ADC (Add with Carry) y SBC (Subtract with Carry), habrá que verificar cómo se combinan los flags con el carry previo.
+- **Validación con ROMs de test:** Aunque los tests unitarios pasan, sería ideal validar con ROMs de test redistribuibles que prueben operaciones aritméticas y DAA.
+- **Timing exacto de flags:** Los flags se actualizan inmediatamente después de la operación, pero falta verificar si hay casos edge donde el timing sea crítico.
+
+#### Hipótesis y Suposiciones:
+Las fórmulas de Half-Carry implementadas son correctas según la documentación técnica consultada (Pan Docs, manuales Z80/8080). Sin embargo, no he podido verificar directamente con hardware real o ROMs de test comerciales. La implementación se basa en documentación técnica estándar, tests unitarios que validan casos conocidos, y lógica matemática del comportamiento esperado.
+
+**Plan de validación futura:** Cuando se implemente DAA, si los números decimales se muestran correctamente en juegos, confirmará que H está bien implementado. Si hay corrupción, habrá que revisar las fórmulas.
+
+---
+

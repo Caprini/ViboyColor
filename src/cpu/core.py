@@ -20,9 +20,9 @@ Fuente: Pan Docs - CPU Instruction Set
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
-from .registers import Registers
+from .registers import FLAG_C, FLAG_H, FLAG_N, FLAG_Z, Registers
 
 if TYPE_CHECKING:
     from ..memory.mmu import MMU
@@ -52,6 +52,18 @@ class CPU:
         """
         self.registers = Registers()
         self.mmu = mmu
+        
+        # Tabla de despacho (Dispatch Table) para opcodes
+        # Mapea cada opcode a su función manejadora
+        # Esto es más escalable que if/elif y compatible con Python 3.9+
+        self._opcode_table: dict[int, Callable[[], int]] = {
+            0x00: self._op_nop,
+            0x06: self._op_ld_b_d8,
+            0x3E: self._op_ld_a_d8,
+            0xC6: self._op_add_a_d8,
+            0xD6: self._op_sub_d8,
+        }
+        
         logger.info("CPU inicializada")
 
     def fetch_byte(self) -> int:
@@ -97,7 +109,10 @@ class CPU:
 
     def _execute_opcode(self, opcode: int) -> int:
         """
-        Ejecuta el opcode especificado y devuelve los ciclos consumidos.
+        Ejecuta el opcode especificado usando la tabla de despacho.
+        
+        Usa un diccionario (dispatch table) en lugar de if/elif para mejor
+        escalabilidad y rendimiento. Compatible con Python 3.9+.
         
         Args:
             opcode: Código de operación (0x00 a 0xFF)
@@ -107,38 +122,205 @@ class CPU:
             
         Raises:
             NotImplementedError: Si el opcode no está implementado
+            
+        Fuente: Pan Docs - Instruction Set
         """
-        # Usamos if/elif en lugar de match/case para compatibilidad
-        # TODO: Migrar a match/case cuando se actualice a Python 3.10+
-        # Fuente: Pan Docs - Instruction Set
-        
-        if opcode == 0x00:
-            # NOP (No Operation)
-            # No hace nada, solo consume tiempo
-            # Ciclos: 1 M-Cycle
-            return 1
-        
-        elif opcode == 0x3E:
-            # LD A, d8 (Load immediate value into A)
-            # Carga el siguiente byte de memoria en el registro A
-            # Ciclos: 2 M-Cycles (fetch opcode + fetch operand)
-            operand = self.fetch_byte()
-            self.registers.set_a(operand)
-            logger.debug(f"LD A, 0x{operand:02X} -> A=0x{self.registers.get_a():02X}")
-            return 2
-        
-        elif opcode == 0x06:
-            # LD B, d8 (Load immediate value into B)
-            # Carga el siguiente byte de memoria en el registro B
-            # Ciclos: 2 M-Cycles (fetch opcode + fetch operand)
-            operand = self.fetch_byte()
-            self.registers.set_b(operand)
-            logger.debug(f"LD B, 0x{operand:02X} -> B=0x{self.registers.get_b():02X}")
-            return 2
-        
-        else:
-            # Opcode no implementado
+        handler = self._opcode_table.get(opcode)
+        if handler is None:
             raise NotImplementedError(
                 f"Opcode 0x{opcode:02X} no implementado en PC=0x{self.registers.get_pc():04X}"
             )
+        return handler()
+    
+    # ========== Helpers ALU (Aritmética y Flags) ==========
+    
+    def _add(self, value: int) -> None:
+        """
+        Suma un valor al registro A y actualiza los flags correctamente.
+        
+        Esta es la operación aritmética básica de la ALU. Actualiza:
+        - Z (Zero): Si el resultado es 0
+        - N (Subtract): Siempre 0 (es una suma)
+        - H (Half-Carry): Si hubo carry del bit 3 al 4 (nibble bajo)
+        - C (Carry): Si hubo carry del bit 7 (overflow de 8 bits)
+        
+        El Half-Carry es crítico para la instrucción DAA (Decimal Adjust Accumulator)
+        que convierte números binarios a BCD (Binary Coded Decimal). Sin H correcto,
+        los números decimales en juegos (puntuaciones, vidas) se mostrarán corruptos.
+        
+        Args:
+            value: Valor a sumar (8 bits, se enmascara automáticamente)
+            
+        Fórmulas:
+        - Half-Carry: (A & 0xF) + (value & 0xF) > 0xF
+        - Carry: (A + value) > 0xFF
+        
+        Fuente: Pan Docs - CPU Flags, Z80/8080 Architecture Manual
+        """
+        a = self.registers.get_a()
+        value = value & 0xFF
+        
+        # Calcular resultado
+        result = a + value
+        
+        # Actualizar registro A (wrap-around de 8 bits)
+        self.registers.set_a(result)
+        
+        # Actualizar flags
+        # Z: resultado es cero
+        if (result & 0xFF) == 0:
+            self.registers.set_flag(FLAG_Z)
+        else:
+            self.registers.clear_flag(FLAG_Z)
+        
+        # N: siempre 0 en suma
+        self.registers.clear_flag(FLAG_N)
+        
+        # H: Half-Carry (carry del bit 3 al 4)
+        # Verificamos si la suma de los nibbles bajos excede 0xF
+        if ((a & 0xF) + (value & 0xF)) > 0xF:
+            self.registers.set_flag(FLAG_H)
+        else:
+            self.registers.clear_flag(FLAG_H)
+        
+        # C: Carry (overflow de 8 bits)
+        if result > 0xFF:
+            self.registers.set_flag(FLAG_C)
+        else:
+            self.registers.clear_flag(FLAG_C)
+    
+    def _sub(self, value: int) -> None:
+        """
+        Resta un valor del registro A y actualiza los flags correctamente.
+        
+        Similar a _add pero para restas. Actualiza:
+        - Z (Zero): Si el resultado es 0
+        - N (Subtract): Siempre 1 (es una resta)
+        - H (Half-Borrow): Si hubo borrow del bit 4 al 3 (nibble bajo)
+        - C (Borrow): Si hubo borrow del bit 7 (underflow de 8 bits)
+        
+        Args:
+            value: Valor a restar (8 bits, se enmascara automáticamente)
+            
+        Fórmulas:
+        - Half-Borrow: (A & 0xF) - (value & 0xF) < 0
+        - Borrow: A < value
+        
+        Fuente: Pan Docs - CPU Flags, Z80/8080 Architecture Manual
+        """
+        a = self.registers.get_a()
+        value = value & 0xFF
+        
+        # Calcular resultado
+        result = a - value
+        
+        # Actualizar registro A (wrap-around de 8 bits)
+        self.registers.set_a(result)
+        
+        # Actualizar flags
+        # Z: resultado es cero
+        if (result & 0xFF) == 0:
+            self.registers.set_flag(FLAG_Z)
+        else:
+            self.registers.clear_flag(FLAG_Z)
+        
+        # N: siempre 1 en resta
+        self.registers.set_flag(FLAG_N)
+        
+        # H: Half-Borrow (borrow del bit 4 al 3)
+        # Verificamos si necesitamos pedir prestado del nibble alto
+        if (a & 0xF) < (value & 0xF):
+            self.registers.set_flag(FLAG_H)
+        else:
+            self.registers.clear_flag(FLAG_H)
+        
+        # C: Borrow (underflow de 8 bits)
+        if a < value:
+            self.registers.set_flag(FLAG_C)
+        else:
+            self.registers.clear_flag(FLAG_C)
+    
+    # ========== Handlers de Opcodes ==========
+    
+    def _op_nop(self) -> int:
+        """
+        NOP (No Operation) - Opcode 0x00
+        
+        No hace nada, solo consume tiempo. Útil para sincronización
+        y alineamiento de instrucciones.
+        
+        Returns:
+            1 M-Cycle
+        """
+        return 1
+    
+    def _op_ld_a_d8(self) -> int:
+        """
+        LD A, d8 (Load immediate value into A) - Opcode 0x3E
+        
+        Carga el siguiente byte de memoria en el registro A.
+        
+        Returns:
+            2 M-Cycles (fetch opcode + fetch operand)
+        """
+        operand = self.fetch_byte()
+        self.registers.set_a(operand)
+        logger.debug(f"LD A, 0x{operand:02X} -> A=0x{self.registers.get_a():02X}")
+        return 2
+    
+    def _op_ld_b_d8(self) -> int:
+        """
+        LD B, d8 (Load immediate value into B) - Opcode 0x06
+        
+        Carga el siguiente byte de memoria en el registro B.
+        
+        Returns:
+            2 M-Cycles (fetch opcode + fetch operand)
+        """
+        operand = self.fetch_byte()
+        self.registers.set_b(operand)
+        logger.debug(f"LD B, 0x{operand:02X} -> B=0x{self.registers.get_b():02X}")
+        return 2
+    
+    def _op_add_a_d8(self) -> int:
+        """
+        ADD A, d8 (Add immediate value to A) - Opcode 0xC6
+        
+        Suma el siguiente byte de memoria al registro A.
+        Actualiza flags Z, N, H, C según el resultado.
+        
+        Returns:
+            2 M-Cycles (fetch opcode + fetch operand)
+            
+        Fuente: Pan Docs - Instruction Set
+        """
+        operand = self.fetch_byte()
+        self._add(operand)
+        logger.debug(
+            f"ADD A, 0x{operand:02X} -> A=0x{self.registers.get_a():02X} "
+            f"Z={self.registers.get_flag_z()} H={self.registers.get_flag_h()} "
+            f"C={self.registers.get_flag_c()}"
+        )
+        return 2
+    
+    def _op_sub_d8(self) -> int:
+        """
+        SUB d8 (Subtract immediate value from A) - Opcode 0xD6
+        
+        Resta el siguiente byte de memoria del registro A.
+        Actualiza flags Z, N, H, C según el resultado.
+        
+        Returns:
+            2 M-Cycles (fetch opcode + fetch operand)
+            
+        Fuente: Pan Docs - Instruction Set
+        """
+        operand = self.fetch_byte()
+        self._sub(operand)
+        logger.debug(
+            f"SUB 0x{operand:02X} -> A=0x{self.registers.get_a():02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()} C={self.registers.get_flag_c()}"
+        )
+        return 2
 
