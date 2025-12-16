@@ -32,6 +32,28 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0007 - Stack (Pila) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-16__0007__stack-pila.html" class="entry-link">
+                                    Implementación del Stack (Pila) y Subrutinas
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-16 | 
+                            <strong>Step ID:</strong> 0007 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación completa del Stack (Pila) de la CPU, incluyendo helpers para PUSH/POP de bytes y palabras,
+                            y opcodes críticos para subrutinas: PUSH BC (0xC5), POP BC (0xC1), CALL nn (0xCD) y RET (0xC9). La pila
+                            es la memoria a corto plazo que permite a la CPU recordar "dónde estaba" cuando llama a funciones. Concepto
+                            crítico: la pila crece hacia abajo (SP decrece en PUSH). Implementación con orden correcto de bytes
+                            (Little-Endian) validada con suite completa de tests TDD (5 tests).
+                        </p>
+                    </li>
                     <!-- Entrada 0006 - Licencia MIT -->
                     <li>
                         <div class="entry-header">

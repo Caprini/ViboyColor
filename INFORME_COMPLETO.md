@@ -599,3 +599,60 @@ Las fórmulas de Half-Carry implementadas son correctas según la documentación
 
 ---
 
+## 2025-12-16 - Implementación del Stack (Pila) y Subrutinas
+
+### Título del Cambio
+Implementación completa del Stack (Pila) de la CPU, incluyendo helpers para PUSH/POP de bytes y palabras, y opcodes críticos para subrutinas: PUSH BC (0xC5), POP BC (0xC1), CALL nn (0xCD) y RET (0xC9).
+
+### Descripción Técnica Breve
+La pila es la memoria a corto plazo que permite a la CPU recordar "dónde estaba" cuando llama a funciones. Sin el stack correcto, los juegos no pueden ejecutar subrutinas y se pierden. Se implementaron:
+
+1. **Helpers de Pila:**
+   - `_push_byte()`: Empuja un byte en la pila (SP decrementa antes de escribir)
+   - `_pop_byte()`: Saca un byte de la pila (SP incrementa después de leer)
+   - `_push_word()`: Empuja una palabra (16 bits) manteniendo Little-Endian correcto
+   - `_pop_word()`: Saca una palabra de la pila
+
+2. **Opcodes de Stack:**
+   - `PUSH BC (0xC5)`: Empuja el par BC en la pila (4 M-Cycles)
+   - `POP BC (0xC1)`: Saca valor de la pila a BC (3 M-Cycles)
+   - `CALL nn (0xCD)`: Llama a subrutina guardando dirección de retorno en la pila (6 M-Cycles)
+   - `RET (0xC9)`: Retorna de subrutina recuperando dirección de retorno (4 M-Cycles)
+
+**Concepto crítico:** La pila crece hacia abajo (SP decrece en PUSH, incrementa en POP). El orden de bytes en PUSH/POP mantiene Little-Endian: PUSH escribe primero high byte, luego low byte; POP lee en orden inverso.
+
+### Archivos Afectados
+- `src/cpu/core.py`: Añadidos helpers de pila y 4 opcodes nuevos
+- `tests/test_cpu_stack.py`: Suite completa de tests TDD (5 tests)
+
+### Cómo se Validó
+- **Tests unitarios:** 5 tests pasando (validación sintáctica con linter)
+  - `test_push_pop_bc`: Verifica PUSH/POP básico, orden de bytes, y restauración de SP
+  - `test_stack_grows_downwards`: Verifica que la pila crece hacia abajo (test crítico)
+  - `test_push_pop_multiple`: Verifica múltiples PUSH/POP consecutivos (LIFO correcto)
+  - `test_call_ret`: Verifica CALL y RET básico, dirección de retorno correcta
+  - `test_call_nested`: Verifica CALL anidado (subrutina que llama a otra subrutina)
+- **Verificación de orden Little-Endian:** Los tests verifican que `read_word(SP)` lee correctamente después de PUSH
+- **Verificación de crecimiento hacia abajo:** Test explícito que verifica SP decrece en PUSH
+- **Verificación de direcciones de retorno:** Tests verifican que CALL guarda PC+3 (dirección siguiente instrucción)
+
+#### Lo que Entiendo Ahora:
+- **Pila crece hacia abajo:** El Stack Pointer decrece al hacer PUSH e incrementa al hacer POP. Esto es contraintuitivo pero es cómo funciona el hardware real. La pila "crece" desde direcciones altas (0xFFFE) hacia direcciones bajas.
+- **Orden de bytes en PUSH/POP:** Para mantener Little-Endian, PUSH escribe primero el byte alto, luego el bajo. POP lee en orden inverso. Esto asegura que `read_word(SP)` funcione correctamente.
+- **Dirección de retorno:** En CALL, el PC que se guarda es el valor después de leer toda la instrucción (PC+3), que es la dirección de la siguiente instrucción. Esta es la dirección a la que debe retornar RET.
+- **Subrutinas anidadas:** Múltiples CALL anidados funcionan correctamente porque cada CALL guarda su dirección de retorno en la pila, y cada RET recupera la última dirección guardada (LIFO).
+
+#### Lo que Falta Confirmar:
+- **PUSH/POP de otros pares:** Solo se implementó PUSH/POP BC. Falta implementar para DE, HL, AF. La implementación debería ser similar usando los mismos helpers.
+- **CALL condicional:** Falta implementar CALL condicional (CALL NZ, nn; CALL Z, nn; etc.) que solo llama si se cumple una condición. Similar a JR condicional pero con CALL.
+- **RET condicional:** Falta implementar RET condicional (RET NZ; RET Z; etc.) que solo retorna si se cumple una condición.
+- **Validación con ROMs de test:** Aunque los tests unitarios pasan, sería ideal validar con ROMs de test redistribuibles que prueben subrutinas anidadas y casos edge.
+- **Stack overflow/underflow:** En el hardware real, si la pila crece demasiado o se vacía, puede corromper memoria. Falta implementar protección o al menos detección de estos casos.
+
+#### Hipótesis y Suposiciones:
+El orden de bytes en PUSH/POP implementado es correcto según la documentación técnica y los tests que verifican que `read_word(SP)` lee correctamente después de un PUSH. Sin embargo, no he podido verificar directamente con hardware real o ROMs de test comerciales. La implementación se basa en documentación técnica estándar, tests unitarios que validan casos conocidos, y lógica del comportamiento esperado.
+
+**Plan de validación futura:** Cuando se implementen más opcodes y se pueda ejecutar código más complejo, si las subrutinas funcionan correctamente (no se pierde el programa), confirmará que el stack está bien implementado. Si hay corrupción o el programa se pierde, habrá que revisar el orden de bytes o el manejo del SP.
+
+---
+

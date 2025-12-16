@@ -66,6 +66,11 @@ class CPU:
             0xC3: self._op_jp_nn,      # JP nn (Jump absolute)
             0x18: self._op_jr_e,       # JR e (Jump relative unconditional)
             0x20: self._op_jr_nz_e,    # JR NZ, e (Jump relative if Not Zero)
+            # Stack (Pila)
+            0xC5: self._op_push_bc,    # PUSH BC
+            0xC1: self._op_pop_bc,     # POP BC
+            0xCD: self._op_call_nn,     # CALL nn
+            0xC9: self._op_ret,         # RET
         }
         
         logger.info("CPU inicializada")
@@ -178,6 +183,129 @@ class CPU:
                 f"Opcode 0x{opcode:02X} no implementado en PC=0x{self.registers.get_pc():04X}"
             )
         return handler()
+    
+    # ========== Helpers de Pila (Stack) ==========
+    
+    def _push_byte(self, value: int) -> None:
+        """
+        Empuja un byte en la pila (Stack).
+        
+        La pila crece hacia abajo (de direcciones altas a bajas).
+        Al hacer PUSH, el Stack Pointer (SP) se decrementa ANTES de escribir.
+        
+        Proceso:
+        1. Decrementar SP
+        2. Escribir byte en la dirección SP
+        
+        Args:
+            value: Valor de 8 bits a empujar (se enmascara automáticamente)
+            
+        Fuente: Pan Docs - Stack Operations
+        """
+        # Enmascarar a 8 bits
+        value = value & 0xFF
+        
+        # Obtener SP actual
+        sp = self.registers.get_sp()
+        
+        # Decrementar SP (la pila crece hacia abajo)
+        # Wrap-around si SP es 0x0000 -> 0xFFFF
+        new_sp = (sp - 1) & 0xFFFF
+        self.registers.set_sp(new_sp)
+        
+        # Escribir byte en la nueva posición de SP
+        self.mmu.write_byte(new_sp, value)
+        
+        logger.debug(f"PUSH byte 0x{value:02X} -> SP: 0x{sp:04X} -> 0x{new_sp:04X}")
+    
+    def _pop_byte(self) -> int:
+        """
+        Saca un byte de la pila (Stack).
+        
+        La pila crece hacia abajo, así que al hacer POP:
+        1. Leer byte de la dirección SP
+        2. Incrementar SP
+        
+        Returns:
+            Byte leído de la pila (0x00 a 0xFF)
+            
+        Fuente: Pan Docs - Stack Operations
+        """
+        # Obtener SP actual
+        sp = self.registers.get_sp()
+        
+        # Leer byte de la dirección SP
+        value = self.mmu.read_byte(sp)
+        
+        # Incrementar SP (la pila crece hacia abajo, así que al sacar subimos)
+        # Wrap-around si SP es 0xFFFF -> 0x0000
+        new_sp = (sp + 1) & 0xFFFF
+        self.registers.set_sp(new_sp)
+        
+        logger.debug(f"POP byte 0x{value:02X} <- SP: 0x{sp:04X} -> 0x{new_sp:04X}")
+        
+        return value
+    
+    def _push_word(self, value: int) -> None:
+        """
+        Empuja una palabra (16 bits) en la pila.
+        
+        CRÍTICO: Orden de bytes para mantener Little-Endian correcto.
+        
+        Para mantener Little-Endian en memoria, al hacer PUSH de 0x1234:
+        1. Decrementar SP, escribir 0x12 (High Byte) en SP
+        2. Decrementar SP, escribir 0x34 (Low Byte) en SP
+        
+        Así, en memoria queda: [SP+1]=0x12, [SP]=0x34
+        Al leer con read_word(SP), obtenemos 0x1234 correctamente.
+        
+        Args:
+            value: Valor de 16 bits a empujar (se enmascara automáticamente)
+            
+        Fuente: Pan Docs - Stack Operations, Little-Endian
+        """
+        # Enmascarar a 16 bits
+        value = value & 0xFFFF
+        
+        # Extraer bytes
+        high_byte = (value >> 8) & 0xFF  # Bits 8-15
+        low_byte = value & 0xFF          # Bits 0-7
+        
+        # PUSH: primero el byte alto, luego el bajo
+        # Esto asegura que en memoria quede en orden Little-Endian
+        self._push_byte(high_byte)  # Decrementa SP y escribe high
+        self._push_byte(low_byte)   # Decrementa SP y escribe low
+        
+        logger.debug(f"PUSH word 0x{value:04X} -> SP final: 0x{self.registers.get_sp():04X}")
+    
+    def _pop_word(self) -> int:
+        """
+        Saca una palabra (16 bits) de la pila.
+        
+        CRÍTICO: Orden de bytes para mantener Little-Endian correcto.
+        
+        Como PUSH escribe primero high luego low, POP debe leer:
+        1. Leer low byte de SP
+        2. Incrementar SP
+        3. Leer high byte de SP
+        4. Incrementar SP
+        5. Combinar: (high << 8) | low
+        
+        Returns:
+            Palabra de 16 bits leída de la pila
+            
+        Fuente: Pan Docs - Stack Operations, Little-Endian
+        """
+        # POP: primero el byte bajo, luego el alto (orden inverso de PUSH)
+        low_byte = self._pop_byte()   # Lee low e incrementa SP
+        high_byte = self._pop_byte()  # Lee high e incrementa SP
+        
+        # Combinar en orden Little-Endian: (high << 8) | low
+        value = ((high_byte << 8) | low_byte) & 0xFFFF
+        
+        logger.debug(f"POP word 0x{value:04X} <- SP final: 0x{self.registers.get_sp():04X}")
+        
+        return value
     
     # ========== Helpers ALU (Aritmética y Flags) ==========
     
@@ -462,4 +590,117 @@ class CPU:
             # Condición falsa: no saltar, continuar ejecución
             logger.debug(f"JR NZ, {offset:+d} (NOT TAKEN) Z flag set")
             return 2  # 2 M-Cycles si no salta
+
+    # ========== Handlers de Stack (Pila) ==========
+
+    def _op_push_bc(self) -> int:
+        """
+        PUSH BC (Push BC onto stack) - Opcode 0xC5
+        
+        Empuja el par de registros BC en la pila.
+        El Stack Pointer (SP) se decrementa antes de escribir.
+        
+        Proceso:
+        1. Obtener valor de BC
+        2. PUSH word (BC) en la pila
+        
+        Returns:
+            4 M-Cycles (fetch opcode + 2 operaciones de memoria para escribir 2 bytes)
+            
+        Fuente: Pan Docs - Instruction Set (PUSH BC)
+        """
+        bc_value = self.registers.get_bc()
+        self._push_word(bc_value)
+        logger.debug(f"PUSH BC (0x{bc_value:04X}) -> SP=0x{self.registers.get_sp():04X}")
+        return 4
+
+    def _op_pop_bc(self) -> int:
+        """
+        POP BC (Pop from stack into BC) - Opcode 0xC1
+        
+        Saca un valor de 16 bits de la pila y lo carga en el par BC.
+        El Stack Pointer (SP) se incrementa después de leer.
+        
+        Proceso:
+        1. POP word de la pila
+        2. Cargar valor en BC
+        
+        Returns:
+            3 M-Cycles (fetch opcode + 2 operaciones de memoria para leer 2 bytes)
+            
+        Fuente: Pan Docs - Instruction Set (POP BC)
+        """
+        value = self._pop_word()
+        self.registers.set_bc(value)
+        logger.debug(f"POP BC <- 0x{value:04X} (SP=0x{self.registers.get_sp():04X})")
+        return 3
+
+    def _op_call_nn(self) -> int:
+        """
+        CALL nn (Call subroutine at absolute address) - Opcode 0xCD
+        
+        Llama a una subrutina guardando la dirección de retorno en la pila.
+        
+        Proceso:
+        1. Leer dirección objetivo (nn) de 16 bits (Little-Endian)
+        2. Obtener PC actual (dirección de retorno = siguiente instrucción)
+        3. PUSH PC en la pila
+        4. Saltar a nn (establecer PC = nn)
+        
+        Importante: El PC que se guarda es el valor DESPUÉS de leer toda la instrucción
+        (opcode + 2 bytes de dirección). Esto es la dirección de la siguiente instrucción.
+        
+        Ejemplo:
+        - PC en 0x0100
+        - CALL 0x2000 (0xCD 0x00 0x20)
+        - Después de leer: PC = 0x0103
+        - Se guarda 0x0103 en la pila
+        - PC se establece en 0x2000
+        
+        Returns:
+            6 M-Cycles (fetch opcode + fetch 2 bytes dirección + push 2 bytes)
+            
+        Fuente: Pan Docs - Instruction Set (CALL nn)
+        """
+        # Leer dirección objetivo (nn)
+        target_addr = self.fetch_word()
+        
+        # Obtener PC actual (dirección de retorno = siguiente instrucción)
+        return_addr = self.registers.get_pc()
+        
+        # Guardar dirección de retorno en la pila
+        self._push_word(return_addr)
+        
+        # Saltar a la dirección objetivo
+        self.registers.set_pc(target_addr)
+        
+        logger.debug(
+            f"CALL 0x{target_addr:04X} -> "
+            f"PUSH return 0x{return_addr:04X}, PC=0x{target_addr:04X}"
+        )
+        return 6
+
+    def _op_ret(self) -> int:
+        """
+        RET (Return from subroutine) - Opcode 0xC9
+        
+        Retorna de una subrutina recuperando la dirección de retorno de la pila.
+        
+        Proceso:
+        1. POP dirección de retorno de la pila
+        2. Saltar a esa dirección (establecer PC = dirección de retorno)
+        
+        Returns:
+            4 M-Cycles (fetch opcode + pop 2 bytes de la pila)
+            
+        Fuente: Pan Docs - Instruction Set (RET)
+        """
+        # Recuperar dirección de retorno de la pila
+        return_addr = self._pop_word()
+        
+        # Saltar a la dirección de retorno
+        self.registers.set_pc(return_addr)
+        
+        logger.debug(f"RET -> PC=0x{return_addr:04X} (SP=0x{self.registers.get_sp():04X})")
+        return 4
 
