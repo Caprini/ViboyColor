@@ -176,6 +176,35 @@
                     <li>Verificación de crecimiento hacia abajo: Test explícito que verifica SP decrece en PUSH</li>
                     <li>Verificación de direcciones de retorno: Tests verifican que CALL guarda PC+3 (dirección siguiente instrucción)</li>
                 </ul>
+                
+                <h3>Estado Actual de los Tests (2025-12-16)</h3>
+                <div style="background-color: var(--color-bg-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-top: var(--spacing-md);">
+                    <p>
+                        <strong>Estado del entorno de testing:</strong>
+                    </p>
+                    <ul>
+                        <li><strong>Sintaxis:</strong> ✅ Validada correctamente con <code>py_compile</code> en ambos archivos (<code>src/cpu/core.py</code> y <code>tests/test_cpu_stack.py</code>)</li>
+                        <li><strong>Importación:</strong> ✅ CPU se importa correctamente, todos los helpers y opcodes están disponibles</li>
+                        <li><strong>Estructura:</strong> ✅ Helpers de pila implementados: <code>_push_byte</code>, <code>_pop_byte</code>, <code>_push_word</code>, <code>_pop_word</code></li>
+                        <li><strong>Opcodes registrados:</strong> ✅ Todos los opcodes de stack están en la tabla de despacho (0xC5, 0xC1, 0xCD, 0xC9)</li>
+                        <li><strong>Pytest:</strong> ⚠️ No disponible en el entorno actual (módulo no instalado)</li>
+                    </ul>
+                    <p style="margin-top: var(--spacing-md);">
+                        <strong>Tests creados (5 tests en <code>test_cpu_stack.py</code>):</strong>
+                    </p>
+                    <ul>
+                        <li><code>test_push_pop_bc</code> - PUSH/POP básico, orden de bytes, restauración de SP</li>
+                        <li><code>test_stack_grows_downwards</code> - Verifica crecimiento hacia abajo (test crítico)</li>
+                        <li><code>test_push_pop_multiple</code> - Múltiples PUSH/POP consecutivos (LIFO)</li>
+                        <li><code>test_call_ret</code> - CALL y RET básico, dirección de retorno</li>
+                        <li><code>test_call_nested</code> - CALL anidado (subrutina que llama a otra subrutina)</li>
+                    </ul>
+                    <p style="margin-top: var(--spacing-md); color: var(--color-text-secondary);">
+                        <em>Nota: Los tests están listos para ejecutarse cuando pytest esté disponible. La sintaxis y estructura
+                        han sido validadas. En futuras entradas documentaremos los resultados de ejecución cuando el entorno
+                        de testing esté completamente configurado, permitiendo ver la evolución del proyecto.</em>
+                    </p>
+                </div>
             </section>
 
             <!-- 6. Fuentes Consultadas -->
