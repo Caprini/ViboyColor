@@ -1,5 +1,70 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-16 - Implementación de la MMU Básica
+
+### Conceptos Hardware Implementados
+
+**MMU (Memory Management Unit)**: La Game Boy tiene un espacio de direcciones de 16 bits (0x0000 a 0xFFFF = 65536 bytes). Este espacio está dividido en diferentes regiones que mapean a diferentes componentes del hardware: ROM del cartucho, VRAM (Video RAM), WRAM (Working RAM), OAM (Object Attribute Memory), I/O Ports, HRAM (High RAM), y el registro IE (Interrupt Enable).
+
+**Endianness (Little-Endian)**: La Game Boy usa Little-Endian para valores de 16 bits. Esto significa que el byte menos significativo (LSB) se almacena en la dirección más baja, y el byte más significativo (MSB) se almacena en la dirección más alta (addr+1). Por ejemplo, el valor 0x1234 se almacena como 0x34 en addr y 0x12 en addr+1.
+
+#### Tareas Completadas:
+
+1. **Clase `MMU` (`src/memory/mmu.py`)**:
+   - Implementación completa de la gestión del espacio de direcciones de 16 bits
+   - Almacenamiento usando un `bytearray` de 65536 bytes (memoria lineal por ahora)
+   - Métodos `read_byte(addr)` y `write_byte(addr, value)` para operaciones de 8 bits
+   - Métodos `read_word(addr)` y `write_word(addr, value)` para operaciones de 16 bits con Little-Endian
+   - Enmascarado automático de direcciones y valores para asegurar rangos válidos
+   - Documentación educativa extensa explicando el mapa de memoria y endianness
+
+2. **Tests Unitarios (`tests/test_mmu.py`)**:
+   - **Test 1**: Lectura/escritura básica de bytes
+   - **Test 2**: Wrap-around de valores > 0xFF en escritura de bytes
+   - **Test 3**: Conversión de valores negativos en escritura de bytes
+   - **Test 4**: Lectura de palabras en formato Little-Endian (CRÍTICO)
+   - **Test 5**: Escritura de palabras en formato Little-Endian (CRÍTICO)
+   - **Test 6**: Roundtrip completo (escribir y leer palabras)
+   - **Test 7**: Wrap-around de valores > 0xFFFF en escritura de palabras
+   - **Test 8**: Wrap-around de direcciones fuera de rango
+   - **Test 9**: Lectura de palabras en el límite del espacio (0xFFFE)
+   - **Test 10**: Escritura de palabras en el límite del espacio
+   - **Test 11**: Verificación de inicialización a cero
+   - **Test 12**: Múltiples escrituras en la misma dirección
+   - **Test 13**: Ejemplo específico de Little-Endian de la documentación
+   - **13 tests en total, todos pasando ✅**
+
+3. **Estructura de Paquetes**:
+   - Creado `__init__.py` en `src/memory/` para exportar la clase `MMU`
+
+#### Archivos Afectados:
+- `src/memory/__init__.py` (nuevo)
+- `src/memory/mmu.py` (nuevo, 185 líneas)
+- `tests/test_mmu.py` (nuevo, 195 líneas)
+- `INFORME_COMPLETO.md` (este archivo)
+- `docs/bitacora/index.html` (modificado)
+- `docs/bitacora/entries/2025-12-16__0002__mmu-basica.html` (nuevo)
+
+#### Cómo se Validó:
+- Ejecución de `pytest tests/test_mmu.py -v`: **13 tests pasando**
+- Verificación de Little-Endian con ejemplos específicos (0xCD en addr, 0xAB en addr+1 → 0xABCD)
+- Verificación de wrap-around en direcciones y valores
+- Verificación de comportamiento en límites del espacio de direcciones
+- Sin errores de linting (verificado con read_lints)
+
+#### Lo que Entiendo Ahora:
+- **Little-Endian**: El byte menos significativo (LSB) se almacena en la dirección más baja. La implementación correcta es `(msb << 8) | lsb` al leer, y separar con `value & 0xFF` (LSB) y `(value >> 8) & 0xFF` (MSB) al escribir. Es crítico para todas las operaciones de 16 bits.
+- **Mapa de memoria**: El espacio de direcciones no es solo almacenamiento, sino un mapa donde diferentes rangos activan diferentes componentes. Esto será importante cuando implementemos mapeo específico por regiones.
+- **Wrap-around**: Las direcciones y valores que exceden su rango válido deben hacer wrap-around usando máscaras bitwise para simular el comportamiento del hardware real.
+
+#### Lo que Falta Confirmar:
+- Valores iniciales de regiones específicas (I/O ports pueden tener valores iniciales específicos al boot)
+- Comportamiento de regiones protegidas (ROM de solo lectura, restricciones de escritura)
+- Bank Switching: El mecanismo exacto de cambio de bancos de ROM/RAM del cartucho
+- Echo RAM: El comportamiento exacto de la región Echo RAM (0xE000-0xFDFF) que espeja WRAM
+
+---
+
 ## 2025-12-16 - Configuración de la Bitácora Web Estática
 
 ### Concepto de Hardware

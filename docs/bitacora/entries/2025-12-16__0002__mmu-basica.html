@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementación de la MMU Básica - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Implementación de la MMU Básica</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-16
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0002
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-16__0001__registros-cpu.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó la clase <code>MMU</code> (Memory Management Unit) que gestiona el espacio de direcciones de 16 bits de la Game Boy (0x0000 a 0xFFFF).
+                    Se implementaron métodos para leer y escribir bytes (8 bits) y palabras (16 bits) con soporte correcto para Little-Endian.
+                    Se creó una suite completa de tests unitarios con 13 tests, todos pasando correctamente.
+                    Esta es la base necesaria para que la CPU pueda leer instrucciones y datos de la memoria.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La Game Boy tiene un espacio de direcciones de 16 bits, lo que permite direccionar 65536 bytes (0x0000 a 0xFFFF).
+                    Este espacio no es simplemente un almacén de datos lineal; es un <strong>mapa de memoria</strong> donde diferentes rangos de direcciones
+                    activan diferentes componentes del hardware.
+                </p>
+
+                <h3>Mapa de Memoria de la Game Boy</h3>
+                <p>
+                    El espacio de direcciones está dividido en regiones específicas:
+                </p>
+                <ul>
+                    <li><strong>0x0000 - 0x3FFF:</strong> ROM Bank 0 (Cartucho, no cambiable, 16KB)</li>
+                    <li><strong>0x4000 - 0x7FFF:</strong> ROM Bank N (Cartucho, switchable, 16KB)</li>
+                    <li><strong>0x8000 - 0x9FFF:</strong> VRAM (Video RAM, 8KB) - memoria de gráficos</li>
+                    <li><strong>0xA000 - 0xBFFF:</strong> External RAM (Cartucho, switchable, 8KB)</li>
+                    <li><strong>0xC000 - 0xCFFF:</strong> WRAM Bank 0 (Working RAM, 4KB)</li>
+                    <li><strong>0xD000 - 0xDFFF:</strong> WRAM Bank 1-7 (Working RAM, switchable, 4KB)</li>
+                    <li><strong>0xE000 - 0xFDFF:</strong> Echo RAM (mirror de 0xC000-0xDDFF, no usar)</li>
+                    <li><strong>0xFE00 - 0xFE9F:</strong> OAM (Object Attribute Memory, 160 bytes) - sprites</li>
+                    <li><strong>0xFEA0 - 0xFEFF:</strong> No usable (prohibido)</li>
+                    <li><strong>0xFF00 - 0xFF7F:</strong> I/O Ports (Entrada/Salida) - botones, pantalla, sonido</li>
+                    <li><strong>0xFF80 - 0xFFFE:</strong> HRAM (High RAM, 127 bytes) - RAM rápida</li>
+                    <li><strong>0xFFFF:</strong> IE (Interrupt Enable Register) - registro de interrupciones</li>
+                </ul>
+
+                <h3>Endianness: Little-Endian (CRÍTICO)</h3>
+                <p>
+                    La Game Boy usa <strong>Little-Endian</strong> para valores de 16 bits. Esto significa que:
+                </p>
+                <ul>
+                    <li>El byte <strong>menos significativo (LSB)</strong> se almacena en la dirección más baja</li>
+                    <li>El byte <strong>más significativo (MSB)</strong> se almacena en la dirección más alta (addr+1)</li>
+                </ul>
+                <p>
+                    <strong>Ejemplo práctico:</strong> Si queremos almacenar el valor 0x1234 en la dirección 0x1000:
+                </p>
+                <ul>
+                    <li>En 0x1000 se escribe 0x34 (LSB, bits 0-7)</li>
+                    <li>En 0x1001 se escribe 0x12 (MSB, bits 8-15)</li>
+                    <li>Al leer: <code>read_word(0x1000)</code> = (0x12 << 8) | 0x34 = 0x1234</li>
+                </ul>
+                <p>
+                    <strong>Por qué es crítico:</strong> Si se implementa incorrectamente (Big-Endian), todas las operaciones de 16 bits fallarán,
+                    incluyendo direcciones, contadores y valores numéricos. Es uno de los errores más comunes en emuladores novatos.
+                </p>
+
+                <h3>Memoria Lineal vs. Mapeo por Regiones</h3>
+                <p>
+                    En esta primera iteración, usamos un <code>bytearray</code> lineal de 65536 bytes para simular toda la memoria.
+                    Esto es suficiente para empezar a ejecutar opcodes simples, pero más adelante necesitaremos:
+                </p>
+                <ul>
+                    <li>Separar las regiones de memoria (ROM, VRAM, WRAM, I/O, etc.)</li>
+                    <li>Implementar mapeo específico para cada región</li>
+                    <li>Gestionar "Bank Switching" para ROM y RAM del cartucho</li>
+                    <li>Implementar protección de escritura en regiones de solo lectura</li>
+                </ul>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó la clase <code>MMU</code> en Python con tipado estricto y documentación educativa completa.
+                    Todos los métodos aseguran que las direcciones y valores estén en el rango válido usando máscaras bitwise.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>Clase MMU:</strong> Gestiona el espacio de direcciones completo con un bytearray de 65536 bytes</li>
+                    <li><strong>read_byte(addr):</strong> Lee un byte (8 bits) de la dirección especificada</li>
+                    <li><strong>write_byte(addr, value):</strong> Escribe un byte (8 bits) en la dirección especificada</li>
+                    <li><strong>read_word(addr):</strong> Lee una palabra (16 bits) usando Little-Endian</li>
+                    <li><strong>write_word(addr, value):</strong> Escribe una palabra (16 bits) usando Little-Endian</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Almacenamiento lineal:</strong> Por ahora, un <code>bytearray</code> simple de 65536 bytes. Más adelante se separarán las regiones.</li>
+                    <li><strong>Enmascarado de direcciones:</strong> Todas las direcciones se enmascaran con <code>& 0xFFFF</code> para asegurar que estén en el rango válido (0x0000-0xFFFF). Esto permite wrap-around automático si se pasa una dirección fuera de rango.</li>
+                    <li><strong>Enmascarado de valores:</strong> Los valores se enmascaran a su tamaño correcto (<code>& 0xFF</code> para bytes, <code>& 0xFFFF</code> para palabras) para simular el comportamiento del hardware.</li>
+                    <li><strong>Little-Endian explícito:</strong> Los métodos <code>read_word</code> y <code>write_word</code> implementan explícitamente Little-Endian con comentarios detallados explicando el orden de los bytes.</li>
+                    <li><strong>Wrap-around en límites:</strong> Si se lee/escribe una palabra en 0xFFFE, el segundo byte se lee/escribe en 0xFFFF (wrap-around a 0x0000 no aplica aquí, pero se maneja correctamente).</li>
+                </ul>
+
+                <h3>Estructura de paquetes</h3>
+                <p>
+                    Se creó el archivo <code>__init__.py</code> en <code>src/memory/</code> para exportar la clase <code>MMU</code> y convertir la carpeta en un paquete Python válido.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/memory/__init__.py</code> - Inicialización del módulo de memoria (nuevo)</li>
+                    <li><code>src/memory/mmu.py</code> - Clase MMU con métodos de lectura/escritura (nuevo, 185 líneas)</li>
+                    <li><code>tests/test_mmu.py</code> - Suite completa de tests unitarios (nuevo, 195 líneas)</li>
+                    <li><code>INFORME_COMPLETO.md</code> - Actualización de la bitácora (modificado)</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualización del índice (modificado)</li>
+                    <li><code>docs/bitacora/entries/2025-12-16__0002__mmu-basica.html</code> - Esta entrada (nuevo)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se implementó una suite completa de tests unitarios con <code>pytest</code>:
+                </p>
+                <ul>
+                    <li><strong>test_read_write_byte:</strong> Verifica lectura/escritura básica de bytes</li>
+                    <li><strong>test_write_byte_wraps_value:</strong> Verifica que valores > 0xFF hacen wrap-around correctamente</li>
+                    <li><strong>test_write_byte_negative_value:</strong> Verifica que valores negativos se convierten correctamente</li>
+                    <li><strong>test_read_word_little_endian:</strong> Test CRÍTICO - Verifica que read_word lee correctamente en formato Little-Endian (0xCD en addr, 0xAB en addr+1 → 0xABCD)</li>
+                    <li><strong>test_write_word_little_endian:</strong> Test CRÍTICO - Verifica que write_word escribe correctamente en formato Little-Endian (0x1234 → 0x34 en addr, 0x12 en addr+1)</li>
+                    <li><strong>test_read_write_word_roundtrip:</strong> Verifica que escribir y leer una palabra devuelve el valor original</li>
+                    <li><strong>test_write_word_wraps_value:</strong> Verifica que valores > 0xFFFF hacen wrap-around correctamente</li>
+                    <li><strong>test_address_wrap_around:</strong> Verifica que direcciones fuera de rango hacen wrap-around</li>
+                    <li><strong>test_read_word_at_boundary:</strong> Verifica lectura de palabras en el límite del espacio (0xFFFE)</li>
+                    <li><strong>test_write_word_at_boundary:</strong> Verifica escritura de palabras en el límite del espacio</li>
+                    <li><strong>test_memory_initialized_to_zero:</strong> Verifica que la memoria se inicializa a cero</li>
+                    <li><strong>test_multiple_writes_same_address:</strong> Verifica que múltiples escrituras sobrescriben correctamente</li>
+                    <li><strong>test_little_endian_example_from_docs:</strong> Verifica el ejemplo específico mencionado en la documentación</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> 13 tests en total, todos pasando correctamente (0.29s).
+                </p>
+                <p>
+                    Se verificó que no hay errores de linting en los archivos creados.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs:</strong> Game Boy Memory Map - Descripción del espacio de direcciones y sus regiones</li>
+                    <li><strong>Pan Docs:</strong> Endianness - Explicación de Little-Endian en la Game Boy</li>
+                    <li><strong>Conocimiento general de arquitectura:</strong> Conceptos de memoria en sistemas de 8 bits y endianness</li>
+                </ul>
+                <p>
+                    <em>Nota: La implementación se basó en conocimiento general de arquitectura de memoria y las especificaciones del mapa de memoria de la Game Boy.
+                    El uso de Little-Endian es una característica conocida del hardware real de la Game Boy.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Little-Endian:</strong> El byte menos significativo (LSB) se almacena en la dirección más baja. Esto es crítico para todas las operaciones de 16 bits. La implementación correcta es: <code>(msb << 8) | lsb</code> al leer, y separar con <code>value & 0xFF</code> (LSB) y <code>(value >> 8) & 0xFF</code> (MSB) al escribir.</li>
+                        <li><strong>Mapa de memoria:</strong> El espacio de direcciones no es solo almacenamiento, sino un mapa donde diferentes rangos activan diferentes componentes. Esto será importante cuando implementemos mapeo específico por regiones.</li>
+                        <li><strong>Wrap-around:</strong> Las direcciones y valores que exceden su rango válido deben hacer wrap-around usando máscaras bitwise. Esto simula el comportamiento del hardware real.</li>
+                        <li><strong>Memoria inicializada a cero:</strong> Por defecto, toda la memoria se inicializa a 0x00. Esto es importante para el comportamiento inicial del sistema.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Valores iniciales de regiones específicas:</strong> Algunas regiones de memoria (como I/O ports) pueden tener valores iniciales específicos al boot. Pendiente de verificar con documentación o tests ROMs permitidas.</li>
+                        <li><strong>Comportamiento de regiones protegidas:</strong> Algunas regiones son de solo lectura (ROM) o tienen restricciones de escritura. Esto se implementará cuando separemos las regiones.</li>
+                        <li><strong>Bank Switching:</strong> El mecanismo exacto de cambio de bancos de ROM/RAM del cartucho. Se implementará cuando se añada soporte para cartuchos.</li>
+                        <li><strong>Echo RAM:</strong> El comportamiento exacto de la región Echo RAM (0xE000-0xFDFF) que espeja WRAM. Pendiente de verificar si hay diferencias sutiles.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el uso de un <code>bytearray</code> lineal es suficiente para empezar a ejecutar opcodes simples.
+                        Esta es una suposición razonable para una primera iteración, pero se validará cuando se implementen opcodes que accedan a diferentes regiones de memoria.
+                    </p>
+                    <p>
+                        Se asume que el comportamiento de wrap-around usando máscaras bitwise es correcto para todas las operaciones.
+                        Esto es consistente con cómo funcionan los sistemas de 8 bits, pero se validará completamente cuando se implementen opcodes que usen direccionamiento indirecto y aritmética de direcciones.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar el ciclo de instrucción básico de la CPU (Fetch-Decode-Execute)</li>
+                    <li>[ ] Implementar decodificación de opcodes simples (empezar con NOP, LD, etc.)</li>
+                    <li>[ ] Conectar la CPU con la MMU para que pueda leer instrucciones de la memoria</li>
+                    <li>[ ] Implementar separación de regiones de memoria (ROM, VRAM, WRAM, I/O, etc.)</li>
+                    <li>[ ] Implementar sistema de carga de ROMs en la región de ROM</li>
+                    <li>[ ] Implementar mapeo específico para I/O ports básicos</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
