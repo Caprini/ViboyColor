@@ -62,6 +62,10 @@ class CPU:
             0x3E: self._op_ld_a_d8,
             0xC6: self._op_add_a_d8,
             0xD6: self._op_sub_d8,
+            # Saltos (Jumps)
+            0xC3: self._op_jp_nn,      # JP nn (Jump absolute)
+            0x18: self._op_jr_e,       # JR e (Jump relative unconditional)
+            0x20: self._op_jr_nz_e,    # JR NZ, e (Jump relative if Not Zero)
         }
         
         logger.info("CPU inicializada")
@@ -81,6 +85,49 @@ class CPU:
         # Avanzar PC al siguiente byte
         self.registers.set_pc((addr + 1) & 0xFFFF)
         return value
+
+    def fetch_word(self) -> int:
+        """
+        Helper para leer la siguiente palabra (16 bits) de memoria y avanzar PC.
+        
+        Lee dos bytes consecutivos en formato Little-Endian y avanza PC en 2.
+        Útil para leer direcciones de 16 bits (ej: en instrucciones JP nn).
+        
+        Returns:
+            Palabra de 16 bits leída (Little-Endian)
+            
+        Fuente: Pan Docs - Memory Map (Little-Endian)
+        """
+        addr = self.registers.get_pc()
+        value = self.mmu.read_word(addr)
+        # Avanzar PC en 2 bytes
+        self.registers.set_pc((addr + 2) & 0xFFFF)
+        return value
+
+    def _read_signed_byte(self) -> int:
+        """
+        Lee un byte de memoria y lo convierte a entero con signo (Two's Complement).
+        
+        En la Game Boy, los offsets de salto relativo (JR) usan representación
+        de complemento a 2 (Two's Complement) en 8 bits:
+        - Valores 0x00-0x7F (0-127): Positivos
+        - Valores 0x80-0xFF (128-255): Negativos (-128 a -1)
+        
+        Ejemplo:
+        - 0xFF = 255 en unsigned, pero -1 en signed
+        - 0xFE = 254 en unsigned, pero -2 en signed
+        - 0x80 = 128 en unsigned, pero -128 en signed
+        
+        Fórmula: val if val < 128 else val - 256
+        
+        Returns:
+            Entero con signo en el rango [-128, 127]
+            
+        Fuente: Pan Docs - CPU Instruction Set (JR instructions)
+        """
+        unsigned_val = self.fetch_byte()
+        # Convertir a signed: si >= 128, restar 256
+        return unsigned_val if unsigned_val < 128 else unsigned_val - 256
 
     def step(self) -> int:
         """
