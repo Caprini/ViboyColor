@@ -1,5 +1,75 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-16 - Implementación del Ciclo de Instrucción de la CPU
+
+### Conceptos Hardware Implementados
+
+**Ciclo Fetch-Decode-Execute**: El ciclo de instrucción es el proceso fundamental que hace que una CPU funcione. Sin él, la CPU es solo una estructura de datos estática. Es el "latido" que convierte el hardware en una máquina ejecutable. El ciclo básico es: (1) Fetch: Lee el byte en la dirección apuntada por PC (opcode), (2) Increment: Avanza PC, (3) Decode: Identifica la operación, (4) Execute: Ejecuta la operación.
+
+**M-Cycles (Ciclos de Máquina)**: Un M-Cycle corresponde a una operación de memoria. Por ahora contamos M-Cycles porque es más simple. Más adelante necesitaremos T-Cycles (ciclos de reloj) para sincronización precisa con otros componentes (PPU, APU, timers). Típicamente 1 M-Cycle = 4 T-Cycles.
+
+**Opcodes e Instrucciones**: Un opcode es un byte (0x00 a 0xFF) que identifica una operación específica. La Game Boy tiene aproximadamente 500 opcodes diferentes. En este paso se implementaron los primeros 3: NOP (0x00), LD A,d8 (0x3E) y LD B,d8 (0x06).
+
+#### Tareas Completadas:
+
+1. **Clase `CPU` (`src/cpu/core.py`)**:
+   - Implementación completa del ciclo Fetch-Decode-Execute
+   - Método `step()` que ejecuta una sola instrucción y devuelve los ciclos consumidos
+   - Método `fetch_byte()` helper para leer operandos e incrementar PC automáticamente
+   - Método `_execute_opcode()` que hace dispatch de opcodes usando if/elif
+   - Inyección de dependencias: CPU recibe MMU en el constructor para modularidad
+   - Manejo de opcodes no implementados con `NotImplementedError` informativo
+   - Logging con nivel DEBUG para trazas de depuración
+   - Documentación educativa extensa explicando el ciclo de instrucción
+
+2. **Opcodes Implementados**:
+   - **0x00 - NOP (No Operation)**: No hace nada, consume 1 M-Cycle
+   - **0x3E - LD A, d8**: Carga un valor inmediato de 8 bits en el registro A, consume 2 M-Cycles
+   - **0x06 - LD B, d8**: Carga un valor inmediato de 8 bits en el registro B, consume 2 M-Cycles
+
+3. **Tests Unitarios (`tests/test_cpu_core.py`)**:
+   - **Test 1 (test_nop)**: Verifica que NOP avanza PC en 1 byte y consume 1 ciclo
+   - **Test 2 (test_ld_a_d8)**: Verifica que LD A, d8 carga el valor correcto, avanza PC en 2 bytes y consume 2 ciclos
+   - **Test 3 (test_ld_b_d8)**: Verifica que LD B, d8 funciona igual pero en el registro B
+   - **Test 4 (test_unimplemented_opcode_raises)**: Verifica que opcodes no implementados lanzan NotImplementedError
+   - **Test 5 (test_fetch_byte_helper)**: Verifica que fetch_byte() lee correctamente y avanza PC
+   - **Test 6 (test_multiple_instructions_sequential)**: Verifica ejecución secuencial de múltiples instrucciones
+   - **6 tests en total, todos pasando ✅**
+
+4. **Actualización de Módulos**:
+   - Actualizado `src/cpu/__init__.py` para exportar la clase CPU
+
+#### Archivos Afectados:
+- `src/cpu/core.py` (nuevo, 170 líneas)
+- `src/cpu/__init__.py` (modificado, exporta CPU)
+- `tests/test_cpu_core.py` (nuevo, 204 líneas)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0003)
+- `docs/bitacora/entries/2025-12-16__0003__ciclo-instruccion-cpu.html` (nuevo)
+- `INFORME_COMPLETO.md` (este archivo)
+
+#### Cómo se Validó:
+- Ejecución de `pytest tests/test_cpu_core.py -v`: **6 tests pasando**
+- Verificación de que PC avanza correctamente después de cada instrucción
+- Verificación de que los registros se actualizan correctamente con valores inmediatos
+- Verificación de que los ciclos se cuentan correctamente
+- Verificación de ejecución secuencial de múltiples instrucciones
+- Sin errores de linting (verificado con read_lints)
+
+#### Lo que Entiendo Ahora:
+- **Ciclo Fetch-Decode-Execute**: Es el bucle fundamental que hace funcionar una CPU. Sin este ciclo, los registros y la memoria son solo estructuras de datos estáticas.
+- **Program Counter (PC)**: Debe avanzar automáticamente después de cada instrucción para permitir ejecución secuencial. El helper fetch_byte() facilita esto.
+- **Opcodes**: Son bytes que identifican operaciones. La mayoría de opcodes tienen operandos que siguen inmediatamente después en memoria.
+- **M-Cycles**: Por ahora contamos M-Cycles porque es más simple. Más adelante necesitaremos T-Cycles para sincronización precisa.
+- **Modularidad**: La CPU depende de MMU pero no viceversa. Esto permite tests independientes y mejor arquitectura.
+
+#### Lo que Falta Confirmar:
+- Timing preciso: Algunas instrucciones pueden tener variaciones en timing dependiendo de condiciones. Se validará con tests ROM cuando implementemos más opcodes.
+- Interrupciones: El ciclo de instrucción debe poder ser interrumpido. Esto se implementará más adelante.
+- Opcodes CB (prefijo): La Game Boy tiene un prefijo especial 0xCB que cambia el significado de los siguientes 256 opcodes. Se implementará más adelante.
+- Opcodes condicionales: Muchas instrucciones tienen versiones condicionales que dependen de flags. Necesitaremos lógica de branching.
+
+---
+
 ## 2025-12-16 - Implementación de la MMU Básica
 
 ### Conceptos Hardware Implementados
