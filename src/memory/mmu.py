@@ -28,6 +28,11 @@ Fuente: Pan Docs - Memory Map
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .cartridge import Cartridge
+
 
 class MMU:
     """
@@ -43,17 +48,27 @@ class MMU:
     # Tamaño total del espacio de direcciones (16 bits = 65536 bytes)
     MEMORY_SIZE = 0x10000  # 65536 bytes
 
-    def __init__(self) -> None:
+    def __init__(self, cartridge: Cartridge | None = None) -> None:
         """
         Inicializa la MMU con un bytearray de 65536 bytes, todos inicializados a 0.
+        
+        Args:
+            cartridge: Instancia opcional de Cartridge para mapear la ROM en memoria
         """
         # Usamos bytearray para simular la memoria completa
         # Inicializamos todos los bytes a 0
         self._memory: bytearray = bytearray(self.MEMORY_SIZE)
+        
+        # Referencia al cartucho (si está insertado)
+        self._cartridge: Cartridge | None = cartridge
 
     def read_byte(self, addr: int) -> int:
         """
         Lee un byte (8 bits) de la dirección especificada.
+        
+        El mapeo de memoria es:
+        - 0x0000 - 0x7FFF: ROM Area (Cartucho)
+        - 0x8000 - 0xFFFF: Otras regiones (VRAM, WRAM, I/O, etc.)
         
         Args:
             addr: Dirección de memoria (0x0000 a 0xFFFF)
@@ -67,7 +82,15 @@ class MMU:
         # Aseguramos que la dirección esté en el rango válido
         addr = addr & 0xFFFF
         
-        # Leemos el byte de la memoria
+        # Si está en el área de ROM (0x0000 - 0x7FFF), delegar al cartucho
+        if addr <= 0x7FFF:
+            if self._cartridge is not None:
+                return self._cartridge.read_byte(addr)
+            else:
+                # Si no hay cartucho, devolver 0xFF (comportamiento típico)
+                return 0xFF
+        
+        # Para otras regiones, leer de la memoria interna
         return self._memory[addr] & 0xFF
 
     def write_byte(self, addr: int, value: int) -> None:
