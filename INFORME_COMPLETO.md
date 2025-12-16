@@ -1,5 +1,63 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-16 - Añadir Licencia MIT al Proyecto
+
+### Conceptos Implementados
+
+**Licencia de Software Open Source**: Una licencia de software es un contrato legal que define cómo otros pueden usar, modificar y distribuir el código. Para proyectos educativos Open Source, elegir la licencia correcta es fundamental para proteger el trabajo y permitir su difusión.
+
+**Licencia MIT**: Es una licencia permisiva (permissive) que permite prácticamente cualquier uso del código, incluyendo uso comercial y privado, siempre que se mantenga el aviso de copyright. Es ideal para proyectos educativos porque:
+- Es simple y fácil de entender (solo ~20 líneas)
+- Permite máxima difusión sin restricciones complejas
+- No requiere que otros liberen su código si usan el tuyo (a diferencia de GPL)
+- Es ampliamente reconocida y aceptada en la comunidad Open Source
+
+**Comparación con GPLv3**: La GPL (General Public License) es una licencia copyleft que obliga a cualquier código derivado a ser también liberado bajo GPL. Esto puede complicar la integración en proyectos educativos o comerciales que no quieren liberar su código. Para un proyecto educativo que busca máxima difusión, MIT es más apropiada.
+
+#### Tareas Completadas:
+
+1. **Archivo LICENSE (`LICENSE`)**:
+   - Creado archivo en la raíz del proyecto con el texto oficial de la licencia MIT
+   - Año 2025, copyright "Viboy Color Contributors"
+   - Texto oficial sin modificaciones
+
+2. **Actualización de README.md**:
+   - Añadido badge de licencia MIT al principio del archivo usando shields.io
+   - Mejorada sección "Licencia" con explicación de los términos MIT
+   - Resumen de permisos y restricciones de la licencia
+
+3. **Documentación**:
+   - Añadida entrada en `INFORME_COMPLETO.md`
+   - Creada entrada en bitácora web (`docs/bitacora/entries/2025-12-16__0006__licencia-mit.html`)
+   - Actualizado índice de bitácora web
+
+#### Archivos Afectados:
+- `LICENSE` (nuevo, texto oficial de MIT License)
+- `README.md` (modificado, añadido badge y sección mejorada)
+- `INFORME_COMPLETO.md` (este archivo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0006)
+- `docs/bitacora/entries/2025-12-16__0006__licencia-mit.html` (nuevo)
+
+#### Cómo se Validó:
+- Verificación de formato: El archivo LICENSE sigue el formato estándar de MIT License
+- Verificación de contenido: El texto de la licencia es el oficial, sin modificaciones
+- Verificación de README: El badge de licencia se muestra correctamente y los enlaces funcionan
+- Verificación de estructura: El archivo LICENSE está en la raíz del proyecto, siguiendo convenciones estándar
+
+#### Lo que Entiendo Ahora:
+- **Licencias permisivas vs copyleft**: Las licencias permisivas (MIT, Apache) permiten uso comercial y privado sin obligar a liberar código derivado. Las licencias copyleft (GPL) obligan a liberar código derivado bajo la misma licencia.
+- **MIT para proyectos educativos**: MIT es ideal para proyectos educativos porque permite máxima difusión sin restricciones complejas, facilitando que estudiantes y educadores usen el código sin preocupaciones legales.
+- **Importancia de la licencia**: Sin una licencia explícita, el código está protegido por copyright por defecto, lo que puede disuadir a otros de usarlo incluso para fines educativos.
+
+#### Lo que Falta Confirmar:
+- **Compatibilidad con otras licencias**: Si en el futuro se integran dependencias con otras licencias (GPL, Apache), habrá que verificar compatibilidad.
+- **Contribuciones futuras**: Si otros contribuyen código, habrá que asegurar que aceptan la licencia MIT o añadir un archivo CONTRIBUTING.md con guías.
+
+#### Hipótesis y Suposiciones:
+La elección de MIT es correcta para este proyecto educativo. No hay suposiciones críticas, ya que MIT es una licencia estándar y bien documentada. El texto de la licencia es el oficial y no ha sido modificado.
+
+---
+
 ## 2025-12-16 - Implementación de Saltos y Control de Flujo
 
 ### Conceptos Hardware Implementados

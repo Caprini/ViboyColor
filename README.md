@@ -1,5 +1,7 @@
 # Viboy Color
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Un emulador de Game Boy Color escrito en Python, desarrollado desde cero con un enfoque educativo y clean-room.
 
 ## 🎯 Descripción
@@ -164,7 +166,15 @@ Este es un proyecto educativo y open source. Las contribuciones son bienvenidas,
 
 ## 📝 Licencia
 
-Este proyecto es educativo y open source. Consulta el archivo LICENSE para más detalles.
+Este proyecto es educativo y open source, distribuido bajo la licencia **MIT**.
+
+Consulta el archivo [LICENSE](LICENSE) para más detalles sobre los términos de uso, distribución y modificación del código.
+
+**Resumen de la licencia MIT:**
+- ✅ Permite uso comercial y privado
+- ✅ Permite modificación y distribución
+- ✅ Requiere mantener el aviso de copyright
+- ✅ No ofrece garantías (software "as is")
 
 ## 🙏 Agradecimientos
 
