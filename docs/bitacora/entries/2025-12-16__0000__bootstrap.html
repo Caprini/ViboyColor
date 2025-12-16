@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bootstrap: Configuración de la Bitácora Web - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Bootstrap: Configuración de la Bitácora Web</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-16
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0000
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="#" aria-disabled="true">Anterior</a></li>
+                    <li><a href="#" aria-disabled="true">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se ha configurado una bitácora web estática (HTML/CSS) para documentar
+                    el desarrollo educativo del proyecto Viboy Color. Se ha creado la estructura
+                    completa de directorios, estilos compartidos con soporte para modo claro/oscuro,
+                    plantilla base para entradas futuras, índice principal, y la primera entrada
+                    bootstrap. Todo el sistema es completamente offline y sin dependencias externas.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <em>Este paso no implementa hardware, sino infraestructura de documentación.
+                    Sin embargo, es importante para mantener la integridad educativa del proyecto.</em>
+                </p>
+                <p>
+                    La bitácora web estática permite documentar de forma estructurada y educativa
+                    cada paso del desarrollo del emulador. Al ser estática y offline, garantiza
+                    portabilidad total (Windows/Linux/macOS) y no requiere servidor ni dependencias
+                    externas, cumpliendo con los principios de portabilidad y simplicidad del proyecto.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se ha creado una estructura completa de bitácora web estática con los siguientes
+                    componentes:
+                </p>
+                
+                <h3>Estructura de directorios</h3>
+                <pre><code>docs/bitacora/
+├── assets/
+│   └── style.css          # Estilos compartidos (CSS variables, dark mode)
+├── entries/
+│   └── YYYY-MM-DD__NNNN__nombre.html
+├── _entry_template.html   # Plantilla base para nuevas entradas
+└── index.html             # Índice principal</code></pre>
+
+                <h3>Características implementadas</h3>
+                <ul>
+                    <li><strong>Sistema de estilos CSS:</strong> Variables CSS para colores, soporte automático para modo claro/oscuro mediante <code>prefers-color-scheme</code></li>
+                    <li><strong>Componentes reutilizables:</strong> Cards, meta information, tags, código, tablas, bloques de integridad educativa</li>
+                    <li><strong>Diseño responsive:</strong> Adaptación a dispositivos móviles mediante media queries</li>
+                    <li><strong>Tipografía del sistema:</strong> Uso de <code>system-ui</code> sin importar fuentes externas</li>
+                    <li><strong>Links relativos:</strong> Todos los enlaces son relativos para funcionar offline</li>
+                    <li><strong>Aviso clean-room:</strong> Banner visible en todas las páginas recordando los principios del proyecto</li>
+                </ul>
+
+                <h3>Estructura semántica de entradas</h3>
+                <p>
+                    Cada entrada sigue una estructura estricta con las siguientes secciones:
+                </p>
+                <ol>
+                    <li>Resumen (2-4 líneas)</li>
+                    <li>Concepto de Hardware (explicación educativa)</li>
+                    <li>Implementación (qué se hizo y por qué)</li>
+                    <li>Archivos Afectados (lista con rutas)</li>
+                    <li>Tests y Verificación (pytest/logs/ROMs de test)</li>
+                    <li>Fuentes Consultadas (referencias técnicas)</li>
+                    <li>Integridad Educativa (qué entiendo / qué falta / hipótesis)</li>
+                    <li>Próximos Pasos (checklist)</li>
+                </ol>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>docs/bitacora/assets/style.css</code> - Estilos compartidos completos (nuevo)</li>
+                    <li><code>docs/bitacora/_entry_template.html</code> - Plantilla base para entradas (nuevo)</li>
+                    <li><code>docs/bitacora/index.html</code> - Índice principal de la bitácora (nuevo)</li>
+                    <li><code>docs/bitacora/entries/2025-12-16__0000__bootstrap.html</code> - Primera entrada bootstrap (nuevo)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Validación realizada:
+                </p>
+                <ul>
+                    <li><strong>Verificación HTML:</strong> Estructura HTML5 válida y semántica</li>
+                    <li><strong>Links relativos:</strong> Todos los enlaces funcionan correctamente desde cualquier ubicación</li>
+                    <li><strong>CSS:</strong> Estilos aplicados correctamente, variables CSS funcionando</li>
+                    <li><strong>Modo oscuro:</strong> Soporte automático mediante <code>prefers-color-scheme: dark</code> verificado</li>
+                    <li><strong>Portabilidad:</strong> Archivos abren correctamente offline en navegadores modernos</li>
+                    <li><strong>Responsive:</strong> Diseño adaptativo verificado con diferentes anchos de pantalla</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> No se requieren tests unitarios para archivos HTML/CSS estáticos.
+                    La validación se realiza mediante inspección manual y apertura en navegador.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>MDN Web Docs - CSS Variables: <a href="https://developer.mozilla.org/en-US/docs/Web/CSS/Using_CSS_custom_properties">https://developer.mozilla.org/en-US/docs/Web/CSS/Using_CSS_custom_properties</a></li>
+                    <li>MDN Web Docs - prefers-color-scheme: <a href="https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-color-scheme">https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-color-scheme</a></li>
+                    <li>HTML5 Semántico - Estructura de documentos: Conocimiento general de HTML5 semántico</li>
+                </ul>
+                <p>
+                    <em>Implementación basada en estándares web (HTML5, CSS3) sin uso de frameworks
+                    o bibliotecas externas, cumpliendo con el requisito de cero dependencias.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>CSS Variables:</strong> Permiten crear temas fácilmente cambiando valores en <code>:root</code> y usando media queries para modo oscuro.</li>
+                        <li><strong>HTML Semántico:</strong> La estructura semántica (header, nav, main, section, footer) mejora la accesibilidad y mantenibilidad.</li>
+                        <li><strong>Links Relativos:</strong> Permiten que la bitácora funcione completamente offline sin necesidad de servidor.</li>
+                        <li><strong>System Fonts:</strong> Usar <code>system-ui</code> garantiza buen rendimiento y apariencia nativa sin cargar fuentes externas.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>La estructura de secciones será validada con uso real en próximas entradas.</li>
+                        <li>Si es necesario, se pueden añadir más componentes CSS según necesidades futuras.</li>
+                        <li>La plantilla puede necesitar ajustes una vez se documenten implementaciones de hardware reales.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que la estructura propuesta es suficiente para documentar todos los
+                        aspectos del desarrollo del emulador. Si en el futuro se necesitan secciones
+                        adicionales, se pueden añadir manteniendo la consistencia con la plantilla base.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[x] Crear estructura de directorios de la bitácora</li>
+                    <li>[x] Implementar estilos CSS compartidos con modo claro/oscuro</li>
+                    <li>[x] Crear plantilla base para entradas</li>
+                    <li>[x] Crear índice principal (index.html)</li>
+                    <li>[x] Crear primera entrada bootstrap</li>
+                    <li>[ ] Documentar próximas implementaciones de hardware usando esta bitácora</li>
+                    <li>[ ] Mantener la bitácora actualizada con cada paso significativo del proyecto</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
