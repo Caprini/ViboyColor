@@ -233,6 +233,61 @@
                         de testing esté completamente configurado.</em>
                     </p>
                 </div>
+                
+                <h3>Test Exitoso con ROM Real (2025-12-16)</h3>
+                <div style="background-color: var(--color-bg-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-top: var(--spacing-md);">
+                    <p>
+                        <strong>✅ Validación con ROM Real: tetris.gbc</strong>
+                    </p>
+                    <p>
+                        Se ejecutó exitosamente el emulador con una ROM real de Game Boy Color (Tetris DX):
+                    </p>
+                    <pre style="background-color: var(--color-bg-primary); padding: var(--spacing-sm); border-radius: var(--border-radius); overflow-x: auto; margin-top: var(--spacing-sm);"><code>$ python3 main.py tetris.gbc
+
+Viboy Color - Sistema Iniciado
+==================================================
+
+📦 Cartucho cargado:
+   Título: TETRIS DX
+   Tipo: 0x03
+   ROM: 512 KB
+   RAM: 8 KB
+   Tamaño total: 524288 bytes
+
+🖥️  CPU inicializada:
+   PC = 0x0100
+   SP = 0xFFFE
+
+✅ Sistema listo para ejecutar
+   (Bucle principal de ejecución pendiente de implementar)</code></pre>
+                    <p style="margin-top: var(--spacing-md);">
+                        <strong>Resultados del Test:</strong>
+                    </p>
+                    <ul>
+                        <li><strong>✅ Carga de ROM:</strong> El archivo se cargó correctamente sin errores</li>
+                        <li><strong>✅ Parsing del Header:</strong> El título "TETRIS DX" se parseó correctamente</li>
+                        <li><strong>✅ Tipo de Cartucho:</strong> Se identificó correctamente como tipo 0x03 (MBC1 + RAM + Battery)</li>
+                        <li><strong>✅ Tamaño de ROM:</strong> Se detectó correctamente como 512 KB (524,288 bytes)</li>
+                        <li><strong>✅ Tamaño de RAM:</strong> Se detectó correctamente como 8 KB</li>
+                        <li><strong>✅ Inicialización de CPU:</strong> PC y SP se inicializaron correctamente (Post-Boot State)</li>
+                    </ul>
+                    <p style="margin-top: var(--spacing-md);">
+                        <strong>Observaciones Importantes:</strong>
+                    </p>
+                    <ul>
+                        <li>La ROM es de 512 KB, mayor que los 32 KB soportados actualmente. Para ejecutar el código de esta ROM,
+                            será necesario implementar Bank Switching (MBC1) en el futuro.</li>
+                        <li>El parsing del Header funciona correctamente con ROMs reales, confirmando que la implementación
+                            sigue las especificaciones de Pan Docs.</li>
+                        <li>El sistema está listo para ejecutar código, pero falta implementar el bucle principal de ejecución
+                            para que la CPU ejecute instrucciones continuamente.</li>
+                    </ul>
+                    <p style="margin-top: var(--spacing-md); color: var(--color-text-secondary);">
+                        <em>Este test confirma que la implementación de carga de ROM y parsing del Header es funcional y
+                        puede manejar ROMs reales de Game Boy Color. El siguiente paso será implementar el bucle principal
+                        de ejecución y Bank Switching para poder ejecutar el código de ROMs más grandes.</em>
+                    </p>
+                </div>
             </section>
 
             <!-- 6. Fuentes Consultadas -->

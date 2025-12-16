@@ -71,6 +71,15 @@ Por ahora, solo soportamos ROMs de 32KB (sin Bank Switching). Más adelante impl
 - **Verificación de portabilidad**: Uso de `pathlib.Path` y `tempfile` asegura portabilidad entre Windows, Linux y macOS
 - **Verificación de integración**: MMU delega correctamente la lectura de ROM al cartucho
 - **Verificación de CLI**: main.py acepta argumentos CLI y carga ROMs correctamente
+- **✅ Test exitoso con ROM real (tetris.gbc)**: Se ejecutó exitosamente el emulador con una ROM real de Game Boy Color (Tetris DX). Resultados:
+  - Carga de ROM: ✅ El archivo se cargó correctamente sin errores
+  - Parsing del Header: ✅ El título "TETRIS DX" se parseó correctamente
+  - Tipo de Cartucho: ✅ Se identificó correctamente como tipo 0x03 (MBC1 + RAM + Battery)
+  - Tamaño de ROM: ✅ Se detectó correctamente como 512 KB (524,288 bytes)
+  - Tamaño de RAM: ✅ Se detectó correctamente como 8 KB
+  - Inicialización de CPU: ✅ PC y SP se inicializaron correctamente (Post-Boot State)
+  
+  **Observación importante**: La ROM es de 512 KB, mayor que los 32 KB soportados actualmente. Para ejecutar el código de esta ROM, será necesario implementar Bank Switching (MBC1) en el futuro. El parsing del Header funciona correctamente con ROMs reales, confirmando que la implementación sigue las especificaciones de Pan Docs.
 
 #### Lo que Entiendo Ahora:
 - **Estructura del Header**: El Header del cartucho está ubicado en 0x0100 - 0x014F y contiene información crítica sobre el cartucho (título, tipo, tamaños). Esta información es necesaria para que el emulador sepa cómo manejar el cartucho (qué tipo de MBC usar, cuánta RAM tiene, etc.).
@@ -82,7 +91,7 @@ Por ahora, solo soportamos ROMs de 32KB (sin Bank Switching). Más adelante impl
 - **Bank Switching (MBC)**: Solo se implementó soporte para ROMs de 32KB (ROM ONLY, sin MBC). Falta implementar MBC1, MBC3, etc. para ROMs más grandes. Esto será necesario para la mayoría de juegos comerciales.
 - **Validación de Checksum**: El Header incluye un checksum (0x014D - 0x014E) que valida la integridad de la ROM. Falta implementar la validación del checksum para detectar ROMs corruptas.
 - **Boot ROM real**: Por ahora simulamos el Post-Boot State. En el futuro, sería interesante implementar la Boot ROM real (si está disponible públicamente) para una inicialización más precisa del hardware.
-- **Validación con ROMs reales**: Aunque los tests unitarios pasan, sería ideal validar con ROMs reales (redistribuibles) para verificar que el parsing del Header funciona correctamente con juegos reales.
+- **✅ Validación con ROMs reales**: **COMPLETADO** - Se validó exitosamente con tetris.gbc (ROM real de Game Boy Color). El parsing del Header funciona correctamente con juegos reales, confirmando que la implementación sigue las especificaciones de Pan Docs.
 - **Manejo de ROMs corruptas**: Falta implementar validación más robusta para detectar ROMs corruptas o mal formateadas (además del tamaño mínimo).
 
 #### Hipótesis y Suposiciones:
@@ -90,7 +99,7 @@ El parsing del Header implementado es correcto según la documentación técnica
 
 **Suposición sobre lectura fuera de rango**: Cuando se lee fuera del rango de la ROM, se devuelve 0xFF. Esto es el comportamiento típico del hardware real, pero no está completamente verificado. Si en el futuro hay problemas con ROMs que intentan leer fuera de rango, habrá que revisar este comportamiento.
 
-**Plan de validación futura**: Cuando se implemente el bucle principal de ejecución y se pueda ejecutar código real de ROMs, si el código se ejecuta correctamente (no se pierde el programa), confirmará que el mapeo de ROM está bien implementado. Si hay problemas, habrá que revisar el mapeo o el parsing del Header.
+**Plan de validación futura**: El parsing del Header ya está validado con una ROM real (tetris.gbc). Cuando se implemente el bucle principal de ejecución y Bank Switching (MBC1), se podrá ejecutar código real de ROMs. Si el código se ejecuta correctamente (no se pierde el programa), confirmará que el mapeo de ROM está bien implementado. Si hay problemas, habrá que revisar el mapeo o el parsing del Header.
 
 ---
 
