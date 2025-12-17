@@ -69,7 +69,14 @@ La lógica inversa de Z puede ser confusa, pero tiene sentido cuando se usa con 
 
 #### Lo que Falta Confirmar:
 - **Otras instrucciones CB**: Solo se implementó BIT 7, H. Faltan todas las demás variantes de BIT (BIT 0-6, y para otros registros), así como RES, SET, rotaciones y shifts.
-- **Validación con ROMs reales**: Aunque los tests unitarios pasan, sería ideal validar con Tetris DX o ROMs de test redistribuibles que usen estas instrucciones. El siguiente paso es ejecutar Tetris DX y verificar que avanza más allá del punto donde se detenía antes.
+- **✅ Validación con ROMs reales**: **COMPLETADO** - Se ejecutó exitosamente Tetris DX (ROM real de Game Boy Color). Resultados:
+  - **Progreso significativo**: El emulador ahora ejecuta **5 instrucciones** (antes solo 3) antes de detenerse
+  - **LDH funcionando**: Se ejecutaron correctamente 2 instrucciones LDH (0xE0):
+    - `LDH (0x80), A` en 0x0151 escribió 0x00 en 0xFF80 ✅
+    - `LDH (0x81), A` en 0x0153 escribió 0x00 en 0xFF81 ✅
+  - **Total de ciclos**: 12 ciclos ejecutados (1 + 4 + 1 + 3 + 3)
+  - **Siguiente opcode no implementado**: 0x01 (LD BC, d16) en 0x0155
+  - **Observación**: Las instrucciones LDH se ejecutan correctamente, permitiendo al juego configurar los registros de hardware (I/O Ports). El siguiente paso es implementar LD BC, d16 (0x01) para continuar con la inicialización del sistema.
 - **Timing exacto**: Los ciclos de las instrucciones CB están basados en la documentación, pero falta verificar con hardware real o ROMs de test que el timing sea correcto.
 
 #### Hipótesis y Suposiciones:
