@@ -1,5 +1,73 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-17 - Rotaciones, Shifts y SWAP - Prefijo CB (0x00-0x3F)
+
+### Conceptos Hardware Implementados
+
+**Diferencia Crítica: Flags Z en Rotaciones**: Las rotaciones rápidas del acumulador (RLCA 0x07, RRCA 0x0F, RLA 0x17, RRA 0x1F) tienen un comportamiento especial del hardware: **siempre ponen Z=0**, incluso si el resultado es 0. Esto es un "quirk" del hardware de la Game Boy. En contraste, las versiones CB de estas rotaciones (**RLC, RRC, RL, RR**) **SÍ calculan el flag Z** normalmente: si el resultado es 0, Z se activa (Z=1). Esta diferencia es crítica para la lógica de los juegos.
+
+**SWAP (Intercambio de Nibbles)**: SWAP intercambia los 4 bits altos con los 4 bits bajos de un registro. Por ejemplo: 0xA5 (10100101) → 0x5A (01011010), 0xF0 (11110000) → 0x0F (00001111). Esta operación es muy útil para manipular datos empaquetados.
+
+**Shifts (Desplazamientos)**:
+- **SLA (Shift Left Arithmetic)**: Multiplica por 2. El bit 7 va al Carry, el bit 0 entra 0.
+- **SRA (Shift Right Arithmetic)**: Divide por 2 manteniendo el signo. El bit 0 va al Carry, el bit 7 se mantiene igual (preserva el signo). Ejemplo: 0x80 (-128) → 0xC0 (-64).
+- **SRL (Shift Right Logical)**: Divide por 2 sin signo. El bit 0 va al Carry, el bit 7 entra 0. Ejemplo: 0x80 (128) → 0x40 (64).
+
+**Encoding CB**: El rango 0x00-0x3F está organizado en 8 filas (operaciones) x 8 columnas (registros):
+- 0x00-0x07: RLC r (B, C, D, E, H, L, (HL), A)
+- 0x08-0x0F: RRC r
+- 0x10-0x17: RL r
+- 0x18-0x1F: RR r
+- 0x20-0x27: SLA r
+- 0x28-0x2F: SRA r
+- 0x30-0x37: SRL r
+- 0x38-0x3F: SWAP r
+
+**Timing**: Las operaciones CB con registros consumen 2 M-Cycles, pero cuando el destino es (HL) (memoria indirecta), consumen 4 M-Cycles debido al acceso a memoria.
+
+#### Tareas Completadas:
+
+1. **Helpers Genéricos para Operaciones CB (`src/cpu/core.py`)**:
+   - **`_cb_rlc()`**: Rotate Left Circular - Helper genérico que devuelve (result, carry)
+   - **`_cb_rrc()`**: Rotate Right Circular
+   - **`_cb_rl()`**: Rotate Left through Carry
+   - **`_cb_rr()`**: Rotate Right through Carry
+   - **`_cb_sla()`**: Shift Left Arithmetic (multiplica por 2)
+   - **`_cb_sra()`**: Shift Right Arithmetic (divide por 2 con signo)
+   - **`_cb_srl()`**: Shift Right Logical (divide por 2 sin signo)
+   - **`_cb_swap()`**: Intercambio de nibbles (4 bits altos ↔ 4 bits bajos)
+
+2. **Helpers de Acceso y Flags (`src/cpu/core.py`)**:
+   - **`_cb_get_register_value()`**: Obtiene el valor de un registro o memoria según índice (0-7)
+   - **`_cb_set_register_value()`**: Establece el valor de un registro o memoria según índice
+   - **`_cb_update_flags()`**: Actualiza flags después de operación CB (calcula Z según resultado, diferencia con rotaciones rápidas)
+
+3. **Generación de Tabla CB (`src/cpu/core.py`)**:
+   - **`_init_cb_shifts_table()`**: Genera dinámicamente 64 handlers para el rango 0x00-0x3F
+   - Usa closures correctos (capturando valores por defecto) para evitar problemas de referencia
+   - Cada handler lee el registro/memoria, ejecuta la operación, escribe el resultado y actualiza flags
+   - Timing correcto: 2 M-Cycles para registros, 4 M-Cycles para (HL)
+
+4. **Tests TDD (`tests/test_cpu_cb_shifts.py`)**:
+   - **12 tests** validando:
+     - SWAP: Intercambio correcto de nibbles (0xF0 → 0x0F, 0xA5 → 0x5A), flags Z correctos
+     - SRA: Preservación de signo (0x80 → 0xC0), flags C correctos
+     - SRL: Desplazamiento sin signo (0x01 → 0x00 con C=1, Z=1), bit 7 entra como 0
+     - Diferencia Z: CB RLC calcula Z según resultado (0x00 → Z=1), diferencia crítica con RLCA
+     - Memoria indirecta: Operaciones CB con (HL) funcionan correctamente y consumen 4 M-Cycles
+
+#### Archivos Afectados:
+
+- `src/cpu/core.py`: Añadidos helpers genéricos para operaciones CB y generación de tabla para rango 0x00-0x3F
+- `tests/test_cpu_cb_shifts.py`: Creado archivo nuevo con suite completa de tests (12 tests)
+
+#### Tests y Verificación:
+
+- **Tests unitarios**: pytest con 12 tests pasando. Todos los tests validan correctamente las operaciones CB del rango 0x00-0x3F.
+- **Ejecución con ROM real (Tetris DX)**: El emulador ejecuta correctamente muchas instrucciones básicas. La implementación está lista para cuando Tetris necesite instrucciones CB (especialmente SWAP y SRL que usa para gráficos de bloques y aleatoriedad).
+
+---
+
 ## 2025-12-17 - Cargas Inmediatas Restantes (LD r, d8 y LD (HL), d8)
 
 ### Conceptos Hardware Implementados

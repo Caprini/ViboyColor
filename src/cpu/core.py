@@ -160,10 +160,14 @@ class CPU:
         
         # Tabla de despacho para opcodes CB (Extended Instructions)
         # El prefijo CB permite acceder a 256 instrucciones adicionales
+        # Rango 0x00-0x3F: Rotaciones y shifts (RLC, RRC, RL, RR, SLA, SRA, SRL, SWAP)
         # Rango 0x40-0x7F: BIT b, r (Test bit)
         self._cb_opcode_table: dict[int, Callable[[], int]] = {
             0x7C: self._op_cb_bit_7_h,    # BIT 7, H
         }
+        
+        # Inicializar tabla CB para rango 0x00-0x3F (rotaciones y shifts)
+        self._init_cb_shifts_table()
         
         # Inicializar handlers de transferencias LD r, r' (bloque 0x40-0x7F)
         # Esto se hace después de definir todos los métodos helper
@@ -2616,6 +2620,492 @@ class CPU:
             f"N={self.registers.get_flag_n()}"
         )
         return 2
+    
+    # ========== Helpers para Operaciones CB (Rotaciones, Shifts, SWAP) ==========
+    
+    def _cb_rlc(self, value: int) -> tuple[int, int]:
+        """
+        Rotate Left Circular - Helper genérico para CB RLC.
+        
+        Rota el valor hacia la izquierda de forma circular.
+        El bit 7 sale y entra por el bit 0. El bit 7 también se copia al flag C.
+        
+        DIFERENCIA CRÍTICA con RLCA (0x07):
+        - RLCA: Z=0 siempre (quirk del hardware)
+        - CB RLC: Z se calcula según el resultado (si resultado==0, Z=1)
+        
+        Args:
+            value: Valor de 8 bits a rotar
+            
+        Returns:
+            Tupla (result, carry) donde:
+            - result: Valor rotado (8 bits)
+            - carry: 1 si bit 7 original era 1, 0 si era 0
+            
+        Fuente: Pan Docs - CPU Instruction Set (RLC r)
+        """
+        value = value & 0xFF
+        
+        # Extraer bit 7 (el que sale)
+        bit7 = (value >> 7) & 0x01
+        
+        # Rotar: (value << 1) | bit7, enmascarar a 8 bits
+        result = ((value << 1) | bit7) & 0xFF
+        
+        return (result, bit7)
+    
+    def _cb_rrc(self, value: int) -> tuple[int, int]:
+        """
+        Rotate Right Circular - Helper genérico para CB RRC.
+        
+        Rota el valor hacia la derecha de forma circular.
+        El bit 0 sale y entra por el bit 7. El bit 0 también se copia al flag C.
+        
+        DIFERENCIA CRÍTICA con RRCA (0x0F):
+        - RRCA: Z=0 siempre
+        - CB RRC: Z se calcula según el resultado
+        
+        Args:
+            value: Valor de 8 bits a rotar
+            
+        Returns:
+            Tupla (result, carry) donde:
+            - result: Valor rotado (8 bits)
+            - carry: 1 si bit 0 original era 1, 0 si era 0
+            
+        Fuente: Pan Docs - CPU Instruction Set (RRC r)
+        """
+        value = value & 0xFF
+        
+        # Extraer bit 0 (el que sale)
+        bit0 = value & 0x01
+        
+        # Rotar: (value >> 1) | (bit0 << 7)
+        result = ((value >> 1) | (bit0 << 7)) & 0xFF
+        
+        return (result, bit0)
+    
+    def _cb_rl(self, value: int) -> tuple[int, int]:
+        """
+        Rotate Left through Carry - Helper genérico para CB RL.
+        
+        Rota el valor hacia la izquierda a través del flag Carry.
+        El bit 7 va al flag C, y el *antiguo* flag C entra en el bit 0.
+        Es una rotación de 9 bits (8 bits de value + 1 bit de C).
+        
+        DIFERENCIA CRÍTICA con RLA (0x17):
+        - RLA: Z=0 siempre
+        - CB RL: Z se calcula según el resultado
+        
+        Args:
+            value: Valor de 8 bits a rotar
+            
+        Returns:
+            Tupla (result, carry) donde:
+            - result: Valor rotado (8 bits)
+            - carry: 1 si bit 7 original era 1, 0 si era 0
+            
+        Fuente: Pan Docs - CPU Instruction Set (RL r)
+        """
+        value = value & 0xFF
+        
+        # Obtener carry actual (1 si está activo, 0 si no)
+        old_carry = 1 if self.registers.get_flag_c() else 0
+        
+        # Extraer bit 7 (el que sale)
+        bit7 = (value >> 7) & 0x01
+        
+        # Rotar: (value << 1) | old_carry, enmascarar a 8 bits
+        result = ((value << 1) | old_carry) & 0xFF
+        
+        return (result, bit7)
+    
+    def _cb_rr(self, value: int) -> tuple[int, int]:
+        """
+        Rotate Right through Carry - Helper genérico para CB RR.
+        
+        Rota el valor hacia la derecha a través del flag Carry.
+        El bit 0 va al flag C, y el *antiguo* flag C entra en el bit 7.
+        Es una rotación de 9 bits (8 bits de value + 1 bit de C).
+        
+        DIFERENCIA CRÍTICA con RRA (0x1F):
+        - RRA: Z=0 siempre
+        - CB RR: Z se calcula según el resultado
+        
+        Args:
+            value: Valor de 8 bits a rotar
+            
+        Returns:
+            Tupla (result, carry) donde:
+            - result: Valor rotado (8 bits)
+            - carry: 1 si bit 0 original era 1, 0 si era 0
+            
+        Fuente: Pan Docs - CPU Instruction Set (RR r)
+        """
+        value = value & 0xFF
+        
+        # Obtener carry actual (1 si está activo, 0 si no)
+        old_carry = 1 if self.registers.get_flag_c() else 0
+        
+        # Extraer bit 0 (el que sale)
+        bit0 = value & 0x01
+        
+        # Rotar: (value >> 1) | (old_carry << 7)
+        result = ((value >> 1) | (old_carry << 7)) & 0xFF
+        
+        return (result, bit0)
+    
+    def _cb_sla(self, value: int) -> tuple[int, int]:
+        """
+        Shift Left Arithmetic - Helper genérico para CB SLA.
+        
+        Desplaza el valor hacia la izquierda (multiplica por 2).
+        El bit 7 va al flag C, y el bit 0 entra 0.
+        
+        Esta operación es equivalente a multiplicar por 2, pero con overflow
+        que se captura en el flag C.
+        
+        Flags:
+        - Z: Calculado según el resultado (si resultado==0, Z=1)
+        - N: 0
+        - H: 0
+        - C: Bit 7 original
+        
+        Args:
+            value: Valor de 8 bits a desplazar
+            
+        Returns:
+            Tupla (result, carry) donde:
+            - result: Valor desplazado (8 bits)
+            - carry: 1 si bit 7 original era 1, 0 si era 0
+            
+        Fuente: Pan Docs - CPU Instruction Set (SLA r)
+        """
+        value = value & 0xFF
+        
+        # Extraer bit 7 (el que sale)
+        bit7 = (value >> 7) & 0x01
+        
+        # Desplazar: (value << 1), bit 0 entra 0
+        result = (value << 1) & 0xFF
+        
+        return (result, bit7)
+    
+    def _cb_sra(self, value: int) -> tuple[int, int]:
+        """
+        Shift Right Arithmetic - Helper genérico para CB SRA.
+        
+        Desplaza el valor hacia la derecha manteniendo el signo (divide por 2 con signo).
+        El bit 0 va al flag C, y el bit 7 se mantiene igual (signo preservado).
+        
+        Esta operación es equivalente a dividir por 2 con signo:
+        - Si el valor es positivo (bit 7 = 0), el bit 7 sigue siendo 0
+        - Si el valor es negativo (bit 7 = 1), el bit 7 sigue siendo 1
+        
+        Ejemplo:
+        - 0x80 (-128) -> 0xC0 (-64), C=0
+        - 0x40 (64) -> 0x20 (32), C=0
+        
+        Flags:
+        - Z: Calculado según el resultado
+        - N: 0
+        - H: 0
+        - C: Bit 0 original
+        
+        Args:
+            value: Valor de 8 bits a desplazar
+            
+        Returns:
+            Tupla (result, carry) donde:
+            - result: Valor desplazado (8 bits, signo preservado)
+            - carry: 1 si bit 0 original era 1, 0 si era 0
+            
+        Fuente: Pan Docs - CPU Instruction Set (SRA r)
+        """
+        value = value & 0xFF
+        
+        # Extraer bit 0 (el que sale)
+        bit0 = value & 0x01
+        
+        # Extraer bit 7 (signo, se preserva)
+        bit7 = (value >> 7) & 0x01
+        
+        # Desplazar: (value >> 1) | (bit7 << 7)
+        result = ((value >> 1) | (bit7 << 7)) & 0xFF
+        
+        return (result, bit0)
+    
+    def _cb_srl(self, value: int) -> tuple[int, int]:
+        """
+        Shift Right Logical - Helper genérico para CB SRL.
+        
+        Desplaza el valor hacia la derecha sin signo (divide por 2 sin signo).
+        El bit 0 va al flag C, y el bit 7 entra 0.
+        
+        Esta operación es equivalente a dividir por 2 sin signo:
+        - Siempre trata el valor como positivo
+        - El bit 7 siempre entra 0
+        
+        Ejemplo:
+        - 0x80 (128) -> 0x40 (64), C=0
+        - 0x01 (1) -> 0x00 (0), C=1
+        
+        Flags:
+        - Z: Calculado según el resultado
+        - N: 0
+        - H: 0
+        - C: Bit 0 original
+        
+        Args:
+            value: Valor de 8 bits a desplazar
+            
+        Returns:
+            Tupla (result, carry) donde:
+            - result: Valor desplazado (8 bits, bit 7 = 0)
+            - carry: 1 si bit 0 original era 1, 0 si era 0
+            
+        Fuente: Pan Docs - CPU Instruction Set (SRL r)
+        """
+        value = value & 0xFF
+        
+        # Extraer bit 0 (el que sale)
+        bit0 = value & 0x01
+        
+        # Desplazar: (value >> 1), bit 7 entra 0
+        result = (value >> 1) & 0xFF
+        
+        return (result, bit0)
+    
+    def _cb_swap(self, value: int) -> tuple[int, int]:
+        """
+        SWAP - Helper genérico para CB SWAP.
+        
+        Intercambia los 4 bits altos con los 4 bits bajos (Nibble Swap).
+        
+        Ejemplo:
+        - 0xA5 (10100101) -> 0x5A (01011010)
+        - 0xF0 (11110000) -> 0x0F (00001111)
+        
+        Flags:
+        - Z: Calculado según el resultado (si resultado==0, Z=1)
+        - N: 0
+        - H: 0
+        - C: 0
+        
+        Args:
+            value: Valor de 8 bits a intercambiar
+            
+        Returns:
+            Tupla (result, carry) donde:
+            - result: Valor con nibbles intercambiados (8 bits)
+            - carry: Siempre 0 (SWAP no genera carry)
+            
+        Fuente: Pan Docs - CPU Instruction Set (SWAP r)
+        """
+        value = value & 0xFF
+        
+        # Extraer nibbles
+        low_nibble = value & 0x0F
+        high_nibble = (value >> 4) & 0x0F
+        
+        # Intercambiar: low_nibble va arriba, high_nibble va abajo
+        result = ((low_nibble << 4) | high_nibble) & 0xFF
+        
+        return (result, 0)
+    
+    def _cb_get_register_value(self, reg_index: int) -> int:
+        """
+        Obtiene el valor de un registro o memoria según el índice.
+        
+        Índices de registro (según encoding CB):
+        - 0: B
+        - 1: C
+        - 2: D
+        - 3: E
+        - 4: H
+        - 5: L
+        - 6: (HL) - Memoria indirecta
+        - 7: A
+        
+        Args:
+            reg_index: Índice del registro (0-7)
+            
+        Returns:
+            Valor de 8 bits del registro o memoria
+            
+        Fuente: Pan Docs - CPU Instruction Set (CB encoding)
+        """
+        if reg_index == 0:
+            return self.registers.get_b()
+        elif reg_index == 1:
+            return self.registers.get_c()
+        elif reg_index == 2:
+            return self.registers.get_d()
+        elif reg_index == 3:
+            return self.registers.get_e()
+        elif reg_index == 4:
+            return self.registers.get_h()
+        elif reg_index == 5:
+            return self.registers.get_l()
+        elif reg_index == 6:
+            # (HL) - Memoria indirecta
+            hl_addr = self.registers.get_hl()
+            return self.mmu.read_byte(hl_addr)
+        elif reg_index == 7:
+            return self.registers.get_a()
+        else:
+            raise ValueError(f"Índice de registro inválido: {reg_index}")
+    
+    def _cb_set_register_value(self, reg_index: int, value: int) -> None:
+        """
+        Establece el valor de un registro o memoria según el índice.
+        
+        Args:
+            reg_index: Índice del registro (0-7)
+            value: Valor de 8 bits a escribir
+            
+        Fuente: Pan Docs - CPU Instruction Set (CB encoding)
+        """
+        value = value & 0xFF
+        
+        if reg_index == 0:
+            self.registers.set_b(value)
+        elif reg_index == 1:
+            self.registers.set_c(value)
+        elif reg_index == 2:
+            self.registers.set_d(value)
+        elif reg_index == 3:
+            self.registers.set_e(value)
+        elif reg_index == 4:
+            self.registers.set_h(value)
+        elif reg_index == 5:
+            self.registers.set_l(value)
+        elif reg_index == 6:
+            # (HL) - Memoria indirecta
+            hl_addr = self.registers.get_hl()
+            self.mmu.write_byte(hl_addr, value)
+        elif reg_index == 7:
+            self.registers.set_a(value)
+        else:
+            raise ValueError(f"Índice de registro inválido: {reg_index}")
+    
+    def _cb_update_flags(self, result: int, carry: int) -> None:
+        """
+        Actualiza los flags después de una operación CB (rotación/shift/swap).
+        
+        DIFERENCIA CRÍTICA con rotaciones rápidas (RLCA, etc.):
+        - Rotaciones rápidas: Z=0 siempre
+        - Operaciones CB: Z se calcula según el resultado
+        
+        Flags:
+        - Z: 1 si resultado==0, 0 si no
+        - N: 0 (siempre)
+        - H: 0 (siempre)
+        - C: carry (1 o 0)
+        
+        Args:
+            result: Resultado de la operación (8 bits)
+            carry: Valor del carry (1 o 0)
+            
+        Fuente: Pan Docs - CPU Instruction Set (CB operations flags)
+        """
+        result = result & 0xFF
+        
+        # Z: Calculado según el resultado (DIFERENCIA con rotaciones rápidas)
+        if result == 0:
+            self.registers.set_flag(FLAG_Z)
+        else:
+            self.registers.clear_flag(FLAG_Z)
+        
+        # N: siempre 0
+        self.registers.clear_flag(FLAG_N)
+        
+        # H: siempre 0
+        self.registers.clear_flag(FLAG_H)
+        
+        # C: carry
+        if carry:
+            self.registers.set_flag(FLAG_C)
+        else:
+            self.registers.clear_flag(FLAG_C)
+    
+    def _init_cb_shifts_table(self) -> None:
+        """
+        Inicializa la tabla CB para el rango 0x00-0x3F (rotaciones y shifts).
+        
+        Patrón de encoding CB:
+        - 8 operaciones x 8 registros = 64 opcodes (0x00-0x3F)
+        - Operaciones (por fila):
+          0x00-0x07: RLC r
+          0x08-0x0F: RRC r
+          0x10-0x17: RL r
+          0x18-0x1F: RR r
+          0x20-0x27: SLA r
+          0x28-0x2F: SRA r
+          0x30-0x37: SRL r
+          0x38-0x3F: SWAP r
+        
+        - Registros (por columna):
+          0: B
+          1: C
+          2: D
+          3: E
+          4: H
+          5: L
+          6: (HL) - Memoria indirecta (consume 4 M-Cycles en lugar de 2)
+          7: A
+        
+        Fuente: Pan Docs - CPU Instruction Set (CB Prefix encoding)
+        """
+        # Operaciones en orden
+        operations = [
+            (self._cb_rlc, "RLC"),
+            (self._cb_rrc, "RRC"),
+            (self._cb_rl, "RL"),
+            (self._cb_rr, "RR"),
+            (self._cb_sla, "SLA"),
+            (self._cb_sra, "SRA"),
+            (self._cb_srl, "SRL"),
+            (self._cb_swap, "SWAP"),
+        ]
+        
+        # Generar handlers para cada combinación operación x registro
+        for op_row, (op_func, op_name) in enumerate(operations):
+            for reg_index in range(8):
+                cb_opcode = (op_row * 8) + reg_index
+                
+                # Crear handler específico para esta combinación
+                # IMPORTANTE: Capturar valores por defecto para evitar problemas de closure
+                def make_handler(op_func=op_func, op_name=op_name, reg_index=reg_index, cb_opcode=cb_opcode):
+                    def handler() -> int:
+                        # Leer valor del registro/memoria
+                        value = self._cb_get_register_value(reg_index)
+                        
+                        # Ejecutar operación
+                        result, carry = op_func(value)
+                        
+                        # Escribir resultado
+                        self._cb_set_register_value(reg_index, result)
+                        
+                        # Actualizar flags
+                        self._cb_update_flags(result, carry)
+                        
+                        # Timing: (HL) consume 4 M-Cycles, registros consumen 2
+                        cycles = 4 if reg_index == 6 else 2
+                        
+                        reg_name = ["B", "C", "D", "E", "H", "L", "(HL)", "A"][reg_index]
+                        logger.debug(
+                            f"CB 0x{cb_opcode:02X} ({op_name} {reg_name}) -> "
+                            f"0x{value:02X} -> 0x{result:02X} "
+                            f"Z={self.registers.get_flag_z()} C={self.registers.get_flag_c()}"
+                        )
+                        
+                        return cycles
+                    
+                    return handler
+                
+                # Añadir handler a la tabla
+                self._cb_opcode_table[cb_opcode] = make_handler()
     
     # ========== Handlers de Comparación (CP) ==========
     
