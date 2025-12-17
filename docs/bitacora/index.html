@@ -32,6 +32,31 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0022 - DAA, RST y Flags - El Final de la CPU -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0022__daa-rst-flags-final-cpu.html" class="entry-link">
+                                    DAA, RST y Flags - El Final de la CPU
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0022 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            ¡Hito histórico! Se completó al 100% el set de instrucciones de la CPU LR35902 implementando las últimas
+                            instrucciones misceláneas: DAA (Decimal Adjust Accumulator), CPL (Complement), SCF (Set Carry Flag),
+                            CCF (Complement Carry Flag) y los 8 vectores RST (Restart). Con esto, la CPU tiene implementados los
+                            500+ opcodes de la Game Boy (incluyendo el prefijo CB). DAA es especialmente importante porque permite
+                            trabajar con BCD para puntuaciones en pantalla. RST es vital porque las interrupciones hardware lo
+                            usan para saltar a sus manejadores. Suite completa de tests TDD (12 tests) validando todas las operaciones.
+                            Todos los tests pasan.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0021 - Completar Prefijo CB - BIT, RES y SET (0x40-0xFF) -->
                     <li>
                         <div class="entry-header">

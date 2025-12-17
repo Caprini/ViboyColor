@@ -156,6 +156,20 @@ class CPU:
             0xC8: self._op_ret_z,          # RET Z
             0xD0: self._op_ret_nc,         # RET NC
             0xD8: self._op_ret_c,          # RET C
+            # Instrucciones misceláneas
+            0x27: self._op_daa,            # DAA (Decimal Adjust Accumulator)
+            0x2F: self._op_cpl,            # CPL (Complement Accumulator)
+            0x37: self._op_scf,            # SCF (Set Carry Flag)
+            0x3F: self._op_ccf,            # CCF (Complement Carry Flag)
+            # RST (Restart) - Vectores de interrupción
+            0xC7: self._op_rst_00,         # RST 00h
+            0xCF: self._op_rst_08,         # RST 08h
+            0xD7: self._op_rst_10,         # RST 10h
+            0xDF: self._op_rst_18,         # RST 18h
+            0xE7: self._op_rst_20,         # RST 20h
+            0xEF: self._op_rst_28,         # RST 28h
+            0xF7: self._op_rst_30,         # RST 30h
+            0xFF: self._op_rst_38,         # RST 38h
         }
         
         # Tabla de despacho para opcodes CB (Extended Instructions)
@@ -3928,4 +3942,261 @@ class CPU:
         self.halted = True
         logger.debug("HALT -> CPU en modo de bajo consumo (halted=True)")
         return 1
+    
+    # ========== Instrucciones Misceláneas (DAA, CPL, SCF, CCF, RST) ==========
+    
+    def _op_daa(self) -> int:
+        """
+        DAA (Decimal Adjust Accumulator) - Opcode 0x27
+        
+        Ajusta el acumulador A para convertir el resultado de una operación
+        aritmética binaria a BCD (Binary Coded Decimal).
+        
+        La Game Boy usa BCD para representar números decimales en pantallas
+        (ej: puntuaciones en Tetris). Cuando sumas 9 + 1 en binario, obtienes
+        0x0A, pero en BCD queremos 0x10 (que representa el decimal 10).
+        
+        Algoritmo (basado en Z80/8080, adaptado para Game Boy):
+        - Si la última operación fue suma (!N):
+            - Si C está activo O A > 0x99: A += 0x60, C = 1
+            - Si H está activo O (A & 0x0F) > 9: A += 0x06
+        - Si la última operación fue resta (N):
+            - Si C está activo: A -= 0x60
+            - Si H está activo: A -= 0x06
+        
+        Flags:
+        - Z: Actualizado según el resultado final
+        - N: No modificado (mantiene el estado de la operación anterior)
+        - H: Siempre se limpia (0)
+        - C: Se actualiza según la lógica de ajuste
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - CPU Instruction Set (DAA)
+        Referencia: Z80/8080 DAA algorithm (adaptado para Game Boy)
+        """
+        a = self.registers.get_a()
+        flags = self.registers.get_f()
+        n_flag = (flags & FLAG_N) != 0
+        c_flag = (flags & FLAG_C) != 0
+        h_flag = (flags & FLAG_H) != 0
+        
+        correction = 0
+        new_c = c_flag
+        
+        if not n_flag:  # Última operación fue suma
+            # Verificar si necesitamos ajustar el nibble alto (decenas)
+            if c_flag or a > 0x99:
+                correction += 0x60
+                new_c = True
+            
+            # Verificar si necesitamos ajustar el nibble bajo (unidades)
+            if h_flag or (a & 0x0F) > 9:
+                correction += 0x06
+        else:  # Última operación fue resta
+            # Verificar si necesitamos ajustar el nibble alto
+            if c_flag:
+                correction -= 0x60
+                new_c = True
+            
+            # Verificar si necesitamos ajustar el nibble bajo
+            if h_flag:
+                correction -= 0x06
+        
+        # Aplicar corrección
+        result = (a + correction) & 0xFF
+        
+        # Actualizar acumulador
+        self.registers.set_a(result)
+        
+        # Actualizar flags
+        # Z: según el resultado final
+        if result == 0:
+            self.registers.set_flag(FLAG_Z)
+        else:
+            self.registers.clear_flag(FLAG_Z)
+        
+        # N: no se modifica (mantiene el estado de la operación anterior)
+        # H: siempre se limpia
+        self.registers.clear_flag(FLAG_H)
+        
+        # C: según la lógica de ajuste
+        if new_c:
+            self.registers.set_flag(FLAG_C)
+        else:
+            self.registers.clear_flag(FLAG_C)
+        
+        logger.debug(
+            f"DAA: A=0x{a:02X} -> 0x{result:02X} "
+            f"(correction={correction:+d}, N={n_flag}, C={new_c})"
+        )
+        return 1
+    
+    def _op_cpl(self) -> int:
+        """
+        CPL (Complement Accumulator) - Opcode 0x2F
+        
+        Invierte todos los bits del acumulador A (complemento a uno).
+        
+        Operación: A = ~A
+        
+        Flags:
+        - Z: No modificado
+        - N: Se activa (1)
+        - H: Se activa (1)
+        - C: No modificado
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - CPU Instruction Set (CPL)
+        """
+        a = self.registers.get_a()
+        result = (~a) & 0xFF  # Complemento a uno (invertir bits)
+        
+        self.registers.set_a(result)
+        
+        # Actualizar flags: N=1, H=1
+        self.registers.set_flag(FLAG_N)
+        self.registers.set_flag(FLAG_H)
+        
+        logger.debug(f"CPL: A=0x{a:02X} -> 0x{result:02X} (complemento)")
+        return 1
+    
+    def _op_scf(self) -> int:
+        """
+        SCF (Set Carry Flag) - Opcode 0x37
+        
+        Activa el flag Carry (C = 1).
+        
+        Flags:
+        - Z: No modificado
+        - N: Se limpia (0)
+        - H: Se limpia (0)
+        - C: Se activa (1)
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - CPU Instruction Set (SCF)
+        """
+        # Activar Carry
+        self.registers.set_flag(FLAG_C)
+        
+        # Limpiar N y H
+        self.registers.clear_flag(FLAG_N)
+        self.registers.clear_flag(FLAG_H)
+        
+        logger.debug("SCF: C=1, N=0, H=0")
+        return 1
+    
+    def _op_ccf(self) -> int:
+        """
+        CCF (Complement Carry Flag) - Opcode 0x3F
+        
+        Invierte el flag Carry (C = !C).
+        
+        Flags:
+        - Z: No modificado
+        - N: Se limpia (0)
+        - H: Se limpia (0)
+        - C: Se invierte (!C)
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - CPU Instruction Set (CCF)
+        """
+        # Invertir Carry
+        if self.registers.check_flag(FLAG_C):
+            self.registers.clear_flag(FLAG_C)
+        else:
+            self.registers.set_flag(FLAG_C)
+        
+        # Limpiar N y H
+        self.registers.clear_flag(FLAG_N)
+        self.registers.clear_flag(FLAG_H)
+        
+        new_c = self.registers.check_flag(FLAG_C)
+        logger.debug(f"CCF: C={new_c}, N=0, H=0")
+        return 1
+    
+    def _rst(self, vector: int) -> int:
+        """
+        Helper genérico para RST (Restart) - Opcodes 0xC7, 0xCF, 0xD7, 0xDF, 0xE7, 0xEF, 0xF7, 0xFF
+        
+        RST es como un CALL pero de 1 solo byte. Hace PUSH PC y salta a una
+        dirección fija (vector de interrupción).
+        
+        Los vectores RST son:
+        - RST 00h: 0x0000
+        - RST 08h: 0x0008
+        - RST 10h: 0x0010
+        - RST 18h: 0x0018
+        - RST 20h: 0x0020
+        - RST 28h: 0x0028
+        - RST 30h: 0x0030
+        - RST 38h: 0x0038
+        
+        RST se usa para:
+        1. Ahorrar espacio (1 byte vs 3 bytes de CALL)
+        2. Interrupciones hardware (cada interrupción tiene su vector RST)
+        
+        Proceso:
+        1. Obtener PC actual (dirección de retorno)
+        2. PUSH PC en la pila
+        3. Saltar al vector (PC = vector)
+        
+        Args:
+            vector: Dirección del vector de interrupción (0x00, 0x08, 0x10, ..., 0x38)
+            
+        Returns:
+            4 M-Cycles (fetch opcode + push 2 bytes en la pila)
+            
+        Fuente: Pan Docs - CPU Instruction Set (RST)
+        """
+        # Obtener PC actual (dirección de retorno = siguiente instrucción)
+        return_addr = self.registers.get_pc()
+        
+        # PUSH PC en la pila
+        self._push_word(return_addr)
+        
+        # Saltar al vector
+        self.registers.set_pc(vector)
+        
+        logger.debug(f"RST 0x{vector:02X}h: PC=0x{return_addr:04X} -> 0x{vector:04X}")
+        return 4
+    
+    def _op_rst_00(self) -> int:
+        """RST 00h - Opcode 0xC7"""
+        return self._rst(0x0000)
+    
+    def _op_rst_08(self) -> int:
+        """RST 08h - Opcode 0xCF"""
+        return self._rst(0x0008)
+    
+    def _op_rst_10(self) -> int:
+        """RST 10h - Opcode 0xD7"""
+        return self._rst(0x0010)
+    
+    def _op_rst_18(self) -> int:
+        """RST 18h - Opcode 0xDF"""
+        return self._rst(0x0018)
+    
+    def _op_rst_20(self) -> int:
+        """RST 20h - Opcode 0xE7"""
+        return self._rst(0x0020)
+    
+    def _op_rst_28(self) -> int:
+        """RST 28h - Opcode 0xEF"""
+        return self._rst(0x0028)
+    
+    def _op_rst_30(self) -> int:
+        """RST 30h - Opcode 0xF7"""
+        return self._rst(0x0030)
+    
+    def _op_rst_38(self) -> int:
+        """RST 38h - Opcode 0xFF"""
+        return self._rst(0x0038)
 
