@@ -87,6 +87,18 @@ class CPU:
             # Carga inmediata de 16 bits
             0x31: self._op_ld_sp_d16,   # LD SP, d16
             0x21: self._op_ld_hl_d16,   # LD HL, d16
+            # Memoria Indirecta (HL)
+            0x77: self._op_ld_hl_ptr_a,    # LD (HL), A
+            0x22: self._op_ldi_hl_a,       # LD (HL+), A (LDI (HL), A)
+            0x32: self._op_ldd_hl_a,       # LD (HL-), A (LDD (HL), A)
+            0x2A: self._op_ldi_a_hl_ptr,   # LD A, (HL+) (LDI A, (HL))
+            # Incremento/Decremento de 8 bits
+            0x04: self._op_inc_b,          # INC B
+            0x05: self._op_dec_b,          # DEC B
+            0x0C: self._op_inc_c,          # INC C
+            0x0D: self._op_dec_c,          # DEC C
+            0x3C: self._op_inc_a,          # INC A
+            0x3D: self._op_dec_a,          # DEC A
         }
         
         logger.info("CPU inicializada")
@@ -430,6 +442,104 @@ class CPU:
             self.registers.set_flag(FLAG_C)
         else:
             self.registers.clear_flag(FLAG_C)
+    
+    def _inc_n(self, value: int) -> int:
+        """
+        Incrementa un valor de 8 bits y actualiza los flags Z, N, H.
+        
+        CRÍTICO: INC de 8 bits NO afecta al flag C (Carry).
+        Esta es una peculiaridad importante del hardware LR35902.
+        Muchos emuladores fallan aquí, rompiendo la lógica condicional que depende
+        de mantener el flag C intacto durante operaciones de incremento.
+        
+        Flags actualizados:
+        - Z (Zero): Si el resultado es 0
+        - N (Subtract): Siempre 0 (es una suma, aunque unaria)
+        - H (Half-Carry): Si hubo carry del bit 3 al 4 (nibble bajo)
+        - C (Carry): NO SE TOCA (permanece como estaba)
+        
+        El Half-Carry se activa cuando hay desbordamiento del nibble bajo:
+        - Ejemplo: 0x0F + 1 = 0x10 -> H = 1 (hubo carry del bit 3 al 4)
+        
+        Args:
+            value: Valor de 8 bits a incrementar (se enmascara automáticamente)
+            
+        Returns:
+            Valor incrementado (8 bits con wrap-around)
+            
+        Fuente: Pan Docs - CPU Flags (INC instruction behavior)
+        """
+        value = value & 0xFF
+        result = (value + 1) & 0xFF
+        
+        # Actualizar flags
+        # Z: resultado es cero
+        if result == 0:
+            self.registers.set_flag(FLAG_Z)
+        else:
+            self.registers.clear_flag(FLAG_Z)
+        
+        # N: siempre 0 en incremento (es una suma)
+        self.registers.clear_flag(FLAG_N)
+        
+        # H: Half-Carry (carry del bit 3 al 4)
+        # Verificamos si la suma del nibble bajo excede 0xF
+        if ((value & 0xF) + 1) > 0xF:
+            self.registers.set_flag(FLAG_H)
+        else:
+            self.registers.clear_flag(FLAG_H)
+        
+        # C: NO SE TOCA - Esta es la peculiaridad crítica
+        
+        return result
+    
+    def _dec_n(self, value: int) -> int:
+        """
+        Decrementa un valor de 8 bits y actualiza los flags Z, N, H.
+        
+        CRÍTICO: DEC de 8 bits NO afecta al flag C (Carry).
+        Esta es una peculiaridad importante del hardware LR35902, igual que en INC.
+        
+        Flags actualizados:
+        - Z (Zero): Si el resultado es 0
+        - N (Subtract): Siempre 1 (es una resta, aunque unaria)
+        - H (Half-Borrow): Si hubo borrow del bit 4 al 3 (nibble bajo)
+        - C (Carry): NO SE TOCA (permanece como estaba)
+        
+        El Half-Borrow se activa cuando necesitamos pedir prestado del nibble alto:
+        - Ejemplo: 0x10 - 1 = 0x0F -> H = 1 (hubo borrow del bit 4 al 3)
+        
+        Args:
+            value: Valor de 8 bits a decrementar (se enmascara automáticamente)
+            
+        Returns:
+            Valor decrementado (8 bits con wrap-around)
+            
+        Fuente: Pan Docs - CPU Flags (DEC instruction behavior)
+        """
+        value = value & 0xFF
+        result = (value - 1) & 0xFF
+        
+        # Actualizar flags
+        # Z: resultado es cero
+        if result == 0:
+            self.registers.set_flag(FLAG_Z)
+        else:
+            self.registers.clear_flag(FLAG_Z)
+        
+        # N: siempre 1 en decremento (es una resta)
+        self.registers.set_flag(FLAG_N)
+        
+        # H: Half-Borrow (borrow del bit 4 al 3)
+        # Verificamos si necesitamos pedir prestado del nibble alto
+        if (value & 0xF) == 0:
+            self.registers.set_flag(FLAG_H)
+        else:
+            self.registers.clear_flag(FLAG_H)
+        
+        # C: NO SE TOCA - Esta es la peculiaridad crítica
+        
+        return result
     
     # ========== Handlers de Opcodes ==========
     
@@ -854,4 +964,254 @@ class CPU:
         self.registers.set_hl(value)
         logger.debug(f"LD HL, 0x{value:04X} -> HL=0x{self.registers.get_hl():04X}")
         return 3
+
+    # ========== Handlers de Memoria Indirecta (HL) ==========
+    
+    def _op_ld_hl_ptr_a(self) -> int:
+        """
+        LD (HL), A (Load A into memory address pointed by HL) - Opcode 0x77
+        
+        Escribe el valor del registro A en la dirección de memoria apuntada por HL.
+        
+        Direccionamiento indirecto: HL se usa como puntero, no como valor.
+        Es como un puntero en C: escribimos en *HL, no en HL mismo.
+        
+        Esta instrucción es fundamental para operaciones de memoria como bucles
+        de limpieza (memset) y copia de datos.
+        
+        Ejemplo:
+        - HL = 0xC000
+        - A = 0x55
+        - Ejecutar LD (HL), A
+        - Resultado: Memoria[0xC000] = 0x55, HL sigue siendo 0xC000
+        
+        Returns:
+            2 M-Cycles (fetch opcode + write to memory)
+            
+        Fuente: Pan Docs - Instruction Set (LD (HL), A)
+        """
+        hl_addr = self.registers.get_hl()
+        a_value = self.registers.get_a()
+        self.mmu.write_byte(hl_addr, a_value)
+        logger.debug(f"LD (HL), A -> (0x{hl_addr:04X}) = 0x{a_value:02X}")
+        return 2
+    
+    def _op_ldi_hl_a(self) -> int:
+        """
+        LD (HL+), A / LDI (HL), A (Load A into (HL) and increment HL) - Opcode 0x22
+        
+        Escribe el valor del registro A en la dirección apuntada por HL e incrementa HL.
+        
+        Esta es una "navaja suiza" para bucles de escritura rápida:
+        - Escribe un dato
+        - Incrementa el puntero automáticamente
+        - Todo en una sola instrucción
+        
+        Es ideal para operaciones como memset o memcpy donde necesitas avanzar
+        el puntero después de cada escritura.
+        
+        Ejemplo:
+        - HL = 0xC000
+        - A = 0x55
+        - Ejecutar LD (HL+), A
+        - Resultado: Memoria[0xC000] = 0x55, HL = 0xC001
+        
+        Returns:
+            2 M-Cycles (fetch opcode + write to memory)
+            
+        Fuente: Pan Docs - Instruction Set (LDI (HL), A)
+        """
+        hl_addr = self.registers.get_hl()
+        a_value = self.registers.get_a()
+        self.mmu.write_byte(hl_addr, a_value)
+        # Incrementar HL (wrap-around de 16 bits)
+        new_hl = (hl_addr + 1) & 0xFFFF
+        self.registers.set_hl(new_hl)
+        logger.debug(f"LD (HL+), A -> (0x{hl_addr:04X}) = 0x{a_value:02X}, HL = 0x{new_hl:04X}")
+        return 2
+    
+    def _op_ldd_hl_a(self) -> int:
+        """
+        LD (HL-), A / LDD (HL), A (Load A into (HL) and decrement HL) - Opcode 0x32
+        
+        Escribe el valor del registro A en la dirección apuntada por HL y decrementa HL.
+        
+        Similar a LDI, pero decrementa el puntero. Útil para bucles que recorren
+        la memoria hacia atrás, como limpieza de memoria desde el final hacia el inicio.
+        
+        Ejemplo:
+        - HL = 0xC000
+        - A = 0x55
+        - Ejecutar LD (HL-), A
+        - Resultado: Memoria[0xC000] = 0x55, HL = 0xBFFF
+        
+        Returns:
+            2 M-Cycles (fetch opcode + write to memory)
+            
+        Fuente: Pan Docs - Instruction Set (LDD (HL), A)
+        """
+        hl_addr = self.registers.get_hl()
+        a_value = self.registers.get_a()
+        self.mmu.write_byte(hl_addr, a_value)
+        # Decrementar HL (wrap-around de 16 bits)
+        new_hl = (hl_addr - 1) & 0xFFFF
+        self.registers.set_hl(new_hl)
+        logger.debug(f"LD (HL-), A -> (0x{hl_addr:04X}) = 0x{a_value:02X}, HL = 0x{new_hl:04X}")
+        return 2
+    
+    def _op_ldi_a_hl_ptr(self) -> int:
+        """
+        LD A, (HL+) / LDI A, (HL) (Load from (HL) into A and increment HL) - Opcode 0x2A
+        
+        Lee el valor de la dirección apuntada por HL y lo carga en A, luego incrementa HL.
+        
+        Es el complemento de LD (HL+), A. Útil para bucles de lectura rápida.
+        
+        Ejemplo:
+        - HL = 0xC000
+        - Memoria[0xC000] = 0x42
+        - Ejecutar LD A, (HL+)
+        - Resultado: A = 0x42, HL = 0xC001
+        
+        Returns:
+            2 M-Cycles (fetch opcode + read from memory)
+            
+        Fuente: Pan Docs - Instruction Set (LDI A, (HL))
+        """
+        hl_addr = self.registers.get_hl()
+        value = self.mmu.read_byte(hl_addr)
+        self.registers.set_a(value)
+        # Incrementar HL (wrap-around de 16 bits)
+        new_hl = (hl_addr + 1) & 0xFFFF
+        self.registers.set_hl(new_hl)
+        logger.debug(f"LD A, (HL+) -> A = 0x{value:02X} from (0x{hl_addr:04X}), HL = 0x{new_hl:04X}")
+        return 2
+    
+    # ========== Handlers de Incremento/Decremento ==========
+    
+    def _op_inc_b(self) -> int:
+        """
+        INC B (Increment B) - Opcode 0x04
+        
+        Incrementa el registro B en 1.
+        Actualiza flags Z, N, H. NO afecta al flag C.
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - Instruction Set (INC B)
+        """
+        new_value = self._inc_n(self.registers.get_b())
+        self.registers.set_b(new_value)
+        logger.debug(
+            f"INC B -> B=0x{new_value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()}"
+        )
+        return 1
+    
+    def _op_dec_b(self) -> int:
+        """
+        DEC B (Decrement B) - Opcode 0x05
+        
+        Decrementa el registro B en 1.
+        Actualiza flags Z, N, H. NO afecta al flag C.
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - Instruction Set (DEC B)
+        """
+        new_value = self._dec_n(self.registers.get_b())
+        self.registers.set_b(new_value)
+        logger.debug(
+            f"DEC B -> B=0x{new_value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()}"
+        )
+        return 1
+    
+    def _op_inc_c(self) -> int:
+        """
+        INC C (Increment C) - Opcode 0x0C
+        
+        Incrementa el registro C en 1.
+        Actualiza flags Z, N, H. NO afecta al flag C.
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - Instruction Set (INC C)
+        """
+        new_value = self._inc_n(self.registers.get_c())
+        self.registers.set_c(new_value)
+        logger.debug(
+            f"INC C -> C=0x{new_value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()}"
+        )
+        return 1
+    
+    def _op_dec_c(self) -> int:
+        """
+        DEC C (Decrement C) - Opcode 0x0D
+        
+        Decrementa el registro C en 1.
+        Actualiza flags Z, N, H. NO afecta al flag C.
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - Instruction Set (DEC C)
+        """
+        new_value = self._dec_n(self.registers.get_c())
+        self.registers.set_c(new_value)
+        logger.debug(
+            f"DEC C -> C=0x{new_value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()}"
+        )
+        return 1
+    
+    def _op_inc_a(self) -> int:
+        """
+        INC A (Increment A) - Opcode 0x3C
+        
+        Incrementa el registro A en 1.
+        Actualiza flags Z, N, H. NO afecta al flag C.
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - Instruction Set (INC A)
+        """
+        new_value = self._inc_n(self.registers.get_a())
+        self.registers.set_a(new_value)
+        logger.debug(
+            f"INC A -> A=0x{new_value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()}"
+        )
+        return 1
+    
+    def _op_dec_a(self) -> int:
+        """
+        DEC A (Decrement A) - Opcode 0x3D
+        
+        Decrementa el registro A en 1.
+        Actualiza flags Z, N, H. NO afecta al flag C.
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - Instruction Set (DEC A)
+        """
+        new_value = self._dec_n(self.registers.get_a())
+        self.registers.set_a(new_value)
+        logger.debug(
+            f"DEC A -> A=0x{new_value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()}"
+        )
+        return 1
 

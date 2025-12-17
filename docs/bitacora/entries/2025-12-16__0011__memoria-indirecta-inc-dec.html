@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memoria Indirecta e Incremento/Decremento - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Memoria Indirecta e Incremento/Decremento</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-16
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0011
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-16__0010__control-interrupciones-xor.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de direccionamiento indirecto usando HL como puntero de memoria, operaciones LDI/LDD
+                    (incremento/decremento automático del puntero) y operaciones unarias de incremento/decremento (INC/DEC)
+                    con manejo correcto de flags. Se implementaron helpers críticos <code>_inc_n</code> y <code>_dec_n</code>
+                    que actualizan flags Z, N, H pero NO tocan el flag C (Carry), una peculiaridad importante del hardware
+                    LR35902 que muchos emuladores fallan al implementar. Estos opcodes son esenciales para bucles de limpieza
+                    de memoria que los juegos ejecutan al inicio (memset). Suite completa de tests TDD validando memoria
+                    indirecta, wrap-around de punteros y comportamiento correcto de flags en INC/DEC.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Direccionamiento Indirecto (HL):</strong> Cuando una instrucción usa <code>(HL)</code>, no se
+                    usa el valor del registro HL directamente, sino que HL se utiliza como una <em>dirección de memoria</em>
+                    para leer o escribir. Es análogo a un puntero en C: <code>*ptr</code>. Por ejemplo, si HL contiene
+                    <code>0xC000</code> y ejecutamos <code>LD (HL), A</code>, escribimos el valor de A en la dirección
+                    de memoria <code>0xC000</code>, no en el registro HL mismo.
+                </p>
+                <p>
+                    <strong>LDI / LDD (Load with Increment/Decrement):</strong> Estas instrucciones son "navajas suizas"
+                    que combinan una operación de memoria con el incremento o decremento automático del puntero. Por ejemplo,
+                    <code>LD (HL+), A</code> (LDI) escribe A en la dirección apuntada por HL e incrementa HL en un solo
+                    ciclo. Esto es ideal para bucles rápidos de copia o inicialización de memoria (<code>memset</code>),
+                    ya que evita tener que incrementar el puntero manualmente en una instrucción separada.
+                </p>
+                <p>
+                    <strong>Flags en INC/DEC (CRÍTICO):</strong> Las operaciones <code>INC</code> y <code>DEC</code> de
+                    8 bits afectan a los flags Z (Zero), N (Subtract) y H (Half-Carry), pero <strong>NO afectan al flag C
+                    (Carry)</strong>. Esta es una peculiaridad importante del hardware LR35902 que muchos emuladores fallan
+                    al implementar, rompiendo la lógica condicional que depende de mantener el flag C intacto durante
+                    operaciones de incremento/decremento.
+                </p>
+                <ul>
+                    <li><strong>Flag H en INC:</strong> Se activa si hay desbordamiento del bit 3 al 4 (nibble bajo).
+                        Ejemplo: <code>0x0F + 1 = 0x10</code> activa H porque hubo carry del bit 3 al 4.</li>
+                    <li><strong>Flag H en DEC:</strong> Se activa si hay préstamo del bit 4 al 3 (nibble bajo).
+                        Ejemplo: <code>0x10 - 1 = 0x0F</code> activa H porque hubo borrow del bit 4 al 3.</li>
+                    <li><strong>Flag C:</strong> <strong>NO SE TOCA</strong>, incluso si hay overflow (INC 0xFF -> 0x00)
+                        o underflow (DEC 0x00 -> 0xFF). Esta preservación del flag C es crítica para código que usa
+                        INC/DEC en bucles con condiciones basadas en C.</li>
+                </ul>
+                <p>
+                    <strong>¿Por qué esto desbloquea Tetris?</strong> Tetris (y la mayoría de juegos de Game Boy) usan
+                    bucles de limpieza de memoria al inicio que hacen algo como:
+                </p>
+                <pre><code>LD HL, 0xDFFF    ; Final de la RAM
+XOR A            ; A = 0
+loop:
+LD (HL-), A      ; Escribe 0 en RAM y baja el puntero
+BIT 7, H         ; Comprueba si ha llegado al final...
+JR NZ, loop      ; Repite</code></pre>
+                <p>
+                    Sin <code>LD (HL-), A</code> (LDD) implementado, el emulador no puede ejecutar este bucle de
+                    limpieza de memoria.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron helpers genéricos <code>_inc_n</code> y <code>_dec_n</code> que encapsulan la
+                    lógica de incremento/decremento con manejo correcto de flags. Estos helpers se reutilizan en
+                    todos los opcodes INC/DEC de registros individuales (B, C, D, E, H, L, A).
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>Helpers ALU:</strong> <code>_inc_n(val)</code> y <code>_dec_n(val)</code> - Incrementan/decrementan
+                        un valor de 8 bits, actualizan flags Z, N, H, pero NO tocan C.</li>
+                    <li><strong>Opcodes de memoria indirecta:</strong>
+                        <ul>
+                            <li><code>0x77</code>: <code>LD (HL), A</code> - Escribe A en dirección apuntada por HL</li>
+                            <li><code>0x22</code>: <code>LD (HL+), A</code> (LDI) - Escribe A en (HL) e incrementa HL</li>
+                            <li><code>0x32</code>: <code>LD (HL-), A</code> (LDD) - Escribe A en (HL) y decrementa HL</li>
+                            <li><code>0x2A</code>: <code>LD A, (HL+)</code> (LDI) - Lee de (HL) a A e incrementa HL</li>
+                        </ul>
+                    </li>
+                    <li><strong>Opcodes de incremento/decremento:</strong>
+                        <ul>
+                            <li><code>0x04</code>: <code>INC B</code></li>
+                            <li><code>0x05</code>: <code>DEC B</code></li>
+                            <li><code>0x0C</code>: <code>INC C</code></li>
+                            <li><code>0x0D</code>: <code>DEC C</code></li>
+                            <li><code>0x3C</code>: <code>INC A</code></li>
+                            <li><code>0x3D</code>: <code>DEC A</code></li>
+                        </ul>
+                    </li>
+                    <li><strong>Tests:</strong> <code>test_cpu_memory_ops.py</code> - Suite completa de tests para memoria
+                        indirecta y flags de INC/DEC</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Helpers genéricos vs. código duplicado:</strong> Se crearon helpers <code>_inc_n</code> y
+                    <code>_dec_n</code> para evitar duplicar la lógica de actualización de flags en cada opcode INC/DEC.
+                    Esto facilita el mantenimiento y asegura consistencia. Todos los opcodes INC/DEC de 8 bits usan estos
+                    helpers, lo que garantiza que el comportamiento de flags sea idéntico en todos los casos.
+                </p>
+                <p>
+                    <strong>Preservación explícita del flag C:</strong> Se documentó explícitamente en código y tests
+                    que INC/DEC NO tocan el flag C. Esto es crítico porque muchos desarrolladores (y emuladores) asumen
+                    incorrectamente que cualquier operación aritmética debe actualizar todos los flags. Los tests
+                    verifican explícitamente que C se preserva incluso en casos de overflow/underflow.
+                </p>
+                <p>
+                    <strong>Wrap-around de punteros:</strong> Las operaciones LDI/LDD aplican wrap-around explícito
+                    usando <code>& 0xFFFF</code> para asegurar que HL siempre esté en el rango válido de 16 bits.
+                    Esto permite que los bucles funcionen correctamente incluso si alcanzan los límites del espacio
+                    de direcciones.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadidos helpers <code>_inc_n</code> y <code>_dec_n</code>, y
+                        handlers para opcodes de memoria indirecta e INC/DEC</li>
+                    <li><code>tests/test_cpu_memory_ops.py</code> - Nueva suite de tests para memoria indirecta y
+                        comportamiento de flags en INC/DEC</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests en <code>test_cpu_memory_ops.py</code> que valida:
+                </p>
+                <ul>
+                    <li><strong>Memoria indirecta básica:</strong> <code>LD (HL), A</code> escribe correctamente en la
+                        dirección apuntada por HL sin modificar HL</li>
+                    <li><strong>LDI (incremento):</strong> <code>LD (HL+), A</code> y <code>LD A, (HL+)</code> escriben/leen
+                        e incrementan HL correctamente, incluyendo wrap-around (0xFFFF -> 0x0000)</li>
+                    <li><strong>LDD (decremento):</strong> <code>LD (HL-), A</code> escribe y decrementa HL correctamente,
+                        incluyendo wrap-around (0x0000 -> 0xFFFF)</li>
+                    <li><strong>INC con flags:</strong> Casos normales, Half-Carry (0x0F -> 0x10), y overflow (0xFF -> 0x00)
+                        verificando que C NO cambia</li>
+                    <li><strong>DEC con flags:</strong> Casos normales, Half-Borrow (0x10 -> 0x0F), y underflow verificando
+                        que C NO cambia</li>
+                    <li><strong>Preservación de C:</strong> Tests explícitos verificando que C se preserva incluso cuando
+                        está activo antes de INC/DEC</li>
+                    <li><strong>Variantes:</strong> Tests para INC/DEC de B, C, A verificando comportamiento consistente</li>
+                </ul>
+                <p>
+                    <strong>Tests unitarios:</strong> 15+ tests en pytest cubriendo todos los casos críticos mencionados
+                    anteriormente. Los tests siguen el patrón TDD establecido en el proyecto.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">CPU Instruction Set</a> - 
+                        Comportamiento de flags en INC/DEC, direccionamiento indirecto</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Registers_and_Flags.html">CPU Registers and Flags</a> - 
+                        Descripción detallada de flags y comportamiento de operaciones aritméticas</li>
+                    <li>Implementación basada en documentación técnica estándar del hardware LR35902. No se consultó código
+                        de otros emuladores para mantener integridad clean-room.</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Direccionamiento indirecto:</strong> Entiendo que <code>(HL)</code> significa "el valor
+                            en la dirección de memoria apuntada por HL", no "el valor de HL". Es como usar un puntero en C.</li>
+                        <li><strong>Flags en INC/DEC:</strong> Entiendo que INC/DEC de 8 bits NO tocan el flag C, incluso
+                            con overflow/underflow. Esta preservación es crítica y muchos emuladores la fallan. El Half-Carry
+                            (H) se calcula diferente en INC (carry del bit 3 al 4) vs DEC (borrow del bit 4 al 3).</li>
+                        <li><strong>LDI/LDD:</strong> Entiendo que estas instrucciones son optimizaciones para bucles,
+                            combinando operación de memoria con actualización de puntero en un solo ciclo. LDI incrementa,
+                            LDD decrementa.</li>
+                        <li><strong>Wrap-around:</strong> Entiendo que los punteros de 16 bits hacen wrap-around usando
+                            <code>& 0xFFFF</code>. Esto es importante para bucles que alcanzan los límites del espacio de
+                            direcciones.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>INC/DEC de HL (16 bits):</strong> Falta implementar INC HL y DEC HL que son diferentes
+                            (no afectan flags). Estos son útiles para bucles que necesitan incrementar/decrementar punteros
+                            de 16 bits.</li>
+                        <li><strong>INC/DEC de (HL):</strong> Falta implementar INC (HL) y DEC (HL) que incrementan/decrementan
+                            el valor en memoria apuntado por HL. Estos también afectan flags Z, N, H pero no C.</li>
+                        <li><strong>Validación con ROMs de test:</strong> Sería ideal validar con ROMs de test redistribuibles
+                            que prueben bucles de limpieza de memoria para confirmar que el comportamiento es correcto.</li>
+                        <li><strong>Timing exacto:</strong> Por ahora usamos M-Cycles aproximados. El timing exacto de LDI/LDD
+                            podría diferir ligeramente en el hardware real, pero para la mayoría de casos debería ser correcto.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        La implementación de flags en INC/DEC se basa en documentación técnica estándar (Pan Docs) que indica
+                        explícitamente que C no se toca. Los tests verifican este comportamiento, pero no he podido validarlo
+                        directamente con hardware real. La preservación de C es una característica documentada y ampliamente
+                        conocida del hardware LR35902, pero es fácil de pasar por alto si no se lee cuidadosamente la
+                        documentación.
+                    </p>
+                    <p>
+                        El comportamiento de Half-Carry en DEC (activado cuando el nibble bajo es 0, indicando borrow) se
+                        implementó basándose en la lógica de cómo funciona el borrow en restas binarias. Si el nibble bajo
+                        es 0 y decrementamos, necesitamos pedir prestado del nibble alto, activando H. Esta lógica es consistente
+                        con cómo funciona el Half-Carry en restas normales.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar <code>BIT 7, H</code> (instrucción BIT) necesaria para el bucle de limpieza de Tetris</li>
+                    <li>[ ] Implementar más opcodes INC/DEC (D, E, H, L, (HL)) para completar el conjunto</li>
+                    <li>[ ] Implementar INC HL / DEC HL (16 bits, no afectan flags) para bucles de punteros</li>
+                    <li>[ ] Ejecutar trace de Tetris para verificar que el bucle de limpieza funciona correctamente</li>
+                    <li>[ ] Validar con ROMs de test redistribuibles si están disponibles</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
