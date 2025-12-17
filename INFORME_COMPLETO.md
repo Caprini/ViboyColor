@@ -69,7 +69,26 @@
 - **Verificación de XOR A**: Los tests verifican que XOR A pone A a cero y actualiza flags correctamente
 - **Verificación de carga de 16 bits**: Los tests verifican que LD SP, d16 y LD HL, d16 cargan valores correctamente en formato Little-Endian
 - **Verificación de avance de PC**: Los tests verifican que las instrucciones avanzan PC correctamente
-- **✅ Test pendiente con ROM real**: Se ejecutará el emulador con tetris_dx.gbc para verificar que el sistema ahora puede ejecutar más instrucciones antes de detenerse
+- **✅ Test exitoso con ROM real (tetris_dx.gbc)**: Se ejecutó exitosamente el emulador con una ROM real de Game Boy Color (Tetris DX) en modo debug. Resultados:
+  - Carga de ROM: ✅ El archivo se cargó correctamente (524,288 bytes, 512 KB)
+  - Parsing del Header: ✅ Título "TETRIS DX", Tipo 0x03 (MBC1), ROM 512 KB, RAM 8 KB
+  - Inicialización de sistema: ✅ Viboy se inicializó correctamente con la ROM
+  - Post-Boot State: ✅ PC y SP se inicializaron correctamente (PC=0x0100, SP=0xFFFE)
+  - Primera instrucción (0x0100): ✅ NOP (0x00) ejecutada correctamente, PC avanzó a 0x0101 (1 ciclo)
+  - Segunda instrucción (0x0101): ✅ JP nn (0xC3) ejecutada correctamente, saltó a 0x0150 (4 ciclos)
+  - Tercera instrucción (0x0150): ✅ **DI (0xF3) ejecutada correctamente**, IME desactivado, PC avanzó a 0x0151 (1 ciclo)
+  - Modo debug: ✅ Las trazas muestran correctamente PC, opcode, registros y ciclos consumidos
+  - Detención por opcode no implementado: ✅ El sistema se detiene correctamente en 0x0151 con opcode 0xE0 (LDH (n), A - Load A into I/O) no implementado
+  - Total de ciclos ejecutados: 6 ciclos (1 + 4 + 1)
+  - Progreso: ✅ El sistema ahora ejecuta **3 instrucciones** (antes solo 2) antes de detenerse
+  
+  **Observaciones importantes:**
+  - La instrucción DI (0xF3) se ejecutó correctamente, confirmando que el control de interrupciones funciona.
+  - El siguiente opcode no implementado es 0xE0 (LDH (n), A), que es una instrucción de escritura en memoria I/O.
+    Esta instrucción escribe el valor del registro A en la dirección (0xFF00 + n), donde n es el siguiente byte.
+    Es una instrucción crítica para la comunicación con los puertos I/O de la Game Boy.
+  - El emulador está progresando correctamente: ahora ejecuta 3 instrucciones antes de detenerse (antes solo 2),
+    lo que confirma que las nuevas implementaciones funcionan correctamente.
 
 #### Lo que Entiendo Ahora:
 - **IME (Interrupt Master Enable)**: No es un registro accesible, sino un "interruptor" interno de la CPU que controla si las interrupciones están habilitadas. DI lo apaga, EI lo enciende.
@@ -80,7 +99,7 @@
 #### Lo que Falta Confirmar:
 - **Retraso de EI**: En hardware real, EI tiene un retraso de 1 instrucción. Por ahora, implementamos la activación inmediata. Más adelante, cuando implementemos el manejo completo de interrupciones, añadiremos este retraso.
 - **Manejo completo de interrupciones**: Por ahora solo controlamos IME, pero falta implementar el registro IF (Interrupt Flag) y IE (Interrupt Enable), y el manejo real de las interrupciones en el bucle principal.
-- **✅ Validación con ROMs reales**: Pendiente de ejecutar test con tetris_dx.gbc para verificar que el sistema ahora puede ejecutar más instrucciones antes de detenerse.
+- **✅ Validación con ROMs reales**: **COMPLETADO** - Se validó exitosamente con tetris_dx.gbc (ROM real de Game Boy Color). El sistema ahora ejecuta 3 instrucciones (NOP, JP nn, DI) antes de detenerse en 0x0151 con opcode 0xE0 (LDH (n), A) no implementado. La instrucción DI se ejecutó correctamente, confirmando que el control de interrupciones funciona. El siguiente paso es implementar LDH (n), A (0xE0) para continuar con la inicialización del sistema.
 
 #### Hipótesis y Suposiciones:
 **Suposición 1**: Por ahora, asumimos que inicializar IME en False es seguro, ya que los juegos suelen desactivarlo explícitamente al inicio con DI. Si en el futuro hay problemas, podemos cambiar la inicialización.

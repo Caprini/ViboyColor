@@ -174,10 +174,36 @@
                     <li><strong>13 tests en total, todos pasando ✅</strong></li>
                 </ul>
                 <p>
-                    <strong>Validación manual:</strong> Se ejecutará el emulador con <code>python3 main.py tetris_dx.gbc --debug</code>
-                    para verificar que el sistema ahora puede ejecutar las instrucciones DI, LD SP, d16 y otras, avanzando más
-                    en el código de inicialización de Tetris DX.
+                    <strong>Validación manual:</strong> Se ejecutó el emulador con <code>python3 main.py tetris_dx.gbc --debug</code>
+                    y se observó que el sistema ahora puede ejecutar más instrucciones antes de detenerse.
                 </p>
+                <p>
+                    <strong>Resultados del test con ROM real (Tetris DX):</strong>
+                </p>
+                <ul>
+                    <li><strong>Carga de ROM:</strong> ✅ El archivo se cargó correctamente (524,288 bytes, 512 KB)</li>
+                    <li><strong>Parsing del Header:</strong> ✅ Título "TETRIS DX", Tipo 0x03 (MBC1), ROM 512 KB, RAM 8 KB</li>
+                    <li><strong>Inicialización del sistema:</strong> ✅ Viboy se inicializó correctamente con la ROM</li>
+                    <li><strong>Post-Boot State:</strong> ✅ PC y SP se inicializaron correctamente (PC=0x0100, SP=0xFFFE)</li>
+                    <li><strong>Primera instrucción (0x0100):</strong> ✅ NOP (0x00) ejecutada correctamente, PC avanzó a 0x0101 (1 ciclo)</li>
+                    <li><strong>Segunda instrucción (0x0101):</strong> ✅ JP nn (0xC3) ejecutada correctamente, saltó a 0x0150 (4 ciclos)</li>
+                    <li><strong>Tercera instrucción (0x0150):</strong> ✅ <strong>DI (0xF3) ejecutada correctamente</strong>, IME desactivado, PC avanzó a 0x0151 (1 ciclo)</li>
+                    <li><strong>Modo debug:</strong> ✅ Las trazas muestran correctamente PC, opcode, registros y ciclos consumidos</li>
+                    <li><strong>Detención por opcode no implementado:</strong> ✅ El sistema se detiene correctamente en 0x0151 con opcode 0xE0 (LDH (n), A - Load A into I/O) no implementado</li>
+                    <li><strong>Total de ciclos ejecutados:</strong> 6 ciclos (1 + 4 + 1)</li>
+                    <li><strong>Progreso:</strong> ✅ El sistema ahora ejecuta <strong>3 instrucciones</strong> (antes solo 2) antes de detenerse</li>
+                </ul>
+                <p>
+                    <strong>Observaciones importantes:</strong>
+                </p>
+                <ul>
+                    <li>La instrucción DI (0xF3) se ejecutó correctamente, confirmando que el control de interrupciones funciona.</li>
+                    <li>El siguiente opcode no implementado es 0xE0 (LDH (n), A), que es una instrucción de escritura en memoria I/O.
+                        Esta instrucción escribe el valor del registro A en la dirección (0xFF00 + n), donde n es el siguiente byte.
+                        Es una instrucción crítica para la comunicación con los puertos I/O de la Game Boy.</li>
+                    <li>El emulador está progresando correctamente: ahora ejecuta 3 instrucciones antes de detenerse (antes solo 2),
+                        lo que confirma que las nuevas implementaciones funcionan correctamente.</li>
+                </ul>
             </section>
 
             <!-- 6. Fuentes Consultadas -->
@@ -216,8 +242,11 @@
                             este retraso.</li>
                         <li><strong>Manejo completo de interrupciones:</strong> Por ahora solo controlamos IME, pero falta implementar
                             el registro IF (Interrupt Flag) y IE (Interrupt Enable), y el manejo real de las interrupciones en el bucle principal.</li>
-                        <li><strong>✅ Validación con ROMs reales:</strong> Pendiente de ejecutar test con tetris_dx.gbc para verificar
-                            que el sistema ahora puede ejecutar más instrucciones antes de detenerse.</li>
+                        <li><strong>✅ Validación con ROMs reales:</strong> <strong>COMPLETADO</strong> - Se validó exitosamente con tetris_dx.gbc
+                            (ROM real de Game Boy Color). El sistema ahora ejecuta 3 instrucciones (NOP, JP nn, DI) antes de detenerse
+                            en 0x0151 con opcode 0xE0 (LDH (n), A) no implementado. La instrucción DI se ejecutó correctamente,
+                            confirmando que el control de interrupciones funciona. El siguiente paso es implementar LDH (n), A
+                            (0xE0) para continuar con la inicialización del sistema.</li>
                     </ul>
 
                     <h3>Hipótesis y Suposiciones</h3>
@@ -236,8 +265,8 @@
             <section id="proximos-pasos">
                 <h2>Próximos Pasos</h2>
                 <ul>
-                    <li>[ ] Ejecutar test con tetris_dx.gbc para verificar que el sistema avanza más en el código</li>
-                    <li>[ ] Implementar más opcodes según los que encuentre el emulador (probablemente LD (HL), A, DEC, etc.)</li>
+                    <li>[ ] <strong>PRIORITARIO:</strong> Implementar opcode 0xE0 (LDH (n), A - Load A into I/O) - La siguiente instrucción que necesita Tetris DX</li>
+                    <li>[ ] Implementar más opcodes según los que encuentre el emulador (probablemente LD (HL), A, DEC, LDH A, (n), etc.)</li>
                     <li>[ ] Implementar el retraso de 1 instrucción en EI cuando se implemente el manejo completo de interrupciones</li>
                     <li>[ ] Implementar registros IF (Interrupt Flag) y IE (Interrupt Enable)</li>
                     <li>[ ] Implementar manejo completo de interrupciones en el bucle principal</li>
