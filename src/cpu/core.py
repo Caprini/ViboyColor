@@ -87,11 +87,15 @@ class CPU:
             # Carga inmediata de 16 bits
             0x31: self._op_ld_sp_d16,   # LD SP, d16
             0x21: self._op_ld_hl_d16,   # LD HL, d16
-            # Memoria Indirecta (HL)
+            0x01: self._op_ld_bc_d16,   # LD BC, d16
+            0x11: self._op_ld_de_d16,   # LD DE, d16
+            # Memoria Indirecta (HL, BC, DE)
             0x77: self._op_ld_hl_ptr_a,    # LD (HL), A
             0x22: self._op_ldi_hl_a,       # LD (HL+), A (LDI (HL), A)
             0x32: self._op_ldd_hl_a,       # LD (HL-), A (LDD (HL), A)
             0x2A: self._op_ldi_a_hl_ptr,   # LD A, (HL+) (LDI A, (HL))
+            0x02: self._op_ld_bc_ptr_a,    # LD (BC), A
+            0x12: self._op_ld_de_ptr_a,    # LD (DE), A
             # Incremento/Decremento de 8 bits
             0x04: self._op_inc_b,          # INC B
             0x05: self._op_dec_b,          # DEC B
@@ -104,6 +108,9 @@ class CPU:
             0xF0: self._op_ldh_a_n,       # LDH A, (n)
             # Prefijo CB (Extended Instructions)
             0xCB: self._handle_cb_prefix,  # CB Prefix
+            # Comparaciones (CP)
+            0xFE: self._op_cp_d8,          # CP d8
+            0xBE: self._op_cp_hl_ptr,      # CP (HL)
         }
         
         # Tabla de despacho para opcodes CB (Extended Instructions)
@@ -454,6 +461,63 @@ class CPU:
             self.registers.set_flag(FLAG_C)
         else:
             self.registers.clear_flag(FLAG_C)
+    
+    def _cp(self, value: int) -> None:
+        """
+        Compara (Compare) un valor con el registro A y actualiza los flags.
+        
+        CP es fundamentalmente una RESTA (SUB), pero con una diferencia crítica:
+        **Descarta el resultado numérico** y solo se queda con los **Flags**.
+        El registro A NO se modifica.
+        
+        Se usa para comparaciones en código: "¿A == value?", "¿A < value?", etc.
+        
+        Flags actualizados:
+        - Z (Zero): 1 si A == value (resultado de resta es 0)
+        - N (Subtract): Siempre 1 (es una resta)
+        - H (Half-Borrow): Si hubo borrow del bit 4 al 3 (nibble bajo)
+        - C (Borrow): Si hubo borrow del bit 7 (A < value)
+        
+        Ejemplos:
+        - Si A = 0x10 y value = 0x10: A - value = 0, Z=1, C=0
+        - Si A = 0x01 y value = 0x02: A - value necesita borrow, Z=0, C=1
+        - Si A = 0x05 y value = 0x03: A - value = 0x02, Z=0, C=0
+        
+        Args:
+            value: Valor a comparar con A (8 bits, se enmascara automáticamente)
+            
+        Fuente: Pan Docs - CPU Instruction Set (CP instruction)
+        """
+        a = self.registers.get_a()
+        value = value & 0xFF
+        
+        # Calcular resultado (pero NO modificar A)
+        result = a - value
+        
+        # Actualizar flags (igual que en _sub)
+        # Z: resultado es cero (A == value)
+        if (result & 0xFF) == 0:
+            self.registers.set_flag(FLAG_Z)
+        else:
+            self.registers.clear_flag(FLAG_Z)
+        
+        # N: siempre 1 en comparación (es una resta)
+        self.registers.set_flag(FLAG_N)
+        
+        # H: Half-Borrow (borrow del bit 4 al 3)
+        # Verificamos si necesitamos pedir prestado del nibble alto
+        if (a & 0xF) < (value & 0xF):
+            self.registers.set_flag(FLAG_H)
+        else:
+            self.registers.clear_flag(FLAG_H)
+        
+        # C: Borrow (A < value)
+        if a < value:
+            self.registers.set_flag(FLAG_C)
+        else:
+            self.registers.clear_flag(FLAG_C)
+        
+        # CRÍTICO: A NO se modifica (solo se usó para calcular flags)
     
     def _inc_n(self, value: int) -> int:
         """
@@ -976,6 +1040,54 @@ class CPU:
         self.registers.set_hl(value)
         logger.debug(f"LD HL, 0x{value:04X} -> HL=0x{self.registers.get_hl():04X}")
         return 3
+    
+    def _op_ld_bc_d16(self) -> int:
+        """
+        LD BC, d16 (Load immediate 16-bit value into BC) - Opcode 0x01
+        
+        Carga un valor inmediato de 16 bits en el registro par BC.
+        
+        Lee los siguientes 2 bytes de memoria (Little-Endian) y los carga en BC.
+        BC se usa frecuentemente como contador o puntero secundario en bucles.
+        
+        Ejemplo:
+        - Si en memoria hay: 0x01 0x34 0x12
+        - Lee 0x1234 (Little-Endian de 0x34 0x12)
+        - BC se establece en 0x1234 (B=0x12, C=0x34)
+        
+        Returns:
+            3 M-Cycles (fetch opcode + fetch 2 bytes de valor)
+            
+        Fuente: Pan Docs - Instruction Set (LD BC, d16)
+        """
+        value = self.fetch_word()
+        self.registers.set_bc(value)
+        logger.debug(f"LD BC, 0x{value:04X} -> BC=0x{self.registers.get_bc():04X}")
+        return 3
+    
+    def _op_ld_de_d16(self) -> int:
+        """
+        LD DE, d16 (Load immediate 16-bit value into DE) - Opcode 0x11
+        
+        Carga un valor inmediato de 16 bits en el registro par DE.
+        
+        Lee los siguientes 2 bytes de memoria (Little-Endian) y los carga en DE.
+        DE se usa frecuentemente como puntero de destino en operaciones de copia de datos.
+        
+        Ejemplo:
+        - Si en memoria hay: 0x11 0x56 0x78
+        - Lee 0x7856 (Little-Endian de 0x56 0x78)
+        - DE se establece en 0x7856 (D=0x78, E=0x56)
+        
+        Returns:
+            3 M-Cycles (fetch opcode + fetch 2 bytes de valor)
+            
+        Fuente: Pan Docs - Instruction Set (LD DE, d16)
+        """
+        value = self.fetch_word()
+        self.registers.set_de(value)
+        logger.debug(f"LD DE, 0x{value:04X} -> DE=0x{self.registers.get_de():04X}")
+        return 3
 
     # ========== Handlers de Memoria Indirecta (HL) ==========
     
@@ -1097,6 +1209,58 @@ class CPU:
         new_hl = (hl_addr + 1) & 0xFFFF
         self.registers.set_hl(new_hl)
         logger.debug(f"LD A, (HL+) -> A = 0x{value:02X} from (0x{hl_addr:04X}), HL = 0x{new_hl:04X}")
+        return 2
+    
+    def _op_ld_bc_ptr_a(self) -> int:
+        """
+        LD (BC), A (Load A into memory address pointed by BC) - Opcode 0x02
+        
+        Escribe el valor del registro A en la dirección de memoria apuntada por BC.
+        
+        Similar a LD (HL), A pero usando BC como puntero. Útil para escribir
+        datos usando BC como contador o puntero secundario.
+        
+        Ejemplo:
+        - BC = 0xC000
+        - A = 0xAA
+        - Ejecutar LD (BC), A
+        - Resultado: Memoria[0xC000] = 0xAA, BC sigue siendo 0xC000
+        
+        Returns:
+            2 M-Cycles (fetch opcode + write to memory)
+            
+        Fuente: Pan Docs - Instruction Set (LD (BC), A)
+        """
+        bc_addr = self.registers.get_bc()
+        a_value = self.registers.get_a()
+        self.mmu.write_byte(bc_addr, a_value)
+        logger.debug(f"LD (BC), A -> (0x{bc_addr:04X}) = 0x{a_value:02X}")
+        return 2
+    
+    def _op_ld_de_ptr_a(self) -> int:
+        """
+        LD (DE), A (Load A into memory address pointed by DE) - Opcode 0x12
+        
+        Escribe el valor del registro A en la dirección de memoria apuntada por DE.
+        
+        Similar a LD (BC), A pero usando DE como puntero. Útil para escribir
+        datos usando DE como puntero de destino en operaciones de copia.
+        
+        Ejemplo:
+        - DE = 0xD000
+        - A = 0x55
+        - Ejecutar LD (DE), A
+        - Resultado: Memoria[0xD000] = 0x55, DE sigue siendo 0xD000
+        
+        Returns:
+            2 M-Cycles (fetch opcode + write to memory)
+            
+        Fuente: Pan Docs - Instruction Set (LD (DE), A)
+        """
+        de_addr = self.registers.get_de()
+        a_value = self.registers.get_a()
+        self.mmu.write_byte(de_addr, a_value)
+        logger.debug(f"LD (DE), A -> (0x{de_addr:04X}) = 0x{a_value:02X}")
         return 2
     
     # ========== Handlers de Incremento/Decremento ==========
@@ -1430,6 +1594,73 @@ class CPU:
             f"Z={self.registers.get_flag_z()} "
             f"H={self.registers.get_flag_h()} "
             f"N={self.registers.get_flag_n()}"
+        )
+        return 2
+    
+    # ========== Handlers de Comparación (CP) ==========
+    
+    def _op_cp_d8(self) -> int:
+        """
+        CP d8 (Compare immediate value with A) - Opcode 0xFE
+        
+        Compara el siguiente byte de memoria con el registro A.
+        
+        Esta instrucción es fundamental para la lógica condicional en juegos.
+        Se usa para tomar decisiones: "¿A == valor?", "¿A < valor?", etc.
+        
+        La comparación es una resta "fantasma": calcula A - d8, actualiza los flags
+        según el resultado, pero NO modifica el registro A.
+        
+        Flags:
+        - Z: 1 si A == d8 (iguales)
+        - N: 1 (siempre, es una resta)
+        - H: 1 si hubo borrow del nibble bajo
+        - C: 1 si A < d8 (hubo borrow)
+        
+        Returns:
+            2 M-Cycles (fetch opcode + fetch operand)
+            
+        Fuente: Pan Docs - Instruction Set (CP d8)
+        """
+        operand = self.fetch_byte()
+        self._cp(operand)
+        logger.debug(
+            f"CP 0x{operand:02X} -> A=0x{self.registers.get_a():02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()} C={self.registers.get_flag_c()}"
+        )
+        return 2
+    
+    def _op_cp_hl_ptr(self) -> int:
+        """
+        CP (HL) (Compare value at (HL) with A) - Opcode 0xBE
+        
+        Compara el valor en la dirección de memoria apuntada por HL con el registro A.
+        
+        Similar a CP d8 pero lee el valor a comparar de la memoria en lugar de
+        un operando inmediato. Útil para comparar A con valores en arrays o buffers.
+        
+        La comparación es una resta "fantasma": calcula A - (HL), actualiza los flags
+        según el resultado, pero NO modifica el registro A.
+        
+        Flags:
+        - Z: 1 si A == (HL) (iguales)
+        - N: 1 (siempre, es una resta)
+        - H: 1 si hubo borrow del nibble bajo
+        - C: 1 si A < (HL) (hubo borrow)
+        
+        Returns:
+            2 M-Cycles (fetch opcode + read from memory)
+            
+        Fuente: Pan Docs - Instruction Set (CP (HL))
+        """
+        hl_addr = self.registers.get_hl()
+        value = self.mmu.read_byte(hl_addr)
+        self._cp(value)
+        logger.debug(
+            f"CP (HL) -> A=0x{self.registers.get_a():02X} (HL)=0x{value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()} C={self.registers.get_flag_c()}"
         )
         return 2
 

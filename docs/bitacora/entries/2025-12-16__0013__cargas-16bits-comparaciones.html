@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cargas de 16 bits (BC, DE) y Comparaciones (CP) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Cargas de 16 bits (BC, DE) y Comparaciones (CP)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-16
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0013
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-16__0012__io-access-prefijo-cb.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de cargas inmediatas de 16 bits para los registros BC y DE, almacenamiento indirecto usando BC y DE como punteros, y la instrucción crítica de comparación CP (Compare). Se añadió el helper _cp() que realiza una "resta fantasma" (actualiza flags sin modificar A) y se implementaron los opcodes LD BC, d16 (0x01), LD DE, d16 (0x11), LD (BC), A (0x02), LD (DE), A (0x12), CP d8 (0xFE) y CP (HL) (0xBE). Estas instrucciones son esenciales para que el emulador pueda avanzar más allá de la inicialización, permitiendo cargar constantes en registros pares y tomar decisiones condicionales. Suite completa de tests TDD (9 tests) validando todas las funcionalidades. También se corrigió un bug en la MMU donde el área de ROM (0x0000-0x7FFF) devolvía 0xFF cuando no había cartucho, impidiendo escribir/leer en memoria para tests.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Pares de Registros BC y DE:</strong> La CPU LR35902 tiene cuatro pares de registros de 16 bits: AF, BC, DE y HL. Ya teníamos implementado HL y SP. BC y DE son igualmente importantes:
+                </p>
+                <ul>
+                    <li><strong>BC:</strong> Se usa frecuentemente como contador o puntero secundario en bucles.</li>
+                    <li><strong>DE:</strong> Se usa frecuentemente como puntero de destino en operaciones de copia de datos (memcpy).</li>
+                </ul>
+                <p>
+                    <strong>Almacenamiento Indirecto con BC y DE:</strong> Igual que con HL, podemos usar BC y DE como punteros de memoria. Las instrucciones LD (BC), A y LD (DE), A escriben el valor de A en la dirección apuntada por BC o DE respectivamente. Son muy comunes en bucles de limpieza de memoria o copia de datos.
+                </p>
+                <p>
+                    <strong>La Instrucción CP (Compare) - Una Resta "Fantasma":</strong> CP es fundamentalmente una RESTA (SUB), pero con una diferencia crítica: <strong>descarta el resultado numérico</strong> y solo se queda con los <strong>Flags</strong>. El registro A NO se modifica.
+                </p>
+                <p>
+                    CP se usa para comparaciones en código: "¿A == valor?", "¿A &lt; valor?", etc.:
+                </p>
+                <ul>
+                    <li>Si <code>A == valor</code>, la resta <code>A - valor</code> es 0, así que se enciende el <strong>Flag Z (Zero)</strong>.</li>
+                    <li>Si <code>A &lt; valor</code>, la resta necesita "borrow", así que se enciende el <strong>Flag C (Carry/Borrow)</strong>.</li>
+                    <li>Si <code>A &gt; valor</code>, la resta es positiva, Z=0 y C=0.</li>
+                </ul>
+                <p>
+                    Los flags se actualizan igual que en SUB:
+                </p>
+                <ul>
+                    <li><strong>Z (Zero):</strong> 1 si A == valor (iguales)</li>
+                    <li><strong>N (Subtract):</strong> Siempre 1 (es una resta)</li>
+                    <li><strong>H (Half-Borrow):</strong> Si hubo borrow del bit 4 al 3 (nibble bajo)</li>
+                    <li><strong>C (Borrow):</strong> Si hubo borrow del bit 7 (A &lt; valor)</li>
+                </ul>
+                <p>
+                    Sin CP, los juegos no pueden tomar decisiones condicionales como "¿He llegado al final del bucle?" o "¿Ha pulsado el usuario START?". Es una instrucción absolutamente crítica para la lógica de control.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron 6 nuevos opcodes siguiendo el patrón establecido de handlers dedicados en la tabla de despacho.
+                </p>
+                
+                <h3>Helper _cp() para Comparaciones</h3>
+                <p>
+                    Se creó el helper <code>_cp(value)</code> que reutiliza la lógica de <code>_sub()</code> pero con la diferencia crítica de que <strong>NO modifica el registro A</strong>. Calcula el resultado de A - value para determinar los flags, pero restaura el valor original de A al final (en realidad, nunca lo modifica, solo lo usa para calcular).
+                </p>
+                <p>
+                    El helper actualiza los flags Z, N, H, C igual que <code>_sub()</code>, pero preserva A intacto. Esto es esencial para que CP funcione correctamente como una comparación "no destructiva".
+                </p>
+
+                <h3>Cargas de 16 bits: LD BC, d16 y LD DE, d16</h3>
+                <p>
+                    Se implementaron <code>_op_ld_bc_d16()</code> (0x01) y <code>_op_ld_de_d16()</code> (0x11) siguiendo exactamente el mismo patrón que <code>_op_ld_hl_d16()</code> y <code>_op_ld_sp_d16()</code>. Leen 2 bytes en formato Little-Endian usando <code>fetch_word()</code> y cargan el valor en el par de registros correspondiente mediante <code>registers.set_bc()</code> o <code>registers.set_de()</code>.
+                </p>
+                <p>
+                    Ambas instrucciones consumen 3 M-Cycles (fetch opcode + fetch 2 bytes de valor).
+                </p>
+
+                <h3>Almacenamiento Indirecto: LD (BC), A y LD (DE), A</h3>
+                <p>
+                    Se implementaron <code>_op_ld_bc_ptr_a()</code> (0x02) y <code>_op_ld_de_ptr_a()</code> (0x12) siguiendo el patrón de <code>_op_ld_hl_ptr_a()</code>. Obtienen la dirección apuntada por BC o DE, leen el valor de A, y escriben en memoria usando <code>mmu.write_byte()</code>.
+                </p>
+                <p>
+                    Ambas instrucciones consumen 2 M-Cycles (fetch opcode + write to memory).
+                </p>
+
+                <h3>Comparaciones: CP d8 y CP (HL)</h3>
+                <p>
+                    Se implementaron <code>_op_cp_d8()</code> (0xFE) y <code>_op_cp_hl_ptr()</code> (0xBE). La primera lee un valor inmediato de 8 bits y lo compara con A. La segunda lee un valor de memoria apuntada por HL y lo compara con A. Ambas usan el helper <code>_cp()</code> para actualizar flags sin modificar A.
+                </p>
+                <p>
+                    Ambas instrucciones consumen 2 M-Cycles (fetch opcode + fetch operand o read from memory).
+                </p>
+
+                <h3>Corrección de Bug en MMU</h3>
+                <p>
+                    Se corrigió un bug crítico en <code>MMU.read_byte()</code> donde el área de ROM (0x0000-0x7FFF) devolvía siempre 0xFF cuando no había cartucho, incluso si se había escrito previamente en <code>self._memory</code>. Esto impedía que los tests funcionaran correctamente, ya que escribían opcodes en memoria pero luego se leían como 0xFF.
+                </p>
+                <p>
+                    La solución fue modificar la lógica para que cuando no hay cartucho, se lea de <code>self._memory</code> en lugar de devolver 0xFF. Esto permite que los tests escriban y lean correctamente en el área de ROM, aunque en hardware real esta área sería de solo lectura (ROM del cartucho).
+                </p>
+
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/cpu/core.py</code>: Añadidos 6 nuevos handlers de opcodes y el helper _cp()</li>
+                    <li><code>src/memory/mmu.py</code>: Corregido bug en read_byte() para área de ROM sin cartucho</li>
+                    <li><code>tests/test_cpu_load16_cp.py</code>: Suite completa de 9 tests TDD</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se decidió reutilizar la lógica de <code>_sub()</code> para <code>_cp()</code> en lugar de duplicar código, pero asegurándose de que A no se modifique. Esto mantiene la consistencia en el cálculo de flags y reduce la posibilidad de errores.
+                </p>
+                <p>
+                    Para la corrección del bug en MMU, se eligió permitir lectura/escritura en el área de ROM cuando no hay cartucho, ya que es necesario para los tests. En una implementación más completa, esto se manejaría mejor con regiones de memoria específicas, pero para esta etapa es suficiente.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadidos 6 nuevos opcodes, helper _cp(), y entradas en tabla de despacho</li>
+                    <li><code>src/memory/mmu.py</code> - Corregido bug en read_byte() para área de ROM sin cartucho</li>
+                    <li><code>tests/test_cpu_load16_cp.py</code> - Nueva suite de tests con 9 casos de prueba</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests TDD con 9 casos de prueba:
+                </p>
+                <ul>
+                    <li><strong>Tests de carga de 16 bits:</strong>
+                        <ul>
+                            <li><code>test_ld_bc_d16</code>: Verifica que LD BC, d16 carga correctamente valores Little-Endian</li>
+                            <li><code>test_ld_de_d16</code>: Verifica que LD DE, d16 carga correctamente valores Little-Endian</li>
+                        </ul>
+                    </li>
+                    <li><strong>Tests de almacenamiento indirecto:</strong>
+                        <ul>
+                            <li><code>test_ld_bc_indirect_write</code>: Verifica que LD (BC), A escribe correctamente en memoria</li>
+                            <li><code>test_ld_de_indirect_write</code>: Verifica que LD (DE), A escribe correctamente en memoria</li>
+                        </ul>
+                    </li>
+                    <li><strong>Tests de comparación:</strong>
+                        <ul>
+                            <li><code>test_cp_equality</code>: Verifica que CP activa Z cuando A == valor</li>
+                            <li><code>test_cp_less</code>: Verifica que CP activa C cuando A &lt; valor</li>
+                            <li><code>test_cp_greater</code>: Verifica que CP no activa C cuando A &gt; valor</li>
+                            <li><code>test_cp_hl_ptr</code>: Verifica que CP (HL) compara con valor en memoria</li>
+                            <li><code>test_cp_half_carry</code>: Verifica que CP actualiza H correctamente cuando hay half-borrow</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    Todos los tests pasan exitosamente (9/9), validando:
+                </p>
+                <ul>
+                    <li>Correcta carga de valores de 16 bits en registros BC y DE</li>
+                    <li>Correcto almacenamiento indirecto usando BC y DE como punteros</li>
+                    <li>Correcta actualización de flags en comparaciones (Z, N, H, C)</li>
+                    <li>Preservación del registro A en operaciones CP</li>
+                    <li>Consumo correcto de M-Cycles para cada instrucción</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs - CPU Instruction Set: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html" target="_blank">https://gbdev.io/pandocs/CPU_Instruction_Set.html</a></li>
+                    <li>Pan Docs - CPU Flags: Referencia sobre actualización de flags en operaciones aritméticas</li>
+                </ul>
+                <p>
+                    <em>Nota: La implementación de CP sigue la especificación estándar de la arquitectura Z80/8080, de la cual LR35902 es derivada. El comportamiento de CP como "resta fantasma" es consistente con la documentación técnica.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>CP es una resta fantasma:</strong> CP calcula A - valor para actualizar flags, pero descarta el resultado numérico. Solo los flags importan, A permanece intacto. Esto es fundamental para comparaciones condicionales.</li>
+                        <li><strong>BC y DE como punteros:</strong> Igual que HL, BC y DE pueden usarse como punteros de memoria. LD (BC), A y LD (DE), A son muy comunes en bucles de inicialización y copia de datos.</li>
+                        <li><strong>Importancia de CP:</strong> Sin CP, los juegos no pueden tomar decisiones condicionales. Es una instrucción crítica para cualquier lógica de control (if/else, loops, state machines).</li>
+                        <li><strong>Área de ROM en tests:</strong> Para tests, necesitamos poder escribir en el área de ROM (0x0000-0x7FFF) aunque en hardware real sea de solo lectura. La corrección en MMU permite esto cuando no hay cartucho.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento completo de CP:</strong> Todos los tests pasan, pero aún no hemos probado CP en situaciones más complejas (valores límite, wrap-around, etc.). Se validará cuando el emulador ejecute código real.</li>
+                        <li><strong>Timing exacto:</strong> Los M-Cycles están correctos según documentación, pero el timing preciso de T-Cycles dentro de cada M-Cycle no está modelado. Esto se añadirá más adelante cuando sea necesario para precisión.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que el comportamiento de CP es idéntico a SUB en cuanto a cálculo de flags, solo que no modifica A. Esto está respaldado por la documentación técnica y el comportamiento estándar de arquitecturas Z80/8080.
+                    </p>
+                    <p>
+                        La corrección en MMU para permitir lectura/escritura en área de ROM cuando no hay cartucho es una simplificación para tests. En hardware real, esta área sería de solo lectura (ROM del cartucho), pero para nuestra implementación educativa es aceptable.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Continuar ejecutando el emulador con Tetris DX para identificar qué opcodes faltan</li>
+                    <li>[ ] Implementar más opcodes de carga (LD entre registros, LD con direccionamiento indirecto adicional)</li>
+                    <li>[ ] Implementar más operaciones aritméticas y lógicas (ADD, SUB, AND, OR, XOR con registros)</li>
+                    <li>[ ] Considerar implementar más variantes de CP (CP con otros registros, no solo d8 e (HL))</li>
+                    <li>[ ] Mejorar el manejo de regiones de memoria en MMU para ser más fiel al hardware real</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

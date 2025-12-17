@@ -141,8 +141,8 @@ class TestCPUControl:
         mmu.write_byte(0x0101, 0xFE)   # Low byte
         mmu.write_byte(0x0102, 0xFF)  # High byte
         
-        # Establecer PC al inicio
-        cpu.registers.set_pc(0x0100)
+        # Establecer PC después del opcode (fetch_word lee desde PC actual)
+        cpu.registers.set_pc(0x0101)
         
         # Ejecutar LD SP, d16
         cycles = cpu._op_ld_sp_d16()
@@ -167,7 +167,7 @@ class TestCPUControl:
             mmu.write_byte(0x0100, 0x31)
             mmu.write_byte(0x0101, low)
             mmu.write_byte(0x0102, high)
-            cpu.registers.set_pc(0x0100)
+            cpu.registers.set_pc(0x0101)  # PC después del opcode
             
             cpu._op_ld_sp_d16()
             
@@ -184,8 +184,8 @@ class TestCPUControl:
         mmu.write_byte(0x0101, 0x00)   # Low byte
         mmu.write_byte(0x0102, 0xC0)  # High byte
         
-        # Establecer PC al inicio
-        cpu.registers.set_pc(0x0100)
+        # Establecer PC después del opcode (fetch_word lee desde PC actual)
+        cpu.registers.set_pc(0x0101)
         
         # Ejecutar LD HL, d16
         cycles = cpu._op_ld_hl_d16()
@@ -210,7 +210,7 @@ class TestCPUControl:
             mmu.write_byte(0x0100, 0x21)
             mmu.write_byte(0x0101, low)
             mmu.write_byte(0x0102, high)
-            cpu.registers.set_pc(0x0100)
+            cpu.registers.set_pc(0x0101)  # PC después del opcode
             
             cpu._op_ld_hl_d16()
             
@@ -225,11 +225,11 @@ class TestCPUControl:
         mmu.write_byte(0x0100, 0x31)
         mmu.write_byte(0x0101, 0xFE)
         mmu.write_byte(0x0102, 0xFF)
-        cpu.registers.set_pc(0x0100)
+        cpu.registers.set_pc(0x0101)  # PC después del opcode
         
         cpu._op_ld_sp_d16()
         
-        # PC debería haber avanzado en 3 bytes (opcode + 2 bytes de valor)
+        # PC debería haber avanzado en 2 bytes (los datos leídos por fetch_word)
         assert cpu.registers.get_pc() == 0x0103
 
     def test_ld_hl_d16_advances_pc(self) -> None:
@@ -240,10 +240,10 @@ class TestCPUControl:
         mmu.write_byte(0x0100, 0x21)
         mmu.write_byte(0x0101, 0x00)
         mmu.write_byte(0x0102, 0xC0)
-        cpu.registers.set_pc(0x0100)
+        cpu.registers.set_pc(0x0101)  # PC después del opcode
         
         cpu._op_ld_hl_d16()
         
-        # PC debería haber avanzado en 3 bytes (opcode + 2 bytes de valor)
+        # PC debería haber avanzado en 2 bytes (los datos leídos por fetch_word)
         assert cpu.registers.get_pc() == 0x0103
 

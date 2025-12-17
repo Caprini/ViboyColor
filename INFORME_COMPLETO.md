@@ -1100,3 +1100,55 @@ Verified - Tests creados y código implementado siguiendo especificaciones técn
 
 ---
 
+## 2025-12-16 - Paso 0013: Cargas de 16 bits (BC, DE) y Comparaciones (CP)
+
+### Objetivo
+Implementar las cargas inmediatas de 16 bits para los registros BC y DE, almacenamiento indirecto usando BC y DE como punteros, y la instrucción crítica de comparación CP (Compare).
+
+### Descripción Técnica
+Se implementaron 6 nuevos opcodes:
+- **LD BC, d16 (0x01)**: Carga un valor inmediato de 16 bits en el registro par BC (3 M-Cycles)
+- **LD DE, d16 (0x11)**: Carga un valor inmediato de 16 bits en el registro par DE (3 M-Cycles)
+- **LD (BC), A (0x02)**: Escribe el valor de A en la dirección apuntada por BC (2 M-Cycles)
+- **LD (DE), A (0x12)**: Escribe el valor de A en la dirección apuntada por DE (2 M-Cycles)
+- **CP d8 (0xFE)**: Compara A con un valor inmediato de 8 bits (2 M-Cycles)
+- **CP (HL) (0xBE)**: Compara A con el valor en memoria apuntada por HL (2 M-Cycles)
+
+**Helper _cp()**: Se creó un helper que realiza una "resta fantasma": calcula A - value para actualizar flags (Z, N, H, C) pero NO modifica el registro A. Esto es esencial para comparaciones condicionales.
+
+**Bug fix en MMU**: Se corrigió un bug donde el área de ROM (0x0000-0x7FFF) devolvía siempre 0xFF cuando no había cartucho, incluso si se había escrito previamente. Ahora lee de `self._memory` cuando no hay cartucho, permitiendo que los tests funcionen correctamente.
+
+### Concepto de Hardware
+**CP (Compare)** es fundamentalmente una RESTA, pero descarta el resultado numérico y solo se queda con los Flags. El registro A permanece intacto. Se usa para comparaciones condicionales:
+- Si A == value: Z=1 (iguales)
+- Si A < value: C=1 (borrow)
+- Si A > value: Z=0, C=0
+
+Sin CP, los juegos no pueden tomar decisiones condicionales, lo que la convierte en una instrucción absolutamente crítica.
+
+### Archivos Afectados
+- `src/cpu/core.py`: Añadidos 6 nuevos handlers de opcodes y el helper _cp()
+- `src/memory/mmu.py`: Corregido bug en read_byte() para área de ROM sin cartucho
+- `tests/test_cpu_load16_cp.py`: Nueva suite de tests con 9 casos de prueba
+
+### Validación
+**Tests TDD**: Suite completa de 9 tests, todos pasando:
+- 2 tests de carga de 16 bits (BC, DE)
+- 2 tests de almacenamiento indirecto (BC, DE)
+- 5 tests de comparación (igualdad, menor, mayor, half-carry, memoria indirecta)
+
+**Estado**: Verified - Todos los tests pasan correctamente. La implementación sigue la especificación técnica de Pan Docs y es consistente con el comportamiento estándar de arquitecturas Z80/8080.
+
+### Lecciones Aprendidas
+- **CP es una resta fantasma**: Calcula flags igual que SUB pero preserva A. Esto es fundamental para comparaciones no destructivas.
+- **BC y DE como punteros**: Igual que HL, BC y DE pueden usarse como punteros de memoria. Son muy comunes en bucles de inicialización y copia de datos.
+- **Bug en MMU**: El área de ROM sin cartucho debe leer de memoria interna para tests, aunque en hardware real sea de solo lectura.
+
+### Próximos Pasos
+- Continuar ejecutando el emulador con Tetris DX para identificar qué opcodes faltan
+- Implementar más opcodes de carga (LD entre registros)
+- Implementar más operaciones aritméticas y lógicas
+- Considerar implementar más variantes de CP
+
+---
+

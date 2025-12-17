@@ -87,8 +87,10 @@ class MMU:
             if self._cartridge is not None:
                 return self._cartridge.read_byte(addr)
             else:
-                # Si no hay cartucho, devolver 0xFF (comportamiento típico)
-                return 0xFF
+                # Si no hay cartucho, leer de memoria interna (útil para tests)
+                # En hardware real esto sería ROM del cartucho, pero para tests
+                # permitimos escribir/leer directamente en memoria
+                return self._memory[addr] & 0xFF
         
         # Para otras regiones, leer de la memoria interna
         return self._memory[addr] & 0xFF
