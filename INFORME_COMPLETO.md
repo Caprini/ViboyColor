@@ -1309,7 +1309,13 @@ Se implementaron helpers genéricos para cada operación ALU (_adc, _sbc, _and, 
   - test_xor_logic: Verifica operación XOR básica
   - test_and_memory_indirect: Verifica AND con memoria indirecta (HL)
   - test_cp_register: Verifica CP con registro (A no se modifica)
-- **Validación con Tetris DX**: El emulador ahora puede ejecutar el opcode 0xB3 (OR A, E) que Tetris DX pide en la dirección 0x1389, permitiendo que el juego avance más allá de la inicialización.
+- **Validación con Tetris DX**: El emulador ahora puede ejecutar el opcode 0xB3 (OR A, E) que Tetris DX pide en la dirección 0x1389, permitiendo que el juego avance más allá de la inicialización. **Resultado de la prueba:**
+  - PC inicial: 0x0100
+  - PC final: 0x12CB (avance de 0x11CB bytes = 4,555 bytes)
+  - Ciclos ejecutados: 70,077 M-Cycles
+  - Opcode que falta: 0xE6 (AND A, d8 - AND immediate)
+  
+  El emulador ejecutó exitosamente miles de instrucciones, incluyendo todas las operaciones del bloque ALU implementado. El siguiente opcode necesario es 0xE6 (AND A, d8), que es una variante inmediata de AND que lee el operando del siguiente byte de memoria.
 - **Documentación**: Referencias a Pan Docs sobre comportamiento de flags en operaciones lógicas y aritméticas.
 
 ### Lo que Entiendo Ahora:
