@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Despachador de Interrupciones - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Despachador de Interrupciones</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-17
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0025
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-17__0024__ppu-timing-engine.html">Anterior</a></li>
+                    <li><a href="2025-12-17__0026__integracion-grafica-decodificador-tiles.html">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó el <strong>Despachador de Interrupciones (Interrupt Service Routine - ISR)</strong> en la CPU,
+                    conectando finalmente el sistema de timing (PPU) con la CPU. Ahora la CPU puede responder a interrupciones
+                    como V-Blank, Timer, LCD STAT, Serial y Joypad. La implementación incluye el manejo correcto de prioridades
+                    (V-Blank tiene mayor prioridad que Timer, etc.), despertar de HALT cuando hay interrupciones pendientes,
+                    y la secuencia completa de hardware: desactivar IME, limpiar flag en IF, guardar PC en la pila, y saltar al vector.
+                    Esta es la funcionalidad que convierte el emulador de una "calculadora lineal" en un sistema reactivo capaz de
+                    responder a eventos del hardware. Suite completa de tests TDD (6 tests) validando todas las funcionalidades. Todos los tests pasan.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Las <strong>interrupciones</strong> son señales de hardware que permiten que la CPU interrumpa temporalmente
+                    la ejecución de código normal para atender eventos urgentes (como el final de un frame V-Blank o el desbordamiento
+                    de un timer). Sin interrupciones, la CPU tendría que estar constantemente verificando (polling) el estado de
+                    los periféricos, lo cual es ineficiente.
+                </p>
+                
+                <h3>Flujo de Interrupción</h3>
+                <p>
+                    Para que ocurra una interrupción real (salto al vector), deben cumplirse <strong>3 condiciones simultáneas</strong>:
+                </p>
+                <ol>
+                    <li><strong>IME (Interrupt Master Enable)</strong> debe ser True. Se controla con las instrucciones DI (desactivar) y EI (activar).</li>
+                    <li>El bit correspondiente en <strong>IE (Interrupt Enable, 0xFFFF)</strong> debe estar activo. Esto habilita tipos específicos de interrupciones.</li>
+                    <li>El bit correspondiente en <strong>IF (Interrupt Flag, 0xFF0F)</strong> debe estar activo. Los periféricos (PPU, Timer, etc.) ponen estos bits cuando ocurre un evento.</li>
+                </ol>
+                
+                <h3>Secuencia de Hardware (cuando se acepta una interrupción)</h3>
+                <p>
+                    Cuando se acepta una interrupción, el hardware ejecuta automáticamente esta secuencia:
+                </p>
+                <ol>
+                    <li>La CPU apaga <strong>IME</strong> automáticamente (para evitar interrupciones anidadas inmediatas).</li>
+                    <li>Limpia el bit correspondiente en <strong>IF</strong> (acknowledgement: "recibí tu mensaje").</li>
+                    <li>Hace <strong>PUSH PC</strong> (guarda la dirección actual para volver luego con RETI).</li>
+                    <li>Salta a la dirección del <strong>vector de interrupción</strong> (PC = vector).</li>
+                    <li>Consume <strong>5 M-Cycles</strong> (20 T-Cycles) en total.</li>
+                </ol>
+                
+                <h3>Vectores de Interrupción y Prioridades</h3>
+                <p>
+                    Cada tipo de interrupción tiene un vector fijo y una prioridad específica (menor número de bit = mayor prioridad):
+                </p>
+                <ul>
+                    <li><strong>Bit 0:</strong> V-Blank → <code>0x0040</code> (Prioridad más alta)</li>
+                    <li><strong>Bit 1:</strong> LCD STAT → <code>0x0048</code></li>
+                    <li><strong>Bit 2:</strong> Timer → <code>0x0050</code></li>
+                    <li><strong>Bit 3:</strong> Serial → <code>0x0058</code></li>
+                    <li><strong>Bit 4:</strong> Joypad → <code>0x0060</code> (Prioridad más baja)</li>
+                </ul>
+                <p>
+                    Si múltiples interrupciones están pendientes simultáneamente, se procesa primero la de mayor prioridad.
+                </p>
+                
+                <h3>Despertar de HALT</h3>
+                <p>
+                    Si la CPU está en <strong>HALT</strong> (estado de bajo consumo) y ocurre una interrupción pendiente
+                    (en IE y IF), la CPU debe despertar (<code>halted = False</code>), <strong>incluso si IME es False</strong>.
+                    Esto permite que el código pueda verificar manualmente las interrupciones mediante polling de IF después de HALT.
+                    Si IME está desactivado, la CPU despierta pero no salta al vector (continúa ejecutando normalmente).
+                </p>
+                
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Interrupts, HALT behavior, Interrupt Vectors
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó el método <code>handle_interrupts()</code> en la clase <code>CPU</code> que gestiona todo el
+                    flujo de interrupciones. Este método se llama al inicio de cada <code>step()</code>, antes de ejecutar
+                    cualquier instrucción, simulando el comportamiento del hardware real.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>CPU.handle_interrupts()</strong>: Método que implementa toda la lógica de interrupciones. Lee IE e IF desde la MMU, calcula interrupciones pendientes, maneja el despertar de HALT, procesa la interrupción de mayor prioridad si IME está activo, y retorna los ciclos consumidos (5 si procesó, 0 si no).</li>
+                    <li><strong>CPU.step()</strong>: Modificado para llamar a <code>handle_interrupts()</code> al principio. Si se procesó una interrupción, retorna inmediatamente sin ejecutar la instrucción normal.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Prioridad de interrupciones:</strong> Se implementó usando una serie de <code>if-elif</code> que comprueba
+                    los bits en orden de prioridad (bit 0 primero, luego bit 1, etc.). Esta implementación es clara y fácil de entender,
+                    aunque no es la más eficiente. Para un emulador de producción, se podría optimizar usando operaciones bitwise más
+                    avanzadas, pero para un emulador educativo, la claridad es más importante que la eficiencia.
+                </p>
+                
+                <p>
+                    <strong>Despertar de HALT:</strong> Se decidió que <code>handle_interrupts()</code> maneje tanto el despertar de HALT
+                    como el procesamiento de interrupciones. Esto simplifica la lógica de <code>step()</code> y mantiene toda la lógica
+                    de interrupciones en un solo lugar.
+                </p>
+                
+                <p>
+                    <strong>Limpieza de IF:</strong> Cuando se procesa una interrupción, se limpia únicamente el bit correspondiente,
+                    preservando los demás bits. Esto permite que otras interrupciones pendientes se procesen en el siguiente ciclo.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadido método handle_interrupts(), modificado step() para integrar manejo de interrupciones</li>
+                    <li><code>tests/test_cpu_interrupts.py</code> - Nuevo archivo con suite completa de tests TDD (6 tests) validando interrupciones, prioridades, despertar de HALT, y todos los vectores</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutó la suite completa de tests TDD para validar todas las funcionalidades del despachador de interrupciones:
+                </p>
+                
+                <h3>Comando ejecutado</h3>
+                <pre><code>python3 -m pytest tests/test_cpu_interrupts.py -v</code></pre>
+                
+                <h3>Entorno</h3>
+                <ul>
+                    <li><strong>OS:</strong> macOS (darwin 21.6.0)</li>
+                    <li><strong>Python:</strong> 3.9.6</li>
+                    <li><strong>pytest:</strong> 8.4.2</li>
+                </ul>
+                
+                <h3>Resultado</h3>
+                <pre><code>============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0
+collected 6 items
+
+tests/test_cpu_interrupts.py::TestCPUInterrupts::test_vblank_interrupt PASSED [ 16%]
+tests/test_cpu_interrupts.py::TestCPUInterrupts::test_interrupt_priority PASSED [ 33%]
+tests/test_cpu_interrupts.py::TestCPUInterrupts::test_halt_wakeup PASSED [ 50%]
+tests/test_cpu_interrupts.py::TestCPUInterrupts::test_no_interrupt_if_ime_disabled PASSED [ 66%]
+tests/test_cpu_interrupts.py::TestCPUInterrupts::test_timer_interrupt_vector PASSED [ 83%]
+tests/test_cpu_interrupts.py::TestCPUInterrupts::test_all_interrupt_vectors PASSED [100%]
+
+============================== 6 passed in 0.49s ===============================</code></pre>
+                
+                <h3>Qué valida</h3>
+                <ul>
+                    <li><strong>test_vblank_interrupt:</strong> Interrupción V-Blank se procesa correctamente: salta a 0x0040, desactiva IME, limpia bit 0 de IF, guarda PC en la pila, consume 5 M-Cycles.</li>
+                    <li><strong>test_interrupt_priority:</strong> Si múltiples interrupciones están pendientes (V-Blank y Timer), se procesa primero V-Blank (mayor prioridad). El bit de Timer sigue activo para el siguiente ciclo.</li>
+                    <li><strong>test_halt_wakeup:</strong> Si la CPU está en HALT y hay interrupciones pendientes, la CPU despierta incluso si IME está desactivado. Después de despertar, continúa ejecutando normalmente.</li>
+                    <li><strong>test_no_interrupt_if_ime_disabled:</strong> Si IME está desactivado, las interrupciones no se procesan aunque IE e IF tengan bits activos. La CPU ejecuta instrucciones normalmente.</li>
+                    <li><strong>test_timer_interrupt_vector:</strong> Interrupción Timer salta al vector correcto (0x0050) y limpia el bit 2 de IF.</li>
+                    <li><strong>test_all_interrupt_vectors:</strong> Todos los vectores de interrupción son correctos: V-Blank (0x0040), LCD STAT (0x0048), Timer (0x0050), Serial (0x0058), Joypad (0x0060).</li>
+                </ul>
+                
+                <h3>Código del test (ejemplo crítico: V-Blank)</h3>
+                <pre><code>def test_vblank_interrupt(self) -> None:
+    """Test: Interrupción V-Blank se procesa correctamente."""
+    mmu = MMU(None)
+    cpu = CPU(mmu)
+    
+    # Configurar estado inicial
+    cpu.registers.set_pc(0x1234)  # PC inicial
+    cpu.registers.set_sp(0xFFFE)  # Stack Pointer inicial
+    cpu.ime = True  # IME activado
+    
+    # Habilitar interrupción V-Blank en IE (bit 0)
+    mmu.write_byte(IO_IE, 0x01)
+    
+    # Activar flag V-Blank en IF (bit 0)
+    mmu.write_byte(IO_IF, 0x01)
+    
+    # Ejecutar step (debe procesar la interrupción)
+    cycles = cpu.step()
+    
+    # Verificaciones
+    assert cycles == 5, "La interrupción debe consumir 5 M-Cycles"
+    assert cpu.registers.get_pc() == 0x0040, "PC debe saltar al vector V-Blank"
+    assert cpu.ime is False, "IME debe desactivarse automáticamente"
+    
+    # Verificar que el bit 0 de IF se limpió
+    if_val = mmu.read_byte(IO_IF)
+    assert (if_val & 0x01) == 0, "El bit 0 de IF debe estar limpio"
+    
+    # Verificar que PC se guardó en la pila (Little-Endian)
+    assert cpu.registers.get_sp() == 0xFFFC, "SP debe decrementarse en 2"
+    saved_pc_low = mmu.read_byte(0xFFFC)
+    saved_pc_high = mmu.read_byte(0xFFFD)
+    saved_pc = (saved_pc_high << 8) | saved_pc_low
+    assert saved_pc == 0x1234, "PC debe guardarse correctamente en la pila"</code></pre>
+                
+                <p>
+                    <strong>Por qué este test demuestra algo del hardware:</strong> Este test valida que la secuencia completa
+                    de interrupción se ejecuta correctamente: lectura de IE e IF, desactivación de IME, limpieza de flag,
+                    guardado de PC en la pila, y salto al vector. Sin esta funcionalidad, la CPU no puede responder a eventos
+                    del hardware como V-Blank, lo que significa que los juegos no pueden actualizar la pantalla correctamente.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs:</strong> <a href="https://gbdev.io/pandocs/">Interrupts</a>, HALT behavior, Interrupt Vectors</li>
+                    <li><strong>Pan Docs:</strong> <a href="https://gbdev.io/pandocs/">Interrupt Enable Register (IE, 0xFFFF)</a></li>
+                    <li><strong>Pan Docs:</strong> <a href="https://gbdev.io/pandocs/">Interrupt Flag Register (IF, 0xFF0F)</a></li>
+                    <li><strong>Pan Docs:</strong> <a href="https://gbdev.io/pandocs/">Interrupt Master Enable (IME)</a></li>
+                </ul>
+                <p>
+                    <em>Nota: Implementación basada en documentación técnica oficial. No se consultó código de otros emuladores.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Interrupciones como mecanismo de coordinación:</strong> Las interrupciones permiten que la CPU y los periféricos (PPU, Timer, etc.) se coordinen sin necesidad de polling constante. El hardware "grita" cuando necesita atención, y la CPU responde cuando puede.</li>
+                        <li><strong>Prioridad de interrupciones es crítica:</strong> Si múltiples interrupciones ocurren simultáneamente, el hardware procesa primero la de mayor prioridad (menor número de bit). Esto es importante para garantizar que eventos críticos (como V-Blank) se atiendan antes que eventos menos urgentes.</li>
+                        <li><strong>HALT y despertar:</strong> El estado HALT permite que la CPU entre en bajo consumo, pero debe despertar cuando hay interrupciones pendientes, incluso si IME está desactivado. Esto permite que el código pueda hacer polling manual de IF después de despertar.</li>
+                        <li><strong>IME como interruptor maestro:</strong> IME es el "interruptor maestro" que permite o bloquea todas las interrupciones. Cuando se procesa una interrupción, IME se desactiva automáticamente para evitar interrupciones anidadas inmediatas. El código debe reactivar IME explícitamente con EI cuando esté listo.</li>
+                        <li><strong>La secuencia de hardware es automática:</strong> Cuando se acepta una interrupción, el hardware ejecuta automáticamente la secuencia (desactivar IME, limpiar IF, PUSH PC, saltar). No hay instrucciones explícitas, es todo automático.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Timing exacto de la secuencia de interrupción:</strong> La documentación indica que procesar una interrupción consume 5 M-Cycles, pero no está completamente claro cómo se distribuyen estos ciclos entre las diferentes operaciones (PUSH PC, limpieza de IF, etc.). Por ahora, contamos 5 ciclos en total.</li>
+                        <li><strong>Interrupciones anidadas:</strong> Si el código de una rutina de interrupción ejecuta EI, ¿puede ser interrumpida por otra interrupción? La documentación sugiere que sí, pero no está completamente claro el comportamiento exacto del hardware real. Por ahora, implementamos el comportamiento básico: IME se desactiva automáticamente y el código debe reactivarlo explícitamente.</li>
+                        <li><strong>HALT y timing:</strong> Cuando la CPU está en HALT, consume 1 ciclo por cada step(). ¿Este ciclo cuenta para el timing de otros componentes (PPU, Timer)? Esto podría afectar la sincronización precisa. Por ahora, implementamos el comportamiento básico: HALT consume 1 ciclo y no ejecuta instrucciones.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Procesamiento de interrupciones entre instrucciones:</strong> Asumimos que las interrupciones se comprueban
+                        entre cada instrucción, antes del fetch del siguiente opcode. Esto es consistente con la documentación, pero
+                        podría haber sutilezas de timing en el hardware real que no estamos modelando (por ejemplo, ¿qué pasa si una
+                        interrupción ocurre durante la ejecución de una instrucción de múltiples ciclos?).
+                    </p>
+                    <p>
+                        <strong>Prioridad de interrupciones:</strong> Implementamos la prioridad usando una serie de if-elif que comprueba
+                        los bits en orden. Esto es correcto según la documentación, pero no estamos 100% seguros de que el hardware real
+                        use exactamente esta lógica (aunque el comportamiento observable debería ser el mismo).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar instrucción RETI (Return from Interrupt) que restaura PC desde la pila y reactiva IME automáticamente</li>
+                    <li>[ ] Validar con una ROM real (Tetris DX) que las interrupciones V-Blank se procesan correctamente y el juego avanza</li>
+                    <li>[ ] Implementar interrupciones de Timer (cuando se complete el subsistema de Timer)</li>
+                    <li>[ ] Implementar interrupciones LCD STAT (cuando se complete el subsistema de PPU con modos de renderizado)</li>
+                    <li>[ ] Investigar y documentar el timing exacto de la secuencia de interrupción</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

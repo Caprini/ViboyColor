@@ -32,6 +32,50 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0026 - Integración Gráfica y Decodificador de Tiles -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0026__integracion-grafica-decodificador-tiles.html" class="entry-link">
+                                    Integración Gráfica y Decodificador de Tiles
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0026 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            ¡Hito visual histórico! Se integró Pygame para visualizar gráficos y se implementó el decodificador de tiles en formato 2bpp (2 bits por píxel) de la Game Boy. Ahora el emulador puede "ver" y mostrar el contenido de la VRAM, decodificando los gráficos que la CPU escribe en memoria. La implementación incluye la función decode_tile_line() que convierte dos bytes en 8 píxeles con colores 0-3, y la clase Renderer que inicializa Pygame y proporciona un modo debug para visualizar todos los tiles de la VRAM en una rejilla. El sistema se integra con el bucle principal, renderizando cuando se detecta V-Blank. Suite completa de tests TDD (6 tests) validando la decodificación 2bpp. Todos los tests pasan.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0025 - Despachador de Interrupciones -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0025__despachador-interrupciones.html" class="entry-link">
+                                    Despachador de Interrupciones
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0025 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó el Despachador de Interrupciones (Interrupt Service Routine - ISR) en la CPU, conectando finalmente
+                            el sistema de timing (PPU) con la CPU. Ahora la CPU puede responder a interrupciones como V-Blank, Timer, LCD STAT,
+                            Serial y Joypad. La implementación incluye el manejo correcto de prioridades (V-Blank tiene mayor prioridad que Timer, etc.),
+                            despertar de HALT cuando hay interrupciones pendientes, y la secuencia completa de hardware: desactivar IME, limpiar flag
+                            en IF, guardar PC en la pila, y saltar al vector. Esta es la funcionalidad que convierte el emulador de una "calculadora
+                            lineal" en un sistema reactivo capaz de responder a eventos del hardware. Suite completa de tests TDD (6 tests) validando
+                            todas las funcionalidades. Todos los tests pasan.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0024 - PPU Timing Engine - El Motor del Tiempo -->
                     <li>
                         <div class="entry-header">

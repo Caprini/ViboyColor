@@ -1,5 +1,130 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-17 - Despachador de Interrupciones
+
+### Conceptos Hardware Implementados
+
+**¡Hito crítico: El sistema ahora es reactivo!** Se implementó el Despachador de Interrupciones (Interrupt Service Routine - ISR) en la CPU, conectando finalmente el sistema de timing (PPU) con la CPU. Ahora la CPU puede responder a interrupciones como V-Blank, Timer, LCD STAT, Serial y Joypad. Esta es la funcionalidad que convierte el emulador de una "calculadora lineal" en un sistema reactivo capaz de responder a eventos del hardware.
+
+**Manejo de Interrupciones**: Las interrupciones son señales de hardware que permiten que la CPU interrumpa temporalmente la ejecución de código normal para atender eventos urgentes. Para que ocurra una interrupción real (salto al vector), deben cumplirse 3 condiciones simultáneas: IME (Interrupt Master Enable) debe ser True, el bit correspondiente en IE (Interrupt Enable, 0xFFFF) debe estar activo, y el bit correspondiente en IF (Interrupt Flag, 0xFF0F) debe estar activo.
+
+**Secuencia de Hardware**: Cuando se acepta una interrupción, el hardware ejecuta automáticamente: (1) Desactiva IME, (2) Limpia el bit correspondiente en IF, (3) Hace PUSH PC (guarda dirección actual), (4) Salta al vector de interrupción, (5) Consume 5 M-Cycles.
+
+**Vectores y Prioridades**: Cada tipo de interrupción tiene un vector fijo: V-Blank (bit 0) → 0x0040 (mayor prioridad), LCD STAT (bit 1) → 0x0048, Timer (bit 2) → 0x0050, Serial (bit 3) → 0x0058, Joypad (bit 4) → 0x0060 (menor prioridad). Si múltiples interrupciones están pendientes, se procesa primero la de mayor prioridad.
+
+**Despertar de HALT**: Si la CPU está en HALT y hay interrupciones pendientes (en IE y IF), la CPU debe despertar (halted = False), incluso si IME es False. Esto permite polling manual de IF después de HALT.
+
+#### Tareas Completadas:
+
+1. **Método handle_interrupts() (`src/cpu/core.py`)**:
+   - Lee IE (0xFFFF) e IF (0xFF0F) desde la MMU.
+   - Calcula interrupciones pendientes: `pending = IE & IF & 0x1F`.
+   - Si hay interrupciones pendientes y CPU está en HALT, despierta (halted = False).
+   - Si IME está activo y hay interrupciones pendientes, procesa la de mayor prioridad:
+     - Desactiva IME automáticamente.
+     - Limpia el bit correspondiente en IF.
+     - Hace PUSH PC (guarda dirección actual en la pila).
+     - Salta al vector de interrupción (PC = vector).
+     - Retorna 5 M-Cycles.
+   - Si no se procesa interrupción, retorna 0.
+
+2. **Modificación de step() (`src/cpu/core.py`)**:
+   - Llama a `handle_interrupts()` al principio de cada step(), antes de ejecutar cualquier instrucción.
+   - Si se procesó una interrupción (retorna > 0), retorna inmediatamente sin ejecutar la instrucción normal.
+   - Simplifica la lógica de HALT (ahora handle_interrupts() maneja el despertar).
+
+3. **Tests TDD (`tests/test_cpu_interrupts.py`)**:
+   - Archivo nuevo con 6 tests unitarios:
+     - `test_vblank_interrupt`: Interrupción V-Blank se procesa correctamente (salta a 0x0040, desactiva IME, limpia IF, guarda PC, consume 5 ciclos).
+     - `test_interrupt_priority`: Si múltiples interrupciones están pendientes, se procesa primero la de mayor prioridad.
+     - `test_halt_wakeup`: HALT se despierta con interrupciones pendientes, incluso si IME es False.
+     - `test_no_interrupt_if_ime_disabled`: Si IME está desactivado, las interrupciones no se procesan.
+     - `test_timer_interrupt_vector`: Interrupción Timer salta al vector correcto (0x0050).
+     - `test_all_interrupt_vectors`: Todos los vectores de interrupción son correctos.
+   - Todos los tests pasan (6 passed in 0.49s)
+
+#### Archivos Afectados:
+- `src/cpu/core.py` - Añadido método handle_interrupts(), modificado step() para integrar manejo de interrupciones
+- `tests/test_cpu_interrupts.py` - Nuevo archivo con suite completa de tests TDD (6 tests)
+- `docs/bitacora/entries/2025-12-17__0025__despachador-interrupciones.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0025)
+- `docs/bitacora/entries/2025-12-17__0024__ppu-timing-engine.html` (modificado, actualizado link "Siguiente")
+
+#### Tests y Verificación:
+
+**Comando ejecutado**: `python3 -m pytest tests/test_cpu_interrupts.py -v`
+
+**Entorno**: macOS (darwin 21.6.0), Python 3.9.6, pytest 8.4.2
+
+**Resultado**: 6 passed in 0.49s
+
+**Qué valida**:
+- **test_vblank_interrupt**: Verifica que la interrupción V-Blank se procesa correctamente: salta a 0x0040, desactiva IME, limpia bit 0 de IF, guarda PC en la pila, consume 5 M-Cycles. Este test valida que la secuencia completa de interrupción se ejecuta correctamente.
+- **test_interrupt_priority**: Verifica que si múltiples interrupciones están pendientes (V-Blank y Timer), se procesa primero V-Blank (mayor prioridad). El bit de Timer sigue activo para el siguiente ciclo. Valida que la prioridad de interrupciones funciona correctamente.
+- **test_halt_wakeup**: Verifica que si la CPU está en HALT y hay interrupciones pendientes, la CPU despierta incluso si IME está desactivado. Después de despertar, continúa ejecutando normalmente. Valida el comportamiento de HALT con interrupciones.
+- **test_no_interrupt_if_ime_disabled**: Verifica que si IME está desactivado, las interrupciones no se procesan aunque IE e IF tengan bits activos. La CPU ejecuta instrucciones normalmente. Valida que IME es el interruptor maestro.
+- **test_timer_interrupt_vector**: Verifica que la interrupción Timer salta al vector correcto (0x0050) y limpia el bit 2 de IF. Valida que cada tipo de interrupción tiene su vector correcto.
+- **test_all_interrupt_vectors**: Verifica que todos los vectores de interrupción son correctos: V-Blank (0x0040), LCD STAT (0x0048), Timer (0x0050), Serial (0x0058), Joypad (0x0060). Valida que todos los tipos de interrupciones están correctamente implementados.
+
+**Código del test (fragmento esencial)**:
+```python
+def test_vblank_interrupt(self) -> None:
+    """Test: Interrupción V-Blank se procesa correctamente."""
+    mmu = MMU(None)
+    cpu = CPU(mmu)
+    
+    # Configurar estado inicial
+    cpu.registers.set_pc(0x1234)
+    cpu.registers.set_sp(0xFFFE)
+    cpu.ime = True
+    
+    # Habilitar interrupción V-Blank en IE (bit 0)
+    mmu.write_byte(IO_IE, 0x01)
+    
+    # Activar flag V-Blank en IF (bit 0)
+    mmu.write_byte(IO_IF, 0x01)
+    
+    # Ejecutar step (debe procesar la interrupción)
+    cycles = cpu.step()
+    
+    # Verificaciones
+    assert cycles == 5
+    assert cpu.registers.get_pc() == 0x0040
+    assert cpu.ime is False
+    
+    # Verificar que el bit 0 de IF se limpió
+    if_val = mmu.read_byte(IO_IF)
+    assert (if_val & 0x01) == 0
+    
+    # Verificar que PC se guardó en la pila
+    saved_pc_low = mmu.read_byte(0xFFFC)
+    saved_pc_high = mmu.read_byte(0xFFFD)
+    saved_pc = (saved_pc_high << 8) | saved_pc_low
+    assert saved_pc == 0x1234
+```
+
+**Ruta completa**: `tests/test_cpu_interrupts.py`
+
+#### Fuentes Consultadas:
+- **Pan Docs**: Interrupts, HALT behavior, Interrupt Vectors
+- **Pan Docs**: Interrupt Enable Register (IE, 0xFFFF)
+- **Pan Docs**: Interrupt Flag Register (IF, 0xFF0F)
+- **Pan Docs**: Interrupt Master Enable (IME)
+
+### Lo que Entiendo Ahora:
+- **Interrupciones como mecanismo de coordinación**: Las interrupciones permiten que la CPU y los periféricos (PPU, Timer, etc.) se coordinen sin necesidad de polling constante. El hardware "grita" cuando necesita atención, y la CPU responde cuando puede.
+- **Prioridad de interrupciones es crítica**: Si múltiples interrupciones ocurren simultáneamente, el hardware procesa primero la de mayor prioridad (menor número de bit). Esto es importante para garantizar que eventos críticos (como V-Blank) se atiendan antes que eventos menos urgentes.
+- **HALT y despertar**: El estado HALT permite que la CPU entre en bajo consumo, pero debe despertar cuando hay interrupciones pendientes, incluso si IME está desactivado. Esto permite que el código pueda hacer polling manual de IF después de despertar.
+- **IME como interruptor maestro**: IME es el "interruptor maestro" que permite o bloquea todas las interrupciones. Cuando se procesa una interrupción, IME se desactiva automáticamente para evitar interrupciones anidadas inmediatas. El código debe reactivar IME explícitamente con EI cuando esté listo.
+- **La secuencia de hardware es automática**: Cuando se acepta una interrupción, el hardware ejecuta automáticamente la secuencia (desactivar IME, limpiar IF, PUSH PC, saltar). No hay instrucciones explícitas, es todo automático.
+
+### Lo que Falta Confirmar:
+- **Timing exacto de la secuencia de interrupción**: La documentación indica que procesar una interrupción consume 5 M-Cycles, pero no está completamente claro cómo se distribuyen estos ciclos entre las diferentes operaciones (PUSH PC, limpieza de IF, etc.). Por ahora, contamos 5 ciclos en total.
+- **Interrupciones anidadas**: Si el código de una rutina de interrupción ejecuta EI, ¿puede ser interrumpida por otra interrupción? La documentación sugiere que sí, pero no está completamente claro el comportamiento exacto del hardware real. Por ahora, implementamos el comportamiento básico: IME se desactiva automáticamente y el código debe reactivarlo explícitamente.
+- **HALT y timing**: Cuando la CPU está en HALT, consume 1 ciclo por cada step(). ¿Este ciclo cuenta para el timing de otros componentes (PPU, Timer)? Esto podría afectar la sincronización precisa. Por ahora, implementamos el comportamiento básico: HALT consume 1 ciclo y no ejecuta instrucciones.
+
+---
+
 ## 2025-12-17 - PPU Timing Engine - El Motor del Tiempo
 
 ### Conceptos Hardware Implementados
@@ -2070,3 +2195,109 @@ La implementación de ADC/SBC asume que el flag Carry se interpreta como 1 si es
 
 ---
 
+## 2025-12-17 - Integración Gráfica y Decodificador de Tiles
+
+### Conceptos Hardware Implementados
+
+**¡Hito visual histórico!** Se integró Pygame para visualizar gráficos y se implementó el decodificador de tiles en formato 2bpp (2 bits por píxel) de la Game Boy. Ahora el emulador puede "ver" y mostrar el contenido de la VRAM, decodificando los gráficos que la CPU escribe en memoria.
+
+**VRAM (Video RAM)**: La memoria gráfica se encuentra en el rango `0x8000-0x9FFF` (8KB = 8192 bytes). Esta área contiene los datos de los tiles y más adelante contendrá también mapas de fondo y sprites.
+
+**Formato 2bpp (2 Bits Per Pixel)**: La Game Boy no almacena imágenes completas (bitmaps) en memoria. En su lugar, usa un sistema de tiles (baldosas) de 8×8 píxeles que se combinan para formar fondos y sprites. Cada tile ocupa 16 bytes (2 bytes por línea × 8 líneas). Para cada línea horizontal de 8 píxeles: Byte 1 (LSB) contiene los bits menos significativos de cada píxel, Byte 2 (MSB) contiene los bits más significativos. El color de cada píxel se calcula como: `color = (MSB << 1) | LSB`, produciendo valores de 0 a 3 (Color 0: Blanco, Color 1: Gris claro, Color 2: Gris oscuro, Color 3: Negro).
+
+**Renderizado en V-Blank**: Es seguro actualizar la pantalla solo durante V-Blank (LY >= 144), porque durante el renderizado de líneas visibles, la PPU está leyendo activamente la VRAM.
+
+#### Tareas Completadas:
+
+1. **Función `decode_tile_line()` (`src/gpu/renderer.py`)**:
+   - Decodifica una línea de 8 píxeles a partir de dos bytes (byte1=LSB, byte2=MSB)
+   - Recorre cada bit de izquierda a derecha (bit 7 a bit 0)
+   - Calcula el color como: `(bit_high << 1) | bit_low`
+   - Devuelve una lista de 8 enteros (0-3) representando los colores
+
+2. **Clase `Renderer` (`src/gpu/renderer.py`)**:
+   - Inicializa Pygame y crea ventana escalada (por defecto 3x, resultando en 480×432 píxeles)
+   - `render_vram_debug()`: Decodifica todos los tiles de VRAM y los dibuja en una rejilla de 32×16 tiles
+   - `_draw_tile()`: Dibuja un tile individual de 8×8 píxeles usando la paleta de grises
+   - `handle_events()`: Maneja eventos de Pygame (especialmente cierre de ventana)
+   - `quit()`: Cierra Pygame limpiamente
+
+3. **Integración en `Viboy` (`src/viboy.py`)**:
+   - Renderer se inicializa opcionalmente (si pygame está disponible)
+   - En el bucle principal: manejo de eventos Pygame, detección de inicio de V-Blank, renderizado cuando se entra en V-Blank
+   - Cierre limpio del renderer en bloque `finally`
+
+4. **Tests TDD (`tests/test_gpu_tile_decoder.py`)**:
+   - Archivo nuevo con 6 tests unitarios:
+     - `test_decode_2bpp_line_basic`: Decodificación básica con bytes 0x3C y 0x7E
+     - `test_decode_2bpp_line_all_colors`: Verifica que podemos obtener Color 2 (LSB=0x00, MSB=0xFF)
+     - `test_decode_2bpp_line_color_1`: Verifica Color 1 (LSB=0xFF, MSB=0x00)
+     - `test_decode_2bpp_line_color_3`: Verifica Color 3 (ambos bytes 0xFF)
+     - `test_decode_2bpp_line_color_0`: Verifica Color 0 (ambos bytes 0x00)
+     - `test_decode_2bpp_line_pattern`: Verifica patrón alternado (0xAA y 0x55)
+   - Todos los tests pasan (6 passed in 0.11s)
+
+#### Archivos Afectados:
+- `src/gpu/renderer.py` - Nuevo módulo con clase Renderer y función decode_tile_line()
+- `src/gpu/__init__.py` - Exportación condicional de Renderer
+- `src/viboy.py` - Integración del renderer, manejo de eventos Pygame, y renderizado en V-Blank
+- `tests/test_gpu_tile_decoder.py` - Nuevo archivo con 6 tests unitarios para decode_tile_line()
+- `docs/bitacora/entries/2025-12-17__0026__integracion-grafica-decodificador-tiles.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0026)
+- `docs/bitacora/entries/2025-12-17__0025__despachador-interrupciones.html` (modificado, actualizado link "Siguiente")
+
+#### Tests y Verificación:
+
+**Comando ejecutado**: `python3 -m pytest tests/test_gpu_tile_decoder.py -v`
+
+**Entorno**: macOS (darwin 21.6.0), Python 3.9.6, pytest 8.4.2
+
+**Resultado**: 6 passed in 0.11s
+
+**Qué valida**:
+- **Decodificación básica**: Verifica que una línea con bytes 0x3C y 0x7E produce los colores correctos [0, 2, 3, 3, 3, 3, 2, 0]
+- **Todos los colores**: Valida que podemos obtener los 4 valores posibles (0, 1, 2, 3) usando diferentes combinaciones de bytes
+- **Colores específicos**: Tests separados para cada color básico (0, 1, 3) y un test adicional para Color 2
+- **Patrones complejos**: Verifica un patrón alternado (0xAA y 0x55) que produce una secuencia [1, 2, 1, 2, 1, 2, 1, 2]
+
+**Código del test esencial**:
+```python
+def test_decode_2bpp_line_basic(self) -> None:
+    """Test básico: decodificar una línea de tile 2bpp"""
+    byte1 = 0x3C  # 00111100 (LSB)
+    byte2 = 0x7E  # 01111110 (MSB)
+    
+    result = decode_tile_line(byte1, byte2)
+    
+    assert len(result) == 8
+    assert result[0] == 0  # Bit 7: LSB=0, MSB=0 -> 0
+    assert result[1] == 2  # Bit 6: LSB=0, MSB=1 -> 2
+    assert result[2] == 3  # Bit 5: LSB=1, MSB=1 -> 3
+    # ... más aserciones
+```
+
+**Ruta completa**: `tests/test_gpu_tile_decoder.py`
+
+Estos tests demuestran que la decodificación 2bpp funciona correctamente según la especificación: el byte1 contiene los bits menos significativos, el byte2 contiene los bits más significativos, y el color se calcula como `(MSB << 1) | LSB`.
+
+**Prueba con ROM de Tetris**: Se probó el renderer con Tetris DX (ROM aportada por el usuario, no distribuida). Pygame se instaló correctamente (pygame-ce 2.5.6) y el renderer se inicializa sin errores. Sin embargo, el juego se detiene en el opcode 0x1D (DEC E) antes de llegar al primer V-Blank, por lo que no se pudo verificar el renderizado con datos reales. El renderer funciona correctamente (verificado con test independiente), pero el juego necesita opcodes adicionales (INC/DEC de 8 bits) para avanzar.
+
+### Lo que Entiendo Ahora:
+- **Formato 2bpp**: Cada píxel se codifica con 2 bits, permitiendo 4 colores. Los bits están divididos en dos bytes: byte1 (LSB) y byte2 (MSB), y el color se calcula como `(MSB << 1) | LSB`.
+- **Estructura de tiles**: Cada tile de 8×8 píxeles ocupa exactamente 16 bytes (2 bytes por línea). La VRAM puede almacenar hasta 512 tiles (8192 bytes / 16 bytes por tile).
+- **Renderizado en V-Blank**: Es seguro actualizar la pantalla solo durante V-Blank (LY >= 144), porque durante el renderizado de líneas visibles, la PPU está leyendo activamente la VRAM.
+- **Paleta de colores**: Los valores 0-3 son índices de color que se mapean a colores reales mediante registros de paleta (BGP, OBP0, OBP1). Por ahora usamos una paleta de grises fija para debug.
+
+### Lo que Falta Confirmar:
+- **Renderizado con juego real**: El renderer está funcional pero no se ha podido verificar con datos reales de Tetris porque el juego se detiene en opcode 0x1D (DEC E) antes de llegar al primer V-Blank. Falta implementar los opcodes INC/DEC de 8 bits faltantes (INC D/E/H/L y DEC D/E/H/L) para que el juego pueda avanzar.
+- **Paleta real**: Falta implementar la lectura de los registros BGP, OBP0 y OBP1 para mapear correctamente los índices 0-3 a colores reales (que pueden ser diferentes para fondo y sprites).
+- **Renderizado completo**: Este paso solo muestra los tiles en una rejilla. Falta implementar el renderizado real de la pantalla usando mapas de fondo (Tile Maps), scroll, ventana, y sprites.
+- **OAM (Object Attribute Memory)**: Falta entender completamente cómo se organizan los sprites en OAM y cómo se renderizan sobre el fondo.
+- **Prioridad y transparencia**: Falta implementar las reglas de prioridad entre fondo y sprites, y cómo el Color 0 es transparente en sprites.
+
+### Hipótesis y Suposiciones:
+**Renderizado en cada V-Blank**: Por ahora renderizamos cada vez que detectamos el inicio de V-Blank. Esto puede ser demasiado frecuente y podría afectar el rendimiento. Más adelante deberíamos considerar renderizar solo cuando el contenido de VRAM cambia significativamente, o limitar la frecuencia de actualización.
+
+**Modo debug**: La visualización actual en modo debug muestra todos los tiles en una rejilla, no el renderizado real del juego. Esto es intencional para verificar que la decodificación funciona, pero no muestra cómo se ve realmente el juego.
+
+---

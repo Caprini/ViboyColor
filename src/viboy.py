@@ -34,6 +34,12 @@ from .gpu.ppu import PPU
 from .memory.cartridge import Cartridge
 from .memory.mmu import MMU
 
+# Importar Renderer condicionalmente (requiere pygame)
+try:
+    from .gpu.renderer import Renderer
+except ImportError:
+    Renderer = None  # type: ignore
+
 if TYPE_CHECKING:
     pass
 
@@ -80,9 +86,13 @@ class Viboy:
         self._mmu: MMU | None = None
         self._cpu: CPU | None = None
         self._ppu: PPU | None = None
+        self._renderer: Renderer | None = None
         
         # Contador de ciclos totales ejecutados
         self._total_cycles: int = 0
+        
+        # Estado de V-Blank anterior (para detectar transición)
+        self._prev_vblank: bool = False
         
         # Si se proporciona ROM, cargarla
         if rom_path is not None:
@@ -94,6 +104,15 @@ class Viboy:
             self._ppu = PPU(self._mmu)
             # Conectar PPU a MMU para que pueda leer LY
             self._mmu.set_ppu(self._ppu)
+            # Inicializar Renderer si está disponible
+            if Renderer is not None:
+                try:
+                    self._renderer = Renderer(self._mmu, scale=3)
+                except ImportError:
+                    logger.warning("Pygame no disponible. El renderer no se inicializará.")
+                    self._renderer = None
+            else:
+                self._renderer = None
             self._initialize_post_boot_state()
         
         logger.info("Sistema Viboy inicializado")
@@ -123,6 +142,16 @@ class Viboy:
         
         # Conectar PPU a MMU para que pueda leer LY (evitar dependencia circular)
         self._mmu.set_ppu(self._ppu)
+        
+        # Inicializar Renderer si está disponible
+        if Renderer is not None:
+            try:
+                self._renderer = Renderer(self._mmu, scale=3)
+            except ImportError:
+                logger.warning("Pygame no disponible. El renderer no se inicializará.")
+                self._renderer = None
+        else:
+            self._renderer = None
         
         # Simular "Post-Boot State" (sin Boot ROM)
         self._initialize_post_boot_state()
@@ -215,6 +244,12 @@ class Viboy:
         
         try:
             while True:
+                # Manejar eventos de Pygame (especialmente cierre de ventana)
+                if self._renderer is not None:
+                    if not self._renderer.handle_events():
+                        logger.info("Ventana cerrada por el usuario")
+                        break
+                
                 # Obtener estado antes de ejecutar (para debug)
                 if debug:
                     pc_before = self._cpu.registers.get_pc()
@@ -222,6 +257,17 @@ class Viboy:
                 
                 # Ejecutar una instrucción
                 cycles = self.tick()
+                
+                # Detectar inicio de V-Blank para renderizar
+                if self._ppu is not None and self._renderer is not None:
+                    ly = self._ppu.get_ly()
+                    in_vblank = ly >= 144
+                    
+                    # Si acabamos de entrar en V-Blank, renderizar
+                    if in_vblank and not self._prev_vblank:
+                        self._renderer.render_vram_debug()
+                    
+                    self._prev_vblank = in_vblank
                 
                 # Imprimir traza en modo debug
                 if debug:
@@ -258,6 +304,10 @@ class Viboy:
             print(f"\n❌ Error inesperado: {e}")
             print(f"   Total de ciclos ejecutados: {self._total_cycles}")
             raise
+        finally:
+            # Cerrar renderer si está activo
+            if self._renderer is not None:
+                self._renderer.quit()
 
     def get_total_cycles(self) -> int:
         """
