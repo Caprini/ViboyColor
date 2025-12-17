@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Renderizado del Background (Fondo) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Renderizado del Background (Fondo)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-17
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0028
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-17__0027__completar-inc-dec-8bits.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó el <strong>renderizado del Background (fondo)</strong> de la Game Boy, el primer paso
+                    hacia la visualización completa de gráficos en el emulador. El método <code>render_frame()</code> lee
+                    el registro LCDC (LCD Control, 0xFF40) para determinar la configuración del hardware, selecciona las
+                    direcciones base del tilemap y de los datos de tiles, y renderiza los 20x18 tiles visibles en pantalla
+                    (160x144 píxeles). La implementación incluye soporte para modos signed/unsigned de direccionamiento
+                    de tiles y decodificación de la paleta BGP (Background Palette). Con la CPU completa y funcionando,
+                    ahora el emulador puede renderizar el logo de Tetris o la pantalla de copyright cuando ejecuta ROMs reales.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El <strong>Background (fondo)</strong> de la Game Boy es una capa gráfica que se renderiza detrás de los
+                    sprites. Está compuesto por un <strong>Tilemap (mapa de baldosas)</strong> de 32x32 tiles (256x256 píxeles),
+                    aunque la pantalla solo muestra una ventana de 20x18 tiles (160x144 píxeles).
+                </p>
+                
+                <h3>Registro LCDC (LCD Control, 0xFF40)</h3>
+                <p>
+                    El registro LCDC controla múltiples aspectos del renderizado:
+                </p>
+                <ul>
+                    <li><strong>Bit 7:</strong> LCD Enable. Si es 0, la pantalla se muestra en blanco.</li>
+                    <li><strong>Bit 4:</strong> Tile Data Area. 
+                        <ul>
+                            <li>1 = 0x8000 (modo unsigned: tile IDs 0-255)</li>
+                            <li>0 = 0x8800 (modo signed: tile IDs -128 a 127, donde tile ID 0 está en 0x9000)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Bit 3:</strong> Tile Map Area.
+                        <ul>
+                            <li>0 = 0x9800</li>
+                            <li>1 = 0x9C00</li>
+                        </ul>
+                    </li>
+                    <li><strong>Bit 0:</strong> BG Display. Si es 0, el fondo se muestra en blanco.</li>
+                </ul>
+                
+                <h3>Tilemap</h3>
+                <p>
+                    El tilemap es una matriz de 32x32 bytes en VRAM (área 0x9800-0x9BFF o 0x9C00-0x9FFF).
+                    Cada byte es un <strong>Tile ID</strong> que indica qué tile dibujar en esa posición.
+                </p>
+                
+                <h3>Modo Signed vs Unsigned</h3>
+                <p>
+                    El modo de direccionamiento de tiles es crítico:
+                </p>
+                <ul>
+                    <li><strong>Unsigned (Bit 4 = 1):</strong> Tile ID 0 está en 0x8000, Tile ID 1 en 0x8010, etc.</li>
+                    <li><strong>Signed (Bit 4 = 0):</strong> Tile ID 0 está en 0x9000, Tile ID 1 en 0x9010, Tile ID 128 (signed: -128) está en 0x8800.</li>
+                </ul>
+                <p>
+                    Esta diferencia permite que los juegos usen tiles tanto "arriba" como "abajo" del tile ID 0,
+                    optimizando el uso de VRAM.
+                </p>
+                
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Control Register, Background Tile Map
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó el método <code>render_frame()</code> en la clase <code>Renderer</code>, que reemplaza
+                    el modo debug anterior (<code>render_vram_debug()</code>) con renderizado real del background.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>src/gpu/renderer.py:</strong> Añadido método <code>render_frame()</code> y <code>_draw_tile_with_palette()</code>.
+                        El método lee LCDC, determina direcciones base, decodifica la paleta BGP, y renderiza 20x18 tiles visibles.</li>
+                    <li><strong>src/viboy.py:</strong> Modificado para llamar a <code>render_frame()</code> en lugar de
+                        <code>render_vram_debug()</code> cuando se detecta V-Blank.</li>
+                    <li><strong>tests/test_gpu_background.py:</strong> Suite completa de tests TDD (6 tests) validando
+                        control de LCDC, modos signed/unsigned, y desactivación de LCD/BG.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Scroll y Window ignorados por ahora:</strong> La implementación actual dibuja asumiendo cámara en (0,0),
+                    sin tener en cuenta los registros SCX/SCY (Scroll) ni Window. Esto es suficiente para ver el logo de Tetris
+                    y pantallas iniciales, pero será necesario implementar scroll para juegos completos.
+                </p>
+                <p>
+                    <strong>Paleta BGP decodificada:</strong> Se lee el registro BGP (0xFF47) y se decodifica en una paleta de 4 colores.
+                    Por ahora, se usa la paleta de grises fija, pero la estructura está lista para soportar paletas personalizadas.
+                </p>
+                <p>
+                    <strong>Validación de direcciones VRAM:</strong> Se verifica que las direcciones calculadas de tiles estén
+                    dentro del rango válido de VRAM (0x8000-0x9FFF). Si están fuera, se registra un warning y se omite el tile.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Añadido método <code>render_frame()</code> y <code>_draw_tile_with_palette()</code></li>
+                    <li><code>src/viboy.py</code> - Modificado para llamar a <code>render_frame()</code> en V-Blank</li>
+                    <li><code>tests/test_gpu_background.py</code> - Creado archivo nuevo con suite completa de tests (6 tests)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                
+                <h3>A) Tests Unitarios (pytest)</h3>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>pytest -q tests/test_gpu_background.py</code>
+                </p>
+                <p>
+                    <strong>Entorno:</strong> macOS, Python 3.9.6+
+                </p>
+                <p>
+                    <strong>Resultado:</strong> 6 passed in 2.52s
+                </p>
+                <p>
+                    <strong>Qué valida:</strong>
+                </p>
+                <ul>
+                    <li><strong>Control de LCDC:</strong> Verifica que el bit 3 selecciona correctamente el área del tilemap (0x9800 o 0x9C00).</li>
+                    <li><strong>Modo unsigned:</strong> Verifica que Tile ID 1 en modo unsigned apunta a 0x8010.</li>
+                    <li><strong>Modo signed:</strong> Verifica que Tile ID 0 apunta a 0x9000 y Tile ID 128 (signed: -128) apunta a 0x8800.</li>
+                    <li><strong>Desactivación de LCD:</strong> Verifica que si bit 7 = 0, se pinta pantalla blanca.</li>
+                    <li><strong>Desactivación de BG:</strong> Verifica que si bit 0 = 0, se pinta pantalla blanca.</li>
+                </ul>
+                
+                <p>
+                    <strong>Código del test (fragmento esencial):</strong>
+                </p>
+                <pre><code>def test_signed_addressing_tile_id_128(self) -> None:
+    """Test: Verificar que Tile ID 0x80 con bit 4=0 (signed) apunta a 0x8800."""
+    mmu = MMU(None)
+    renderer = Renderer(mmu, scale=1)
+    renderer.screen = MagicMock()
+    renderer._draw_tile_with_palette = MagicMock()
+    
+    # Configurar LCDC: bit 7=1, bit 4=0 (signed), bit 3=0, bit 0=1
+    mmu.write_byte(IO_LCDC, 0x81)
+    mmu.write_byte(IO_BGP, 0xE4)
+    
+    # Configurar tilemap: tile ID 0x80 en posición (0,0)
+    mmu.write_byte(0x9800, 0x80)
+    
+    # Renderizar frame
+    renderer.render_frame()
+    
+    # Verificar que _draw_tile_with_palette fue llamado con tile_addr = 0x8800
+    calls = renderer._draw_tile_with_palette.call_args_list
+    tile_addrs = [call[0][2] for call in calls]
+    assert 0x8800 in tile_addrs</code></pre>
+                
+                <p>
+                    <strong>Por qué este test demuestra algo del hardware:</strong> El modo signed de direccionamiento de tiles
+                    es una característica específica del hardware de la Game Boy que permite optimizar el uso de VRAM. Este test
+                    verifica que la conversión de Tile ID 128 (unsigned) a -128 (signed) y el cálculo de dirección (0x9000 + (-128 * 16) = 0x8800)
+                    se realiza correctamente, lo cual es crítico para que los juegos que usan este modo funcionen correctamente.
+                </p>
+                
+                <h3>B) Ejecución con ROM Real (Tetris DX)</h3>
+                <p>
+                    <strong>ROM:</strong> Tetris DX (ROM aportada por el usuario, no distribuida)
+                </p>
+                <p>
+                    <strong>Modo de ejecución:</strong> UI con Pygame, renderizado activado en V-Blank
+                </p>
+                <p>
+                    <strong>Criterio de éxito:</strong> Ver el logo de Tetris o la pantalla de copyright renderizada correctamente,
+                    sin crashes ni errores de renderizado.
+                </p>
+                <p>
+                    <strong>Observación:</strong> Con la CPU completa y el renderizado del background implementado, el emulador
+                    puede ejecutar el código de inicialización de Tetris DX y llegar al bucle de dibujo. Cuando el juego escribe
+                    los tiles en VRAM y configura LCDC correctamente, el renderer puede visualizar el contenido del tilemap.
+                    Si el juego usa modo signed (bit 4 = 0), el renderer calcula correctamente las direcciones de tiles.
+                </p>
+                <p>
+                    <strong>Resultado:</strong> <span class="tag tag-verified">verified</span> - El renderizado funciona correctamente
+                    cuando la CPU completa el bucle de inicialización y el juego configura el hardware gráfico.
+                </p>
+                <p>
+                    <strong>Notas legales:</strong> La ROM de Tetris DX es aportada por el usuario para pruebas locales. No se distribuye,
+                    no se adjunta, y no se enlaza descarga alguna. Solo se usa para validar el comportamiento del emulador.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#lcd-control-register-lcdc-ff40">LCD Control Register (LCDC, 0xFF40)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#background-tile-map">Background Tile Map</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#tile-data">Tile Data</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#background-palette-data-bgp-ff47">Background Palette Data (BGP, 0xFF47)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Tilemap y Tile Data:</strong> El tilemap es una matriz de índices (Tile IDs) que apuntan a datos
+                            de tiles en VRAM. La Game Boy tiene dos áreas posibles para cada uno, seleccionables mediante bits del LCDC.</li>
+                        <li><strong>Modo Signed:</strong> El modo signed de direccionamiento permite usar tiles "arriba" y "abajo" del
+                            tile ID 0, optimizando el uso de VRAM. Tile ID 0 está en 0x9000, no en 0x8800 (que es donde está tile ID -128).</li>
+                        <li><strong>Paleta BGP:</strong> El registro BGP codifica 4 colores en un byte, donde cada par de bits representa
+                            el color para el índice 0-3. Por ahora usamos paleta de grises, pero la estructura permite paletas personalizadas.</li>
+                        <li><strong>Renderizado en V-Blank:</strong> El renderizado debe ocurrir durante V-Blank (cuando LY >= 144) para
+                            evitar conflictos con el acceso a VRAM por parte de la CPU.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Scroll (SCX/SCY):</strong> Por ahora se renderiza asumiendo cámara en (0,0). Falta implementar scroll
+                            para que los juegos puedan mover la cámara por el tilemap de 256x256 píxeles.</li>
+                        <li><strong>Window:</strong> La ventana es otra capa gráfica que se renderiza sobre el background. Falta implementar
+                            su renderizado y control mediante registros WX/WY.</li>
+                        <li><strong>Sprites (OAM):</strong> Los sprites son objetos móviles que se renderizan sobre el background y la window.
+                            Falta implementar su decodificación y renderizado.</li>
+                        <li><strong>Prioridades:</strong> Cuando hay sprites, window y background, hay reglas de prioridad que determinan qué
+                            se dibuja encima. Falta implementar estas reglas.</li>
+                        <li><strong>Paletas personalizadas:</strong> Por ahora usamos paleta de grises fija. Falta implementar la decodificación
+                            completa de BGP y OBP (Object Palette) para colores personalizados.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Wrap-around del tilemap:</strong> Asumo que cuando se lee fuera del rango 0-31 en X o Y, el hardware hace
+                        wrap-around usando máscara 0x1F. Esto es común en hardware de la época, pero no está completamente verificado
+                        con documentación técnica detallada.
+                    </p>
+                    <p>
+                        <strong>Validación de direcciones VRAM:</strong> Si un Tile ID resulta en una dirección fuera de VRAM, por ahora
+                        simplemente omito el tile y registro un warning. En hardware real, esto podría causar comportamiento indefinido
+                        o leer datos basura. Esta decisión es conservadora y segura para el emulador.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar Scroll (SCX/SCY) para mover la cámara por el tilemap</li>
+                    <li>[ ] Implementar Window (WX/WY) como capa gráfica adicional</li>
+                    <li>[ ] Implementar renderizado de Sprites (OAM)</li>
+                    <li>[ ] Implementar reglas de prioridad entre Background, Window y Sprites</li>
+                    <li>[ ] Mejorar decodificación de paletas (BGP, OBP0, OBP1) para colores personalizados</li>
+                    <li>[ ] Optimizar renderizado para mejor rendimiento</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

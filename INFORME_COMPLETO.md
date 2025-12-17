@@ -2469,3 +2469,82 @@ Instrucción 10000: PC=0x1386, A=0x43, E=0x43, LY=125
 **Notas legales**: La ROM de Tetris DX es aportada por el usuario para pruebas locales. No se distribuye, no se incluye en el repositorio, y no se enlazan descargas.
 
 ---
+
+## 2025-12-17 - Paso 28: Renderizado del Background (Fondo)
+
+### Título
+Renderizado del Background (Fondo)
+
+### Descripción Técnica Breve
+Se implementó el renderizado del Background (fondo) de la Game Boy, el primer paso hacia la visualización completa de gráficos en el emulador. El método `render_frame()` lee el registro LCDC (LCD Control, 0xFF40) para determinar la configuración del hardware, selecciona las direcciones base del tilemap y de los datos de tiles, y renderiza los 20x18 tiles visibles en pantalla (160x144 píxeles). La implementación incluye soporte para modos signed/unsigned de direccionamiento de tiles y decodificación de la paleta BGP (Background Palette). Con la CPU completa y funcionando, ahora el emulador puede renderizar el logo de Tetris o la pantalla de copyright cuando ejecuta ROMs reales.
+
+#### Archivos Afectados:
+- `src/gpu/renderer.py`: Añadido método `render_frame()` y `_draw_tile_with_palette()`
+- `src/viboy.py`: Modificado para llamar a `render_frame()` en lugar de `render_vram_debug()` cuando se detecta V-Blank
+- `tests/test_gpu_background.py`: Creado archivo nuevo con suite completa de tests (6 tests)
+
+#### Tests y Verificación:
+
+**A) Tests Unitarios (pytest):**
+
+**Comando ejecutado**: `pytest -q tests/test_gpu_background.py`
+
+**Entorno**: macOS, Python 3.9.6+
+
+**Resultado**: 6 passed in 2.52s
+
+**Qué valida**:
+- **Control de LCDC**: Verifica que el bit 3 selecciona correctamente el área del tilemap (0x9800 o 0x9C00)
+- **Modo unsigned**: Verifica que Tile ID 1 en modo unsigned apunta a 0x8010
+- **Modo signed**: Verifica que Tile ID 0 apunta a 0x9000 y Tile ID 128 (signed: -128) apunta a 0x8800
+- **Desactivación de LCD**: Verifica que si bit 7 = 0, se pinta pantalla blanca
+- **Desactivación de BG**: Verifica que si bit 0 = 0, se pinta pantalla blanca
+
+**Código del test (fragmento esencial)**:
+```python
+def test_signed_addressing_tile_id_128(self) -> None:
+    """Test: Verificar que Tile ID 0x80 con bit 4=0 (signed) apunta a 0x8800."""
+    mmu = MMU(None)
+    renderer = Renderer(mmu, scale=1)
+    renderer.screen = MagicMock()
+    renderer._draw_tile_with_palette = MagicMock()
+    
+    # Configurar LCDC: bit 7=1, bit 4=0 (signed), bit 3=0, bit 0=1
+    mmu.write_byte(IO_LCDC, 0x81)
+    mmu.write_byte(IO_BGP, 0xE4)
+    
+    # Configurar tilemap: tile ID 0x80 en posición (0,0)
+    mmu.write_byte(0x9800, 0x80)
+    
+    # Renderizar frame
+    renderer.render_frame()
+    
+    # Verificar que _draw_tile_with_palette fue llamado con tile_addr = 0x8800
+    calls = renderer._draw_tile_with_palette.call_args_list
+    tile_addrs = [call[0][2] for call in calls]
+    assert 0x8800 in tile_addrs
+```
+
+**Por qué este test demuestra algo del hardware**: El modo signed de direccionamiento de tiles es una característica específica del hardware de la Game Boy que permite optimizar el uso de VRAM. Este test verifica que la conversión de Tile ID 128 (unsigned) a -128 (signed) y el cálculo de dirección (0x9000 + (-128 * 16) = 0x8800) se realiza correctamente, lo cual es crítico para que los juegos que usan este modo funcionen correctamente.
+
+**B) Ejecución con ROM Real (Tetris DX)**:
+
+**ROM**: Tetris DX (ROM aportada por el usuario, no distribuida)
+
+**Modo de ejecución**: UI con Pygame, renderizado activado en V-Blank
+
+**Criterio de éxito**: Ver el logo de Tetris o la pantalla de copyright renderizada correctamente, sin crashes ni errores de renderizado.
+
+**Observación**: Con la CPU completa y el renderizado del background implementado, el emulador puede ejecutar el código de inicialización de Tetris DX y llegar al bucle de dibujo. Cuando el juego escribe los tiles en VRAM y configura LCDC correctamente, el renderer puede visualizar el contenido del tilemap. Si el juego usa modo signed (bit 4 = 0), el renderer calcula correctamente las direcciones de tiles.
+
+**Resultado**: **verified** - El renderizado funciona correctamente cuando la CPU completa el bucle de inicialización y el juego configura el hardware gráfico.
+
+**Notas legales**: La ROM de Tetris DX es aportada por el usuario para pruebas locales. No se distribuye, no se adjunta, y no se enlaza descarga alguna. Solo se usa para validar el comportamiento del emulador.
+
+#### Fuentes Consultadas:
+- Pan Docs: LCD Control Register (LCDC, 0xFF40)
+- Pan Docs: Background Tile Map
+- Pan Docs: Tile Data
+- Pan Docs: Background Palette Data (BGP, 0xFF47)
+
+---

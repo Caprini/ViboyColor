@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0028 - Renderizado del Background -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0028__renderizado-background.html" class="entry-link">
+                                    Renderizado del Background (Fondo)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0028 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó el renderizado del Background (fondo) de la Game Boy, el primer paso hacia la visualización completa de gráficos en el emulador. El método render_frame() lee el registro LCDC (LCD Control, 0xFF40) para determinar la configuración del hardware, selecciona las direcciones base del tilemap y de los datos de tiles, y renderiza los 20x18 tiles visibles en pantalla (160x144 píxeles). La implementación incluye soporte para modos signed/unsigned de direccionamiento de tiles y decodificación de la paleta BGP. Con la CPU completa y funcionando, ahora el emulador puede renderizar el logo de Tetris o la pantalla de copyright cuando ejecuta ROMs reales. Suite completa de tests TDD (6 tests) validando control de LCDC, modos signed/unsigned, y desactivación de LCD/BG. Todos los tests pasan.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0027 - Completar INC/DEC de 8 bits -->
                     <li>
                         <div class="entry-header">

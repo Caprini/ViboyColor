@@ -263,9 +263,9 @@ class Viboy:
                     ly = self._ppu.get_ly()
                     in_vblank = ly >= 144
                     
-                    # Si acabamos de entrar en V-Blank, renderizar
+                    # Si acabamos de entrar en V-Blank, renderizar el frame
                     if in_vblank and not self._prev_vblank:
-                        self._renderer.render_vram_debug()
+                        self._renderer.render_frame()
                     
                     self._prev_vblank = in_vblank
                 
