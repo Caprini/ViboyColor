@@ -1003,6 +1003,9 @@ Implementación de direccionamiento indirecto usando HL como puntero de memoria,
 ### Estado
 Verified - Tests creados y código implementado siguiendo especificaciones técnicas. **Todos los 14 tests pasan correctamente** después de corregir el uso de direcciones de memoria en los tests. El fix documenta un aspecto importante del mapeo de memoria: las áreas de ROM son de solo lectura desde la perspectiva del programa.
 
+### Lecciones Aprendidas
+- **Mapeo de memoria:** Durante el desarrollo de los tests, se descubrió que la MMU tiene un comportamiento diferente para lectura y escritura en el área ROM (0x0000-0x7FFF). La lectura siempre se hace desde el cartucho (si existe), mientras que la escritura se hace en la memoria interna, pero no es visible en lecturas posteriores. Esto es consistente con cómo funciona el hardware real: la ROM del cartucho es de solo lectura desde la perspectiva del programa. Los tests deben usar direcciones fuera del área ROM (`0x8000+`) donde la escritura funciona correctamente.
+
 ### Próximos Pasos
 - Implementar `BIT 7, H` (instrucción BIT) necesaria para el bucle de limpieza de Tetris
 - Implementar más opcodes INC/DEC (D, E, H, L, (HL))
