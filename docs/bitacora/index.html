@@ -32,6 +32,32 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0016 - Bloque ALU Completo -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0016__bloque-alu-completo.html" class="entry-link">
+                                    Bloque ALU Completo (0x80-0xBF)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0016 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación del bloque completo de la ALU (Unidad Aritmética Lógica) del rango 0x80-0xBF,
+                            cubriendo 64 opcodes que incluyen todas las operaciones aritméticas y lógicas principales:
+                            ADD, ADC (Add with Carry), SUB, SBC (Subtract with Carry), AND, XOR, OR y CP (Compare).
+                            Se implementaron helpers genéricos para cada operación y se documentó el comportamiento
+                            especial del flag H en la operación AND (quirk del hardware: siempre se pone a 1).
+                            Suite completa de tests TDD (8 tests) validando todas las funcionalidades, incluyendo
+                            ADC/SBC con carry y el quirk del flag H. Todos los tests pasan. El emulador ahora puede
+                            ejecutar el opcode 0xB3 (OR A, E) que Tetris DX pide en 0x1389, permitiendo que el juego
+                            avance más allá de la inicialización.
+                        </p>
+                    </li>
                     <!-- Entrada 0015 - Transferencias de 8 bits y HALT -->
                     <li>
                         <div class="entry-header">

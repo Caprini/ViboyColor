@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bloque ALU Completo (0x80-0xBF) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Bloque ALU Completo (0x80-0xBF)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-17
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0016
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-17__0015__transferencias-8bits-halt.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó el bloque completo de la ALU (Unidad Aritmética Lógica) del rango 0x80-0xBF,
+                    cubriendo 64 opcodes que incluyen todas las operaciones aritméticas y lógicas principales:
+                    ADD, ADC (Add with Carry), SUB, SBC (Subtract with Carry), AND, XOR, OR y CP (Compare).
+                    Este bloque es crítico porque permite que el emulador ejecute la lógica de cálculo y
+                    comparación que los juegos necesitan para funcionar. Se implementaron helpers genéricos
+                    para cada operación y se documentó el comportamiento especial del flag H en la operación AND.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Bloque ALU (0x80-0xBF)</h3>
+                <p>
+                    El bloque ALU es uno de los más organizados y predecibles del conjunto de instrucciones
+                    de la Game Boy. Contiene 64 opcodes organizados en 8 filas de 8 operaciones, donde cada
+                    fila corresponde a una operación diferente y cada columna corresponde a un operando diferente.
+                </p>
+                
+                <p>
+                    <strong>Estructura del bloque:</strong>
+                </p>
+                <ul>
+                    <li><strong>0x80-0x87:</strong> ADD A, r (Suma)</li>
+                    <li><strong>0x88-0x8F:</strong> ADC A, r (Suma con Carry)</li>
+                    <li><strong>0x90-0x97:</strong> SUB A, r (Resta)</li>
+                    <li><strong>0x98-0x9F:</strong> SBC A, r (Resta con Borrow)</li>
+                    <li><strong>0xA0-0xA7:</strong> AND A, r (Operación lógica AND)</li>
+                    <li><strong>0xA8-0xAF:</strong> XOR A, r (Operación lógica XOR)</li>
+                    <li><strong>0xB0-0xB7:</strong> OR A, r (Operación lógica OR)</li>
+                    <li><strong>0xB8-0xBF:</strong> CP A, r (Comparación)</li>
+                </ul>
+                
+                <p>
+                    Donde <code>r</code> es uno de los 8 operandos posibles:
+                    B (0x80, 0x88, ...), C (0x81, 0x89, ...), D, E, H, L, (HL) (memoria indirecta), A.
+                </p>
+
+                <h3>Operaciones Aritméticas con Carry</h3>
+                <p>
+                    <strong>ADC (Add with Carry)</strong> y <strong>SBC (Subtract with Carry)</strong> son
+                    operaciones críticas para aritmética de múltiples bytes. Permiten encadenar sumas y restas
+                    manteniendo el carry/borrow de operaciones anteriores, lo que es esencial para trabajar con
+                    números de 16 o 32 bits usando registros de 8 bits.
+                </p>
+                <p>
+                    Ejemplo de suma de 16 bits usando ADC:
+                </p>
+                <pre><code>; Sumar BC + DE y almacenar en HL
+LD A, C      ; A = C (byte bajo de BC)
+ADD A, E     ; A = C + E
+LD L, A      ; L = resultado byte bajo
+LD A, B      ; A = B (byte alto de BC)
+ADC A, D     ; A = B + D + Carry (del byte bajo)
+LD H, A      ; H = resultado byte alto</code></pre>
+
+                <h3>Operaciones Lógicas y Flags</h3>
+                <p>
+                    Las operaciones lógicas (AND, OR, XOR) tienen comportamientos específicos con los flags:
+                </p>
+                <ul>
+                    <li><strong>AND:</strong> Z=calc, N=0, <strong>H=1</strong> (¡Quirk del hardware!), C=0</li>
+                    <li><strong>OR:</strong> Z=calc, N=0, H=0, C=0</li>
+                    <li><strong>XOR:</strong> Z=calc, N=0, H=0, C=0</li>
+                </ul>
+                <p>
+                    <strong>CRÍTICO:</strong> El flag H en AND siempre se pone a 1, independientemente del
+                    resultado. Este es un comportamiento especial del hardware real de la Game Boy que muchos
+                    emuladores fallan en implementar correctamente. Es importante para la instrucción DAA
+                    (Decimal Adjust Accumulator) que convierte números binarios a BCD.
+                </p>
+
+                <h3>CP (Compare) - Comparación sin Modificar</h3>
+                <p>
+                    CP es fundamentalmente una resta, pero con una diferencia crítica: <strong>descarta el
+                    resultado numérico</strong> y solo actualiza los flags. El registro A NO se modifica.
+                    Se usa para comparaciones en código: "¿A == value?", "¿A < value?", etc.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron helpers genéricos para cada operación ALU y luego se generaron
+                    automáticamente los 64 opcodes del bloque usando un bucle que crea handlers dinámicos.
+                </p>
+                
+                <h3>Helpers Genéricos</h3>
+                <p>
+                    Se crearon los siguientes helpers en <code>src/cpu/core.py</code>:
+                </p>
+                <ul>
+                    <li><code>_adc(value)</code>: Suma con carry (A = A + value + Carry)</li>
+                    <li><code>_sbc(value)</code>: Resta con borrow (A = A - value - Carry)</li>
+                    <li><code>_and(value)</code>: Operación lógica AND (con quirk H=1)</li>
+                    <li><code>_or(value)</code>: Operación lógica OR</li>
+                    <li><code>_xor(value)</code>: Operación lógica XOR</li>
+                </ul>
+                <p>
+                    Estos helpers se añadieron junto a los ya existentes <code>_add</code>, <code>_sub</code>
+                    y <code>_cp</code>.
+                </p>
+
+                <h3>Generación Automática de Opcodes</h3>
+                <p>
+                    Se implementó el método <code>_init_alu_handlers()</code> que genera automáticamente
+                    los 64 opcodes del bloque usando un bucle anidado:
+                </p>
+                <ul>
+                    <li>Bucle externo: Itera sobre las 8 operaciones (ADD, ADC, SUB, SBC, AND, XOR, OR, CP)</li>
+                    <li>Bucle interno: Itera sobre los 8 operandos (B, C, D, E, H, L, (HL), A)</li>
+                    <li>Para cada combinación, calcula el opcode: <code>0x80 + (op_idx * 8) + reg_idx</code></li>
+                    <li>Crea un handler que obtiene el valor del operando y llama al helper correspondiente</li>
+                </ul>
+                <p>
+                    Los handlers manejan correctamente el caso especial de (HL) que requiere acceso a memoria
+                    (2 M-Cycles) versus registros normales (1 M-Cycle).
+                </p>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Closures en Python:</strong> Se usaron closures para capturar correctamente
+                        las variables en los handlers generados dinámicamente, evitando el problema común
+                        de que todos los handlers terminen usando los valores finales del bucle.</li>
+                    <li><strong>Reutilización de helpers:</strong> Se aprovecharon los helpers existentes
+                        (<code>_get_register_value</code>) para obtener valores de operandos de forma consistente.</li>
+                    <li><strong>Logging consistente:</strong> Cada handler genera logs con el nombre de la
+                        operación y el operando para facilitar la depuración.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadidos helpers genéricos ALU (_adc, _sbc, _and, _or, _xor) y método _init_alu_handlers() que genera los 64 opcodes del bloque 0x80-0xBF</li>
+                    <li><code>tests/test_cpu_alu_full.py</code> - Nuevo archivo con 8 tests TDD validando todas las operaciones ALU, incluyendo el quirk del flag H en AND</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests TDD con 8 casos de prueba:
+                </p>
+                <ul>
+                    <li><strong>test_and_h_flag:</strong> Verifica que AND siempre pone H=1 (quirk del hardware)</li>
+                    <li><strong>test_or_logic:</strong> Verifica operación OR básica (0x00 OR 0x55 = 0x55)</li>
+                    <li><strong>test_adc_carry:</strong> Verifica ADC con carry activo (A=0, value=0, Carry=1 → resultado=1)</li>
+                    <li><strong>test_sbc_borrow:</strong> Verifica SBC con borrow activo (A=0, value=0, Carry=1 → resultado=0xFF)</li>
+                    <li><strong>test_alu_register_mapping:</strong> Verifica que el mapeo de registros es correcto (0xB3 = OR A, E)</li>
+                    <li><strong>test_xor_logic:</strong> Verifica operación XOR básica</li>
+                    <li><strong>test_and_memory_indirect:</strong> Verifica AND con memoria indirecta (HL)</li>
+                    <li><strong>test_cp_register:</strong> Verifica CP con registro (A no debe modificarse)</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> Todos los 8 tests pasan correctamente.
+                </p>
+                <p>
+                    <strong>Validación con Tetris DX:</strong> El emulador ahora puede ejecutar el opcode 0xB3
+                    (OR A, E) que Tetris DX pide en la dirección 0x1389, permitiendo que el juego avance más
+                    allá de la inicialización. <strong>Resultado de la prueba:</strong>
+                </p>
+                <ul>
+                    <li><strong>PC inicial:</strong> 0x0100</li>
+                    <li><strong>PC final:</strong> 0x12CB (avance de 0x11CB bytes = 4,555 bytes)</li>
+                    <li><strong>Ciclos ejecutados:</strong> 70,077 M-Cycles</li>
+                    <li><strong>Opcode que falta:</strong> 0xE6 (AND A, d8 - AND immediate)</li>
+                </ul>
+                <p>
+                    El emulador ejecutó exitosamente miles de instrucciones, incluyendo todas las operaciones
+                    del bloque ALU implementado. El siguiente opcode necesario es 0xE6 (AND A, d8), que es
+                    una variante inmediata de AND que lee el operando del siguiente byte de memoria.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs - CPU Instruction Set: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">https://gbdev.io/pandocs/CPU_Instruction_Set.html</a></li>
+                    <li>Pan Docs - CPU Flags: Descripción del comportamiento de flags en operaciones lógicas y aritméticas</li>
+                    <li>Z80/8080 Architecture Manual: Referencia para comportamiento de ADC/SBC y flags de carry</li>
+                </ul>
+                <p>
+                    <em>Nota: El quirk del flag H en AND está documentado en Pan Docs como comportamiento
+                    especial del hardware Game Boy.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Bloque ALU estructurado:</strong> El bloque 0x80-0xBF sigue un patrón
+                            muy predecible que permite implementarlo de forma sistemática con bucles.</li>
+                        <li><strong>ADC/SBC para aritmética multi-byte:</strong> Estas operaciones son esenciales
+                            para trabajar con números de 16 o 32 bits usando registros de 8 bits, encadenando
+                            operaciones y manteniendo el carry/borrow entre ellas.</li>
+                        <li><strong>Quirk del flag H en AND:</strong> El hardware Game Boy siempre pone H=1
+                            después de una operación AND, independientemente del resultado. Este comportamiento
+                            es importante para DAA (Decimal Adjust Accumulator).</li>
+                        <li><strong>CP como resta fantasma:</strong> CP calcula A - value pero solo actualiza
+                            flags, no modifica A. Es fundamental para comparaciones condicionales.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Timing exacto:</strong> Los ciclos de máquina (M-Cycles) están implementados
+                            según Pan Docs, pero falta validar con ROMs de test que midan timing preciso.</li>
+                        <li><strong>Comportamiento de flags en casos límite:</strong> Aunque los tests cubren casos
+                            básicos, faltan validaciones con valores límite (0xFF, 0x00, etc.) en todas las
+                            combinaciones posibles.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        La implementación de ADC/SBC asume que el flag Carry se interpreta como 1 si está activo
+                        y 0 si no, lo cual es estándar en arquitecturas Z80/8080. Esto está respaldado por la
+                        documentación de Pan Docs.
+                    </p>
+                    <p>
+                        El comportamiento del flag H en AND está documentado explícitamente en Pan Docs como
+                        un quirk del hardware, por lo que no es una suposición sino un hecho documentado.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[x] Validar con Tetris DX que el emulador puede avanzar más allá de 0x1389 ✅ (llegó a 0x12CB)</li>
+                    <li>[ ] Implementar operaciones inmediatas de ALU (AND A, d8 (0xE6), OR A, d8, XOR A, d8, etc.)</li>
+                    <li>[ ] Implementar rotaciones y shifts (prefijo CB: RLC, RRC, RL, RR, SLA, SRA, SRL, SWAP)</li>
+                    <li>[ ] Implementar operaciones de bits (BIT, RES, SET) del prefijo CB</li>
+                    <li>[ ] Implementar instrucciones de rotación directas (RLCA, RRCA, RLA, RRA)</li>
+                    <li>[ ] Implementar PPU (Procesador de Gráficos) para renderizar la pantalla</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

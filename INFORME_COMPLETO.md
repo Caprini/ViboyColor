@@ -1284,3 +1284,46 @@ La implementación del despertar de HALT asume que si IME está activado, hay in
 
 ---
 
+## 2025-12-17 - Bloque ALU Completo (0x80-0xBF) - Step 0016
+
+### Título del Cambio:
+Implementación del bloque completo de la ALU (Unidad Aritmética Lógica) del rango 0x80-0xBF, cubriendo 64 opcodes que incluyen todas las operaciones aritméticas y lógicas principales: ADD, ADC (Add with Carry), SUB, SBC (Subtract with Carry), AND, XOR, OR y CP (Compare).
+
+### Descripción Técnica Breve:
+Se implementaron helpers genéricos para cada operación ALU (_adc, _sbc, _and, _or, _xor) y se creó el método _init_alu_handlers() que genera automáticamente los 64 opcodes del bloque usando bucles anidados. El bloque está organizado en 8 filas de 8 operaciones, donde cada fila corresponde a una operación diferente (ADD, ADC, SUB, SBC, AND, XOR, OR, CP) y cada columna corresponde a un operando diferente (B, C, D, E, H, L, (HL), A). Se documentó y validó el comportamiento especial del flag H en la operación AND (quirk del hardware: siempre se pone a 1).
+
+### Archivos Afectados:
+- `src/cpu/core.py` (modificado, añadidos helpers genéricos ALU y método _init_alu_handlers())
+- `tests/test_cpu_alu_full.py` (nuevo, 8 tests TDD)
+- `docs/bitacora/entries/2025-12-17__0016__bloque-alu-completo.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0016)
+- `docs/bitacora/entries/2025-12-17__0015__transferencias-8bits-halt.html` (modificado, actualizado link "Siguiente")
+
+### Cómo se Validó:
+- **Tests unitarios**: Suite completa de 8 tests TDD pasando todos:
+  - test_and_h_flag: Verifica quirk del flag H en AND (siempre 1)
+  - test_or_logic: Verifica operación OR básica (0x00 OR 0x55 = 0x55)
+  - test_adc_carry: Verifica ADC con carry activo
+  - test_sbc_borrow: Verifica SBC con borrow activo
+  - test_alu_register_mapping: Verifica mapeo correcto de registros (0xB3 = OR A, E)
+  - test_xor_logic: Verifica operación XOR básica
+  - test_and_memory_indirect: Verifica AND con memoria indirecta (HL)
+  - test_cp_register: Verifica CP con registro (A no se modifica)
+- **Validación con Tetris DX**: El emulador ahora puede ejecutar el opcode 0xB3 (OR A, E) que Tetris DX pide en la dirección 0x1389, permitiendo que el juego avance más allá de la inicialización.
+- **Documentación**: Referencias a Pan Docs sobre comportamiento de flags en operaciones lógicas y aritméticas.
+
+### Lo que Entiendo Ahora:
+- El bloque ALU (0x80-0xBF) sigue un patrón muy predecible que permite implementarlo de forma sistemática con bucles, similar al bloque de transferencias 0x40-0x7F.
+- ADC y SBC son esenciales para aritmética de múltiples bytes (16/32 bits), permitiendo encadenar operaciones y mantener el carry/borrow entre ellas.
+- El flag H en AND siempre se pone a 1, independientemente del resultado. Este es un quirk documentado del hardware Game Boy que es importante para DAA (Decimal Adjust Accumulator).
+- CP es fundamentalmente una resta "fantasma" que calcula A - value pero solo actualiza flags, no modifica A. Es crítico para comparaciones condicionales.
+
+### Lo que Falta Confirmar:
+- **Timing exacto**: Los ciclos de máquina (M-Cycles) están implementados según Pan Docs, pero falta validar con ROMs de test que midan timing preciso.
+- **Comportamiento de flags en casos límite**: Aunque los tests cubren casos básicos, faltan validaciones con valores límite (0xFF, 0x00, etc.) en todas las combinaciones posibles.
+
+### Hipótesis y Suposiciones:
+La implementación de ADC/SBC asume que el flag Carry se interpreta como 1 si está activo y 0 si no, lo cual es estándar en arquitecturas Z80/8080 y está respaldado por la documentación de Pan Docs. El comportamiento del flag H en AND está documentado explícitamente en Pan Docs como un quirk del hardware, por lo que no es una suposición sino un hecho documentado.
+
+---
+

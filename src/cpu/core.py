@@ -88,8 +88,6 @@ class CPU:
             # Control de Interrupciones
             0xF3: self._op_di,          # DI (Disable Interrupts)
             0xFB: self._op_ei,          # EI (Enable Interrupts)
-            # Operaciones Lógicas
-            0xAF: self._op_xor_a,       # XOR A (optimización para poner A a cero)
             # Carga inmediata de 16 bits
             0x31: self._op_ld_sp_d16,   # LD SP, d16
             0x21: self._op_ld_hl_d16,   # LD HL, d16
@@ -149,6 +147,9 @@ class CPU:
         # Esto se hace después de definir todos los métodos helper
         self._init_ld_handlers()
         
+        # Inicializar handlers del bloque ALU (0x80-0xBF)
+        self._init_alu_handlers()
+        
         logger.info("CPU inicializada")
     
     def _init_ld_handlers(self) -> None:
@@ -167,6 +168,84 @@ class CPU:
         # Los handlers se inicializarán de forma lazy cuando se acceda a ellos
         # por primera vez, usando _init_ld_handler_lazy
         pass
+    
+    def _init_alu_handlers(self) -> None:
+        """
+        Inicializa los handlers para el bloque ALU completo (0x80-0xBF).
+        
+        Este bloque contiene 64 opcodes organizados en 8 filas de 8 operaciones:
+        - 0x80-0x87: ADD A, r
+        - 0x88-0x8F: ADC A, r
+        - 0x90-0x97: SUB A, r
+        - 0x98-0x9F: SBC A, r
+        - 0xA0-0xA7: AND A, r
+        - 0xA8-0xAF: XOR A, r
+        - 0xB0-0xB7: OR A, r
+        - 0xB8-0xBF: CP A, r
+        
+        Donde r es: B(0), C(1), D(2), E(3), H(4), L(5), (HL)(6), A(7)
+        
+        El patrón de codificación es:
+        - Bits 6-3: Operación (ADD=0, ADC=1, SUB=2, SBC=3, AND=4, XOR=5, OR=6, CP=7)
+        - Bits 2-0: Registro (B=0, C=1, D=2, E=3, H=4, L=5, (HL)=6, A=7)
+        
+        Fuente: Pan Docs - CPU Instruction Set (ALU block encoding)
+        """
+        # Operaciones ALU en orden
+        operations = [
+            self._add,   # 0x80-0x87: ADD
+            self._adc,   # 0x88-0x8F: ADC
+            self._sub,   # 0x90-0x97: SUB
+            self._sbc,   # 0x98-0x9F: SBC
+            self._and,   # 0xA0-0xA7: AND
+            self._xor,   # 0xA8-0xAF: XOR
+            self._or,    # 0xB0-0xB7: OR
+            self._cp,    # 0xB8-0xBF: CP
+        ]
+        
+        # Nombres de registros para logging
+        reg_names = ["B", "C", "D", "E", "H", "L", "(HL)", "A"]
+        
+        # Generar todos los opcodes del bloque
+        for op_idx, op_func in enumerate(operations):
+            for reg_idx in range(8):
+                # Calcular opcode: base (0x80) + (op_idx * 8) + reg_idx
+                opcode = 0x80 + (op_idx * 8) + reg_idx
+                
+                # Capturar variables en el closure correctamente
+                op_func_ref = op_func
+                reg_idx_ref = reg_idx
+                reg_name_ref = reg_names[reg_idx]
+                
+                # Crear handler para este opcode específico
+                def make_handler(op_func_inner, reg_idx_inner, reg_name_inner):
+                    def handler() -> int:
+                        # Obtener valor del registro
+                        if reg_idx_inner == 6:  # (HL) - Memoria indirecta
+                            hl_addr = self.registers.get_hl()
+                            value = self.mmu.read_byte(hl_addr)
+                            op_func_inner(value)
+                            op_name = op_func_inner.__name__.upper().replace('_', ' ')
+                            logger.debug(
+                                f"{op_name} A, (HL) -> "
+                                f"A=0x{self.registers.get_a():02X} (HL)=0x{value:02X}"
+                            )
+                            return 2  # Acceso a memoria = 2 M-Cycles
+                        else:
+                            # Obtener valor del registro usando el helper existente
+                            value = self._get_register_value(reg_idx_inner)
+                            op_func_inner(value)
+                            op_name = op_func_inner.__name__.upper().replace('_', ' ')
+                            logger.debug(
+                                f"{op_name} A, {reg_name_inner} -> "
+                                f"A=0x{self.registers.get_a():02X}"
+                            )
+                            return 1  # Registro = 1 M-Cycle
+                    return handler
+                
+                # Crear y registrar handler
+                handler = make_handler(op_func_ref, reg_idx_ref, reg_name_ref)
+                self._opcode_table[opcode] = handler
     
     def _init_ld_handler_lazy(self, opcode: int) -> None:
         """
@@ -611,6 +690,262 @@ class CPU:
             self.registers.clear_flag(FLAG_C)
         
         # CRÍTICO: A NO se modifica (solo se usó para calcular flags)
+    
+    def _adc(self, value: int) -> None:
+        """
+        Suma un valor al registro A con carry (ADC: Add with Carry).
+        
+        ADC es como ADD, pero incluye el flag Carry en la suma:
+        A = A + value + Carry
+        
+        Esta operación es crítica para aritmética de múltiples bytes (16/32 bits).
+        Permite encadenar sumas manteniendo el carry de operaciones anteriores.
+        
+        Flags actualizados:
+        - Z (Zero): Si el resultado es 0
+        - N (Subtract): Siempre 0 (es una suma)
+        - H (Half-Carry): Si hubo carry del bit 3 al 4 (nibble bajo)
+        - C (Carry): Si hubo carry del bit 7 (overflow de 8 bits)
+        
+        Args:
+            value: Valor a sumar (8 bits, se enmascara automáticamente)
+            
+        Fórmulas:
+        - Resultado: A + value + (1 si C está activo, 0 si no)
+        - Half-Carry: (A & 0xF) + (value & 0xF) + carry > 0xF
+        - Carry: (A + value + carry) > 0xFF
+        
+        Fuente: Pan Docs - CPU Instruction Set (ADC instruction)
+        """
+        a = self.registers.get_a()
+        value = value & 0xFF
+        
+        # Obtener carry actual (1 si está activo, 0 si no)
+        carry = 1 if self.registers.get_flag_c() else 0
+        
+        # Calcular resultado: A + value + carry
+        result = a + value + carry
+        
+        # Actualizar registro A (wrap-around de 8 bits)
+        self.registers.set_a(result)
+        
+        # Actualizar flags
+        # Z: resultado es cero
+        if (result & 0xFF) == 0:
+            self.registers.set_flag(FLAG_Z)
+        else:
+            self.registers.clear_flag(FLAG_Z)
+        
+        # N: siempre 0 en suma
+        self.registers.clear_flag(FLAG_N)
+        
+        # H: Half-Carry (carry del bit 3 al 4)
+        # Verificamos si la suma de los nibbles bajos + carry excede 0xF
+        if ((a & 0xF) + (value & 0xF) + carry) > 0xF:
+            self.registers.set_flag(FLAG_H)
+        else:
+            self.registers.clear_flag(FLAG_H)
+        
+        # C: Carry (overflow de 8 bits)
+        if result > 0xFF:
+            self.registers.set_flag(FLAG_C)
+        else:
+            self.registers.clear_flag(FLAG_C)
+    
+    def _sbc(self, value: int) -> None:
+        """
+        Resta un valor del registro A con borrow (SBC: Subtract with Carry).
+        
+        SBC es como SUB, pero incluye el flag Carry en la resta:
+        A = A - value - Carry
+        
+        Esta operación es crítica para aritmética de múltiples bytes (16/32 bits).
+        Permite encadenar restas manteniendo el borrow de operaciones anteriores.
+        
+        Flags actualizados:
+        - Z (Zero): Si el resultado es 0
+        - N (Subtract): Siempre 1 (es una resta)
+        - H (Half-Borrow): Si hubo borrow del bit 4 al 3 (nibble bajo)
+        - C (Borrow): Si hubo borrow del bit 7 (underflow de 8 bits)
+        
+        Args:
+            value: Valor a restar (8 bits, se enmascara automáticamente)
+            
+        Fórmulas:
+        - Resultado: A - value - (1 si C está activo, 0 si no)
+        - Half-Borrow: (A & 0xF) - (value & 0xF) - carry < 0
+        - Borrow: A < (value + carry)
+        
+        Fuente: Pan Docs - CPU Instruction Set (SBC instruction)
+        """
+        a = self.registers.get_a()
+        value = value & 0xFF
+        
+        # Obtener carry actual (1 si está activo, 0 si no)
+        # En restas, el carry se interpreta como "borrow"
+        carry = 1 if self.registers.get_flag_c() else 0
+        
+        # Calcular resultado: A - value - carry
+        result = a - value - carry
+        
+        # Actualizar registro A (wrap-around de 8 bits)
+        self.registers.set_a(result)
+        
+        # Actualizar flags
+        # Z: resultado es cero
+        if (result & 0xFF) == 0:
+            self.registers.set_flag(FLAG_Z)
+        else:
+            self.registers.clear_flag(FLAG_Z)
+        
+        # N: siempre 1 en resta
+        self.registers.set_flag(FLAG_N)
+        
+        # H: Half-Borrow (borrow del bit 4 al 3)
+        # Verificamos si necesitamos pedir prestado del nibble alto
+        if (a & 0xF) < ((value & 0xF) + carry):
+            self.registers.set_flag(FLAG_H)
+        else:
+            self.registers.clear_flag(FLAG_H)
+        
+        # C: Borrow (underflow de 8 bits)
+        if a < (value + carry):
+            self.registers.set_flag(FLAG_C)
+        else:
+            self.registers.clear_flag(FLAG_C)
+    
+    def _and(self, value: int) -> None:
+        """
+        Realiza la operación lógica AND entre el registro A y un valor.
+        
+        AND es una operación bit a bit: cada bit del resultado es 1 solo si
+        ambos bits correspondientes de A y value son 1.
+        
+        CRÍTICO: En la Game Boy, AND tiene un comportamiento especial con el flag H:
+        **H siempre se pone a 1** después de una operación AND, independientemente
+        del resultado. Este es un "quirk" del hardware real.
+        
+        Flags actualizados:
+        - Z (Zero): Si el resultado es 0
+        - N (Subtract): Siempre 0 (no es una resta)
+        - H (Half-Carry): **Siempre 1** (quirk del hardware Game Boy)
+        - C (Carry): Siempre 0 (no hay carry en operaciones lógicas)
+        
+        Args:
+            value: Valor a combinar con A (8 bits, se enmascara automáticamente)
+            
+        Fuente: Pan Docs - CPU Instruction Set (AND instruction, H flag quirk)
+        """
+        a = self.registers.get_a()
+        value = value & 0xFF
+        
+        # Calcular resultado: A AND value
+        result = a & value
+        
+        # Actualizar registro A
+        self.registers.set_a(result)
+        
+        # Actualizar flags
+        # Z: resultado es cero
+        if result == 0:
+            self.registers.set_flag(FLAG_Z)
+        else:
+            self.registers.clear_flag(FLAG_Z)
+        
+        # N: siempre 0 en operaciones lógicas
+        self.registers.clear_flag(FLAG_N)
+        
+        # H: **SIEMPRE 1** en AND (quirk del hardware Game Boy)
+        self.registers.set_flag(FLAG_H)
+        
+        # C: siempre 0 en operaciones lógicas
+        self.registers.clear_flag(FLAG_C)
+    
+    def _or(self, value: int) -> None:
+        """
+        Realiza la operación lógica OR entre el registro A y un valor.
+        
+        OR es una operación bit a bit: cada bit del resultado es 1 si
+        al menos uno de los bits correspondientes de A o value es 1.
+        
+        Flags actualizados:
+        - Z (Zero): Si el resultado es 0
+        - N (Subtract): Siempre 0 (no es una resta)
+        - H (Half-Carry): Siempre 0 (OR no tiene carry)
+        - C (Carry): Siempre 0 (no hay carry en operaciones lógicas)
+        
+        Args:
+            value: Valor a combinar con A (8 bits, se enmascara automáticamente)
+            
+        Fuente: Pan Docs - CPU Instruction Set (OR instruction)
+        """
+        a = self.registers.get_a()
+        value = value & 0xFF
+        
+        # Calcular resultado: A OR value
+        result = a | value
+        
+        # Actualizar registro A
+        self.registers.set_a(result)
+        
+        # Actualizar flags
+        # Z: resultado es cero
+        if result == 0:
+            self.registers.set_flag(FLAG_Z)
+        else:
+            self.registers.clear_flag(FLAG_Z)
+        
+        # N: siempre 0 en operaciones lógicas
+        self.registers.clear_flag(FLAG_N)
+        
+        # H: siempre 0 en OR
+        self.registers.clear_flag(FLAG_H)
+        
+        # C: siempre 0 en operaciones lógicas
+        self.registers.clear_flag(FLAG_C)
+    
+    def _xor(self, value: int) -> None:
+        """
+        Realiza la operación lógica XOR entre el registro A y un valor.
+        
+        XOR es una operación bit a bit: cada bit del resultado es 1 si
+        los bits correspondientes de A y value son diferentes.
+        
+        Flags actualizados:
+        - Z (Zero): Si el resultado es 0
+        - N (Subtract): Siempre 0 (no es una resta)
+        - H (Half-Carry): Siempre 0 (XOR no tiene carry)
+        - C (Carry): Siempre 0 (no hay carry en operaciones lógicas)
+        
+        Args:
+            value: Valor a combinar con A (8 bits, se enmascara automáticamente)
+            
+        Fuente: Pan Docs - CPU Instruction Set (XOR instruction)
+        """
+        a = self.registers.get_a()
+        value = value & 0xFF
+        
+        # Calcular resultado: A XOR value
+        result = a ^ value
+        
+        # Actualizar registro A
+        self.registers.set_a(result)
+        
+        # Actualizar flags
+        # Z: resultado es cero
+        if result == 0:
+            self.registers.set_flag(FLAG_Z)
+        else:
+            self.registers.clear_flag(FLAG_Z)
+        
+        # N: siempre 0 en operaciones lógicas
+        self.registers.clear_flag(FLAG_N)
+        
+        # H: siempre 0 en XOR
+        self.registers.clear_flag(FLAG_H)
+        
+        # C: siempre 0 en operaciones lógicas
+        self.registers.clear_flag(FLAG_C)
     
     def _inc_n(self, value: int) -> int:
         """
