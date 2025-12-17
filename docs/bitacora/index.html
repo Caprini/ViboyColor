@@ -32,6 +32,29 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0014 - Aritmética de 16 bits y Retornos Condicionales -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-16__0014__aritmetica-16bits-retornos-condicionales.html" class="entry-link">
+                                    Aritmética de 16 bits y Retornos Condicionales
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-16 | 
+                            <strong>Step ID:</strong> 0014 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de aritmética de 16 bits (INC/DEC de registros pares y ADD HL, rr) y retornos condicionales
+                            (RET NZ, RET Z, RET NC, RET C). Peculiaridad crítica: INC/DEC de 16 bits NO afectan a ningún flag (a diferencia
+                            de los de 8 bits), esencial para bucles que decrementan contadores sin corromper flags. ADD HL, rr actualiza
+                            flags H y C pero NO toca Z, otro comportamiento especial del hardware LR35902. Los retornos condicionales
+                            consumen 5 M-Cycles cuando se toman y 2 M-Cycles cuando no. Suite completa de tests TDD (24 tests) validando
+                            todas las funcionalidades. El emulador ahora puede ejecutar bucles complejos como los de inicialización de Tetris DX.
+                        </p>
+                    </li>
                     <!-- Entrada 0013 - Cargas de 16 bits (BC, DE) y Comparaciones (CP) -->
                     <li>
                         <div class="entry-header">

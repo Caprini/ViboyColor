@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aritmética de 16 bits y Retornos Condicionales - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Aritmética de 16 bits y Retornos Condicionales</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-16
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0014
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-16__0013__cargas-16bits-comparaciones.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementaron las operaciones de aritmética de 16 bits (INC/DEC de registros pares y ADD HL, rr)
+                    y los retornos condicionales (RET NZ, RET Z, RET NC, RET C). La peculiaridad crítica es que INC/DEC
+                    de 16 bits NO afectan a ningún flag (a diferencia de los de 8 bits), lo cual es esencial para bucles
+                    que decrementan contadores sin corromper flags de comparaciones anteriores. ADD HL, rr actualiza flags
+                    H y C pero NO toca Z, otro comportamiento especial del hardware. Los retornos condicionales permiten
+                    implementar subrutinas con lógica condicional. Suite completa de tests TDD (24 tests) validando todas
+                    las funcionalidades. El emulador ahora puede ejecutar bucles complejos como los de inicialización de Tetris DX.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>INC/DEC de 16 bits - NO afectan Flags:</strong> A diferencia de los incrementos/decrementos
+                    de 8 bits que actualizan flags Z, N, H (pero no C), las versiones de 16 bits (INC BC, DEC DE, etc.)
+                    <strong>NO modifican ningún flag</strong>. Esta es una trampa clásica en emulación. Se usan para recorrer
+                    memoria o decrementar contadores en bucles sin corromper el estado de flags de una comparación anterior
+                    (como CP). Por ejemplo, en un bucle que hace <code>DEC BC</code> y luego verifica si BC es 0 usando
+                    <code>LD A, B; OR C; JR NZ, loop</code>, el <code>DEC BC</code> no debe tocar los flags para que
+                    la comparación funcione correctamente.
+                </p>
+                <p>
+                    <strong>ADD HL, rr - Flags Especiales:</strong> La suma de 16 bits <code>ADD HL, BC/DE/HL/SP</code>
+                    tiene un comportamiento peculiar con los flags:
+                </p>
+                <ul>
+                    <li><strong>Z (Zero):</strong> NO SE TOCA (se mantiene como estaba antes de la operación).</li>
+                    <li><strong>N (Subtract):</strong> Siempre 0 (es una suma).</li>
+                    <li><strong>H (Half-Carry):</strong> Se activa si hay carry del bit 11 al 12 (desbordamiento de 12 bits).</li>
+                    <li><strong>C (Carry):</strong> Se activa si hay carry del bit 15 (desbordamiento de 16 bits).</li>
+                </ul>
+                <p>
+                    El Half-Carry en ADD HL se calcula sobre 12 bits (no 8 como en ADD de 8 bits), porque el hardware
+                    verifica el desbordamiento del nibble de 12 bits (bits 0-11). Esto es diferente al Half-Carry de
+                    operaciones de 8 bits que se calcula sobre 4 bits.
+                </p>
+                <p>
+                    <strong>Retornos Condicionales:</strong> Similar a los saltos condicionales (JR NZ, etc.), existen
+                    retornos condicionales (RET NZ, RET Z, RET NC, RET C) que solo ejecutan el retorno si se cumple
+                    una condición. Si la condición es verdadera, consumen 5 M-Cycles (20 T-Cycles). Si es falsa, consumen
+                    2 M-Cycles (8 T-Cycles). Se usan para implementar subrutinas que toman decisiones antes de retornar.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadieron 16 nuevos opcodes a la tabla de despacho:
+                </p>
+                <ul>
+                    <li><strong>INC 16-bit:</strong> 0x03 (BC), 0x13 (DE), 0x23 (HL), 0x33 (SP)</li>
+                    <li><strong>DEC 16-bit:</strong> 0x0B (BC), 0x1B (DE), 0x2B (HL), 0x3B (SP)</li>
+                    <li><strong>ADD HL, rr:</strong> 0x09 (BC), 0x19 (DE), 0x29 (HL), 0x39 (SP)</li>
+                    <li><strong>RET condicional:</strong> 0xC0 (NZ), 0xC8 (Z), 0xD0 (NC), 0xD8 (C)</li>
+                </ul>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/cpu/core.py</code>: Añadidos handlers para INC/DEC de 16 bits (8 handlers), helper
+                        <code>_add_hl_16bit()</code> para ADD HL, rr (4 handlers), y handlers para retornos condicionales
+                        (4 handlers). Todos con documentación exhaustiva sobre el comportamiento de flags.</li>
+                    <li><code>tests/test_cpu_math16.py</code>: Nuevo archivo con 24 tests unitarios organizados en 4 clases:
+                        <code>TestInc16Bit</code> (5 tests), <code>TestDec16Bit</code> (5 tests), <code>TestAddHL16Bit</code>
+                        (6 tests), y <code>TestConditionalReturn</code> (8 tests).</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Helper <code>_add_hl_16bit()</code>:</strong> Se creó un helper genérico para evitar duplicación
+                    de código entre los 4 handlers de ADD HL, rr. El helper maneja la lógica de flags (especialmente el
+                    Half-Carry de 12 bits) de forma centralizada, facilitando el mantenimiento y la corrección de bugs.
+                </p>
+                <p>
+                    <strong>Verificación de flags en tests:</strong> Los tests enfatizan verificar que INC/DEC de 16 bits
+                    NO tocan flags (especialmente Z y C), y que ADD HL no toca Z. Estos son puntos críticos que pueden
+                    causar bugs sutiles si se implementan incorrectamente.
+                </p>
+                <p>
+                    <strong>Wrap-around explícito:</strong> Todas las operaciones de 16 bits usan enmascarado explícito
+                    con <code>& 0xFFFF</code> para asegurar wrap-around correcto, siguiendo el patrón establecido en el código.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadidos 16 nuevos handlers de opcodes y helper <code>_add_hl_16bit()</code></li>
+                    <li><code>tests/test_cpu_math16.py</code> - Nuevo archivo con 24 tests unitarios</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Validación exhaustiva mediante tests unitarios:
+                </p>
+                <ul>
+                    <li><strong>Tests unitarios:</strong> 24 tests en <code>test_cpu_math16.py</code>, todos pasando (100% de éxito).</li>
+                    <li><strong>Tests específicos críticos:</strong>
+                        <ul>
+                            <li><code>test_inc_bc_no_flags</code>: Verifica que INC BC no modifica flags (especialmente Z)</li>
+                            <li><code>test_dec_bc_no_flags</code>: Verifica que DEC BC no modifica flags</li>
+                            <li><code>test_add_hl_bc</code>: Verifica Half-Carry en bit 11 para ADD HL, BC</li>
+                            <li><code>test_add_hl_no_z_flag</code>: Verifica que ADD HL no toca Z incluso cuando resultado es 0</li>
+                            <li><code>test_ret_nz_taken</code> y <code>test_ret_nz_not_taken</code>: Verifican ciclos condicionales (5 vs 2 M-Cycles)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Verificación con ROM:</strong> Tetris DX ahora ejecuta correctamente hasta <code>DEC DE</code> (0x1B)
+                        y avanza más en el código antes de encontrar un opcode no implementado (0x7A = LD A, D).</li>
+                    <li><strong>Suite completa:</strong> Todos los 136 tests del proyecto pasan correctamente.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Game Boy CPU Instruction Set</a> - Sección sobre INC/DEC de 16 bits, ADD HL, rr, y RET condicionales.</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Flags Behavior</a> - Comportamiento de flags en operaciones de 16 bits, especialmente el flag Z en ADD HL.</li>
+                </ul>
+                <p>
+                    <em>Nota: La implementación sigue las especificaciones de Pan Docs para el comportamiento exacto de flags
+                    en operaciones de 16 bits, especialmente las peculiaridades de que INC/DEC 16-bit no afectan flags y
+                    que ADD HL no toca Z.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>INC/DEC de 16 bits no tocan flags:</strong> Esta diferencia clave con los de 8 bits
+                            es crítica para bucles que usan contadores de 16 bits. Si los flags cambiaran, se corrompería
+                            el estado de comparaciones anteriores.</li>
+                        <li><strong>ADD HL, rr y el flag Z:</strong> Es muy curioso que ADD HL no toque Z incluso cuando
+                            el resultado es 0. Esto significa que Z debe ser preservado de la operación anterior, lo cual
+                            es útil para bucles que combinan aritmética de 16 bits con comparaciones.</li>
+                        <li><strong>Half-Carry en 12 bits:</strong> En ADD HL, el Half-Carry se calcula sobre 12 bits
+                            (bits 0-11), no sobre 4 bits como en operaciones de 8 bits. Esto refleja la arquitectura
+                            interna del hardware.</li>
+                        <li><strong>Retornos condicionales:</strong> Son esenciales para implementar subrutinas que toman
+                            decisiones. El timing condicional (5 vs 2 M-Cycles) es importante para emulación precisa.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento de flags en ADD HL, HL:</strong> Aunque está implementado según
+                            documentación, no he podido verificar directamente con hardware real. Los tests unitarios
+                            validan el comportamiento esperado según Pan Docs.</li>
+                        <li><strong>Timing exacto de RET condicional:</strong> Los 5 M-Cycles cuando se toma el retorno
+                            y 2 M-Cycles cuando no se toma están documentados, pero no he verificado con hardware real.
+                            Los tests validan el comportamiento esperado.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Ninguna suposición crítica:</strong> La implementación sigue fielmente las especificaciones
+                        de Pan Docs para el comportamiento de flags y timing. Todas las decisiones están respaldadas por
+                        documentación técnica.
+                    </p>
+                    <p>
+                        <strong>Validación mediante tests:</strong> Aunque no tengo acceso a hardware real, la suite completa
+                        de tests unitarios (24 tests específicos + 136 tests totales) valida el comportamiento esperado según
+                        documentación. El hecho de que Tetris DX avance correctamente hasta encontrar un opcode no implementado
+                        sugiere que la implementación es correcta.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar más instrucciones de carga entre registros (LD r, r') que faltan, como LD A, D (0x7A)</li>
+                    <li>[ ] Implementar operaciones lógicas adicionales (OR, AND) que son comunes en bucles</li>
+                    <li>[ ] Continuar avanzando con Tetris DX para identificar las siguientes instrucciones críticas</li>
+                    <li>[ ] Considerar implementar más variantes de ADD/SUB para operaciones aritméticas más complejas</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

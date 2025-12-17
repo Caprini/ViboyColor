@@ -111,6 +111,25 @@ class CPU:
             # Comparaciones (CP)
             0xFE: self._op_cp_d8,          # CP d8
             0xBE: self._op_cp_hl_ptr,      # CP (HL)
+            # Incremento/Decremento de 16 bits
+            0x03: self._op_inc_bc,         # INC BC
+            0x13: self._op_inc_de,         # INC DE
+            0x23: self._op_inc_hl,         # INC HL
+            0x33: self._op_inc_sp,         # INC SP
+            0x0B: self._op_dec_bc,         # DEC BC
+            0x1B: self._op_dec_de,         # DEC DE
+            0x2B: self._op_dec_hl,         # DEC HL
+            0x3B: self._op_dec_sp,         # DEC SP
+            # Aritmética de 16 bits (ADD HL, rr)
+            0x09: self._op_add_hl_bc,      # ADD HL, BC
+            0x19: self._op_add_hl_de,      # ADD HL, DE
+            0x29: self._op_add_hl_hl,      # ADD HL, HL
+            0x39: self._op_add_hl_sp,      # ADD HL, SP
+            # Retornos condicionales
+            0xC0: self._op_ret_nz,         # RET NZ
+            0xC8: self._op_ret_z,          # RET Z
+            0xD0: self._op_ret_nc,         # RET NC
+            0xD8: self._op_ret_c,          # RET C
         }
         
         # Tabla de despacho para opcodes CB (Extended Instructions)
@@ -1663,4 +1682,411 @@ class CPU:
             f"H={self.registers.get_flag_h()} C={self.registers.get_flag_c()}"
         )
         return 2
+
+    # ========== Handlers de Incremento/Decremento de 16 bits ==========
+    
+    def _op_inc_bc(self) -> int:
+        """
+        INC BC (Increment BC) - Opcode 0x03
+        
+        Incrementa el par de registros BC en 1.
+        
+        CRÍTICO: INC de 16 bits NO afecta a ningún flag. Esta es una diferencia
+        clave con respecto a INC de 8 bits (que sí afecta a Z, N, H).
+        
+        Se usa comúnmente en bucles para avanzar contadores sin corromper
+        el estado de flags de una comparación anterior.
+        
+        Returns:
+            2 M-Cycles
+            
+        Fuente: Pan Docs - Instruction Set (INC BC)
+        """
+        current_bc = self.registers.get_bc()
+        new_bc = (current_bc + 1) & 0xFFFF
+        self.registers.set_bc(new_bc)
+        logger.debug(f"INC BC -> BC=0x{current_bc:04X} -> 0x{new_bc:04X}")
+        return 2
+    
+    def _op_inc_de(self) -> int:
+        """
+        INC DE (Increment DE) - Opcode 0x13
+        
+        Incrementa el par de registros DE en 1.
+        NO afecta a ningún flag.
+        
+        Returns:
+            2 M-Cycles
+            
+        Fuente: Pan Docs - Instruction Set (INC DE)
+        """
+        current_de = self.registers.get_de()
+        new_de = (current_de + 1) & 0xFFFF
+        self.registers.set_de(new_de)
+        logger.debug(f"INC DE -> DE=0x{current_de:04X} -> 0x{new_de:04X}")
+        return 2
+    
+    def _op_inc_hl(self) -> int:
+        """
+        INC HL (Increment HL) - Opcode 0x23
+        
+        Incrementa el par de registros HL en 1.
+        NO afecta a ningún flag.
+        
+        Returns:
+            2 M-Cycles
+            
+        Fuente: Pan Docs - Instruction Set (INC HL)
+        """
+        current_hl = self.registers.get_hl()
+        new_hl = (current_hl + 1) & 0xFFFF
+        self.registers.set_hl(new_hl)
+        logger.debug(f"INC HL -> HL=0x{current_hl:04X} -> 0x{new_hl:04X}")
+        return 2
+    
+    def _op_inc_sp(self) -> int:
+        """
+        INC SP (Increment Stack Pointer) - Opcode 0x33
+        
+        Incrementa el Stack Pointer (SP) en 1.
+        NO afecta a ningún flag.
+        
+        Returns:
+            2 M-Cycles
+            
+        Fuente: Pan Docs - Instruction Set (INC SP)
+        """
+        current_sp = self.registers.get_sp()
+        new_sp = (current_sp + 1) & 0xFFFF
+        self.registers.set_sp(new_sp)
+        logger.debug(f"INC SP -> SP=0x{current_sp:04X} -> 0x{new_sp:04X}")
+        return 2
+    
+    def _op_dec_bc(self) -> int:
+        """
+        DEC BC (Decrement BC) - Opcode 0x0B
+        
+        Decrementa el par de registros BC en 1.
+        
+        CRÍTICO: DEC de 16 bits NO afecta a ningún flag. Esta es una diferencia
+        clave con respecto a DEC de 8 bits (que sí afecta a Z, N, H).
+        
+        Se usa comúnmente en bucles para decrementar contadores sin corromper
+        el estado de flags de una comparación anterior.
+        
+        Returns:
+            2 M-Cycles
+            
+        Fuente: Pan Docs - Instruction Set (DEC BC)
+        """
+        current_bc = self.registers.get_bc()
+        new_bc = (current_bc - 1) & 0xFFFF
+        self.registers.set_bc(new_bc)
+        logger.debug(f"DEC BC -> BC=0x{current_bc:04X} -> 0x{new_bc:04X}")
+        return 2
+    
+    def _op_dec_de(self) -> int:
+        """
+        DEC DE (Decrement DE) - Opcode 0x1B
+        
+        Decrementa el par de registros DE en 1.
+        NO afecta a ningún flag.
+        
+        Returns:
+            2 M-Cycles
+            
+        Fuente: Pan Docs - Instruction Set (DEC DE)
+        """
+        current_de = self.registers.get_de()
+        new_de = (current_de - 1) & 0xFFFF
+        self.registers.set_de(new_de)
+        logger.debug(f"DEC DE -> DE=0x{current_de:04X} -> 0x{new_de:04X}")
+        return 2
+    
+    def _op_dec_hl(self) -> int:
+        """
+        DEC HL (Decrement HL) - Opcode 0x2B
+        
+        Decrementa el par de registros HL en 1.
+        NO afecta a ningún flag.
+        
+        Returns:
+            2 M-Cycles
+            
+        Fuente: Pan Docs - Instruction Set (DEC HL)
+        """
+        current_hl = self.registers.get_hl()
+        new_hl = (current_hl - 1) & 0xFFFF
+        self.registers.set_hl(new_hl)
+        logger.debug(f"DEC HL -> HL=0x{current_hl:04X} -> 0x{new_hl:04X}")
+        return 2
+    
+    def _op_dec_sp(self) -> int:
+        """
+        DEC SP (Decrement Stack Pointer) - Opcode 0x3B
+        
+        Decrementa el Stack Pointer (SP) en 1.
+        NO afecta a ningún flag.
+        
+        Returns:
+            2 M-Cycles
+            
+        Fuente: Pan Docs - Instruction Set (DEC SP)
+        """
+        current_sp = self.registers.get_sp()
+        new_sp = (current_sp - 1) & 0xFFFF
+        self.registers.set_sp(new_sp)
+        logger.debug(f"DEC SP -> SP=0x{current_sp:04X} -> 0x{new_sp:04X}")
+        return 2
+
+    # ========== Handlers de Aritmética de 16 bits (ADD HL, rr) ==========
+    
+    def _add_hl_16bit(self, value: int) -> None:
+        """
+        Helper para ADD HL, rr (suma un valor de 16 bits a HL).
+        
+        CRÍTICO: Esta operación tiene un comportamiento especial con los flags:
+        - Z: NO SE TOCA (se mantiene como estaba)
+        - N: Siempre 0 (es una suma)
+        - H: Se activa si hay carry del bit 11 al 12 (Half-Carry de 12 bits)
+        - C: Se activa si hay carry del bit 15 (overflow de 16 bits)
+        
+        El Half-Carry se calcula en los 12 bits bajos (no en 8 como en ADD de 8 bits).
+        Esto es porque estamos trabajando con valores de 16 bits, pero el hardware
+        verifica el desbordamiento del nibble de 12 bits (bits 0-11).
+        
+        Args:
+            value: Valor de 16 bits a sumar a HL (se enmascara automáticamente)
+            
+        Fórmulas:
+        - Half-Carry: (HL & 0xFFF) + (value & 0xFFF) > 0xFFF
+        - Carry: (HL + value) > 0xFFFF
+        
+        Fuente: Pan Docs - CPU Flags (ADD HL, rr instruction behavior)
+        """
+        hl = self.registers.get_hl()
+        value = value & 0xFFFF
+        
+        # Calcular resultado
+        result = hl + value
+        
+        # Actualizar HL (wrap-around de 16 bits)
+        self.registers.set_hl(result)
+        
+        # Actualizar flags
+        # Z: NO SE TOCA (peculiaridad crítica de ADD HL)
+        # N: siempre 0 en suma
+        self.registers.clear_flag(FLAG_N)
+        
+        # H: Half-Carry (carry del bit 11 al 12)
+        # Verificamos si la suma de los 12 bits bajos excede 0xFFF
+        if ((hl & 0xFFF) + (value & 0xFFF)) > 0xFFF:
+            self.registers.set_flag(FLAG_H)
+        else:
+            self.registers.clear_flag(FLAG_H)
+        
+        # C: Carry (overflow de 16 bits)
+        if result > 0xFFFF:
+            self.registers.set_flag(FLAG_C)
+        else:
+            self.registers.clear_flag(FLAG_C)
+    
+    def _op_add_hl_bc(self) -> int:
+        """
+        ADD HL, BC (Add BC to HL) - Opcode 0x09
+        
+        Suma el par BC al par HL y almacena el resultado en HL.
+        
+        Actualiza flags H y C, pero NO toca Z.
+        
+        Returns:
+            2 M-Cycles
+            
+        Fuente: Pan Docs - Instruction Set (ADD HL, BC)
+        """
+        bc_value = self.registers.get_bc()
+        old_hl = self.registers.get_hl()
+        self._add_hl_16bit(bc_value)
+        new_hl = self.registers.get_hl()
+        logger.debug(
+            f"ADD HL, BC -> HL=0x{old_hl:04X} + BC=0x{bc_value:04X} = 0x{new_hl:04X} "
+            f"H={self.registers.get_flag_h()} C={self.registers.get_flag_c()}"
+        )
+        return 2
+    
+    def _op_add_hl_de(self) -> int:
+        """
+        ADD HL, DE (Add DE to HL) - Opcode 0x19
+        
+        Suma el par DE al par HL y almacena el resultado en HL.
+        
+        Actualiza flags H y C, pero NO toca Z.
+        
+        Returns:
+            2 M-Cycles
+            
+        Fuente: Pan Docs - Instruction Set (ADD HL, DE)
+        """
+        de_value = self.registers.get_de()
+        old_hl = self.registers.get_hl()
+        self._add_hl_16bit(de_value)
+        new_hl = self.registers.get_hl()
+        logger.debug(
+            f"ADD HL, DE -> HL=0x{old_hl:04X} + DE=0x{de_value:04X} = 0x{new_hl:04X} "
+            f"H={self.registers.get_flag_h()} C={self.registers.get_flag_c()}"
+        )
+        return 2
+    
+    def _op_add_hl_hl(self) -> int:
+        """
+        ADD HL, HL (Add HL to HL / Double HL) - Opcode 0x29
+        
+        Suma HL a sí mismo (efectivamente duplica HL).
+        
+        Actualiza flags H y C, pero NO toca Z.
+        
+        Returns:
+            2 M-Cycles
+            
+        Fuente: Pan Docs - Instruction Set (ADD HL, HL)
+        """
+        hl_value = self.registers.get_hl()
+        old_hl = hl_value
+        self._add_hl_16bit(hl_value)
+        new_hl = self.registers.get_hl()
+        logger.debug(
+            f"ADD HL, HL -> HL=0x{old_hl:04X} * 2 = 0x{new_hl:04X} "
+            f"H={self.registers.get_flag_h()} C={self.registers.get_flag_c()}"
+        )
+        return 2
+    
+    def _op_add_hl_sp(self) -> int:
+        """
+        ADD HL, SP (Add SP to HL) - Opcode 0x39
+        
+        Suma el Stack Pointer (SP) al par HL y almacena el resultado en HL.
+        
+        Actualiza flags H y C, pero NO toca Z.
+        
+        Returns:
+            2 M-Cycles
+            
+        Fuente: Pan Docs - Instruction Set (ADD HL, SP)
+        """
+        sp_value = self.registers.get_sp()
+        old_hl = self.registers.get_hl()
+        self._add_hl_16bit(sp_value)
+        new_hl = self.registers.get_hl()
+        logger.debug(
+            f"ADD HL, SP -> HL=0x{old_hl:04X} + SP=0x{sp_value:04X} = 0x{new_hl:04X} "
+            f"H={self.registers.get_flag_h()} C={self.registers.get_flag_c()}"
+        )
+        return 2
+
+    # ========== Handlers de Retornos Condicionales ==========
+    
+    def _op_ret_nz(self) -> int:
+        """
+        RET NZ (Return if Not Zero) - Opcode 0xC0
+        
+        Retorna de una subrutina solo si el flag Z está desactivado (Z == 0).
+        
+        Si la condición se cumple (Z == 0):
+        - POP dirección de retorno de la pila
+        - Saltar a esa dirección (establecer PC)
+        - Consume 5 M-Cycles (20 T-Cycles)
+        
+        Si la condición NO se cumple (Z == 1):
+        - No hace nada, continúa ejecución normal
+        - Consume 2 M-Cycles (8 T-Cycles)
+        
+        Returns:
+            5 M-Cycles si retorna, 2 M-Cycles si no retorna
+            
+        Fuente: Pan Docs - Instruction Set (RET NZ)
+        """
+        if not self.registers.get_flag_z():
+            # Condición verdadera: retornar
+            return_addr = self._pop_word()
+            self.registers.set_pc(return_addr)
+            logger.debug(
+                f"RET NZ (TAKEN) -> PC=0x{return_addr:04X} (SP=0x{self.registers.get_sp():04X})"
+            )
+            return 5  # 5 M-Cycles cuando se toma el retorno
+        else:
+            # Condición falsa: no retornar
+            logger.debug("RET NZ (NOT TAKEN) Z flag set")
+            return 2  # 2 M-Cycles cuando no se toma el retorno
+    
+    def _op_ret_z(self) -> int:
+        """
+        RET Z (Return if Zero) - Opcode 0xC8
+        
+        Retorna de una subrutina solo si el flag Z está activado (Z == 1).
+        
+        Returns:
+            5 M-Cycles si retorna, 2 M-Cycles si no retorna
+            
+        Fuente: Pan Docs - Instruction Set (RET Z)
+        """
+        if self.registers.get_flag_z():
+            # Condición verdadera: retornar
+            return_addr = self._pop_word()
+            self.registers.set_pc(return_addr)
+            logger.debug(
+                f"RET Z (TAKEN) -> PC=0x{return_addr:04X} (SP=0x{self.registers.get_sp():04X})"
+            )
+            return 5
+        else:
+            # Condición falsa: no retornar
+            logger.debug("RET Z (NOT TAKEN) Z flag not set")
+            return 2
+    
+    def _op_ret_nc(self) -> int:
+        """
+        RET NC (Return if Not Carry) - Opcode 0xD0
+        
+        Retorna de una subrutina solo si el flag C está desactivado (C == 0).
+        
+        Returns:
+            5 M-Cycles si retorna, 2 M-Cycles si no retorna
+            
+        Fuente: Pan Docs - Instruction Set (RET NC)
+        """
+        if not self.registers.get_flag_c():
+            # Condición verdadera: retornar
+            return_addr = self._pop_word()
+            self.registers.set_pc(return_addr)
+            logger.debug(
+                f"RET NC (TAKEN) -> PC=0x{return_addr:04X} (SP=0x{self.registers.get_sp():04X})"
+            )
+            return 5
+        else:
+            # Condición falsa: no retornar
+            logger.debug("RET NC (NOT TAKEN) C flag set")
+            return 2
+    
+    def _op_ret_c(self) -> int:
+        """
+        RET C (Return if Carry) - Opcode 0xD8
+        
+        Retorna de una subrutina solo si el flag C está activado (C == 1).
+        
+        Returns:
+            5 M-Cycles si retorna, 2 M-Cycles si no retorna
+            
+        Fuente: Pan Docs - Instruction Set (RET C)
+        """
+        if self.registers.get_flag_c():
+            # Condición verdadera: retornar
+            return_addr = self._pop_word()
+            self.registers.set_pc(return_addr)
+            logger.debug(
+                f"RET C (TAKEN) -> PC=0x{return_addr:04X} (SP=0x{self.registers.get_sp():04X})"
+            )
+            return 5
+        else:
+            # Condición falsa: no retornar
+            logger.debug("RET C (NOT TAKEN) C flag not set")
+            return 2
 

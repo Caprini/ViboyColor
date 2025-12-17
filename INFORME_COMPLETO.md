@@ -1152,3 +1152,65 @@ Sin CP, los juegos no pueden tomar decisiones condicionales, lo que la convierte
 
 ---
 
+## 2025-12-16 - Paso 0014: Aritmética de 16 bits y Retornos Condicionales
+
+### Objetivo
+Implementar las operaciones de aritmética de 16 bits (INC/DEC de registros pares y ADD HL, rr) y los retornos condicionales (RET NZ, RET Z, RET NC, RET C) para permitir bucles complejos y subrutinas con lógica condicional.
+
+### Descripción Técnica
+Se implementaron 16 nuevos opcodes:
+
+**Incremento/Decremento de 16 bits (8 opcodes, 2 M-Cycles cada uno):**
+- **INC BC (0x03)**, **INC DE (0x13)**, **INC HL (0x23)**, **INC SP (0x33)**: Incrementan el registro par en 1. **CRÍTICO: NO afectan a ningún flag.**
+- **DEC BC (0x0B)**, **DEC DE (0x1B)**, **DEC HL (0x2B)**, **DEC SP (0x3B)**: Decrementan el registro par en 1. **CRÍTICO: NO afectan a ningún flag.**
+
+**Aritmética de 16 bits - ADD HL, rr (4 opcodes, 2 M-Cycles cada uno):**
+- **ADD HL, BC (0x09)**, **ADD HL, DE (0x19)**, **ADD HL, HL (0x29)**, **ADD HL, SP (0x39)**: Suman un registro par a HL.
+  - **Flags:** H (Half-Carry en bit 11) y C (Carry en bit 15) se actualizan. **Z NO se toca (peculiaridad crítica).**
+  - **Helper _add_hl_16bit()**: Helper genérico que maneja la lógica de flags centralizada.
+
+**Retornos Condicionales (4 opcodes, timing condicional):**
+- **RET NZ (0xC0)**, **RET Z (0xC8)**, **RET NC (0xD0)**, **RET C (0xD8)**: Retornan solo si se cumple la condición.
+  - Si condición verdadera: 5 M-Cycles (20 T-Cycles)
+  - Si condición falsa: 2 M-Cycles (8 T-Cycles)
+
+### Concepto de Hardware
+**INC/DEC de 16 bits NO afectan flags:** Esta es una diferencia crítica con respecto a los de 8 bits (que sí actualizan Z, N, H pero no C). Se usan en bucles para avanzar/retroceder contadores sin corromper el estado de flags de comparaciones anteriores. Por ejemplo, en un bucle que hace `DEC BC` y luego verifica si BC es 0 usando `LD A, B; OR C; JR NZ, loop`, el `DEC BC` no debe tocar flags para que la comparación funcione.
+
+**ADD HL, rr y flags especiales:**
+- **Z (Zero):** NO SE TOCA (se mantiene como estaba). Esta es una peculiaridad importante del hardware.
+- **N (Subtract):** Siempre 0 (es una suma).
+- **H (Half-Carry):** Se activa si hay carry del bit 11 al 12 (desbordamiento de 12 bits, no 8 como en ADD de 8 bits).
+- **C (Carry):** Se activa si hay carry del bit 15 (desbordamiento de 16 bits).
+
+**Retornos condicionales:** Permiten implementar subrutinas que toman decisiones antes de retornar. El timing condicional es importante para emulación precisa.
+
+### Archivos Afectados
+- `src/cpu/core.py`: Añadidos 16 nuevos handlers de opcodes y el helper `_add_hl_16bit()` con documentación exhaustiva sobre comportamiento de flags
+- `tests/test_cpu_math16.py`: Nueva suite de tests con 24 casos de prueba organizados en 4 clases
+
+### Validación
+**Tests TDD**: Suite completa de 24 tests, todos pasando (100% de éxito):
+- **TestInc16Bit** (5 tests): INC BC/DE/HL/SP, verificación de que no tocan flags, wrap-around
+- **TestDec16Bit** (5 tests): DEC BC/DE/HL/SP, verificación de que no tocan flags, wrap-around
+- **TestAddHL16Bit** (6 tests): ADD HL, BC/DE/HL/SP, Half-Carry en bit 11, Carry en bit 15, verificación de que Z no se toca
+- **TestConditionalReturn** (8 tests): RET NZ/Z/NC/C tanto cuando se toma el retorno como cuando no, verificando timing condicional
+
+**Verificación con ROM:** Tetris DX ahora ejecuta correctamente hasta `DEC DE` (0x1B) y avanza más en el código antes de encontrar un opcode no implementado (0x7A = LD A, D). El bucle de inicialización funciona correctamente.
+
+**Suite completa:** Todos los 136 tests del proyecto pasan correctamente.
+
+### Lecciones Aprendidas
+- **INC/DEC de 16 bits no tocan flags:** Esta diferencia clave con los de 8 bits es crítica para bucles que usan contadores de 16 bits. Si los flags cambiaran, se corrompería el estado de comparaciones anteriores.
+- **ADD HL, rr y el flag Z:** Es muy curioso que ADD HL no toque Z incluso cuando el resultado es 0. Esto significa que Z debe ser preservado de la operación anterior, lo cual es útil para bucles que combinan aritmética de 16 bits con comparaciones.
+- **Half-Carry en 12 bits:** En ADD HL, el Half-Carry se calcula sobre 12 bits (bits 0-11), no sobre 4 bits como en operaciones de 8 bits. Esto refleja la arquitectura interna del hardware.
+- **Retornos condicionales:** Son esenciales para implementar subrutinas que toman decisiones. El timing condicional (5 vs 2 M-Cycles) es importante para emulación precisa.
+
+### Próximos Pasos
+- Implementar más instrucciones de carga entre registros (LD r, r') que faltan, como LD A, D (0x7A)
+- Implementar operaciones lógicas adicionales (OR, AND) que son comunes en bucles
+- Continuar avanzando con Tetris DX para identificar las siguientes instrucciones críticas
+- Considerar implementar más variantes de ADD/SUB para operaciones aritméticas más complejas
+
+---
+
