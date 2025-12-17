@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .cartridge import Cartridge
+    from ..gpu.ppu import PPU
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,11 @@ class MMU:
         
         # Referencia al cartucho (si está insertado)
         self._cartridge: Cartridge | None = cartridge
+        
+        # Referencia a la PPU (se establece después de crear ambas para evitar dependencia circular)
+        # La PPU necesita la MMU para solicitar interrupciones, y la MMU necesita la PPU
+        # para leer el registro LY (0xFF44)
+        self._ppu: PPU | None = None
 
     def read_byte(self, addr: int) -> int:
         """
@@ -194,6 +200,16 @@ class MMU:
                 # permitimos escribir/leer directamente en memoria
                 return self._memory[addr] & 0xFF
         
+        # Interceptar lectura del registro LY (0xFF44)
+        # LY es un registro de solo lectura que indica qué línea se está dibujando
+        # Su valor viene de la PPU, no de la memoria interna
+        if addr == IO_LY:
+            if self._ppu is not None:
+                return self._ppu.get_ly() & 0xFF
+            else:
+                # Si no hay PPU conectada, devolver 0 (comportamiento por defecto)
+                return 0
+        
         # Para otras regiones, leer de la memoria interna
         return self._memory[addr] & 0xFF
 
@@ -221,6 +237,13 @@ class MMU:
         if 0xFF00 <= addr <= 0xFF7F:
             reg_name = IO_REGISTER_NAMES.get(addr, f"IO_0x{addr:04X}")
             logger.info(f"IO WRITE: {reg_name} = 0x{value:02X} (addr: 0x{addr:04X})")
+        
+        # Interceptar escritura al registro LY (0xFF44)
+        # LY es de solo lectura, pero algunos juegos intentan escribir en él
+        # En hardware real, escribir en LY no tiene efecto (se ignora silenciosamente)
+        if addr == IO_LY:
+            logger.debug(f"IO WRITE: LY (solo lectura, ignorado) = 0x{value:02X}")
+            return  # Ignorar escritura a LY
         
         # Escribimos el byte en la memoria
         self._memory[addr] = value
@@ -295,4 +318,17 @@ class MMU:
         self.write_byte(addr, lsb)
         # Si addr es 0xFFFF, addr+1 hace wrap-around a 0x0000
         self.write_byte((addr + 1) & 0xFFFF, msb)
+
+    def set_ppu(self, ppu: PPU) -> None:
+        """
+        Establece la referencia a la PPU para permitir lectura del registro LY.
+        
+        Este método se llama después de crear tanto la MMU como la PPU para evitar
+        dependencias circulares en el constructor.
+        
+        Args:
+            ppu: Instancia de PPU
+        """
+        self._ppu = ppu
+        logger.debug("MMU: PPU conectada para lectura de LY")
 

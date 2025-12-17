@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING
 
 from .cpu.core import CPU
 from .cpu.registers import Registers
+from .gpu.ppu import PPU
 from .memory.cartridge import Cartridge
 from .memory.mmu import MMU
 
@@ -78,6 +79,7 @@ class Viboy:
         self._cartridge: Cartridge | None = None
         self._mmu: MMU | None = None
         self._cpu: CPU | None = None
+        self._ppu: PPU | None = None
         
         # Contador de ciclos totales ejecutados
         self._total_cycles: int = 0
@@ -89,6 +91,9 @@ class Viboy:
             # Inicializar sin cartucho (modo de prueba)
             self._mmu = MMU(None)
             self._cpu = CPU(self._mmu)
+            self._ppu = PPU(self._mmu)
+            # Conectar PPU a MMU para que pueda leer LY
+            self._mmu.set_ppu(self._ppu)
             self._initialize_post_boot_state()
         
         logger.info("Sistema Viboy inicializado")
@@ -112,6 +117,12 @@ class Viboy:
         
         # Inicializar CPU con la MMU
         self._cpu = CPU(self._mmu)
+        
+        # Inicializar PPU con la MMU
+        self._ppu = PPU(self._mmu)
+        
+        # Conectar PPU a MMU para que pueda leer LY (evitar dependencia circular)
+        self._mmu.set_ppu(self._ppu)
         
         # Simular "Post-Boot State" (sin Boot ROM)
         self._initialize_post_boot_state()
@@ -168,6 +179,13 @@ class Viboy:
         
         # Acumular ciclos totales
         self._total_cycles += cycles
+        
+        # Avanzar la PPU (motor de timing)
+        # La CPU devuelve M-Cycles, pero la PPU necesita T-Cycles
+        # Conversión: 1 M-Cycle = 4 T-Cycles
+        if self._ppu is not None:
+            t_cycles = cycles * 4
+            self._ppu.step(t_cycles)
         
         return cycles
 
@@ -276,4 +294,13 @@ class Viboy:
             Instancia de Cartridge o None si no hay cartucho cargado
         """
         return self._cartridge
+
+    def get_ppu(self) -> PPU | None:
+        """
+        Devuelve la instancia de la PPU (para tests y debugging).
+        
+        Returns:
+            Instancia de PPU o None si no está inicializada
+        """
+        return self._ppu
 

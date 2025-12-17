@@ -1,5 +1,135 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-17 - PPU Timing Engine - El Motor del Tiempo
+
+### Conceptos Hardware Implementados
+
+**¡Hito crítico: El sistema ahora tiene "latido" gráfico!** Se implementó el motor de timing de la PPU (Pixel Processing Unit), que permite que los juegos detecten el V-Blank y salgan de bucles infinitos de espera. La implementación incluye el registro LY (Línea actual) que cambia automáticamente cada 456 T-Cycles, la activación de la interrupción V-Blank cuando LY llega a 144, y el wrap-around de frame cuando LY supera 153. Sin esta funcionalidad, juegos como Tetris DX se quedaban esperando eternamente porque LY siempre devolvía 0.
+
+**PPU (Pixel Processing Unit) y Timing**: La PPU funciona en paralelo a la CPU, procesando píxeles mientras la CPU ejecuta instrucciones. La pantalla tiene 144 líneas visibles (0-143) seguidas de 10 líneas de V-Blank (144-153). Cada línea tarda exactamente 456 T-Cycles. Total por frame: 154 líneas × 456 ciclos = 70,224 T-Cycles (~59.7 FPS).
+
+**Registro LY (0xFF44)**: Es un registro de solo lectura que indica qué línea se está dibujando (0-153). Los juegos lo leen constantemente para sincronizarse. Si LY siempre devuelve 0, los juegos que esperan V-Blank se quedan en bucles infinitos.
+
+**Interrupción V-Blank**: Cuando LY llega a 144, la PPU activa el bit 0 del registro IF (0xFF0F) para solicitar una interrupción. Esto permite que los juegos actualicen la VRAM de forma segura durante el período de retorno vertical.
+
+#### Tareas Completadas:
+
+1. **Clase PPU (`src/gpu/ppu.py`)**:
+   - **`__init__(mmu)`**: Inicializa PPU con referencia a MMU. Inicializa `ly = 0` y `clock = 0`.
+   - **`step(cycles: int)`**: Avanza el motor de timing. Acumula T-Cycles en `clock`. Si `clock >= 456`, resta 456, incrementa `ly`. Si `ly == 144`, activa bit 0 en IF (0xFF0F). Si `ly > 153`, reinicia `ly = 0`.
+   - **`get_ly()`**: Devuelve el valor actual de LY (usado por MMU para leer 0xFF44).
+
+2. **Integración en Viboy (`src/viboy.py`)**:
+   - Añadida instancia `_ppu: PPU | None` al sistema.
+   - En `load_cartridge()` y `__init__()`: Se crea PPU después de MMU y CPU, luego se conecta a MMU mediante `mmu.set_ppu(ppu)`.
+   - En `tick()`: Después de ejecutar instrucción de CPU, se llama a `ppu.step(t_cycles)` donde `t_cycles = cycles * 4` (conversión M-Cycles a T-Cycles).
+
+3. **Modificación de MMU (`src/memory/mmu.py`)**:
+   - Añadida referencia opcional `_ppu: PPU | None`.
+   - Método `set_ppu(ppu)` para establecer la referencia después de crear ambas instancias (evitar dependencia circular).
+   - En `read_byte()`: Si dirección es `IO_LY` (0xFF44), devolver `ppu.get_ly()` en lugar de leer de memoria.
+   - En `write_byte()`: Si dirección es `IO_LY` (0xFF44), ignorar silenciosamente (LY es de solo lectura).
+
+4. **Módulo GPU (`src/gpu/__init__.py`)**:
+   - Módulo nuevo que exporta `PPU`.
+
+5. **Tests TDD (`tests/test_ppu_timing.py`)**:
+   - Archivo nuevo con 8 tests unitarios:
+     - `test_ly_increment`: LY se incrementa después de 456 T-Cycles
+     - `test_ly_increment_partial`: LY no se incrementa con menos de 456 T-Cycles
+     - `test_vblank_trigger`: Se activa bit 0 de IF cuando LY llega a 144
+     - `test_frame_wrap`: LY se reinicia a 0 después de línea 153
+     - `test_ly_read_from_mmu`: MMU puede leer LY desde PPU (0xFF44)
+     - `test_ly_write_ignored`: Escribir en LY no tiene efecto
+     - `test_multiple_frames`: PPU puede procesar múltiples frames
+     - `test_vblank_multiple_frames`: V-Blank se activa en cada frame
+   - Todos los tests pasan (8 passed in 0.18s)
+
+#### Archivos Afectados:
+- `src/gpu/__init__.py` - Módulo GPU creado, exporta PPU
+- `src/gpu/ppu.py` - Clase PPU con motor de timing (LY, clock, step, V-Blank)
+- `src/viboy.py` - Integración de PPU: instanciación, conexión a MMU, llamada en tick()
+- `src/memory/mmu.py` - Interceptación de lectura/escritura de LY (0xFF44), método set_ppu()
+- `tests/test_ppu_timing.py` - Suite completa de tests TDD (8 tests)
+- `docs/bitacora/entries/2025-12-17__0024__ppu-timing-engine.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0024)
+- `docs/bitacora/entries/2025-12-17__0023__io-dinamico-mapeo-registros.html` (modificado, actualizado link "Siguiente")
+
+#### Tests y Verificación:
+
+**Comando ejecutado**: `python3 -m pytest tests/test_ppu_timing.py -v`
+
+**Entorno**: macOS (darwin 21.6.0), Python 3.9.6, pytest 8.4.2
+
+**Resultado**: 8 passed in 0.18s
+
+**Qué valida**:
+- **Incremento de LY**: Verifica que LY se incrementa correctamente después de 456 T-Cycles (una línea completa). Valida que LY no se incrementa con menos de 456 T-Cycles (acumulación correcta).
+- **V-Blank**: Verifica que se activa el bit 0 de IF (0xFF0F) cuando LY llega a 144 (interrupción V-Blank). Valida que V-Blank se activa en cada frame.
+- **Wrap-around**: Verifica que LY se reinicia a 0 después de la línea 153 (wrap-around de frame). Valida que la PPU puede procesar múltiples frames completos.
+- **Lectura desde MMU**: Verifica que la MMU puede leer LY desde la PPU a través del registro 0xFF44. Valida que escribir en LY (0xFF44) no tiene efecto (registro de solo lectura).
+
+**Código del test (fragmento esencial)**:
+```python
+def test_vblank_trigger(self) -> None:
+    """Test: Se activa la interrupción V-Blank cuando LY llega a 144."""
+    mmu = MMU(None)
+    ppu = PPU(mmu)
+    mmu.set_ppu(ppu)
+    
+    # Asegurar que IF está limpio
+    mmu.write_byte(0xFF0F, 0x00)
+    assert mmu.read_byte(0xFF0F) == 0x00
+    
+    # Avanzar hasta la línea 144 (144 líneas * 456 ciclos = 65,664 ciclos)
+    total_cycles = 144 * 456
+    ppu.step(total_cycles)
+    
+    # LY debe ser 144 (inicio de V-Blank)
+    assert ppu.get_ly() == 144
+    
+    # El bit 0 de IF (0xFF0F) debe estar activado
+    if_val = mmu.read_byte(0xFF0F)
+    assert (if_val & 0x01) == 0x01
+```
+
+**Ruta completa**: `tests/test_ppu_timing.py`
+
+**Validación con ROM Real (Tetris DX)**:
+- **ROM**: Tetris DX (ROM aportada por el usuario, no distribuida)
+- **Modo de ejecución**: Script de prueba headless (`test_tetris_ly.py`) que ejecuta 50,000 ciclos y monitorea cambios en LY, activación de V-Blank y lectura desde MMU.
+- **Criterio de éxito**: LY debe cambiar correctamente (no estar congelado en 0), V-Blank debe activarse cuando LY llega a 144, y LY debe ser legible desde MMU (0xFF44).
+- **Comando ejecutado**: `python3 test_tetris_ly.py tetris_dx.gbc 50000`
+- **Observación**: 
+  - ✅ LY cambia correctamente: Se observaron todos los valores de LY desde 0 hasta 153
+  - ✅ V-Blank se activa: Se detectaron 2 V-Blanks en 50,000 ciclos (aproximadamente 2 frames completos)
+  - ✅ LY es legible desde MMU: El registro 0xFF44 devuelve el valor correcto de LY
+  - ✅ El juego avanza: El PC llegó a 0x1383, demostrando que el juego está ejecutando código más allá de la inicialización
+- **Resultado**: Verified - El motor de timing de la PPU funciona correctamente. Tetris DX puede detectar V-Blank y salir del bucle de espera, permitiendo que el juego avance más allá de la inicialización.
+- **Notas legales**: La ROM de Tetris DX es aportada por el usuario para pruebas locales. No se distribuye, no se enlaza descarga, y no se sube al repositorio.
+
+#### Fuentes Consultadas:
+- **Pan Docs**: LCD Timing, V-Blank, LY Register (0xFF44), Interrupts
+- **Pan Docs**: System Clock, T-Cycles vs M-Cycles (conversión 1 M-Cycle = 4 T-Cycles)
+
+### Lo que Entiendo Ahora:
+- **PPU funciona en paralelo a la CPU**: La PPU procesa píxeles mientras la CPU ejecuta instrucciones. El timing es independiente pero sincronizado mediante ciclos de reloj.
+- **LY es crítico para la sincronización**: Sin un LY que cambie, los juegos no pueden detectar V-Blank y se quedan en bucles infinitos. Este es el "reloj" que los juegos necesitan para saber cuándo pueden actualizar la VRAM.
+- **V-Blank es el período seguro**: Durante V-Blank (LY 144-153), la PPU no está dibujando líneas visibles, por lo que es seguro actualizar la VRAM sin corrupción visual.
+- **Conversión M-Cycles a T-Cycles**: La CPU trabaja en M-Cycles (ciclos de máquina), pero la PPU necesita T-Cycles (ciclos de reloj). La conversión es 1 M-Cycle = 4 T-Cycles.
+- **Dependencias circulares se resuelven con "conexión posterior"**: La PPU necesita la MMU para interrupciones, y la MMU necesita la PPU para leer LY. Se resuelve creando ambas independientemente y luego conectándolas.
+
+### Lo que Falta Confirmar:
+- **Timing exacto de V-Blank**: La interrupción V-Blank se activa cuando LY llega a 144, pero no está completamente claro si se activa al inicio de la línea 144 o al final. Los tests validan que se activa cuando LY == 144, que es el comportamiento esperado según la documentación.
+- **Modos de la PPU**: En esta iteración solo implementamos el timing básico. Falta implementar los modos de la PPU (H-Blank, V-Blank, OAM Search, Pixel Transfer) y el registro STAT que indica el modo actual.
+- **Interrupción LYC**: El registro LYC (LY Compare) permite solicitar una interrupción cuando LY coincide con un valor específico. Esto se implementará en pasos posteriores.
+
+### Hipótesis y Suposiciones:
+- **Timing de 456 T-Cycles por línea**: Asumimos que todas las líneas (visibles y V-Blank) tardan exactamente 456 T-Cycles. Esto es consistente con la documentación, pero podría haber variaciones sutiles en el hardware real que no afectan el comportamiento general de los juegos.
+- **Activación de V-Blank**: Asumimos que la interrupción V-Blank se activa cuando LY llega a 144 (inicio de V-Blank). Esto es consistente con la documentación y el comportamiento esperado de los juegos.
+
+---
+
 ## 2025-12-17 - I/O Dinámico y Mapeo de Registros
 
 ### Conceptos Hardware Implementados

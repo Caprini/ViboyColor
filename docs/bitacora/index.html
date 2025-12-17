@@ -32,6 +32,31 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0024 - PPU Timing Engine - El Motor del Tiempo -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0024__ppu-timing-engine.html" class="entry-link">
+                                    PPU Timing Engine - El Motor del Tiempo
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0024 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            ¡Hito crítico: El sistema ahora tiene "latido" gráfico! Se implementó el motor de timing de la PPU (Pixel Processing Unit),
+                            que permite que los juegos detecten el V-Blank y salgan de bucles infinitos de espera. La implementación incluye el registro
+                            LY (Línea actual) que cambia automáticamente cada 456 T-Cycles, la activación de la interrupción V-Blank cuando LY llega a 144,
+                            y el wrap-around de frame cuando LY supera 153. Sin esta funcionalidad, juegos como Tetris DX se quedaban esperando
+                            eternamente porque LY siempre devolvía 0. Ahora el sistema tiene el "reloj" necesario para que los juegos puedan sincronizarse
+                            y avanzar más allá de la inicialización. Suite completa de tests TDD (8 tests) validando todas las funcionalidades. Todos los
+                            tests pasan.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0023 - I/O Dinámico y Mapeo de Registros -->
                     <li>
                         <div class="entry-header">
