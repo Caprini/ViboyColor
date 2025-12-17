@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0031 - Joypad y Paleta por Defecto -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0031__joypad-paleta-por-defecto.html" class="entry-link">
+                                    Joypad y Paleta por Defecto
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0031 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó el Joypad (control de botones y direcciones) de la Game Boy con lógica Active Low, y se corrigió la inicialización de la paleta BGP a 0xE4 por defecto. Los logs de diagnóstico revelaron que el juego estaba haciendo polling del Joypad (P1) y que la paleta estaba en 0x00 (todo blanco), haciendo que los gráficos fueran invisibles aunque se renderizaran correctamente. Con estas correcciones, el emulador puede responder a las pulsaciones de botones y mostrar gráficos correctamente coloreados. Suite completa de tests TDD (14 tests) validando inicialización, lógica Active Low, selector de lectura, interrupciones y integración con MMU. Todos los tests pasan.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0030 - Cargas Directas a Memoria -->
                     <li>
                         <div class="entry-header">

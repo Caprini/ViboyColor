@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING
 from .cpu.core import CPU
 from .cpu.registers import Registers
 from .gpu.ppu import PPU
+from .io.joypad import Joypad
 from .memory.cartridge import Cartridge
 from .memory.mmu import MMU
 
@@ -87,6 +88,7 @@ class Viboy:
         self._cpu: CPU | None = None
         self._ppu: PPU | None = None
         self._renderer: Renderer | None = None
+        self._joypad: Joypad | None = None
         
         # Contador de ciclos totales ejecutados
         self._total_cycles: int = 0
@@ -100,6 +102,10 @@ class Viboy:
         else:
             # Inicializar sin cartucho (modo de prueba)
             self._mmu = MMU(None)
+            # Inicializar Joypad con la MMU
+            self._joypad = Joypad(self._mmu)
+            # Conectar Joypad a MMU para lectura/escritura de P1
+            self._mmu.set_joypad(self._joypad)
             self._cpu = CPU(self._mmu)
             self._ppu = PPU(self._mmu)
             # Conectar PPU a MMU para que pueda leer LY
@@ -133,6 +139,12 @@ class Viboy:
         
         # Inicializar MMU con el cartucho
         self._mmu = MMU(self._cartridge)
+        
+        # Inicializar Joypad con la MMU
+        self._joypad = Joypad(self._mmu)
+        
+        # Conectar Joypad a MMU para lectura/escritura de P1
+        self._mmu.set_joypad(self._joypad)
         
         # Inicializar CPU con la MMU
         self._cpu = CPU(self._mmu)
@@ -244,9 +256,11 @@ class Viboy:
         
         try:
             while True:
-                # Manejar eventos de Pygame (especialmente cierre de ventana)
+                # Manejar eventos de Pygame (cierre de ventana y teclado)
                 if self._renderer is not None:
-                    if not self._renderer.handle_events():
+                    # Manejar eventos de ventana y teclado
+                    should_continue = self._handle_pygame_events()
+                    if not should_continue:
                         logger.info("Ventana cerrada por el usuario")
                         break
                 
@@ -265,7 +279,15 @@ class Viboy:
                     
                     # Si acabamos de entrar en V-Blank, renderizar el frame
                     if in_vblank and not self._prev_vblank:
+                        # Log del estado de LCDC para debugging
+                        if self._mmu is not None:
+                            lcdc = self._mmu.read_byte(0xFF40)
+                            if lcdc != 0:
+                                logger.info(f"V-Blank detectado: LY={ly}, LCDC=0x{lcdc:02X} - Renderizando frame")
+                            else:
+                                logger.debug(f"V-Blank detectado: LY={ly}, LCDC=0x{lcdc:02X} - LCD desactivado, pantalla blanca")
                         self._renderer.render_frame()
+                        # pygame.display.flip() ya se llama dentro de render_frame()
                     
                     self._prev_vblank = in_vblank
                 
@@ -353,4 +375,56 @@ class Viboy:
             Instancia de PPU o None si no está inicializada
         """
         return self._ppu
+    
+    def _handle_pygame_events(self) -> bool:
+        """
+        Maneja eventos de Pygame (cierre de ventana y teclado para Joypad).
+        
+        IMPORTANTE: En macOS, pygame.event.pump() es necesario para que la ventana se actualice.
+        
+        Returns:
+            True si se debe continuar ejecutando, False si se debe cerrar
+        """
+        if self._renderer is None:
+            return True
+        
+        try:
+            import pygame
+            # En macOS (y algunos otros sistemas), pygame.event.pump() es necesario
+            # para que la ventana se actualice correctamente
+            pygame.event.pump()
+            
+            # Mapeo de teclas a botones del Joypad
+            key_mapping: dict[int, str] = {
+                pygame.K_UP: "up",
+                pygame.K_DOWN: "down",
+                pygame.K_LEFT: "left",
+                pygame.K_RIGHT: "right",
+                pygame.K_z: "a",
+                pygame.K_x: "b",
+                pygame.K_RETURN: "start",
+                pygame.K_RSHIFT: "select",
+            }
+            
+            # Obtener todos los eventos pendientes
+            for event in pygame.event.get():
+                # Manejar cierre de ventana
+                if event.type == pygame.QUIT:
+                    return False
+                
+                # Manejar eventos de teclado para el Joypad
+                if self._joypad is not None:
+                    if event.type == pygame.KEYDOWN:
+                        button = key_mapping.get(event.key)
+                        if button:
+                            self._joypad.press(button)
+                    elif event.type == pygame.KEYUP:
+                        button = key_mapping.get(event.key)
+                        if button:
+                            self._joypad.release(button)
+            
+            return True
+        except ImportError:
+            # pygame no disponible, usar método del renderer como fallback
+            return self._renderer.handle_events()
 

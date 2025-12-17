@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Joypad y Paleta por Defecto - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Joypad y Paleta por Defecto</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-17
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0031
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-17__0030__cargas-directas-desbloqueo-graficos.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó el <strong>Joypad</strong> (control de botones y direcciones) de la Game Boy con lógica Active Low,
+                    y se corrigió la <strong>inicialización de la paleta BGP</strong> a 0xE4 por defecto. Los logs de diagnóstico
+                    revelaron que el juego estaba haciendo polling del Joypad (P1) y que la paleta estaba en 0x00 (todo blanco),
+                    haciendo que los gráficos fueran invisibles aunque se renderizaran correctamente. Con estas correcciones,
+                    el emulador puede responder a las pulsaciones de botones y mostrar gráficos correctamente coloreados.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El <strong>Joypad</strong> de la Game Boy usa un sistema de <strong>Active Low</strong> donde:
+                </p>
+                <ul>
+                    <li><strong>0 = Botón pulsado</strong></li>
+                    <li><strong>1 = Botón soltado</strong></li>
+                </ul>
+                <p>
+                    El registro P1 (0xFF00) es de lectura/escritura:
+                </p>
+                <ul>
+                    <li><strong>ESCRITURA (bits 4-5):</strong> El juego selecciona qué leer:
+                        <ul>
+                            <li>Bit 4 = 0: Quiere leer Direcciones (Right, Left, Up, Down)</li>
+                            <li>Bit 5 = 0: Quiere leer Botones (A, B, Select, Start)</li>
+                        </ul>
+                    </li>
+                    <li><strong>LECTURA (bits 0-3):</strong> El juego lee el estado según el selector:
+                        <ul>
+                            <li>Bit 0: Right / A</li>
+                            <li>Bit 1: Left / B</li>
+                            <li>Bit 2: Up / Select</li>
+                            <li>Bit 3: Down / Start</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    Cuando un botón pasa de Soltado (1) a Pulsado (0), se activa la interrupción Joypad (Bit 4 en IF, 0xFF0F).
+                </p>
+                <p>
+                    La <strong>paleta BGP</strong> (Background Palette, 0xFF47) controla los colores del fondo. En una Game Boy real,
+                    la Boot ROM deja este registro configurado a <strong>0xE4</strong> (11100100 en binario), que mapea:
+                </p>
+                <ul>
+                    <li>Índice 0 → Blanco (0)</li>
+                    <li>Índice 1 → Gris claro (1)</li>
+                    <li>Índice 2 → Gris oscuro (2)</li>
+                    <li>Índice 3 → Negro (3)</li>
+                </ul>
+                <p>
+                    Si BGP queda en 0x00 (todo blanco), aunque el juego renderice correctamente los tiles, todos los píxeles
+                    aparecerán blancos y la pantalla se verá completamente blanca.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Joypad Input, Background Palette Register (BGP)
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se creó una clase <code>Joypad</code> que implementa la lógica Active Low y maneja el registro P1.
+                    Se integró en la MMU para interceptar lecturas/escrituras de P1, y en Viboy para capturar eventos
+                    de teclado de pygame y actualizar el estado del Joypad.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/io/joypad.py</code>: Nueva clase <code>Joypad</code> con métodos <code>press()</code>, <code>release()</code>, <code>read()</code>, <code>write()</code>. Implementa lógica Active Low y solicita interrupciones cuando un botón se pulsa.</li>
+                    <li><code>src/io/__init__.py</code>: Nuevo módulo de I/O.</li>
+                    <li><code>src/memory/mmu.py</code>: 
+                        <ul>
+                            <li>Inicialización de BGP a 0xE4 en <code>__init__()</code>.</li>
+                            <li>Interceptación de lectura/escritura de P1 (0xFF00) delegando al Joypad.</li>
+                            <li>Método <code>set_joypad()</code> para conectar el Joypad a la MMU.</li>
+                        </ul>
+                    </li>
+                    <li><code>src/viboy.py</code>:
+                        <ul>
+                            <li>Instanciación del Joypad y conexión a la MMU.</li>
+                            <li>Método <code>_handle_pygame_events()</code> que captura eventos de teclado y actualiza el Joypad.</li>
+                            <li>Mapeo de teclas: K_UP/DOWN/LEFT/RIGHT (direcciones), K_z (A), K_x (B), K_RETURN (Start), K_RSHIFT (Select).</li>
+                        </ul>
+                    </li>
+                    <li><code>tests/test_io_joypad.py</code>: Suite completa de tests (14 tests) validando inicialización, lógica Active Low, selector de lectura, interrupciones y integración con MMU.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Lógica Active Low:</strong> Se implementó correctamente donde True = pulsado (bit 0 en hardware),
+                    False = soltado (bit 1 en hardware). Al leer P1, si un botón está pulsado, se hace clear del bit correspondiente.
+                </p>
+                <p>
+                    <strong>Detección de transiciones:</strong> La interrupción solo se solicita cuando un botón pasa de soltado
+                    a pulsado. Si se llama <code>press()</code> varias veces sin <code>release()</code> intermedio, solo la primera
+                    pulsación activa la interrupción.
+                </p>
+                <p>
+                    <strong>Selector de lectura:</strong> Se guarda el selector (bits 4-5) cuando el juego escribe en P1.
+                    Al leer, se devuelve el estado de los botones correspondientes según el selector.
+                </p>
+                <p>
+                    <strong>Manejo de eventos:</strong> Se centralizó el manejo de eventos de pygame en <code>_handle_pygame_events()</code>
+                    dentro de Viboy, en lugar de hacerlo en el Renderer, para mantener la separación de responsabilidades.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/io/joypad.py</code> - Nueva clase Joypad</li>
+                    <li><code>src/io/__init__.py</code> - Nuevo módulo I/O</li>
+                    <li><code>src/memory/mmu.py</code> - Inicialización BGP=0xE4, interceptación P1, método set_joypad()</li>
+                    <li><code>src/viboy.py</code> - Instanciación Joypad, método _handle_pygame_events()</li>
+                    <li><code>tests/test_io_joypad.py</code> - Suite completa de tests (14 tests)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron tests unitarios con pytest validando:
+                </p>
+                
+                <h3>Tests ejecutados</h3>
+                <ul>
+                    <li><strong>Comando:</strong> <code>python3 -m pytest tests/test_io_joypad.py -v</code></li>
+                    <li><strong>Entorno:</strong> macOS, Python 3.9.6</li>
+                    <li><strong>Resultado:</strong> 14 tests PASSED en 0.33s</li>
+                </ul>
+                
+                <h3>Tests implementados</h3>
+                <ul>
+                    <li><code>test_default_palette_init</code>: Verifica que BGP se inicializa a 0xE4.</li>
+                    <li><code>test_joypad_initial_state</code>: Verifica que todos los botones están soltados al inicio.</li>
+                    <li><code>test_joypad_read_default</code>: Verifica lectura con selector por defecto.</li>
+                    <li><code>test_joypad_read_directions</code>: Verifica lectura de direcciones cuando están soltadas.</li>
+                    <li><code>test_joypad_read_directions_pressed</code>: Verifica lectura cuando Right está pulsado (bit 0 = 0).</li>
+                    <li><code>test_joypad_read_buttons</code>: Verifica lectura de botones cuando están soltados.</li>
+                    <li><code>test_joypad_read_buttons_pressed</code>: Verifica lectura cuando A está pulsado (bit 0 = 0).</li>
+                    <li><code>test_joypad_press_interrupt</code>: Verifica que pulsar un botón activa el bit 4 de IF.</li>
+                    <li><code>test_joypad_release_no_interrupt</code>: Verifica que soltar un botón NO activa interrupción.</li>
+                    <li><code>test_joypad_press_twice_no_double_interrupt</code>: Verifica que pulsar dos veces sin soltar solo activa interrupción la primera vez.</li>
+                    <li><code>test_joypad_press_release_press_interrupt</code>: Verifica que pulsar-soltar-pulsar activa interrupción ambas veces.</li>
+                    <li><code>test_joypad_mmu_integration</code>: Verifica integración con MMU (leer/escribir P1 funciona correctamente).</li>
+                    <li><code>test_joypad_all_directions</code>: Verifica lectura de todas las direcciones cuando están pulsadas.</li>
+                    <li><code>test_joypad_all_buttons</code>: Verifica lectura de todos los botones cuando están pulsados.</li>
+                </ul>
+                
+                <h3>Código del test (ejemplo: detección de interrupción)</h3>
+                <pre><code>def test_joypad_press_interrupt(self) -> None:
+    """Test: Pulsar un botón debe activar la interrupción Joypad (bit 4 en IF)"""
+    mmu = MMU(None)
+    joypad = Joypad(mmu)
+    
+    # Limpiar IF
+    mmu.write_byte(IO_IF, 0x00)
+    assert (mmu.read_byte(IO_IF) & 0x10) == 0
+    
+    # Pulsar Start
+    joypad.press("start")
+    
+    # Verificar que el bit 4 de IF está activo
+    if_val = mmu.read_byte(IO_IF)
+    assert (if_val & 0x10) != 0</code></pre>
+                
+                <p>
+                    <strong>Qué valida:</strong> Este test demuestra que el hardware del Joypad solicita una interrupción
+                    cuando se pulsa un botón, activando el bit 4 del registro IF (Interrupt Flag). Esto permite que la CPU
+                    responda a eventos de entrada del usuario.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Joypad_Input.html">Joypad Input</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCD.html#lcd-color-palettes">Background Palette Register (BGP)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Interrupts.html">CPU Interrupts (Joypad interrupt, bit 4)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Active Low es fundamental:</strong> La lógica inversa (0 = pulsado, 1 = soltado) es una característica del hardware real de la Game Boy, no una elección arbitraria. Esto permite que el hardware use pull-up resistors y detecte pulsaciones conectando a tierra.</li>
+                        <li><strong>Selector de lectura:</strong> El hecho de que el juego tenga que escribir en P1 para seleccionar qué leer (direcciones vs botones) es una limitación del hardware que reduce el número de pines necesarios. El juego debe alternar entre leer direcciones y botones.</li>
+                        <li><strong>Interrupciones por transición:</strong> La interrupción solo se activa en la transición de soltado a pulsado, no mientras el botón permanece pulsado. Esto evita spam de interrupciones y permite al juego detectar "clicks" discretos.</li>
+                        <li><strong>Importancia de valores por defecto:</strong> Aunque no implementamos la Boot ROM todavía, los valores que deja la Boot ROM (como BGP=0xE4) son críticos. Sin estos valores, muchos juegos no funcionan correctamente porque asumen que la Boot ROM los configuró.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Timing de interrupciones:</strong> No está completamente claro si hay algún retardo entre pulsar un botón y que se active el bit de IF, o si es instantáneo. Por ahora, asumimos que es instantáneo.</li>
+                        <li><strong>Comportamiento de bits 4-5 en lectura:</strong> En hardware real, cuando se lee P1, los bits 4-5 reflejan el selector (lo que escribió el juego), pero podría haber detalles de comportamiento que no están completamente documentados. Por ahora, mantenemos los bits 4-5 como están en el selector.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que la solicitud de interrupción es instantánea cuando se pulsa un botón (sin retardo).
+                        Se asume que si el juego no ha escrito un selector válido (ambos bits 4-5 = 1), la lectura devuelve
+                        todos los bits a 1 (todos los botones "soltados" desde la perspectiva del hardware).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Probar el emulador con un juego real para verificar que el Joypad funciona correctamente</li>
+                    <li>[ ] Implementar Scroll (SCX/SCY) para que el juego pueda desplazar el fondo</li>
+                    <li>[ ] Implementar Window (WX/WY) para que el juego pueda mostrar una ventana superpuesta</li>
+                    <li>[ ] Implementar Sprites (OAM) para que el juego pueda mostrar objetos móviles</li>
+                    <li>[ ] Implementar el Timer completo (TIMA, TMA, TAC) para sincronización precisa</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

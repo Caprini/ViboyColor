@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .cartridge import Cartridge
     from ..gpu.ppu import PPU
+    from ..io.joypad import Joypad
 
 logger = logging.getLogger(__name__)
 
@@ -155,12 +156,28 @@ class MMU:
         """
         Inicializa la MMU con un bytearray de 65536 bytes, todos inicializados a 0.
         
+        CRÍTICO: La paleta BGP (0xFF47) debe inicializarse a 0xE4 para que los gráficos
+        sean visibles. En una Game Boy real, la Boot ROM configura este valor antes de
+        saltar al código del cartucho. Sin esta inicialización, la paleta queda en 0x00
+        (todo blanco) y no se puede ver nada en pantalla.
+        
+        Fuente: Pan Docs - Boot ROM, BGP Register (Background Palette)
+        
         Args:
             cartridge: Instancia opcional de Cartridge para mapear la ROM en memoria
         """
         # Usamos bytearray para simular la memoria completa
         # Inicializamos todos los bytes a 0
         self._memory: bytearray = bytearray(self.MEMORY_SIZE)
+        
+        # CRÍTICO: Inicializar paleta BGP a 0xE4 (paleta estándar Game Boy)
+        # 0xE4 = 11100100 en binario:
+        # - Bits 0-1 (Color 0): 00 = Blanco (0)
+        # - Bits 2-3 (Color 1): 01 = Gris claro (1)
+        # - Bits 4-5 (Color 2): 10 = Gris oscuro (2)
+        # - Bits 6-7 (Color 3): 11 = Negro (3)
+        # Esta es la configuración estándar que deja la Boot ROM
+        self._memory[IO_BGP] = 0xE4
         
         # Referencia al cartucho (si está insertado)
         self._cartridge: Cartridge | None = cartridge
@@ -169,6 +186,10 @@ class MMU:
         # La PPU necesita la MMU para solicitar interrupciones, y la MMU necesita la PPU
         # para leer el registro LY (0xFF44)
         self._ppu: PPU | None = None
+        
+        # Referencia al Joypad (se establece después para evitar dependencia circular)
+        # El Joypad necesita la MMU para solicitar interrupciones
+        self._joypad = None  # type: ignore
 
     def read_byte(self, addr: int) -> int:
         """
@@ -209,6 +230,16 @@ class MMU:
             else:
                 # Si no hay PPU conectada, devolver 0 (comportamiento por defecto)
                 return 0
+        
+        # Interceptar lectura del registro P1 (0xFF00) - Joypad Input
+        # El Joypad maneja su propia lógica de lectura (Active Low, selector de bits 4-5)
+        if addr == IO_P1:
+            if self._joypad is not None:
+                return self._joypad.read() & 0xFF
+            else:
+                # Si no hay Joypad conectado, devolver 0xFF (todos los botones sueltos)
+                # 0xFF = 11111111 = todos los bits a 1 = todos los botones sueltos
+                return 0xFF
         
         # Para otras regiones, leer de la memoria interna
         return self._memory[addr] & 0xFF
@@ -261,6 +292,13 @@ class MMU:
         if addr == IO_LY:
             logger.debug(f"IO WRITE: LY (solo lectura, ignorado) = 0x{value:02X}")
             return  # Ignorar escritura a LY
+        
+        # Interceptar escritura al registro P1 (0xFF00) - Joypad Input
+        # El juego escribe en P1 para seleccionar qué leer (bits 4-5)
+        if addr == IO_P1:
+            if self._joypad is not None:
+                self._joypad.write(value)
+                return  # No escribir en memoria, el Joypad maneja su propio estado
         
         # Escribimos el byte en la memoria
         self._memory[addr] = value
@@ -348,4 +386,17 @@ class MMU:
         """
         self._ppu = ppu
         logger.debug("MMU: PPU conectada para lectura de LY")
+    
+    def set_joypad(self, joypad: Joypad) -> None:
+        """
+        Establece la referencia al Joypad para permitir lectura/escritura del registro P1.
+        
+        Este método se llama después de crear tanto la MMU como el Joypad para evitar
+        dependencias circulares en el constructor.
+        
+        Args:
+            joypad: Instancia de Joypad
+        """
+        self._joypad = joypad
+        logger.debug("MMU: Joypad conectado para lectura/escritura de P1")
 
