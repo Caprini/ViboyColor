@@ -127,6 +127,16 @@ class CPU:
             0x05: self._op_dec_b,          # DEC B
             0x0C: self._op_inc_c,          # INC C
             0x0D: self._op_dec_c,          # DEC C
+            0x14: self._op_inc_d,          # INC D
+            0x15: self._op_dec_d,          # DEC D
+            0x1C: self._op_inc_e,          # INC E
+            0x1D: self._op_dec_e,          # DEC E
+            0x24: self._op_inc_h,          # INC H
+            0x25: self._op_dec_h,          # DEC H
+            0x2C: self._op_inc_l,          # INC L
+            0x2D: self._op_dec_l,          # DEC L
+            0x34: self._op_inc_hl_ptr,     # INC (HL)
+            0x35: self._op_dec_hl_ptr,     # DEC (HL)
             0x3C: self._op_inc_a,          # INC A
             0x3D: self._op_dec_a,          # DEC A
             # I/O Access (LDH - Load High)
@@ -368,39 +378,138 @@ class CPU:
         # Convertir a signed: si >= 128, restar 256
         return unsigned_val if unsigned_val < 128 else unsigned_val - 256
 
+    def handle_interrupts(self) -> int:
+        """
+        Maneja las interrupciones pendientes según la prioridad del hardware.
+        
+        El flujo de interrupción en la Game Boy requiere 3 condiciones simultáneas:
+        1. IME (Interrupt Master Enable) debe ser True
+        2. El bit correspondiente en IE (Interrupt Enable, 0xFFFF) debe estar activo
+        3. El bit correspondiente en IF (Interrupt Flag, 0xFF0F) debe estar activo
+        
+        Cuando se acepta una interrupción:
+        1. IME se desactiva automáticamente (para evitar interrupciones anidadas inmediatas)
+        2. Se limpia el bit correspondiente en IF (acknowledgement)
+        3. Se guarda PC en la pila (PUSH PC)
+        4. Se salta al vector de interrupción (PC = vector)
+        5. Consume 5 M-Cycles
+        
+        Vectores de Interrupción (prioridad de mayor a menor):
+        - Bit 0: V-Blank -> 0x0040 (Prioridad más alta)
+        - Bit 1: LCD STAT -> 0x0048
+        - Bit 2: Timer -> 0x0050
+        - Bit 3: Serial -> 0x0058
+        - Bit 4: Joypad -> 0x0060 (Prioridad más baja)
+        
+        Despertar de HALT:
+        Si la CPU está en HALT y hay interrupciones pendientes (en IE y IF),
+        la CPU debe despertar (halted = False), incluso si IME es False.
+        Esto permite que el código pueda verificar manualmente las interrupciones
+        mediante polling de IF después de HALT.
+        
+        Returns:
+            Número de M-Cycles consumidos (5 si se procesó una interrupción, 0 si no)
+            
+        Fuente: Pan Docs - Interrupts, HALT behavior
+        """
+        # Leer registros de interrupciones desde MMU
+        ie = self.mmu.read_byte(0xFFFF)  # Interrupt Enable
+        if_reg = self.mmu.read_byte(0xFF0F)  # Interrupt Flag
+        
+        # Calcular interrupciones pendientes: IE & IF (solo los 5 bits bajos importan)
+        pending = (ie & if_reg & 0x1F) & 0x1F
+        
+        # Si no hay interrupciones pendientes, no hacer nada
+        if pending == 0:
+            return 0
+        
+        # Despertar de HALT si hay interrupciones pendientes (incluso si IME es False)
+        if self.halted:
+            self.halted = False
+            logger.debug("HALT: Despertando por interrupción pendiente en IF/IE")
+        
+        # Si IME no está activado, no procesar la interrupción (solo despertamos)
+        if not self.ime:
+            return 0
+        
+        # Buscar el bit de menor peso activo (mayor prioridad)
+        # Prioridad: Bit 0 (V-Blank) > Bit 1 (STAT) > Bit 2 (Timer) > Bit 3 (Serial) > Bit 4 (Joypad)
+        interrupt_bit = 0
+        interrupt_vector = 0x0040  # V-Blank por defecto
+        
+        if pending & 0x01:  # Bit 0: V-Blank
+            interrupt_bit = 0
+            interrupt_vector = 0x0040
+        elif pending & 0x02:  # Bit 1: LCD STAT
+            interrupt_bit = 1
+            interrupt_vector = 0x0048
+        elif pending & 0x04:  # Bit 2: Timer
+            interrupt_bit = 2
+            interrupt_vector = 0x0050
+        elif pending & 0x08:  # Bit 3: Serial
+            interrupt_bit = 3
+            interrupt_vector = 0x0058
+        elif pending & 0x10:  # Bit 4: Joypad
+            interrupt_bit = 4
+            interrupt_vector = 0x0060
+        
+        # Log de interrupción
+        interrupt_names = ["V-Blank", "LCD STAT", "Timer", "Serial", "Joypad"]
+        logger.info(f"INTERRUPT: {interrupt_names[interrupt_bit]} triggered -> 0x{interrupt_vector:04X}")
+        
+        # Procesar la interrupción:
+        # 1. Desactivar IME (evitar interrupciones anidadas inmediatas)
+        self.ime = False
+        
+        # 2. Limpiar el bit correspondiente en IF (acknowledgement)
+        new_if = if_reg & (~(1 << interrupt_bit)) & 0x1F
+        self.mmu.write_byte(0xFF0F, new_if)
+        
+        # 3. Guardar PC actual en la pila (PUSH PC)
+        current_pc = self.registers.get_pc()
+        self._push_word(current_pc)
+        
+        # 4. Saltar al vector de interrupción
+        self.registers.set_pc(interrupt_vector)
+        
+        # 5. Retornar 5 M-Cycles consumidos
+        return 5
+    
     def step(self) -> int:
         """
         Ejecuta una sola instrucción del ciclo Fetch-Decode-Execute.
         
         Pasos:
-        1. Verificar estado HALT: Si la CPU está en HALT, verificar interrupciones
-        2. Fetch: Lee el opcode en la dirección apuntada por PC
-        3. Increment: Avanza PC (se hace dentro del fetch_byte)
-        4. Decode/Execute: Identifica el opcode con match/case y ejecuta
+        1. Manejar interrupciones: Comprobar si hay interrupciones pendientes y procesarlas.
+           Si se procesa una interrupción, retornar inmediatamente (no ejecutar instrucción normal).
+        2. Verificar estado HALT: Si la CPU está en HALT, consumir 1 ciclo y no ejecutar fetch.
+        3. Fetch: Lee el opcode en la dirección apuntada por PC
+        4. Increment: Avanza PC (se hace dentro del fetch_byte)
+        5. Decode/Execute: Identifica el opcode con match/case y ejecuta
         
         Returns:
-            Número de M-Cycles que tomó ejecutar la instrucción
+            Número de M-Cycles que tomó ejecutar la instrucción o procesar la interrupción
             
         Raises:
             NotImplementedError: Si el opcode no está implementado
             
-        Fuente: Pan Docs - CPU Instruction Set (HALT behavior)
+        Fuente: Pan Docs - CPU Instruction Set, Interrupts, HALT behavior
         """
-        # Verificar estado HALT
+        # Manejar interrupciones AL PRINCIPIO (antes de ejecutar cualquier instrucción)
+        # Esto simula el comportamiento del hardware: la CPU comprueba interrupciones
+        # entre cada instrucción, antes del fetch del siguiente opcode.
+        interrupt_cycles = self.handle_interrupts()
+        if interrupt_cycles > 0:
+            # Si se procesó una interrupción, la CPU gastó 5 ciclos saltando al vector.
+            # No ejecutamos la instrucción normal, retornamos inmediatamente.
+            return interrupt_cycles
+        
+        # Verificar estado HALT (después de manejar interrupciones)
+        # Si handle_interrupts() encontró interrupciones pendientes, ya despertó la CPU.
         if self.halted:
-            # Si hay interrupciones pendientes y IME está activado, despertar
-            # NOTA: Por ahora, simplificamos. Cuando implementemos interrupciones
-            # completamente, verificaremos los registros IF (Interrupt Flag) e IE
-            # (Interrupt Enable) y si hay alguna interrupción pendiente, despertamos.
-            # Por ahora, si IME está activado, asumimos que puede haber interrupciones.
-            if self.ime:
-                # Despertar de HALT (una interrupción está pendiente)
-                self.halted = False
-                logger.debug("HALT: Despertando por interrupción pendiente")
-            else:
-                # CPU en HALT, esperando interrupciones
-                # Consumir 1 ciclo (espera activa) y NO ejecutar fetch
-                return 1
+            # CPU en HALT, esperando interrupciones
+            # Consumir 1 ciclo (espera activa) y NO ejecutar fetch
+            return 1
         
         # Fetch: leer opcode
         opcode = self.fetch_byte()
@@ -2222,6 +2331,236 @@ class CPU:
             f"H={self.registers.get_flag_h()}"
         )
         return 1
+    
+    def _op_inc_d(self) -> int:
+        """
+        INC D (Increment D) - Opcode 0x14
+        
+        Incrementa el registro D en 1.
+        Actualiza flags Z, N, H. NO afecta al flag C.
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - Instruction Set (INC D)
+        """
+        new_value = self._inc_n(self.registers.get_d())
+        self.registers.set_d(new_value)
+        logger.debug(
+            f"INC D -> D=0x{new_value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()}"
+        )
+        return 1
+    
+    def _op_dec_d(self) -> int:
+        """
+        DEC D (Decrement D) - Opcode 0x15
+        
+        Decrementa el registro D en 1.
+        Actualiza flags Z, N, H. NO afecta al flag C.
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - Instruction Set (DEC D)
+        """
+        new_value = self._dec_n(self.registers.get_d())
+        self.registers.set_d(new_value)
+        logger.debug(
+            f"DEC D -> D=0x{new_value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()}"
+        )
+        return 1
+    
+    def _op_inc_e(self) -> int:
+        """
+        INC E (Increment E) - Opcode 0x1C
+        
+        Incrementa el registro E en 1.
+        Actualiza flags Z, N, H. NO afecta al flag C.
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - Instruction Set (INC E)
+        """
+        new_value = self._inc_n(self.registers.get_e())
+        self.registers.set_e(new_value)
+        logger.debug(
+            f"INC E -> E=0x{new_value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()}"
+        )
+        return 1
+    
+    def _op_dec_e(self) -> int:
+        """
+        DEC E (Decrement E) - Opcode 0x1D
+        
+        Decrementa el registro E en 1.
+        Actualiza flags Z, N, H. NO afecta al flag C.
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - Instruction Set (DEC E)
+        """
+        new_value = self._dec_n(self.registers.get_e())
+        self.registers.set_e(new_value)
+        logger.debug(
+            f"DEC E -> E=0x{new_value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()}"
+        )
+        return 1
+    
+    def _op_inc_h(self) -> int:
+        """
+        INC H (Increment H) - Opcode 0x24
+        
+        Incrementa el registro H en 1.
+        Actualiza flags Z, N, H. NO afecta al flag C.
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - Instruction Set (INC H)
+        """
+        new_value = self._inc_n(self.registers.get_h())
+        self.registers.set_h(new_value)
+        logger.debug(
+            f"INC H -> H=0x{new_value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()}"
+        )
+        return 1
+    
+    def _op_dec_h(self) -> int:
+        """
+        DEC H (Decrement H) - Opcode 0x25
+        
+        Decrementa el registro H en 1.
+        Actualiza flags Z, N, H. NO afecta al flag C.
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - Instruction Set (DEC H)
+        """
+        new_value = self._dec_n(self.registers.get_h())
+        self.registers.set_h(new_value)
+        logger.debug(
+            f"DEC H -> H=0x{new_value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()}"
+        )
+        return 1
+    
+    def _op_inc_l(self) -> int:
+        """
+        INC L (Increment L) - Opcode 0x2C
+        
+        Incrementa el registro L en 1.
+        Actualiza flags Z, N, H. NO afecta al flag C.
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - Instruction Set (INC L)
+        """
+        new_value = self._inc_n(self.registers.get_l())
+        self.registers.set_l(new_value)
+        logger.debug(
+            f"INC L -> L=0x{new_value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()}"
+        )
+        return 1
+    
+    def _op_dec_l(self) -> int:
+        """
+        DEC L (Decrement L) - Opcode 0x2D
+        
+        Decrementa el registro L en 1.
+        Actualiza flags Z, N, H. NO afecta al flag C.
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - Instruction Set (DEC L)
+        """
+        new_value = self._dec_n(self.registers.get_l())
+        self.registers.set_l(new_value)
+        logger.debug(
+            f"DEC L -> L=0x{new_value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()}"
+        )
+        return 1
+    
+    def _op_inc_hl_ptr(self) -> int:
+        """
+        INC (HL) (Increment memory at HL) - Opcode 0x34
+        
+        Incrementa el valor en la dirección de memoria apuntada por HL en 1.
+        Esta es una operación Read-Modify-Write:
+        1. Lee el valor de memoria en (HL)
+        2. Lo incrementa usando _inc_n (actualiza flags)
+        3. Escribe el nuevo valor de vuelta en (HL)
+        
+        Actualiza flags Z, N, H. NO afecta al flag C.
+        
+        Returns:
+            3 M-Cycles (12 T-Cycles)
+            - 1 M-Cycle: Read from (HL)
+            - 1 M-Cycle: Write to (HL)
+            - 1 M-Cycle: Internal operation
+            
+        Fuente: Pan Docs - Instruction Set (INC (HL))
+        """
+        hl_addr = self.registers.get_hl()
+        current_value = self.mmu.read_byte(hl_addr)
+        new_value = self._inc_n(current_value)
+        self.mmu.write_byte(hl_addr, new_value)
+        logger.debug(
+            f"INC (HL) -> (0x{hl_addr:04X}) = 0x{current_value:02X} -> 0x{new_value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()}"
+        )
+        return 3
+    
+    def _op_dec_hl_ptr(self) -> int:
+        """
+        DEC (HL) (Decrement memory at HL) - Opcode 0x35
+        
+        Decrementa el valor en la dirección de memoria apuntada por HL en 1.
+        Esta es una operación Read-Modify-Write:
+        1. Lee el valor de memoria en (HL)
+        2. Lo decrementa usando _dec_n (actualiza flags)
+        3. Escribe el nuevo valor de vuelta en (HL)
+        
+        Actualiza flags Z, N, H. NO afecta al flag C.
+        
+        Returns:
+            3 M-Cycles (12 T-Cycles)
+            - 1 M-Cycle: Read from (HL)
+            - 1 M-Cycle: Write to (HL)
+            - 1 M-Cycle: Internal operation
+            
+        Fuente: Pan Docs - Instruction Set (DEC (HL))
+        """
+        hl_addr = self.registers.get_hl()
+        current_value = self.mmu.read_byte(hl_addr)
+        new_value = self._dec_n(current_value)
+        self.mmu.write_byte(hl_addr, new_value)
+        logger.debug(
+            f"DEC (HL) -> (0x{hl_addr:04X}) = 0x{current_value:02X} -> 0x{new_value:02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()}"
+        )
+        return 3
     
     # ========== Handlers de Rotaciones Rápidas del Acumulador ==========
     

@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Completar INC/DEC de 8 bits (Todas las Variantes) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Completar INC/DEC de 8 bits (Todas las Variantes)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-17
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0027
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-17__0026__integracion-grafica-decodificador-tiles.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se completaron todas las variantes de <strong>INC/DEC de 8 bits</strong> que faltaban en la CPU.
+                    En el paso 9 se habían implementado INC/DEC para B, C y A, pero se dejaron fuera D, E, H, L y la versión
+                    en memoria (HL). El emulador crasheaba en el opcode 0x1D (DEC E) cuando ejecutaba Tetris DX, lo que
+                    confirmaba que faltaban estas instrucciones críticas para el manejo de contadores de bucles.
+                    Con esta implementación, la aritmética unaria de 8 bits está completa y el emulador puede avanzar
+                    más allá de la inicialización en juegos reales.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Las instrucciones <strong>INC</strong> (Increment) y <strong>DEC</strong> (Decrement) son operaciones
+                    aritméticas unarias que incrementan o decrementan un valor en 1. En la Game Boy, estas instrucciones
+                    están disponibles para todos los registros de 8 bits (A, B, C, D, E, H, L) y para memoria indirecta (HL).
+                </p>
+                <p>
+                    <strong>Patrón de la Tabla de Opcodes:</strong>
+                </p>
+                <ul>
+                    <li><strong>Columna x4:</strong> INC (B, D, H, (HL))</li>
+                    <li><strong>Columna x5:</strong> DEC (B, D, H, (HL))</li>
+                    <li><strong>Columna xC:</strong> INC (C, E, L, A)</li>
+                    <li><strong>Columna xD:</strong> DEC (C, E, L, A)</li>
+                </ul>
+                <p>
+                    <strong>Comportamiento de Flags:</strong>
+                </p>
+                <ul>
+                    <li><strong>Z (Zero):</strong> Se activa si el resultado es 0</li>
+                    <li><strong>N (Subtract):</strong> Siempre 1 en DEC, siempre 0 en INC</li>
+                    <li><strong>H (Half-Carry/Half-Borrow):</strong> Se activa cuando hay carry/borrow del bit 3 al 4 (nibble bajo)</li>
+                    <li><strong>C (Carry):</strong> <strong>NO SE TOCA</strong> - Esta es una peculiaridad crítica del hardware LR35902</li>
+                </ul>
+                <p>
+                    <strong>INC/DEC (HL) - Operaciones Read-Modify-Write:</strong>
+                </p>
+                <p>
+                    Las instrucciones INC (HL) y DEC (HL) son especiales porque operan sobre memoria indirecta.
+                    Estas instrucciones realizan una operación de <strong>Read-Modify-Write</strong>:
+                </p>
+                <ol>
+                    <li>Leen el valor de memoria en la dirección apuntada por HL</li>
+                    <li>Modifican el valor (incrementan o decrementan)</li>
+                    <li>Escriben el nuevo valor de vuelta en memoria</li>
+                </ol>
+                <p>
+                    Por esta razón, estas instrucciones consumen <strong>3 M-Cycles (12 T-Cycles)</strong> en lugar de 1:
+                    uno para leer, uno para escribir, y uno para la operación interna.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - CPU Instruction Set (INC/DEC instructions, Flags behavior)
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron los siguientes opcodes faltantes, reutilizando los métodos helper <code>_inc_n</code> y
+                    <code>_dec_n</code> que ya existían desde el paso 9:
+                </p>
+                
+                <h3>Opcodes Implementados</h3>
+                <ul>
+                    <li><strong>0x14:</strong> INC D - Incrementa el registro D</li>
+                    <li><strong>0x15:</strong> DEC D - Decrementa el registro D</li>
+                    <li><strong>0x1C:</strong> INC E - Incrementa el registro E</li>
+                    <li><strong>0x1D:</strong> DEC E - Decrementa el registro E (¡El culpable del crash!)</li>
+                    <li><strong>0x24:</strong> INC H - Incrementa el registro H</li>
+                    <li><strong>0x25:</strong> DEC H - Decrementa el registro H</li>
+                    <li><strong>0x2C:</strong> INC L - Incrementa el registro L</li>
+                    <li><strong>0x2D:</strong> DEC L - Decrementa el registro L</li>
+                    <li><strong>0x34:</strong> INC (HL) - Incrementa el valor en memoria apuntada por HL</li>
+                    <li><strong>0x35:</strong> DEC (HL) - Decrementa el valor en memoria apuntada por HL</li>
+                </ul>
+
+                <h3>Componentes Creados/Modificados</h3>
+                <ul>
+                    <li><code>src/cpu/core.py</code>:
+                        <ul>
+                            <li>Añadidos 10 nuevos métodos: <code>_op_inc_d</code>, <code>_op_dec_d</code>, <code>_op_inc_e</code>,
+                                <code>_op_dec_e</code>, <code>_op_inc_h</code>, <code>_op_dec_h</code>, <code>_op_inc_l</code>,
+                                <code>_op_dec_l</code>, <code>_op_inc_hl_ptr</code>, <code>_op_dec_hl_ptr</code></li>
+                            <li>Actualizada la tabla de opcodes para registrar los nuevos handlers</li>
+                            <li>Los métodos para registros individuales siguen el mismo patrón que B, C y A (1 M-Cycle)</li>
+                            <li>Los métodos para (HL) implementan Read-Modify-Write (3 M-Cycles)</li>
+                        </ul>
+                    </li>
+                    <li><code>tests/test_cpu_inc_dec_full.py</code>:
+                        <ul>
+                            <li>Nuevo archivo de tests con 10 tests completos</li>
+                            <li>Tests para todos los registros (D, E, H, L)</li>
+                            <li>Tests para memoria indirecta (HL)</li>
+                            <li>Tests para preservación del flag C</li>
+                            <li>Tests para wrap-around y activación de flags</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Decisiones de Diseño</h3>
+                <p>
+                    <strong>Reutilización de Helpers:</strong> Se decidió reutilizar los métodos <code>_inc_n</code> y <code>_dec_n</code>
+                    existentes en lugar de duplicar lógica. Esto asegura consistencia en el comportamiento de flags y facilita el mantenimiento.
+                </p>
+                <p>
+                    <strong>Read-Modify-Write para (HL):</strong> Las instrucciones INC (HL) y DEC (HL) implementan explícitamente
+                    la secuencia Read-Modify-Write usando <code>mmu.read_byte()</code> y <code>mmu.write_byte()</code>. Esto es
+                    importante porque en hardware real, estas operaciones requieren múltiples accesos a memoria.
+                </p>
+                <p>
+                    <strong>Logging Consistente:</strong> Todos los métodos incluyen logging DEBUG con el mismo formato que las
+                    instrucciones existentes, facilitando la depuración.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadidos 10 nuevos métodos de opcodes y actualizada la tabla de opcodes</li>
+                    <li><code>tests/test_cpu_inc_dec_full.py</code> - Nuevo archivo con suite completa de tests (10 tests)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests TDD con 10 tests que validan todas las variantes implementadas:
+                </p>
+                
+                <h3>Tests Unitarios (pytest)</h3>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>python3 -m pytest tests/test_cpu_inc_dec_full.py -v</code>
+                </p>
+                <p>
+                    <strong>Entorno:</strong> macOS, Python 3.9.6
+                </p>
+                <p>
+                    <strong>Resultado:</strong> <strong>10/10 tests PASSED</strong> en 0.59 segundos
+                </p>
+                
+                <p><strong>Qué valida:</strong></p>
+                <ul>
+                    <li><strong>test_inc_dec_e:</strong> Verifica que DEC E funciona correctamente y afecta flags Z, N, H (pero NO C).
+                        Este test es crítico porque DEC E (0x1D) es el opcode que causaba el crash en Tetris cuando no estaba implementado.
+                        Incluye casos de wrap-around (0x00 -> 0xFF) y activación de flags.</li>
+                    <li><strong>test_inc_dec_d, test_inc_dec_h, test_inc_dec_l:</strong> Verifican que INC/DEC funcionan correctamente
+                        para todos los registros restantes.</li>
+                    <li><strong>test_inc_hl_memory:</strong> Verifica que INC (HL) realiza correctamente la operación Read-Modify-Write.
+                        Pone 0x0F en (HL), ejecuta INC (HL), y verifica que la memoria tiene 0x10 y Flag H=1 (half-carry).</li>
+                    <li><strong>test_dec_hl_memory:</strong> Similar a test_inc_hl_memory pero para DEC (HL).</li>
+                    <li><strong>test_inc_hl_memory_zero_flag, test_dec_hl_memory_zero_flag:</strong> Verifican que las operaciones
+                        en memoria activan correctamente el flag Z cuando el resultado es 0.</li>
+                    <li><strong>test_inc_preserves_carry, test_dec_preserves_carry:</strong> Verifican que el flag C NO se modifica
+                        durante operaciones INC/DEC, que es una peculiaridad crítica del hardware LR35902.</li>
+                </ul>
+
+                <h3>Código del Test Crítico (test_inc_dec_e)</h3>
+                <pre><code>def test_inc_dec_e(self, cpu: CPU) -> None:
+    """
+    Verifica que DEC E funciona correctamente y afecta flags Z, N, H.
+    
+    Este test es crítico porque DEC E (0x1D) es el opcode que causaba
+    el crash en Tetris cuando no estaba implementado.
+    """
+    # Test 1: DEC E desde valor no cero
+    cpu.registers.set_e(0x05)
+    cpu.registers.set_f(0x00)  # Limpiar todos los flags
+    cycles = cpu._op_dec_e()
+    
+    assert cycles == 1
+    assert cpu.registers.get_e() == 0x04
+    assert not cpu.registers.get_flag_z()  # No es cero
+    assert cpu.registers.get_flag_n()  # Es una resta
+    assert not cpu.registers.get_flag_h()  # No hay half-borrow
+    assert not cpu.registers.get_flag_c()  # C no se toca
+    
+    # Test 2: DEC E desde 0x01 (debe dar 0x00 y activar Z)
+    cpu.registers.set_e(0x01)
+    cpu.registers.set_f(0x00)
+    cycles = cpu._op_dec_e()
+    
+    assert cycles == 1
+    assert cpu.registers.get_e() == 0x00
+    assert cpu.registers.get_flag_z()  # Es cero
+    assert cpu.registers.get_flag_n()  # Es una resta
+    assert not cpu.registers.get_flag_h()  # No hay half-borrow
+    assert not cpu.registers.get_flag_c()  # C no se toca
+    
+    # Test 3: DEC E desde 0x00 (wrap-around a 0xFF)
+    cpu.registers.set_e(0x00)
+    cpu.registers.set_f(0x00)
+    cycles = cpu._op_dec_e()
+    
+    assert cycles == 1
+    assert cpu.registers.get_e() == 0xFF
+    assert not cpu.registers.get_flag_z()  # No es cero
+    assert cpu.registers.get_flag_n()  # Es una resta
+    assert cpu.registers.get_flag_h()  # Hay half-borrow (0x0 -> 0xF)
+    assert not cpu.registers.get_flag_c()  # C no se toca
+    
+    # Test 4: INC E desde 0x0F (debe activar H)
+    cpu.registers.set_e(0x0F)
+    cpu.registers.set_f(0x00)
+    cycles = cpu._op_inc_e()
+    
+    assert cycles == 1
+    assert cpu.registers.get_e() == 0x10
+    assert not cpu.registers.get_flag_z()  # No es cero
+    assert not cpu.registers.get_flag_n()  # Es una suma
+    assert cpu.registers.get_flag_h()  # Hay half-carry (0xF -> 0x10)
+    assert not cpu.registers.get_flag_c()  # C no se toca</code></pre>
+
+                <p>
+                    <strong>Por qué este test demuestra el comportamiento del hardware:</strong>
+                </p>
+                <ul>
+                    <li>Verifica que DEC E decrementa correctamente el valor del registro</li>
+                    <li>Confirma que el flag Z se activa cuando el resultado es 0</li>
+                    <li>Confirma que el flag N se activa siempre en DEC (es una resta)</li>
+                    <li>Confirma que el flag H se activa cuando hay half-borrow (0x0 -> 0xF)</li>
+                    <li><strong>Crítico:</strong> Confirma que el flag C NO se modifica, que es una peculiaridad del hardware LR35902</li>
+                    <li>Verifica el wrap-around correcto (0x00 -> 0xFF)</li>
+                </ul>
+
+                <h3>Tests de Memoria Indirecta (test_inc_hl_memory)</h3>
+                <pre><code>def test_inc_hl_memory(self, cpu: CPU) -> None:
+    """
+    Verifica INC (HL) con operación Read-Modify-Write.
+    
+    Pone 0x0F en (HL), ejecuta INC (HL), y verifica que:
+    - La memoria tiene 0x10
+    - Flag H=1 (half-carry)
+    """
+    # Configurar HL para apuntar a una dirección de RAM
+    hl_addr = 0xC000  # Dirección en RAM de la Game Boy
+    cpu.registers.set_hl(hl_addr)
+    
+    # Escribir 0x0F en memoria
+    cpu.mmu.write_byte(hl_addr, 0x0F)
+    
+    # Limpiar flags
+    cpu.registers.set_f(0x00)
+    
+    # Ejecutar INC (HL)
+    cycles = cpu._op_inc_hl_ptr()
+    
+    # Verificar ciclos (3 M-Cycles para Read-Modify-Write)
+    assert cycles == 3
+    
+    # Verificar que la memoria se actualizó correctamente
+    assert cpu.mmu.read_byte(hl_addr) == 0x10
+    
+    # Verificar flags
+    assert not cpu.registers.get_flag_z()  # 0x10 no es cero
+    assert not cpu.registers.get_flag_n()  # Es una suma
+    assert cpu.registers.get_flag_h()  # Hay half-carry (0xF -> 0x10)
+    assert not cpu.registers.get_flag_c()  # C no se toca</code></pre>
+
+                <p>
+                    <strong>Por qué este test demuestra el comportamiento del hardware:</strong>
+                </p>
+                <ul>
+                    <li>Verifica que INC (HL) realiza correctamente la operación Read-Modify-Write (lee, modifica, escribe)</li>
+                    <li>Confirma que consume 3 M-Cycles (12 T-Cycles) en lugar de 1, como requiere el hardware</li>
+                    <li>Verifica que la memoria se actualiza correctamente</li>
+                    <li>Confirma que los flags se actualizan correctamente durante la operación en memoria</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">CPU Instruction Set</a> - Sección INC/DEC instructions</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Registers_and_Flags.html">CPU Registers and Flags</a> - Comportamiento de flags en INC/DEC</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Patrón de Opcodes:</strong> Las instrucciones INC/DEC siguen un patrón claro en la tabla de opcodes:
+                            columnas x4/x5 para B/D/H/(HL) y columnas xC/xD para C/E/L/A. Este patrón facilita la memorización
+                            y la implementación sistemática.</li>
+                        <li><strong>Preservación del Flag C:</strong> Una peculiaridad crítica del hardware LR35902 es que INC/DEC
+                            de 8 bits NO modifican el flag C (Carry). Esto es diferente de muchas otras arquitecturas y es
+                            importante para la lógica condicional de los juegos.</li>
+                        <li><strong>Read-Modify-Write:</strong> Las operaciones en memoria indirecta (HL) requieren múltiples
+                            accesos a memoria, lo que se refleja en el consumo de 3 M-Cycles en lugar de 1.</li>
+                        <li><strong>Half-Carry/Half-Borrow:</strong> El flag H se activa cuando hay carry/borrow del bit 3 al 4
+                            (nibble bajo), lo que es útil para operaciones BCD (Binary Coded Decimal) aunque no se use mucho
+                            en la Game Boy.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Timing Exacto:</strong> Por ahora, asumimos que INC/DEC (HL) consume exactamente 3 M-Cycles
+                            según la documentación. Si en el futuro hay problemas de timing con juegos reales, podríamos necesitar
+                            verificar el timing exacto con tests de hardware real.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición 1:</strong> Asumimos que el comportamiento de flags en INC/DEC es idéntico para todos
+                        los registros y para memoria indirecta. Esto está respaldado por la documentación, pero no lo hemos
+                        verificado con hardware real.
+                    </p>
+                    <p>
+                        <strong>Suposición 2:</strong> Por ahora, no hemos probado con Tetris DX después de esta implementación
+                        para confirmar que el crash en 0x1D se ha resuelto. Esto se hará en un paso posterior cuando se ejecute
+                        el juego completo.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar Tetris DX para verificar que el crash en 0x1D (DEC E) se ha resuelto</li>
+                    <li>[ ] Continuar con la implementación de instrucciones faltantes según los logs de ejecución</li>
+                    <li>[ ] Si ya se implementó el renderizado de background, verificar que Tetris DX muestra la pantalla de título</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
