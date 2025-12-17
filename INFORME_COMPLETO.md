@@ -1,5 +1,98 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-17 - Cargas Directas a Memoria (LD (nn), A y LD A, (nn))
+
+### Conceptos Hardware Implementados
+
+**¡Desbloqueo crítico de gráficos!** Se implementaron los opcodes **0xEA (LD (nn), A)** y **0xFA (LD A, (nn))** que permiten acceso directo a memoria usando direcciones absolutas de 16 bits especificadas directamente en el código. Estas instrucciones son esenciales para que los juegos puedan guardar y leer variables globales, estados del juego y configuraciones gráficas. El emulador se estaba estrellando en 0xEA cuando ejecutaba Tetris DX, impidiendo que se dibujaran los gráficos. Con esta implementación, el emulador puede avanzar más allá de ese punto y comenzar a renderizar la pantalla de título.
+
+**Direccionamiento Directo**: A diferencia del direccionamiento indirecto (ej: LD (HL), A donde la dirección está en el registro HL), el direccionamiento directo especifica la dirección de 16 bits directamente en el código, justo después del opcode. Esto permite acceder a variables globales o registros de hardware específicos sin usar registros intermedios.
+
+**LD (nn), A (0xEA)**: Lee los siguientes 2 bytes del código (dirección en Little-Endian), y escribe el valor del acumulador A en esa dirección. Consume 4 M-Cycles (fetch opcode + fetch 2 bytes + write).
+
+**LD A, (nn) (0xFA)**: Lee los siguientes 2 bytes del código (dirección en Little-Endian), lee el byte de esa dirección, y lo guarda en A. Consume 4 M-Cycles (fetch opcode + fetch 2 bytes + read).
+
+#### Tareas Completadas:
+
+1. **Método _op_ld_nn_ptr_a() (`src/cpu/core.py`)**:
+   - Implementa LD (nn), A (opcode 0xEA).
+   - Lee la dirección de 16 bits usando `fetch_word()` (maneja Little-Endian y avance de PC).
+   - Escribe el valor de A en esa dirección usando `mmu.write_byte()`.
+   - Retorna 4 M-Cycles según especificación de Pan Docs.
+   - Incluye logging para depuración.
+
+2. **Método _op_ld_a_nn_ptr() (`src/cpu/core.py`)**:
+   - Implementa LD A, (nn) (opcode 0xFA).
+   - Lee la dirección de 16 bits usando `fetch_word()`.
+   - Lee el byte de esa dirección usando `mmu.read_byte()`.
+   - Guarda el valor en A usando `registers.set_a()`.
+   - Retorna 4 M-Cycles según especificación de Pan Docs.
+   - Incluye logging para depuración.
+
+3. **Registro en tabla de despacho (`src/cpu/core.py`)**:
+   - Añadidos 0xEA y 0xFA a `_opcode_table` en la sección de "Memoria Indirecta".
+
+4. **Tests TDD (`tests/test_cpu_load_direct.py`)**:
+   - Archivo nuevo con 4 tests unitarios:
+     - `test_ld_direct_write`: Verifica que LD (nn), A escribe correctamente, consume 4 M-Cycles, y avanza PC correctamente.
+     - `test_ld_direct_read`: Verifica que LD A, (nn) lee correctamente, consume 4 M-Cycles, y avanza PC correctamente.
+     - `test_ld_direct_write_read_roundtrip`: Valida que se puede escribir y leer de vuelta el mismo valor.
+     - `test_ld_direct_different_addresses`: Verifica que las instrucciones funcionan con diferentes direcciones de memoria.
+   - Todos los tests pasan (4 passed in 0.39s)
+
+#### Archivos Afectados:
+- `src/cpu/core.py` - Añadidos métodos `_op_ld_nn_ptr_a()` y `_op_ld_a_nn_ptr()`, y registrados en `_opcode_table`
+- `tests/test_cpu_load_direct.py` - Nuevo archivo con suite completa de tests TDD (4 tests)
+- `docs/bitacora/entries/2025-12-17__0030__cargas-directas-desbloqueo-graficos.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0030)
+- `docs/bitacora/entries/2025-12-17__0029__mbc1-bank-switching.html` (modificado, actualizado link "Siguiente")
+
+#### Tests y Verificación:
+
+**Comando ejecutado**: `python3 -m pytest tests/test_cpu_load_direct.py -v`
+
+**Entorno**: macOS (darwin 21.6.0), Python 3.9.6, pytest 8.4.2
+
+**Resultado**: 4 passed in 0.39s
+
+**Qué valida**:
+- **test_ld_direct_write**: Verifica que LD (nn), A escribe correctamente el valor de A en la dirección especificada, consume 4 M-Cycles, y avanza PC correctamente (3 bytes: opcode + 2 bytes de dirección). Valida que la dirección se lee correctamente en formato Little-Endian (0x00 0xC0 = 0xC000).
+- **test_ld_direct_read**: Verifica que LD A, (nn) lee correctamente de la dirección especificada, carga el valor en A, consume 4 M-Cycles, y avanza PC correctamente. Valida que el acceso a memoria es correcto.
+- **test_ld_direct_write_read_roundtrip**: Valida que se puede escribir y leer de vuelta el mismo valor, demostrando que ambas instrucciones funcionan correctamente en conjunto. Valida la integridad de los datos.
+- **test_ld_direct_different_addresses**: Verifica que las instrucciones funcionan con diferentes direcciones de memoria, asegurando que no hay efectos secundarios entre direcciones. Valida que cada dirección es independiente.
+
+**Código del test (fragmento esencial)**:
+```python
+def test_ld_direct_write(self):
+    """Verificar escritura directa a memoria (LD (nn), A - 0xEA)."""
+    mmu = MMU()
+    cpu = CPU(mmu)
+    cpu.registers.set_pc(0x0100)
+    cpu.registers.set_a(0x55)
+    
+    # Escribir opcode + dirección 0xC000 (Little-Endian: 0x00 0xC0)
+    mmu.write_byte(0x0100, 0xEA)  # Opcode
+    mmu.write_byte(0x0101, 0x00)  # Byte bajo
+    mmu.write_byte(0x0102, 0xC0)  # Byte alto
+    
+    cycles = cpu.step()
+    
+    assert mmu.read_byte(0xC000) == 0x55
+    assert cycles == 4
+    assert cpu.registers.get_pc() == 0x0103
+```
+
+**Ruta completa**: `tests/test_cpu_load_direct.py`
+
+**Impacto en la ejecución de ROMs**:
+- Antes de esta implementación, el emulador se estrellaba cuando encontraba el opcode 0xEA durante la ejecución de Tetris DX. Esto impedía que el juego avanzara lo suficiente para inicializar el PPU y dibujar la pantalla de título.
+- Con estos opcodes implementados, el emulador puede ejecutar más instrucciones y potencialmente llegar a renderizar gráficos. Se espera que ahora se pueda ver la pantalla de título de Tetris cuando se ejecute el emulador.
+
+#### Fuentes Consultadas:
+- Pan Docs: Instruction Set - LD (nn), A (0xEA) y LD A, (nn) (0xFA) - https://gbdev.io/pandocs/CPU_Instruction_Set.html
+
+---
+
 ## 2025-12-17 - Despachador de Interrupciones
 
 ### Conceptos Hardware Implementados

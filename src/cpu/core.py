@@ -96,6 +96,7 @@ class CPU:
             0xC3: self._op_jp_nn,      # JP nn (Jump absolute)
             0x18: self._op_jr_e,       # JR e (Jump relative unconditional)
             0x20: self._op_jr_nz_e,    # JR NZ, e (Jump relative if Not Zero)
+            0x30: self._op_jr_nc_e,    # JR NC, e (Jump relative if Not Carry)
             # Stack (Pila)
             0xC5: self._op_push_bc,    # PUSH BC
             0xC1: self._op_pop_bc,     # POP BC
@@ -122,6 +123,8 @@ class CPU:
             0x2A: self._op_ldi_a_hl_ptr,   # LD A, (HL+) (LDI A, (HL))
             0x02: self._op_ld_bc_ptr_a,    # LD (BC), A
             0x12: self._op_ld_de_ptr_a,    # LD (DE), A
+            0xEA: self._op_ld_nn_ptr_a,    # LD (nn), A (direccionamiento directo)
+            0xFA: self._op_ld_a_nn_ptr,    # LD A, (nn) (direccionamiento directo)
             # Incremento/Decremento de 8 bits
             0x04: self._op_inc_b,          # INC B
             0x05: self._op_dec_b,          # DEC B
@@ -1599,6 +1602,42 @@ class CPU:
             logger.debug(f"JR NZ, {offset:+d} (NOT TAKEN) Z flag set")
             return 2  # 2 M-Cycles si no salta
 
+    def _op_jr_nc_e(self) -> int:
+        """
+        JR NC, e (Jump Relative if Not Carry) - Opcode 0x30
+        
+        Salto relativo condicional. Lee un byte con signo (offset) y salta solo
+        si el flag C (Carry) está desactivado (C == 0).
+        
+        El offset funciona igual que en JR e (complemento a 2).
+        
+        Timing condicional:
+        - Si C == 0 (condición verdadera): 3 M-Cycles (salta)
+        - Si C == 1 (condición falsa): 2 M-Cycles (no salta, solo lee)
+        
+        Returns:
+            3 M-Cycles si salta, 2 M-Cycles si no salta
+            
+        Fuente: Pan Docs - Instruction Set (JR NC, e)
+        """
+        offset = self._read_signed_byte()
+        
+        # Verificar condición: C flag debe estar desactivado (C == 0)
+        if not self.registers.get_flag_c():
+            # Condición verdadera: ejecutar salto
+            current_pc = self.registers.get_pc()
+            new_pc = (current_pc + offset) & 0xFFFF
+            self.registers.set_pc(new_pc)
+            logger.debug(
+                f"JR NC, {offset:+d} (TAKEN) "
+                f"PC: 0x{current_pc:04X} -> 0x{new_pc:04X}"
+            )
+            return 3  # 3 M-Cycles si salta
+        else:
+            # Condición falsa: no saltar, continuar ejecución
+            logger.debug(f"JR NC, {offset:+d} (NOT TAKEN) C flag set")
+            return 2  # 2 M-Cycles si no salta
+
     # ========== Handlers de Stack (Pila) ==========
 
     def _op_push_bc(self) -> int:
@@ -2203,6 +2242,69 @@ class CPU:
         self.mmu.write_byte(de_addr, a_value)
         logger.debug(f"LD (DE), A -> (0x{de_addr:04X}) = 0x{a_value:02X}")
         return 2
+    
+    def _op_ld_nn_ptr_a(self) -> int:
+        """
+        LD (nn), A (Load A into absolute memory address) - Opcode 0xEA
+        
+        Escribe el valor del registro A en una dirección de memoria absoluta de 16 bits
+        especificada directamente en el código (direccionamiento directo).
+        
+        A diferencia de LD (HL), A donde la dirección está en un registro, aquí la
+        dirección viene escrita directamente en el código, justo después del opcode.
+        Esto permite acceder a variables globales o registros de hardware específicos
+        sin usar registros intermedios.
+        
+        Proceso:
+        1. Lee los siguientes 2 bytes (dirección de 16 bits en Little-Endian)
+        2. Escribe A en esa dirección
+        
+        Ejemplo:
+        - En memoria: 0xEA 0x00 0xC0 (LD (0xC000), A)
+        - A = 0x55
+        - Resultado: Memoria[0xC000] = 0x55
+        
+        Returns:
+            4 M-Cycles (fetch opcode + fetch 2 bytes de dirección + write to memory)
+            
+        Fuente: Pan Docs - Instruction Set (LD (nn), A)
+        """
+        addr = self.fetch_word()
+        a_value = self.registers.get_a()
+        self.mmu.write_byte(addr, a_value)
+        logger.debug(f"LD (0x{addr:04X}), A -> (0x{addr:04X}) = 0x{a_value:02X}")
+        return 4
+    
+    def _op_ld_a_nn_ptr(self) -> int:
+        """
+        LD A, (nn) (Load from absolute memory address into A) - Opcode 0xFA
+        
+        Lee un byte de una dirección de memoria absoluta de 16 bits especificada
+        directamente en el código (direccionamiento directo) y lo carga en A.
+        
+        Es el gemelo de LD (nn), A: mientras que 0xEA escribe A en memoria,
+        0xFA lee de memoria y lo guarda en A.
+        
+        Proceso:
+        1. Lee los siguientes 2 bytes (dirección de 16 bits en Little-Endian)
+        2. Lee el byte de esa dirección
+        3. Guarda el valor en A
+        
+        Ejemplo:
+        - En memoria: 0xFA 0x00 0xC0 (LD A, (0xC000))
+        - Memoria[0xC000] = 0x42
+        - Resultado: A = 0x42
+        
+        Returns:
+            4 M-Cycles (fetch opcode + fetch 2 bytes de dirección + read from memory)
+            
+        Fuente: Pan Docs - Instruction Set (LD A, (nn))
+        """
+        addr = self.fetch_word()
+        value = self.mmu.read_byte(addr)
+        self.registers.set_a(value)
+        logger.debug(f"LD A, (0x{addr:04X}) -> A = 0x{value:02X}")
+        return 4
     
     # ========== Handlers de Incremento/Decremento ==========
     

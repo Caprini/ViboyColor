@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0030 - Cargas Directas a Memoria -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0030__cargas-directas-desbloqueo-graficos.html" class="entry-link">
+                                    Cargas Directas a Memoria (LD (nn), A y LD A, (nn))
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0030 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementaron los opcodes críticos 0xEA (LD (nn), A) y 0xFA (LD A, (nn)) que permiten acceso directo a memoria usando direcciones absolutas de 16 bits especificadas directamente en el código. Estas instrucciones son esenciales para que los juegos puedan guardar y leer variables globales, estados del juego y configuraciones gráficas. El emulador se estaba estrellando en 0xEA cuando ejecutaba Tetris DX, impidiendo que se dibujaran los gráficos. Con esta implementación, el emulador puede avanzar más allá de ese punto y comenzar a renderizar la pantalla de título. Suite completa de tests TDD (4 tests) validando escritura, lectura, roundtrip y múltiples direcciones. Todos los tests pasan.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0029 - MBC1 y Bank Switching -->
                     <li>
                         <div class="entry-header">

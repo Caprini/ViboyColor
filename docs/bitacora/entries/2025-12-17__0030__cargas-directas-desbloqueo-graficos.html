@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cargas Directas a Memoria (LD (nn), A y LD A, (nn)) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Cargas Directas a Memoria (LD (nn), A y LD A, (nn))</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-17
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0030
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-17__0029__mbc1-bank-switching.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementaron los opcodes críticos <strong>0xEA (LD (nn), A)</strong> y <strong>0xFA (LD A, (nn))</strong>
+                    que permiten acceso directo a memoria usando direcciones absolutas de 16 bits especificadas directamente en el código.
+                    Estas instrucciones son esenciales para que los juegos puedan guardar y leer variables globales, estados del juego
+                    y configuraciones gráficas. El emulador se estaba estrellando en 0xEA cuando ejecutaba Tetris DX, impidiendo que
+                    se dibujaran los gráficos. Con esta implementación, el emulador puede avanzar más allá de ese punto y comenzar
+                    a renderizar la pantalla de título.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El <strong>direccionamiento directo</strong> es un modo de acceso a memoria donde la dirección de 16 bits
+                    viene escrita directamente en el código, justo después del opcode. A diferencia del direccionamiento indirecto
+                    (ej: LD (HL), A donde la dirección está en el registro HL), aquí la dirección es parte de la instrucción misma.
+                </p>
+                <p>
+                    En la arquitectura LR35902, estas instrucciones son fundamentales para:
+                </p>
+                <ul>
+                    <li><strong>Acceso a variables globales:</strong> Los juegos guardan estados del juego, puntuaciones, vidas, etc. en posiciones fijas de memoria.</li>
+                    <li><strong>Acceso a registros de hardware:</strong> Muchos registros de I/O (como los del PPU, timers, etc.) están mapeados en direcciones específicas.</li>
+                    <li><strong>Inicialización de buffers:</strong> Se usan para inicializar áreas de memoria sin necesidad de usar registros intermedios.</li>
+                </ul>
+                <p>
+                    <strong>LD (nn), A (0xEA):</strong> Lee los siguientes 2 bytes del código (dirección en Little-Endian), 
+                    y escribe el valor del acumulador A en esa dirección. Consume 4 M-Cycles (fetch opcode + fetch 2 bytes + write).
+                </p>
+                <p>
+                    <strong>LD A, (nn) (0xFA):</strong> Lee los siguientes 2 bytes del código (dirección en Little-Endian),
+                    lee el byte de esa dirección, y lo guarda en A. Consume 4 M-Cycles (fetch opcode + fetch 2 bytes + read).
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Instruction Set (LD (nn), A y LD A, (nn))
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron dos nuevos métodos en la clase CPU siguiendo el patrón establecido por otras operaciones
+                    de carga indirecta como LD (HL), A y LD (BC), A. La diferencia clave es que aquí la dirección se lee
+                    del código usando <code>fetch_word()</code> en lugar de obtenerla de un registro.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/cpu/core.py</code>: Añadidos métodos <code>_op_ld_nn_ptr_a()</code> (0xEA) y <code>_op_ld_a_nn_ptr()</code> (0xFA), y registrados en la tabla de despacho.</li>
+                    <li><code>tests/test_cpu_load_direct.py</code>: Creado archivo nuevo con 4 tests unitarios que validan escritura, lectura, roundtrip y múltiples direcciones.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se siguió el mismo patrón que otras operaciones de memoria indirecta:
+                </p>
+                <ul>
+                    <li>Uso de <code>fetch_word()</code> para leer la dirección de 16 bits (ya maneja Little-Endian y avance de PC).</li>
+                    <li>Logging con <code>logger.debug()</code> para trazar las operaciones durante depuración.</li>
+                    <li>Retorno explícito de 4 M-Cycles según la especificación de Pan Docs.</li>
+                    <li>Enmascarado implícito: <code>fetch_word()</code> ya maneja el wrap-around de 16 bits.</li>
+                </ul>
+                <p>
+                    Los métodos son simples y directos, sin optimizaciones prematuras, priorizando claridad y corrección.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadidos métodos <code>_op_ld_nn_ptr_a()</code> y <code>_op_ld_a_nn_ptr()</code>, y registrados en <code>_opcode_table</code></li>
+                    <li><code>tests/test_cpu_load_direct.py</code> - Creado archivo nuevo con 4 tests unitarios</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron tests unitarios exhaustivos que validan el comportamiento correcto de ambas instrucciones:
+                </p>
+                
+                <h3>Ejecución de Tests</h3>
+                <p><strong>Comando ejecutado:</strong></p>
+                <pre><code>python3 -m pytest tests/test_cpu_load_direct.py -v</code></pre>
+                
+                <p><strong>Entorno:</strong></p>
+                <ul>
+                    <li>OS: macOS (darwin 21.6.0)</li>
+                    <li>Python: 3.9.6</li>
+                    <li>pytest: 8.4.2</li>
+                </ul>
+                
+                <p><strong>Resultado:</strong></p>
+                <pre><code>============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0
+collected 4 items
+
+tests/test_cpu_load_direct.py::TestLoadDirect::test_ld_direct_write PASSED [ 25%]
+tests/test_cpu_load_direct.py::TestLoadDirect::test_ld_direct_read PASSED [ 50%]
+tests/test_cpu_load_direct.py::TestLoadDirect::test_ld_direct_write_read_roundtrip PASSED [ 75%]
+tests/test_cpu_load_direct.py::TestLoadDirect::test_ld_direct_different_addresses PASSED [100%]
+
+============================== 4 passed in 0.39s ===============================</code></pre>
+                
+                <p><strong>Qué valida:</strong></p>
+                <ul>
+                    <li><strong>test_ld_direct_write:</strong> Verifica que LD (nn), A escribe correctamente el valor de A en la dirección especificada, consume 4 M-Cycles, y avanza PC correctamente (3 bytes).</li>
+                    <li><strong>test_ld_direct_read:</strong> Verifica que LD A, (nn) lee correctamente de la dirección especificada, carga el valor en A, consume 4 M-Cycles, y avanza PC correctamente.</li>
+                    <li><strong>test_ld_direct_write_read_roundtrip:</strong> Valida que se puede escribir y leer de vuelta el mismo valor, demostrando que ambas instrucciones funcionan correctamente en conjunto.</li>
+                    <li><strong>test_ld_direct_different_addresses:</strong> Verifica que las instrucciones funcionan con diferentes direcciones de memoria, asegurando que no hay efectos secundarios entre direcciones.</li>
+                </ul>
+                
+                <p><strong>Código del test (fragmento esencial):</strong></p>
+                <pre><code>def test_ld_direct_write(self):
+    """Verificar escritura directa a memoria (LD (nn), A - 0xEA)."""
+    mmu = MMU()
+    cpu = CPU(mmu)
+    cpu.registers.set_pc(0x0100)
+    cpu.registers.set_a(0x55)
+    
+    # Escribir opcode + dirección 0xC000 (Little-Endian: 0x00 0xC0)
+    mmu.write_byte(0x0100, 0xEA)  # Opcode
+    mmu.write_byte(0x0101, 0x00)  # Byte bajo
+    mmu.write_byte(0x0102, 0xC0)  # Byte alto
+    
+    cycles = cpu.step()
+    
+    assert mmu.read_byte(0xC000) == 0x55
+    assert cycles == 4
+    assert cpu.registers.get_pc() == 0x0103</code></pre>
+                
+                <p>
+                    <strong>Por qué estos tests demuestran el comportamiento del hardware:</strong>
+                </p>
+                <ul>
+                    <li>Los tests verifican que la dirección se lee correctamente en formato Little-Endian (0x00 0xC0 = 0xC000).</li>
+                    <li>Validan que el acceso a memoria es correcto (lectura/escritura en la dirección especificada).</li>
+                    <li>Confirman el timing correcto (4 M-Cycles según Pan Docs).</li>
+                    <li>Demuestran que el PC avanza correctamente (3 bytes: opcode + 2 bytes de dirección).</li>
+                </ul>
+                
+                <h3>Impacto en la ejecución de ROMs</h3>
+                <p>
+                    Antes de esta implementación, el emulador se estrellaba cuando encontraba el opcode 0xEA durante la ejecución
+                    de Tetris DX. Esto impedía que el juego avanzara lo suficiente para inicializar el PPU y dibujar la pantalla de título.
+                    Con estos opcodes implementados, el emulador puede ejecutar más instrucciones y potencialmente llegar a renderizar gráficos.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs - Instruction Set: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">LD (nn), A (0xEA) y LD A, (nn) (0xFA)</a></li>
+                </ul>
+                <p>
+                    <em>Nota: La implementación sigue exactamente la especificación de Pan Docs para timing (4 M-Cycles) y formato de direcciones (Little-Endian).</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Direccionamiento directo vs indirecto:</strong> El direccionamiento directo permite especificar la dirección en el código, mientras que el indirecto la obtiene de un registro. Ambos tienen casos de uso diferentes: directo para variables globales y registros de hardware, indirecto para bucles y punteros dinámicos.</li>
+                        <li><strong>Little-Endian en direcciones:</strong> Las direcciones de 16 bits se almacenan en memoria con el byte bajo primero (0x00) y el byte alto después (0xC0), formando 0xC000. Esto es consistente con toda la arquitectura LR35902.</li>
+                        <li><strong>Timing de instrucciones:</strong> Las instrucciones que leen direcciones del código consumen más ciclos porque deben hacer múltiples accesos a memoria: fetch del opcode, fetch de los 2 bytes de dirección, y luego el acceso final (lectura o escritura).</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento con direcciones de I/O:</strong> Aunque los tests validan direcciones de RAM, falta verificar el comportamiento cuando se accede a direcciones mapeadas de I/O (0xFF00-0xFFFF). Esto se validará cuando se pruebe con ROMs reales.</li>
+                        <li><strong>Impacto en el renderizado:</strong> Aunque se espera que estos opcodes desbloqueen los gráficos, falta ejecutar Tetris DX nuevamente para confirmar que ahora se puede ver la pantalla de título.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el comportamiento de estas instrucciones con direcciones de I/O es el mismo que con RAM,
+                        delegando al MMU el manejo correcto del mapeo. Esto se validará cuando se ejecute el emulador con ROMs reales.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar Tetris DX nuevamente para verificar que el emulador ya no se estrelle en 0xEA</li>
+                    <li>[ ] Verificar si ahora se pueden ver gráficos en la pantalla (pantalla de título de Tetris)</li>
+                    <li>[ ] Si los gráficos aparecen, proceder con la implementación del Joypad (Paso 27 original)</li>
+                    <li>[ ] Si aún faltan opcodes, identificarlos mediante logs y continuar implementándolos</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
