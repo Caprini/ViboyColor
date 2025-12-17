@@ -159,10 +159,36 @@
                     <li><strong>test_viboy_post_boot_state:</strong> Verifica que el estado post-arranque se inicializa correctamente</li>
                 </ul>
                 <p>
-                    <strong>Validación manual:</strong> Se ejecutó el emulador con <code>python main.py tetris.gbc --debug</code> y se observó
+                    <strong>Validación manual:</strong> Se ejecutó el emulador con <code>python3 main.py tetris_dx.gbc --debug</code> y se observó
                     que el sistema inicia correctamente, carga la ROM, y comienza a ejecutar instrucciones. El sistema se detiene cuando
                     encuentra un opcode no implementado (comportamiento esperado).
                 </p>
+                <p>
+                    <strong>Resultados del test con ROM real (Tetris DX):</strong>
+                </p>
+                <ul>
+                    <li><strong>Carga de ROM:</strong> ✅ El archivo se cargó correctamente (524,288 bytes, 512 KB)</li>
+                    <li><strong>Parsing del Header:</strong> ✅ Título "TETRIS DX", Tipo 0x03 (MBC1), ROM 512 KB, RAM 8 KB</li>
+                    <li><strong>Inicialización del sistema:</strong> ✅ Viboy se inicializó correctamente con la ROM</li>
+                    <li><strong>Post-Boot State:</strong> ✅ PC y SP se inicializaron correctamente (PC=0x0100, SP=0xFFFE)</li>
+                    <li><strong>Ejecución de instrucciones:</strong> ✅ El sistema comenzó a ejecutar instrucciones desde 0x0100</li>
+                    <li><strong>Primera instrucción (0x0100):</strong> ✅ NOP (0x00) ejecutada correctamente, PC avanzó a 0x0101</li>
+                    <li><strong>Segunda instrucción (0x0101):</strong> ✅ JP nn (0xC3) ejecutada correctamente, saltó a 0x0150</li>
+                    <li><strong>Modo debug:</strong> ✅ Las trazas muestran correctamente PC, opcode, registros y ciclos consumidos</li>
+                    <li><strong>Detención por opcode no implementado:</strong> ✅ El sistema se detiene correctamente en 0x0150 con opcode 0xF3 (DI - Disable Interrupts) no implementado</li>
+                    <li><strong>Total de ciclos ejecutados:</strong> 5 ciclos (1 ciclo para NOP + 4 ciclos para JP nn)</li>
+                </ul>
+                <p>
+                    <strong>Observaciones importantes:</strong>
+                </p>
+                <ul>
+                    <li>El código de arranque del juego comienza con un NOP seguido de un salto incondicional (JP) a 0x0150, que es típico
+                        del código de inicialización de juegos de Game Boy.</li>
+                    <li>La siguiente instrucción en 0x0150 es 0xF3 (DI - Disable Interrupts), que es una instrucción crítica para la inicialización
+                        del sistema. Esta instrucción debe implementarse próximamente.</li>
+                    <li>El modo debug funciona perfectamente, mostrando información detallada de cada instrucción ejecutada, lo cual es
+                        esencial para el debugging y desarrollo del emulador.</li>
+                </ul>
                 <p>
                     <strong>Logs:</strong> El modo debug muestra trazas detalladas de cada instrucción ejecutada, permitiendo verificar
                     que el PC avanza correctamente y que los registros se actualizan según las instrucciones.
@@ -204,7 +230,15 @@
                         <li><strong>Boot ROM:</strong> Los valores exactos de los registros después de que la Boot ROM se ejecuta. Por ahora,
                             solo inicializamos PC y SP con valores básicos.</li>
                         <li><strong>Interrupciones:</strong> Cómo manejar interrupciones (VBlank, Timer, etc.) en el bucle principal.
-                            Esto se implementará más adelante.</li>
+                            Esto se implementará más adelante. <strong>Nota:</strong> El test con Tetris DX muestra que la primera instrucción
+                            después del salto es DI (0xF3 - Disable Interrupts), lo cual confirma que las interrupciones son críticas
+                            para la inicialización del sistema.</li>
+                        <li><strong>✅ Validación con ROMs reales:</strong> <strong>COMPLETADO</strong> - Se validó exitosamente con tetris_dx.gbc
+                            (ROM real de Game Boy Color). El sistema inicia correctamente, carga la ROM, y comienza a ejecutar instrucciones.
+                            Se ejecutaron 2 instrucciones (NOP en 0x0100 y JP nn en 0x0101 que saltó a 0x0150) antes de detenerse en 0x0150
+                            con opcode 0xF3 (DI - Disable Interrupts) no implementado. El comportamiento es el esperado: el sistema ejecuta
+                            código real del juego hasta encontrar un opcode no implementado. La siguiente instrucción a implementar es DI (0xF3),
+                            que es crítica para la inicialización del sistema.</li>
                     </ul>
 
                     <h3>Hipótesis y Suposiciones</h3>
@@ -223,6 +257,7 @@
             <section id="proximos-pasos">
                 <h2>Próximos Pasos</h2>
                 <ul>
+                    <li>[ ] <strong>PRIORITARIO:</strong> Implementar opcode 0xF3 (DI - Disable Interrupts) - La siguiente instrucción que necesita Tetris DX</li>
                     <li>[ ] Implementar más opcodes de la CPU (XOR A, LD HL, imm, etc.) para que el emulador pueda ejecutar más código</li>
                     <li>[ ] Implementar MBC1 (Memory Bank Controller) para ROMs mayores de 32KB (como Tetris DX de 512KB)</li>
                     <li>[ ] Implementar interrupciones (VBlank, Timer, etc.) y su manejo en el bucle principal</li>
