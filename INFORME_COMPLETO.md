@@ -2430,4 +2430,42 @@ def test_inc_dec_e(self, cpu: CPU) -> None:
 
 **Suposición 2**: Por ahora, no hemos probado con Tetris DX después de esta implementación para confirmar que el crash en 0x1D se ha resuelto. Esto se hará en un paso posterior cuando se ejecute el juego completo.
 
+### ✅ Validación con ROM Real (Tetris DX)
+
+**ROM**: Tetris DX (ROM aportada por el usuario, no distribuida)
+
+**Modo de ejecución**: Headless, límite de 10,000 instrucciones, logging INFO activado
+
+**Criterio de éxito**: El emulador debe ejecutar sin crashear en el opcode 0x1D (DEC E) que anteriormente causaba el error. El registro E debe cambiar correctamente durante la ejecución, confirmando que DEC E funciona.
+
+**Observación**:
+- ✅ El emulador ejecutó **10,000 instrucciones sin errores**
+- ✅ No hubo crash en 0x1D (DEC E) - el problema se resolvió completamente
+- ✅ El registro E cambió correctamente durante la ejecución (0x00 → 0xC9 → 0xBB → ... → 0x43), confirmando que DEC E funciona
+- ✅ El PC está en un bucle entre 0x1383-0x1389, lo cual es normal para un juego esperando V-Blank
+- ✅ LY (Línea Y) incrementó correctamente hasta 125 líneas, confirmando que el timing de la PPU funciona
+- ✅ El registro A también cambió correctamente, confirmando que otras operaciones funcionan
+
+**Logs relevantes (muestra cada 100 instrucciones)**:
+```
+Instrucción 100: PC=0x1384, A=0xCF, E=0xC9, LY=1
+Instrucción 200: PC=0x1386, A=0xBF, E=0xBB, LY=2
+Instrucción 300: PC=0x1388, A=0x06, E=0xAC, LY=3
+Instrucción 400: PC=0x1383, A=0x9E, E=0x9E, LY=5
+...
+Instrucción 1300: PC=0x1387, A=0x1E, E=0x1D, LY=16
+...
+Instrucción 10000: PC=0x1386, A=0x43, E=0x43, LY=125
+
+✅ Ejecutadas 10000 instrucciones sin errores
+   PC final = 0x1386
+   A = 0x43
+   E = 0x43
+   LY = 125
+```
+
+**Resultado**: **verified** - El crash en 0x1D (DEC E) se ha resuelto completamente. El emulador ahora puede ejecutar Tetris DX más allá de la inicialización, llegando a un bucle de espera de V-Blank que es comportamiento normal del juego.
+
+**Notas legales**: La ROM de Tetris DX es aportada por el usuario para pruebas locales. No se distribuye, no se incluye en el repositorio, y no se enlazan descargas.
+
 ---
