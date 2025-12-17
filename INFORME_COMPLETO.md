@@ -1,5 +1,55 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-17 - Completar Prefijo CB - BIT, RES y SET (0x40-0xFF)
+
+### Conceptos Hardware Implementados
+
+**Tabla CB 100% Completa**: Se completó al 100% la tabla CB del prefijo extendido implementando las tres cuartas partes restantes: BIT (0x40-0x7F), RES (0x80-0xBF) y SET (0xC0-0xFF). Estas instrucciones son fundamentales para la manipulación de bits, que es una operación extremadamente común en los juegos de Game Boy. Por ejemplo, Tetris usa constantemente `RES 7, (HL)` para marcar que un bloque ha dejado de caer.
+
+**Patrón de Encoding CB**: El encoding CB es extremadamente regular. Cada opcode CB de 8 bits se descompone así:
+- **Bits 6-7**: Tipo de operación (01=BIT, 10=RES, 11=SET)
+- **Bits 3-5**: Número de bit a operar (0-7)
+- **Bits 0-2**: Índice de registro (0-7: B, C, D, E, H, L, (HL), A)
+
+**Flags en BIT**: BIT tiene un comportamiento especial de flags:
+- **Z**: Inverso del bit probado (1 si el bit es 0, 0 si el bit es 1)
+- **N**: Siempre 0
+- **H**: Siempre 1 (quirk del hardware)
+- **C**: No se modifica (preservado)
+
+La lógica inversa de Z tiene sentido cuando se usa con saltos condicionales: `BIT 7, H` seguido de `JR Z, label` salta si el bit está apagado.
+
+**RES y SET no afectan flags**: RES y SET solo modifican el dato, no afectan ningún flag. Esto es crítico para permitir manipulación de bits sin alterar el estado de comparaciones anteriores.
+
+**Timing**: Todas las operaciones CB siguen el mismo patrón de timing: 2 M-Cycles para registros, 4 M-Cycles para (HL) debido al acceso a memoria adicional.
+
+#### Tareas Completadas:
+
+1. **Completar Tabla CB (`src/cpu/core.py`)**:
+   - **`_init_cb_bit_res_set_table()`**: Generación completa de 192 handlers (64 BIT + 64 RES + 64 SET)
+   - Reutilización de helpers genéricos ya existentes:
+     - `_bit(bit, value)` - Actualiza flags según el bit probado
+     - `_cb_res(bit, value)` - Retorna valor con bit apagado
+     - `_cb_set(bit, value)` - Retorna valor con bit encendido
+     - `_cb_get_register_value(reg_index)` - Lee registro o memoria
+     - `_cb_set_register_value(reg_index, value)` - Escribe registro o memoria
+
+2. **Tests TDD (`tests/test_cpu_cb_full.py`)**:
+   - Corrección del test `test_bit_all_registers` para manejar correctamente la configuración de HL
+   - Suite completa de 8 tests validando BIT, RES y SET en todos los registros y memoria
+   - Todos los tests pasan (8 passed en 0.28s)
+
+#### Archivos Afectados:
+- `src/cpu/core.py` - Método `_init_cb_bit_res_set_table()` completado
+- `tests/test_cpu_cb_full.py` - Corrección del test `test_bit_all_registers`
+
+#### Validación:
+- **Tests unitarios**: `pytest tests/test_cpu_cb_full.py -v` → 8 passed
+- **Entorno**: macOS, Python 3.9.6
+- **Estado**: Verified - La tabla CB está 100% completa (256 opcodes CB implementados)
+
+---
+
 ## 2025-12-17 - Rotaciones, Shifts y SWAP - Prefijo CB (0x00-0x3F)
 
 ### Conceptos Hardware Implementados

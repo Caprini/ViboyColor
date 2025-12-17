@@ -32,6 +32,29 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0021 - Completar Prefijo CB - BIT, RES y SET (0x40-0xFF) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0021__completar-prefijo-cb-bit-res-set.html" class="entry-link">
+                                    Completar Prefijo CB - BIT, RES y SET (0x40-0xFF)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0021 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se completó al 100% la tabla CB del prefijo extendido implementando las tres cuartas partes restantes:
+                            BIT (0x40-0x7F), RES (0x80-0xBF) y SET (0xC0-0xFF). Estas instrucciones son fundamentales para la
+                            manipulación de bits, que es una operación extremadamente común en los juegos de Game Boy. Por ejemplo,
+                            Tetris usa constantemente RES 7, (HL) para marcar que un bloque ha dejado de caer. La implementación
+                            completa cubre 192 opcodes CB adicionales (64 por operación), completando así las 256 instrucciones
+                            del prefijo CB. Suite completa de tests TDD (8 tests) validando todas las operaciones. Todos los tests pasan.
+                        </p>
+                    </li>
                     <!-- Entrada 0020 - Rotaciones, Shifts y SWAP - Prefijo CB (0x00-0x3F) -->
                     <li>
                         <div class="entry-header">

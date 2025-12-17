@@ -162,12 +162,15 @@ class CPU:
         # El prefijo CB permite acceder a 256 instrucciones adicionales
         # Rango 0x00-0x3F: Rotaciones y shifts (RLC, RRC, RL, RR, SLA, SRA, SRL, SWAP)
         # Rango 0x40-0x7F: BIT b, r (Test bit)
-        self._cb_opcode_table: dict[int, Callable[[], int]] = {
-            0x7C: self._op_cb_bit_7_h,    # BIT 7, H
-        }
+        # Rango 0x80-0xBF: RES b, r (Reset bit)
+        # Rango 0xC0-0xFF: SET b, r (Set bit)
+        self._cb_opcode_table: dict[int, Callable[[], int]] = {}
         
         # Inicializar tabla CB para rango 0x00-0x3F (rotaciones y shifts)
         self._init_cb_shifts_table()
+        
+        # Inicializar tabla CB para rango 0x40-0xFF (BIT, RES, SET)
+        self._init_cb_bit_res_set_table()
         
         # Inicializar handlers de transferencias LD r, r' (bloque 0x40-0x7F)
         # Esto se hace después de definir todos los métodos helper
@@ -2581,6 +2584,62 @@ class CPU:
         
         # C: NO SE TOCA (preservado)
     
+    def _cb_res(self, bit: int, value: int) -> int:
+        """
+        Helper genérico para RES (Reset bit).
+        
+        Apaga el bit `bit` del valor `value`, poniéndolo a 0.
+        
+        RES NO afecta a ningún flag. Solo modifica el dato.
+        
+        Args:
+            bit: Número de bit a apagar (0-7)
+            value: Valor de 8 bits a modificar
+            
+        Returns:
+            Valor con el bit apagado (8 bits)
+            
+        Fuente: Pan Docs - CPU Instruction Set (RES b, r)
+        """
+        value = value & 0xFF
+        
+        # Crear máscara para apagar el bit: ~(1 << bit)
+        # Ejemplo: bit=3 -> ~(0x08) = 0xF7
+        bit_mask = ~(1 << bit) & 0xFF
+        
+        # Aplicar máscara: value & bit_mask
+        result = value & bit_mask
+        
+        return result
+    
+    def _cb_set(self, bit: int, value: int) -> int:
+        """
+        Helper genérico para SET (Set bit).
+        
+        Enciende el bit `bit` del valor `value`, poniéndolo a 1.
+        
+        SET NO afecta a ningún flag. Solo modifica el dato.
+        
+        Args:
+            bit: Número de bit a encender (0-7)
+            value: Valor de 8 bits a modificar
+            
+        Returns:
+            Valor con el bit encendido (8 bits)
+            
+        Fuente: Pan Docs - CPU Instruction Set (SET b, r)
+        """
+        value = value & 0xFF
+        
+        # Crear máscara para encender el bit: (1 << bit)
+        # Ejemplo: bit=3 -> 0x08
+        bit_mask = 1 << bit
+        
+        # Aplicar máscara: value | bit_mask
+        result = value | bit_mask
+        
+        return result & 0xFF
+    
     def _op_cb_bit_7_h(self) -> int:
         """
         BIT 7, H (Test bit 7 of H) - CB Opcode 0x7C
@@ -3106,6 +3165,138 @@ class CPU:
                 
                 # Añadir handler a la tabla
                 self._cb_opcode_table[cb_opcode] = make_handler()
+    
+    def _init_cb_bit_res_set_table(self) -> None:
+        """
+        Inicializa la tabla CB para el rango 0x40-0xFF (BIT, RES, SET).
+        
+        Patrón de encoding CB:
+        - 0x40-0x7F: BIT b, r (Test bit) - 8 bits (0-7) x 8 registros = 64 opcodes
+        - 0x80-0xBF: RES b, r (Reset bit) - 8 bits (0-7) x 8 registros = 64 opcodes
+        - 0xC0-0xFF: SET b, r (Set bit) - 8 bits (0-7) x 8 registros = 64 opcodes
+        
+        Estructura del opcode CB:
+        - Bits 3-5: Número de bit (0-7)
+        - Bits 0-2: Índice de registro (0-7: B, C, D, E, H, L, (HL), A)
+        - Bits 6-7: Tipo de operación:
+          - 01 (0x40-0x7F): BIT
+          - 10 (0x80-0xBF): RES
+          - 11 (0xC0-0xFF): SET
+        
+        Ejemplos:
+        - 0x40 = 01000000 -> BIT 0, B (bit=0, reg=0)
+        - 0x41 = 01000001 -> BIT 0, C (bit=0, reg=1)
+        - 0x7C = 01111100 -> BIT 7, H (bit=7, reg=4)
+        - 0x80 = 10000000 -> RES 0, B (bit=0, reg=0)
+        - 0xC0 = 11000000 -> SET 0, B (bit=0, reg=0)
+        
+        Flags:
+        - BIT: Z=Inverso del bit, N=0, H=1, C=No cambia
+        - RES: No afecta flags
+        - SET: No afecta flags
+        
+        Timing:
+        - Registros: 2 M-Cycles
+        - (HL): 4 M-Cycles (acceso a memoria)
+        
+        Fuente: Pan Docs - CPU Instruction Set (CB Prefix encoding)
+        """
+        # Nombres de registros para logging
+        reg_names = ["B", "C", "D", "E", "H", "L", "(HL)", "A"]
+        
+        # Generar handlers para BIT (0x40-0x7F)
+        for bit in range(8):
+            for reg_index in range(8):
+                cb_opcode = 0x40 + (bit * 8) + reg_index
+                
+                def make_bit_handler(bit=bit, reg_index=reg_index, cb_opcode=cb_opcode):
+                    def handler() -> int:
+                        # Leer valor del registro/memoria
+                        value = self._cb_get_register_value(reg_index)
+                        
+                        # Ejecutar BIT (actualiza flags, no modifica el valor)
+                        self._bit(bit, value)
+                        
+                        # Timing: (HL) consume 4 M-Cycles, registros consumen 2
+                        cycles = 4 if reg_index == 6 else 2
+                        
+                        reg_name = reg_names[reg_index]
+                        logger.debug(
+                            f"CB 0x{cb_opcode:02X} (BIT {bit}, {reg_name}) -> "
+                            f"0x{value:02X} bit{bit}={1 if (value >> bit) & 1 else 0} "
+                            f"Z={self.registers.get_flag_z()} H={self.registers.get_flag_h()}"
+                        )
+                        
+                        return cycles
+                    
+                    return handler
+                
+                # Añadir handler a la tabla (sobrescribe el manual si existe)
+                self._cb_opcode_table[cb_opcode] = make_bit_handler()
+        
+        # Generar handlers para RES (0x80-0xBF)
+        for bit in range(8):
+            for reg_index in range(8):
+                cb_opcode = 0x80 + (bit * 8) + reg_index
+                
+                def make_res_handler(bit=bit, reg_index=reg_index, cb_opcode=cb_opcode):
+                    def handler() -> int:
+                        # Leer valor del registro/memoria
+                        value = self._cb_get_register_value(reg_index)
+                        
+                        # Ejecutar RES (apaga el bit)
+                        result = self._cb_res(bit, value)
+                        
+                        # Escribir resultado
+                        self._cb_set_register_value(reg_index, result)
+                        
+                        # Timing: (HL) consume 4 M-Cycles, registros consumen 2
+                        cycles = 4 if reg_index == 6 else 2
+                        
+                        reg_name = reg_names[reg_index]
+                        logger.debug(
+                            f"CB 0x{cb_opcode:02X} (RES {bit}, {reg_name}) -> "
+                            f"0x{value:02X} -> 0x{result:02X}"
+                        )
+                        
+                        return cycles
+                    
+                    return handler
+                
+                # Añadir handler a la tabla
+                self._cb_opcode_table[cb_opcode] = make_res_handler()
+        
+        # Generar handlers para SET (0xC0-0xFF)
+        for bit in range(8):
+            for reg_index in range(8):
+                cb_opcode = 0xC0 + (bit * 8) + reg_index
+                
+                def make_set_handler(bit=bit, reg_index=reg_index, cb_opcode=cb_opcode):
+                    def handler() -> int:
+                        # Leer valor del registro/memoria
+                        value = self._cb_get_register_value(reg_index)
+                        
+                        # Ejecutar SET (enciende el bit)
+                        result = self._cb_set(bit, value)
+                        
+                        # Escribir resultado
+                        self._cb_set_register_value(reg_index, result)
+                        
+                        # Timing: (HL) consume 4 M-Cycles, registros consumen 2
+                        cycles = 4 if reg_index == 6 else 2
+                        
+                        reg_name = reg_names[reg_index]
+                        logger.debug(
+                            f"CB 0x{cb_opcode:02X} (SET {bit}, {reg_name}) -> "
+                            f"0x{value:02X} -> 0x{result:02X}"
+                        )
+                        
+                        return cycles
+                    
+                    return handler
+                
+                # Añadir handler a la tabla
+                self._cb_opcode_table[cb_opcode] = make_set_handler()
     
     # ========== Handlers de Comparación (CP) ==========
     
