@@ -75,7 +75,12 @@ class CPU:
             0x06: self._op_ld_b_d8,
             0x3E: self._op_ld_a_d8,
             0xC6: self._op_add_a_d8,
+            0xCE: self._op_adc_a_d8,      # ADC A, d8
             0xD6: self._op_sub_d8,
+            0xDE: self._op_sbc_a_d8,      # SBC A, d8
+            0xE6: self._op_and_d8,        # AND d8
+            0xEE: self._op_xor_d8,        # XOR d8
+            0xF6: self._op_or_d8,         # OR d8
             # Rotaciones rápidas del acumulador
             0x07: self._op_rlca,       # RLCA (Rotate Left Circular Accumulator)
             0x0F: self._op_rrca,       # RRCA (Rotate Right Circular Accumulator)
@@ -1137,6 +1142,147 @@ class CPU:
             f"SUB 0x{operand:02X} -> A=0x{self.registers.get_a():02X} "
             f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
             f"H={self.registers.get_flag_h()} C={self.registers.get_flag_c()}"
+        )
+        return 2
+    
+    def _op_adc_a_d8(self) -> int:
+        """
+        ADC A, d8 (Add with Carry immediate value to A) - Opcode 0xCE
+        
+        Suma el siguiente byte de memoria al registro A, más el flag Carry.
+        Actualiza flags Z, N, H, C según el resultado.
+        
+        Esta instrucción es útil para aritmética de precisión múltiple,
+        donde el carry de una operación anterior se propaga a la siguiente.
+        
+        Returns:
+            2 M-Cycles (fetch opcode + fetch operand)
+            
+        Fuente: Pan Docs - Instruction Set
+        """
+        operand = self.fetch_byte()
+        self._adc(operand)
+        logger.debug(
+            f"ADC A, 0x{operand:02X} -> A=0x{self.registers.get_a():02X} "
+            f"Z={self.registers.get_flag_z()} H={self.registers.get_flag_h()} "
+            f"C={self.registers.get_flag_c()}"
+        )
+        return 2
+    
+    def _op_sbc_a_d8(self) -> int:
+        """
+        SBC A, d8 (Subtract with Carry immediate value from A) - Opcode 0xDE
+        
+        Resta el siguiente byte de memoria del registro A, menos el flag Carry.
+        Actualiza flags Z, N, H, C según el resultado.
+        
+        Esta instrucción es útil para aritmética de precisión múltiple,
+        donde el borrow de una operación anterior se propaga a la siguiente.
+        
+        Returns:
+            2 M-Cycles (fetch opcode + fetch operand)
+            
+        Fuente: Pan Docs - Instruction Set
+        """
+        operand = self.fetch_byte()
+        self._sbc(operand)
+        logger.debug(
+            f"SBC A, 0x{operand:02X} -> A=0x{self.registers.get_a():02X} "
+            f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
+            f"H={self.registers.get_flag_h()} C={self.registers.get_flag_c()}"
+        )
+        return 2
+    
+    def _op_and_d8(self) -> int:
+        """
+        AND d8 (Logical AND immediate value with A) - Opcode 0xE6
+        
+        Realiza una operación AND bit a bit entre el registro A y el siguiente
+        byte de memoria. El resultado se almacena en A.
+        
+        Esta instrucción es útil para:
+        - Aislar bits específicos (máscaras de bits)
+        - Comprobar si ciertos flags están activos
+        - Limpiar bits no deseados
+        
+        Flags:
+        - Z: 1 si el resultado es 0
+        - N: 0 (siempre)
+        - H: 1 (siempre) - Quirk del hardware Game Boy
+        - C: 0 (siempre)
+        
+        Returns:
+            2 M-Cycles (fetch opcode + fetch operand)
+            
+        Fuente: Pan Docs - Instruction Set
+        """
+        operand = self.fetch_byte()
+        self._and(operand)
+        logger.debug(
+            f"AND 0x{operand:02X} -> A=0x{self.registers.get_a():02X} "
+            f"Z={self.registers.get_flag_z()} H={self.registers.get_flag_h()}"
+        )
+        return 2
+    
+    def _op_or_d8(self) -> int:
+        """
+        OR d8 (Logical OR immediate value with A) - Opcode 0xF6
+        
+        Realiza una operación OR bit a bit entre el registro A y el siguiente
+        byte de memoria. El resultado se almacena en A.
+        
+        Esta instrucción es útil para:
+        - Activar bits específicos
+        - Combinar valores de flags
+        - Establecer máscaras de bits
+        
+        Flags:
+        - Z: 1 si el resultado es 0
+        - N: 0 (siempre)
+        - H: 0 (siempre)
+        - C: 0 (siempre)
+        
+        Returns:
+            2 M-Cycles (fetch opcode + fetch operand)
+            
+        Fuente: Pan Docs - Instruction Set
+        """
+        operand = self.fetch_byte()
+        self._or(operand)
+        logger.debug(
+            f"OR 0x{operand:02X} -> A=0x{self.registers.get_a():02X} "
+            f"Z={self.registers.get_flag_z()}"
+        )
+        return 2
+    
+    def _op_xor_d8(self) -> int:
+        """
+        XOR d8 (Logical XOR immediate value with A) - Opcode 0xEE
+        
+        Realiza una operación XOR bit a bit entre el registro A y el siguiente
+        byte de memoria. El resultado se almacena en A.
+        
+        Esta instrucción es útil para:
+        - Invertir bits específicos
+        - Comparar valores (XOR con mismo valor da 0)
+        - Generar números pseudoaleatorios (usando XOR con valores fijos)
+        
+        Flags:
+        - Z: 1 si el resultado es 0
+        - N: 0 (siempre)
+        - H: 0 (siempre)
+        - C: 0 (siempre)
+        
+        Returns:
+            2 M-Cycles (fetch opcode + fetch operand)
+            
+        Fuente: Pan Docs - Instruction Set
+        """
+        operand = self.fetch_byte()
+        self._xor(operand)
+        logger.debug(
+            f"XOR 0x{operand:02X} -> A=0x{self.registers.get_a():02X} "
+            f"Z={self.registers.get_flag_z()}"
         )
         return 2
 

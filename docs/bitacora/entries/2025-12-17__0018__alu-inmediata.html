@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALU con Operandos Inmediatos (d8) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>ALU con Operandos Inmediatos (d8)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-17
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0018
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-17__0017__pila-completa-rotaciones.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se completó el conjunto de operaciones ALU inmediatas (con operandos de 8 bits embebidos en el código),
+                    implementando ADC A, d8 (0xCE), SBC A, d8 (0xDE), AND d8 (0xE6), XOR d8 (0xEE) y OR d8 (0xF6).
+                    Estas instrucciones son críticas porque permiten operar con constantes directamente del código,
+                    sin necesidad de cargar valores en registros primero. La implementación reutiliza los helpers
+                    genéricos ya existentes (_adc, _sbc, _and, _xor, _or), siguiendo el principio DRY (Don't Repeat Yourself).
+                    Con esto, la CPU ahora tiene capacidad computacional completa para operaciones de 8 bits, lo que
+                    permite que juegos como Tetris DX avancen más allá de la inicialización.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El <strong>direccionamiento inmediato</strong> es un modo de direccionamiento donde el operando
+                    (el valor a operar) está embebido directamente en el código de la instrucción, justo después del opcode.
+                </p>
+                <p>
+                    En la arquitectura LR35902, las instrucciones inmediatas de 8 bits siguen este formato:
+                </p>
+                <ul>
+                    <li><strong>Byte 1:</strong> Opcode (por ejemplo, 0xE6 para AND d8)</li>
+                    <li><strong>Byte 2:</strong> Operando inmediato (d8 = "data 8-bit")</li>
+                </ul>
+                <p>
+                    Cuando la CPU ejecuta una instrucción inmediata:
+                </p>
+                <ol>
+                    <li>Lee el opcode desde la dirección apuntada por PC</li>
+                    <li>Incrementa PC</li>
+                    <li>Lee el operando inmediato desde la nueva dirección de PC</li>
+                    <li>Incrementa PC nuevamente</li>
+                    <li>Ejecuta la operación con el valor inmediato</li>
+                </ol>
+                <p>
+                    La ventaja del direccionamiento inmediato es que permite operar con constantes sin necesidad de
+                    cargar valores en registros primero. Por ejemplo, para hacer `AND A, 0x0F`, no necesitas:
+                </p>
+                <pre><code>LD B, 0x0F    ; Cargar 0x0F en B
+AND A, B      ; AND A con B</code></pre>
+                <p>
+                    Simplemente puedes hacer:
+                </p>
+                <pre><code>AND 0x0F      ; AND A con 0x0F directamente</code></pre>
+                <p>
+                    Esto ahorra bytes de código y ciclos de CPU, lo cual es crítico en sistemas con recursos limitados
+                    como la Game Boy.
+                </p>
+                <p>
+                    <strong>Reutilización de lógica:</strong> La lógica interna de las operaciones (cálculo de flags Z, N, H, C)
+                    es idéntica entre las versiones de registro y las versiones inmediatas. La única diferencia es de dónde
+                    se obtiene el operando: de un registro o del código. Por eso, la implementación reutiliza los mismos
+                    helpers genéricos (_adc, _sbc, _and, _xor, _or) que ya existían para las versiones de registro.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron 5 nuevos opcodes inmediatos siguiendo el mismo patrón que los opcodes inmediatos
+                    ya existentes (ADD A, d8 y SUB d8). Cada método sigue esta estructura:
+                </p>
+                <ol>
+                    <li>Lee el operando inmediato usando <code>self.fetch_byte()</code></li>
+                    <li>Llama al helper genérico correspondiente (por ejemplo, <code>self._and(operand)</code>)</li>
+                    <li>Registra la operación en el log de depuración</li>
+                    <li>Retorna 2 M-Cycles (fetch opcode + fetch operand)</li>
+                </ol>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/cpu/core.py</code>: Añadidos 5 nuevos métodos de handlers:
+                        <ul>
+                            <li><code>_op_adc_a_d8()</code> - ADC A, d8 (0xCE)</li>
+                            <li><code>_op_sbc_a_d8()</code> - SBC A, d8 (0xDE)</li>
+                            <li><code>_op_and_d8()</code> - AND d8 (0xE6)</li>
+                            <li><code>_op_xor_d8()</code> - XOR d8 (0xEE)</li>
+                            <li><code>_op_or_d8()</code> - OR d8 (0xF6)</li>
+                        </ul>
+                    </li>
+                    <li><code>src/cpu/core.py</code>: Actualizada la tabla de despacho (<code>_opcode_table</code>)
+                        para incluir los 5 nuevos opcodes.</li>
+                    <li><code>tests/test_cpu_alu_immediate.py</code>: Creado archivo nuevo con suite completa de tests
+                        (5 tests) validando todas las operaciones inmediatas.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Reutilización de helpers:</strong> Se decidió reutilizar los helpers genéricos ya existentes
+                    (_adc, _sbc, _and, _xor, _or) en lugar de duplicar la lógica. Esto sigue el principio DRY y garantiza
+                    que el comportamiento de flags sea idéntico entre versiones de registro e inmediatas.
+                </p>
+                <p>
+                    <strong>Consistencia con opcodes existentes:</strong> Los nuevos métodos siguen exactamente el mismo
+                    patrón que <code>_op_add_a_d8</code> y <code>_op_sub_d8</code>, manteniendo consistencia en el código
+                    y facilitando el mantenimiento futuro.
+                </p>
+                <p>
+                    <strong>Documentación exhaustiva:</strong> Cada método incluye docstrings detallados explicando
+                    qué hace la instrucción, cuándo es útil, qué flags actualiza y cuántos ciclos consume. Esto es
+                    crítico para un proyecto educativo donde la comprensión es tan importante como la funcionalidad.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadidos 5 nuevos métodos de handlers y actualizada la tabla de despacho</li>
+                    <li><code>tests/test_cpu_alu_immediate.py</code> - Creado archivo nuevo con suite completa de tests (5 tests)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Descripción de cómo se validó la implementación:
+                </p>
+                <ul>
+                    <li><strong>Tests unitarios:</strong> pytest con 5 tests pasando:
+                        <ul>
+                            <li><code>test_and_immediate</code>: Verifica AND d8 con máscara de bits (0xFF AND 0x0F = 0x0F)
+                                y el quirk del hardware donde H siempre es 1.</li>
+                            <li><code>test_xor_immediate</code>: Verifica XOR d8 que resulta en cero (0xFF XOR 0xFF = 0x00, Z=1).</li>
+                            <li><code>test_adc_immediate</code>: Verifica ADC A, d8 con carry activo (0x00 + 0x00 + 1 = 0x01).</li>
+                            <li><code>test_or_immediate</code>: Verifica OR d8 básico (0x00 OR 0x55 = 0x55).</li>
+                            <li><code>test_sbc_immediate</code>: Verifica SBC A, d8 con borrow activo (0x00 - 0x00 - 1 = 0xFF).</li>
+                        </ul>
+                    </li>
+                    <li><strong>ROM real (Tetris DX):</strong> Se ejecutó <code>python3 main.py tetris_dx.gbc --debug</code>:
+                        <ul>
+                            <li>La CPU ejecutó correctamente el bucle de inicialización alrededor de 0x1383-0x1390
+                                que usa combinaciones de DEC, LD y OR entre registros.</li>
+                            <li>El opcode <code>0xE6 (AND d8)</code> se ejecuta ahora sin problemas en 0x12CA,
+                                enmascarando el valor leído de memoria con una constante inmediata.</li>
+                            <li>El emulador avanza hasta PC=0x12CF tras ~70.082 M-Cycles y se detiene en
+                                <strong>opcode 0x0E (LD C, d8)</strong> no implementado, lo que confirma que
+                                el siguiente cuello de botella ya no es la ALU inmediata sino una carga inmediata
+                                de 8 bits en C.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Logs:</strong> Los métodos incluyen logging de depuración que muestra el operando,
+                        el resultado y los flags actualizados. El modo <code>--debug</code> de Viboy registra
+                        PC, opcode, registros y ciclos, permitiendo seguir el flujo exacto que lleva hasta 0x12CF.</li>
+                    <li><strong>Documentación:</strong> Implementación basada en Pan Docs - Instruction Set.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Instruction Set</a> - Referencia para opcodes inmediatos</li>
+                </ul>
+                <p>
+                    <em>Nota: La implementación sigue el mismo patrón que los opcodes inmediatos ya existentes
+                    (ADD A, d8, SUB d8, CP d8), garantizando consistencia en el código.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Direccionamiento inmediato:</strong> Entiendo que es un modo de direccionamiento donde
+                            el operando está embebido en el código, justo después del opcode. Esto permite operar con
+                            constantes sin necesidad de cargar valores en registros primero.</li>
+                        <li><strong>Reutilización de lógica:</strong> Entiendo que la lógica interna de las operaciones
+                            (cálculo de flags) es idéntica entre versiones de registro e inmediatas. La única diferencia
+                            es de dónde se obtiene el operando.</li>
+                        <li><strong>Timing:</strong> Entiendo que todas las instrucciones inmediatas de 8 bits consumen
+                            2 M-Cycles: uno para fetch del opcode y otro para fetch del operando.</li>
+                        <li><strong>Completitud del set ALU:</strong> Con estos 5 opcodes, ahora tenemos el conjunto completo
+                            de operaciones ALU inmediatas de 8 bits, lo que da a la CPU capacidad computacional completa
+                            para operaciones de 8 bits.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Timing exacto:</strong> Aunque asumo que todas las instrucciones inmediatas de 8 bits
+                            consumen 2 M-Cycles, no he verificado esto exhaustivamente con documentación técnica detallada.
+                            Debería confirmar esto con Pan Docs o tests de timing si es necesario en el futuro.</li>
+                        <li><strong>Comportamiento en casos edge:</strong> Los tests cubren casos básicos, pero no he
+                            probado exhaustivamente todos los casos edge (overflow, underflow, etc.). Los helpers genéricos
+                            ya están testeados, así que debería ser correcto, pero es algo a tener en cuenta.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición principal:</strong> Asumo que el timing (2 M-Cycles) es correcto para todas
+                        las instrucciones inmediatas de 8 bits, basándome en que ADD A, d8 y SUB d8 (que ya estaban
+                        implementados) también usan 2 M-Cycles. Esta suposición parece razonable, pero no está explícitamente
+                        verificada con documentación técnica detallada.
+                    </p>
+                    <p>
+                        <strong>Suposición de completitud:</strong> Asumo que con estos 5 opcodes, ahora tenemos el conjunto
+                        completo de operaciones ALU inmediatas de 8 bits. Sin embargo, no he verificado exhaustivamente
+                        si hay otras operaciones inmediatas que falten. Esta suposición se basa en el conocimiento general
+                        de la arquitectura LR35902.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[x] Probar Tetris DX para ver si ahora avanza más allá del opcode 0xE6</li>
+                    <li>[x] Si Tetris avanza, identificar el siguiente opcode no implementado que cause fallo
+                        (<strong>0x0E - LD C, d8</strong> en PC=0x12CF).</li>
+                    <li>[ ] Implementar el opcode 0x0E (LD C, d8) reutilizando el patrón de cargas inmediatas de 8 bits.</li>
+                    <li>[ ] Si Tetris intenta acceder a registros de hardware (0xFF40, 0xFF44, etc.), implementar
+                        el subsistema de PPU (Pixel Processing Unit) básico.</li>
+                    <li>[ ] Si Tetris intenta escribir en VRAM (0x8000-0x9FFF), implementar el mapeo de VRAM en la MMU.</li>
+                    <li>[ ] Continuar implementando opcodes faltantes según las necesidades del juego.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

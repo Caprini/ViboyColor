@@ -32,6 +32,31 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0018 - ALU con Operandos Inmediatos (d8) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0018__alu-inmediata.html" class="entry-link">
+                                    ALU con Operandos Inmediatos (d8)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0018 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se completó el conjunto de operaciones ALU inmediatas (con operandos de 8 bits embebidos en el código),
+                            implementando ADC A, d8 (0xCE), SBC A, d8 (0xDE), AND d8 (0xE6), XOR d8 (0xEE) y OR d8 (0xF6).
+                            Estas instrucciones son críticas porque permiten operar con constantes directamente del código,
+                            sin necesidad de cargar valores en registros primero. La implementación reutiliza los helpers
+                            genéricos ya existentes (_adc, _sbc, _and, _xor, _or), siguiendo el principio DRY. Con esto,
+                            la CPU ahora tiene capacidad computacional completa para operaciones de 8 bits, lo que permite
+                            que juegos como Tetris DX avancen más allá de la inicialización. Suite completa de tests TDD
+                            (5 tests) validando todas las operaciones inmediatas. Todos los tests pasan.
+                        </p>
+                    </li>
                     <!-- Entrada 0017 - Pila Completa y Rotaciones del Acumulador -->
                     <li>
                         <div class="entry-header">

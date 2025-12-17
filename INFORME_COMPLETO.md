@@ -1,5 +1,84 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-17 - ALU con Operandos Inmediatos (d8)
+
+### Conceptos Hardware Implementados
+
+**Direccionamiento Inmediato**: El direccionamiento inmediato es un modo de direccionamiento donde el operando (el valor a operar) está embebido directamente en el código de la instrucción, justo después del opcode. En la arquitectura LR35902, las instrucciones inmediatas de 8 bits siguen este formato:
+- **Byte 1**: Opcode (por ejemplo, 0xE6 para AND d8)
+- **Byte 2**: Operando inmediato (d8 = "data 8-bit")
+
+Cuando la CPU ejecuta una instrucción inmediata:
+1. Lee el opcode desde la dirección apuntada por PC
+2. Incrementa PC
+3. Lee el operando inmediato desde la nueva dirección de PC
+4. Incrementa PC nuevamente
+5. Ejecuta la operación con el valor inmediato
+
+**Ventaja del Direccionamiento Inmediato**: Permite operar con constantes sin necesidad de cargar valores en registros primero. Por ejemplo, para hacer `AND A, 0x0F`, no necesitas cargar 0x0F en un registro primero. Esto ahorra bytes de código y ciclos de CPU, lo cual es crítico en sistemas con recursos limitados como la Game Boy.
+
+**Reutilización de Lógica**: La lógica interna de las operaciones (cálculo de flags Z, N, H, C) es idéntica entre las versiones de registro y las versiones inmediatas. La única diferencia es de dónde se obtiene el operando: de un registro o del código. Por eso, la implementación reutiliza los mismos helpers genéricos (_adc, _sbc, _and, _xor, _or) que ya existían para las versiones de registro.
+
+**Completitud del Set ALU**: Con estos 5 opcodes inmediatos, ahora tenemos el conjunto completo de operaciones ALU inmediatas de 8 bits, lo que da a la CPU capacidad computacional completa para operaciones de 8 bits. Esto permite que juegos como Tetris DX avancen más allá de la inicialización.
+
+#### Tareas Completadas:
+
+1. **Opcodes ALU Inmediatos (`src/cpu/core.py`)**:
+   - **ADC A, d8 (0xCE)**: Add with Carry immediate. Suma el siguiente byte de memoria al registro A, más el flag Carry. Útil para aritmética de precisión múltiple. Consume 2 M-Cycles.
+   - **SBC A, d8 (0xDE)**: Subtract with Carry immediate. Resta el siguiente byte de memoria del registro A, menos el flag Carry. Útil para aritmética de precisión múltiple. Consume 2 M-Cycles.
+   - **AND d8 (0xE6)**: Logical AND immediate. Realiza una operación AND bit a bit entre el registro A y el siguiente byte de memoria. Útil para aislar bits específicos (máscaras de bits). Flags: Z según resultado, N=0, H=1 (quirk del hardware), C=0. Consume 2 M-Cycles.
+   - **XOR d8 (0xEE)**: Logical XOR immediate. Realiza una operación XOR bit a bit entre el registro A y el siguiente byte de memoria. Útil para invertir bits específicos, comparar valores o generar números pseudoaleatorios. Flags: Z según resultado, N=0, H=0, C=0. Consume 2 M-Cycles.
+   - **OR d8 (0xF6)**: Logical OR immediate. Realiza una operación OR bit a bit entre el registro A y el siguiente byte de memoria. Útil para activar bits específicos o combinar valores de flags. Flags: Z según resultado, N=0, H=0, C=0. Consume 2 M-Cycles.
+
+2. **Actualización de Tabla de Despacho (`src/cpu/core.py`)**:
+   - Añadidos los 5 nuevos opcodes a la tabla de despacho (`_opcode_table`) para que la CPU pueda ejecutarlos.
+
+3. **Tests TDD**:
+   - **tests/test_cpu_alu_immediate.py** (5 tests nuevos):
+     - **test_and_immediate**: Verifica AND d8 con máscara de bits (0xFF AND 0x0F = 0x0F) y el quirk del hardware donde H siempre es 1.
+     - **test_xor_immediate**: Verifica XOR d8 que resulta en cero (0xFF XOR 0xFF = 0x00, Z=1).
+     - **test_adc_immediate**: Verifica ADC A, d8 con carry activo (0x00 + 0x00 + 1 = 0x01).
+     - **test_or_immediate**: Verifica OR d8 básico (0x00 OR 0x55 = 0x55).
+     - **test_sbc_immediate**: Verifica SBC A, d8 con borrow activo (0x00 - 0x00 - 1 = 0xFF).
+
+#### Archivos Afectados:
+
+- `src/cpu/core.py`: Añadidos 5 nuevos métodos de handlers y actualizada la tabla de despacho.
+- `tests/test_cpu_alu_immediate.py`: Creado archivo nuevo con suite completa de tests (5 tests).
+
+#### Tests y Verificación:
+
+- **Tests unitarios**: pytest con 5 tests pasando. Todos los tests validan correctamente las operaciones inmediatas y el comportamiento de flags.
+- **Ejecución con ROM real (Tetris DX)**:
+  - Comando ejecutado: `python3 main.py tetris_dx.gbc --debug`.
+  - El juego ejecuta correctamente el bucle de inicialización alrededor de 0x1383-0x1390, usando combinaciones de DEC, LD y OR entre registros.
+  - El opcode **0xE6 (AND d8)** se ejecuta ahora sin problemas en PC=0x12CA, enmascarando el valor leído de memoria con una constante inmediata.
+  - El emulador avanza hasta **PC=0x12CF** tras aproximadamente **70.082 M-Cycles** y se detiene en el opcode **0x0E (LD C, d8)** no implementado. Esto confirma que el cuello de botella anterior (AND inmediato) ha desaparecido y que el siguiente paso es implementar una carga inmediata de 8 bits en el registro C.
+- **Logs**: Los métodos incluyen logging de depuración que muestra el operando, el resultado y los flags actualizados. El modo `--debug` de Viboy registra PC, opcode, registros y ciclos, permitiendo seguir el flujo exacto que lleva hasta 0x12CF.
+- **Documentación**: Implementación basada en Pan Docs - Instruction Set.
+
+#### Fuentes Consultadas:
+
+- Pan Docs: Instruction Set - Referencia para opcodes inmediatos
+
+#### Integridad Educativa:
+
+**Lo que Entiendo Ahora**:
+- El direccionamiento inmediato permite operar con constantes directamente del código, sin necesidad de cargar valores en registros primero.
+- La lógica interna de las operaciones (cálculo de flags) es idéntica entre versiones de registro e inmediatas. La única diferencia es de dónde se obtiene el operando.
+- Todas las instrucciones inmediatas de 8 bits consumen 2 M-Cycles: uno para fetch del opcode y otro para fetch del operando.
+- Con estos 5 opcodes, ahora tenemos el conjunto completo de operaciones ALU inmediatas de 8 bits.
+
+**Lo que Falta Confirmar**:
+- Timing exacto: Aunque asumo que todas las instrucciones inmediatas de 8 bits consumen 2 M-Cycles, no he verificado esto exhaustivamente con documentación técnica detallada.
+- Comportamiento en casos edge: Los tests cubren casos básicos, pero no he probado exhaustivamente todos los casos edge (overflow, underflow, etc.).
+
+**Hipótesis y Suposiciones**:
+- Asumo que el timing (2 M-Cycles) es correcto para todas las instrucciones inmediatas de 8 bits, basándome en que ADD A, d8 y SUB d8 (que ya estaban implementados) también usan 2 M-Cycles.
+- Asumo que con estos 5 opcodes, ahora tenemos el conjunto completo de operaciones ALU inmediatas de 8 bits, basándome en el conocimiento general de la arquitectura LR35902.
+
+---
+
 ## 2025-12-17 - Pila Completa y Rotaciones del Acumulador
 
 ### Conceptos Hardware Implementados
