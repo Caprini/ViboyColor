@@ -32,6 +32,29 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0009 - Placa Base y Bucle Principal -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-16__0009__placa-base-bucle-principal.html" class="entry-link">
+                                    Placa Base y Bucle Principal (Game Loop)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-16 | 
+                            <strong>Step ID:</strong> 0009 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de la clase Viboy que actúa como la "placa base" del emulador, integrando todos los componentes
+                            (CPU, MMU, Cartridge) en un sistema unificado. Creación del bucle principal (Game Loop) que ejecuta instrucciones
+                            continuamente, simulando el funcionamiento de la Game Boy real a 4.194304 MHz. El sistema ahora puede ejecutar
+                            código real de ROMs, aunque se detendrá cuando encuentre opcodes no implementados. Modo debug implementado para
+                            mostrar trazas detalladas de cada instrucción ejecutada. Sin este bucle, la CPU no puede "vivir" y procesar código
+                            de juegos. Suite completa de tests de integración (8 tests).
+                        </p>
+                    </li>
                     <!-- Entrada 0008 - Carga de ROM y Cartucho -->
                     <li>
                         <div class="entry-header">

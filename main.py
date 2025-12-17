@@ -9,9 +9,7 @@ import logging
 import sys
 from pathlib import Path
 
-from src.cpu.core import CPU
-from src.memory.cartridge import Cartridge
-from src.memory.mmu import MMU
+from src.viboy import Viboy
 
 # Configurar logging básico
 logging.basicConfig(
@@ -34,7 +32,7 @@ def main() -> None:
     parser.add_argument(
         "--debug",
         action="store_true",
-        help="Activar logging en modo DEBUG",
+        help="Activar modo debug con trazas detalladas de instrucciones",
     )
     
     args = parser.parse_args()
@@ -49,46 +47,48 @@ def main() -> None:
     # Si no se proporciona ROM, mostrar mensaje y salir
     if not args.rom:
         print("Error: Se requiere especificar una ROM")
-        print("Uso: python main.py <ruta_a_rom.gb>")
+        print("Uso: python main.py <ruta_a_rom.gb> [--debug]")
         sys.exit(1)
     
-    # Cargar cartucho
+    # Inicializar sistema Viboy
     try:
-        cartridge = Cartridge(args.rom)
-        header_info = cartridge.get_header_info()
+        viboy = Viboy(args.rom)
         
-        print(f"\n📦 Cartucho cargado:")
-        print(f"   Título: {header_info['title']}")
-        print(f"   Tipo: {header_info['cartridge_type']}")
-        print(f"   ROM: {header_info['rom_size']} KB")
-        print(f"   RAM: {header_info['ram_size']} KB")
-        print(f"   Tamaño total: {cartridge.get_rom_size()} bytes")
+        # Obtener información del cartucho
+        cartridge = viboy.get_cartridge()
+        if cartridge is not None:
+            header_info = cartridge.get_header_info()
+            
+            print(f"\n📦 Cartucho cargado:")
+            print(f"   Título: {header_info['title']}")
+            print(f"   Tipo: {header_info['cartridge_type']}")
+            print(f"   ROM: {header_info['rom_size']} KB")
+            print(f"   RAM: {header_info['ram_size']} KB")
+            print(f"   Tamaño total: {cartridge.get_rom_size()} bytes")
+        
+        # Obtener estado inicial de la CPU
+        cpu = viboy.get_cpu()
+        if cpu is not None:
+            print(f"\n🖥️  CPU inicializada:")
+            print(f"   PC = 0x{cpu.registers.get_pc():04X}")
+            print(f"   SP = 0x{cpu.registers.get_sp():04X}")
+        
+        print("\n✅ Sistema listo para ejecutar")
+        if args.debug:
+            print("   Modo DEBUG activado - Mostrando trazas de instrucciones")
+            print("   Presiona Ctrl+C para detener\n")
+        else:
+            print("   Presiona Ctrl+C para detener\n")
+        
+        # Ejecutar bucle principal
+        viboy.run(debug=args.debug)
         
     except (FileNotFoundError, IOError, ValueError) as e:
         print(f"\n❌ Error al cargar ROM: {e}")
         sys.exit(1)
-    
-    # Inicializar MMU con el cartucho
-    mmu = MMU(cartridge)
-    
-    # Inicializar CPU
-    cpu = CPU(mmu)
-    
-    # Simular "Post-Boot State" (sin Boot ROM)
-    # En un Game Boy real, la Boot ROM inicializa:
-    # - PC = 0x0100 (inicio del código del cartucho)
-    # - SP = 0xFFFE (top de la pila)
-    # - Registros con valores específicos
-    # Por ahora, inicializamos valores básicos
-    cpu.registers.set_pc(0x0100)  # Inicio del código del cartucho
-    cpu.registers.set_sp(0xFFFE)   # Top de la pila
-    
-    print(f"\n🖥️  CPU inicializada:")
-    print(f"   PC = 0x{cpu.registers.get_pc():04X}")
-    print(f"   SP = 0x{cpu.registers.get_sp():04X}")
-    
-    print("\n✅ Sistema listo para ejecutar")
-    print("   (Bucle principal de ejecución pendiente de implementar)")
+    except (NotImplementedError, RuntimeError) as e:
+        # Errores de ejecución (opcode no implementado, etc.)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

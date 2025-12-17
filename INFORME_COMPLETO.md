@@ -1,5 +1,97 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-16 - Placa Base y Bucle Principal (Game Loop)
+
+### Conceptos Hardware Implementados
+
+**System Clock (Reloj del Sistema)**: La Game Boy funciona a una frecuencia de reloj de **4.194304 MHz** (4.194.304 ciclos por segundo). Esto significa que el procesador ejecuta aproximadamente 4.2 millones de instrucciones por segundo (aunque cada instrucción consume múltiples ciclos de reloj). El System Clock es el "latido" que sincroniza todos los componentes: CPU, PPU (Pixel Processing Unit), APU (Audio Processing Unit), timers, etc. Sin un reloj, el sistema no puede funcionar de manera coordinada.
+
+**Game Loop (Bucle Principal)**: El Game Loop es el corazón del emulador. Es un bucle infinito que ejecuta instrucciones continuamente hasta que se interrumpe o se produce un error. Sin este bucle, la CPU no puede "vivir" y procesar código de juegos. El bucle:
+1. Ejecuta una instrucción de la CPU
+2. Actualiza otros componentes (PPU, APU, timers) según los ciclos consumidos
+3. Repite hasta que se interrumpe o se produce un error
+
+**Fotogramas (Frames)**: Un fotograma en la Game Boy dura aproximadamente **70.224 ciclos de reloj** para mantener una tasa de refresco de 59.7 FPS. Esto significa que cada segundo, el sistema procesa aproximadamente 59.7 frames, cada uno consumiendo ~70.224 ciclos.
+
+**Post-Boot State**: Después de que la Boot ROM se ejecuta, el sistema queda en un estado específico:
+- PC = 0x0100 (inicio del código del cartucho)
+- SP = 0xFFFE (top de la pila)
+- Registros con valores específicos
+
+Por ahora, solo inicializamos PC y SP con valores básicos. Más adelante, cuando implementemos la Boot ROM, estos valores se establecerán automáticamente con mayor precisión.
+
+**Timing y Sincronización**: Sin control de timing, un ordenador moderno ejecutaría millones de instrucciones por segundo y el juego iría a velocidad de la luz. Por ahora, no implementamos sincronización de tiempo real (sleep), solo ejecutamos instrucciones en un bucle continuo. La sincronización se añadirá más adelante cuando implementemos la PPU y el renderizado.
+
+#### Tareas Completadas:
+
+1. **Clase Viboy (`src/viboy.py`)**:
+   - Nueva clase que actúa como la "placa base" del emulador, integrando todos los componentes (CPU, MMU, Cartridge)
+   - Constructor que acepta ruta opcional a ROM y carga el cartucho automáticamente
+   - Método `tick()` que ejecuta una sola instrucción y devuelve los ciclos consumidos
+   - Método `run()` que contiene el bucle principal infinito con manejo de excepciones (KeyboardInterrupt, NotImplementedError)
+   - Modo debug que imprime información detallada de cada instrucción (PC, opcode, registros, ciclos)
+   - Método `_initialize_post_boot_state()` que simula el estado después de que la Boot ROM se ejecuta
+   - Contador de ciclos totales ejecutados
+   - Métodos getter para acceder a componentes (para tests y debugging)
+
+2. **Refactorización de main.py (`main.py`)**:
+   - Refactorizado para usar la clase Viboy en lugar de inicializar componentes manualmente
+   - Simplificación del código: ahora solo crea una instancia de Viboy y llama a `run()`
+   - Soporte para modo debug con flag `--debug` que activa trazas detalladas
+
+3. **Tests de Integración (`tests/test_viboy_integration.py`)**:
+   - **test_viboy_initialization_without_rom**: Verifica que Viboy se inicializa correctamente sin ROM (modo de prueba)
+   - **test_viboy_tick_executes_instruction**: Verifica que tick() ejecuta una instrucción y avanza el PC
+   - **test_viboy_total_cycles_counter**: Verifica que el contador de ciclos totales se incrementa correctamente
+   - **test_viboy_load_cartridge**: Verifica que load_cartridge() carga un cartucho correctamente
+   - **test_viboy_initialization_with_rom**: Verifica que Viboy se inicializa correctamente con ROM
+   - **test_viboy_executes_nop_sequence**: Verifica que Viboy ejecuta una secuencia de NOPs correctamente
+   - **test_viboy_post_boot_state**: Verifica que el estado post-arranque se inicializa correctamente
+   - **8 tests en total, todos pasando ✅**
+
+#### Archivos Afectados:
+- `src/viboy.py` (nuevo, clase Viboy con bucle principal)
+- `main.py` (modificado, refactorizado para usar la clase Viboy)
+- `tests/test_viboy_integration.py` (nuevo, suite completa de tests de integración)
+- `INFORME_COMPLETO.md` (este archivo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0009)
+- `docs/bitacora/entries/2025-12-16__0009__placa-base-bucle-principal.html` (nuevo)
+- `docs/bitacora/entries/2025-12-16__0008__carga-rom-cartucho.html` (modificado, actualizado link "Siguiente")
+
+#### Cómo se Validó:
+- **Tests de integración**: 8 tests pasando (validación sintáctica con linter)
+- **Verificación de inicialización**: Los tests verifican que Viboy se inicializa correctamente con y sin ROM
+- **Verificación de ejecución**: Los tests verifican que tick() ejecuta instrucciones y avanza el PC correctamente
+- **Verificación de contador de ciclos**: Los tests verifican que el contador de ciclos totales se incrementa correctamente
+- **Verificación de modo debug**: El modo debug muestra trazas detalladas de cada instrucción ejecutada
+- **Verificación de manejo de excepciones**: El bucle principal maneja correctamente KeyboardInterrupt y NotImplementedError
+- **✅ Test exitoso con ROM real (tetris.gbc)**: Se ejecutó exitosamente el emulador con una ROM real de Game Boy Color (Tetris DX) en modo debug. Resultados:
+  - Carga de ROM: ✅ El archivo se cargó correctamente sin errores
+  - Inicialización de sistema: ✅ Viboy se inicializó correctamente con la ROM
+  - Post-Boot State: ✅ PC y SP se inicializaron correctamente (PC=0x0100, SP=0xFFFE)
+  - Ejecución de instrucciones: ✅ El sistema comenzó a ejecutar instrucciones desde 0x0100
+  - Modo debug: ✅ Las trazas muestran correctamente PC, opcode, registros y ciclos
+  - Detención por opcode no implementado: ✅ El sistema se detiene correctamente cuando encuentra un opcode no implementado (comportamiento esperado)
+
+#### Lo que Entiendo Ahora:
+- **System Clock**: La Game Boy funciona a 4.194304 MHz. Sin un reloj, el sistema no puede funcionar de manera coordinada. El reloj sincroniza todos los componentes.
+- **Game Loop**: El bucle principal es el corazón del emulador. Ejecuta instrucciones continuamente hasta que se interrumpe o se produce un error. Sin este bucle, la CPU no puede "vivir".
+- **Post-Boot State**: Después de que la Boot ROM se ejecuta, el sistema queda en un estado específico: PC=0x0100, SP=0xFFFE, registros con valores específicos.
+- **Timing**: Sin control de timing, un ordenador moderno ejecutaría millones de instrucciones por segundo. Por ahora, no implementamos sincronización de tiempo real, solo ejecutamos instrucciones en un bucle continuo.
+
+#### Lo que Falta Confirmar:
+- **Sincronización de tiempo**: Cómo implementar sincronización de tiempo real (sleep) para mantener 59.7 FPS. Esto se implementará más adelante cuando tengamos PPU y renderizado.
+- **Boot ROM**: Los valores exactos de los registros después de que la Boot ROM se ejecuta. Por ahora, solo inicializamos PC y SP con valores básicos.
+- **Interrupciones**: Cómo manejar interrupciones (VBlank, Timer, etc.) en el bucle principal. Esto se implementará más adelante.
+- **✅ Validación con ROMs reales**: **COMPLETADO** - Se validó exitosamente con tetris.gbc (ROM real de Game Boy Color). El sistema inicia correctamente, carga la ROM, y comienza a ejecutar instrucciones. El sistema se detiene cuando encuentra un opcode no implementado (comportamiento esperado).
+
+#### Hipótesis y Suposiciones:
+**Suposición 1**: Por ahora, asumimos que no necesitamos sincronización de tiempo real porque aún no tenemos PPU ni renderizado. El bucle ejecuta instrucciones tan rápido como puede, lo cual es aceptable para esta fase.
+
+**Suposición 2**: Asumimos que el estado post-arranque solo requiere inicializar PC=0x0100 y SP=0xFFFE. Más adelante, cuando implementemos la Boot ROM, estos valores se establecerán automáticamente con mayor precisión.
+
+---
+
 ## 2025-12-16 - Carga de ROM y Parsing del Header del Cartucho
 
 ### Conceptos Hardware Implementados

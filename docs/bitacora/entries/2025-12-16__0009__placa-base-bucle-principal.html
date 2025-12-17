@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Placa Base y Bucle Principal - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Placa Base y Bucle Principal (Game Loop)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-16
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0009
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-16__0008__carga-rom-cartucho.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de la clase <code>Viboy</code> que actúa como la "placa base" del emulador, integrando
+                    todos los componentes (CPU, MMU, Cartridge) en un sistema unificado. Creación del bucle principal (Game Loop)
+                    que ejecuta instrucciones continuamente, simulando el funcionamiento de la Game Boy real. El sistema ahora
+                    puede ejecutar código real de ROMs, aunque se detendrá cuando encuentre opcodes no implementados. Modo debug
+                    implementado para mostrar trazas detalladas de cada instrucción ejecutada. Sin este bucle, la CPU no puede
+                    "vivir" y procesar código de juegos.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La Game Boy funciona a una frecuencia de reloj de <strong>4.194304 MHz</strong> (4.194.304 ciclos por segundo).
+                    Esto significa que el procesador ejecuta aproximadamente 4.2 millones de instrucciones por segundo (aunque
+                    cada instrucción consume múltiples ciclos de reloj).
+                </p>
+                <p>
+                    El <strong>System Clock</strong> (Reloj del Sistema) es el "latido" que sincroniza todos los componentes:
+                    CPU, PPU (Pixel Processing Unit), APU (Audio Processing Unit), timers, etc. Sin un reloj, el sistema
+                    no puede funcionar de manera coordinada.
+                </p>
+                <p>
+                    Un <strong>fotograma (frame)</strong> en la Game Boy dura aproximadamente <strong>70.224 ciclos de reloj</strong>
+                    para mantener una tasa de refresco de 59.7 FPS. Esto significa que cada segundo, el sistema procesa
+                    aproximadamente 59.7 frames, cada uno consumiendo ~70.224 ciclos.
+                </p>
+                <p>
+                    El <strong>Game Loop</strong> (Bucle Principal) es el corazón del emulador. Es un bucle infinito que:
+                </p>
+                <ol>
+                    <li>Ejecuta una instrucción de la CPU</li>
+                    <li>Actualiza otros componentes (PPU, APU, timers) según los ciclos consumidos</li>
+                    <li>Repite hasta que se interrumpe o se produce un error</li>
+                </ol>
+                <p>
+                    <strong>Importante:</strong> Sin control de timing, un ordenador moderno ejecutaría millones de instrucciones
+                    en un segundo y el juego iría a velocidad de la luz. Por ahora, no implementamos sincronización de tiempo real
+                    (sleep), solo ejecutamos instrucciones en un bucle continuo. La sincronización se añadirá más adelante cuando
+                    implementemos la PPU y el renderizado.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - System Clock, Timing
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se creó la clase <code>Viboy</code> en <code>src/viboy.py</code> que actúa como la "placa base" del emulador.
+                    Esta clase integra todos los componentes y proporciona una interfaz unificada para el bucle principal.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>src/viboy.py:</strong> Nueva clase <code>Viboy</code> con métodos <code>tick()</code> y <code>run()</code></li>
+                    <li><strong>main.py:</strong> Refactorizado para usar la clase <code>Viboy</code> en lugar de inicializar componentes manualmente</li>
+                    <li><strong>tests/test_viboy_integration.py:</strong> Suite completa de tests de integración (8 tests)</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>1. Clase Viboy como "Placa Base":</strong> Se decidió crear una clase central que integre todos los componentes
+                    en lugar de tener lógica dispersa en <code>main.py</code>. Esto mejora la modularidad y facilita los tests.
+                </p>
+                <p>
+                    <strong>2. Método tick() para ejecución paso a paso:</strong> El método <code>tick()</code> ejecuta una sola instrucción
+                    y devuelve los ciclos consumidos. Esto permite control granular sobre la ejecución y facilita el debugging.
+                </p>
+                <p>
+                    <strong>3. Método run() para bucle principal:</strong> El método <code>run()</code> contiene el bucle infinito principal.
+                    Maneja excepciones (KeyboardInterrupt, NotImplementedError) para salir limpiamente.
+                </p>
+                <p>
+                    <strong>4. Modo Debug:</strong> Se implementó un modo debug que imprime información detallada de cada instrucción:
+                    PC, opcode, estado de registros, ciclos consumidos. Esto es crítico para entender qué está haciendo el emulador.
+                </p>
+                <p>
+                    <strong>5. Post-Boot State:</strong> Se implementó el método <code>_initialize_post_boot_state()</code> que simula
+                    el estado después de que la Boot ROM se ejecuta. Por ahora, solo inicializa PC=0x0100 y SP=0xFFFE. Más adelante,
+                    cuando implementemos la Boot ROM, estos valores se establecerán automáticamente.
+                </p>
+                <p>
+                    <strong>6. Sin sincronización de tiempo (por ahora):</strong> No se implementó sincronización de tiempo real (sleep)
+                    porque aún no tenemos PPU ni renderizado. El bucle ejecuta instrucciones tan rápido como puede. Esto es aceptable
+                    para esta fase, ya que el objetivo es ver el "trace" de instrucciones ejecutándose.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Nueva clase Viboy (placa base) con bucle principal</li>
+                    <li><code>main.py</code> - Refactorizado para usar la clase Viboy</li>
+                    <li><code>tests/test_viboy_integration.py</code> - Suite completa de tests de integración (8 tests)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests de integración en <code>tests/test_viboy_integration.py</code>:
+                </p>
+                <ul>
+                    <li><strong>test_viboy_initialization_without_rom:</strong> Verifica que Viboy se inicializa correctamente sin ROM</li>
+                    <li><strong>test_viboy_tick_executes_instruction:</strong> Verifica que tick() ejecuta una instrucción y avanza el PC</li>
+                    <li><strong>test_viboy_total_cycles_counter:</strong> Verifica que el contador de ciclos totales se incrementa correctamente</li>
+                    <li><strong>test_viboy_load_cartridge:</strong> Verifica que load_cartridge() carga un cartucho correctamente</li>
+                    <li><strong>test_viboy_initialization_with_rom:</strong> Verifica que Viboy se inicializa correctamente con ROM</li>
+                    <li><strong>test_viboy_executes_nop_sequence:</strong> Verifica que Viboy ejecuta una secuencia de NOPs correctamente</li>
+                    <li><strong>test_viboy_post_boot_state:</strong> Verifica que el estado post-arranque se inicializa correctamente</li>
+                </ul>
+                <p>
+                    <strong>Validación manual:</strong> Se ejecutó el emulador con <code>python main.py tetris.gbc --debug</code> y se observó
+                    que el sistema inicia correctamente, carga la ROM, y comienza a ejecutar instrucciones. El sistema se detiene cuando
+                    encuentra un opcode no implementado (comportamiento esperado).
+                </p>
+                <p>
+                    <strong>Logs:</strong> El modo debug muestra trazas detalladas de cada instrucción ejecutada, permitiendo verificar
+                    que el PC avanza correctamente y que los registros se actualizan según las instrucciones.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">System Clock, Timing</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Boot ROM, Post-Boot State</a></li>
+                </ul>
+                <p>
+                    <em>Nota: Implementación basada en conocimiento general de arquitectura LR35902 y documentación técnica de Pan Docs.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>System Clock:</strong> La Game Boy funciona a 4.194304 MHz. Sin un reloj, el sistema no puede funcionar
+                            de manera coordinada. El reloj sincroniza todos los componentes.</li>
+                        <li><strong>Game Loop:</strong> El bucle principal es el corazón del emulador. Ejecuta instrucciones continuamente
+                            hasta que se interrumpe o se produce un error. Sin este bucle, la CPU no puede "vivir".</li>
+                        <li><strong>Post-Boot State:</strong> Después de que la Boot ROM se ejecuta, el sistema queda en un estado específico:
+                            PC=0x0100 (inicio del código del cartucho), SP=0xFFFE (top de la pila), registros con valores específicos.</li>
+                        <li><strong>Timing:</strong> Sin control de timing, un ordenador moderno ejecutaría millones de instrucciones por segundo.
+                            Por ahora, no implementamos sincronización de tiempo real, solo ejecutamos instrucciones en un bucle continuo.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Sincronización de tiempo:</strong> Cómo implementar sincronización de tiempo real (sleep) para mantener
+                            59.7 FPS. Esto se implementará más adelante cuando tengamos PPU y renderizado.</li>
+                        <li><strong>Boot ROM:</strong> Los valores exactos de los registros después de que la Boot ROM se ejecuta. Por ahora,
+                            solo inicializamos PC y SP con valores básicos.</li>
+                        <li><strong>Interrupciones:</strong> Cómo manejar interrupciones (VBlank, Timer, etc.) en el bucle principal.
+                            Esto se implementará más adelante.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición 1:</strong> Por ahora, asumimos que no necesitamos sincronización de tiempo real porque aún no
+                        tenemos PPU ni renderizado. El bucle ejecuta instrucciones tan rápido como puede, lo cual es aceptable para esta fase.
+                    </p>
+                    <p>
+                        <strong>Suposición 2:</strong> Asumimos que el estado post-arranque solo requiere inicializar PC=0x0100 y SP=0xFFFE.
+                        Más adelante, cuando implementemos la Boot ROM, estos valores se establecerán automáticamente con mayor precisión.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar más opcodes de la CPU (XOR A, LD HL, imm, etc.) para que el emulador pueda ejecutar más código</li>
+                    <li>[ ] Implementar MBC1 (Memory Bank Controller) para ROMs mayores de 32KB (como Tetris DX de 512KB)</li>
+                    <li>[ ] Implementar interrupciones (VBlank, Timer, etc.) y su manejo en el bucle principal</li>
+                    <li>[ ] Implementar sincronización de tiempo real (sleep) para mantener 59.7 FPS</li>
+                    <li>[ ] Implementar PPU (Pixel Processing Unit) para renderizar gráficos</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
