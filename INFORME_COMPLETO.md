@@ -1214,3 +1214,68 @@ Se implementaron 16 nuevos opcodes:
 
 ---
 
+## 2025-12-17 - Transferencias de 8 bits (LD r, r') y HALT
+
+### Conceptos Hardware Implementados
+
+**Bloque de Transferencias 0x40-0x7F**: El bloque central de opcodes en la arquitectura LR35902 está dedicado a transferencias de datos entre registros. Es una matriz de 8x8 donde cada opcode codifica un origen y un destino usando 3 bits para cada uno. Esta estructura permite 64 combinaciones posibles, pero el opcode 0x76 es especial: en lugar de ser LD (HL), (HL) (que no tiene sentido), es la instrucción HALT.
+
+**HALT (0x76) - Modo de Bajo Consumo**: HALT pone la CPU en un estado de bajo consumo donde deja de ejecutar instrucciones. El Program Counter (PC) no avanza y la CPU simplemente espera. La CPU se despierta automáticamente cuando ocurre una interrupción (si IME está activado) o puede ser despertada manualmente. Mientras está en HALT, la CPU consume 1 ciclo por tick (espera activa), pero no ejecuta ninguna instrucción.
+
+**Timing de las Transferencias**: Las transferencias tienen diferentes tiempos de ejecución según si involucran memoria:
+- LD r, r: 1 M-Cycle (transferencia entre registros, sin acceso a memoria)
+- LD r, (HL) o LD (HL), r: 2 M-Cycles (acceso a memoria indirecta)
+
+#### Tareas Completadas:
+
+1. **Clase `CPU` (`src/cpu/core.py`)**:
+   - Añadido flag `halted` al constructor para rastrear el estado de bajo consumo
+   - Modificado `step()` para manejar estado HALT (verificar interrupciones, consumir ciclos)
+   - Implementado `_get_register_value()`: Helper para obtener valor de registro según código (0-7)
+   - Implementado `_set_register_value()`: Helper para establecer valor en registro según código (0-7)
+   - Implementado `_op_ld_r_r()`: Handler genérico para todas las transferencias LD r, r'
+   - Implementado `_op_halt()`: Handler para HALT (0x76)
+   - Implementado `_init_ld_handler_lazy()`: Inicialización lazy de handlers de transferencias
+   - Modificado `_execute_opcode()`: Inicialización lazy de handlers cuando se accede a ellos por primera vez
+
+2. **Opcodes Implementados (63 nuevos opcodes)**:
+   - **Bloque 0x40-0x7F (excepto 0x76)**: Todas las transferencias LD r, r' entre registros y memoria
+   - **0x76 - HALT**: Pone la CPU en modo de bajo consumo
+
+3. **Tests TDD (`tests/test_cpu_load8.py`)**:
+   - **test_ld_r_r**: Verifica transferencia entre registros (LD A, D - 0x7A) con timing correcto (1 M-Cycle)
+   - **test_ld_r_hl**: Verifica lectura desde memoria indirecta (LD B, (HL) - 0x46) con timing correcto (2 M-Cycles)
+   - **test_ld_hl_r**: Verifica escritura a memoria indirecta (LD (HL), C - 0x71) con timing correcto (2 M-Cycles)
+   - **test_ld_all_registers**: Verifica múltiples combinaciones de transferencias entre registros básicos
+   - **test_halt_sets_flag**: Verifica que HALT activa el flag halted correctamente
+   - **test_halt_pc_does_not_advance**: Verifica que en HALT el PC no avanza y se consume 1 ciclo por tick
+   - **test_halt_wake_on_interrupt**: Verifica que HALT se despierta cuando IME está activado
+   - **test_ld_hl_hl_is_halt**: Verifica que 0x76 es HALT, no LD (HL), (HL)
+   - **8 tests en total, todos pasando ✅**
+
+#### Archivos Afectados:
+- `src/cpu/core.py` (modificado, añadidos ~200 líneas)
+- `tests/test_cpu_load8.py` (nuevo, 323 líneas)
+- `docs/bitacora/entries/2025-12-17__0015__transferencias-8bits-halt.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0015)
+
+#### Cómo se Validó:
+- **Tests unitarios**: Suite completa de 8 tests TDD pasando todos
+- **Logs**: Verificación de timing correcto (1 vs 2 M-Cycles según tipo de transferencia)
+- **Documentación**: Referencias a Pan Docs sobre estructura de opcodes y timing
+
+#### Lo que Entiendo Ahora:
+- El bloque 0x40-0x7F es una matriz elegante que codifica todas las combinaciones posibles de transferencias entre registros. La estructura permite cubrir 63 opcodes con una implementación genérica.
+- HALT es una excepción especial que rompe el patrón de la matriz. En lugar de ser LD (HL), (HL) (que no tiene sentido), es HALT. Esto es una peculiaridad del diseño del hardware.
+- Las transferencias que involucran memoria consumen 2 M-Cycles, mientras que las que solo involucran registros consumen 1 M-Cycle. Esto refleja el costo real del hardware.
+- HALT es fundamental para la sincronización en juegos, permitiendo esperar eventos (como interrupciones) sin consumir recursos innecesarios.
+
+#### Lo que Falta Confirmar:
+- **Despertar de HALT**: La implementación actual simplifica el despertar asumiendo que si IME está activado, hay interrupciones pendientes. Cuando se implemente el manejo completo de interrupciones, se deberá verificar los registros IF (Interrupt Flag) e IE (Interrupt Enable).
+- **Comportamiento de HALT con IME desactivado**: En hardware real, cuando IME está desactivado y se ejecuta HALT, la CPU puede tener comportamientos especiales. Esto necesita verificación con documentación más detallada.
+
+#### Hipótesis y Suposiciones:
+La implementación del despertar de HALT asume que si IME está activado, hay interrupciones pendientes. Esto es una simplificación que funcionará para la mayoría de casos, pero cuando se implemente el manejo completo de interrupciones, se deberá verificar explícitamente los registros IF e IE.
+
+---
+

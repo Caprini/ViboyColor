@@ -61,6 +61,12 @@ class CPU:
         # Inicializamos en False por seguridad (el juego lo activará si lo necesita)
         self.ime: bool = False
         
+        # Halted: Estado de bajo consumo de la CPU
+        # Cuando HALT está activo, la CPU deja de ejecutar instrucciones hasta que
+        # ocurre una interrupción (si IME está activado) o se despierta manualmente.
+        # La CPU consume 1 ciclo por cada tick mientras está en HALT (espera activa).
+        self.halted: bool = False
+        
         # Tabla de despacho (Dispatch Table) para opcodes
         # Mapea cada opcode a su función manejadora
         # Esto es más escalable que if/elif y compatible con Python 3.9+
@@ -139,7 +145,45 @@ class CPU:
             0x7C: self._op_cb_bit_7_h,    # BIT 7, H
         }
         
+        # Inicializar handlers de transferencias LD r, r' (bloque 0x40-0x7F)
+        # Esto se hace después de definir todos los métodos helper
+        self._init_ld_handlers()
+        
         logger.info("CPU inicializada")
+    
+    def _init_ld_handlers(self) -> None:
+        """
+        Inicializa los handlers para todas las transferencias LD r, r' del bloque 0x40-0x7F.
+        
+        Este método se llama desde __init__ pero los handlers se crearán de forma lazy
+        la primera vez que se acceda a ellos, para poder usar los métodos helper que
+        se definen después de __init__.
+        
+        Por ahora, solo reservamos el espacio en la tabla. Los handlers se crearán
+        cuando se definan los métodos helper usando un método auxiliar.
+        
+        Fuente: Pan Docs - CPU Instruction Set (LD r, r' encoding)
+        """
+        # Los handlers se inicializarán de forma lazy cuando se acceda a ellos
+        # por primera vez, usando _init_ld_handler_lazy
+        pass
+    
+    def _init_ld_handler_lazy(self, opcode: int) -> None:
+        """
+        Inicializa un handler de LD r, r' de forma lazy cuando se accede por primera vez.
+        
+        Args:
+            opcode: Opcode del bloque 0x40-0x7F (excepto 0x76)
+        """
+        # Decodificar opcode: opcode = (dest_code << 3) | src_code
+        dest_code = (opcode >> 3) & 0x07
+        src_code = opcode & 0x07
+        
+        # Crear handler usando _op_ld_r_r (que ya está definido cuando se llama este método)
+        def handler() -> int:
+            return self._op_ld_r_r(dest_code, src_code)
+        
+        self._opcode_table[opcode] = handler
 
     def fetch_byte(self) -> int:
         """
@@ -205,16 +249,35 @@ class CPU:
         Ejecuta una sola instrucción del ciclo Fetch-Decode-Execute.
         
         Pasos:
-        1. Fetch: Lee el opcode en la dirección apuntada por PC
-        2. Increment: Avanza PC (se hace dentro del fetch_byte)
-        3. Decode/Execute: Identifica el opcode con match/case y ejecuta
+        1. Verificar estado HALT: Si la CPU está en HALT, verificar interrupciones
+        2. Fetch: Lee el opcode en la dirección apuntada por PC
+        3. Increment: Avanza PC (se hace dentro del fetch_byte)
+        4. Decode/Execute: Identifica el opcode con match/case y ejecuta
         
         Returns:
             Número de M-Cycles que tomó ejecutar la instrucción
             
         Raises:
             NotImplementedError: Si el opcode no está implementado
+            
+        Fuente: Pan Docs - CPU Instruction Set (HALT behavior)
         """
+        # Verificar estado HALT
+        if self.halted:
+            # Si hay interrupciones pendientes y IME está activado, despertar
+            # NOTA: Por ahora, simplificamos. Cuando implementemos interrupciones
+            # completamente, verificaremos los registros IF (Interrupt Flag) e IE
+            # (Interrupt Enable) y si hay alguna interrupción pendiente, despertamos.
+            # Por ahora, si IME está activado, asumimos que puede haber interrupciones.
+            if self.ime:
+                # Despertar de HALT (una interrupción está pendiente)
+                self.halted = False
+                logger.debug("HALT: Despertando por interrupción pendiente")
+            else:
+                # CPU en HALT, esperando interrupciones
+                # Consumir 1 ciclo (espera activa) y NO ejecutar fetch
+                return 1
+        
         # Fetch: leer opcode
         opcode = self.fetch_byte()
         
@@ -245,9 +308,20 @@ class CPU:
         """
         handler = self._opcode_table.get(opcode)
         if handler is None:
-            raise NotImplementedError(
-                f"Opcode 0x{opcode:02X} no implementado en PC=0x{self.registers.get_pc():04X}"
-            )
+            # Inicialización lazy: si es un opcode del bloque 0x40-0x7F (excepto 0x76),
+            # inicializarlo dinámicamente
+            if 0x40 <= opcode <= 0x7F and opcode != 0x76:
+                self._init_ld_handler_lazy(opcode)
+                handler = self._opcode_table.get(opcode)
+            # HALT (0x76) también se inicializa de forma lazy
+            elif opcode == 0x76:
+                self._opcode_table[0x76] = self._op_halt
+                handler = self._opcode_table.get(opcode)
+            
+            if handler is None:
+                raise NotImplementedError(
+                    f"Opcode 0x{opcode:02X} no implementado en PC=0x{self.registers.get_pc():04X}"
+                )
         return handler()
     
     # ========== Helpers de Pila (Stack) ==========
@@ -2089,4 +2163,161 @@ class CPU:
             # Condición falsa: no retornar
             logger.debug("RET C (NOT TAKEN) C flag not set")
             return 2
+    
+    # ========== Helpers para Transferencias LD r, r' ==========
+    
+    def _get_register_value(self, reg_code: int) -> int:
+        """
+        Obtiene el valor de un registro según su código.
+        
+        Códigos de registro (bits 0-2 o 3-5 del opcode):
+        - 0 (000): B
+        - 1 (001): C
+        - 2 (010): D
+        - 3 (011): E
+        - 4 (100): H
+        - 5 (101): L
+        - 6 (110): (HL) - Dirección apuntada por HL
+        - 7 (111): A
+        
+        Args:
+            reg_code: Código del registro (0-7)
+            
+        Returns:
+            Valor del registro (8 bits) o valor en memoria si es (HL)
+            
+        Fuente: Pan Docs - CPU Instruction Set (LD r, r' encoding)
+        """
+        if reg_code == 0:  # B
+            return self.registers.get_b()
+        elif reg_code == 1:  # C
+            return self.registers.get_c()
+        elif reg_code == 2:  # D
+            return self.registers.get_d()
+        elif reg_code == 3:  # E
+            return self.registers.get_e()
+        elif reg_code == 4:  # H
+            return self.registers.get_h()
+        elif reg_code == 5:  # L
+            return self.registers.get_l()
+        elif reg_code == 6:  # (HL) - Memoria indirecta
+            hl_addr = self.registers.get_hl()
+            return self.mmu.read_byte(hl_addr)
+        elif reg_code == 7:  # A
+            return self.registers.get_a()
+        else:
+            raise ValueError(f"Código de registro inválido: {reg_code}")
+    
+    def _set_register_value(self, reg_code: int, value: int) -> None:
+        """
+        Establece el valor de un registro según su código.
+        
+        Args:
+            reg_code: Código del registro (0-7)
+            value: Valor a establecer (8 bits, se enmascara automáticamente)
+            
+        Fuente: Pan Docs - CPU Instruction Set (LD r, r' encoding)
+        """
+        value = value & 0xFF
+        if reg_code == 0:  # B
+            self.registers.set_b(value)
+        elif reg_code == 1:  # C
+            self.registers.set_c(value)
+        elif reg_code == 2:  # D
+            self.registers.set_d(value)
+        elif reg_code == 3:  # E
+            self.registers.set_e(value)
+        elif reg_code == 4:  # H
+            self.registers.set_h(value)
+        elif reg_code == 5:  # L
+            self.registers.set_l(value)
+        elif reg_code == 6:  # (HL) - Memoria indirecta
+            hl_addr = self.registers.get_hl()
+            self.mmu.write_byte(hl_addr, value)
+        elif reg_code == 7:  # A
+            self.registers.set_a(value)
+        else:
+            raise ValueError(f"Código de registro inválido: {reg_code}")
+    
+    def _op_ld_r_r(self, dest_code: int, src_code: int) -> int:
+        """
+        Helper genérico para LD r, r' (Load register to register).
+        
+        Transfiere el valor de un registro (o memoria) a otro registro (o memoria).
+        
+        IMPORTANTE: LD (HL), (HL) (opcode 0x76) NO EXISTE. Ese opcode es HALT.
+        
+        Timing:
+        - LD r, r: 1 M-Cycle (transferencia entre registros)
+        - LD r, (HL) o LD (HL), r: 2 M-Cycles (acceso a memoria)
+        
+        Args:
+            dest_code: Código del registro destino (0-7)
+            src_code: Código del registro origen (0-7)
+            
+        Returns:
+            1 M-Cycle si ambos son registros, 2 M-Cycles si alguno es (HL)
+            
+        Fuente: Pan Docs - CPU Instruction Set (LD r, r')
+        """
+        # Obtener valor del origen
+        src_value = self._get_register_value(src_code)
+        
+        # Establecer valor en el destino
+        self._set_register_value(dest_code, src_value)
+        
+        # Determinar timing según si hay acceso a memoria
+        if dest_code == 6 or src_code == 6:  # (HL) está involucrado
+            cycles = 2
+            dest_name = "(HL)" if dest_code == 6 else self._get_register_name(dest_code)
+            src_name = "(HL)" if src_code == 6 else self._get_register_name(src_code)
+            logger.debug(f"LD {dest_name}, {src_name} -> {dest_name}=0x{src_value:02X} (2 M-Cycles)")
+        else:
+            cycles = 1
+            dest_name = self._get_register_name(dest_code)
+            src_name = self._get_register_name(src_code)
+            logger.debug(f"LD {dest_name}, {src_name} -> {dest_name}=0x{src_value:02X} (1 M-Cycle)")
+        
+        return cycles
+    
+    def _get_register_name(self, reg_code: int) -> str:
+        """
+        Obtiene el nombre legible de un registro según su código.
+        
+        Args:
+            reg_code: Código del registro (0-7)
+            
+        Returns:
+            Nombre del registro (ej: "B", "C", "(HL)", "A")
+        """
+        names = ["B", "C", "D", "E", "H", "L", "(HL)", "A"]
+        return names[reg_code]
+    
+    # ========== Handlers de Transferencias LD r, r' (Bloque 0x40-0x7F) ==========
+    
+    def _op_halt(self) -> int:
+        """
+        HALT (Halt CPU) - Opcode 0x76
+        
+        Pone la CPU en modo de bajo consumo. La CPU deja de ejecutar instrucciones
+        (el PC no avanza) hasta que ocurre una interrupción.
+        
+        Comportamiento:
+        - Si IME está activado (True) y hay interrupciones pendientes, la CPU se
+          despierta automáticamente en el siguiente ciclo.
+        - Si IME está desactivado (False), la CPU permanece en HALT hasta que
+          se active IME y ocurra una interrupción.
+        - Mientras está en HALT, la CPU consume 1 ciclo por tick (espera activa).
+        
+        IMPORTANTE: El opcode 0x76 es HALT, NO LD (HL), (HL). No existe la
+        transferencia de memoria a memoria.
+        
+        Returns:
+            1 M-Cycle (la instrucción HALT en sí consume 1 ciclo)
+            
+        Fuente: Pan Docs - CPU Instruction Set (HALT)
+        """
+        self.halted = True
+        logger.debug("HALT -> CPU en modo de bajo consumo (halted=True)")
+        return 1
 

@@ -32,6 +32,31 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0015 - Transferencias de 8 bits y HALT -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0015__transferencias-8bits-halt.html" class="entry-link">
+                                    Transferencias de 8 bits (LD r, r') y HALT
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0015 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación del bloque completo de transferencias de 8 bits (LD r, r') del rango 0x40-0x7F,
+                            cubriendo 63 opcodes nuevos que permiten mover datos entre registros y memoria. Se implementó
+                            también la instrucción HALT (0x76) que pone la CPU en modo de bajo consumo. El bloque es
+                            crítico porque permite que el emulador ejecute código real de juegos que necesita transferir
+                            datos entre registros. Se usó inicialización lazy de handlers para evitar problemas de orden
+                            de definición. Suite completa de tests TDD (8 tests) validando todas las funcionalidades.
+                            Todos los tests pasan. El emulador ahora puede ejecutar transferencias de datos, un paso
+                            fundamental para que los juegos puedan funcionar correctamente.
+                        </p>
+                    </li>
                     <!-- Entrada 0014 - Aritmética de 16 bits y Retornos Condicionales -->
                     <li>
                         <div class="entry-header">

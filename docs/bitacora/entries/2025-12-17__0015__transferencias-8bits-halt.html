@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transferencias de 8 bits (LD r, r') y HALT - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Transferencias de 8 bits (LD r, r') y HALT</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-17
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0015
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-16__0014__aritmetica-16bits-retornos-condicionales.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó el bloque completo de transferencias de 8 bits (LD r, r') del rango 0x40-0x7F,
+                    cubriendo 63 opcodes nuevos que permiten mover datos entre registros y memoria. Se implementó
+                    también la instrucción HALT (0x76) que pone la CPU en modo de bajo consumo. Este bloque es
+                    crítico porque permite que el emulador ejecute código real de juegos que necesita transferir
+                    datos entre registros para su funcionamiento normal.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Bloque de Transferencias 0x40-0x7F</h3>
+                <p>
+                    En la arquitectura LR35902 (y Z80), el bloque central de opcodes 0x40-0x7F está dedicado
+                    casi exclusivamente a transferencias de datos entre registros. Es una matriz de 8x8 donde
+                    cada opcode codifica un origen y un destino usando 3 bits para cada uno.
+                </p>
+                <p>
+                    <strong>Estructura del opcode:</strong>
+                </p>
+                <ul>
+                    <li><strong>Bits 0-2:</strong> Código del registro origen (000=B, 001=C, 010=D, 011=E, 100=H, 101=L, 110=(HL), 111=A)</li>
+                    <li><strong>Bits 3-5:</strong> Código del registro destino (mismo mapeo)</li>
+                </ul>
+                <p>
+                    Esta estructura permite 64 combinaciones posibles (8x8), pero el opcode 0x76 es especial:
+                    en lugar de ser LD (HL), (HL) (que no tiene sentido), es la instrucción HALT.
+                </p>
+                
+                <h3>HALT (0x76) - Modo de Bajo Consumo</h3>
+                <p>
+                    HALT pone la CPU en un estado de bajo consumo donde deja de ejecutar instrucciones.
+                    El Program Counter (PC) no avanza y la CPU simplemente espera. La CPU se despierta
+                    automáticamente cuando ocurre una interrupción (si IME está activado) o puede ser
+                    despertada manualmente.
+                </p>
+                <p>
+                    Mientras está en HALT, la CPU consume 1 ciclo por tick (espera activa), pero no
+                    ejecuta ninguna instrucción. Esto es útil para juegos que esperan eventos como
+                    V-Blank (interrupción de refresco de pantalla) para sincronizar la lógica del juego.
+                </p>
+                
+                <h3>Timing de las Transferencias</h3>
+                <p>
+                    Las transferencias tienen diferentes tiempos de ejecución según si involucran memoria:
+                </p>
+                <ul>
+                    <li><strong>LD r, r:</strong> 1 M-Cycle (transferencia entre registros, sin acceso a memoria)</li>
+                    <li><strong>LD r, (HL) o LD (HL), r:</strong> 2 M-Cycles (acceso a memoria indirecta)</li>
+                </ul>
+                <p>
+                    Esta diferencia refleja el costo real del hardware: acceder a memoria es más lento
+                    que acceder a registros internos de la CPU.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó el bloque completo de transferencias usando un sistema de inicialización
+                    lazy que crea los handlers dinámicamente cuando se accede a ellos por primera vez.
+                    Esto permite usar los métodos helper que se definen después del constructor.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>CPU.__init__():</strong> Añadido flag <code>halted</code> y llamada a <code>_init_ld_handlers()</code></li>
+                    <li><strong>CPU.step():</strong> Modificado para manejar estado HALT (verificar interrupciones, consumir ciclos)</li>
+                    <li><strong>CPU._get_register_value():</strong> Helper para obtener valor de registro según código (0-7)</li>
+                    <li><strong>CPU._set_register_value():</strong> Helper para establecer valor en registro según código (0-7)</li>
+                    <li><strong>CPU._op_ld_r_r():</strong> Handler genérico para todas las transferencias LD r, r'</li>
+                    <li><strong>CPU._op_halt():</strong> Handler para HALT (0x76)</li>
+                    <li><strong>CPU._init_ld_handler_lazy():</strong> Inicialización lazy de handlers de transferencias</li>
+                    <li><strong>CPU._execute_opcode():</strong> Modificado para inicializar handlers lazy cuando se accede a ellos</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Inicialización Lazy:</strong> Los handlers de transferencias se crean de forma lazy
+                    (cuando se accede por primera vez) porque los métodos helper (<code>_get_register_value</code>,
+                    <code>_set_register_value</code>, <code>_op_ld_r_r</code>) se definen después del constructor.
+                    Esto evita problemas de orden de definición y mantiene el código organizado.
+                </p>
+                <p>
+                    <strong>Helper Genérico:</strong> Se creó <code>_op_ld_r_r()</code> como handler genérico que
+                    acepta códigos de registro (0-7) en lugar de crear 63 funciones individuales. Esto reduce
+                    duplicación de código y facilita el mantenimiento.
+                </p>
+                <p>
+                    <strong>Manejo de HALT:</strong> El estado HALT se verifica al inicio de <code>step()</code>.
+                    Si la CPU está en HALT y hay interrupciones pendientes (IME activado), se despierta
+                    automáticamente. Si no, consume 1 ciclo y retorna sin ejecutar ninguna instrucción.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadido flag halted, modificado step(), implementados helpers y handlers de transferencias y HALT</li>
+                    <li><code>tests/test_cpu_load8.py</code> - Suite completa de tests TDD (8 tests) validando transferencias y HALT</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests TDD con 8 tests que validan todas las funcionalidades:
+                </p>
+                <ul>
+                    <li><strong>test_ld_r_r:</strong> Verifica transferencia entre registros (LD A, D - 0x7A) con timing correcto (1 M-Cycle)</li>
+                    <li><strong>test_ld_r_hl:</strong> Verifica lectura desde memoria indirecta (LD B, (HL) - 0x46) con timing correcto (2 M-Cycles)</li>
+                    <li><strong>test_ld_hl_r:</strong> Verifica escritura a memoria indirecta (LD (HL), C - 0x71) con timing correcto (2 M-Cycles)</li>
+                    <li><strong>test_ld_all_registers:</strong> Verifica múltiples combinaciones de transferencias entre registros básicos</li>
+                    <li><strong>test_halt_sets_flag:</strong> Verifica que HALT activa el flag halted correctamente</li>
+                    <li><strong>test_halt_pc_does_not_advance:</strong> Verifica que en HALT el PC no avanza y se consume 1 ciclo por tick</li>
+                    <li><strong>test_halt_wake_on_interrupt:</strong> Verifica que HALT se despierta cuando IME está activado</li>
+                    <li><strong>test_ld_hl_hl_is_halt:</strong> Verifica que 0x76 es HALT, no LD (HL), (HL)</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> Todos los tests pasan ✅ (8/8)
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: CPU Instruction Set - LD r, r' encoding (bloque 0x40-0x7F)</li>
+                    <li>Pan Docs: CPU Instruction Set - HALT instruction (0x76)</li>
+                    <li>Pan Docs: CPU Timing - M-Cycles para transferencias con/sin memoria</li>
+                </ul>
+                <p>
+                    <em>Implementación basada en documentación técnica de Pan Docs sobre la arquitectura LR35902.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Bloque de Transferencias:</strong> El rango 0x40-0x7F es una matriz de 8x8 que codifica todas las combinaciones posibles de transferencias entre registros. La estructura es elegante y permite cubrir 63 opcodes con una implementación genérica.</li>
+                        <li><strong>HALT como Excepción:</strong> El opcode 0x76 es especial porque rompe el patrón de la matriz. En lugar de ser LD (HL), (HL) (que no tiene sentido), es HALT. Esto es una peculiaridad del diseño del hardware.</li>
+                        <li><strong>Timing Diferencial:</strong> Las transferencias que involucran memoria (usando (HL)) consumen 2 M-Cycles, mientras que las que solo involucran registros consumen 1 M-Cycle. Esto refleja el costo real del hardware.</li>
+                        <li><strong>Estado HALT:</strong> HALT es un estado especial de la CPU que permite esperar eventos (como interrupciones) sin consumir recursos innecesarios. Es fundamental para la sincronización en juegos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Despertar de HALT:</strong> La implementación actual simplifica el despertar de HALT asumiendo que si IME está activado, hay interrupciones pendientes. Cuando se implemente el manejo completo de interrupciones, se deberá verificar los registros IF (Interrupt Flag) e IE (Interrupt Enable) para determinar si realmente hay interrupciones pendientes.</li>
+                        <li><strong>Comportamiento de HALT con IME desactivado:</strong> En hardware real, cuando IME está desactivado y se ejecuta HALT, la CPU puede tener comportamientos especiales. Esto necesita verificación con documentación más detallada o tests con hardware real.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        La implementación del despertar de HALT asume que si IME está activado, hay interrupciones
+                        pendientes. Esto es una simplificación que funcionará para la mayoría de casos, pero cuando
+                        se implemente el manejo completo de interrupciones, se deberá verificar explícitamente los
+                        registros IF e IE.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar más opcodes del set de instrucciones (operaciones lógicas, rotaciones, etc.)</li>
+                    <li>[ ] Implementar manejo completo de interrupciones (IF, IE, vectores de interrupción)</li>
+                    <li>[ ] Mejorar el despertar de HALT para verificar explícitamente interrupciones pendientes</li>
+                    <li>[ ] Probar el emulador con Tetris DX para verificar que puede avanzar más allá de la inicialización</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
