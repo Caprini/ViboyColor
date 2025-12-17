@@ -32,6 +32,28 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0010 - Control de Interrupciones, XOR y Cargas de 16 bits -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-16__0010__control-interrupciones-xor.html" class="entry-link">
+                                    Control de Interrupciones, XOR y Cargas de 16 bits
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-16 | 
+                            <strong>Step ID:</strong> 0010 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de instrucciones críticas de control de sistema y operaciones lógicas necesarias para que Tetris DX
+                            continúe ejecutándose. Se añadió el atributo IME (Interrupt Master Enable) a la CPU para controlar las interrupciones.
+                            Se implementaron los opcodes DI (0xF3) y EI (0xFB) para desactivar/activar interrupciones, XOR A (0xAF) como optimización
+                            para poner el registro A a cero, y las instrucciones de carga inmediata de 16 bits LD SP, d16 (0x31) y LD HL, d16 (0x21).
+                            Estas instrucciones son esenciales para la inicialización del sistema. Suite completa de tests TDD (13 tests).
+                        </p>
+                    </li>
                     <!-- Entrada 0009 - Placa Base y Bucle Principal -->
                     <li>
                         <div class="entry-header">

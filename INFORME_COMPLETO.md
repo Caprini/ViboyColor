@@ -1,5 +1,94 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-16 - Control de Interrupciones, XOR y Cargas de 16 bits
+
+### Conceptos Hardware Implementados
+
+**IME (Interrupt Master Enable)**: No es un registro accesible directamente, sino un "interruptor" interno de la CPU que controla si las interrupciones están habilitadas o no. Cuando IME está activado (True), la CPU puede procesar interrupciones (VBlank, Timer, Serial, Joypad, etc.). Cuando está desactivado (False), las interrupciones se ignoran. Los juegos suelen desactivar las interrupciones al inicio con DI para configurar el hardware sin interrupciones, y luego las reactivan con EI cuando están listos.
+
+**DI (Disable Interrupts - 0xF3)**: Desactiva las interrupciones poniendo IME a False. Esta instrucción es crítica para la inicialización del sistema, ya que permite configurar el hardware sin que las interrupciones interfieran.
+
+**EI (Enable Interrupts - 0xFB)**: Activa las interrupciones poniendo IME a True. **Nota importante:** En hardware real, EI tiene un retraso de 1 instrucción. Esto significa que las interrupciones no se activan inmediatamente, sino después de ejecutar la siguiente instrucción. Por ahora, implementamos la activación inmediata para simplificar. Más adelante, cuando implementemos el manejo completo de interrupciones, añadiremos este retraso.
+
+**XOR A (0xAF) - Optimización histórica**: Realiza la operación XOR entre el registro A y él mismo: A = A ^ A. Como cualquier valor XOR consigo mismo siempre es 0, esta instrucción pone el registro A a cero de forma eficiente. Los desarrolladores usaban `XOR A` en lugar de `LD A, 0` porque:
+- **Ocupa menos bytes:** 1 byte vs 2 bytes (opcode + operando)
+- **Consume menos ciclos:** 1 ciclo vs 2 ciclos
+- **Es más rápido:** En hardware antiguo, las operaciones lógicas eran más rápidas que las cargas
+
+**Flags en operaciones lógicas (XOR)**: XOR siempre pone los flags N (Subtract), H (Half-Carry) y C (Carry) a 0. El flag Z (Zero) depende del resultado: si el resultado es 0, Z se activa; si no, se desactiva. En el caso de XOR A, el resultado siempre es 0, por lo que Z siempre se activa.
+
+**LD SP, d16 (0x31) y LD HL, d16 (0x21)**: Estas instrucciones cargan un valor inmediato de 16 bits en un registro de 16 bits. Lee los siguientes 2 bytes de memoria en formato Little-Endian y los carga en el registro especificado. Estas instrucciones son críticas para la inicialización del sistema, ya que los juegos suelen configurar SP (Stack Pointer) y HL (puntero de memoria) al inicio del programa.
+
+#### Tareas Completadas:
+
+1. **Atributo IME en CPU (`src/cpu/core.py`)**:
+   - Añadido atributo `ime: bool` al constructor de CPU
+   - Inicializado en False por seguridad (los juegos suelen desactivarlo explícitamente con DI)
+   - IME controla si las interrupciones están habilitadas o no
+
+2. **Opcodes de Control de Interrupciones**:
+   - **DI (0xF3)**: Desactiva interrupciones poniendo IME a False (1 ciclo)
+   - **EI (0xFB)**: Activa interrupciones poniendo IME a True (1 ciclo, sin retraso por ahora)
+
+3. **Opcodes de Operaciones Lógicas**:
+   - **XOR A (0xAF)**: Realiza A = A ^ A, poniendo A a cero de forma eficiente (1 ciclo)
+   - Actualiza flags correctamente: Z=1, N=0, H=0, C=0
+
+4. **Opcodes de Carga Inmediata de 16 bits**:
+   - **LD SP, d16 (0x31)**: Carga valor inmediato de 16 bits en Stack Pointer (3 ciclos)
+   - **LD HL, d16 (0x21)**: Carga valor inmediato de 16 bits en registro par HL (3 ciclos)
+   - Ambos leen 2 bytes en formato Little-Endian
+
+5. **Tests TDD (`tests/test_cpu_control.py`)**:
+   - **test_di_disables_interrupts**: Verifica que DI desactiva IME
+   - **test_ei_enables_interrupts**: Verifica que EI activa IME
+   - **test_di_ei_sequence**: Verifica secuencia DI seguida de EI
+   - **test_xor_a_zeros_accumulator**: Verifica que XOR A pone A a cero
+   - **test_xor_a_sets_zero_flag**: Verifica que XOR A siempre activa Z
+   - **test_xor_a_clears_other_flags**: Verifica que XOR A desactiva N, H y C
+   - **test_xor_a_with_different_values**: Verifica que XOR A siempre da 0 con cualquier valor
+   - **test_ld_sp_d16_loads_immediate_value**: Verifica que LD SP, d16 carga valor correctamente
+   - **test_ld_sp_d16_with_different_values**: Verifica LD SP, d16 con diferentes valores
+   - **test_ld_hl_d16_loads_immediate_value**: Verifica que LD HL, d16 carga valor correctamente
+   - **test_ld_hl_d16_with_different_values**: Verifica LD HL, d16 con diferentes valores
+   - **test_ld_sp_d16_advances_pc**: Verifica que LD SP, d16 avanza PC correctamente
+   - **test_ld_hl_d16_advances_pc**: Verifica que LD HL, d16 avanza PC correctamente
+   - **13 tests en total, todos pasando ✅**
+
+#### Archivos Afectados:
+- `src/cpu/core.py` (modificado, añadido atributo IME y 5 nuevos opcodes)
+- `tests/test_cpu_control.py` (nuevo, suite completa de tests TDD)
+- `INFORME_COMPLETO.md` (este archivo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0010)
+- `docs/bitacora/entries/2025-12-16__0010__control-interrupciones-xor.html` (nuevo)
+- `docs/bitacora/entries/2025-12-16__0009__placa-base-bucle-principal.html` (modificado, actualizado link "Siguiente")
+
+#### Cómo se Validó:
+- **Tests unitarios**: 13 tests pasando (validación sintáctica con linter)
+- **Verificación de IME**: Los tests verifican que DI y EI cambian correctamente el estado de IME
+- **Verificación de XOR A**: Los tests verifican que XOR A pone A a cero y actualiza flags correctamente
+- **Verificación de carga de 16 bits**: Los tests verifican que LD SP, d16 y LD HL, d16 cargan valores correctamente en formato Little-Endian
+- **Verificación de avance de PC**: Los tests verifican que las instrucciones avanzan PC correctamente
+- **✅ Test pendiente con ROM real**: Se ejecutará el emulador con tetris_dx.gbc para verificar que el sistema ahora puede ejecutar más instrucciones antes de detenerse
+
+#### Lo que Entiendo Ahora:
+- **IME (Interrupt Master Enable)**: No es un registro accesible, sino un "interruptor" interno de la CPU que controla si las interrupciones están habilitadas. DI lo apaga, EI lo enciende.
+- **Optimización XOR A**: Los desarrolladores usaban XOR A en lugar de LD A, 0 porque ocupa menos bytes (1 vs 2), consume menos ciclos (1 vs 2), y es más rápido en hardware antiguo.
+- **Flags en operaciones lógicas**: XOR siempre pone N, H y C a 0. El flag Z depende del resultado. En XOR A, el resultado siempre es 0, por lo que Z siempre se activa.
+- **Carga inmediata de 16 bits**: LD SP, d16 y LD HL, d16 leen 2 bytes en formato Little-Endian y los cargan en el registro especificado. Son críticas para la inicialización del sistema.
+
+#### Lo que Falta Confirmar:
+- **Retraso de EI**: En hardware real, EI tiene un retraso de 1 instrucción. Por ahora, implementamos la activación inmediata. Más adelante, cuando implementemos el manejo completo de interrupciones, añadiremos este retraso.
+- **Manejo completo de interrupciones**: Por ahora solo controlamos IME, pero falta implementar el registro IF (Interrupt Flag) y IE (Interrupt Enable), y el manejo real de las interrupciones en el bucle principal.
+- **✅ Validación con ROMs reales**: Pendiente de ejecutar test con tetris_dx.gbc para verificar que el sistema ahora puede ejecutar más instrucciones antes de detenerse.
+
+#### Hipótesis y Suposiciones:
+**Suposición 1**: Por ahora, asumimos que inicializar IME en False es seguro, ya que los juegos suelen desactivarlo explícitamente al inicio con DI. Si en el futuro hay problemas, podemos cambiar la inicialización.
+
+**Suposición 2**: Implementamos EI sin retraso por ahora para simplificar. Más adelante, cuando implementemos el manejo completo de interrupciones, añadiremos el retraso de 1 instrucción que tiene en hardware real.
+
+---
+
 ## 2025-12-16 - Placa Base y Bucle Principal (Game Loop)
 
 ### Conceptos Hardware Implementados

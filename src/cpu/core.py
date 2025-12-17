@@ -53,6 +53,14 @@ class CPU:
         self.registers = Registers()
         self.mmu = mmu
         
+        # IME (Interrupt Master Enable) - Control de interrupciones
+        # No es un registro accesible, sino un "interruptor" interno de la CPU
+        # DI lo apaga (False), EI lo enciende (True)
+        # Por defecto, después de la boot ROM, IME está activado, pero los juegos
+        # suelen desactivarlo explícitamente al inicio con DI
+        # Inicializamos en False por seguridad (el juego lo activará si lo necesita)
+        self.ime: bool = False
+        
         # Tabla de despacho (Dispatch Table) para opcodes
         # Mapea cada opcode a su función manejadora
         # Esto es más escalable que if/elif y compatible con Python 3.9+
@@ -71,6 +79,14 @@ class CPU:
             0xC1: self._op_pop_bc,     # POP BC
             0xCD: self._op_call_nn,     # CALL nn
             0xC9: self._op_ret,         # RET
+            # Control de Interrupciones
+            0xF3: self._op_di,          # DI (Disable Interrupts)
+            0xFB: self._op_ei,          # EI (Enable Interrupts)
+            # Operaciones Lógicas
+            0xAF: self._op_xor_a,       # XOR A (optimización para poner A a cero)
+            # Carga inmediata de 16 bits
+            0x31: self._op_ld_sp_d16,   # LD SP, d16
+            0x21: self._op_ld_hl_d16,   # LD HL, d16
         }
         
         logger.info("CPU inicializada")
@@ -703,4 +719,139 @@ class CPU:
         
         logger.debug(f"RET -> PC=0x{return_addr:04X} (SP=0x{self.registers.get_sp():04X})")
         return 4
+
+    # ========== Handlers de Control de Interrupciones ==========
+
+    def _op_di(self) -> int:
+        """
+        DI (Disable Interrupts) - Opcode 0xF3
+        
+        Desactiva las interrupciones poniendo IME (Interrupt Master Enable) a False.
+        
+        Esta instrucción es crítica para la inicialización del sistema. Los juegos
+        suelen desactivar las interrupciones al inicio para configurar el hardware
+        sin que nadie les moleste, y luego las reactivan cuando están listos.
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - CPU Instruction Set (DI)
+        """
+        self.ime = False
+        logger.debug("DI -> IME=False (interrupciones desactivadas)")
+        return 1
+
+    def _op_ei(self) -> int:
+        """
+        EI (Enable Interrupts) - Opcode 0xFB
+        
+        Activa las interrupciones poniendo IME (Interrupt Master Enable) a True.
+        
+        NOTA IMPORTANTE: En hardware real, EI tiene un retraso de 1 instrucción.
+        Esto significa que las interrupciones no se activan inmediatamente, sino
+        después de ejecutar la siguiente instrucción. Por ahora, implementamos
+        la activación inmediata para simplificar. Más adelante, cuando implementemos
+        el manejo completo de interrupciones, añadiremos este retraso.
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - CPU Instruction Set (EI)
+        """
+        self.ime = True
+        logger.debug("EI -> IME=True (interrupciones activadas)")
+        return 1
+
+    # ========== Handlers de Operaciones Lógicas ==========
+
+    def _op_xor_a(self) -> int:
+        """
+        XOR A (XOR A with A) - Opcode 0xAF
+        
+        Realiza la operación XOR entre el registro A y él mismo: A = A ^ A.
+        
+        Como cualquier valor XOR consigo mismo siempre es 0, esta instrucción
+        pone el registro A a cero de forma eficiente.
+        
+        Optimización histórica: Los desarrolladores usaban `XOR A` en lugar de
+        `LD A, 0` porque:
+        - Ocupa menos bytes (1 byte vs 2 bytes)
+        - Consume menos ciclos (1 ciclo vs 2 ciclos)
+        - Es más rápido en hardware antiguo
+        
+        Actualización de flags:
+        - Z (Zero): Siempre 1 (el resultado siempre es 0)
+        - N (Subtract): Siempre 0 (XOR no es una resta)
+        - H (Half-Carry): Siempre 0 (XOR no tiene carry)
+        - C (Carry): Siempre 0 (XOR no tiene carry)
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - CPU Instruction Set (XOR A)
+        """
+        # A ^ A siempre es 0
+        self.registers.set_a(0)
+        
+        # Actualizar flags
+        # Z: siempre 1 (resultado es 0)
+        self.registers.set_flag(FLAG_Z)
+        # N, H, C: siempre 0 en XOR
+        self.registers.clear_flag(FLAG_N)
+        self.registers.clear_flag(FLAG_H)
+        self.registers.clear_flag(FLAG_C)
+        
+        logger.debug("XOR A -> A=0x00, Z=1, N=0, H=0, C=0")
+        return 1
+
+    # ========== Handlers de Carga Inmediata de 16 bits ==========
+
+    def _op_ld_sp_d16(self) -> int:
+        """
+        LD SP, d16 (Load immediate 16-bit value into Stack Pointer) - Opcode 0x31
+        
+        Carga un valor inmediato de 16 bits en el Stack Pointer (SP).
+        
+        Lee los siguientes 2 bytes de memoria (Little-Endian) y los carga en SP.
+        Esta instrucción es crítica para la inicialización del sistema, ya que
+        los juegos suelen configurar SP al inicio del programa.
+        
+        Ejemplo:
+        - Si en memoria hay: 0x31 0xFE 0xFF
+        - Lee 0xFFFE (Little-Endian de 0xFE 0xFF)
+        - SP se establece en 0xFFFE
+        
+        Returns:
+            3 M-Cycles (fetch opcode + fetch 2 bytes de valor)
+            
+        Fuente: Pan Docs - Instruction Set (LD SP, d16)
+        """
+        value = self.fetch_word()
+        self.registers.set_sp(value)
+        logger.debug(f"LD SP, 0x{value:04X} -> SP=0x{self.registers.get_sp():04X}")
+        return 3
+
+    def _op_ld_hl_d16(self) -> int:
+        """
+        LD HL, d16 (Load immediate 16-bit value into HL) - Opcode 0x21
+        
+        Carga un valor inmediato de 16 bits en el registro par HL.
+        
+        Lee los siguientes 2 bytes de memoria (Little-Endian) y los carga en HL.
+        HL es uno de los pares de registros más usados como puntero de memoria.
+        
+        Ejemplo:
+        - Si en memoria hay: 0x21 0x00 0xC0
+        - Lee 0xC000 (Little-Endian de 0x00 0xC0)
+        - HL se establece en 0xC000
+        
+        Returns:
+            3 M-Cycles (fetch opcode + fetch 2 bytes de valor)
+            
+        Fuente: Pan Docs - Instruction Set (LD HL, d16)
+        """
+        value = self.fetch_word()
+        self.registers.set_hl(value)
+        logger.debug(f"LD HL, 0x{value:04X} -> HL=0x{self.registers.get_hl():04X}")
+        return 3
 

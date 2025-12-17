@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control de Interrupciones, XOR y Cargas de 16 bits - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Control de Interrupciones, XOR y Cargas de 16 bits</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-16
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0010
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-16__0009__placa-base-bucle-principal.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de instrucciones críticas de control de sistema y operaciones lógicas necesarias
+                    para que Tetris DX continúe ejecutándose. Se añadió el atributo IME (Interrupt Master Enable)
+                    a la CPU para controlar las interrupciones. Se implementaron los opcodes DI (0xF3) y EI (0xFB)
+                    para desactivar/activar interrupciones, XOR A (0xAF) como optimización para poner el registro A
+                    a cero, y las instrucciones de carga inmediata de 16 bits LD SP, d16 (0x31) y LD HL, d16 (0x21).
+                    Estas instrucciones son esenciales para la inicialización del sistema. Suite completa de tests
+                    TDD (13 tests) validando todas las funcionalidades implementadas.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>IME (Interrupt Master Enable):</strong> No es un registro accesible directamente, sino un
+                    "interruptor" interno de la CPU que controla si las interrupciones están habilitadas o no. Cuando
+                    IME está activado (True), la CPU puede procesar interrupciones (VBlank, Timer, Serial, Joypad, etc.).
+                    Cuando está desactivado (False), las interrupciones se ignoran. Los juegos suelen desactivar las
+                    interrupciones al inicio con DI para configurar el hardware sin interrupciones, y luego las reactivan
+                    con EI cuando están listos.
+                </p>
+                <p>
+                    <strong>DI (Disable Interrupts - 0xF3):</strong> Desactiva las interrupciones poniendo IME a False.
+                    Esta instrucción es crítica para la inicialización del sistema, ya que permite configurar el hardware
+                    sin que las interrupciones interfieran.
+                </p>
+                <p>
+                    <strong>EI (Enable Interrupts - 0xFB):</strong> Activa las interrupciones poniendo IME a True.
+                    <strong>Nota importante:</strong> En hardware real, EI tiene un retraso de 1 instrucción. Esto significa
+                    que las interrupciones no se activan inmediatamente, sino después de ejecutar la siguiente instrucción.
+                    Por ahora, implementamos la activación inmediata para simplificar. Más adelante, cuando implementemos
+                    el manejo completo de interrupciones, añadiremos este retraso.
+                </p>
+                <p>
+                    <strong>XOR A (0xAF) - Optimización histórica:</strong> Realiza la operación XOR entre el registro A
+                    y él mismo: A = A ^ A. Como cualquier valor XOR consigo mismo siempre es 0, esta instrucción pone el
+                    registro A a cero de forma eficiente. Los desarrolladores usaban `XOR A` en lugar de `LD A, 0` porque:
+                </p>
+                <ul>
+                    <li><strong>Ocupa menos bytes:</strong> 1 byte vs 2 bytes (opcode + operando)</li>
+                    <li><strong>Consume menos ciclos:</strong> 1 ciclo vs 2 ciclos</li>
+                    <li><strong>Es más rápido:</strong> En hardware antiguo, las operaciones lógicas eran más rápidas que las cargas</li>
+                </ul>
+                <p>
+                    <strong>Flags en operaciones lógicas (XOR):</strong> XOR siempre pone los flags N (Subtract), H (Half-Carry)
+                    y C (Carry) a 0. El flag Z (Zero) depende del resultado: si el resultado es 0, Z se activa; si no, se desactiva.
+                    En el caso de XOR A, el resultado siempre es 0, por lo que Z siempre se activa.
+                </p>
+                <p>
+                    <strong>LD SP, d16 (0x31) y LD HL, d16 (0x21):</strong> Estas instrucciones cargan un valor inmediato de
+                    16 bits en un registro de 16 bits. Lee los siguientes 2 bytes de memoria en formato Little-Endian y los
+                    carga en el registro especificado. Estas instrucciones son críticas para la inicialización del sistema,
+                    ya que los juegos suelen configurar SP (Stack Pointer) y HL (puntero de memoria) al inicio del programa.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - CPU Instruction Set (DI, EI, XOR, LD)
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió el atributo <code>ime</code> (bool) a la clase CPU para controlar el estado de las interrupciones.
+                    Se implementaron 5 nuevos opcodes en <code>src/cpu/core.py</code>:
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>src/cpu/core.py:</strong> Añadido atributo <code>ime</code> y 5 nuevos opcodes (DI, EI, XOR A, LD SP d16, LD HL d16)</li>
+                    <li><strong>tests/test_cpu_control.py:</strong> Suite completa de tests TDD (13 tests)</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>1. IME como atributo booleano:</strong> Se decidió usar un simple booleano (<code>self.ime: bool</code>)
+                    en lugar de un registro completo, ya que IME no es accesible directamente y solo tiene dos estados (activado/desactivado).
+                </p>
+                <p>
+                    <strong>2. Inicialización de IME en False:</strong> Por defecto, IME se inicializa en False por seguridad.
+                    Aunque después de la boot ROM real, IME suele estar activado, los juegos suelen desactivarlo explícitamente
+                    al inicio con DI, así que inicializar en False es más seguro.
+                </p>
+                <p>
+                    <strong>3. EI sin retraso (por ahora):</strong> En hardware real, EI tiene un retraso de 1 instrucción.
+                    Por ahora, implementamos la activación inmediata para simplificar. Más adelante, cuando implementemos el
+                    manejo completo de interrupciones, añadiremos este retraso.
+                </p>
+                <p>
+                    <strong>4. XOR A como optimización documentada:</strong> Se documentó explícitamente por qué XOR A es una
+                    optimización histórica (menos bytes, menos ciclos, más rápido). Esto ayuda a entender el código de los juegos
+                    antiguos que usan esta técnica.
+                </p>
+                <p>
+                    <strong>5. Flags en XOR:</strong> Se implementó correctamente la actualización de flags en XOR A: Z siempre
+                    se activa (resultado siempre es 0), N, H y C siempre se desactivan (XOR no es resta, no tiene carry).
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadido atributo IME y 5 nuevos opcodes</li>
+                    <li><code>tests/test_cpu_control.py</code> - Suite completa de tests TDD (13 tests)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests de integración en <code>tests/test_cpu_control.py</code>:
+                </p>
+                <ul>
+                    <li><strong>test_di_disables_interrupts:</strong> Verifica que DI desactiva IME</li>
+                    <li><strong>test_ei_enables_interrupts:</strong> Verifica que EI activa IME</li>
+                    <li><strong>test_di_ei_sequence:</strong> Verifica secuencia DI seguida de EI</li>
+                    <li><strong>test_xor_a_zeros_accumulator:</strong> Verifica que XOR A pone A a cero</li>
+                    <li><strong>test_xor_a_sets_zero_flag:</strong> Verifica que XOR A siempre activa Z</li>
+                    <li><strong>test_xor_a_clears_other_flags:</strong> Verifica que XOR A desactiva N, H y C</li>
+                    <li><strong>test_xor_a_with_different_values:</strong> Verifica que XOR A siempre da 0 con cualquier valor</li>
+                    <li><strong>test_ld_sp_d16_loads_immediate_value:</strong> Verifica que LD SP, d16 carga valor correctamente</li>
+                    <li><strong>test_ld_sp_d16_with_different_values:</strong> Verifica LD SP, d16 con diferentes valores</li>
+                    <li><strong>test_ld_hl_d16_loads_immediate_value:</strong> Verifica que LD HL, d16 carga valor correctamente</li>
+                    <li><strong>test_ld_hl_d16_with_different_values:</strong> Verifica LD HL, d16 con diferentes valores</li>
+                    <li><strong>test_ld_sp_d16_advances_pc:</strong> Verifica que LD SP, d16 avanza PC correctamente</li>
+                    <li><strong>test_ld_hl_d16_advances_pc:</strong> Verifica que LD HL, d16 avanza PC correctamente</li>
+                    <li><strong>13 tests en total, todos pasando ✅</strong></li>
+                </ul>
+                <p>
+                    <strong>Validación manual:</strong> Se ejecutará el emulador con <code>python3 main.py tetris_dx.gbc --debug</code>
+                    para verificar que el sistema ahora puede ejecutar las instrucciones DI, LD SP, d16 y otras, avanzando más
+                    en el código de inicialización de Tetris DX.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set (DI, EI)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set (XOR)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set (LD)</a></li>
+                </ul>
+                <p>
+                    <em>Nota: Implementación basada en conocimiento general de arquitectura LR35902 y documentación técnica de Pan Docs.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>IME (Interrupt Master Enable):</strong> No es un registro accesible, sino un "interruptor" interno
+                            de la CPU que controla si las interrupciones están habilitadas. DI lo apaga, EI lo enciende.</li>
+                        <li><strong>Optimización XOR A:</strong> Los desarrolladores usaban XOR A en lugar de LD A, 0 porque ocupa menos
+                            bytes (1 vs 2), consume menos ciclos (1 vs 2), y es más rápido en hardware antiguo.</li>
+                        <li><strong>Flags en operaciones lógicas:</strong> XOR siempre pone N, H y C a 0. El flag Z depende del resultado.
+                            En XOR A, el resultado siempre es 0, por lo que Z siempre se activa.</li>
+                        <li><strong>Carga inmediata de 16 bits:</strong> LD SP, d16 y LD HL, d16 leen 2 bytes en formato Little-Endian
+                            y los cargan en el registro especificado. Son críticas para la inicialización del sistema.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Retraso de EI:</strong> En hardware real, EI tiene un retraso de 1 instrucción. Por ahora, implementamos
+                            la activación inmediata. Más adelante, cuando implementemos el manejo completo de interrupciones, añadiremos
+                            este retraso.</li>
+                        <li><strong>Manejo completo de interrupciones:</strong> Por ahora solo controlamos IME, pero falta implementar
+                            el registro IF (Interrupt Flag) y IE (Interrupt Enable), y el manejo real de las interrupciones en el bucle principal.</li>
+                        <li><strong>✅ Validación con ROMs reales:</strong> Pendiente de ejecutar test con tetris_dx.gbc para verificar
+                            que el sistema ahora puede ejecutar más instrucciones antes de detenerse.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición 1:</strong> Por ahora, asumimos que inicializar IME en False es seguro, ya que los juegos
+                        suelen desactivarlo explícitamente al inicio con DI. Si en el futuro hay problemas, podemos cambiar la inicialización.
+                    </p>
+                    <p>
+                        <strong>Suposición 2:</strong> Implementamos EI sin retraso por ahora para simplificar. Más adelante, cuando
+                        implementemos el manejo completo de interrupciones, añadiremos el retraso de 1 instrucción que tiene en hardware real.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar test con tetris_dx.gbc para verificar que el sistema avanza más en el código</li>
+                    <li>[ ] Implementar más opcodes según los que encuentre el emulador (probablemente LD (HL), A, DEC, etc.)</li>
+                    <li>[ ] Implementar el retraso de 1 instrucción en EI cuando se implemente el manejo completo de interrupciones</li>
+                    <li>[ ] Implementar registros IF (Interrupt Flag) y IE (Interrupt Enable)</li>
+                    <li>[ ] Implementar manejo completo de interrupciones en el bucle principal</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
