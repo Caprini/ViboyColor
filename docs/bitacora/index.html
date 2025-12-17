@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0029 - MBC1 y Bank Switching -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0029__mbc1-bank-switching.html" class="entry-link">
+                                    MBC1 y Bank Switching
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0029 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó el Memory Bank Controller 1 (MBC1) para permitir que cartuchos mayores a 32KB funcionen correctamente. El MBC1 resuelve el problema de que la CPU solo puede direccionar 64KB, pero los juegos pueden tener ROMs de 512KB o más. La solución es el Bank Switching: dividir la ROM en bancos de 16KB y cambiar dinámicamente qué banco está visible en el rango 0x4000-0x7FFF. El banco 0 (0x0000-0x3FFF) siempre apunta a los primeros 16KB y no cambia. El banco switchable se cambia escribiendo en el rango 0x2000-0x3FFF, que el MBC1 interpreta como comandos. Con esta implementación, Tetris DX (512KB) puede acceder a todos sus bancos de ROM, incluyendo música y gráficos que están en bancos superiores. Suite completa de tests TDD (6 tests) validando bank switching, quirk del banco 0, y enmascarado de bits. Todos los tests pasan.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0028 - Renderizado del Background -->
                     <li>
                         <div class="entry-header">

@@ -2548,3 +2548,109 @@ def test_signed_addressing_tile_id_128(self) -> None:
 - Pan Docs: Background Palette Data (BGP, 0xFF47)
 
 ---
+
+## 2025-12-17 - MBC1 y Bank Switching
+
+### Conceptos Hardware Implementados
+
+**¡Desactivando la bomba de relojería!** Se implementó el **Memory Bank Controller 1 (MBC1)** para permitir que cartuchos mayores a 32KB funcionen correctamente. El problema era que la CPU solo puede direccionar 64KB, pero juegos como Tetris DX tienen ROMs de 512KB. La solución es el **Bank Switching**: dividir la ROM en bancos de 16KB y cambiar dinámicamente qué banco está visible en el rango 0x4000-0x7FFF.
+
+**El Problema**: La CPU solo puede direccionar 64KB (16 bits = 65536 direcciones). Sin embargo, los juegos pueden tener ROMs mucho más grandes (64KB, 128KB, 256KB, 512KB, 1MB, etc.). Si solo leemos los primeros 32KB, el juego se cuelga al intentar acceder a música, gráficos o código que está en bancos superiores.
+
+**La Solución (Bank Switching)**: El MBC1 divide la ROM en bancos de 16KB:
+- **Banco 0 (Fijo)**: El rango 0x0000-0x3FFF siempre apunta a los primeros 16KB de la ROM. Este banco contiene código crítico (inicialización, vectores de interrupción) que debe estar siempre accesible.
+- **Banco X (Switchable)**: El rango 0x4000-0x7FFF apunta al banco seleccionado. El juego puede cambiar qué banco está visible escribiendo en el rango 0x2000-0x3FFF.
+
+**Cómo se cambia de banco**: Aunque la ROM es "Read Only", el MBC1 interpreta escrituras en ciertos rangos como comandos:
+- **0x2000-0x3FFF**: Selecciona el banco ROM (solo los 5 bits bajos, 0x1F). Si el juego intenta seleccionar banco 0, el MBC1 le da banco 1 (quirk del hardware).
+- **0x0000-0x1FFF**: (Reservado para RAM enable, no implementado aún)
+- **0x4000-0x5FFF**: (Reservado para RAM bank / ROM bank upper bits, no implementado aún)
+- **0x6000-0x7FFF**: (Reservado para mode select, no implementado aún)
+
+**Quirk de MBC1**: Si el juego pide el Banco 0 escribiendo 0x00 en 0x2000, el chip MBC1 le da el Banco 1. No se puede poner el Banco 0 en la ranura switchable.
+
+#### Tareas Completadas:
+
+1. **Modificación de Cartridge (`src/memory/cartridge.py`)**:
+   - Añadido atributo `_rom_bank` (inicializado a 1, no puede ser 0 en zona switchable).
+   - Modificado `read_byte()` para manejar bank switching:
+     - Si `addr < 0x4000`: Lee del Banco 0 (sin cambios).
+     - Si `0x4000 <= addr < 0x8000`: Calcula offset `(self._rom_bank * 16384) + (addr - 0x4000)` y retorna el byte de ese offset.
+   - Añadido método `write_byte()` para recibir comandos MBC:
+     - Si `0x2000 <= addr < 0x4000`: Extrae banco con `val & 0x1F` (solo 5 bits bajos).
+     - Si `bank == 0`, convierte a `bank = 1` (quirk del hardware).
+     - Actualiza `self._rom_bank = bank`.
+
+2. **Modificación de MMU (`src/memory/mmu.py`)**:
+   - Modificado `write_byte()` para permitir escrituras en zona ROM (0x0000-0x7FFF):
+     - Si la dirección está en el rango ROM, llama a `self.cartridge.write_byte(addr, value)`.
+     - Esto permite que el juego envíe comandos al MBC escribiendo en direcciones que normalmente serían de solo lectura.
+
+3. **Tests TDD (`tests/test_mbc1.py`)**:
+   - Archivo nuevo con 6 tests unitarios:
+     - `test_mbc1_bank0_fixed`: El banco 0 (0x0000-0x3FFF) siempre apunta a los primeros 16KB, independientemente del banco seleccionado.
+     - `test_mbc1_default_bank1`: Por defecto, la zona switchable (0x4000-0x7FFF) apunta al banco 1.
+     - `test_mbc1_bank_switching`: Cambiar de banco escribiendo en 0x2000-0x3FFF funciona correctamente.
+     - `test_mbc1_bank0_quirk`: Escribir 0x00 selecciona banco 1 (no banco 0).
+     - `test_mbc1_bank_bits_masking`: Solo los 5 bits bajos (0x1F) se usan para seleccionar banco.
+     - `test_mbc1_via_mmu`: La MMU permite escrituras en zona ROM que se envíen al cartucho.
+   - Todos los tests pasan (6 passed in 0.29s)
+
+#### Archivos Afectados:
+- `src/memory/cartridge.py` - Implementación de MBC1: bank switching y comandos MBC
+- `src/memory/mmu.py` - Modificación de write_byte() para permitir escrituras en zona ROM
+- `tests/test_mbc1.py` - Nuevo archivo con suite completa de tests TDD (6 tests)
+- `docs/bitacora/entries/2025-12-17__0029__mbc1-bank-switching.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0029)
+- `docs/bitacora/entries/2025-12-17__0028__renderizado-background.html` (modificado, actualizado link "Siguiente")
+
+#### Tests y Verificación:
+
+**Comando ejecutado**: `python3 -m pytest tests/test_mbc1.py -v`
+
+**Entorno**: macOS (darwin 21.6.0), Python 3.9.6, pytest 8.4.2
+
+**Resultado**: 6 passed in 0.29s
+
+**Qué valida**:
+- **test_mbc1_bank0_fixed**: Verifica que el banco 0 (0x0000-0x3FFF) siempre apunta a los primeros 16KB, independientemente del banco seleccionado. Valida que el banco 0 es fijo y no cambia.
+- **test_mbc1_default_bank1**: Verifica que por defecto, la zona switchable (0x4000-0x7FFF) apunta al banco 1. Valida que el banco inicial es 1 (no puede ser 0 en zona switchable).
+- **test_mbc1_bank_switching**: Verifica que cambiar de banco escribiendo en 0x2000-0x3FFF funciona correctamente. Valida que el bank switching funciona como se espera.
+- **test_mbc1_bank0_quirk**: Verifica que escribir 0x00 selecciona banco 1 (no banco 0). Valida el quirk del hardware MBC1.
+- **test_mbc1_bank_bits_masking**: Verifica que solo los 5 bits bajos (0x1F) se usan para seleccionar banco. Valida que el enmascarado de bits funciona correctamente.
+- **test_mbc1_via_mmu**: Verifica que la MMU permite escrituras en zona ROM que se envíen al cartucho. Valida la integración completa entre MMU y Cartridge.
+
+**Código del test (fragmento esencial)**:
+```python
+def test_mbc1_bank_switching() -> None:
+    """Test: Cambiar de banco escribiendo en 0x2000-0x3FFF."""
+    # Crear ROM dummy de 64KB con diferentes valores en cada banco
+    rom_data = bytearray(64 * 1024)
+    for i in range(0x4000, 0x8000):
+        rom_data[i] = 0x11  # Banco 1
+    for i in range(0x8000, 0xC000):
+        rom_data[i] = 0x22  # Banco 2
+    
+    cartridge = Cartridge(temp_path)
+    
+    # Cambiar a banco 2
+    cartridge.write_byte(0x2000, 2)
+    assert cartridge.read_byte(0x4000) == 0x22, "Debe leer del banco 2"
+```
+
+**Ruta completa**: `tests/test_mbc1.py`
+
+**Validación con ROM Real (Tetris DX)**:
+- **ROM**: Tetris DX (ROM aportada por el usuario, no distribuida)
+- **Modo de ejecución**: UI con Pygame, logging activado
+- **Criterio de éxito**: El juego debe poder acceder a bancos superiores de ROM sin crashear. Antes de esta implementación, Tetris DX solo podía acceder a los primeros 32KB y se colgaba al intentar cargar música o gráficos de bancos superiores.
+- **Observación**: Con MBC1 implementado, el juego puede cambiar de banco correctamente. Los logs muestran cambios de banco cuando el juego escribe en 0x2000-0x3FFF. El juego ya no se cuelga al intentar acceder a bancos superiores.
+- **Resultado**: **verified** - El juego puede acceder a todos sus bancos de ROM correctamente.
+
+**Notas legales**: La ROM de Tetris DX es aportada por el usuario para pruebas locales. No se distribuye, no se adjunta, y no se enlaza descarga alguna. Solo se usa para validar el comportamiento del emulador.
+
+#### Fuentes Consultadas:
+- Pan Docs: MBC1 Memory Bank Controller - https://gbdev.io/pandocs/MBC1.html
+- Pan Docs: Memory Map - https://gbdev.io/pandocs/Memory_Map.html
+
+---

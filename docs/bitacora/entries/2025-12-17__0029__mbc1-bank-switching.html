@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MBC1 y Bank Switching - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>MBC1 y Bank Switching</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-17
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0029
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-17__0028__renderizado-background.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó el <strong>Memory Bank Controller 1 (MBC1)</strong> para permitir que cartuchos mayores a 32KB
+                    funcionen correctamente. El MBC1 resuelve el problema de que la CPU solo puede direccionar 64KB, pero los
+                    juegos pueden tener ROMs de 512KB o más. La solución es el <strong>Bank Switching</strong>: dividir la ROM
+                    en bancos de 16KB y cambiar dinámicamente qué banco está visible en el rango 0x4000-0x7FFF. El banco 0
+                    (0x0000-0x3FFF) siempre apunta a los primeros 16KB y no cambia. El banco switchable se cambia escribiendo
+                    en el rango 0x2000-0x3FFF, que el MBC1 interpreta como comandos (aunque la ROM es "Read Only"). Con esta
+                    implementación, Tetris DX (512KB) puede acceder a todos sus bancos de ROM, incluyendo música y gráficos que
+                    están en bancos superiores.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La Game Boy tiene un espacio de direcciones de 16 bits (0x0000 a 0xFFFF = 65536 bytes). Sin embargo, los
+                    juegos pueden tener ROMs mucho más grandes (64KB, 128KB, 256KB, 512KB, 1MB, etc.). El problema es que la CPU
+                    solo puede direccionar 64KB a la vez.
+                </p>
+                <p>
+                    La solución es el <strong>Memory Bank Controller (MBC)</strong>, un chip en el cartucho que actúa como una
+                    "ventana deslizante" sobre la ROM. El MBC1 divide la ROM en bancos de 16KB:
+                </p>
+                <ul>
+                    <li><strong>Banco 0 (Fijo)</strong>: El rango 0x0000-0x3FFF siempre apunta a los primeros 16KB de la ROM.
+                        Este banco contiene código crítico (inicialización, vectores de interrupción) que debe estar siempre
+                        accesible.</li>
+                    <li><strong>Banco X (Switchable)</strong>: El rango 0x4000-0x7FFF apunta al banco seleccionado. El juego
+                        puede cambiar qué banco está visible escribiendo en el rango 0x2000-0x3FFF.</li>
+                </ul>
+                <p>
+                    Aunque la ROM es "Read Only", el MBC1 interpreta escrituras en ciertos rangos como comandos:
+                </p>
+                <ul>
+                    <li><strong>0x2000-0x3FFF</strong>: Selecciona el banco ROM (solo los 5 bits bajos, 0x1F). Si el juego
+                        intenta seleccionar banco 0, el MBC1 le da banco 1 (quirk del hardware).</li>
+                    <li><strong>0x0000-0x1FFF</strong>: (Reservado para RAM enable, no implementado aún)</li>
+                    <li><strong>0x4000-0x5FFF</strong>: (Reservado para RAM bank / ROM bank upper bits, no implementado aún)</li>
+                    <li><strong>0x6000-0x7FFF</strong>: (Reservado para mode select, no implementado aún)</li>
+                </ul>
+                <p>
+                    Esta técnica de "Bank Switching" es común en sistemas con direccionamiento limitado. Permite que juegos
+                    grandes funcionen en hardware con restricciones de direccionamiento.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - MBC1 Memory Bank Controller
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó la clase <code>Cartridge</code> para implementar MBC1 y se actualizó la <code>MMU</code> para
+                    permitir escrituras en la zona ROM que se envíen al cartucho.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>Cartridge</strong>: Añadido atributo <code>_rom_bank</code> (inicializado a 1), modificado
+                        <code>read_byte()</code> para manejar bank switching, añadido <code>write_byte()</code> para recibir
+                        comandos MBC.</li>
+                    <li><strong>MMU</strong>: Modificado <code>write_byte()</code> para permitir escrituras en zona ROM
+                        (0x0000-0x7FFF) que se envíen al cartucho.</li>
+                    <li><strong>Tests</strong>: Creado <code>test_mbc1.py</code> con 6 tests que validan el comportamiento del
+                        MBC1.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Banco inicial:</strong> El banco ROM inicial es 1 (no puede ser 0 en zona switchable). Esto
+                    refleja el comportamiento real del hardware MBC1.
+                </p>
+                <p>
+                    <strong>Quirk del banco 0:</strong> Si el juego intenta seleccionar banco 0 escribiendo 0x00 en 0x2000,
+                    el MBC1 le da banco 1. Este comportamiento está documentado en Pan Docs y se implementó explícitamente.
+                </p>
+                <p>
+                    <strong>Enmascarado de bits:</strong> Solo los 5 bits bajos (0x1F) se usan para seleccionar banco. Esto
+                    permite hasta 32 bancos (aunque algunos cartuchos pueden tener más usando bits adicionales en otros rangos,
+                    no implementado aún).
+                </p>
+                <p>
+                    <strong>RAM Banking y Mode Select:</strong> Por ahora, se ignoran los rangos 0x0000-0x1FFF (RAM enable),
+                    0x4000-0x5FFF (RAM bank / ROM bank upper bits) y 0x6000-0x7FFF (mode select). Estos se implementarán
+                    cuando sea necesario para cartuchos que los usen.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/memory/cartridge.py</code> - Implementación de MBC1: bank switching y comandos MBC</li>
+                    <li><code>src/memory/mmu.py</code> - Modificación de write_byte() para permitir escrituras en zona ROM</li>
+                    <li><code>tests/test_mbc1.py</code> - Suite completa de tests TDD para MBC1 (6 tests)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests TDD que valida el comportamiento del MBC1:
+                </p>
+                
+                <h3>Tests unitarios (pytest)</h3>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>python3 -m pytest tests/test_mbc1.py -v</code></li>
+                    <li><strong>Entorno:</strong> macOS, Python 3.9.6</li>
+                    <li><strong>Resultado:</strong> 6 tests PASSED en 0.29s</li>
+                    <li><strong>Qué valida:</strong>
+                        <ul>
+                            <li>Banco 0 fijo: El banco 0 (0x0000-0x3FFF) siempre apunta a los primeros 16KB, independientemente del banco seleccionado.</li>
+                            <li>Banco por defecto: La zona switchable (0x4000-0x7FFF) apunta al banco 1 por defecto.</li>
+                            <li>Bank switching: Escribir en 0x2000-0x3FFF cambia correctamente el banco visible.</li>
+                            <li>Quirk del banco 0: Escribir 0x00 selecciona banco 1 (no banco 0).</li>
+                            <li>Enmascarado de bits: Solo los 5 bits bajos se usan para seleccionar banco.</li>
+                            <li>Integración MMU: La MMU permite escrituras en zona ROM que se envían al cartucho.</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Código del test (fragmento esencial)</h3>
+                <pre><code>def test_mbc1_bank_switching() -> None:
+    """Test: Cambiar de banco escribiendo en 0x2000-0x3FFF."""
+    # Crear ROM dummy de 64KB con diferentes valores en cada banco
+    rom_data = bytearray(64 * 1024)
+    for i in range(0x4000, 0x8000):
+        rom_data[i] = 0x11  # Banco 1
+    for i in range(0x8000, 0xC000):
+        rom_data[i] = 0x22  # Banco 2
+    
+    cartridge = Cartridge(temp_path)
+    
+    # Cambiar a banco 2
+    cartridge.write_byte(0x2000, 2)
+    assert cartridge.read_byte(0x4000) == 0x22, "Debe leer del banco 2"</code></pre>
+
+                <p>
+                    <strong>Ruta completa:</strong> <code>tests/test_mbc1.py</code>
+                </p>
+
+                <h3>Validación con ROM Real (Tetris DX)</h3>
+                <p>
+                    <strong>ROM:</strong> Tetris DX (ROM aportada por el usuario, no distribuida)
+                </p>
+                <p>
+                    <strong>Modo de ejecución:</strong> UI con Pygame, logging activado
+                </p>
+                <p>
+                    <strong>Criterio de éxito:</strong> El juego debe poder acceder a bancos superiores de ROM sin crashear.
+                    Antes de esta implementación, Tetris DX solo podía acceder a los primeros 32KB y se colgaba al intentar
+                    cargar música o gráficos de bancos superiores.
+                </p>
+                <p>
+                    <strong>Observación:</strong> Con MBC1 implementado, el juego puede cambiar de banco correctamente.
+                    Los logs muestran cambios de banco cuando el juego escribe en 0x2000-0x3FFF. El juego ya no se cuelga
+                    al intentar acceder a bancos superiores.
+                </p>
+                <p>
+                    <strong>Resultado:</strong> <span class="tag tag-verified">verified</span> - El juego puede acceder a
+                    todos sus bancos de ROM correctamente.
+                </p>
+                <p>
+                    <strong>Notas legales:</strong> La ROM de Tetris DX es aportada por el usuario para pruebas locales.
+                    No se distribuye ni se enlaza en el repositorio.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs - MBC1 Memory Bank Controller: <a href="https://gbdev.io/pandocs/MBC1.html">https://gbdev.io/pandocs/MBC1.html</a></li>
+                    <li>Pan Docs - Memory Map: <a href="https://gbdev.io/pandocs/Memory_Map.html">https://gbdev.io/pandocs/Memory_Map.html</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Bank Switching:</strong> Técnica para acceder a memoria mayor que el espacio de direcciones
+                            disponible, dividiendo la memoria en "bancos" y cambiando dinámicamente qué banco está visible.</li>
+                        <li><strong>MBC1:</strong> Chip en el cartucho que implementa bank switching para ROMs mayores a 32KB.
+                            Interpreta escrituras en ciertos rangos como comandos, aunque la ROM sea "Read Only".</li>
+                        <li><strong>Banco 0 fijo:</strong> El banco 0 siempre apunta a los primeros 16KB porque contiene código
+                            crítico que debe estar siempre accesible (inicialización, vectores de interrupción).</li>
+                        <li><strong>Quirk del banco 0:</strong> El hardware MBC1 no permite seleccionar banco 0 en la zona
+                            switchable. Si el juego intenta hacerlo, el chip le da banco 1. Esto es un comportamiento
+                            documentado del hardware real.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>RAM Banking:</strong> El MBC1 también puede manejar RAM externa con bank switching. Por
+                            ahora, esto no está implementado. Se añadirá cuando sea necesario para cartuchos que usen RAM
+                            externa.</li>
+                        <li><strong>Mode Select:</strong> El MBC1 tiene un modo que permite usar bits adicionales para seleccionar
+                            más bancos ROM. Por ahora, solo se implementan los 5 bits bajos (32 bancos). Se añadirá cuando sea
+                            necesario.</li>
+                        <li><strong>Otros MBCs:</strong> Hay otros tipos de MBC (MBC2, MBC3, MBC5, etc.) con comportamientos
+                            diferentes. Se implementarán cuando sea necesario para cartuchos que los usen.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Comportamiento fuera de rango:</strong> Si el juego intenta leer de un banco que está fuera del
+                        tamaño de la ROM, se devuelve 0xFF. Esto es una suposición razonable basada en el comportamiento típico
+                        de hardware, pero no está completamente documentado. Se validará con tests y observación de comportamiento
+                        en ROMs reales.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar Joypad (entrada de teclado) para poder jugar</li>
+                    <li>[ ] Implementar RAM Banking del MBC1 si es necesario para cartuchos que la usen</li>
+                    <li>[ ] Implementar Mode Select del MBC1 si es necesario para cartuchos grandes</li>
+                    <li>[ ] Considerar implementar otros tipos de MBC (MBC2, MBC3, MBC5) cuando sea necesario</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

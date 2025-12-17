@@ -38,13 +38,16 @@ class Cartridge:
     Carga un archivo `.gb` o `.gbc` y proporciona acceso a los datos de la ROM.
     También parsea el Header para extraer información del cartucho (título, tipo, etc.).
     
-    Por ahora, asumimos que todas las ROMs son de 32KB (sin Bank Switching/MBC).
-    Más adelante implementaremos MBC1, MBC3, etc. para ROMs más grandes.
+    Soporta MBC1 (Memory Bank Controller 1) para ROMs mayores a 32KB.
+    El MBC1 permite cambiar de banco ROM mediante escrituras en el rango 0x2000-0x3FFF.
     """
 
     # Direcciones del Header (según Pan Docs)
     HEADER_START = 0x0100
     HEADER_END = 0x014F
+    
+    # Tamaño de un banco ROM (16KB = 16384 bytes)
+    ROM_BANK_SIZE = 0x4000  # 16384 bytes
     
     # Campos específicos del Header
     TITLE_START = 0x0134
@@ -88,32 +91,89 @@ class Cartridge:
         
         # Parsear información del Header
         self._header_info = self._parse_header()
+        
+        # Inicializar MBC1: banco ROM inicial es 1 (no puede ser 0 en zona switchable)
+        # Fuente: Pan Docs - MBC1: "Writing 0x00 to 0x2000-0x3FFF selects ROM bank 1"
+        self._rom_bank: int = 1
 
     def read_byte(self, addr: int) -> int:
         """
         Lee un byte de la ROM en la dirección especificada.
         
         La ROM se mapea en el espacio de direcciones de la Game Boy:
-        - 0x0000 - 0x3FFF: ROM Bank 0 (no cambiable)
-        - 0x4000 - 0x7FFF: ROM Bank N (switchable, para ROMs > 32KB)
+        - 0x0000 - 0x3FFF: ROM Bank 0 (no cambiable, siempre primeros 16KB)
+        - 0x4000 - 0x7FFF: ROM Bank N (switchable, apunta al banco seleccionado)
         
-        Por ahora, solo soportamos ROMs de 32KB (sin Bank Switching).
-        Si la dirección está fuera del rango de la ROM, devolvemos 0xFF.
+        Implementa MBC1: Bank Switching para ROMs mayores a 32KB.
         
         Args:
             addr: Dirección de memoria (0x0000 a 0x7FFF)
             
         Returns:
             Byte leído (0x00 a 0xFF), o 0xFF si está fuera de rango
+            
+        Fuente: Pan Docs - MBC1 Memory Bank Controller
         """
         # Enmascarar dirección a 16 bits
         addr = addr & 0xFFFF
         
-        # Si está fuera del rango de ROM, devolver 0xFF (comportamiento típico)
-        if addr >= len(self._rom_data):
-            return 0xFF
+        # Banco 0 (fijo): 0x0000 - 0x3FFF siempre apunta a los primeros 16KB
+        if addr < 0x4000:
+            offset = addr
+            if offset >= len(self._rom_data):
+                return 0xFF
+            return self._rom_data[offset] & 0xFF
         
-        return self._rom_data[addr] & 0xFF
+        # Banco switchable: 0x4000 - 0x7FFF apunta al banco seleccionado
+        if 0x4000 <= addr < 0x8000:
+            # Calcular offset: (banco * 16384) + (addr - 0x4000)
+            bank_offset = self._rom_bank * self.ROM_BANK_SIZE
+            relative_offset = addr - 0x4000
+            offset = bank_offset + relative_offset
+            
+            if offset >= len(self._rom_data):
+                return 0xFF
+            return self._rom_data[offset] & 0xFF
+        
+        # Fuera del rango de ROM
+        return 0xFF
+    
+    def write_byte(self, addr: int, value: int) -> None:
+        """
+        Escribe un byte en el cartucho (comandos MBC).
+        
+        Aunque la ROM es "Read Only", el MBC1 interpreta escrituras en ciertos rangos
+        como comandos para cambiar de banco:
+        - 0x2000 - 0x3FFF: Selecciona el banco ROM (solo bits bajos 0-4)
+        - 0x0000 - 0x1FFF: (Reservado para RAM enable, no implementado aún)
+        - 0x4000 - 0x5FFF: (Reservado para RAM bank / ROM bank upper bits, no implementado aún)
+        - 0x6000 - 0x7FFF: (Reservado para mode select, no implementado aún)
+        
+        Args:
+            addr: Dirección de memoria (0x0000 a 0x7FFF)
+            value: Valor a escribir (se enmascara a 8 bits)
+            
+        Fuente: Pan Docs - MBC1 Memory Bank Controller
+        """
+        # Enmascarar dirección y valor
+        addr = addr & 0xFFFF
+        value = value & 0xFF
+        
+        # Rango 0x2000 - 0x3FFF: ROM Bank Number (solo 5 bits bajos)
+        if 0x2000 <= addr < 0x4000:
+            # Extraer solo los 5 bits bajos (0x1F = 0b00011111)
+            bank = value & 0x1F
+            
+            # Quirk de MBC1: Si el juego pide banco 0, el chip le da banco 1
+            # Fuente: Pan Docs - MBC1: "Writing 0x00 to 0x2000-0x3FFF selects ROM bank 1"
+            if bank == 0:
+                bank = 1
+            
+            self._rom_bank = bank
+            logger.debug(f"MBC1: Cambio de banco ROM a {bank} (escritura 0x{value:02X} en 0x{addr:04X})")
+        
+        # Otros rangos (RAM enable, RAM bank, mode select) se ignoran por ahora
+        # TODO: Implementar RAM banking y mode select cuando sea necesario
 
     def get_header_info(self) -> dict[str, str | int]:
         """

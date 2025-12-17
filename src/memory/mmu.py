@@ -220,18 +220,35 @@ class MMU:
         Si la dirección está en el rango I/O (0xFF00-0xFF7F), se registra un log
         informativo con el nombre del registro de hardware (si es conocido).
         
+        Si la dirección está en el rango ROM (0x0000-0x7FFF), la escritura se envía
+        al cartucho para comandos MBC (Memory Bank Controller). Esto permite que
+        el juego cambie de banco ROM escribiendo en direcciones que normalmente
+        serían de solo lectura.
+        
         Args:
             addr: Dirección de memoria (0x0000 a 0xFFFF)
             value: Valor a escribir (se enmascara a 8 bits)
             
         Raises:
             IndexError: Si la dirección está fuera del rango válido (0x0000-0xFFFF)
+            
+        Fuente: Pan Docs - MBC1 Memory Bank Controller
         """
         # Aseguramos que la dirección esté en el rango válido
         addr = addr & 0xFFFF
         
         # Enmascaramos el valor a 8 bits (asegura que esté en rango 0x00-0xFF)
         value = value & 0xFF
+        
+        # Si está en el área de ROM (0x0000 - 0x7FFF), enviar al cartucho para comandos MBC
+        # Aunque la ROM es "Read Only", el MBC interpreta escrituras como comandos
+        if addr <= 0x7FFF:
+            if self._cartridge is not None:
+                self._cartridge.write_byte(addr, value)
+                return
+            # Si no hay cartucho, permitir escritura directa en memoria (útil para tests)
+            self._memory[addr] = value
+            return
         
         # Si está en el rango I/O (0xFF00-0xFF7F), registrar log informativo
         if 0xFF00 <= addr <= 0xFF7F:
