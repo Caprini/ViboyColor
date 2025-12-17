@@ -76,6 +76,11 @@ class CPU:
             0x3E: self._op_ld_a_d8,
             0xC6: self._op_add_a_d8,
             0xD6: self._op_sub_d8,
+            # Rotaciones rápidas del acumulador
+            0x07: self._op_rlca,       # RLCA (Rotate Left Circular Accumulator)
+            0x0F: self._op_rrca,       # RRCA (Rotate Right Circular Accumulator)
+            0x17: self._op_rla,        # RLA (Rotate Left Accumulator through Carry)
+            0x1F: self._op_rra,        # RRA (Rotate Right Accumulator through Carry)
             # Saltos (Jumps)
             0xC3: self._op_jp_nn,      # JP nn (Jump absolute)
             0x18: self._op_jr_e,       # JR e (Jump relative unconditional)
@@ -83,6 +88,12 @@ class CPU:
             # Stack (Pila)
             0xC5: self._op_push_bc,    # PUSH BC
             0xC1: self._op_pop_bc,     # POP BC
+            0xD5: self._op_push_de,    # PUSH DE
+            0xD1: self._op_pop_de,     # POP DE
+            0xE5: self._op_push_hl,    # PUSH HL
+            0xE1: self._op_pop_hl,     # POP HL
+            0xF5: self._op_push_af,    # PUSH AF
+            0xF1: self._op_pop_af,     # POP AF
             0xCD: self._op_call_nn,     # CALL nn
             0xC9: self._op_ret,         # RET
             # Control de Interrupciones
@@ -1264,6 +1275,116 @@ class CPU:
         self.registers.set_bc(value)
         logger.debug(f"POP BC <- 0x{value:04X} (SP=0x{self.registers.get_sp():04X})")
         return 3
+    
+    def _op_push_de(self) -> int:
+        """
+        PUSH DE (Push DE onto stack) - Opcode 0xD5
+        
+        Empuja el par de registros DE en la pila.
+        El Stack Pointer (SP) se decrementa antes de escribir.
+        
+        Returns:
+            4 M-Cycles (fetch opcode + 2 operaciones de memoria para escribir 2 bytes)
+            
+        Fuente: Pan Docs - Instruction Set (PUSH DE)
+        """
+        de_value = self.registers.get_de()
+        self._push_word(de_value)
+        logger.debug(f"PUSH DE (0x{de_value:04X}) -> SP=0x{self.registers.get_sp():04X}")
+        return 4
+    
+    def _op_pop_de(self) -> int:
+        """
+        POP DE (Pop from stack into DE) - Opcode 0xD1
+        
+        Saca un valor de 16 bits de la pila y lo carga en el par DE.
+        
+        Returns:
+            3 M-Cycles (fetch opcode + 2 operaciones de memoria para leer 2 bytes)
+            
+        Fuente: Pan Docs - Instruction Set (POP DE)
+        """
+        value = self._pop_word()
+        self.registers.set_de(value)
+        logger.debug(f"POP DE <- 0x{value:04X} (SP=0x{self.registers.get_sp():04X})")
+        return 3
+    
+    def _op_push_hl(self) -> int:
+        """
+        PUSH HL (Push HL onto stack) - Opcode 0xE5
+        
+        Empuja el par de registros HL en la pila.
+        El Stack Pointer (SP) se decrementa antes de escribir.
+        
+        Returns:
+            4 M-Cycles (fetch opcode + 2 operaciones de memoria para escribir 2 bytes)
+            
+        Fuente: Pan Docs - Instruction Set (PUSH HL)
+        """
+        hl_value = self.registers.get_hl()
+        self._push_word(hl_value)
+        logger.debug(f"PUSH HL (0x{hl_value:04X}) -> SP=0x{self.registers.get_sp():04X}")
+        return 4
+    
+    def _op_pop_hl(self) -> int:
+        """
+        POP HL (Pop from stack into HL) - Opcode 0xE1
+        
+        Saca un valor de 16 bits de la pila y lo carga en el par HL.
+        
+        Returns:
+            3 M-Cycles (fetch opcode + 2 operaciones de memoria para leer 2 bytes)
+            
+        Fuente: Pan Docs - Instruction Set (POP HL)
+        """
+        value = self._pop_word()
+        self.registers.set_hl(value)
+        logger.debug(f"POP HL <- 0x{value:04X} (SP=0x{self.registers.get_sp():04X})")
+        return 3
+    
+    def _op_push_af(self) -> int:
+        """
+        PUSH AF (Push AF onto stack) - Opcode 0xF5
+        
+        Empuja el par de registros AF en la pila.
+        El Stack Pointer (SP) se decrementa antes de escribir.
+        
+        Returns:
+            4 M-Cycles (fetch opcode + 2 operaciones de memoria para escribir 2 bytes)
+            
+        Fuente: Pan Docs - Instruction Set (PUSH AF)
+        """
+        af_value = self.registers.get_af()
+        self._push_word(af_value)
+        logger.debug(f"PUSH AF (0x{af_value:04X}) -> SP=0x{self.registers.get_sp():04X}")
+        return 4
+    
+    def _op_pop_af(self) -> int:
+        """
+        POP AF (Pop from stack into AF) - Opcode 0xF1
+        
+        Saca un valor de 16 bits de la pila y lo carga en el par AF.
+        
+        CRÍTICO: Los 4 bits bajos del registro F SIEMPRE deben ser cero en hardware real.
+        Al recuperar F de la pila, debemos aplicar la máscara 0xF0 para limpiar los bits bajos.
+        Si no hacemos esto, juegos como Tetris fallan al comprobar flags porque los bits bajos
+        pueden contener "basura" que afecta las comparaciones.
+        
+        Returns:
+            3 M-Cycles (fetch opcode + 2 operaciones de memoria para leer 2 bytes)
+            
+        Fuente: Pan Docs - Instruction Set (POP AF), Hardware quirks (F register mask)
+        """
+        value = self._pop_word()
+        # CRÍTICO: Aplicar máscara 0xF0 a F antes de guardarlo
+        # Esto simula el comportamiento del hardware real donde los bits bajos de F
+        # siempre son 0. Si no hacemos esto, los flags pueden tener valores inválidos.
+        self.registers.set_af(value)
+        logger.debug(
+            f"POP AF <- 0x{value:04X} -> A=0x{self.registers.get_a():02X} "
+            f"F=0x{self.registers.get_f():02X} (SP=0x{self.registers.get_sp():04X})"
+        )
+        return 3
 
     def _op_call_nn(self) -> int:
         """
@@ -1816,6 +1937,217 @@ class CPU:
             f"DEC A -> A=0x{new_value:02X} "
             f"Z={self.registers.get_flag_z()} N={self.registers.get_flag_n()} "
             f"H={self.registers.get_flag_h()}"
+        )
+        return 1
+    
+    # ========== Handlers de Rotaciones Rápidas del Acumulador ==========
+    
+    def _op_rlca(self) -> int:
+        """
+        RLCA (Rotate Left Circular Accumulator) - Opcode 0x07
+        
+        Rota el registro A hacia la izquierda de forma circular.
+        El bit 7 sale y entra por el bit 0. El bit 7 también se copia al flag C.
+        
+        CRÍTICO: Estas rotaciones rápidas (0x07, 0x0F, 0x17, 0x1F) SIEMPRE ponen:
+        - Z = 0 (nunca se activa, incluso si el resultado es 0)
+        - N = 0
+        - H = 0
+        - C = bit 7 original (para RLCA) o bit 0 original (para RRCA)
+        
+        Esta es una diferencia clave con las rotaciones del prefijo CB (0xCB),
+        donde Z se calcula normalmente según el resultado.
+        
+        Ejemplo:
+        - A = 0x80 (10000000)
+        - RLCA
+        - A = 0x01 (00000001), C = 1
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - CPU Instruction Set (RLCA), Flags behavior
+        """
+        a = self.registers.get_a()
+        
+        # Extraer bit 7 (el que sale)
+        bit7 = (a >> 7) & 0x01
+        
+        # Rotar: (a << 1) | bit7, enmascarar a 8 bits
+        result = ((a << 1) | bit7) & 0xFF
+        
+        # Actualizar A
+        self.registers.set_a(result)
+        
+        # Actualizar flags
+        # Z: SIEMPRE 0 en rotaciones rápidas (quirk del hardware)
+        self.registers.clear_flag(FLAG_Z)
+        # N: siempre 0
+        self.registers.clear_flag(FLAG_N)
+        # H: siempre 0
+        self.registers.clear_flag(FLAG_H)
+        # C: bit 7 original
+        if bit7:
+            self.registers.set_flag(FLAG_C)
+        else:
+            self.registers.clear_flag(FLAG_C)
+        
+        logger.debug(
+            f"RLCA -> A=0x{a:02X} -> 0x{result:02X} "
+            f"C={self.registers.get_flag_c()}"
+        )
+        return 1
+    
+    def _op_rrca(self) -> int:
+        """
+        RRCA (Rotate Right Circular Accumulator) - Opcode 0x0F
+        
+        Rota el registro A hacia la derecha de forma circular.
+        El bit 0 sale y entra por el bit 7. El bit 0 también se copia al flag C.
+        
+        Flags: Z=0, N=0, H=0, C=bit 0 original
+        
+        Ejemplo:
+        - A = 0x01 (00000001)
+        - RRCA
+        - A = 0x80 (10000000), C = 1
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - CPU Instruction Set (RRCA)
+        """
+        a = self.registers.get_a()
+        
+        # Extraer bit 0 (el que sale)
+        bit0 = a & 0x01
+        
+        # Rotar: (a >> 1) | (bit0 << 7)
+        result = ((a >> 1) | (bit0 << 7)) & 0xFF
+        
+        # Actualizar A
+        self.registers.set_a(result)
+        
+        # Actualizar flags
+        # Z: SIEMPRE 0 en rotaciones rápidas
+        self.registers.clear_flag(FLAG_Z)
+        # N: siempre 0
+        self.registers.clear_flag(FLAG_N)
+        # H: siempre 0
+        self.registers.clear_flag(FLAG_H)
+        # C: bit 0 original
+        if bit0:
+            self.registers.set_flag(FLAG_C)
+        else:
+            self.registers.clear_flag(FLAG_C)
+        
+        logger.debug(
+            f"RRCA -> A=0x{a:02X} -> 0x{result:02X} "
+            f"C={self.registers.get_flag_c()}"
+        )
+        return 1
+    
+    def _op_rla(self) -> int:
+        """
+        RLA (Rotate Left Accumulator through Carry) - Opcode 0x17
+        
+        Rota el registro A hacia la izquierda a través del flag Carry.
+        El bit 7 va al flag C, y el *antiguo* flag C entra en el bit 0.
+        Es una rotación de 9 bits (8 bits de A + 1 bit de C).
+        
+        Flags: Z=0, N=0, H=0, C=bit 7 original
+        
+        Esta instrucción es crítica para generadores de números pseudo-aleatorios
+        en juegos como Tetris, que usan RLA para generar secuencias aleatorias.
+        
+        Ejemplo:
+        - A = 0x00, C = 1
+        - RLA
+        - A = 0x01, C = 0
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - CPU Instruction Set (RLA)
+        """
+        a = self.registers.get_a()
+        
+        # Obtener carry actual (1 si está activo, 0 si no)
+        old_carry = 1 if self.registers.get_flag_c() else 0
+        
+        # Extraer bit 7 (el que sale)
+        bit7 = (a >> 7) & 0x01
+        
+        # Rotar: (a << 1) | old_carry, enmascarar a 8 bits
+        result = ((a << 1) | old_carry) & 0xFF
+        
+        # Actualizar A
+        self.registers.set_a(result)
+        
+        # Actualizar flags
+        # Z: SIEMPRE 0 en rotaciones rápidas
+        self.registers.clear_flag(FLAG_Z)
+        # N: siempre 0
+        self.registers.clear_flag(FLAG_N)
+        # H: siempre 0
+        self.registers.clear_flag(FLAG_H)
+        # C: bit 7 original
+        if bit7:
+            self.registers.set_flag(FLAG_C)
+        else:
+            self.registers.clear_flag(FLAG_C)
+        
+        logger.debug(
+            f"RLA -> A=0x{a:02X} -> 0x{result:02X} "
+            f"C={self.registers.get_flag_c()} (old_carry={old_carry})"
+        )
+        return 1
+    
+    def _op_rra(self) -> int:
+        """
+        RRA (Rotate Right Accumulator through Carry) - Opcode 0x1F
+        
+        Rota el registro A hacia la derecha a través del flag Carry.
+        El bit 0 va al flag C, y el *antiguo* flag C entra en el bit 7.
+        Es una rotación de 9 bits (8 bits de A + 1 bit de C).
+        
+        Flags: Z=0, N=0, H=0, C=bit 0 original
+        
+        Returns:
+            1 M-Cycle
+            
+        Fuente: Pan Docs - CPU Instruction Set (RRA)
+        """
+        a = self.registers.get_a()
+        
+        # Obtener carry actual (1 si está activo, 0 si no)
+        old_carry = 1 if self.registers.get_flag_c() else 0
+        
+        # Extraer bit 0 (el que sale)
+        bit0 = a & 0x01
+        
+        # Rotar: (a >> 1) | (old_carry << 7)
+        result = ((a >> 1) | (old_carry << 7)) & 0xFF
+        
+        # Actualizar A
+        self.registers.set_a(result)
+        
+        # Actualizar flags
+        # Z: SIEMPRE 0 en rotaciones rápidas
+        self.registers.clear_flag(FLAG_Z)
+        # N: siempre 0
+        self.registers.clear_flag(FLAG_N)
+        # H: siempre 0
+        self.registers.clear_flag(FLAG_H)
+        # C: bit 0 original
+        if bit0:
+            self.registers.set_flag(FLAG_C)
+        else:
+            self.registers.clear_flag(FLAG_C)
+        
+        logger.debug(
+            f"RRA -> A=0x{a:02X} -> 0x{result:02X} "
+            f"C={self.registers.get_flag_c()} (old_carry={old_carry})"
         )
         return 1
     

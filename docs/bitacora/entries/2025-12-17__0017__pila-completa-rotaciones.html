@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pila Completa y Rotaciones del Acumulador - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Pila Completa y Rotaciones del Acumulador</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-17
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0017
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-17__0016__bloque-alu-completo.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se completó el manejo del Stack (Pila) implementando PUSH/POP para todos los pares de registros
+                    (AF, DE, HL), y se añadieron las rotaciones rápidas del acumulador (RLCA, RRCA, RLA, RRA).
+                    La implementación de POP AF incluye la máscara crítica 0xF0 para los bits bajos del registro F,
+                    simulando el comportamiento del hardware real. Las rotaciones rápidas tienen un comportamiento
+                    especial con los flags: Z siempre es 0, incluso si el resultado es cero. Esta es una diferencia
+                    clave con las rotaciones del prefijo CB. Todos los tests pasan (17 tests en total).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Pila (Stack) Completa</h3>
+                <p>
+                    La pila en la Game Boy es una región de memoria que crece hacia abajo (de direcciones altas a bajas).
+                    Permite guardar y restaurar el estado de los registros durante llamadas a subrutinas y manejo de
+                    interrupciones. Ya teníamos PUSH/POP BC implementados; ahora completamos con AF, DE y HL.
+                </p>
+                
+                <p>
+                    <strong>CRÍTICO - POP AF y la Máscara 0xF0:</strong>
+                </p>
+                <p>
+                    Cuando hacemos POP AF, recuperamos el registro de Flags (F) de la pila. En el hardware real de la
+                    Game Boy, los 4 bits bajos del registro F (bits 0-3) SIEMPRE son cero. Esto es una característica
+                    física del hardware, no una convención de software.
+                </p>
+                <p>
+                    Si no aplicamos la máscara 0xF0 al valor recuperado de la pila, los bits bajos pueden contener
+                    "basura" que afecta las comparaciones de flags. Juegos como Tetris fallan al comprobar flags
+                    si estos bits no están limpios, porque las instrucciones condicionales (JR NZ, RET Z, etc.) se
+                    comportan de forma aleatoria.
+                </p>
+                
+                <h3>Rotaciones Rápidas del Acumulador</h3>
+                <p>
+                    Las rotaciones rápidas (0x07, 0x0F, 0x17, 0x1F) son instrucciones optimizadas que rotan el registro A
+                    de diferentes formas. Son "rápidas" porque solo operan sobre A y consumen 1 ciclo, a diferencia de
+                    las rotaciones del prefijo CB que pueden operar sobre cualquier registro.
+                </p>
+                
+                <p>
+                    <strong>Tipos de rotación:</strong>
+                </p>
+                <ul>
+                    <li><strong>RLCA (0x07):</strong> Rotate Left Circular Accumulator. El bit 7 sale y entra por el bit 0.
+                        También se copia al flag C.</li>
+                    <li><strong>RRCA (0x0F):</strong> Rotate Right Circular Accumulator. El bit 0 sale y entra por el bit 7.
+                        También se copia al flag C.</li>
+                    <li><strong>RLA (0x17):</strong> Rotate Left Accumulator through Carry. El bit 7 va al flag C, y el
+                        *antiguo* flag C entra en el bit 0. Es una rotación de 9 bits (8 bits de A + 1 bit de C).</li>
+                    <li><strong>RRA (0x1F):</strong> Rotate Right Accumulator through Carry. El bit 0 va al flag C, y el
+                        *antiguo* flag C entra en el bit 7. Es una rotación de 9 bits.</li>
+                </ul>
+                
+                <p>
+                    <strong>CRÍTICO - Flags en Rotaciones Rápidas:</strong>
+                </p>
+                <p>
+                    Estas instrucciones SIEMPRE ponen Z=0, N=0, H=0. Solo afectan a C. Esta es una diferencia clave con
+                    las rotaciones CB (0xCB), donde Z se calcula normalmente según el resultado. Si el resultado de una
+                    rotación rápida es 0, Z sigue siendo 0 (quirk del hardware).
+                </p>
+                
+                <p>
+                    <strong>Uso en Juegos:</strong>
+                </p>
+                <p>
+                    Las rotaciones a través de carry (RLA, RRA) son fundamentales para generadores de números
+                    pseudo-aleatorios. Juegos como Tetris usan RLA intensivamente para generar secuencias aleatorias
+                    de piezas. Sin estas instrucciones, el juego se colgaría esperando un número aleatorio válido.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron 10 nuevos opcodes: 6 para la pila (PUSH/POP AF, DE, HL) y 4 para rotaciones
+                    rápidas (RLCA, RRCA, RLA, RRA).
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/cpu/core.py</code>: Añadidos handlers para PUSH/POP AF, DE, HL y rotaciones rápidas.
+                        POP AF aplica máscara 0xF0 usando <code>set_af()</code> que internamente llama a <code>set_f()</code>
+                        que ya aplica la máscara.</li>
+                    <li><code>tests/test_cpu_stack.py</code>: Añadidos 3 tests nuevos para PUSH/POP DE, HL y AF (incluyendo
+                        test crítico de máscara 0xF0).</li>
+                    <li><code>tests/test_cpu_rotations.py</code>: Nuevo archivo con 9 tests para todas las rotaciones,
+                        incluyendo tests de quirk de flags (Z siempre 0) y cadenas de RLA para simular generadores aleatorios.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Máscara 0xF0 en POP AF:</strong>
+                </p>
+                <p>
+                    Se aprovechó que <code>set_af()</code> ya llama internamente a <code>set_f()</code>, que aplica la
+                    máscara 0xF0 automáticamente. Esto garantiza que los bits bajos de F siempre estén limpios, sin
+                    necesidad de código adicional en el handler.
+                </p>
+                
+                <p>
+                    <strong>Rotaciones: Implementación explícita de flags:</strong>
+                </p>
+                <p>
+                    Aunque las rotaciones rápidas siempre ponen Z=0, N=0, H=0, se implementó de forma explícita en cada
+                    handler para claridad y para evitar errores si en el futuro se modifica el comportamiento de helpers
+                    genéricos. Esto también hace el código más autodocumentado.
+                </p>
+                
+                <p>
+                    <strong>Reutilización de helpers de pila:</strong>
+                </p>
+                <p>
+                    Todos los PUSH/POP reutilizan los helpers <code>_push_word()</code> y <code>_pop_word()</code> que
+                    ya existían, garantizando consistencia en el orden de bytes (Little-Endian) y el manejo del Stack Pointer.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadidos 10 nuevos handlers de opcodes (PUSH/POP AF, DE, HL y rotaciones rápidas)</li>
+                    <li><code>tests/test_cpu_stack.py</code> - Añadidos 3 tests nuevos (PUSH/POP DE, HL, AF con máscara)</li>
+                    <li><code>tests/test_cpu_rotations.py</code> - Nuevo archivo con 9 tests para rotaciones rápidas</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se crearon 12 tests nuevos (3 para pila + 9 para rotaciones) y todos pasan correctamente:
+                </p>
+                <ul>
+                    <li><strong>Tests unitarios:</strong> pytest con 17 tests pasando (5 tests de pila existentes + 3 nuevos + 9 de rotaciones)</li>
+                    <li><strong>Test crítico POP AF:</strong> Verifica que al recuperar 0xFFFF de la pila, F se convierte en 0xF0 (bits bajos limpiados)</li>
+                    <li><strong>Tests de rotaciones:</strong> Validan rotaciones circulares, rotaciones a través de carry, quirk de flags (Z siempre 0), y cadenas de RLA para generadores aleatorios</li>
+                    <li><strong>Documentación:</strong> Pan Docs - CPU Instruction Set (PUSH/POP, rotaciones rápidas, flags behavior)</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - Stack Operations</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - Rotations (RLCA, RRCA, RLA, RRA)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Hardware quirks - F register mask (bits bajos siempre 0)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Flags behavior - Rotaciones rápidas vs CB rotaciones</a></li>
+                </ul>
+                <p>
+                    <em>Nota: Implementación basada en documentación técnica de Pan Docs sobre el comportamiento del hardware LR35902.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Máscara 0xF0 en F:</strong> Los 4 bits bajos del registro F siempre son cero en hardware real.
+                            Esto no es una convención de software, sino una limitación física del hardware. Si no aplicamos
+                            la máscara en POP AF, los flags pueden tener valores inválidos que rompen la lógica condicional.</li>
+                        <li><strong>Rotaciones rápidas vs CB:</strong> Las rotaciones rápidas (0x07, 0x0F, 0x17, 0x1F) tienen un
+                            comportamiento especial con los flags: Z siempre es 0, incluso si el resultado es cero. Las rotaciones
+                            CB calculan Z normalmente según el resultado. Esta diferencia es crítica para la precisión del emulador.</li>
+                        <li><strong>Rotaciones a través de carry:</strong> RLA y RRA son rotaciones de 9 bits (8 bits de A + 1 bit de C).
+                            El carry antiguo entra en el registro, y el bit que sale va al carry. Esto permite crear generadores
+                            de números pseudo-aleatorios eficientes.</li>
+                        <li><strong>Uso en juegos:</strong> Las rotaciones a través de carry son fundamentales para generadores aleatorios.
+                            Sin ellas, juegos como Tetris no pueden generar piezas aleatorias y se cuelgan.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Timing exacto:</strong> Por ahora asumimos que todas las rotaciones rápidas consumen 1 M-Cycle.
+                            Pendiente verificar si hay diferencias sutiles en timing entre rotaciones circulares y a través de carry.</li>
+                        <li><strong>Comportamiento en edge cases:</strong> Las rotaciones están testeadas con valores comunes, pero
+                            podrían necesitar más tests con valores extremos (0x00, 0xFF, etc.) para asegurar que el wrap-around funciona
+                            correctamente en todos los casos.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que el comportamiento de flags en rotaciones rápidas (Z siempre 0) es consistente en todo el hardware
+                        Game Boy. Esta suposición está respaldada por Pan Docs, pero no hemos verificado con hardware real o múltiples
+                        emuladores (por la regla clean-room, no podemos consultar código de otros emuladores).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar más opcodes del prefijo CB (rotaciones, shifts, BIT, SET, RES)</li>
+                    <li>[ ] Implementar CALL condicionales (CALL NZ, CALL Z, CALL NC, CALL C)</li>
+                    <li>[ ] Implementar JP condicionales (JP NZ, JP Z, JP NC, JP C)</li>
+                    <li>[ ] Verificar que el emulador puede ejecutar más código de Tetris DX (objetivo: superar 100.000 ciclos)</li>
+                    <li>[ ] Implementar sistema de interrupciones completo (IF, IE, manejo de interrupciones)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

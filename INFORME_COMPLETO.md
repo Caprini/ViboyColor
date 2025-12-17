@@ -1,5 +1,83 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-17 - Pila Completa y Rotaciones del Acumulador
+
+### Conceptos Hardware Implementados
+
+**Pila (Stack) Completa**: Se completó el manejo del Stack implementando PUSH/POP para todos los pares de registros (AF, DE, HL). La pila en la Game Boy crece hacia abajo (de direcciones altas a bajas) y permite guardar y restaurar el estado de los registros durante llamadas a subrutinas y manejo de interrupciones.
+
+**CRÍTICO - POP AF y la Máscara 0xF0**: Cuando hacemos POP AF, recuperamos el registro de Flags (F) de la pila. En el hardware real de la Game Boy, los 4 bits bajos del registro F (bits 0-3) SIEMPRE son cero. Esto es una característica física del hardware, no una convención de software. Si no aplicamos la máscara 0xF0 al valor recuperado de la pila, los bits bajos pueden contener "basura" que afecta las comparaciones de flags. Juegos como Tetris fallan al comprobar flags si estos bits no están limpios, porque las instrucciones condicionales (JR NZ, RET Z, etc.) se comportan de forma aleatoria.
+
+**Rotaciones Rápidas del Acumulador**: Las rotaciones rápidas (0x07, 0x0F, 0x17, 0x1F) son instrucciones optimizadas que rotan el registro A de diferentes formas. Son "rápidas" porque solo operan sobre A y consumen 1 ciclo, a diferencia de las rotaciones del prefijo CB que pueden operar sobre cualquier registro.
+
+- **RLCA (0x07)**: Rotate Left Circular Accumulator. El bit 7 sale y entra por el bit 0. También se copia al flag C.
+- **RRCA (0x0F)**: Rotate Right Circular Accumulator. El bit 0 sale y entra por el bit 7. También se copia al flag C.
+- **RLA (0x17)**: Rotate Left Accumulator through Carry. El bit 7 va al flag C, y el *antiguo* flag C entra en el bit 0. Es una rotación de 9 bits (8 bits de A + 1 bit de C).
+- **RRA (0x1F)**: Rotate Right Accumulator through Carry. El bit 0 va al flag C, y el *antiguo* flag C entra en el bit 7. Es una rotación de 9 bits.
+
+**CRÍTICO - Flags en Rotaciones Rápidas**: Estas instrucciones SIEMPRE ponen Z=0, N=0, H=0. Solo afectan a C. Esta es una diferencia clave con las rotaciones CB (0xCB), donde Z se calcula normalmente según el resultado. Si el resultado de una rotación rápida es 0, Z sigue siendo 0 (quirk del hardware).
+
+**Uso en Juegos**: Las rotaciones a través de carry (RLA, RRA) son fundamentales para generadores de números pseudo-aleatorios. Juegos como Tetris usan RLA intensivamente para generar secuencias aleatorias de piezas. Sin estas instrucciones, el juego se colgaría esperando un número aleatorio válido.
+
+#### Tareas Completadas:
+
+1. **Opcodes de Pila (`src/cpu/core.py`)**:
+   - **PUSH DE (0xD5)**: Empuja el par DE en la pila. Consume 4 M-Cycles.
+   - **POP DE (0xD1)**: Saca un valor de 16 bits de la pila y lo carga en DE. Consume 3 M-Cycles.
+   - **PUSH HL (0xE5)**: Empuja el par HL en la pila. Consume 4 M-Cycles.
+   - **POP HL (0xE1)**: Saca un valor de 16 bits de la pila y lo carga en HL. Consume 3 M-Cycles.
+   - **PUSH AF (0xF5)**: Empuja el par AF en la pila. Consume 4 M-Cycles.
+   - **POP AF (0xF1)**: Saca un valor de 16 bits de la pila y lo carga en AF. **CRÍTICO**: Aplica máscara 0xF0 a F usando `set_af()` que internamente llama a `set_f()`. Consume 3 M-Cycles.
+
+2. **Rotaciones Rápidas del Acumulador (`src/cpu/core.py`)**:
+   - **RLCA (0x07)**: Rota A hacia la izquierda de forma circular. El bit 7 sale y entra por el bit 0, y se copia al flag C. Flags: Z=0, N=0, H=0, C=bit 7 original. Consume 1 M-Cycle.
+   - **RRCA (0x0F)**: Rota A hacia la derecha de forma circular. El bit 0 sale y entra por el bit 7, y se copia al flag C. Flags: Z=0, N=0, H=0, C=bit 0 original. Consume 1 M-Cycle.
+   - **RLA (0x17)**: Rota A hacia la izquierda a través del carry. El bit 7 va al flag C, y el antiguo flag C entra en el bit 0. Flags: Z=0, N=0, H=0, C=bit 7 original. Consume 1 M-Cycle.
+   - **RRA (0x1F)**: Rota A hacia la derecha a través del carry. El bit 0 va al flag C, y el antiguo flag C entra en el bit 7. Flags: Z=0, N=0, H=0, C=bit 0 original. Consume 1 M-Cycle.
+
+3. **Tests TDD**:
+   - **tests/test_cpu_stack.py** (3 tests nuevos):
+     - **test_push_pop_de_hl**: Verifica PUSH/POP DE y HL correctamente
+     - **test_pop_af_mask**: **CRÍTICO**: Verifica que POP AF aplica máscara 0xF0 (al recuperar 0xFFFF, F debe ser 0xF0)
+     - **test_push_pop_af**: Verifica PUSH/POP AF completo
+   - **tests/test_cpu_rotations.py** (9 tests nuevos):
+     - **test_rlca_basic**: Verifica RLCA básico (0x80 -> 0x01, C=1)
+     - **test_rlca_zero_result**: Verifica que Z siempre es 0 incluso si el resultado es 0 (quirk)
+     - **test_rlca_carry**: Verifica que C se actualiza correctamente
+     - **test_rrca_basic**: Verifica RRCA básico (0x01 -> 0x80, C=1)
+     - **test_rla_with_carry**: Verifica RLA con carry activo (A=0x00, C=1 -> A=0x01, C=0)
+     - **test_rla_without_carry**: Verifica RLA sin carry (A=0x80, C=0 -> A=0x00, C=1)
+     - **test_rla_chain**: Verifica cadena de RLA para simular generador aleatorio (como Tetris)
+     - **test_rra_with_carry**: Verifica RRA con carry activo (A=0x00, C=1 -> A=0x80, C=0)
+     - **test_rra_without_carry**: Verifica RRA sin carry (A=0x01, C=0 -> A=0x00, C=1)
+   - **17 tests en total (5 existentes + 3 nuevos de pila + 9 de rotaciones), todos pasando ✅**
+
+#### Archivos Afectados:
+- `src/cpu/core.py` (modificado, añadidos 10 nuevos handlers: PUSH/POP AF, DE, HL y rotaciones rápidas)
+- `tests/test_cpu_stack.py` (modificado, añadidos 3 tests nuevos)
+- `tests/test_cpu_rotations.py` (nuevo archivo con 9 tests)
+
+#### Cómo se Validó:
+- **Tests unitarios**: pytest con 17 tests pasando (5 tests de pila existentes + 3 nuevos + 9 de rotaciones)
+- **Test crítico POP AF**: Verifica que al recuperar 0xFFFF de la pila, F se convierte en 0xF0 (bits bajos limpiados)
+- **Tests de rotaciones**: Validan rotaciones circulares, rotaciones a través de carry, quirk de flags (Z siempre 0), y cadenas de RLA para generadores aleatorios
+- **Documentación**: Pan Docs - CPU Instruction Set (PUSH/POP, rotaciones rápidas, flags behavior)
+
+#### Fuentes Consultadas:
+- Pan Docs: CPU Instruction Set - Stack Operations
+- Pan Docs: CPU Instruction Set - Rotations (RLCA, RRCA, RLA, RRA)
+- Pan Docs: Hardware quirks - F register mask (bits bajos siempre 0)
+- Pan Docs: Flags behavior - Rotaciones rápidas vs CB rotaciones
+
+#### Integridad Educativa:
+**Lo que entiendo ahora**: Los 4 bits bajos del registro F siempre son cero en hardware real. Esto no es una convención de software, sino una limitación física del hardware. Las rotaciones rápidas tienen un comportamiento especial con los flags: Z siempre es 0, incluso si el resultado es cero. Las rotaciones a través de carry (RLA, RRA) son fundamentales para generadores de números pseudo-aleatorios en juegos como Tetris.
+
+**Lo que falta confirmar**: Timing exacto de rotaciones (asumimos 1 M-Cycle para todas). Comportamiento en edge cases con valores extremos.
+
+**Hipótesis**: El comportamiento de flags en rotaciones rápidas (Z siempre 0) es consistente en todo el hardware Game Boy, respaldado por Pan Docs.
+
+---
+
 ## 2025-12-16 - Acceso a I/O (LDH) y Prefijo CB
 
 ### Conceptos Hardware Implementados

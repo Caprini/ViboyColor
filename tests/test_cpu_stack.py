@@ -287,3 +287,131 @@ class TestCallRet:
         assert cpu.registers.get_pc() == 0x0103
         assert cpu.registers.get_sp() == 0xFFFE
 
+    def test_push_pop_de_hl(self):
+        """
+        Test 6: Verificar PUSH/POP DE y HL.
+        
+        - PUSH DE con valor 0x5678
+        - POP DE debe restaurar 0x5678
+        - PUSH HL con valor 0x9ABC
+        - POP HL debe restaurar 0x9ABC
+        """
+        mmu = MMU()
+        cpu = CPU(mmu)
+        
+        cpu.registers.set_sp(0xFFFE)
+        
+        # Test DE
+        cpu.registers.set_de(0x5678)
+        cpu.registers.set_pc(0x0100)
+        mmu.write_byte(0x0100, 0xD5)  # PUSH DE
+        cpu.step()
+        
+        assert cpu.registers.get_sp() == 0xFFFC
+        assert mmu.read_word(0xFFFC) == 0x5678
+        
+        cpu.registers.set_de(0x0000)  # Limpiar para verificar POP
+        cpu.registers.set_pc(0x0101)
+        mmu.write_byte(0x0101, 0xD1)  # POP DE
+        cpu.step()
+        
+        assert cpu.registers.get_de() == 0x5678
+        assert cpu.registers.get_sp() == 0xFFFE
+        
+        # Test HL
+        cpu.registers.set_hl(0x9ABC)
+        cpu.registers.set_pc(0x0102)
+        mmu.write_byte(0x0102, 0xE5)  # PUSH HL
+        cpu.step()
+        
+        assert cpu.registers.get_sp() == 0xFFFC
+        assert mmu.read_word(0xFFFC) == 0x9ABC
+        
+        cpu.registers.set_hl(0x0000)  # Limpiar para verificar POP
+        cpu.registers.set_pc(0x0103)
+        mmu.write_byte(0x0103, 0xE1)  # POP HL
+        cpu.step()
+        
+        assert cpu.registers.get_hl() == 0x9ABC
+        assert cpu.registers.get_sp() == 0xFFFE
+
+    def test_pop_af_mask(self):
+        """
+        Test 7: Verificar que POP AF aplica máscara 0xF0 a F.
+        
+        CRÍTICO: Los 4 bits bajos de F siempre deben ser cero.
+        Si recuperamos 0xFFFF de la pila, F debe ser 0xF0 (no 0xFF).
+        """
+        mmu = MMU()
+        cpu = CPU(mmu)
+        
+        cpu.registers.set_sp(0xFFFE)
+        
+        # Escribir manualmente 0xFFFF en la pila (simulando un PUSH previo)
+        # PUSH escribe primero high byte, luego low byte
+        mmu.write_byte(0xFFFD, 0xFF)  # High byte (A)
+        mmu.write_byte(0xFFFC, 0xFF)  # Low byte (F)
+        cpu.registers.set_sp(0xFFFC)  # SP apunta al inicio del valor
+        
+        # Ejecutar POP AF
+        cpu.registers.set_pc(0x0100)
+        mmu.write_byte(0x0100, 0xF1)  # POP AF
+        cpu.step()
+        
+        # Verificar que A es 0xFF
+        assert cpu.registers.get_a() == 0xFF, (
+            f"A debe ser 0xFF, es 0x{cpu.registers.get_a():02X}"
+        )
+        
+        # Verificar que F es 0xF0 (bits bajos limpiados)
+        assert cpu.registers.get_f() == 0xF0, (
+            f"F debe ser 0xF0 (bits bajos limpiados), es 0x{cpu.registers.get_f():02X}. "
+            "Los 4 bits bajos de F siempre deben ser cero en hardware real."
+        )
+        
+        # Verificar que SP incrementó
+        assert cpu.registers.get_sp() == 0xFFFE
+
+    def test_push_pop_af(self):
+        """
+        Test 8: Verificar PUSH/POP AF completo.
+        
+        - Establecer A=0xAA, F=0xF0 (flags activos)
+        - PUSH AF
+        - Limpiar AF
+        - POP AF
+        - Verificar que A y F se restauraron correctamente
+        """
+        mmu = MMU()
+        cpu = CPU(mmu)
+        
+        cpu.registers.set_sp(0xFFFE)
+        
+        # Establecer AF
+        cpu.registers.set_a(0xAA)
+        cpu.registers.set_f(0xF0)  # Todos los flags activos
+        
+        # PUSH AF
+        cpu.registers.set_pc(0x0100)
+        mmu.write_byte(0x0100, 0xF5)  # PUSH AF
+        cpu.step()
+        
+        assert cpu.registers.get_sp() == 0xFFFC
+        # Verificar que AF está en memoria (A=0xAA, F=0xF0)
+        assert mmu.read_byte(0xFFFD) == 0xAA  # High byte (A)
+        assert mmu.read_byte(0xFFFC) == 0xF0   # Low byte (F)
+        
+        # Limpiar AF
+        cpu.registers.set_a(0x00)
+        cpu.registers.set_f(0x00)
+        
+        # POP AF
+        cpu.registers.set_pc(0x0101)
+        mmu.write_byte(0x0101, 0xF1)  # POP AF
+        cpu.step()
+        
+        # Verificar que se restauraron
+        assert cpu.registers.get_a() == 0xAA
+        assert cpu.registers.get_f() == 0xF0
+        assert cpu.registers.get_sp() == 0xFFFE
+

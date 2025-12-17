@@ -32,6 +32,31 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0017 - Pila Completa y Rotaciones del Acumulador -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0017__pila-completa-rotaciones.html" class="entry-link">
+                                    Pila Completa y Rotaciones del Acumulador
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0017 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se completó el manejo del Stack (Pila) implementando PUSH/POP para todos los pares de registros
+                            (AF, DE, HL), y se añadieron las rotaciones rápidas del acumulador (RLCA, RRCA, RLA, RRA).
+                            La implementación de POP AF incluye la máscara crítica 0xF0 para los bits bajos del registro F,
+                            simulando el comportamiento del hardware real. Las rotaciones rápidas tienen un comportamiento
+                            especial con los flags: Z siempre es 0, incluso si el resultado es cero. Esta es una diferencia
+                            clave con las rotaciones del prefijo CB. Todos los tests pasan (17 tests en total). Estas
+                            instrucciones son fundamentales para que juegos como Tetris puedan generar números aleatorios
+                            y restaurar el estado de flags después de interrupciones.
+                        </p>
+                    </li>
                     <!-- Entrada 0016 - Bloque ALU Completo -->
                     <li>
                         <div class="entry-header">
