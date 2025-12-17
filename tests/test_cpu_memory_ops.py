@@ -32,10 +32,10 @@ class TestMemoryIndirect:
         # Configurar estado inicial
         cpu.registers.set_hl(0xC000)
         cpu.registers.set_a(0x55)
-        cpu.registers.set_pc(0x0100)
+        cpu.registers.set_pc(0x8000)  # Usar área fuera de ROM
         
         # Escribir opcode en memoria
-        mmu.write_byte(0x0100, 0x77)  # LD (HL), A
+        mmu.write_byte(0x8000, 0x77)  # LD (HL), A
         
         # Ejecutar instrucción
         cycles = cpu.step()
@@ -61,10 +61,10 @@ class TestMemoryIndirect:
         # Configurar estado inicial
         cpu.registers.set_hl(0xC000)
         cpu.registers.set_a(0xAA)
-        cpu.registers.set_pc(0x0100)
+        cpu.registers.set_pc(0x8000)
         
         # Escribir opcode en memoria
-        mmu.write_byte(0x0100, 0x22)  # LD (HL+), A
+        mmu.write_byte(0x8000, 0x22)  # LD (HL+), A
         
         # Ejecutar instrucción
         cycles = cpu.step()
@@ -89,9 +89,9 @@ class TestMemoryIndirect:
         
         cpu.registers.set_hl(0xFFFF)
         cpu.registers.set_a(0xBB)
-        cpu.registers.set_pc(0x0100)
+        cpu.registers.set_pc(0x8000)
         
-        mmu.write_byte(0x0100, 0x22)  # LD (HL+), A
+        mmu.write_byte(0x8000, 0x22)  # LD (HL+), A
         
         cycles = cpu.step()
         
@@ -114,9 +114,9 @@ class TestMemoryIndirect:
         
         cpu.registers.set_hl(0xC000)
         cpu.registers.set_a(0xCC)
-        cpu.registers.set_pc(0x0100)
+        cpu.registers.set_pc(0x8000)
         
-        mmu.write_byte(0x0100, 0x32)  # LD (HL-), A
+        mmu.write_byte(0x8000, 0x32)  # LD (HL-), A
         
         cycles = cpu.step()
         
@@ -128,23 +128,34 @@ class TestMemoryIndirect:
         """
         Test: LD (HL-), A con wrap-around de HL.
         
-        - HL = 0x0000
+        - HL = 0x8000
         - A = 0xDD
         - Ejecuta 0x32
-        - Verifica que HL hace wrap-around a 0xFFFF
+        - Verifica escritura y que HL decrementa correctamente
+        - Luego prueba wrap-around desde 0x0000 a 0xFFFF
         """
         mmu = MMU()
         cpu = CPU(mmu)
         
-        cpu.registers.set_hl(0x0000)
+        # Primero verificar decremento normal
+        cpu.registers.set_hl(0x8000)
         cpu.registers.set_a(0xDD)
-        cpu.registers.set_pc(0x0100)
-        
-        mmu.write_byte(0x0100, 0x32)  # LD (HL-), A
+        cpu.registers.set_pc(0x8000)
+        mmu.write_byte(0x8000, 0x32)  # LD (HL-), A
         
         cycles = cpu.step()
+        assert mmu.read_byte(0x8000) == 0xDD, "Debe escribir en 0x8000"
+        assert cpu.registers.get_hl() == 0x7FFF, "HL debe decrementarse a 0x7FFF"
         
-        assert mmu.read_byte(0x0000) == 0xDD, "Debe escribir en 0x0000"
+        # Ahora verificar wrap-around: 0x0000 -> 0xFFFF
+        cpu.registers.set_hl(0x0000)
+        cpu.registers.set_a(0xEE)
+        cpu.registers.set_pc(0x8001)
+        mmu.write_byte(0x8001, 0x32)  # LD (HL-), A
+        
+        cycles = cpu.step()
+        # Nota: No podemos verificar escritura en 0x0000 porque está en área ROM,
+        # pero podemos verificar que HL hace wrap-around correctamente
         assert cpu.registers.get_hl() == 0xFFFF, "HL debe hacer wrap-around a 0xFFFF"
         assert cycles == 2
     
@@ -162,13 +173,13 @@ class TestMemoryIndirect:
         cpu = CPU(mmu)
         
         cpu.registers.set_hl(0xC000)
-        cpu.registers.set_pc(0x0100)
+        cpu.registers.set_pc(0x8000)
         
         # Escribir dato en memoria
         mmu.write_byte(0xC000, 0x42)
         
         # Escribir opcode
-        mmu.write_byte(0x0100, 0x2A)  # LD A, (HL+)
+        mmu.write_byte(0x8000, 0x2A)  # LD A, (HL+)
         
         cycles = cpu.step()
         
@@ -193,8 +204,8 @@ class TestIncDecFlags:
         cpu = CPU(mmu)
         
         cpu.registers.set_b(1)
-        cpu.registers.set_pc(0x0100)
-        mmu.write_byte(0x0100, 0x04)  # INC B
+        cpu.registers.set_pc(0x8000)
+        mmu.write_byte(0x8000, 0x04)  # INC B
         
         cycles = cpu.step()
         
@@ -218,8 +229,8 @@ class TestIncDecFlags:
         cpu = CPU(mmu)
         
         cpu.registers.set_b(0x0F)
-        cpu.registers.set_pc(0x0100)
-        mmu.write_byte(0x0100, 0x04)  # INC B
+        cpu.registers.set_pc(0x8000)
+        mmu.write_byte(0x8000, 0x04)  # INC B
         
         cycles = cpu.step()
         
@@ -246,8 +257,8 @@ class TestIncDecFlags:
         
         cpu.registers.set_b(0xFF)
         cpu.registers.clear_flag(FLAG_C)  # Asegurar que C está en 0
-        cpu.registers.set_pc(0x0100)
-        mmu.write_byte(0x0100, 0x04)  # INC B
+        cpu.registers.set_pc(0x8000)
+        mmu.write_byte(0x8000, 0x04)  # INC B
         
         cycles = cpu.step()
         
@@ -270,8 +281,8 @@ class TestIncDecFlags:
         
         cpu.registers.set_b(0x42)
         cpu.registers.set_flag(FLAG_C)  # Activar C
-        cpu.registers.set_pc(0x0100)
-        mmu.write_byte(0x0100, 0x04)  # INC B
+        cpu.registers.set_pc(0x8000)
+        mmu.write_byte(0x8000, 0x04)  # INC B
         
         cycles = cpu.step()
         
@@ -292,8 +303,8 @@ class TestIncDecFlags:
         cpu = CPU(mmu)
         
         cpu.registers.set_b(5)
-        cpu.registers.set_pc(0x0100)
-        mmu.write_byte(0x0100, 0x05)  # DEC B
+        cpu.registers.set_pc(0x8000)
+        mmu.write_byte(0x8000, 0x05)  # DEC B
         
         cycles = cpu.step()
         
@@ -317,8 +328,8 @@ class TestIncDecFlags:
         cpu = CPU(mmu)
         
         cpu.registers.set_b(0x10)
-        cpu.registers.set_pc(0x0100)
-        mmu.write_byte(0x0100, 0x05)  # DEC B
+        cpu.registers.set_pc(0x8000)
+        mmu.write_byte(0x8000, 0x05)  # DEC B
         
         cycles = cpu.step()
         
@@ -343,8 +354,8 @@ class TestIncDecFlags:
         
         cpu.registers.set_b(1)
         cpu.registers.clear_flag(FLAG_C)
-        cpu.registers.set_pc(0x0100)
-        mmu.write_byte(0x0100, 0x05)  # DEC B
+        cpu.registers.set_pc(0x8000)
+        mmu.write_byte(0x8000, 0x05)  # DEC B
         
         cycles = cpu.step()
         
@@ -366,8 +377,8 @@ class TestIncDecFlags:
         
         # Test INC C con Half-Carry
         cpu.registers.set_c(0x0F)
-        cpu.registers.set_pc(0x0100)
-        mmu.write_byte(0x0100, 0x0C)  # INC C
+        cpu.registers.set_pc(0x8000)
+        mmu.write_byte(0x8000, 0x0C)  # INC C
         
         cpu.step()
         assert cpu.registers.get_c() == 0x10
@@ -375,8 +386,8 @@ class TestIncDecFlags:
         
         # Test DEC C con Half-Borrow
         cpu.registers.set_c(0x10)
-        cpu.registers.set_pc(0x0102)
-        mmu.write_byte(0x0102, 0x0D)  # DEC C
+        cpu.registers.set_pc(0x8002)
+        mmu.write_byte(0x8002, 0x0D)  # DEC C
         
         cpu.step()
         assert cpu.registers.get_c() == 0x0F
@@ -386,8 +397,8 @@ class TestIncDecFlags:
         # Test INC A con overflow (preserva C)
         cpu.registers.set_a(0xFF)
         cpu.registers.clear_flag(FLAG_C)
-        cpu.registers.set_pc(0x0104)
-        mmu.write_byte(0x0104, 0x3C)  # INC A
+        cpu.registers.set_pc(0x8004)
+        mmu.write_byte(0x8004, 0x3C)  # INC A
         
         cpu.step()
         assert cpu.registers.get_a() == 0x00
@@ -397,8 +408,8 @@ class TestIncDecFlags:
         # Test DEC A con cero (preserva C)
         cpu.registers.set_a(1)
         cpu.registers.set_flag(FLAG_C)  # Activar C
-        cpu.registers.set_pc(0x0106)
-        mmu.write_byte(0x0106, 0x3D)  # DEC A
+        cpu.registers.set_pc(0x8006)
+        mmu.write_byte(0x8006, 0x3D)  # DEC A
         
         cpu.step()
         assert cpu.registers.get_a() == 0x00
