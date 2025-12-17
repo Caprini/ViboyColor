@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from ..memory.mmu import MMU
 
 # Importar constantes de MMU para acceso a registros I/O
-from ..memory.mmu import IO_LCDC, IO_BGP
+from ..memory.mmu import IO_LCDC, IO_BGP, IO_SCX, IO_SCY
 
 logger = logging.getLogger(__name__)
 
@@ -230,13 +230,26 @@ class Renderer:
             logger.info("LCDC: LCD desactivado (bit 7=0), pantalla blanca - 0 tiles dibujados")
             return
         
-        # Bit 0: BG Display
-        # Si el Background está desactivado, pintar pantalla blanca y retornar
-        if (lcdc & 0x01) == 0:
-            self.screen.fill((255, 255, 255))
-            pygame.display.flip()
-            logger.info("LCDC: Background desactivado (bit 0=0), pantalla blanca - 0 tiles dibujados")
-            return
+        # HACK EDUCATIVO: Ignorar Bit 0 de LCDC (BG Display)
+        # En Game Boy Color, el Bit 0 no apaga el fondo, sino que cambia la prioridad
+        # de sprites vs fondo. Tetris DX escribe LCDC=0x80 (bit 7=1, bit 0=0) esperando
+        # que el fondo se dibuje (comportamiento CGB), pero nuestro emulador actúa como
+        # DMG estricta y lo apagaría. Para desbloquear la visualización, ignoramos el
+        # Bit 0 y dibujamos el fondo siempre que el LCD esté encendido (Bit 7=1).
+        # 
+        # NOTA: Esta es una simplificación temporal. En el futuro, cuando implementemos
+        # modo CGB completo, el Bit 0 deberá funcionar correctamente según la especificación.
+        # 
+        # Fuente: Pan Docs - LCD Control Register, Game Boy Color differences
+        # 
+        # Código original (comentado):
+        # if (lcdc & 0x01) == 0:
+        #     self.screen.fill((255, 255, 255))
+        #     pygame.display.flip()
+        #     logger.info("LCDC: Background desactivado (bit 0=0), pantalla blanca - 0 tiles dibujados")
+        #     return
+        
+        logger.info("HACK EDUCATIVO: Ignorando Bit 0 de LCDC para compatibilidad con juegos CGB (LCDC=0x80)")
         
         # Bit 3: Tile Map Area
         # 0 = 0x9800, 1 = 0x9C00
@@ -276,24 +289,43 @@ class Renderer:
         elif bgp == 0xE4:
             logger.debug("BGP=0xE4: Paleta estándar Game Boy (blanco->gris claro->gris oscuro->negro)")
         
+        # Leer registros de Scroll (SCX/SCY)
+        # SCX (0xFF43): Scroll X - desplazamiento horizontal del fondo
+        # SCY (0xFF42): Scroll Y - desplazamiento vertical del fondo
+        # Estos registros permiten "mover la cámara" sobre el tilemap de 256x256 píxeles
+        scx = self.mmu.read_byte(IO_SCX) & 0xFF
+        scy = self.mmu.read_byte(IO_SCY) & 0xFF
+        
+        logger.debug(f"Scroll: SCX=0x{scx:02X} ({scx}), SCY=0x{scy:02X} ({scy})")
+        
         # Limpiar pantalla con color de fondo (índice 0 de la paleta)
         self.screen.fill(palette[0])
         
         # Contador de tiles dibujados
         tiles_drawn = 0
         
-        # Renderizar tiles visibles (20 tiles de ancho x 18 tiles de alto)
-        # La pantalla es 160x144 píxeles = 20x18 tiles
-        for tile_y in range(18):  # 0-17 (18 líneas)
-            for tile_x in range(20):  # 0-19 (20 columnas)
-                # Calcular posición en el tilemap (32x32 tiles)
-                # Por ahora, sin scroll: tile_x, tile_y directamente
-                map_x = tile_x & 0x1F  # Wrap-around a 32 tiles
-                map_y = tile_y & 0x1F  # Wrap-around a 32 tiles
+        # Renderizar píxeles de la pantalla (160x144 píxeles)
+        # Para cada píxel de pantalla, calcular qué píxel del tilemap corresponde
+        # aplicando el scroll: map_pixel = (screen_pixel + scroll) % 256
+        for screen_y in range(GB_HEIGHT):  # 0-143 (144 líneas)
+            for screen_x in range(GB_WIDTH):  # 0-159 (160 columnas)
+                # Calcular posición en el tilemap aplicando scroll
+                # Wrap-around a 256 píxeles (tamaño del tilemap)
+                map_x = (screen_x + scx) & 0xFF  # Wrap-around a 256 píxeles
+                map_y = (screen_y + scy) & 0xFF  # Wrap-around a 256 píxeles
+                
+                # Convertir coordenadas de píxel a coordenadas de tile
+                # Cada tile es de 8x8 píxeles
+                tile_map_x = map_x // TILE_SIZE  # 0-31 (32 tiles de ancho)
+                tile_map_y = map_y // TILE_SIZE  # 0-31 (32 tiles de alto)
+                
+                # Calcular posición del píxel dentro del tile (0-7)
+                pixel_in_tile_x = map_x % TILE_SIZE
+                pixel_in_tile_y = map_y % TILE_SIZE
                 
                 # Leer Tile ID del tilemap
                 # El tilemap es de 32x32 bytes, cada byte es un Tile ID
-                map_addr = map_base + (map_y * 32) + map_x
+                map_addr = map_base + (tile_map_y * 32) + tile_map_x
                 tile_id = self.mmu.read_byte(map_addr) & 0xFF
                 
                 # Calcular dirección del tile en VRAM según el modo de direccionamiento
@@ -313,25 +345,40 @@ class Renderer:
                 
                 # Asegurar que la dirección esté en VRAM (0x8000-0x9FFF)
                 if tile_addr < VRAM_START or tile_addr > VRAM_END:
-                    # Si está fuera de VRAM, dibujar tile vacío (todo color 0)
-                    signed_str = str(signed_id) if signed_id is not None else "N/A"
-                    logger.warning(
-                        f"Tile ID {tile_id} (signed: {signed_str}) "
-                        f"resulta en dirección fuera de VRAM: 0x{tile_addr:04X}"
-                    )
-                    continue
+                    # Si está fuera de VRAM, dibujar píxel con color de fondo (índice 0)
+                    color = palette[0]
+                else:
+                    # Leer el píxel específico del tile
+                    # Cada línea del tile ocupa 2 bytes
+                    tile_line_addr = tile_addr + (pixel_in_tile_y * 2)
+                    byte1 = self.mmu.read_byte(tile_line_addr) & 0xFF
+                    byte2 = self.mmu.read_byte(tile_line_addr + 1) & 0xFF
+                    
+                    # Decodificar el píxel específico de la línea
+                    # El píxel está en la posición pixel_in_tile_x (0-7, de izquierda a derecha)
+                    # Necesitamos el bit (7 - pixel_in_tile_x) de cada byte
+                    bit_pos = 7 - pixel_in_tile_x
+                    bit_low = (byte1 >> bit_pos) & 0x01
+                    bit_high = (byte2 >> bit_pos) & 0x01
+                    color_index = (bit_high << 1) | bit_low
+                    color = palette[color_index]
                 
-                # Dibujar el tile en la posición de pantalla
-                screen_x = tile_x * TILE_SIZE
-                screen_y = tile_y * TILE_SIZE
-                self._draw_tile_with_palette(screen_x, screen_y, tile_addr, palette)
+                # Dibujar el píxel en la posición de pantalla (aplicar escala)
+                scaled_x = screen_x * self.scale
+                scaled_y = screen_y * self.scale
+                pygame.draw.rect(
+                    self.screen,
+                    color,
+                    (scaled_x, scaled_y, self.scale, self.scale)
+                )
                 tiles_drawn += 1
         
         # Actualizar la pantalla
         pygame.display.flip()
         logger.info(
-            f"Frame renderizado: {tiles_drawn}/360 tiles dibujados, "
-            f"map_base=0x{map_base:04X}, data_base=0x{data_base:04X}, unsigned={unsigned_addressing}"
+            f"Frame renderizado: {tiles_drawn} píxeles dibujados, "
+            f"map_base=0x{map_base:04X}, data_base=0x{data_base:04X}, unsigned={unsigned_addressing}, "
+            f"SCX=0x{scx:02X}, SCY=0x{scy:02X}"
         )
 
     def _draw_tile_with_palette(self, x: int, y: int, tile_addr: int, palette: list[tuple[int, int, int]]) -> None:

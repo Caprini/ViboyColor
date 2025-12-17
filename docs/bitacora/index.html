@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0033 - Forzar Renderizado y Scroll -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0033__forzar-renderizado-scroll.html" class="entry-link">
+                                    Forzar Renderizado y Scroll (SCX/SCY)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0033 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó un "hack educativo" para ignorar el Bit 0 de LCDC (BG Display) cuando el Bit 7 (LCD Enable) está activo, permitiendo que juegos CGB como Tetris DX que escriben LCDC=0x80 puedan mostrar gráficos. Además, se implementó el scroll (SCX/SCY) que permite desplazar la "cámara" sobre el tilemap de 256x256 píxeles. El renderizado se cambió de dibujar por tiles a dibujar píxel a píxel para soportar correctamente el scroll. Suite de tests (5 tests) validando scroll horizontal, vertical, wrap-around, renderizado forzado con LCDC=0x80, y scroll cero. Todos los tests pasan.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0032 - Diagnóstico Pantalla Blanca y Opcodes Condicionales -->
                     <li>
                         <div class="entry-header">

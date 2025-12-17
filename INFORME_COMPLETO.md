@@ -2827,3 +2827,64 @@ def test_lcdc_bit0_off_no_bg_render(self) -> None:
 - DIAGNOSTICO_PANTALLA_BLANCA.md - Documento de diagnóstico completo
 
 ---
+
+## 2025-12-17 - Paso 0033: Forzar Renderizado y Scroll (SCX/SCY)
+
+### Título del Cambio
+Forzar Renderizado y Scroll (SCX/SCY)
+
+### Descripción Técnica Breve
+Se implementó un "hack educativo" para ignorar el Bit 0 de LCDC (BG Display) cuando el Bit 7 (LCD Enable) está activo, permitiendo que juegos CGB como Tetris DX que escriben `LCDC=0x80` puedan mostrar gráficos. Además, se implementó el scroll (SCX/SCY) que permite desplazar la "cámara" sobre el tilemap de 256x256 píxeles. El renderizado se cambió de dibujar por tiles a dibujar píxel a píxel para soportar correctamente el scroll.
+
+### Archivos Afectados
+- `src/gpu/renderer.py` - Modificado `render_frame()` para ignorar Bit 0 de LCDC (hack educativo) e implementar scroll (SCX/SCY) con renderizado píxel a píxel
+- `tests/test_gpu_scroll.py` - Nuevo archivo con 5 tests para validar scroll horizontal, vertical, wrap-around, renderizado forzado con LCDC=0x80, y scroll cero
+
+### Cómo se Validó
+
+#### Tests Unitarios - Scroll y Renderizado Forzado
+- **Comando ejecutado**: `python3 -m pytest tests/test_gpu_scroll.py -v`
+- **Entorno**: macOS (darwin 21.6.0), Python 3.9.6, pytest 8.4.2
+- **Resultado**: **5 passed in 11.81s**
+
+**Qué valida**:
+- `test_scroll_x`: Verifica que SCX desplaza correctamente el fondo horizontalmente. Si SCX=4, el píxel 0 de pantalla debe mostrar el píxel 4 del tilemap. Valida que el scroll horizontal funciona correctamente.
+- `test_scroll_y`: Verifica que SCY desplaza correctamente el fondo verticalmente. Si SCY=8, la línea 0 de pantalla debe mostrar la línea 8 del tilemap. Valida que el scroll vertical funciona correctamente.
+- `test_scroll_wrap_around`: Verifica que el scroll hace wrap-around correctamente (módulo 256). Si SCX=200 y screen_x=100, map_x = (100 + 200) % 256 = 44. Valida que el wrap-around funciona correctamente.
+- `test_force_bg_render_lcdc_0x80`: Verifica que con LCDC=0x80 (bit 7=1, bit 0=0) se dibuja el fondo gracias al hack educativo. Valida que el hack permite que juegos CGB muestren gráficos.
+- `test_scroll_zero`: Verifica que con SCX=0 y SCY=0, el renderizado funciona normalmente sin scroll. Valida que el renderizado funciona correctamente sin desplazamiento.
+
+**Código del test (fragmento esencial)**:
+```python
+@patch('src.gpu.renderer.pygame.draw.rect')
+def test_force_bg_render_lcdc_0x80(self, mock_draw_rect: MagicMock) -> None:
+    """Verifica que con LCDC=0x80 se dibuja el fondo gracias al hack educativo."""
+    mmu = MMU(None)
+    renderer = Renderer(mmu, scale=1)
+    renderer.screen = MagicMock()
+    
+    # Configurar LCDC = 0x80 (bit 7=1 LCD ON, bit 0=0 BG OFF en DMG)
+    mmu.write_byte(IO_LCDC, 0x80)
+    mmu.write_byte(IO_BGP, 0xE4)
+    
+    # Configurar tilemap básico
+    mmu.write_byte(0x9800, 0x00)
+    
+    # Renderizar frame
+    renderer.render_frame()
+    
+    # Verificar que se dibujaron píxeles (no retornó temprano)
+    assert mock_draw_rect.called, \
+        "Con LCDC=0x80 (hack educativo), debe dibujar píxeles"
+    assert mock_draw_rect.call_count == 160 * 144, \
+        f"Debe dibujar 160*144 píxeles, pero se llamó {mock_draw_rect.call_count} veces"
+```
+
+**Ruta completa**: `tests/test_gpu_scroll.py`
+
+#### Fuentes Consultadas:
+- Pan Docs: LCD Control Register (LCDC) - https://gbdev.io/pandocs/LCDC.html
+- Pan Docs: Scrolling - https://gbdev.io/pandocs/Scrolling.html
+- Pan Docs: Game Boy Color Registers - https://gbdev.io/pandocs/CGB_Registers.html
+
+---
