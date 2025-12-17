@@ -94,9 +94,16 @@ class CPU:
             0x1F: self._op_rra,        # RRA (Rotate Right Accumulator through Carry)
             # Saltos (Jumps)
             0xC3: self._op_jp_nn,      # JP nn (Jump absolute)
+            0xC2: self._op_jp_nz_nn,   # JP NZ, nn (Jump if Not Zero)
+            0xCA: self._op_jp_z_nn,    # JP Z, nn (Jump if Zero)
+            0xD2: self._op_jp_nc_nn,   # JP NC, nn (Jump if Not Carry)
+            0xDA: self._op_jp_c_nn,    # JP C, nn (Jump if Carry)
+            0xE9: self._op_jp_hl,      # JP (HL) (Jump to address in HL)
             0x18: self._op_jr_e,       # JR e (Jump relative unconditional)
             0x20: self._op_jr_nz_e,    # JR NZ, e (Jump relative if Not Zero)
+            0x28: self._op_jr_z_e,     # JR Z, e (Jump relative if Zero)
             0x30: self._op_jr_nc_e,    # JR NC, e (Jump relative if Not Carry)
+            0x38: self._op_jr_c_e,     # JR C, e (Jump relative if Carry)
             # Stack (Pila)
             0xC5: self._op_push_bc,    # PUSH BC
             0xC1: self._op_pop_bc,     # POP BC
@@ -107,6 +114,10 @@ class CPU:
             0xF5: self._op_push_af,    # PUSH AF
             0xF1: self._op_pop_af,     # POP AF
             0xCD: self._op_call_nn,     # CALL nn
+            0xC4: self._op_call_nz_nn,  # CALL NZ, nn (Call if Not Zero)
+            0xCC: self._op_call_z_nn,   # CALL Z, nn (Call if Zero)
+            0xD4: self._op_call_nc_nn,  # CALL NC, nn (Call if Not Carry)
+            0xDC: self._op_call_c_nn,   # CALL C, nn (Call if Carry)
             0xC9: self._op_ret,         # RET
             # Control de Interrupciones
             0xF3: self._op_di,          # DI (Disable Interrupts)
@@ -422,9 +433,23 @@ class CPU:
         # Calcular interrupciones pendientes: IE & IF (solo los 5 bits bajos importan)
         pending = (ie & if_reg & 0x1F) & 0x1F
         
+        # DIAGNÓSTICO: Log cuando IF tiene bits activados pero pending == 0 (IE sin activar)
+        if if_reg != 0 and pending == 0:
+            logger.debug(
+                f"IF activado pero IE no: IF=0x{if_reg:02X} IE=0x{ie:02X} "
+                f"IME={self.ime} (interrupciones deshabilitadas en IE)"
+            )
+        
         # Si no hay interrupciones pendientes, no hacer nada
         if pending == 0:
             return 0
+        
+        # DIAGNÓSTICO: Log cuando hay interrupciones pendientes
+        # Esto ayuda a identificar por qué la CPU no acepta interrupciones
+        logger.debug(
+            f"Intento de Interrupción: IME={self.ime} IE=0x{ie:02X} IF=0x{if_reg:02X} "
+            f"pending=0x{pending:02X} halted={self.halted}"
+        )
         
         # Despertar de HALT si hay interrupciones pendientes (incluso si IME es False)
         if self.halted:
@@ -433,6 +458,7 @@ class CPU:
         
         # Si IME no está activado, no procesar la interrupción (solo despertamos)
         if not self.ime:
+            logger.debug(f"Interrupción pendiente ignorada: IME=False (IE=0x{ie:02X}, IF=0x{if_reg:02X})")
             return 0
         
         # Buscar el bit de menor peso activo (mayor prioridad)
@@ -1534,6 +1560,154 @@ class CPU:
         logger.debug(f"JP 0x{target_addr:04X} -> PC=0x{self.registers.get_pc():04X}")
         return 4
 
+    def _op_jp_nz_nn(self) -> int:
+        """
+        JP NZ, nn (Jump if Not Zero) - Opcode 0xC2
+        
+        Salto absoluto condicional. Lee una dirección de 16 bits y salta solo
+        si el flag Z (Zero) está desactivado (Z == 0).
+        
+        Timing condicional:
+        - Si Z == 0 (condición verdadera): 4 M-Cycles (salta)
+        - Si Z == 1 (condición falsa): 3 M-Cycles (no salta, solo lee)
+        
+        Returns:
+            3 M-Cycles si condición falsa, 4 M-Cycles si condición verdadera
+            
+        Fuente: Pan Docs - Instruction Set (JP NZ, nn)
+        """
+        # Leer dirección objetivo (siempre se lee, incluso si no se usa)
+        target_addr = self.fetch_word()
+        
+        # Comprobar condición (Z flag = 0, es decir, Zero flag desactivado)
+        if not self.registers.get_flag_z():
+            # Condición verdadera: ejecutar salto
+            self.registers.set_pc(target_addr)
+            logger.debug(
+                f"JP NZ, 0x{target_addr:04X} (TAKEN) -> PC=0x{target_addr:04X}"
+            )
+            return 4
+        else:
+            # Condición falsa: no ejecutar salto, solo avanzar PC
+            logger.debug(f"JP NZ, 0x{target_addr:04X} (NOT TAKEN) -> Z=1")
+            return 3
+
+    def _op_jp_z_nn(self) -> int:
+        """
+        JP Z, nn (Jump if Zero) - Opcode 0xCA
+        
+        Salto absoluto condicional. Lee una dirección de 16 bits y salta solo
+        si el flag Z (Zero) está activado (Z == 1).
+        
+        Timing condicional:
+        - Si Z == 1 (condición verdadera): 4 M-Cycles (salta)
+        - Si Z == 0 (condición falsa): 3 M-Cycles (no salta, solo lee)
+        
+        Returns:
+            3 M-Cycles si condición falsa, 4 M-Cycles si condición verdadera
+            
+        Fuente: Pan Docs - Instruction Set (JP Z, nn)
+        """
+        # Leer dirección objetivo (siempre se lee, incluso si no se usa)
+        target_addr = self.fetch_word()
+        
+        # Comprobar condición (Z flag = 1, es decir, Zero flag activado)
+        if self.registers.get_flag_z():
+            # Condición verdadera: ejecutar salto
+            self.registers.set_pc(target_addr)
+            logger.debug(
+                f"JP Z, 0x{target_addr:04X} (TAKEN) -> PC=0x{target_addr:04X}"
+            )
+            return 4
+        else:
+            # Condición falsa: no ejecutar salto, solo avanzar PC
+            logger.debug(f"JP Z, 0x{target_addr:04X} (NOT TAKEN) -> Z=0")
+            return 3
+
+    def _op_jp_nc_nn(self) -> int:
+        """
+        JP NC, nn (Jump if Not Carry) - Opcode 0xD2
+        
+        Salto absoluto condicional. Lee una dirección de 16 bits y salta solo
+        si el flag C (Carry) está desactivado (C == 0).
+        
+        Timing condicional:
+        - Si C == 0 (condición verdadera): 4 M-Cycles (salta)
+        - Si C == 1 (condición falsa): 3 M-Cycles (no salta, solo lee)
+        
+        Returns:
+            3 M-Cycles si condición falsa, 4 M-Cycles si condición verdadera
+            
+        Fuente: Pan Docs - Instruction Set (JP NC, nn)
+        """
+        # Leer dirección objetivo (siempre se lee, incluso si no se usa)
+        target_addr = self.fetch_word()
+        
+        # Comprobar condición (C flag = 0, es decir, Carry flag desactivado)
+        if not self.registers.get_flag_c():
+            # Condición verdadera: ejecutar salto
+            self.registers.set_pc(target_addr)
+            logger.debug(
+                f"JP NC, 0x{target_addr:04X} (TAKEN) -> PC=0x{target_addr:04X}"
+            )
+            return 4
+        else:
+            # Condición falsa: no ejecutar salto, solo avanzar PC
+            logger.debug(f"JP NC, 0x{target_addr:04X} (NOT TAKEN) -> C=1")
+            return 3
+
+    def _op_jp_c_nn(self) -> int:
+        """
+        JP C, nn (Jump if Carry) - Opcode 0xDA
+        
+        Salto absoluto condicional. Lee una dirección de 16 bits y salta solo
+        si el flag C (Carry) está activado (C == 1).
+        
+        Timing condicional:
+        - Si C == 1 (condición verdadera): 4 M-Cycles (salta)
+        - Si C == 0 (condición falsa): 3 M-Cycles (no salta, solo lee)
+        
+        Returns:
+            3 M-Cycles si condición falsa, 4 M-Cycles si condición verdadera
+            
+        Fuente: Pan Docs - Instruction Set (JP C, nn)
+        """
+        # Leer dirección objetivo (siempre se lee, incluso si no se usa)
+        target_addr = self.fetch_word()
+        
+        # Comprobar condición (C flag = 1, es decir, Carry flag activado)
+        if self.registers.get_flag_c():
+            # Condición verdadera: ejecutar salto
+            self.registers.set_pc(target_addr)
+            logger.debug(
+                f"JP C, 0x{target_addr:04X} (TAKEN) -> PC=0x{target_addr:04X}"
+            )
+            return 4
+        else:
+            # Condición falsa: no ejecutar salto, solo avanzar PC
+            logger.debug(f"JP C, 0x{target_addr:04X} (NOT TAKEN) -> C=0")
+            return 3
+
+    def _op_jp_hl(self) -> int:
+        """
+        JP (HL) (Jump to address in HL) - Opcode 0xE9
+        
+        Salto indirecto usando el valor del par de registros HL como dirección destino.
+        Es equivalente a JP HL, pero la sintaxis oficial es JP (HL).
+        
+        Esta instrucción es útil para implementar tablas de saltos o llamadas
+        a funciones mediante punteros.
+        
+        Returns:
+            1 M-Cycle (solo lectura de registros, no memoria)
+            
+        Fuente: Pan Docs - Instruction Set (JP (HL))
+        """
+        target_addr = self.registers.get_hl()
+        self.registers.set_pc(target_addr)
+        logger.debug(f"JP (HL) -> HL=0x{target_addr:04X}, PC=0x{target_addr:04X}")
+        return 1
+
     def _op_jr_e(self) -> int:
         """
         JR e (Jump Relative) - Opcode 0x18
@@ -1602,6 +1776,42 @@ class CPU:
             logger.debug(f"JR NZ, {offset:+d} (NOT TAKEN) Z flag set")
             return 2  # 2 M-Cycles si no salta
 
+    def _op_jr_z_e(self) -> int:
+        """
+        JR Z, e (Jump Relative if Zero) - Opcode 0x28
+        
+        Salto relativo condicional. Lee un byte con signo (offset) y salta solo
+        si el flag Z (Zero) está activado (Z == 1).
+        
+        El offset funciona igual que en JR e (complemento a 2).
+        
+        Timing condicional:
+        - Si Z == 1 (condición verdadera): 3 M-Cycles (salta)
+        - Si Z == 0 (condición falsa): 2 M-Cycles (no salta, solo lee)
+        
+        Returns:
+            3 M-Cycles si salta, 2 M-Cycles si no salta
+            
+        Fuente: Pan Docs - Instruction Set (JR Z, e)
+        """
+        offset = self._read_signed_byte()
+        
+        # Verificar condición: Z flag debe estar activado (Z == 1)
+        if self.registers.get_flag_z():
+            # Condición verdadera: ejecutar salto
+            current_pc = self.registers.get_pc()
+            new_pc = (current_pc + offset) & 0xFFFF
+            self.registers.set_pc(new_pc)
+            logger.debug(
+                f"JR Z, {offset:+d} (TAKEN) "
+                f"PC: 0x{current_pc:04X} -> 0x{new_pc:04X}"
+            )
+            return 3  # 3 M-Cycles si salta
+        else:
+            # Condición falsa: no saltar, continuar ejecución
+            logger.debug(f"JR Z, {offset:+d} (NOT TAKEN) Z flag not set")
+            return 2  # 2 M-Cycles si no salta
+
     def _op_jr_nc_e(self) -> int:
         """
         JR NC, e (Jump Relative if Not Carry) - Opcode 0x30
@@ -1636,6 +1846,42 @@ class CPU:
         else:
             # Condición falsa: no saltar, continuar ejecución
             logger.debug(f"JR NC, {offset:+d} (NOT TAKEN) C flag set")
+            return 2  # 2 M-Cycles si no salta
+
+    def _op_jr_c_e(self) -> int:
+        """
+        JR C, e (Jump Relative if Carry) - Opcode 0x38
+        
+        Salto relativo condicional. Lee un byte con signo (offset) y salta solo
+        si el flag C (Carry) está activado (C == 1).
+        
+        El offset funciona igual que en JR e (complemento a 2).
+        
+        Timing condicional:
+        - Si C == 1 (condición verdadera): 3 M-Cycles (salta)
+        - Si C == 0 (condición falsa): 2 M-Cycles (no salta, solo lee)
+        
+        Returns:
+            3 M-Cycles si salta, 2 M-Cycles si no salta
+            
+        Fuente: Pan Docs - Instruction Set (JR C, e)
+        """
+        offset = self._read_signed_byte()
+        
+        # Verificar condición: C flag debe estar activado (C == 1)
+        if self.registers.get_flag_c():
+            # Condición verdadera: ejecutar salto
+            current_pc = self.registers.get_pc()
+            new_pc = (current_pc + offset) & 0xFFFF
+            self.registers.set_pc(new_pc)
+            logger.debug(
+                f"JR C, {offset:+d} (TAKEN) "
+                f"PC: 0x{current_pc:04X} -> 0x{new_pc:04X}"
+            )
+            return 3  # 3 M-Cycles si salta
+        else:
+            # Condición falsa: no saltar, continuar ejecución
+            logger.debug(f"JR C, {offset:+d} (NOT TAKEN) C flag not set")
             return 2  # 2 M-Cycles si no salta
 
     # ========== Handlers de Stack (Pila) ==========
@@ -1836,6 +2082,150 @@ class CPU:
             f"PUSH return 0x{return_addr:04X}, PC=0x{target_addr:04X}"
         )
         return 6
+
+    def _op_call_nz_nn(self) -> int:
+        """
+        CALL NZ, nn (Call if Not Zero) - Opcode 0xC4
+        
+        Llama a una subrutina solo si el flag Z (Zero) está desactivado.
+        
+        Si Z=0 (condición verdadera):
+            - Ejecuta CALL normalmente (6 M-Cycles)
+        Si Z=1 (condición falsa):
+            - Lee la dirección pero no la usa (3 M-Cycles)
+            - PC avanza normalmente
+        
+        Returns:
+            3 M-Cycles si condición falsa, 6 M-Cycles si condición verdadera
+            
+        Fuente: Pan Docs - Instruction Set (CALL NZ, nn)
+        """
+        # Leer dirección objetivo (siempre se lee, incluso si no se usa)
+        target_addr = self.fetch_word()
+        
+        # Comprobar condición (Z flag = 0, es decir, Zero flag desactivado)
+        if not self.registers.get_flag_z():
+            # Condición verdadera: ejecutar CALL
+            return_addr = self.registers.get_pc()
+            self._push_word(return_addr)
+            self.registers.set_pc(target_addr)
+            logger.debug(
+                f"CALL NZ, 0x{target_addr:04X} (TAKEN) -> "
+                f"PUSH return 0x{return_addr:04X}, PC=0x{target_addr:04X}"
+            )
+            return 6
+        else:
+            # Condición falsa: no ejecutar CALL, solo avanzar PC
+            logger.debug(f"CALL NZ, 0x{target_addr:04X} (NOT TAKEN) -> Z=1")
+            return 3
+
+    def _op_call_z_nn(self) -> int:
+        """
+        CALL Z, nn (Call if Zero) - Opcode 0xCC
+        
+        Llama a una subrutina solo si el flag Z (Zero) está activado.
+        
+        Si Z=1 (condición verdadera):
+            - Ejecuta CALL normalmente (6 M-Cycles)
+        Si Z=0 (condición falsa):
+            - Lee la dirección pero no la usa (3 M-Cycles)
+            - PC avanza normalmente
+        
+        Returns:
+            3 M-Cycles si condición falsa, 6 M-Cycles si condición verdadera
+            
+        Fuente: Pan Docs - Instruction Set (CALL Z, nn)
+        """
+        # Leer dirección objetivo (siempre se lee, incluso si no se usa)
+        target_addr = self.fetch_word()
+        
+        # Comprobar condición (Z flag = 1, es decir, Zero flag activado)
+        if self.registers.get_flag_z():
+            # Condición verdadera: ejecutar CALL
+            return_addr = self.registers.get_pc()
+            self._push_word(return_addr)
+            self.registers.set_pc(target_addr)
+            logger.debug(
+                f"CALL Z, 0x{target_addr:04X} (TAKEN) -> "
+                f"PUSH return 0x{return_addr:04X}, PC=0x{target_addr:04X}"
+            )
+            return 6
+        else:
+            # Condición falsa: no ejecutar CALL, solo avanzar PC
+            logger.debug(f"CALL Z, 0x{target_addr:04X} (NOT TAKEN) -> Z=0")
+            return 3
+
+    def _op_call_nc_nn(self) -> int:
+        """
+        CALL NC, nn (Call if Not Carry) - Opcode 0xD4
+        
+        Llama a una subrutina solo si el flag C (Carry) está desactivado.
+        
+        Si C=0 (condición verdadera):
+            - Ejecuta CALL normalmente (6 M-Cycles)
+        Si C=1 (condición falsa):
+            - Lee la dirección pero no la usa (3 M-Cycles)
+            - PC avanza normalmente
+        
+        Returns:
+            3 M-Cycles si condición falsa, 6 M-Cycles si condición verdadera
+            
+        Fuente: Pan Docs - Instruction Set (CALL NC, nn)
+        """
+        # Leer dirección objetivo (siempre se lee, incluso si no se usa)
+        target_addr = self.fetch_word()
+        
+        # Comprobar condición (C flag = 0, es decir, Carry flag desactivado)
+        if not self.registers.get_flag_c():
+            # Condición verdadera: ejecutar CALL
+            return_addr = self.registers.get_pc()
+            self._push_word(return_addr)
+            self.registers.set_pc(target_addr)
+            logger.debug(
+                f"CALL NC, 0x{target_addr:04X} (TAKEN) -> "
+                f"PUSH return 0x{return_addr:04X}, PC=0x{target_addr:04X}"
+            )
+            return 6
+        else:
+            # Condición falsa: no ejecutar CALL, solo avanzar PC
+            logger.debug(f"CALL NC, 0x{target_addr:04X} (NOT TAKEN) -> C=1")
+            return 3
+
+    def _op_call_c_nn(self) -> int:
+        """
+        CALL C, nn (Call if Carry) - Opcode 0xDC
+        
+        Llama a una subrutina solo si el flag C (Carry) está activado.
+        
+        Si C=1 (condición verdadera):
+            - Ejecuta CALL normalmente (6 M-Cycles)
+        Si C=0 (condición falsa):
+            - Lee la dirección pero no la usa (3 M-Cycles)
+            - PC avanza normalmente
+        
+        Returns:
+            3 M-Cycles si condición falsa, 6 M-Cycles si condición verdadera
+            
+        Fuente: Pan Docs - Instruction Set (CALL C, nn)
+        """
+        # Leer dirección objetivo (siempre se lee, incluso si no se usa)
+        target_addr = self.fetch_word()
+        
+        # Comprobar condición (C flag = 1, es decir, Carry flag activado)
+        if self.registers.get_flag_c():
+            # Condición verdadera: ejecutar CALL
+            return_addr = self.registers.get_pc()
+            self._push_word(return_addr)
+            self.registers.set_pc(target_addr)
+            logger.debug(
+                f"CALL C, 0x{target_addr:04X} (TAKEN) -> "
+                f"PUSH return 0x{return_addr:04X}, PC=0x{target_addr:04X}"
+            )
+            return 6
+        else:
+            # Condición falsa: no ejecutar CALL, solo avanzar PC
+            logger.debug(f"CALL C, 0x{target_addr:04X} (NOT TAKEN) -> C=0")
+            return 3
 
     def _op_ret(self) -> int:
         """

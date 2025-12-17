@@ -209,13 +209,25 @@ class Renderer:
         """
         # Leer registro LCDC
         lcdc = self.mmu.read_byte(IO_LCDC) & 0xFF
+        lcdc_bit7 = (lcdc & 0x80) != 0
+        
+        # Leer registro BGP (Background Palette)
+        bgp = self.mmu.read_byte(IO_BGP) & 0xFF
+        
+        # Logging de diagnóstico (INFO para visibilidad)
+        logger.info(
+            f"Render frame: LCDC=0x{lcdc:02X} (bit7={lcdc_bit7}, LCD {'ON' if lcdc_bit7 else 'OFF'}), "
+            f"BGP=0x{bgp:02X}"
+        )
         
         # Bit 7: LCD Enable
         # Si el LCD está desactivado, pintar pantalla blanca y retornar
-        if (lcdc & 0x80) == 0:
+        # NOTA: En modo debug, podríamos renderizar VRAM de todas formas, pero
+        # por ahora respetamos el comportamiento del hardware real
+        if not lcdc_bit7:
             self.screen.fill((255, 255, 255))
             pygame.display.flip()
-            logger.debug("LCDC: LCD desactivado, pantalla blanca")
+            logger.info("LCDC: LCD desactivado (bit 7=0), pantalla blanca - 0 tiles dibujados")
             return
         
         # Bit 0: BG Display
@@ -223,7 +235,7 @@ class Renderer:
         if (lcdc & 0x01) == 0:
             self.screen.fill((255, 255, 255))
             pygame.display.flip()
-            logger.debug("LCDC: Background desactivado, pantalla blanca")
+            logger.info("LCDC: Background desactivado (bit 0=0), pantalla blanca - 0 tiles dibujados")
             return
         
         # Bit 3: Tile Map Area
@@ -242,9 +254,6 @@ class Renderer:
         else:
             data_base = 0x8800  # Signed addressing: tile ID 0 está en 0x9000
         
-        # Leer paleta BGP (Background Palette)
-        bgp = self.mmu.read_byte(IO_BGP) & 0xFF
-        
         # Decodificar paleta BGP
         # BGP es un byte donde cada par de bits representa el color para el índice 0-3:
         # Bits 0-1: Color para índice 0
@@ -259,8 +268,19 @@ class Renderer:
             PALETTE_GREYSCALE[(bgp >> 6) & 0x03],
         ]
         
+        # Advertencia si BGP es 0x00 (todo blanco) o 0xFF (todo negro)
+        if bgp == 0x00:
+            logger.warning("BGP=0x00: Paleta completamente blanca - pantalla aparecerá toda blanca")
+        elif bgp == 0xFF:
+            logger.info("BGP=0xFF: Paleta completamente negra")
+        elif bgp == 0xE4:
+            logger.debug("BGP=0xE4: Paleta estándar Game Boy (blanco->gris claro->gris oscuro->negro)")
+        
         # Limpiar pantalla con color de fondo (índice 0 de la paleta)
         self.screen.fill(palette[0])
+        
+        # Contador de tiles dibujados
+        tiles_drawn = 0
         
         # Renderizar tiles visibles (20 tiles de ancho x 18 tiles de alto)
         # La pantalla es 160x144 píxeles = 20x18 tiles
@@ -305,10 +325,14 @@ class Renderer:
                 screen_x = tile_x * TILE_SIZE
                 screen_y = tile_y * TILE_SIZE
                 self._draw_tile_with_palette(screen_x, screen_y, tile_addr, palette)
+                tiles_drawn += 1
         
         # Actualizar la pantalla
         pygame.display.flip()
-        logger.debug(f"Frame renderizado: map_base=0x{map_base:04X}, data_base=0x{data_base:04X}, unsigned={unsigned_addressing}")
+        logger.info(
+            f"Frame renderizado: {tiles_drawn}/360 tiles dibujados, "
+            f"map_base=0x{map_base:04X}, data_base=0x{data_base:04X}, unsigned={unsigned_addressing}"
+        )
 
     def _draw_tile_with_palette(self, x: int, y: int, tile_addr: int, palette: list[tuple[int, int, int]]) -> None:
         """
@@ -391,11 +415,19 @@ class Renderer:
         """
         Maneja eventos de Pygame (especialmente pygame.QUIT).
         
+        IMPORTANTE: En macOS, pygame.event.pump() es necesario para que la ventana se actualice.
+        Este método llama automáticamente a pygame.event.pump() para asegurar que la ventana
+        se refresque correctamente en todos los sistemas operativos.
+        
         Returns:
             True si se debe continuar ejecutando, False si se debe cerrar
         """
         if pygame is None:
             return True
+        
+        # En macOS (y algunos otros sistemas), pygame.event.pump() es necesario
+        # para que la ventana se actualice correctamente
+        pygame.event.pump()
         
         for event in pygame.event.get():
             if event.type == pygame.QUIT:

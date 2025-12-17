@@ -279,13 +279,22 @@ class Viboy:
                     
                     # Si acabamos de entrar en V-Blank, renderizar el frame
                     if in_vblank and not self._prev_vblank:
-                        # Log del estado de LCDC para debugging
+                        # Log del estado de LCDC, IE, IF para debugging
                         if self._mmu is not None:
                             lcdc = self._mmu.read_byte(0xFF40)
+                            ie = self._mmu.read_byte(0xFFFF)
+                            if_reg = self._mmu.read_byte(0xFF0F)
+                            bgp = self._mmu.read_byte(0xFF47)
                             if lcdc != 0:
-                                logger.info(f"V-Blank detectado: LY={ly}, LCDC=0x{lcdc:02X} - Renderizando frame")
+                                logger.info(
+                                    f"V-Blank: LY={ly}, LCDC=0x{lcdc:02X}, "
+                                    f"BGP=0x{bgp:02X}, IE=0x{ie:02X}, IF=0x{if_reg:02X} - Renderizando"
+                                )
                             else:
-                                logger.debug(f"V-Blank detectado: LY={ly}, LCDC=0x{lcdc:02X} - LCD desactivado, pantalla blanca")
+                                logger.debug(
+                                    f"V-Blank: LY={ly}, LCDC=0x{lcdc:02X} (OFF), "
+                                    f"BGP=0x{bgp:02X}, IE=0x{ie:02X}, IF=0x{if_reg:02X} - Pantalla blanca"
+                                )
                         self._renderer.render_frame()
                         # pygame.display.flip() ya se llama dentro de render_frame()
                     
