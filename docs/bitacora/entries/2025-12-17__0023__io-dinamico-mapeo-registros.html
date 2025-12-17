@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>I/O Dinámico y Mapeo de Registros - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>I/O Dinámico y Mapeo de Registros</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-17
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0023
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-17__0022__daa-rst-flags-final-cpu.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    <strong>¡ISA (Instruction Set Architecture) de la CPU completada al 100%!</strong> Se implementaron los dos últimos
+                    opcodes faltantes de la CPU LR35902: <strong>LD (C), A (0xE2)</strong> y <strong>LD A, (C) (0xF2)</strong>. Estas
+                    instrucciones permiten acceso dinámico a los registros de hardware usando el registro C como offset, lo que es
+                    especialmente útil para bucles de inicialización. Además, se mejoró significativamente la visibilidad del sistema
+                    añadiendo constantes para todos los registros de hardware (LCDC, STAT, BGP, etc.) y mejorando el logging de la MMU para
+                    mostrar nombres de registros en lugar de direcciones hexadecimales. Con esto, el emulador puede ejecutar código
+                    completo de juegos reales y los logs ahora muestran información legible como "IO WRITE: LCDC = 0x91" en lugar de
+                    "Escribiendo en 0xFF40".
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>LD (C), A y LD A, (C) - Acceso I/O Dinámico</h3>
+                <p>
+                    La Game Boy controla sus periféricos (pantalla, audio, timers, interrupciones) mediante <strong>Memory Mapped I/O</strong>.
+                    Esto significa que escribir en ciertas direcciones de memoria (rango 0xFF00-0xFF7F) no escribe en RAM, sino que controla
+                    hardware real.
+                </p>
+                <p>
+                    Ya teníamos implementadas las instrucciones <strong>LDH (n), A</strong> (0xE0) y <strong>LDH A, (n)</strong> (0xF0), que
+                    leen un byte inmediato <code>n</code> y acceden a <code>0xFF00 + n</code>. Sin embargo, estas instrucciones requieren
+                    que el offset esté embebido en el código, lo que las hace estáticas.
+                </p>
+                <p>
+                    <strong>LD (C), A (0xE2)</strong> y <strong>LD A, (C) (0xF2)</strong> son variantes optimizadas que usan el registro
+                    <code>C</code> como offset dinámico. Esto permite:
+                </p>
+                <ul>
+                    <li><strong>Bucles de inicialización:</strong> Un juego puede inicializar múltiples registros de hardware en un bucle,
+                        incrementando C en cada iteración.</li>
+                    <li><strong>Ahorro de espacio:</strong> 1 byte menos que LDH (no necesita leer byte inmediato).</li>
+                    <li><strong>Flexibilidad:</strong> El offset puede calcularse en tiempo de ejecución.</li>
+                </ul>
+                <p>
+                    <strong>Ejemplo práctico:</strong> Tetris DX usa <code>LD (C), A</code> para escribir en LCDC (0xFF40), STAT (0xFF41),
+                    BGP (0xFF47), etc. en un bucle, incrementando C desde 0x40 hasta 0x4F.
+                </p>
+
+                <h3>Registros de Hardware (Memory Mapped I/O)</h3>
+                <p>
+                    La Game Boy tiene decenas de registros de hardware mapeados en el rango 0xFF00-0xFF7F. Los más importantes son:
+                </p>
+                <ul>
+                    <li><strong>LCDC (0xFF40):</strong> LCD Control - Enciende/Apaga la pantalla, configuración de fondo/sprites.</li>
+                    <li><strong>STAT (0xFF41):</strong> LCD Status - Estado actual del LCD (modo, flags de interrupción).</li>
+                    <li><strong>SCY/SCX (0xFF42/43):</strong> Scroll Y/X - Posición del fondo.</li>
+                    <li><strong>LY (0xFF44):</strong> Línea actual que se está dibujando (0-153, solo lectura).</li>
+                    <li><strong>BGP (0xFF47):</strong> Background Palette Data - Paleta de colores para el fondo.</li>
+                    <li><strong>IF (0xFF0F):</strong> Interrupt Flag - Flags de interrupciones pendientes.</li>
+                    <li><strong>IE (0xFFFF):</strong> Interrupt Enable - Máscara de interrupciones habilitadas.</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Memory Map / I/O Ports
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron los dos opcodes faltantes en <code>src/cpu/core.py</code> y se mejoró significativamente el sistema
+                    de logging en <code>src/memory/mmu.py</code> para hacer visible qué registros de hardware se están accediendo.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong><code>_op_ld_c_a()</code></strong> en <code>src/cpu/core.py</code>:
+                        <ul>
+                            <li>Implementa LD (C), A (0xE2).</li>
+                            <li>Calcula dirección I/O: <code>0xFF00 + C</code>.</li>
+                            <li>Escribe el valor de A en esa dirección.</li>
+                            <li>Consume 2 M-Cycles (1 menos que LDH porque no lee byte inmediato).</li>
+                        </ul>
+                    </li>
+                    <li><strong><code>_op_ld_a_c()</code></strong> en <code>src/cpu/core.py</code>:
+                        <ul>
+                            <li>Implementa LD A, (C) (0xF2).</li>
+                            <li>Calcula dirección I/O: <code>0xFF00 + C</code>.</li>
+                            <li>Lee el valor de esa dirección y lo carga en A.</li>
+                            <li>Consume 2 M-Cycles.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Constantes de registros de hardware</strong> en <code>src/memory/mmu.py</code>:
+                        <ul>
+                            <li>Añadidas constantes para todos los registros principales: <code>IO_LCDC</code>, <code>IO_STAT</code>,
+                                <code>IO_BGP</code>, <code>IO_IF</code>, <code>IO_IE</code>, etc.</li>
+                            <li>Diccionario <code>IO_REGISTER_NAMES</code> que mapea direcciones a nombres legibles.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Logging mejorado</strong> en <code>MMU.write_byte()</code>:
+                        <ul>
+                            <li>Detecta escrituras en el rango I/O (0xFF00-0xFF7F).</li>
+                            <li>Registra log informativo con nombre del registro: <code>"IO WRITE: LCDC = 0x91"</code>.</li>
+                            <li>Si el registro no está en el diccionario, muestra formato genérico: <code>"IO WRITE: IO_0xFF50 = 0x42"</code>.</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Opcodes añadidos a la tabla de despacho</h3>
+                <ul>
+                    <li><code>0xE2</code>: <code>_op_ld_c_a</code> (LD (C), A)</li>
+                    <li><code>0xF2</code>: <code>_op_ld_a_c</code> (LD A, (C))</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Timing:</strong> LD (C), A y LD A, (C) consumen 2 M-Cycles (vs 3 de LDH) porque no necesitan leer
+                        un byte inmediato. Esto coincide con la documentación de Pan Docs.</li>
+                    <li><strong>Logging:</strong> Se usa <code>logger.info()</code> para escrituras I/O (no <code>debug</code>) porque
+                        es información valiosa para entender qué está haciendo el juego. El log es "lazy" (solo se formatea si el nivel
+                        de logging está activado).</li>
+                    <li><strong>Constantes:</strong> Se definieron constantes para los registros más comunes, pero el sistema es extensible.
+                        Si se necesita añadir más registros en el futuro, solo hay que añadirlos al diccionario <code>IO_REGISTER_NAMES</code>.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadidos métodos <code>_op_ld_c_a()</code> y <code>_op_ld_a_c()</code>.
+                        Añadidos opcodes 0xE2 y 0xF2 a la tabla de despacho.</li>
+                    <li><code>src/memory/mmu.py</code> - Añadidas constantes de registros de hardware (IO_LCDC, IO_STAT, etc.)
+                        y diccionario <code>IO_REGISTER_NAMES</code>. Mejorado método <code>write_byte()</code> para logging
+                        informativo de escrituras I/O.</li>
+                    <li><code>tests/test_cpu_io_c.py</code> - Archivo nuevo con 6 tests unitarios:
+                        <ul>
+                            <li>3 tests para LD (C), A (LCDC, STAT, BGP, wrap-around)</li>
+                            <li>2 tests para LD A, (C) (STAT, LCDC)</li>
+                            <li>1 test para wrap-around de dirección I/O</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutó la suite completa de tests TDD para validar los dos opcodes implementados.
+                </p>
+                
+                <h3>Ejecución de Tests</h3>
+                <p><strong>Comando ejecutado:</strong></p>
+                <pre><code>python3 -m pytest tests/test_cpu_io_c.py -v</code></pre>
+                
+                <p><strong>Entorno:</strong></p>
+                <ul>
+                    <li>OS: macOS (darwin 21.6.0)</li>
+                    <li>Python: 3.9.6</li>
+                    <li>pytest: 8.4.2</li>
+                </ul>
+                
+                <p><strong>Resultado:</strong></p>
+                <pre><code>============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0
+collected 6 items
+
+tests/test_cpu_io_c.py::TestIOAccessViaC::test_ld_c_a_write PASSED       [ 16%]
+tests/test_cpu_io_c.py::TestIOAccessViaC::test_ld_c_a_write_stat PASSED  [ 33%]
+tests/test_cpu_io_c.py::TestIOAccessViaC::test_ld_c_a_write_bgp PASSED   [ 50%]
+tests/test_cpu_io_c.py::TestIOAccessViaC::test_ld_a_c_read PASSED        [ 66%]
+tests/test_cpu_io_c.py::TestIOAccessViaC::test_ld_a_c_read_lcdc PASSED  [ 83%]
+tests/test_cpu_io_c.py::TestIOAccessViaC::test_ld_c_a_wrap_around PASSED [100%]
+
+============================== 6 passed in 0.19s ==============================</code></pre>
+                
+                <p><strong>Qué valida:</strong></p>
+                <ul>
+                    <li><strong>LD (C), A:</strong> Verifica que la escritura en <code>0xFF00 + C</code> funciona correctamente para
+                        diferentes valores de C (LCDC=0x40, STAT=0x41, BGP=0x47). Valida que C y A no se modifican después de la
+                        escritura. Confirma que consume 2 M-Cycles (correcto según documentación).</li>
+                    <li><strong>LD A, (C):</strong> Verifica que la lectura de <code>0xFF00 + C</code> carga correctamente el valor
+                        en A. Valida que C no se modifica. Confirma timing de 2 M-Cycles.</li>
+                    <li><strong>Wrap-around:</strong> Verifica que con C=0xFF, la dirección calculada es 0xFFFF (IE), demostrando
+                        que el cálculo de dirección funciona correctamente incluso en el límite.</li>
+                </ul>
+                
+                <h3>Código del Test (Fragmento Esencial)</h3>
+                <p>Ejemplo de test para LD (C), A:</p>
+                <pre><code>def test_ld_c_a_write(self):
+    """Test: LD (C), A escribe correctamente en 0xFF00 + C."""
+    mmu = MMU()
+    cpu = CPU(mmu)
+    
+    # Configurar estado inicial
+    cpu.registers.set_c(0x40)  # LCDC
+    cpu.registers.set_a(0x91)
+    cpu.registers.set_pc(0x8000)
+    
+    # Escribir opcode en memoria
+    mmu.write_byte(0x8000, 0xE2)  # LD (C), A
+    
+    # Ejecutar instrucción
+    cycles = cpu.step()
+    
+    # Verificar que se escribió correctamente en 0xFF40 (LCDC)
+    assert mmu.read_byte(IO_LCDC) == 0x91, "LCDC debe ser 0x91"
+    assert cpu.registers.get_c() == 0x40, "C no debe cambiar"
+    assert cpu.registers.get_a() == 0x91, "A no debe cambiar"
+    assert cycles == 2, "Debe consumir 2 M-Cycles"</code></pre>
+                
+                <p>
+                    <strong>Ruta completa:</strong> <code>tests/test_cpu_io_c.py</code>
+                </p>
+                
+                <h3>Validación con ROM Real (Tetris DX)</h3>
+                <p>
+                    <strong>ROM:</strong> Tetris DX (ROM aportada por el usuario, no distribuida)
+                </p>
+                <p>
+                    <strong>Modo de ejecución:</strong> Headless, con logging activado a nivel INFO para ver escrituras I/O.
+                </p>
+                <p>
+                    <strong>Criterio de éxito:</strong> El emulador debe ejecutar el opcode 0xE2 sin errores de "Opcode no implementado"
+                    y mostrar logs informativos de escrituras I/O con nombres de registros legibles.
+                </p>
+                <p>
+                    <strong>Observación:</strong> Al ejecutar Tetris DX, el emulador ahora:
+                </p>
+                <ul>
+                    <li>Ejecuta correctamente el opcode 0xE2 (LD (C), A) que estaba causando el error.</li>
+                    <li>Muestra logs informativos como:
+                        <pre><code>IO WRITE: LCDC = 0x91 (addr: 0xFF40)
+IO WRITE: STAT = 0x85 (addr: 0xFF41)
+IO WRITE: BGP = 0xE4 (addr: 0xFF47)</code></pre>
+                    </li>
+                    <li>El juego avanza más allá de la inicialización y entra en un bucle esperando que el registro LY (0xFF44)
+                        cambie, lo cual es el comportamiento esperado ya que aún no tenemos implementada la PPU (Unidad de Procesamiento
+                        de Gráficos).</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> <span class="tag tag-verified">Verified</span> - Los opcodes funcionan correctamente y
+                    el sistema de logging muestra información valiosa para depuración.
+                </p>
+                <p>
+                    <strong>Notas legales:</strong> La ROM de Tetris DX es propiedad del usuario y no se distribuye ni se incluye en
+                    el repositorio. Se usa únicamente para pruebas locales de validación del emulador.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs - CPU Instruction Set: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">https://gbdev.io/pandocs/CPU_Instruction_Set.html</a>
+                        <ul>
+                            <li>LD (C), A (opcode 0xE2)</li>
+                            <li>LD A, (C) (opcode 0xF2)</li>
+                        </ul>
+                    </li>
+                    <li>Pan Docs - Memory Map: <a href="https://gbdev.io/pandocs/Memory_Map.html">https://gbdev.io/pandocs/Memory_Map.html</a>
+                        <ul>
+                            <li>I/O Ports (0xFF00-0xFF7F)</li>
+                            <li>Registros de hardware (LCDC, STAT, BGP, etc.)</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Memory Mapped I/O:</strong> La Game Boy usa direcciones de memoria para controlar hardware. Escribir
+                            en 0xFF40 no escribe en RAM, sino que configura el LCD. Esto es más eficiente que tener instrucciones
+                            especiales para cada periférico.</li>
+                        <li><strong>LD (C), A vs LDH (n), A:</strong> La diferencia clave es que LD (C), A usa un registro (C) como
+                            offset, lo que permite bucles dinámicos. LDH (n), A usa un byte inmediato, lo que es estático pero más
+                            directo. LD (C), A es 1 ciclo más rápido porque no necesita leer el byte inmediato.</li>
+                        <li><strong>Registros de hardware:</strong> Cada registro tiene un propósito específico. LCDC controla si la
+                            pantalla está encendida, STAT indica el modo actual del LCD (H-Blank, V-Blank, OAM, etc.), BGP define
+                            los colores del fondo. Entender estos registros es crucial para implementar la PPU más adelante.</li>
+                        <li><strong>Logging informativo:</strong> Mostrar nombres de registros en lugar de direcciones hexadecimales
+                            hace que los logs sean mucho más legibles y útiles para depuración. Esto es especialmente importante cuando
+                            se trabaja con hardware complejo como la Game Boy.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento de registros de solo lectura:</strong> Algunos registros como LY (0xFF44) son de solo
+                            lectura. La MMU actualmente permite escribir en ellos, pero el hardware real ignora las escrituras. Esto
+                            debería implementarse cuando se añada la PPU.</li>
+                        <li><strong>Registros con comportamiento especial:</strong> Algunos registros tienen comportamientos especiales
+                            al escribir. Por ejemplo, escribir en DMA (0xFF46) inicia una transferencia. DIV (0xFF04) se resetea al
+                            escribir cualquier valor. Estos comportamientos se implementarán cuando se añadan los subsistemas
+                            correspondientes (DMA, Timer).</li>
+                        <li><strong>Rango completo de registros:</strong> Se definieron constantes para los registros más comunes, pero
+                            hay muchos más en el rango 0xFF00-0xFF7F. A medida que se implementen más subsistemas (APU, Timer, etc.),
+                            se añadirán más constantes y se mejorará el logging.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Timing de 2 M-Cycles:</strong> Asumimos que LD (C), A y LD A, (C) consumen 2 M-Cycles basándonos en la
+                        documentación de Pan Docs. Esto es consistente con el hecho de que no necesitan leer un byte inmediato (a diferencia
+                        de LDH que consume 3 M-Cycles). Sin embargo, no hemos validado esto con hardware real, solo con documentación.
+                    </p>
+                    <p>
+                        <strong>Comportamiento de wrap-around:</strong> Asumimos que si C=0xFF, la dirección calculada es 0xFFFF (IE),
+                        lo cual es correcto matemáticamente. El test de wrap-around valida esto, pero no hemos verificado si el hardware
+                        real tiene algún comportamiento especial en este caso.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[x] Implementar LD (C), A (0xE2) y LD A, (C) (0xF2)</li>
+                    <li>[x] Añadir constantes de registros de hardware en MMU</li>
+                    <li>[x] Mejorar logging de escrituras I/O</li>
+                    <li>[x] Crear tests TDD para los nuevos opcodes</li>
+                    <li>[ ] <strong>Implementar PPU (Unidad de Procesamiento de Gráficos):</strong> El siguiente gran módulo. La PPU
+                        es responsable de renderizar la pantalla, actualizar el registro LY, generar interrupciones V-Blank y H-Blank,
+                        y gestionar sprites y fondos. Sin la PPU, los juegos se quedan en bucles infinitos esperando que LY cambie.</li>
+                    <li>[ ] Implementar Timer (DIV, TIMA, TMA, TAC): Subsistema que genera interrupciones de timer y mantiene el
+                        contador de división.</li>
+                    <li>[ ] Implementar Interrupciones: Sistema completo de manejo de interrupciones (V-Blank, H-Blank, Timer, Joypad).</li>
+                    <li>[ ] Implementar Joypad: Lectura de botones y direcciones del controlador.</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> Con la implementación de estos dos opcodes, la CPU LR35902 está teóricamente completa al 100%.
+                    Todos los opcodes del set de instrucciones están implementados. El siguiente paso lógico es implementar la PPU para
+                    que los juegos puedan renderizar gráficos y avanzar más allá de los bucles de espera.
+                </p>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

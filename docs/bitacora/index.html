@@ -32,6 +32,32 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0023 - I/O Dinámico y Mapeo de Registros -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0023__io-dinamico-mapeo-registros.html" class="entry-link">
+                                    I/O Dinámico y Mapeo de Registros
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0023 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            ¡ISA (Instruction Set Architecture) de la CPU completada al 100%! Se implementaron los dos últimos opcodes
+                            faltantes: LD (C), A (0xE2) y LD A, (C) (0xF2). Estas instrucciones permiten acceso dinámico a registros de
+                            hardware usando C como offset, útiles para bucles de inicialización. Además, se mejoró significativamente la
+                            visibilidad del sistema añadiendo constantes para todos los registros de hardware (LCDC, STAT, BGP, etc.) y
+                            mejorando el logging de la MMU para mostrar nombres de registros en lugar de direcciones hexadecimales. Con esto,
+                            el emulador puede ejecutar código completo de juegos reales y los logs ahora muestran información legible como
+                            "IO WRITE: LCDC = 0x91". Suite completa de tests TDD (6 tests) validando todas las funcionalidades. Todos los
+                            tests pasan.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0022 - DAA, RST y Flags - El Final de la CPU -->
                     <li>
                         <div class="entry-header">

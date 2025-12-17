@@ -28,10 +28,112 @@ Fuente: Pan Docs - Memory Map
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .cartridge import Cartridge
+
+logger = logging.getLogger(__name__)
+
+# ========== Constantes de Registros de Hardware (I/O Ports) ==========
+# La Game Boy controla sus periféricos escribiendo en direcciones específicas
+# del rango 0xFF00-0xFF7F (Memory Mapped I/O).
+# Fuente: Pan Docs - Memory Map / I/O Ports
+
+# Registros de LCD (Pantalla)
+IO_LCDC = 0xFF40  # LCD Control - Enciende/Apaga pantalla, configuración de fondo/sprites
+IO_STAT = 0xFF41  # LCD Status - Estado actual del LCD (modo, flags de interrupción)
+IO_SCY = 0xFF42   # Scroll Y - Posición vertical del fondo
+IO_SCX = 0xFF43   # Scroll X - Posición horizontal del fondo
+IO_LY = 0xFF44    # LY (Línea actual) - Solo lectura, indica qué línea se está dibujando (0-153)
+IO_LYC = 0xFF45   # LYC (LY Compare) - Comparador para interrupciones de línea
+IO_DMA = 0xFF46   # DMA Transfer - Inicia transferencia DMA de OAM
+IO_BGP = 0xFF47   # Background Palette Data - Paleta de colores para fondo
+IO_OBP0 = 0xFF48  # Object Palette 0 - Paleta de colores para sprites (prioridad 0)
+IO_OBP1 = 0xFF49  # Object Palette 1 - Paleta de colores para sprites (prioridad 1)
+IO_WY = 0xFF4A    # Window Y - Posición Y de la ventana
+IO_WX = 0xFF4B    # Window X - Posición X de la ventana
+
+# Registros de Interrupciones
+IO_IF = 0xFF0F    # Interrupt Flag - Flags de interrupciones pendientes
+IO_IE = 0xFFFF    # Interrupt Enable - Máscara de interrupciones habilitadas
+
+# Registros de Timer
+IO_DIV = 0xFF04   # Divider Register - Contador de división (incrementa continuamente)
+IO_TIMA = 0xFF05  # Timer Counter - Contador del timer
+IO_TMA = 0xFF06   # Timer Modulo - Valor de recarga del timer
+IO_TAC = 0xFF07   # Timer Control - Control del timer (enable, frecuencia)
+
+# Registros de Audio (APU - Audio Processing Unit)
+IO_NR10 = 0xFF10  # Channel 1 Sweep
+IO_NR11 = 0xFF11  # Channel 1 Length & Duty
+IO_NR12 = 0xFF12  # Channel 1 Volume & Envelope
+IO_NR13 = 0xFF13  # Channel 1 Frequency Low
+IO_NR14 = 0xFF14  # Channel 1 Frequency High
+IO_NR21 = 0xFF16  # Channel 2 Length & Duty
+IO_NR22 = 0xFF17  # Channel 2 Volume & Envelope
+IO_NR23 = 0xFF18  # Channel 2 Frequency Low
+IO_NR24 = 0xFF19  # Channel 2 Frequency High
+IO_NR30 = 0xFF1A  # Channel 3 DAC Enable
+IO_NR31 = 0xFF1B  # Channel 3 Length
+IO_NR32 = 0xFF1C  # Channel 3 Output Level
+IO_NR33 = 0xFF1D  # Channel 3 Frequency Low
+IO_NR34 = 0xFF1E  # Channel 3 Frequency High
+IO_NR41 = 0xFF20  # Channel 4 Length
+IO_NR42 = 0xFF21  # Channel 4 Volume & Envelope
+IO_NR43 = 0xFF22  # Channel 4 Polynomial Counter
+IO_NR44 = 0xFF23  # Channel 4 Counter/Consecutive
+IO_NR50 = 0xFF24  # Master Volume & VIN
+IO_NR51 = 0xFF25  # Sound Panning
+IO_NR52 = 0xFF26  # Sound On/Off
+
+# Registros de Joypad
+IO_P1 = 0xFF00    # Joypad Input - Estado de botones y direcciones
+
+# Mapeo de direcciones a nombres de registros (para logging)
+IO_REGISTER_NAMES: dict[int, str] = {
+    IO_LCDC: "LCDC",
+    IO_STAT: "STAT",
+    IO_SCY: "SCY",
+    IO_SCX: "SCX",
+    IO_LY: "LY",
+    IO_LYC: "LYC",
+    IO_DMA: "DMA",
+    IO_BGP: "BGP",
+    IO_OBP0: "OBP0",
+    IO_OBP1: "OBP1",
+    IO_WY: "WY",
+    IO_WX: "WX",
+    IO_IF: "IF",
+    IO_IE: "IE",
+    IO_DIV: "DIV",
+    IO_TIMA: "TIMA",
+    IO_TMA: "TMA",
+    IO_TAC: "TAC",
+    IO_NR10: "NR10",
+    IO_NR11: "NR11",
+    IO_NR12: "NR12",
+    IO_NR13: "NR13",
+    IO_NR14: "NR14",
+    IO_NR21: "NR21",
+    IO_NR22: "NR22",
+    IO_NR23: "NR23",
+    IO_NR24: "NR24",
+    IO_NR30: "NR30",
+    IO_NR31: "NR31",
+    IO_NR32: "NR32",
+    IO_NR33: "NR33",
+    IO_NR34: "NR34",
+    IO_NR41: "NR41",
+    IO_NR42: "NR42",
+    IO_NR43: "NR43",
+    IO_NR44: "NR44",
+    IO_NR50: "NR50",
+    IO_NR51: "NR51",
+    IO_NR52: "NR52",
+    IO_P1: "P1",
+}
 
 
 class MMU:
@@ -99,6 +201,9 @@ class MMU:
         """
         Escribe un byte (8 bits) en la dirección especificada.
         
+        Si la dirección está en el rango I/O (0xFF00-0xFF7F), se registra un log
+        informativo con el nombre del registro de hardware (si es conocido).
+        
         Args:
             addr: Dirección de memoria (0x0000 a 0xFFFF)
             value: Valor a escribir (se enmascara a 8 bits)
@@ -111,6 +216,11 @@ class MMU:
         
         # Enmascaramos el valor a 8 bits (asegura que esté en rango 0x00-0xFF)
         value = value & 0xFF
+        
+        # Si está en el rango I/O (0xFF00-0xFF7F), registrar log informativo
+        if 0xFF00 <= addr <= 0xFF7F:
+            reg_name = IO_REGISTER_NAMES.get(addr, f"IO_0x{addr:04X}")
+            logger.info(f"IO WRITE: {reg_name} = 0x{value:02X} (addr: 0x{addr:04X})")
         
         # Escribimos el byte en la memoria
         self._memory[addr] = value

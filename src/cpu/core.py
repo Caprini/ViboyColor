@@ -131,7 +131,9 @@ class CPU:
             0x3D: self._op_dec_a,          # DEC A
             # I/O Access (LDH - Load High)
             0xE0: self._op_ldh_n_a,       # LDH (n), A
+            0xE2: self._op_ld_c_a,        # LD (C), A (escribe A en 0xFF00 + C)
             0xF0: self._op_ldh_a_n,       # LDH A, (n)
+            0xF2: self._op_ld_a_c,        # LD A, (C) (lee de 0xFF00 + C a A)
             # Prefijo CB (Extended Instructions)
             0xCB: self._handle_cb_prefix,  # CB Prefix
             # Comparaciones (CP)
@@ -2505,6 +2507,79 @@ class CPU:
             f"LDH A, (0x{n:02X}) -> A = 0x{value:02X} from (0x{io_addr:04X})"
         )
         return 3
+    
+    def _op_ld_c_a(self) -> int:
+        """
+        LD (C), A (Load A into I/O port via C) - Opcode 0xE2
+        
+        Escribe el valor del registro A en la dirección (0xFF00 + C), donde C es
+        el valor del registro C (0x00-0xFF).
+        
+        Esta es una variante optimizada de LDH (n), A que usa el registro C como
+        offset en lugar de leer un byte inmediato. Es útil para inicializar múltiples
+        registros de hardware en un bucle (incrementando C).
+        
+        Ejemplo:
+        - A = 0x91
+        - C = 0x40
+        - Ejecutar LD (C), A
+        - Resultado: Memoria[0xFF40] = 0x91 (LCDC)
+        
+        Returns:
+            2 M-Cycles (fetch opcode + write to memory)
+            
+        Fuente: Pan Docs - Instruction Set (LD (C), A)
+        """
+        # Obtener valor del registro C
+        c_value = self.registers.get_c()
+        
+        # Calcular dirección I/O: 0xFF00 + C
+        io_addr = (0xFF00 + c_value) & 0xFFFF
+        
+        # Escribir A en la dirección I/O
+        a_value = self.registers.get_a()
+        self.mmu.write_byte(io_addr, a_value)
+        
+        logger.debug(
+            f"LD (C), A -> (0x{io_addr:04X}) = 0x{a_value:02X} [C=0x{c_value:02X}]"
+        )
+        return 2
+    
+    def _op_ld_a_c(self) -> int:
+        """
+        LD A, (C) (Load from I/O port via C into A) - Opcode 0xF2
+        
+        Lee el valor de la dirección (0xFF00 + C) y lo carga en el registro A,
+        donde C es el valor del registro C (0x00-0xFF).
+        
+        Es el complemento de LD (C), A. Permite leer de los registros de hardware
+        usando C como offset dinámico.
+        
+        Ejemplo:
+        - C = 0x41
+        - Memoria[0xFF41] = 0x85 (STAT)
+        - Ejecutar LD A, (C)
+        - Resultado: A = 0x85
+        
+        Returns:
+            2 M-Cycles (fetch opcode + read from memory)
+            
+        Fuente: Pan Docs - Instruction Set (LD A, (C))
+        """
+        # Obtener valor del registro C
+        c_value = self.registers.get_c()
+        
+        # Calcular dirección I/O: 0xFF00 + C
+        io_addr = (0xFF00 + c_value) & 0xFFFF
+        
+        # Leer valor de la dirección I/O y cargar en A
+        value = self.mmu.read_byte(io_addr)
+        self.registers.set_a(value)
+        
+        logger.debug(
+            f"LD A, (C) -> A = 0x{value:02X} from (0x{io_addr:04X}) [C=0x{c_value:02X}]"
+        )
+        return 2
     
     # ========== Handlers del Prefijo CB (Extended Instructions) ==========
     
