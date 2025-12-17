@@ -167,6 +167,40 @@
                 <p>
                     <strong>Resultado:</strong> Todos los tests pasan ✅ (8/8)
                 </p>
+                
+                <h3>Prueba con ROM Real (Tetris DX)</h3>
+                <p>
+                    Se ejecutó el emulador con Tetris DX para verificar que las transferencias permiten
+                    que el juego avance más allá de la inicialización:
+                </p>
+                <ul>
+                    <li><strong>ROM:</strong> tetris_dx.gbc (524,288 bytes, 512 KB ROM, 8 KB RAM)</li>
+                    <li><strong>Ciclos ejecutados:</strong> 30 M-Cycles</li>
+                    <li><strong>PC final:</strong> 0x1389</li>
+                    <li><strong>Resultado:</strong> El juego avanzó exitosamente desde la inicialización (PC=0x0100)
+                        hasta PC=0x1389, ejecutando código real del juego.</li>
+                    <li><strong>Error encontrado:</strong> Opcode <code>0xB3</code> (OR E / OR A, E) no implementado</li>
+                </ul>
+                <p>
+                    <strong>Análisis del error:</strong> El opcode <code>0xB3</code> es una operación lógica OR entre
+                    el acumulador A y el registro E. Este opcode pertenece al rango <code>0xB0-0xB7</code> que contiene
+                    las operaciones OR con diferentes registros:
+                </p>
+                <ul>
+                    <li><code>0xB0</code>: OR B</li>
+                    <li><code>0xB1</code>: OR C</li>
+                    <li><code>0xB2</code>: OR D</li>
+                    <li><code>0xB3</code>: OR E ← <strong>Error aquí</strong></li>
+                    <li><code>0xB4</code>: OR H</li>
+                    <li><code>0xB5</code>: OR L</li>
+                    <li><code>0xB6</code>: OR (HL)</li>
+                    <li><code>0xB7</code>: OR A</li>
+                </ul>
+                <p>
+                    <strong>Conclusión:</strong> La implementación de transferencias funciona correctamente y permite
+                    que el juego ejecute código real. El siguiente paso lógico es implementar las operaciones lógicas
+                    (OR, AND, XOR) en el rango <code>0xA0-0xBF</code> para continuar avanzando.
+                </p>
             </section>
 
             <!-- 6. Fuentes Consultadas -->
@@ -217,7 +251,8 @@
                     <li>[ ] Implementar más opcodes del set de instrucciones (operaciones lógicas, rotaciones, etc.)</li>
                     <li>[ ] Implementar manejo completo de interrupciones (IF, IE, vectores de interrupción)</li>
                     <li>[ ] Mejorar el despertar de HALT para verificar explícitamente interrupciones pendientes</li>
-                    <li>[ ] Probar el emulador con Tetris DX para verificar que puede avanzar más allá de la inicialización</li>
+                    <li>[x] Probar el emulador con Tetris DX para verificar que puede avanzar más allá de la inicialización ✅</li>
+                    <li>[ ] Implementar operaciones lógicas (OR, AND, XOR) en el rango 0xA0-0xBF</li>
                 </ul>
             </section>
         </main>

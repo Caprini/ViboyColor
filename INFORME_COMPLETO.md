@@ -1263,6 +1263,11 @@ Se implementaron 16 nuevos opcodes:
 - **Tests unitarios**: Suite completa de 8 tests TDD pasando todos
 - **Logs**: Verificación de timing correcto (1 vs 2 M-Cycles según tipo de transferencia)
 - **Documentación**: Referencias a Pan Docs sobre estructura de opcodes y timing
+- **Prueba con ROM real (Tetris DX)**: 
+  - El emulador ejecutó 30 M-Cycles exitosamente
+  - El juego avanzó desde PC=0x0100 hasta PC=0x1389
+  - Se detuvo en opcode `0xB3` (OR E) no implementado
+  - Confirma que las transferencias funcionan correctamente y permiten ejecutar código real
 
 #### Lo que Entiendo Ahora:
 - El bloque 0x40-0x7F es una matriz elegante que codifica todas las combinaciones posibles de transferencias entre registros. La estructura permite cubrir 63 opcodes con una implementación genérica.
