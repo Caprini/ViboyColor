@@ -73,6 +73,12 @@ class CPU:
         self._opcode_table: dict[int, Callable[[], int]] = {
             0x00: self._op_nop,
             0x06: self._op_ld_b_d8,
+            0x0E: self._op_ld_c_d8,
+            0x16: self._op_ld_d_d8,
+            0x1E: self._op_ld_e_d8,
+            0x26: self._op_ld_h_d8,
+            0x2E: self._op_ld_l_d8,
+            0x36: self._op_ld_hl_ptr_d8,
             0x3E: self._op_ld_a_d8,
             0xC6: self._op_add_a_d8,
             0xCE: self._op_adc_a_d8,      # ADC A, d8
@@ -1103,6 +1109,89 @@ class CPU:
         logger.debug(f"LD B, 0x{operand:02X} -> B=0x{self.registers.get_b():02X}")
         return 2
     
+    def _op_ld_c_d8(self) -> int:
+        """
+        LD C, d8 (Load immediate value into C) - Opcode 0x0E
+        
+        Carga el siguiente byte inmediato de memoria en el registro C.
+        Este patrón es idéntico al de LD B, d8 y LD A, d8: el operando
+        de 8 bits está embebido justo después del opcode.
+        
+        Returns:
+            2 M-Cycles (fetch opcode + fetch operando)
+            
+        Fuente: Pan Docs - CPU Instruction Set (LD r, n)
+        """
+        operand = self.fetch_byte()
+        self.registers.set_c(operand)
+        logger.debug(f"LD C, 0x{operand:02X} -> C=0x{self.registers.get_c():02X}")
+        return 2
+    
+    def _op_ld_d_d8(self) -> int:
+        """
+        LD D, d8 (Load immediate value into D) - Opcode 0x16
+        
+        Carga el siguiente byte inmediato de memoria en el registro D.
+        Instrucción típica para inicializar contadores o punteros de trabajo.
+        
+        Returns:
+            2 M-Cycles (fetch opcode + fetch operando)
+            
+        Fuente: Pan Docs - CPU Instruction Set (LD r, n)
+        """
+        operand = self.fetch_byte()
+        self.registers.set_d(operand)
+        logger.debug(f"LD D, 0x{operand:02X} -> D=0x{self.registers.get_d():02X}")
+        return 2
+    
+    def _op_ld_e_d8(self) -> int:
+        """
+        LD E, d8 (Load immediate value into E) - Opcode 0x1E
+        
+        Carga el siguiente byte inmediato de memoria en el registro E.
+        
+        Returns:
+            2 M-Cycles (fetch opcode + fetch operando)
+            
+        Fuente: Pan Docs - CPU Instruction Set (LD r, n)
+        """
+        operand = self.fetch_byte()
+        self.registers.set_e(operand)
+        logger.debug(f"LD E, 0x{operand:02X} -> E=0x{self.registers.get_e():02X}")
+        return 2
+    
+    def _op_ld_h_d8(self) -> int:
+        """
+        LD H, d8 (Load immediate value into H) - Opcode 0x26
+        
+        Carga el siguiente byte inmediato de memoria en el registro H.
+        
+        Returns:
+            2 M-Cycles (fetch opcode + fetch operando)
+            
+        Fuente: Pan Docs - CPU Instruction Set (LD r, n)
+        """
+        operand = self.fetch_byte()
+        self.registers.set_h(operand)
+        logger.debug(f"LD H, 0x{operand:02X} -> H=0x{self.registers.get_h():02X}")
+        return 2
+    
+    def _op_ld_l_d8(self) -> int:
+        """
+        LD L, d8 (Load immediate value into L) - Opcode 0x2E
+        
+        Carga el siguiente byte inmediato de memoria en el registro L.
+        
+        Returns:
+            2 M-Cycles (fetch opcode + fetch operando)
+            
+        Fuente: Pan Docs - CPU Instruction Set (LD r, n)
+        """
+        operand = self.fetch_byte()
+        self.registers.set_l(operand)
+        logger.debug(f"LD L, 0x{operand:02X} -> L=0x{self.registers.get_l():02X}")
+        return 2
+    
     def _op_add_a_d8(self) -> int:
         """
         ADD A, d8 (Add immediate value to A) - Opcode 0xC6
@@ -1814,6 +1903,31 @@ class CPU:
         self.mmu.write_byte(hl_addr, a_value)
         logger.debug(f"LD (HL), A -> (0x{hl_addr:04X}) = 0x{a_value:02X}")
         return 2
+    
+    def _op_ld_hl_ptr_d8(self) -> int:
+        """
+        LD (HL), d8 (Load immediate value into memory pointed by HL) - Opcode 0x36
+        
+        Carga un valor inmediato de 8 bits directamente en la dirección de memoria
+        apuntada por HL, sin pasar por el acumulador A.
+        
+        Este modo de direccionamiento es muy potente para bucles de inicialización
+        de memoria, porque evita el paso intermedio de cargar el valor en un registro.
+        
+        Proceso:
+        1. Leer operando inmediato (d8) usando fetch_byte()
+        2. Escribir ese valor en la dirección HL: MMU[HL] = d8
+        
+        Returns:
+            3 M-Cycles (fetch opcode + fetch operando + escritura en memoria)
+            
+        Fuente: Pan Docs - CPU Instruction Set (LD (HL), n)
+        """
+        hl_addr = self.registers.get_hl()
+        operand = self.fetch_byte()
+        self.mmu.write_byte(hl_addr, operand & 0xFF)
+        logger.debug(f"LD (HL), 0x{operand:02X} -> (0x{hl_addr:04X}) = 0x{self.mmu.read_byte(hl_addr):02X}")
+        return 3
     
     def _op_ldi_hl_a(self) -> int:
         """

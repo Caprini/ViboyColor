@@ -1,5 +1,84 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-17 - Cargas Inmediatas Restantes (LD r, d8 y LD (HL), d8)
+
+### Conceptos Hardware Implementados
+
+**Patrón de Opcodes de Carga Inmediata**: Las cargas inmediatas de 8 bits siguen un patrón muy claro en la arquitectura LR35902: los opcodes están organizados en columnas donde la columna `x6` y `xE` contienen las cargas inmediatas para cada registro:
+- **0x06**: LD B, d8
+- **0x0E**: LD C, d8
+- **0x16**: LD D, d8
+- **0x1E**: LD E, d8
+- **0x26**: LD H, d8
+- **0x2E**: LD L, d8
+- **0x3E**: LD A, d8
+- **0x36**: LD (HL), d8 (especial: escribe en memoria indirecta)
+
+**LD (HL), d8 (0x36) - Instrucción Especial**: Esta instrucción es muy potente porque carga un valor inmediato *directamente* en la dirección de memoria apuntada por HL, sin necesidad de cargar el valor en A primero. Esto evita tener que hacer `LD A, 0x99` seguido de `LD (HL), A`. Simplemente puedes hacer `LD (HL), 0x99`.
+
+**Timing**: LD (HL), d8 consume 3 M-Cycles porque:
+1. 1 M-Cycle: Fetch del opcode (0x36)
+2. 1 M-Cycle: Fetch del operando inmediato (d8)
+3. 1 M-Cycle: Escritura en memoria (write to (HL))
+
+En contraste, las cargas inmediatas en registros (LD r, d8) consumen solo 2 M-Cycles porque no hay acceso a memoria, solo fetch del opcode y del operando.
+
+**Uso en Juegos**: Estas instrucciones son críticas para inicializar contadores de bucles (por ejemplo, cargar 0x10 en C para un bucle que se repite 16 veces) y para inicializar buffers de memoria con valores constantes.
+
+#### Tareas Completadas:
+
+1. **Opcodes de Carga Inmediata (`src/cpu/core.py`)**:
+   - **LD C, d8 (0x0E)**: Carga el siguiente byte inmediato de memoria en el registro C. Consume 2 M-Cycles.
+   - **LD D, d8 (0x16)**: Carga el siguiente byte inmediato de memoria en el registro D. Consume 2 M-Cycles.
+   - **LD E, d8 (0x1E)**: Carga el siguiente byte inmediato de memoria en el registro E. Consume 2 M-Cycles.
+   - **LD H, d8 (0x26)**: Carga el siguiente byte inmediato de memoria en el registro H. Consume 2 M-Cycles.
+   - **LD L, d8 (0x2E)**: Carga el siguiente byte inmediato de memoria en el registro L. Consume 2 M-Cycles.
+   - **LD (HL), d8 (0x36)**: Carga un valor inmediato directamente en la dirección de memoria apuntada por HL. Consume 3 M-Cycles (fetch opcode + fetch operando + escritura en memoria).
+
+2. **Actualización de Tabla de Despacho (`src/cpu/core.py`)**:
+   - Añadidos los 6 nuevos opcodes a la tabla de despacho (`_opcode_table`) para que la CPU pueda ejecutarlos.
+
+3. **Tests TDD**:
+   - **tests/test_cpu_load8_immediate.py** (6 tests nuevos):
+     - **test_ld_registers_immediate**: Test paramétrico que verifica LD C/D/E/H/L, d8 cargando valores distintos (ej: LD C, 0x12 -> C=0x12). Valida que PC avanza 2 bytes y que consume 2 M-Cycles.
+     - **test_ld_hl_ptr_immediate**: Verifica LD (HL), d8. Establece HL=0xC000, ejecuta LD (HL), 0x99, y verifica que MMU[0xC000] == 0x99, que HL no cambia, que PC avanza 2 bytes y que consume 3 M-Cycles.
+
+#### Archivos Afectados:
+
+- `src/cpu/core.py`: Añadidos 6 nuevos métodos de handlers y actualizada la tabla de despacho.
+- `tests/test_cpu_load8_immediate.py`: Creado archivo nuevo con suite completa de tests (6 tests).
+
+#### Tests y Verificación:
+
+- **Tests unitarios**: pytest con 6 tests pasando. Todos los tests validan correctamente las cargas inmediatas en registros y memoria indirecta.
+- **Ejecución con ROM real (Tetris DX)**:
+  - El emulador ahora puede ejecutar el opcode 0x0E (LD C, d8) que estaba causando el fallo en PC=0x12CF.
+  - Con estas cargas inmediatas completas, la CPU ahora puede inicializar contadores de bucles y buffers de memoria, lo que permite que juegos como Tetris DX avancen más allá de la inicialización.
+- **Logs**: Los métodos incluyen logging de depuración que muestra el operando, el registro destino y el valor cargado. El modo `--debug` de Viboy registra PC, opcode, registros y ciclos, permitiendo seguir el flujo exacto.
+- **Documentación**: Implementación basada en Pan Docs - CPU Instruction Set (LD r, n).
+
+#### Fuentes Consultadas:
+
+- Pan Docs: CPU Instruction Set - Referencia para opcodes de carga inmediata
+
+#### Integridad Educativa:
+
+**Lo que Entiendo Ahora**:
+- Las cargas inmediatas siguen un patrón claro en la arquitectura LR35902, donde los opcodes están organizados en columnas (x6 y xE) para cada registro.
+- LD (HL), d8 es muy potente porque permite escribir un valor inmediato directamente en memoria indirecta, evitando tener que cargar el valor en A primero.
+- Las cargas inmediatas en registros consumen 2 M-Cycles (fetch opcode + fetch operando), mientras que LD (HL), d8 consume 3 M-Cycles porque añade un ciclo de escritura en memoria.
+- Con estos 6 opcodes, ahora tenemos el conjunto completo de cargas inmediatas de 8 bits, lo que permite que la CPU pueda inicializar contadores de bucles y buffers de memoria con valores constantes.
+
+**Lo que Falta Confirmar**:
+- Timing exacto: Aunque asumo que las cargas inmediatas en registros consumen 2 M-Cycles y LD (HL), d8 consume 3 M-Cycles, no he verificado esto exhaustivamente con documentación técnica detallada.
+- Comportamiento en casos edge: Los tests cubren casos básicos, pero no he probado exhaustivamente todos los casos edge (valores límite, wrap-around, etc.).
+
+**Hipótesis y Suposiciones**:
+- Asumo que el timing (2 M-Cycles para registros, 3 M-Cycles para LD (HL), d8) es correcto, basándome en que LD A, d8 y LD B, d8 (que ya estaban implementados) también usan 2 M-Cycles, y que LD (HL), A (que ya estaba implementado) usa 2 M-Cycles, así que LD (HL), d8 debería usar 3 M-Cycles (añade un ciclo de fetch del operando).
+- Asumo que con estos 6 opcodes, ahora tenemos el conjunto completo de cargas inmediatas de 8 bits, basándome en el conocimiento general de la arquitectura LR35902 y en el patrón observado en los opcodes.
+
+---
+
 ## 2025-12-17 - ALU con Operandos Inmediatos (d8)
 
 ### Conceptos Hardware Implementados

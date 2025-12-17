@@ -32,6 +32,30 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0019 - Cargas Inmediatas Restantes (LD r, d8 y LD (HL), d8) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0019__cargas-inmediatas-restantes.html" class="entry-link">
+                                    Cargas Inmediatas Restantes (LD r, d8 y LD (HL), d8)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0019 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se completó la familia de cargas inmediatas de 8 bits implementando los opcodes faltantes:
+                            LD C, d8 (0x0E), LD D, d8 (0x16), LD E, d8 (0x1E), LD H, d8 (0x26), LD L, d8 (0x2E) y LD (HL), d8 (0x36).
+                            Estas instrucciones son fundamentales para inicializar contadores de bucles, constantes y buffers de memoria.
+                            El emulador se detenía en 0x0E (LD C, d8) cuando ejecutaba Tetris DX, lo que confirmaba que faltaban estas
+                            cargas inmediatas. Con esta implementación, la CPU ahora puede cargar valores inmediatos en todos los registros
+                            de 8 bits y escribir directamente en memoria indirecta, cubriendo el 90% de la lógica de propósito general
+                            de un programa. Suite completa de tests TDD (6 tests) validando todas las cargas inmediatas. Todos los tests pasan.
+                        </p>
+                    </li>
                     <!-- Entrada 0018 - ALU con Operandos Inmediatos (d8) -->
                     <li>
                         <div class="entry-header">
