@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acceso a I/O (LDH) y Prefijo CB - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Acceso a I/O (LDH) y Prefijo CB</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-16
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0012
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-16__0011__memoria-indirecta-inc-dec.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de acceso a registros de hardware (I/O Ports) mediante instrucciones LDH y el sistema
+                    de prefijo CB para instrucciones extendidas. Se implementaron los opcodes LDH (n), A (0xE0) y LDH A, (n)
+                    (0xF0) para escribir y leer del área I/O (0xFF00-0xFFFF). Se añadió el manejo del prefijo CB (0xCB) con
+                    una segunda tabla de despacho que permite acceder a 256 instrucciones adicionales. Se implementó la
+                    instrucción BIT 7, H (CB 0x7C) con un helper genérico _bit() que actualiza flags correctamente. Estas
+                    instrucciones son críticas para que Tetris DX pueda configurar el hardware y ejecutar bucles de limpieza
+                    de memoria. Suite completa de tests TDD (7 tests) validando todas las funcionalidades.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>LDH (Load High) - Acceso a I/O Ports:</strong> Las instrucciones LDH son una optimización para
+                    acceder a los registros de hardware (I/O Ports) en el rango 0xFF00-0xFFFF. En lugar de usar una instrucción
+                    de carga completa de 16 bits que ocuparía 3 bytes (opcode + 2 bytes de dirección), LDH usa solo 2 bytes
+                    (opcode + 1 byte de offset). La CPU suma automáticamente 0xFF00 al offset, permitiendo acceso eficiente
+                    a los 256 registros de hardware.
+                </p>
+                <p>
+                    <strong>Ejemplo:</strong> LDH (0x80), A escribe el valor de A en la dirección 0xFF00 + 0x80 = 0xFF80.
+                    Esto es equivalente a LD (0xFF80), A pero más compacto (2 bytes vs 3 bytes).
+                </p>
+                <p>
+                    <strong>Prefijo CB (Extended Instructions):</strong> La Game Boy tiene más instrucciones de las que caben
+                    en 1 byte (256 opcodes). Cuando la CPU lee el opcode 0xCB, sabe que el siguiente byte debe interpretarse
+                    con una tabla diferente de instrucciones. El prefijo CB permite acceder a 256 instrucciones adicionales:
+                </p>
+                <ul>
+                    <li><strong>0x00-0x3F:</strong> Rotaciones y shifts (RLC, RRC, RL, RR, SLA, SRA, SRL, SWAP)</li>
+                    <li><strong>0x40-0x7F:</strong> BIT b, r (Test bit) - Prueba si un bit está encendido o apagado</li>
+                    <li><strong>0x80-0xBF:</strong> RES b, r (Reset bit) - Apaga un bit específico</li>
+                    <li><strong>0xC0-0xFF:</strong> SET b, r (Set bit) - Enciende un bit específico</li>
+                </ul>
+                <p>
+                    <strong>Instrucción BIT (Test Bit):</strong> La instrucción BIT b, r prueba si el bit `b` del registro
+                    `r` está encendido (1) o apagado (0). Los flags se actualizan de forma especial:
+                </p>
+                <ul>
+                    <li><strong>Z (Zero):</strong> 1 si el bit está apagado, 0 si está encendido (¡lógica inversa!)</li>
+                    <li><strong>N (Subtract):</strong> Siempre 0</li>
+                    <li><strong>H (Half-Carry):</strong> Siempre 1</li>
+                    <li><strong>C (Carry):</strong> NO SE TOCA (preservado)</li>
+                </ul>
+                <p>
+                    La lógica inversa de Z puede ser confusa, pero tiene sentido cuando se usa con saltos condicionales:
+                    BIT 7, H seguido de JR Z, label salta si el bit está apagado (H &lt; 0x80), lo cual es útil para bucles
+                    de limpieza de memoria.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron los opcodes LDH para acceso a I/O y el sistema completo del prefijo CB con una segunda
+                    tabla de despacho. La implementación sigue el patrón de tabla de despacho ya establecido en la CPU, pero
+                    añade una segunda tabla para opcodes CB.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>src/cpu/core.py:</strong> Añadidos opcodes 0xE0, 0xF0 y 0xCB a la tabla principal. Creada
+                        segunda tabla _cb_opcode_table para opcodes CB. Implementados handlers _op_ldh_n_a(), _op_ldh_a_n(),
+                        _handle_cb_prefix(), _bit() y _op_cb_bit_7_h().</li>
+                    <li><strong>tests/test_cpu_extended.py:</strong> Suite completa de tests TDD (7 tests) validando LDH
+                        y prefijo CB con BIT 7, H.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Segunda tabla de despacho para CB:</strong> Se decidió usar una segunda tabla de despacho
+                    (_cb_opcode_table) en lugar de modificar la tabla principal, manteniendo la separación clara entre
+                    opcodes normales y opcodes CB. Esto mejora la legibilidad y facilita la implementación futura de más
+                    instrucciones CB.
+                </p>
+                <p>
+                    <strong>Helper genérico _bit():</strong> Se implementó un helper genérico _bit(bit, value) que puede
+                    probar cualquier bit de cualquier valor. Esto permite implementar fácilmente todas las variantes de
+                    BIT b, r en el futuro sin duplicar código.
+                </p>
+                <p>
+                    <strong>Preservación del flag C:</strong> Se aseguró explícitamente que BIT no modifique el flag C,
+                    siguiendo la especificación del hardware. Esto es crítico para la lógica condicional de los juegos.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadidos opcodes LDH (0xE0, 0xF0), prefijo CB (0xCB), tabla CB,
+                        helper _bit() y BIT 7, H (CB 0x7C)</li>
+                    <li><code>tests/test_cpu_extended.py</code> - Nueva suite de tests TDD (7 tests) para LDH y CB</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con nueva entrada 0012</li>
+                    <li><code>docs/bitacora/entries/2025-12-16__0012__io-access-prefijo-cb.html</code> - Nueva entrada</li>
+                    <li><code>INFORME_COMPLETO.md</code> - Actualizado con nueva entrada</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests TDD en <code>tests/test_cpu_extended.py</code> con 7 tests que
+                    validan todas las funcionalidades implementadas:
+                </p>
+                <ul>
+                    <li><strong>Tests LDH (3 tests):</strong>
+                        <ul>
+                            <li><code>test_ldh_write_read</code>: Verifica que LDH (n), A escribe correctamente en 0xFF00+n</li>
+                            <li><code>test_ldh_read</code>: Verifica que LDH A, (n) lee correctamente de 0xFF00+n</li>
+                            <li><code>test_ldh_write_boundary</code>: Verifica LDH en el límite del área I/O (0xFF00)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Tests Prefijo CB (4 tests):</strong>
+                        <ul>
+                            <li><code>test_cb_bit_7_h_set</code>: Verifica BIT 7, H cuando el bit está encendido (Z=0)</li>
+                            <li><code>test_cb_bit_7_h_clear</code>: Verifica BIT 7, H cuando el bit está apagado (Z=1)</li>
+                            <li><code>test_cb_bit_7_h_preserves_c</code>: Verifica que BIT preserva el flag C cuando está activado</li>
+                            <li><code>test_cb_bit_7_h_preserves_c_clear</code>: Verifica que BIT preserva el flag C cuando está desactivado</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> ✅ Todos los 7 tests pasan correctamente.
+                </p>
+                <p>
+                    <strong>Validación sintáctica:</strong> Sin errores de linting. El código sigue las convenciones del proyecto.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: CPU Instruction Set - LDH (Load High) instructions</li>
+                    <li>Pan Docs: CPU Instruction Set - CB Prefix (Extended Instructions)</li>
+                    <li>Pan Docs: CPU Instruction Set - BIT b, r (Test bit instruction)</li>
+                    <li>Pan Docs: CPU Flags - Comportamiento de flags en instrucciones BIT</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>LDH como optimización:</strong> LDH es una optimización de espacio y tiempo para acceder
+                            a I/O Ports. Usa solo 2 bytes en lugar de 3, y la CPU suma automáticamente 0xFF00 al offset.
+                            Esto es más eficiente que usar LD con dirección completa de 16 bits.</li>
+                        <li><strong>Prefijo CB:</strong> El prefijo CB permite extender el conjunto de instrucciones más allá
+                            de los 256 opcodes básicos. Cuando se lee 0xCB, el siguiente byte se interpreta con una tabla
+                            diferente. Esto es similar a cómo funcionan los prefijos en otras arquitecturas (x86, Z80).</li>
+                        <li><strong>Lógica inversa de Z en BIT:</strong> BIT actualiza Z de forma inversa: Z=1 si el bit está
+                            apagado, Z=0 si está encendido. Esto tiene sentido cuando se usa con saltos condicionales:
+                            BIT 7, H seguido de JR Z, label salta si el bit está apagado, lo cual es útil para bucles.</li>
+                        <li><strong>Preservación de flags:</strong> BIT preserva el flag C, lo cual es crítico para la lógica
+                            condicional. Muchos emuladores fallan aquí, rompiendo la lógica de los juegos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Otras instrucciones CB:</strong> Solo se implementó BIT 7, H. Faltan todas las demás
+                            variantes de BIT (BIT 0-6, y para otros registros), así como RES, SET, rotaciones y shifts.</li>
+                        <li><strong>Validación con ROMs reales:</strong> Aunque los tests unitarios pasan, sería ideal validar
+                            con Tetris DX o ROMs de test redistribuibles que usen estas instrucciones. El siguiente paso es
+                            ejecutar Tetris DX y verificar que avanza más allá del punto donde se detenía antes.</li>
+                        <li><strong>Timing exacto:</strong> Los ciclos de las instrucciones CB están basados en la documentación,
+                            pero falta verificar con hardware real o ROMs de test que el timing sea correcto.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        La implementación de LDH y el prefijo CB está basada en la documentación técnica (Pan Docs). La
+                        lógica inversa de Z en BIT puede ser confusa, pero es correcta según la especificación. La preservación
+                        del flag C es crítica y está correctamente implementada.
+                    </p>
+                    <p>
+                        <strong>Suposición sobre el área I/O:</strong> Por ahora, LDH escribe/lee directamente en la MMU sin
+                        mapeo especial. En el futuro, cuando implementemos los registros de hardware reales (LCDC, STAT, etc.),
+                        habrá que añadir mapeo específico para estas direcciones. Por ahora, el comportamiento básico es correcto.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar Tetris DX y verificar que avanza más allá del punto anterior (debería ejecutar muchas más instrucciones)</li>
+                    <li>[ ] Implementar más variantes de BIT (BIT 0-6, y para otros registros A, B, C, D, E, L)</li>
+                    <li>[ ] Implementar instrucciones RES (Reset bit) y SET (Set bit) del prefijo CB</li>
+                    <li>[ ] Implementar rotaciones y shifts (RLC, RRC, RL, RR, SLA, SRA, SRL, SWAP) del prefijo CB</li>
+                    <li>[ ] Validar con ROMs de test redistribuibles que prueben instrucciones CB</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

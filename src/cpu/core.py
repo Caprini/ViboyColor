@@ -99,6 +99,18 @@ class CPU:
             0x0D: self._op_dec_c,          # DEC C
             0x3C: self._op_inc_a,          # INC A
             0x3D: self._op_dec_a,          # DEC A
+            # I/O Access (LDH - Load High)
+            0xE0: self._op_ldh_n_a,       # LDH (n), A
+            0xF0: self._op_ldh_a_n,       # LDH A, (n)
+            # Prefijo CB (Extended Instructions)
+            0xCB: self._handle_cb_prefix,  # CB Prefix
+        }
+        
+        # Tabla de despacho para opcodes CB (Extended Instructions)
+        # El prefijo CB permite acceder a 256 instrucciones adicionales
+        # Rango 0x40-0x7F: BIT b, r (Test bit)
+        self._cb_opcode_table: dict[int, Callable[[], int]] = {
+            0x7C: self._op_cb_bit_7_h,    # BIT 7, H
         }
         
         logger.info("CPU inicializada")
@@ -1214,4 +1226,210 @@ class CPU:
             f"H={self.registers.get_flag_h()}"
         )
         return 1
+    
+    # ========== Handlers de I/O Access (LDH) ==========
+    
+    def _op_ldh_n_a(self) -> int:
+        """
+        LDH (n), A (Load A into I/O port) - Opcode 0xE0
+        
+        Escribe el valor del registro A en la dirección (0xFF00 + n), donde n es
+        el siguiente byte de memoria.
+        
+        Esta es una optimización para acceder a los registros de hardware (I/O Ports)
+        en el rango 0xFF00-0xFFFF. La CPU ahorra espacio usando solo 1 byte de
+        dirección (offset) y sumándole 0xFF00 automáticamente.
+        
+        Ejemplo:
+        - A = 0xAA
+        - n = 0x80
+        - Ejecutar LDH (0x80), A
+        - Resultado: Memoria[0xFF80] = 0xAA
+        
+        Returns:
+            3 M-Cycles (fetch opcode + fetch n + write to memory)
+            
+        Fuente: Pan Docs - Instruction Set (LDH (n), A)
+        """
+        # Leer offset n (8 bits)
+        n = self.fetch_byte()
+        
+        # Calcular dirección I/O: 0xFF00 + n
+        io_addr = (0xFF00 + n) & 0xFFFF
+        
+        # Escribir A en la dirección I/O
+        a_value = self.registers.get_a()
+        self.mmu.write_byte(io_addr, a_value)
+        
+        logger.debug(
+            f"LDH (0x{n:02X}), A -> (0x{io_addr:04X}) = 0x{a_value:02X}"
+        )
+        return 3
+    
+    def _op_ldh_a_n(self) -> int:
+        """
+        LDH A, (n) (Load from I/O port into A) - Opcode 0xF0
+        
+        Lee el valor de la dirección (0xFF00 + n) y lo carga en el registro A,
+        donde n es el siguiente byte de memoria.
+        
+        Es el complemento de LDH (n), A. Permite leer de los registros de hardware.
+        
+        Ejemplo:
+        - n = 0x90
+        - Memoria[0xFF90] = 0x42
+        - Ejecutar LDH A, (0x90)
+        - Resultado: A = 0x42
+        
+        Returns:
+            3 M-Cycles (fetch opcode + fetch n + read from memory)
+            
+        Fuente: Pan Docs - Instruction Set (LDH A, (n))
+        """
+        # Leer offset n (8 bits)
+        n = self.fetch_byte()
+        
+        # Calcular dirección I/O: 0xFF00 + n
+        io_addr = (0xFF00 + n) & 0xFFFF
+        
+        # Leer valor de la dirección I/O y cargar en A
+        value = self.mmu.read_byte(io_addr)
+        self.registers.set_a(value)
+        
+        logger.debug(
+            f"LDH A, (0x{n:02X}) -> A = 0x{value:02X} from (0x{io_addr:04X})"
+        )
+        return 3
+    
+    # ========== Handlers del Prefijo CB (Extended Instructions) ==========
+    
+    def _handle_cb_prefix(self) -> int:
+        """
+        Maneja el prefijo CB (0xCB) para instrucciones extendidas.
+        
+        La Game Boy tiene más instrucciones de las que caben en 1 byte (256 opcodes).
+        Cuando la CPU lee el opcode 0xCB, sabe que el siguiente byte debe
+        interpretarse con una tabla diferente de instrucciones.
+        
+        El prefijo CB permite acceder a 256 instrucciones adicionales:
+        - 0x00-0x3F: Rotaciones y shifts (RLC, RRC, RL, RR, SLA, SRA, SRL, SWAP)
+        - 0x40-0x7F: BIT b, r (Test bit)
+        - 0x80-0xBF: RES b, r (Reset bit)
+        - 0xC0-0xFF: SET b, r (Set bit)
+        
+        Proceso:
+        1. Leer el siguiente byte (opcode CB)
+        2. Buscar en la tabla CB (_cb_opcode_table)
+        3. Ejecutar la instrucción correspondiente
+        4. Sumar los ciclos (normalmente 2 M-Cycles para BIT)
+        
+        Returns:
+            Número de M-Cycles consumidos (normalmente 2 para BIT)
+            
+        Raises:
+            NotImplementedError: Si el opcode CB no está implementado
+            
+        Fuente: Pan Docs - CPU Instruction Set (CB Prefix)
+        """
+        # Leer el opcode CB (siguiente byte después de 0xCB)
+        cb_opcode = self.fetch_byte()
+        
+        logger.debug(f"CB Prefix -> CB Opcode=0x{cb_opcode:02X}")
+        
+        # Buscar handler en la tabla CB
+        handler = self._cb_opcode_table.get(cb_opcode)
+        if handler is None:
+            raise NotImplementedError(
+                f"CB Opcode 0x{cb_opcode:02X} no implementado en PC=0x{self.registers.get_pc():04X}"
+            )
+        
+        # Ejecutar la instrucción CB
+        return handler()
+    
+    def _bit(self, bit: int, value: int) -> None:
+        """
+        Helper genérico para la instrucción BIT (Test bit).
+        
+        Prueba si el bit `bit` del valor `value` es 0 o 1, y actualiza los flags
+        según el resultado.
+        
+        Flags actualizados:
+        - Z (Zero): 1 si el bit es 0, 0 si el bit es 1 (¡Inverso!)
+        - N (Subtract): Siempre 0
+        - H (Half-Carry): Siempre 1
+        - C (Carry): NO SE TOCA (preservado)
+        
+        La lógica inversa de Z puede ser confusa:
+        - Si el bit está encendido (1), Z=0 (no es cero)
+        - Si el bit está apagado (0), Z=1 (es cero)
+        
+        Esto es porque BIT se usa típicamente con saltos condicionales:
+        - BIT 7, H seguido de JR Z, label -> salta si el bit está apagado
+        
+        Args:
+            bit: Número de bit a probar (0-7)
+            value: Valor de 8 bits a probar
+            
+        Fuente: Pan Docs - CPU Instruction Set (BIT b, r)
+        """
+        value = value & 0xFF
+        
+        # Extraer el bit específico usando máscara
+        bit_mask = 1 << bit
+        bit_value = (value & bit_mask) >> bit
+        
+        # Actualizar flags
+        # Z: 1 si el bit es 0, 0 si el bit es 1 (lógica inversa)
+        if bit_value == 0:
+            self.registers.set_flag(FLAG_Z)
+        else:
+            self.registers.clear_flag(FLAG_Z)
+        
+        # N: siempre 0 en BIT
+        self.registers.clear_flag(FLAG_N)
+        
+        # H: siempre 1 en BIT
+        self.registers.set_flag(FLAG_H)
+        
+        # C: NO SE TOCA (preservado)
+    
+    def _op_cb_bit_7_h(self) -> int:
+        """
+        BIT 7, H (Test bit 7 of H) - CB Opcode 0x7C
+        
+        Prueba si el bit 7 del registro H está encendido o apagado.
+        
+        Esta instrucción es crítica para bucles de limpieza de memoria, donde
+        se usa para verificar si un puntero ha llegado a un límite (típicamente
+        cuando H alcanza 0x80 o más, indicando que se ha completado una región).
+        
+        Flags:
+        - Z: 1 si bit 7 está apagado, 0 si está encendido
+        - N: 0 (siempre)
+        - H: 1 (siempre)
+        - C: Preservado (no cambia)
+        
+        Ejemplo de uso típico:
+        ```
+        loop:
+            LD (HL+), A    ; Escribir y avanzar puntero
+            BIT 7, H       ; Probar bit 7 de H
+            JR Z, loop     ; Continuar si bit 7 está apagado (H < 0x80)
+        ```
+        
+        Returns:
+            2 M-Cycles (fetch CB prefix + fetch CB opcode + execute)
+            
+        Fuente: Pan Docs - CPU Instruction Set (BIT 7, H)
+        """
+        h_value = self.registers.get_h()
+        self._bit(7, h_value)
+        
+        logger.debug(
+            f"BIT 7, H -> H=0x{h_value:02X} "
+            f"Z={self.registers.get_flag_z()} "
+            f"H={self.registers.get_flag_h()} "
+            f"N={self.registers.get_flag_n()}"
+        )
+        return 2
 

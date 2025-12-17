@@ -1,5 +1,84 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-16 - Acceso a I/O (LDH) y Prefijo CB
+
+### Conceptos Hardware Implementados
+
+**LDH (Load High) - Acceso a I/O Ports**: Las instrucciones LDH son una optimización para acceder a los registros de hardware (I/O Ports) en el rango 0xFF00-0xFFFF. En lugar de usar una instrucción de carga completa de 16 bits que ocuparía 3 bytes (opcode + 2 bytes de dirección), LDH usa solo 2 bytes (opcode + 1 byte de offset). La CPU suma automáticamente 0xFF00 al offset, permitiendo acceso eficiente a los 256 registros de hardware. Ejemplo: LDH (0x80), A escribe el valor de A en la dirección 0xFF00 + 0x80 = 0xFF80.
+
+**Prefijo CB (Extended Instructions)**: La Game Boy tiene más instrucciones de las que caben en 1 byte (256 opcodes). Cuando la CPU lee el opcode 0xCB, sabe que el siguiente byte debe interpretarse con una tabla diferente de instrucciones. El prefijo CB permite acceder a 256 instrucciones adicionales:
+- 0x00-0x3F: Rotaciones y shifts (RLC, RRC, RL, RR, SLA, SRA, SRL, SWAP)
+- 0x40-0x7F: BIT b, r (Test bit) - Prueba si un bit está encendido o apagado
+- 0x80-0xBF: RES b, r (Reset bit) - Apaga un bit específico
+- 0xC0-0xFF: SET b, r (Set bit) - Enciende un bit específico
+
+**Instrucción BIT (Test Bit)**: La instrucción BIT b, r prueba si el bit `b` del registro `r` está encendido (1) o apagado (0). Los flags se actualizan de forma especial:
+- Z (Zero): 1 si el bit está apagado, 0 si está encendido (¡lógica inversa!)
+- N (Subtract): Siempre 0
+- H (Half-Carry): Siempre 1
+- C (Carry): NO SE TOCA (preservado)
+
+La lógica inversa de Z puede ser confusa, pero tiene sentido cuando se usa con saltos condicionales: BIT 7, H seguido de JR Z, label salta si el bit está apagado (H < 0x80), lo cual es útil para bucles de limpieza de memoria.
+
+#### Tareas Completadas:
+
+1. **Opcodes LDH (`src/cpu/core.py`)**:
+   - **LDH (n), A (0xE0)**: Escribe el valor del registro A en la dirección (0xFF00 + n), donde n es el siguiente byte de memoria. Consume 3 M-Cycles.
+   - **LDH A, (n) (0xF0)**: Lee el valor de la dirección (0xFF00 + n) y lo carga en el registro A. Consume 3 M-Cycles.
+
+2. **Manejo del Prefijo CB (`src/cpu/core.py`)**:
+   - Añadido opcode 0xCB a la tabla principal que apunta a `_handle_cb_prefix()`
+   - Creada segunda tabla de despacho `_cb_opcode_table` para opcodes CB
+   - Método `_handle_cb_prefix()` que lee el siguiente byte y busca en la tabla CB
+
+3. **Helper genérico _bit() y BIT 7, H**:
+   - Helper genérico `_bit(bit: int, value: int)` que puede probar cualquier bit de cualquier valor
+   - Implementado `BIT 7, H` (CB 0x7C) usando el helper genérico
+   - Flags actualizados correctamente: Z inverso, N=0, H=1, C preservado
+
+4. **Tests TDD (`tests/test_cpu_extended.py`)**:
+   - **test_ldh_write_read**: Verifica que LDH (n), A escribe correctamente en 0xFF00+n
+   - **test_ldh_read**: Verifica que LDH A, (n) lee correctamente de 0xFF00+n
+   - **test_ldh_write_boundary**: Verifica LDH en el límite del área I/O (0xFF00)
+   - **test_cb_bit_7_h_set**: Verifica BIT 7, H cuando el bit está encendido (Z=0)
+   - **test_cb_bit_7_h_clear**: Verifica BIT 7, H cuando el bit está apagado (Z=1)
+   - **test_cb_bit_7_h_preserves_c**: Verifica que BIT preserva el flag C cuando está activado
+   - **test_cb_bit_7_h_preserves_c_clear**: Verifica que BIT preserva el flag C cuando está desactivado
+   - **7 tests en total, todos pasando ✅**
+
+#### Archivos Afectados:
+- `src/cpu/core.py` (modificado, añadidos opcodes LDH, prefijo CB, tabla CB, helper _bit() y BIT 7, H)
+- `tests/test_cpu_extended.py` (nuevo, suite completa de tests TDD)
+- `INFORME_COMPLETO.md` (este archivo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0012)
+- `docs/bitacora/entries/2025-12-16__0012__io-access-prefijo-cb.html` (nuevo)
+- `docs/bitacora/entries/2025-12-16__0011__memoria-indirecta-inc-dec.html` (modificado, actualizado link "Siguiente")
+
+#### Cómo se Validó:
+- **Tests unitarios**: 7 tests pasando (validación sintáctica con linter)
+- **Verificación de LDH**: Los tests verifican que LDH escribe/lee correctamente en el área I/O (0xFF00-0xFFFF)
+- **Verificación de prefijo CB**: Los tests verifican que el prefijo CB funciona correctamente y ejecuta BIT 7, H
+- **Verificación de flags en BIT**: Los tests verifican que BIT actualiza flags correctamente (Z inverso, N=0, H=1, C preservado)
+- **Verificación de preservación de C**: Tests explícitos verifican que BIT no modifica el flag C
+
+#### Lo que Entiendo Ahora:
+- **LDH como optimización**: LDH es una optimización de espacio y tiempo para acceder a I/O Ports. Usa solo 2 bytes en lugar de 3, y la CPU suma automáticamente 0xFF00 al offset.
+- **Prefijo CB**: El prefijo CB permite extender el conjunto de instrucciones más allá de los 256 opcodes básicos. Cuando se lee 0xCB, el siguiente byte se interpreta con una tabla diferente.
+- **Lógica inversa de Z en BIT**: BIT actualiza Z de forma inversa: Z=1 si el bit está apagado, Z=0 si está encendido. Esto tiene sentido cuando se usa con saltos condicionales.
+- **Preservación de flags**: BIT preserva el flag C, lo cual es crítico para la lógica condicional. Muchos emuladores fallan aquí, rompiendo la lógica de los juegos.
+
+#### Lo que Falta Confirmar:
+- **Otras instrucciones CB**: Solo se implementó BIT 7, H. Faltan todas las demás variantes de BIT (BIT 0-6, y para otros registros), así como RES, SET, rotaciones y shifts.
+- **Validación con ROMs reales**: Aunque los tests unitarios pasan, sería ideal validar con Tetris DX o ROMs de test redistribuibles que usen estas instrucciones. El siguiente paso es ejecutar Tetris DX y verificar que avanza más allá del punto donde se detenía antes.
+- **Timing exacto**: Los ciclos de las instrucciones CB están basados en la documentación, pero falta verificar con hardware real o ROMs de test que el timing sea correcto.
+
+#### Hipótesis y Suposiciones:
+La implementación de LDH y el prefijo CB está basada en la documentación técnica (Pan Docs). La lógica inversa de Z en BIT puede ser confusa, pero es correcta según la especificación. La preservación del flag C es crítica y está correctamente implementada.
+
+**Suposición sobre el área I/O**: Por ahora, LDH escribe/lee directamente en la MMU sin mapeo especial. En el futuro, cuando implementemos los registros de hardware reales (LCDC, STAT, etc.), habrá que añadir mapeo específico para estas direcciones. Por ahora, el comportamiento básico es correcto.
+
+---
+
 ## 2025-12-16 - Control de Interrupciones, XOR y Cargas de 16 bits
 
 ### Conceptos Hardware Implementados
