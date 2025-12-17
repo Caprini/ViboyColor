@@ -165,7 +165,8 @@ JR NZ, loop      ; Repite</code></pre>
                     <li><code>src/cpu/core.py</code> - Añadidos helpers <code>_inc_n</code> y <code>_dec_n</code>, y
                         handlers para opcodes de memoria indirecta e INC/DEC</li>
                     <li><code>tests/test_cpu_memory_ops.py</code> - Nueva suite de tests para memoria indirecta y
-                        comportamiento de flags en INC/DEC</li>
+                        comportamiento de flags en INC/DEC. Corregidos para usar direcciones fuera del área de ROM
+                        (<code>0x8000+</code>) para permitir escritura de código de test.</li>
                 </ul>
             </section>
 
@@ -191,8 +192,18 @@ JR NZ, loop      ; Repite</code></pre>
                     <li><strong>Variantes:</strong> Tests para INC/DEC de B, C, A verificando comportamiento consistente</li>
                 </ul>
                 <p>
-                    <strong>Tests unitarios:</strong> 15+ tests en pytest cubriendo todos los casos críticos mencionados
-                    anteriormente. Los tests siguen el patrón TDD establecido en el proyecto.
+                    <strong>Tests unitarios:</strong> 14 tests en pytest cubriendo todos los casos críticos mencionados
+                    anteriormente. Los tests siguen el patrón TDD establecido en el proyecto. <strong>Todos los tests pasan
+                    correctamente</strong> después de corregir un problema inicial con el uso de direcciones de memoria.
+                </p>
+                <p>
+                    <strong>Fix aplicado:</strong> Inicialmente, los tests intentaban escribir código en <code>0x0100</code>
+                    (área ROM 0x0000-0x7FFF), pero la MMU lee desde el cartucho en esa área, no desde la memoria interna.
+                    Esto causaba que los tests leyeran <code>0xFF</code> en lugar de los opcodes escritos. Se corrigió
+                    cambiando todos los tests para usar direcciones fuera del área de ROM (<code>0x8000+</code>), donde
+                    la escritura funciona correctamente. Este fix documenta un aspecto importante del mapeo de memoria:
+                    las áreas de ROM son de solo lectura desde la perspectiva del programa, mientras que las áreas de
+                    RAM/VRAM permiten lectura y escritura.
                 </p>
             </section>
 
@@ -239,6 +250,9 @@ JR NZ, loop      ; Repite</code></pre>
                             que prueben bucles de limpieza de memoria para confirmar que el comportamiento es correcto.</li>
                         <li><strong>Timing exacto:</strong> Por ahora usamos M-Cycles aproximados. El timing exacto de LDI/LDD
                             podría diferir ligeramente en el hardware real, pero para la mayoría de casos debería ser correcto.</li>
+                        <li><strong>Mapeo de memoria en tests:</strong> Confirmado que el área ROM (0x0000-0x7FFF) es de solo
+                            lectura desde el cartucho, mientras que las áreas de RAM/VRAM (0x8000+) permiten escritura.
+                            Los tests deben usar direcciones fuera de ROM para poder escribir código de prueba.</li>
                     </ul>
 
                     <h3>Hipótesis y Suposiciones</h3>
@@ -254,6 +268,15 @@ JR NZ, loop      ; Repite</code></pre>
                         implementó basándose en la lógica de cómo funciona el borrow en restas binarias. Si el nibble bajo
                         es 0 y decrementamos, necesitamos pedir prestado del nibble alto, activando H. Esta lógica es consistente
                         con cómo funciona el Half-Carry en restas normales.
+                    </p>
+                    <p>
+                        <strong>Lección aprendida sobre mapeo de memoria:</strong> Durante el desarrollo de los tests, descubrimos
+                        que la MMU tiene un comportamiento diferente para lectura y escritura en el área ROM (0x0000-0x7FFF).
+                        La lectura siempre se hace desde el cartucho (si existe), mientras que la escritura se hace en la memoria
+                        interna, pero no es visible en lecturas posteriores. Esto es consistente con cómo funciona el hardware real:
+                        la ROM del cartucho es de solo lectura desde la perspectiva del programa. Los tests fueron corregidos para
+                        usar direcciones fuera del área ROM (<code>0x8000+</code>) donde la escritura funciona correctamente.
+                        Este descubrimiento refuerza la importancia de entender el mapeo de memoria completo del sistema.
                     </p>
                 </div>
             </section>

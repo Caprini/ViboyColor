@@ -993,6 +993,7 @@ Implementación de direccionamiento indirecto usando HL como puntero de memoria,
   - INC con casos normales, Half-Carry y overflow (verificando que C NO cambia)
   - DEC con casos normales, Half-Borrow y underflow (verificando que C NO cambia)
   - Preservación explícita del flag C en todos los casos
+- **Fix aplicado a tests:** Inicialmente, los tests intentaban escribir código en `0x0100` (área ROM 0x0000-0x7FFF), pero la MMU lee desde el cartucho en esa área, no desde la memoria interna. Esto causaba que los tests leyeran `0xFF` en lugar de los opcodes escritos. Se corrigió cambiando todos los tests para usar direcciones fuera del área de ROM (`0x8000+`), donde la escritura funciona correctamente. **Todos los 14 tests pasan correctamente** después de este fix.
 - **Documentación:** Referencias a Pan Docs para comportamiento de flags en INC/DEC
 
 ### Fuentes Consultadas
@@ -1000,7 +1001,7 @@ Implementación de direccionamiento indirecto usando HL como puntero de memoria,
 - Pan Docs: CPU Registers and Flags - Descripción detallada de flags y operaciones aritméticas
 
 ### Estado
-Verified - Tests creados y código implementado siguiendo especificaciones técnicas. Pendiente de ejecución de tests (pytest no disponible en entorno de desarrollo).
+Verified - Tests creados y código implementado siguiendo especificaciones técnicas. **Todos los 14 tests pasan correctamente** después de corregir el uso de direcciones de memoria en los tests. El fix documenta un aspecto importante del mapeo de memoria: las áreas de ROM son de solo lectura desde la perspectiva del programa.
 
 ### Próximos Pasos
 - Implementar `BIT 7, H` (instrucción BIT) necesaria para el bucle de limpieza de Tetris
