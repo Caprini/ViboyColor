@@ -70,6 +70,13 @@ class CPU:
         # La CPU consume 1 ciclo por cada tick mientras está en HALT (espera activa).
         self.halted: bool = False
         
+        # IME Scheduled: Flag para implementar el retraso de 1 instrucción de EI
+        # En hardware real, EI (Enable Interrupts) activa IME DESPUÉS de la siguiente
+        # instrucción, no inmediatamente. Esto permite que la instrucción que sigue
+        # a EI se ejecute sin interrupciones, y luego IME se activa.
+        # Fuente: Pan Docs - CPU Instruction Set (EI behavior)
+        self.ime_scheduled: bool = False
+        
         # Tabla de despacho (Dispatch Table) para opcodes
         # Mapea cada opcode a su función manejadora
         # Esto es más escalable que if/elif y compatible con Python 3.9+
@@ -544,12 +551,25 @@ class CPU:
         Ejecuta una sola instrucción del ciclo Fetch-Decode-Execute.
         
         Pasos:
-        1. Manejar interrupciones: Comprobar si hay interrupciones pendientes y procesarlas.
+        1. Activar IME si está programado (después de la instrucción anterior con EI)
+        2. Manejar interrupciones: Comprobar si hay interrupciones pendientes y procesarlas.
            Si se procesa una interrupción, retornar inmediatamente (no ejecutar instrucción normal).
-        2. Verificar estado HALT: Si la CPU está en HALT, consumir 1 ciclo y no ejecutar fetch.
-        3. Fetch: Lee el opcode en la dirección apuntada por PC
-        4. Increment: Avanza PC (se hace dentro del fetch_byte)
-        5. Decode/Execute: Identifica el opcode con match/case y ejecuta
+        3. Verificar estado HALT: Si la CPU está en HALT, consumir 1 ciclo y no ejecutar fetch.
+        4. Fetch: Lee el opcode en la dirección apuntada por PC
+        5. Increment: Avanza PC (se hace dentro del fetch_byte)
+        6. Decode/Execute: Identifica el opcode con match/case y ejecuta
+        
+        TIMING CRÍTICO DE EI:
+        - EI activa IME DESPUÉS de la siguiente instrucción, no inmediatamente.
+        - Esto se implementa activando IME al PRINCIPIO del siguiente step(),
+          antes de comprobar interrupciones.
+        - Así, la instrucción que sigue a EI se ejecuta con IME aún False,
+          y luego IME se activa para la siguiente comprobación.
+        
+        TIMING DE INTERRUPCIONES:
+        - Las interrupciones se comprueban ANTES de ejecutar la instrucción.
+        - Si hay interrupción pendiente y IME está activo, se procesa inmediatamente
+          (sin ejecutar la instrucción normal).
         
         Returns:
             Número de M-Cycles que tomó ejecutar la instrucción o procesar la interrupción
@@ -557,23 +577,38 @@ class CPU:
         Raises:
             NotImplementedError: Si el opcode no está implementado
             
-        Fuente: Pan Docs - CPU Instruction Set, Interrupts, HALT behavior
+        Fuente: Pan Docs - CPU Instruction Set, Interrupts, HALT behavior, EI timing
         """
+        # CRÍTICO: Activar IME si está programado (al principio del step, después de la instrucción anterior)
+        # Esto implementa el retraso de 1 instrucción de EI: la instrucción que sigue a EI
+        # se ejecuta con IME aún False, y luego IME se activa aquí para la siguiente comprobación.
+        if self.ime_scheduled:
+            self.ime = True
+            self.ime_scheduled = False
+            logger.debug("IME activado después de EI (retraso de 1 instrucción)")
+        
+        # Verificar estado HALT (antes de comprobar interrupciones)
+        # Si estamos en HALT, consumir 1 ciclo y comprobar interrupciones
+        if self.halted:
+            # CPU en HALT, esperando interrupciones
+            # Consumir 1 ciclo (espera activa) y comprobar interrupciones
+            # handle_interrupts() despertará la CPU si hay interrupciones pendientes
+            interrupt_cycles = self.handle_interrupts()
+            # Si se procesó una interrupción, sumar los ciclos adicionales y retornar
+            if interrupt_cycles > 0:
+                return 1 + interrupt_cycles
+            # Si no se procesó interrupción pero despertó (IME desactivado),
+            # continuar ejecutando la instrucción normalmente (comportamiento del hardware)
+            # NOTA: handle_interrupts() ya despertó la CPU si había interrupciones pendientes
+        
         # Manejar interrupciones AL PRINCIPIO (antes de ejecutar cualquier instrucción)
-        # Esto simula el comportamiento del hardware: la CPU comprueba interrupciones
+        # Esto simula el comportamiento correcto del hardware: la CPU comprueba interrupciones
         # entre cada instrucción, antes del fetch del siguiente opcode.
         interrupt_cycles = self.handle_interrupts()
         if interrupt_cycles > 0:
             # Si se procesó una interrupción, la CPU gastó 5 ciclos saltando al vector.
             # No ejecutamos la instrucción normal, retornamos inmediatamente.
             return interrupt_cycles
-        
-        # Verificar estado HALT (después de manejar interrupciones)
-        # Si handle_interrupts() encontró interrupciones pendientes, ya despertó la CPU.
-        if self.halted:
-            # CPU en HALT, esperando interrupciones
-            # Consumir 1 ciclo (espera activa) y NO ejecutar fetch
-            return 1
         
         # Fetch: leer opcode
         opcode = self.fetch_byte()
@@ -2348,21 +2383,28 @@ class CPU:
         """
         EI (Enable Interrupts) - Opcode 0xFB
         
-        Activa las interrupciones poniendo IME (Interrupt Master Enable) a True.
+        Programa la activación de interrupciones poniendo IME (Interrupt Master Enable)
+        a True DESPUÉS de la siguiente instrucción.
         
-        NOTA IMPORTANTE: En hardware real, EI tiene un retraso de 1 instrucción.
-        Esto significa que las interrupciones no se activan inmediatamente, sino
-        después de ejecutar la siguiente instrucción. Por ahora, implementamos
-        la activación inmediata para simplificar. Más adelante, cuando implementemos
-        el manejo completo de interrupciones, añadiremos este retraso.
+        COMPORTAMIENTO CRÍTICO DEL HARDWARE:
+        En hardware real, EI tiene un retraso de 1 instrucción. Esto significa que:
+        1. La instrucción que sigue a EI se ejecuta SIN interrupciones (IME sigue False)
+        2. DESPUÉS de ejecutar esa instrucción, IME se activa automáticamente
+        3. Entonces se comprueban interrupciones pendientes
+        
+        Esto es crítico para muchos juegos que usan patrones como:
+        - EI
+        - RETI (o cualquier otra instrucción)
+        - [Aquí IME se activa y se comprueban interrupciones]
         
         Returns:
             1 M-Cycle
             
-        Fuente: Pan Docs - CPU Instruction Set (EI)
+        Fuente: Pan Docs - CPU Instruction Set (EI), timing behavior
         """
-        self.ime = True
-        logger.debug("EI -> IME=True (interrupciones activadas)")
+        # NO activar IME inmediatamente, programarlo para después de la siguiente instrucción
+        self.ime_scheduled = True
+        logger.debug("EI -> ime_scheduled=True (IME se activará después de la siguiente instrucción)")
         return 1
 
     # ========== Handlers de Operaciones Lógicas ==========

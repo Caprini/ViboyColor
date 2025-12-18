@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0091 - Fix: Timing de Interrupciones y Retraso de EI -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0091__fix-timing-interrupciones-ei.html" class="entry-link">
+                                    Fix: Timing de Interrupciones y Retraso de EI
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0091 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección crítica del timing de interrupciones en la CPU para resolver cuelgues en juegos (Tetris, Pokémon, Tetris DX) y problemas de controles no responsivos. Se implementó el retraso de 1 instrucción de EI (Enable Interrupts) y se corrigió el orden de comprobación de interrupciones en el ciclo de instrucción. Las interrupciones ahora se comprueban correctamente antes de cada instrucción, y EI activa IME después de la siguiente instrucción, como en el hardware real. Todos los tests de interrupciones pasan (7/7).
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0090 - Fix: Renderizado Limpio e Input Estable -->
                     <li>
                         <div class="entry-header">

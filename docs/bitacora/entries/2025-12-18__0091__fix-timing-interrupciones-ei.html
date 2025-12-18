@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix: Timing de Interrupciones y Retraso de EI - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Fix: Timing de Interrupciones y Retraso de EI</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0091
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0090__fix-renderizado-limpio-input-estable.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Corrección crítica del timing de interrupciones en la CPU para resolver cuelgues en juegos
+                    (Tetris, Pokémon, Tetris DX) y problemas de controles no responsivos. Se implementó el
+                    <strong>retraso de 1 instrucción de EI</strong> (Enable Interrupts) y se corrigió el orden
+                    de comprobación de interrupciones en el ciclo de instrucción. Las interrupciones ahora se
+                    comprueban correctamente antes de cada instrucción, y EI activa IME después de la siguiente
+                    instrucción, como en el hardware real.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En el hardware real de la Game Boy, el manejo de interrupciones tiene dos comportamientos
+                    críticos que deben emularse correctamente:
+                </p>
+                
+                <h3>1. Timing de Comprobación de Interrupciones</h3>
+                <p>
+                    Las interrupciones se comprueban <strong>antes</strong> de ejecutar cada instrucción, no después.
+                    Esto significa que el flujo correcto es:
+                </p>
+                <ol>
+                    <li>Comprobar si hay interrupciones pendientes (IE & IF) y si IME está activo</li>
+                    <li>Si hay interrupción pendiente y IME activo, saltar al vector inmediatamente (sin ejecutar la instrucción)</li>
+                    <li>Si no hay interrupción o IME está desactivado, ejecutar la instrucción normal</li>
+                </ol>
+                
+                <h3>2. Retraso de 1 Instrucción de EI (Enable Interrupts)</h3>
+                <p>
+                    La instrucción <code>EI</code> (opcode 0xFB) tiene un comportamiento especial: <strong>no activa
+                    IME inmediatamente</strong>, sino que programa su activación para después de la siguiente instrucción.
+                    Esto permite que la instrucción que sigue a <code>EI</code> se ejecute sin interrupciones, y luego
+                    IME se activa automáticamente.
+                </p>
+                <p>
+                    Este comportamiento es crítico para muchos juegos que usan patrones como:
+                </p>
+                <pre><code>EI      ; Programa activación de IME después de la siguiente instrucción
+RETI    ; Esta instrucción se ejecuta con IME aún False
+        ; [Aquí IME se activa automáticamente]
+        ; [En el siguiente step(), se comprueban interrupciones con IME activo]</code></pre>
+                
+                <h3>3. HALT y Despertar por Interrupciones</h3>
+                <p>
+                    Cuando la CPU está en estado <code>HALT</code> y hay interrupciones pendientes (en IE y IF),
+                    la CPU debe despertar incluso si IME está desactivado. Si IME está desactivado, la CPU
+                    despierta pero no salta al vector de interrupción, permitiendo que el código verifique
+                    manualmente las interrupciones mediante polling de IF.
+                </p>
+                
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - CPU Instruction Set (EI timing), Interrupts, HALT behavior
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó el método <code>step()</code> de la CPU y el opcode <code>EI</code> para implementar
+                    el timing correcto de interrupciones:
+                </p>
+                
+                <h3>1. Atributo ime_scheduled</h3>
+                <p>
+                    Se añadió el atributo <code>self.ime_scheduled: bool = False</code> en el constructor de la CPU
+                    para rastrear cuando <code>EI</code> ha programado la activación de IME.
+                </p>
+                
+                <h3>2. Modificación de _op_ei()</h3>
+                <p>
+                    El método <code>_op_ei()</code> ahora programa la activación de IME en lugar de activarlo inmediatamente:
+                </p>
+                <pre><code>def _op_ei(self) -> int:
+    # NO activar IME inmediatamente, programarlo para después de la siguiente instrucción
+    self.ime_scheduled = True
+    return 1</code></pre>
+                
+                <h3>3. Modificación de step()</h3>
+                <p>
+                    El método <code>step()</code> ahora sigue este flujo:
+                </p>
+                <ol>
+                    <li><strong>Activar IME si está programado</strong>: Si <code>ime_scheduled</code> está activo,
+                        activar IME y limpiar el flag. Esto ocurre al principio del step, después de la instrucción
+                        anterior que ejecutó <code>EI</code>.</li>
+                    <li><strong>Comprobar HALT</strong>: Si la CPU está en HALT, consumir 1 ciclo y comprobar interrupciones.
+                        Si se procesa una interrupción, retornar. Si no se procesa pero despertó (IME desactivado),
+                        continuar ejecutando la instrucción normalmente.</li>
+                    <li><strong>Comprobar interrupciones</strong>: Si hay interrupción pendiente y IME activo, saltar
+                        al vector inmediatamente (sin ejecutar la instrucción).</li>
+                    <li><strong>Ejecutar instrucción</strong>: Si no hay interrupción, ejecutar la instrucción normal.</li>
+                </ol>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/cpu/core.py</code>:
+                        <ul>
+                            <li>Añadido atributo <code>ime_scheduled</code> en <code>__init__</code></li>
+                            <li>Modificado <code>_op_ei()</code> para programar activación de IME</li>
+                            <li>Modificado <code>step()</code> para activar IME al principio y comprobar interrupciones antes de ejecutar instrucción</li>
+                            <li>Corregido manejo de HALT para que continúe ejecutando instrucción si despertó sin procesar interrupción</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Modificación del ciclo de instrucción y opcode EI</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron todos los tests de interrupciones para verificar que el fix no rompió funcionalidad
+                    existente y que el comportamiento ahora es correcto:
+                </p>
+                
+                <h3>Ejecución de Tests Unitarios</h3>
+                <p><strong>Comando ejecutado:</strong></p>
+                <pre><code>python -m pytest tests/test_cpu_interrupts.py -v</code></pre>
+                
+                <p><strong>Entorno:</strong></p>
+                <ul>
+                    <li>OS: Windows 10</li>
+                    <li>Python: 3.13.5</li>
+                </ul>
+                
+                <p><strong>Resultado:</strong></p>
+                <pre><code>============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.2, pluggy-1.6.0
+collected 7 items
+
+tests/test_cpu_interrupts.py::TestCPUInterrupts::test_vblank_interrupt PASSED [ 14%]
+tests/test_cpu_interrupts.py::TestCPUInterrupts::test_interrupt_priority PASSED [ 28%]
+tests/test_cpu_interrupts.py::TestCPUInterrupts::test_halt_wakeup PASSED [ 42%]
+tests/test_cpu_interrupts.py::TestCPUInterrupts::test_no_interrupt_if_ime_disabled PASSED [ 57%]
+tests/test_cpu_interrupts.py::TestCPUInterrupts::test_timer_interrupt_vector PASSED [ 71%]
+tests/test_cpu_interrupts.py::TestCPUInterrupts::test_all_interrupt_vectors PASSED [ 85%]
+tests/test_cpu_interrupts.py::TestCPUInterrupts::test_reti_reactivates_ime PASSED [100%]
+
+============================== 7 passed in 0.05s ==============================</code></pre>
+                
+                <p><strong>Qué valida:</strong></p>
+                <ul>
+                    <li><strong>test_vblank_interrupt</strong>: Verifica que las interrupciones V-Blank se procesan
+                        correctamente cuando IME está activo, saltando al vector 0x0040, desactivando IME, limpiando
+                        IF y consumiendo 5 M-Cycles. Este test demuestra que el timing de comprobación de interrupciones
+                        es correcto (se comprueban antes de ejecutar la instrucción).</li>
+                    <li><strong>test_interrupt_priority</strong>: Verifica que cuando múltiples interrupciones están
+                        pendientes, se procesa primero la de mayor prioridad (V-Blank sobre Timer).</li>
+                    <li><strong>test_halt_wakeup</strong>: Verifica que HALT se despierta con interrupciones pendientes
+                        incluso si IME está desactivado, y que después de despertar ejecuta la instrucción normalmente
+                        (no salta al vector si IME está desactivado). Este test demuestra que el manejo de HALT es
+                        correcto y que la CPU continúa ejecutando después de despertar.</li>
+                    <li><strong>test_no_interrupt_if_ime_disabled</strong>: Verifica que las interrupciones no se
+                        procesan si IME está desactivado.</li>
+                    <li><strong>test_timer_interrupt_vector</strong>: Verifica que la interrupción Timer salta al
+                        vector correcto (0x0050).</li>
+                    <li><strong>test_all_interrupt_vectors</strong>: Verifica que todos los vectores de interrupción
+                        son correctos.</li>
+                    <li><strong>test_reti_reactivates_ime</strong>: Verifica que RETI reactiva IME correctamente.</li>
+                </ul>
+                
+                <h3>Código de Tests Relevantes</h3>
+                <p>
+                    El test <code>test_halt_wakeup</code> es especialmente relevante porque valida el comportamiento
+                    corregido de HALT:
+                </p>
+                <pre><code>def test_halt_wakeup(self) -> None:
+    """
+    Test: HALT se despierta con interrupciones pendientes, incluso si IME es False.
+    
+    Si la CPU está en HALT y hay interrupciones pendientes (en IE y IF),
+    la CPU debe despertar (halted = False), pero NO saltar al vector
+    si IME está desactivado. Después de despertar, la CPU continúa ejecutando
+    normalmente (avanza PC con la siguiente instrucción).
+    """
+    mmu = MMU(None)
+    cpu = CPU(mmu)
+    
+    cpu.registers.set_pc(0x3000)
+    cpu.halted = True  # CPU en HALT
+    cpu.ime = False  # IME desactivado
+    
+    # Habilitar V-Blank en IE y activar flag en IF
+    mmu.write_byte(IO_IE, 0x01)
+    mmu.write_byte(IO_IF, 0x01)
+    
+    # Poner un NOP en 0x3000
+    mmu.write_byte(0x3000, 0x00)  # NOP
+    
+    # Ejecutar step
+    cycles = cpu.step()
+    
+    # Debe despertar pero NO saltar a interrupción (IME desactivado)
+    assert cpu.halted is False, "CPU debe despertar de HALT"
+    # Después de despertar, ejecuta la instrucción normal (NOP)
+    assert cpu.registers.get_pc() == 0x3001, "PC debe avanzar (ejecutó NOP)"
+    assert cycles == 1, "Debe consumir 1 ciclo (NOP), no ciclos de interrupción"</code></pre>
+                
+                <p>
+                    Este test demuestra que el comportamiento corregido permite que HALT despierte y continúe
+                    ejecutando la instrucción cuando IME está desactivado, lo cual es crítico para muchos juegos
+                    que usan polling manual de interrupciones después de HALT.
+                </p>
+                
+                <h3>Pruebas con ROMs (Pendiente)</h3>
+                <p>
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </p>
+                <p>
+                    El fix está implementado y los tests unitarios pasan, pero aún no se ha probado con ROMs reales
+                    (Tetris, Pokémon, Tetris DX) para verificar que resuelve los cuelgues reportados. Se recomienda
+                    probar con estas ROMs para validar el comportamiento en condiciones reales.
+                </p>
+                <p>
+                    <strong>Notas legales:</strong> Las ROMs mencionadas (Tetris, Pokémon, Tetris DX) son aportadas
+                    por el usuario para pruebas locales y no se distribuyen en el repositorio.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs - CPU Instruction Set (EI timing behavior)</li>
+                    <li>Pan Docs - Interrupts (timing de comprobación de interrupciones)</li>
+                    <li>Pan Docs - HALT behavior (despertar por interrupciones)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Timing de interrupciones:</strong> Las interrupciones se comprueban antes de
+                            ejecutar cada instrucción, no después. Esto es crítico para el comportamiento correcto
+                            del hardware.</li>
+                        <li><strong>Retraso de EI:</strong> La instrucción EI no activa IME inmediatamente, sino que
+                            programa su activación para después de la siguiente instrucción. Esto permite que la
+                            instrucción que sigue a EI se ejecute sin interrupciones.</li>
+                        <li><strong>HALT y despertar:</strong> Cuando la CPU está en HALT y hay interrupciones pendientes,
+                            la CPU debe despertar incluso si IME está desactivado. Si IME está desactivado, la CPU
+                            despierta pero no salta al vector, permitiendo polling manual.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Validación con ROMs reales:</strong> Aunque los tests unitarios pasan, falta
+                            verificar que el fix resuelve los cuelgues reportados en Tetris, Pokémon y Tetris DX.
+                            Se recomienda probar con estas ROMs para validar el comportamiento en condiciones reales.</li>
+                        <li><strong>Comportamiento de EI con interrupciones pendientes:</strong> Si EI se ejecuta y
+                            hay interrupciones pendientes, ¿se procesan inmediatamente después de la siguiente
+                            instrucción o hay algún otro comportamiento especial? Los tests actuales no cubren este
+                            caso específico.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        La implementación actual asume que el comportamiento del hardware es exactamente como se
+                        describe en Pan Docs: interrupciones se comprueban antes de cada instrucción, y EI activa
+                        IME después de la siguiente instrucción. Si los cuelgues persisten después de este fix,
+                        podría haber otros problemas de timing o comportamiento del hardware que no están documentados
+                        o que requieren una implementación más precisa.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Probar con ROMs reales (Tetris, Pokémon, Tetris DX) para verificar que el fix resuelve los cuelgues</li>
+                    <li>[ ] Si los cuelgues persisten, investigar otros problemas de timing (por ejemplo, timing de V-Blank, Timer, Joypad)</li>
+                    <li>[ ] Añadir tests adicionales para casos edge de EI con interrupciones pendientes</li>
+                    <li>[ ] Documentar cualquier comportamiento adicional descubierto durante las pruebas con ROMs</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
