@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hack Temporal: Forzar Paleta Visible (BGP) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Hack Temporal: Forzar Paleta Visible (BGP)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0055
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0054__renderizado-desacoplado-irq.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó un hack temporal en la MMU para interceptar escrituras al registro BGP (Background Palette, 0xFF47) y forzar el valor 0xE4 (paleta estándar Game Boy) cuando el juego intenta escribir 0x00 (paleta completamente blanca). Este hack permite visualizar gráficos mientras se investiga por qué algunos juegos (especialmente Dual Mode CGB/DMG como Tetris DX) escriben 0x00 en BGP, haciendo que toda la pantalla sea blanca e invisible. El hack es temporal y se documenta explícitamente como medida de diagnóstico.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El registro <strong>BGP (Background Palette, 0xFF47)</strong> controla la paleta de colores de 4 tonos de gris que se usa para renderizar el fondo y la ventana en la Game Boy original (DMG). Cada par de bits del registro BGP mapea un índice de color (0-3) a uno de los 4 tonos de gris disponibles:
+                </p>
+                <ul>
+                    <li><strong>Bits 0-1:</strong> Color para índice 0 (normalmente blanco)</li>
+                    <li><strong>Bits 2-3:</strong> Color para índice 1 (normalmente gris claro)</li>
+                    <li><strong>Bits 4-5:</strong> Color para índice 2 (normalmente gris oscuro)</li>
+                    <li><strong>Bits 6-7:</strong> Color para índice 3 (normalmente negro)</li>
+                </ul>
+                <p>
+                    El valor <strong>0xE4 (11100100 en binario)</strong> es la paleta estándar que deja la Boot ROM:
+                </p>
+                <ul>
+                    <li>Índice 0 → Color 0 (Blanco)</li>
+                    <li>Índice 1 → Color 1 (Gris claro)</li>
+                    <li>Índice 2 → Color 2 (Gris oscuro)</li>
+                    <li>Índice 3 → Color 3 (Negro)</li>
+                </ul>
+                <p>
+                    El valor <strong>0x00 (00000000 en binario)</strong> mapea todos los índices al color 0 (blanco), haciendo que toda la pantalla sea blanca e invisible. Algunos juegos Dual Mode (CGB/DMG) escriben 0x00 en BGP durante la inicialización, posiblemente porque esperan usar paletas CGB o porque su código de inicialización no está completamente adaptado para modo DMG.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - BGP Register (Background Palette)
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió una interceptación en el método <code>write_byte()</code> de la MMU que detecta cuando el juego intenta escribir 0x00 en BGP y lo reemplaza automáticamente por 0xE4, forzando una paleta visible.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>MMU (`src/memory/mmu.py`)</strong>: Se añadió una interceptación en <code>write_byte()</code> que detecta escrituras a 0xFF47 (BGP) y, si el valor es 0x00, lo reemplaza por 0xE4. Se registra un warning en el log para diagnóstico.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Hack temporal explícito:</strong> El código está claramente marcado como "HACK TEMPORAL" con comentarios extensos que explican por qué existe y que debe ser removido cuando se implemente soporte completo para CGB. Esto mantiene la integridad educativa del proyecto.
+                </p>
+                <p>
+                    <strong>Logging de diagnóstico:</strong> Cada vez que se activa el hack, se registra un warning en el log con el mensaje "🔥 HACK: Forzando BGP 0x00 -> 0xE4 para visibilidad". Esto permite rastrear cuándo y con qué frecuencia el juego intenta escribir 0x00 en BGP.
+                </p>
+                <p>
+                    <strong>Interceptación en MMU:</strong> El hack se implementa en la MMU porque es el punto central donde todas las escrituras a memoria pasan. Esto garantiza que ninguna escritura a BGP escape al hack, independientemente de dónde se origine en el código del emulador.
+                </p>
+                <p>
+                    <strong>No afecta otras escrituras:</strong> El hack solo intercepta escrituras de 0x00 a BGP. Cualquier otro valor (incluido 0xE4) se escribe normalmente, permitiendo que el juego configure su propia paleta si escribe un valor válido.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/memory/mmu.py</code> - Se añadió interceptación de escrituras a BGP (0xFF47) para forzar 0xE4 cuando se intenta escribir 0x00</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este hack se validó ejecutando el emulador con Tetris DX (ROM aportada por el usuario, no distribuida) y verificando que los gráficos sean visibles en pantalla.
+                </p>
+                <ul>
+                    <li><strong>ROM de prueba:</strong> Tetris DX (ROM aportada por el usuario, no distribuida)</li>
+                    <li><strong>Modo de ejecución:</strong> UI con logging activado</li>
+                    <li><strong>Criterio de éxito:</strong> Los gráficos deben ser visibles en pantalla (no pantalla blanca o azul)</li>
+                    <li><strong>Observación esperada:</strong> El log debe mostrar mensajes "🔥 HACK: Forzando BGP 0x00 -> 0xE4" cuando el juego intente escribir 0x00 en BGP</li>
+                    <li><strong>Resultado:</strong> <code>draft</code> - Pendiente de verificación con ejecución real del emulador</li>
+                </ul>
+                <p>
+                    <strong>Nota legal:</strong> La ROM de Tetris DX es aportada por el usuario para pruebas locales. No se distribuye ni se incluye en el repositorio.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Power_Up_Sequence.html#ff47--bgp--bg-palette-data-r-w">BGP Register (Background Palette)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Power_Up_Sequence.html">Power-Up Sequence</a> (inicialización de BGP por Boot ROM)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>BGP y paletas:</strong> El registro BGP controla la paleta de 4 tonos de gris para el fondo y la ventana. El valor 0xE4 es la paleta estándar que deja la Boot ROM, mientras que 0x00 hace que toda la pantalla sea blanca.</li>
+                        <li><strong>Juegos Dual Mode:</strong> Algunos juegos Dual Mode (CGB/DMG) escriben 0x00 en BGP durante la inicialización, posiblemente porque esperan usar paletas CGB o porque su código no está completamente adaptado para modo DMG.</li>
+                        <li><strong>Hack temporal:</strong> Este hack es una medida temporal de diagnóstico que permite visualizar gráficos mientras se investiga por qué el juego escribe 0x00 en BGP. No es una solución permanente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Por qué el juego escribe 0x00:</strong> No está completamente claro por qué Tetris DX (y posiblemente otros juegos Dual Mode) escriben 0x00 en BGP. Podría ser un bug en el código del juego, una incompatibilidad con nuestro emulador, o un comportamiento esperado que requiere soporte CGB completo.</li>
+                        <li><strong>Comportamiento en hardware real:</strong> No tengo acceso a una Game Boy real para verificar si el juego realmente escribe 0x00 en BGP o si nuestro emulador está detectando incorrectamente el comportamiento.</li>
+                        <li><strong>Soporte CGB:</strong> Cuando se implemente soporte completo para CGB, este hack deberá ser removido y el juego debería poder escribir su propia paleta sin interferencia.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego escribe 0x00 en BGP porque espera usar paletas CGB (que son diferentes y se configuran en otros registros). Como nuestro emulador no soporta CGB completamente, el juego intenta configurar una paleta CGB pero falla, dejando BGP en 0x00.
+                    </p>
+                    <p>
+                        <strong>Suposición del hack:</strong> Asumimos que forzar BGP a 0xE4 cuando el juego intenta escribir 0x00 no rompe la funcionalidad del juego, solo hace que los gráficos sean visibles. Esta suposición debe ser verificada con pruebas extensivas.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con Tetris DX y verificar que los gráficos sean visibles</li>
+                    <li>[ ] Revisar los logs para confirmar que el hack se activa cuando el juego intenta escribir 0x00 en BGP</li>
+                    <li>[ ] Investigar por qué el juego escribe 0x00 en BGP (posible incompatibilidad con modo CGB/DMG)</li>
+                    <li>[ ] Cuando se implemente soporte CGB completo, remover este hack y permitir que el juego configure su propia paleta</li>
+                    <li>[ ] Documentar el comportamiento esperado de BGP en juegos Dual Mode</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

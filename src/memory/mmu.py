@@ -344,6 +344,28 @@ class MMU:
             logger.debug(f"IO WRITE: LY (solo lectura, ignorado) = 0x{value:02X}")
             return  # Ignorar escritura a LY
         
+        # HACK TEMPORAL: Interceptar escritura a BGP (0xFF47) para forzar paleta visible
+        # Algunos juegos (especialmente Dual Mode CGB/DMG) escriben 0x00 en BGP,
+        # lo que hace que toda la pantalla sea blanca (paleta completamente blanca).
+        # Este hack fuerza BGP a 0xE4 (paleta estándar Game Boy) cuando se intenta
+        # escribir 0x00, permitiendo ver los gráficos mientras investigamos por qué
+        # el juego está escribiendo 0x00.
+        # 
+        # NOTA: Este es un hack temporal para diagnóstico. En el futuro, cuando
+        # implementemos soporte completo para CGB, el juego debería poder escribir
+        # su propia paleta sin interferencia.
+        # 
+        # Fuente: Pan Docs - BGP Register (Background Palette)
+        if addr == IO_BGP:
+            if value == 0x00:
+                # Forzar paleta visible (0xE4 = paleta estándar Game Boy)
+                # 0xE4 = 11100100: Color 0=Blanco, Color 1=Gris claro, Color 2=Gris oscuro, Color 3=Negro
+                value = 0xE4
+                logging.warning(
+                    f"🔥 HACK: Forzando BGP 0x00 -> 0xE4 para visibilidad "
+                    f"(el juego intentó escribir paleta blanca, forzamos paleta estándar)"
+                )
+        
         # Interceptar escritura al registro STAT (0xFF41)
         # STAT es de lectura/escritura, pero los bits 0-1 (modo PPU) son de solo lectura
         # Solo los bits 2-6 pueden ser escritos por el software
