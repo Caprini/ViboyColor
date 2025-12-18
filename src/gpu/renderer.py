@@ -280,8 +280,8 @@ class Renderer:
         
         # HACK EDUCATIVO: Ignorar Bit 0 de LCDC (BG Display)
         # En Game Boy Color, el Bit 0 no apaga el fondo, sino que cambia la prioridad
-        # de sprites vs fondo. Tetris DX escribe LCDC=0x80 (bit 7=1, bit 0=0) esperando
-        # que el fondo se dibuje (comportamiento CGB), pero nuestro emulador actúa como
+        # de sprites vs fondo. Pokémon Red y otros juegos escriben LCDC=0x80 (bit 7=1, bit 0=0)
+        # esperando que el fondo se dibuje (comportamiento CGB), pero nuestro emulador actúa como
         # DMG estricta y lo apagaría. Para desbloquear la visualización, ignoramos el
         # Bit 0 y dibujamos el fondo siempre que el LCD esté encendido (Bit 7=1).
         # 
@@ -296,6 +296,12 @@ class Renderer:
         #     pygame.display.flip()
         #     logger.info("LCDC: Background desactivado (bit 0=0), pantalla blanca - 0 tiles dibujados")
         #     return
+        
+        # CRÍTICO: Asegurar que el fondo se dibuje siempre que LCD esté encendido (Bit 7=1),
+        # independientemente del estado del Bit 0. Este hack permite que juegos como Pokémon Red
+        # que escriben LCDC=0x80 puedan mostrar gráficos correctamente.
+        # No hay ninguna condición que bloquee el renderizado aquí - el código continúa
+        # directamente a dibujar el fondo.
         
         logger.debug("HACK EDUCATIVO: Ignorando Bit 0 de LCDC para compatibilidad con juegos CGB (LCDC=0x80)")
         

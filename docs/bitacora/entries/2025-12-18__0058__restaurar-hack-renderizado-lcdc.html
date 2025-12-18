@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restaurar Hack de Renderizado para LCDC=0x80 - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Restaurar Hack de Renderizado para LCDC=0x80</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0058
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0057__limpieza-diagnosticos-optimizacion.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se verificó y reforzó el "Hack Educativo" que permite dibujar el fondo incluso cuando
+                    el Bit 0 de LCDC está apagado (LCDC=0x80). Este hack es necesario porque juegos como
+                    Pokémon Red escriben LCDC=0x80 esperando que el fondo se dibuje (comportamiento CGB),
+                    pero nuestro emulador actúa como DMG estricta y lo apagaría. Se añadió un comentario
+                    más explícito que confirma que no hay ninguna condición que bloquee el renderizado
+                    cuando el Bit 0 está apagado.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El registro LCDC (LCD Control, 0xFF40) controla el estado del LCD y las capas gráficas
+                    de la Game Boy. El Bit 7 controla si el LCD está encendido o apagado, y el Bit 0 controla
+                    si el fondo (Background) está habilitado.
+                </p>
+                <p>
+                    En Game Boy clásica (DMG), cuando el Bit 0 está apagado, el fondo no se dibuja. Sin embargo,
+                    en Game Boy Color (CGB), el Bit 0 tiene un comportamiento diferente: no apaga completamente
+                    el fondo, sino que cambia la prioridad de sprites vs fondo. Muchos juegos CGB escriben
+                    LCDC=0x80 (LCD ON, BG OFF) esperando que el fondo se dibuje de todas formas.
+                </p>
+                <p>
+                    Para compatibilidad con estos juegos, implementamos un "Hack Educativo" que ignora el Bit 0
+                    y dibuja el fondo siempre que el LCD esté encendido (Bit 7=1). Este hack es temporal y se
+                    reemplazará cuando implementemos el modo CGB completo.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Control Register, Game Boy Color differences
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se verificó que el hack educativo estuviera correctamente implementado en el método
+                    <code>render_frame</code> de <code>src/gpu/renderer.py</code>. El hack ya estaba presente
+                    (documentado en las líneas 281-300), pero se añadió un comentario más explícito que confirma
+                    que no hay ninguna condición que bloquee el renderizado cuando el Bit 0 está apagado.
+                </p>
+                
+                <h3>Cambios realizados</h3>
+                <ul>
+                    <li>
+                        <strong>Comentario reforzado:</strong> Se añadió un comentario explícito (líneas 300-304)
+                        que confirma que el código continúa directamente a dibujar el fondo sin ninguna condición
+                        que lo bloquee cuando el Bit 0 está apagado.
+                    </li>
+                    <li>
+                        <strong>Documentación actualizada:</strong> Se actualizó la documentación del hack para
+                        mencionar específicamente Pokémon Red como ejemplo de juego que requiere este comportamiento.
+                    </li>
+                </ul>
+
+                <h3>Código relevante</h3>
+                <p>
+                    El hack educativo está implementado en <code>src/gpu/renderer.py</code>, líneas 281-304.
+                    El código original que bloqueaba el renderizado cuando Bit 0=0 está comentado (líneas 294-298),
+                    y el código continúa directamente a dibujar el fondo sin verificar el Bit 0.
+                </p>
+                <pre><code># HACK EDUCATIVO: Ignorar Bit 0 de LCDC (BG Display)
+# En Game Boy Color, el Bit 0 no apaga el fondo, sino que cambia la prioridad
+# de sprites vs fondo. Pokémon Red y otros juegos escriben LCDC=0x80 (bit 7=1, bit 0=0)
+# esperando que el fondo se dibuje (comportamiento CGB), pero nuestro emulador actúa como
+# DMG estricta y lo apagaría. Para desbloquear la visualización, ignoramos el
+# Bit 0 y dibujamos el fondo siempre que el LCD esté encendido (Bit 7=1).
+
+# CRÍTICO: Asegurar que el fondo se dibuje siempre que LCD esté encendido (Bit 7=1),
+# independientemente del estado del Bit 0. Este hack permite que juegos como Pokémon Red
+# que escriben LCDC=0x80 puedan mostrar gráficos correctamente.
+# No hay ninguna condición que bloquee el renderizado aquí - el código continúa
+# directamente a dibujar el fondo.</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Se añadió comentario explícito que confirma que el hack está correctamente implementado (líneas 300-304)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Estado:</strong> Draft - Pendiente de verificación con Pokémon Red
+                </p>
+                <p>
+                    El cambio es puramente documental (comentario añadido). El hack educativo ya estaba
+                    implementado correctamente. Sin embargo, si la pantalla sigue azul en Pokémon Red,
+                    el problema podría ser:
+                </p>
+                <ul>
+                    <li>
+                        <strong>LCD se apaga después de escribir 0x80:</strong> El juego podría estar
+                        apagando el LCD después de escribirlo, o podría haber un problema con la lectura
+                        del registro LCDC.
+                    </li>
+                    <li>
+                        <strong>Problema de timing:</strong> El juego podría estar esperando una interrupción
+                        V-Blank antes de configurar los gráficos, y nuestro emulador podría no estar generando
+                        estas interrupciones correctamente.
+                    </li>
+                    <li>
+                        <strong>Problema de VRAM:</strong> El tilemap o los tiles podrían no estar cargados
+                        correctamente en VRAM, resultando en una pantalla blanca o azul incluso si el fondo
+                        se está dibujando.
+                    </li>
+                </ul>
+                <p>
+                    <strong>Próximos pasos para verificación:</strong>
+                </p>
+                <ul>
+                    <li>Ejecutar Pokémon Red y verificar si la pantalla sigue azul</li>
+                    <li>Si sigue azul, verificar el estado del registro LCDC durante la ejecución</li>
+                    <li>Verificar si las interrupciones V-Blank se están generando correctamente</li>
+                    <li>Verificar el contenido de VRAM y el tilemap cuando se intenta renderizar</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Control Register (LCDC)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Game Boy Color differences</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li>
+                            <strong>Hack Educativo:</strong> El hack que ignora el Bit 0 de LCDC está correctamente
+                            implementado. No hay ninguna condición que bloquee el renderizado cuando el Bit 0 está
+                            apagado. El código continúa directamente a dibujar el fondo siempre que el LCD esté
+                            encendido (Bit 7=1).
+                        </li>
+                        <li>
+                            <strong>Comportamiento CGB vs DMG:</strong> En Game Boy Color, el Bit 0 de LCDC tiene
+                            un comportamiento diferente que en DMG. Muchos juegos CGB escriben LCDC=0x80 esperando
+                            que el fondo se dibuje de todas formas.
+                        </li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>
+                            <strong>Pantalla azul en Pokémon Red:</strong> Si la pantalla sigue azul después de
+                            este cambio, el problema no es el hack educativo (que ya está correctamente implementado),
+                            sino algo más: el LCD podría estar apagándose después de escribirlo, podría haber un problema
+                            con las interrupciones V-Blank, o podría haber un problema con el contenido de VRAM.
+                        </li>
+                        <li>
+                            <strong>Timing de interrupciones:</strong> Necesitamos verificar si las interrupciones
+                            V-Blank se están generando correctamente y si el juego está esperando estas interrupciones
+                            antes de configurar los gráficos.
+                        </li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis:</strong> El hack educativo está correctamente implementado. Si la pantalla
+                        sigue azul, el problema es que el LCD se está apagando después de escribir 0x80, o hay un
+                        problema con las interrupciones V-Blank o el contenido de VRAM.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> El hack educativo es temporal y se reemplazará cuando implementemos
+                        el modo CGB completo. Por ahora, es necesario para que juegos como Pokémon Red puedan mostrar
+                        gráficos correctamente.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar Pokémon Red y verificar si la pantalla sigue azul</li>
+                    <li>[ ] Si sigue azul, verificar el estado del registro LCDC durante la ejecución (logging temporal)</li>
+                    <li>[ ] Verificar si las interrupciones V-Blank se están generando correctamente</li>
+                    <li>[ ] Verificar el contenido de VRAM y el tilemap cuando se intenta renderizar</li>
+                    <li>[ ] Si el problema persiste, investigar el timing de las interrupciones y la configuración del PPU</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
