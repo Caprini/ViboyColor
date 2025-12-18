@@ -104,6 +104,17 @@ class PPU:
         # Permite desacoplar el renderizado de las interrupciones
         self.frame_ready: bool = False
         
+        # LYC (LY Compare): Registro de lectura/escritura que almacena el valor de línea
+        # con el que se compara LY para generar interrupciones STAT
+        # Rango: 0-153 (aunque típicamente se usa 0-143 para líneas visibles)
+        # Se inicializa a 0
+        self.lyc: int = 0
+        
+        # Flag para evitar disparar múltiples interrupciones STAT en la misma línea
+        # Se usa para implementar "rising edge" detection: solo se dispara cuando
+        # la condición pasa de False a True, no mientras permanece True
+        self.stat_interrupt_line: bool = False
+        
         # logger.debug("PPU inicializada: LY=0, clock=0, mode=2 (OAM Search)")
 
     def step(self, cycles: int) -> None:
@@ -154,6 +165,10 @@ class PPU:
         # el modo sea correcto durante toda la línea
         self._update_mode()
         
+        # Guardar LY anterior para detectar cambios
+        old_ly = self.ly
+        old_mode = self.mode
+        
         # Mientras tengamos suficientes ciclos para completar una línea (456 T-Cycles)
         while self.clock >= CYCLES_PER_SCANLINE:
             # Restar los ciclos de una línea completa
@@ -165,6 +180,11 @@ class PPU:
             # Al inicio de cada nueva línea, el modo es Mode 2 (OAM Search)
             # Se actualizará automáticamente en la siguiente llamada a _update_mode()
             self.mode = PPU_MODE_2_OAM_SEARCH
+            
+            # CRÍTICO: Cuando LY cambia, reiniciar el flag de interrupción STAT
+            # Esto permite que se dispare una nueva interrupción si las condiciones
+            # se cumplen en la nueva línea
+            self.stat_interrupt_line = False
             
             # Si llegamos a V-Blank (línea 144), solicitar interrupción y marcar frame listo
             if self.ly == VBLANK_START:
@@ -198,11 +218,17 @@ class PPU:
             # Si pasamos la última línea (153), reiniciar a 0 (nuevo frame)
             if self.ly > 153:
                 self.ly = 0
+                # Reiniciar flag de interrupción STAT al cambiar de frame
+                self.stat_interrupt_line = False
                 # logger.debug(f"PPU: Nuevo frame iniciado (LY={self.ly})")
         
         # Actualizar el modo después de procesar líneas completas
         # (por si quedaron ciclos residuales en la línea actual)
         self._update_mode()
+        
+        # Verificar interrupciones STAT si LY cambió o el modo cambió
+        if self.ly != old_ly or self.mode != old_mode:
+            self._check_stat_interrupt()
 
     def _update_mode(self) -> None:
         """
@@ -217,24 +243,88 @@ class PPU:
         
         Fuente: Pan Docs - LCD Status Register (STAT), PPU Modes
         """
+        old_mode = self.mode
+        
         # Si estamos en V-Blank (líneas 144-153), siempre Mode 1
         if self.ly >= VBLANK_START:
             self.mode = PPU_MODE_1_VBLANK
-            return
-        
-        # Para líneas visibles (0-143), el modo depende de los ciclos dentro de la línea
-        # line_cycles es el contador de ciclos dentro de la línea actual (0-455)
-        line_cycles = self.clock
-        
-        if line_cycles < MODE_2_CYCLES:
-            # Primeros 80 ciclos: Mode 2 (OAM Search)
-            self.mode = PPU_MODE_2_OAM_SEARCH
-        elif line_cycles < (MODE_2_CYCLES + MODE_3_CYCLES):
-            # Siguientes 172 ciclos (80-251): Mode 3 (Pixel Transfer)
-            self.mode = PPU_MODE_3_PIXEL_TRANSFER
         else:
-            # Resto (252-455): Mode 0 (H-Blank)
-            self.mode = PPU_MODE_0_HBLANK
+            # Para líneas visibles (0-143), el modo depende de los ciclos dentro de la línea
+            # line_cycles es el contador de ciclos dentro de la línea actual (0-455)
+            line_cycles = self.clock
+            
+            if line_cycles < MODE_2_CYCLES:
+                # Primeros 80 ciclos: Mode 2 (OAM Search)
+                self.mode = PPU_MODE_2_OAM_SEARCH
+            elif line_cycles < (MODE_2_CYCLES + MODE_3_CYCLES):
+                # Siguientes 172 ciclos (80-251): Mode 3 (Pixel Transfer)
+                self.mode = PPU_MODE_3_PIXEL_TRANSFER
+            else:
+                # Resto (252-455): Mode 0 (H-Blank)
+                self.mode = PPU_MODE_0_HBLANK
+        
+        # Si el modo cambió, verificar interrupciones STAT
+        # (Nota: también se verifica desde step() cuando LY cambia)
+        if self.mode != old_mode:
+            self._check_stat_interrupt()
+    
+    def _check_stat_interrupt(self) -> None:
+        """
+        Verifica las condiciones de interrupción STAT y solicita la interrupción si corresponde.
+        
+        Las interrupciones STAT se pueden generar por:
+        1. LYC=LY Coincidence (LY == LYC) si el bit 6 de STAT está activo
+        2. Mode 0 (H-Blank) si el bit 3 de STAT está activo
+        3. Mode 1 (V-Blank) si el bit 4 de STAT está activo
+        4. Mode 2 (OAM Search) si el bit 5 de STAT está activo
+        
+        CRÍTICO: La interrupción se dispara en "rising edge", es decir, solo cuando
+        la condición pasa de False a True. Si la condición permanece True, no se
+        dispara múltiples veces. Esto se controla con el flag `stat_interrupt_line`.
+        
+        Fuente: Pan Docs - LCD Status Register (STAT), STAT Interrupt
+        """
+        # Leer el registro STAT directamente de memoria (evita recursión)
+        stat_value = self.mmu._memory[0xFF41] & 0xFF
+        
+        # Inicializar señal de interrupción
+        signal = False
+        
+        # Verificar LYC=LY Coincidence (bit 2 y bit 6)
+        lyc_match = (self.ly & 0xFF) == (self.lyc & 0xFF)
+        if lyc_match:
+            # Set bit 2 de STAT (LYC=LY Coincidence Flag)
+            # Este bit es de solo lectura desde el hardware, pero se actualiza aquí
+            # El bit 2 se combina con los bits configurables en get_stat()
+            # Si el bit 6 (LYC Int Enable) está activo, solicitar interrupción
+            if (stat_value & 0x40) != 0:  # Bit 6 activo
+                signal = True
+        else:
+            # Si LY != LYC, el bit 2 debe estar limpio
+            # (se maneja en get_stat() combinando con el valor de memoria)
+            pass
+        
+        # Verificar interrupciones por modo PPU
+        if self.mode == PPU_MODE_0_HBLANK and (stat_value & 0x08) != 0:  # Bit 3 activo
+            signal = True
+        elif self.mode == PPU_MODE_1_VBLANK and (stat_value & 0x10) != 0:  # Bit 4 activo
+            signal = True
+        elif self.mode == PPU_MODE_2_OAM_SEARCH and (stat_value & 0x20) != 0:  # Bit 5 activo
+            signal = True
+        
+        # Disparar interrupción en rising edge (solo si signal es True y antes era False)
+        if signal and not self.stat_interrupt_line:
+            # Activar bit 1 del registro IF (Interrupt Flag) en 0xFF0F
+            # Este bit corresponde a la interrupción LCD STAT
+            if_val = self.mmu.read_byte(0xFF0F)
+            if_val |= 0x02  # Set bit 1 (LCD STAT interrupt)
+            self.mmu.write_byte(0xFF0F, if_val)
+            
+            # Log para diagnóstico (comentado para rendimiento)
+            # logger.debug(f"🎯 PPU: STAT interrupt triggered (LY={self.ly}, LYC={self.lyc}, mode={self.mode}), IF actualizado a 0x{if_val:02X}")
+        
+        # Actualizar flag de interrupción STAT
+        self.stat_interrupt_line = signal
 
     def get_ly(self) -> int:
         """
@@ -263,6 +353,41 @@ class PPU:
             - 3: Pixel Transfer (CPU bloqueada de VRAM y OAM)
         """
         return self.mode
+    
+    def get_lyc(self) -> int:
+        """
+        Devuelve el valor actual del registro LYC (LY Compare).
+        
+        Este método es usado por la MMU cuando se lee la dirección 0xFF45.
+        El registro LYC es de lectura/escritura desde la perspectiva del software.
+        
+        Returns:
+            Valor de LYC (0-153)
+        """
+        return self.lyc & 0xFF
+    
+    def set_lyc(self, value: int) -> None:
+        """
+        Establece el valor del registro LYC (LY Compare).
+        
+        Este método es usado por la MMU cuando se escribe en la dirección 0xFF45.
+        El registro LYC es de lectura/escritura desde la perspectiva del software.
+        
+        Cuando LYC cambia, se debe verificar inmediatamente si LY == LYC para
+        actualizar el bit 2 de STAT y solicitar interrupción si corresponde.
+        
+        Args:
+            value: Valor a escribir en LYC (se enmascara a 8 bits, rango 0-255)
+        
+        Fuente: Pan Docs - LYC Register (0xFF45)
+        """
+        old_lyc = self.lyc
+        self.lyc = value & 0xFF
+        
+        # Si LYC cambió, verificar interrupciones STAT inmediatamente
+        # (el bit 2 de STAT puede cambiar si LY == nuevo LYC)
+        if self.lyc != old_lyc:
+            self._check_stat_interrupt()
 
     def is_frame_ready(self) -> bool:
         """
@@ -291,15 +416,15 @@ class PPU:
         
         El registro STAT tiene la siguiente estructura:
         - Bits 0-1: Modo PPU actual (00=H-Blank, 01=V-Blank, 10=OAM Search, 11=Pixel Transfer)
-        - Bit 2: LYC=LY Coincidence Flag (LY == LYC)
+        - Bit 2: LYC=LY Coincidence Flag (LY == LYC) - DE SOLO LECTURA (hardware)
         - Bit 3: Mode 0 (H-Blank) Interrupt Enable
         - Bit 4: Mode 1 (V-Blank) Interrupt Enable
         - Bit 5: Mode 2 (OAM Search) Interrupt Enable
         - Bit 6: LYC=LY Coincidence Interrupt Enable
         - Bit 7: No usado (siempre 0)
         
-        Los bits 2-6 son configurables por el software escribiendo en STAT.
-        Los bits 0-1 son de solo lectura y reflejan el estado actual de la PPU.
+        Los bits 3-6 son configurables por el software escribiendo en STAT.
+        Los bits 0-2 son de solo lectura y reflejan el estado actual de la PPU.
         
         CRÍTICO: No usar mmu.read_byte(0xFF41) aquí porque causaría recursión infinita.
         En su lugar, accedemos directamente a la memoria interna de la MMU.
@@ -310,17 +435,22 @@ class PPU:
         Fuente: Pan Docs - LCD Status Register (STAT)
         """
         # Leer el valor de STAT directamente de la memoria interna (evita recursión)
-        # La MMU guarda los bits configurables (2-6) en _memory[0xFF41]
+        # La MMU guarda los bits configurables (3-6) en _memory[0xFF41]
         # Accedemos directamente a través de un método interno o atributo
         # NOTA: Esto requiere acceso a _memory, que es un detalle de implementación
         # pero es necesario para evitar recursión
         stat_value = self.mmu._memory[0xFF41] & 0xFF
         
-        # Limpiar los bits 0-1 (modo actual) y reemplazarlos con el modo real
-        stat_value = (stat_value & 0xFC) | self.mode
+        # Limpiar los bits 0-2 (modo actual y LYC flag) y reemplazarlos con los valores reales
+        # Bits 0-1: Modo PPU actual
+        stat_value = (stat_value & 0xF8) | self.mode
         
-        # TODO: Implementar LYC=LY Coincidence Flag (bit 2)
-        # Por ahora, el bit 2 se mantiene como está en memoria
+        # Bit 2: LYC=LY Coincidence Flag (LY == LYC)
+        # Este bit es de solo lectura y se actualiza dinámicamente por el hardware
+        if (self.ly & 0xFF) == (self.lyc & 0xFF):
+            stat_value |= 0x04  # Set bit 2
+        else:
+            stat_value &= 0xFB  # Clear bit 2
         
         return stat_value & 0xFF
 

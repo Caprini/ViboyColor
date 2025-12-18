@@ -258,6 +258,16 @@ class MMU:
                 # Si no hay PPU conectada, devolver el valor de memoria (puede tener bits configurables)
                 return self._memory[addr] & 0xFF
         
+        # Interceptar lectura del registro LYC (0xFF45)
+        # LYC es un registro de lectura/escritura que almacena el valor de línea
+        # con el que se compara LY para generar interrupciones STAT
+        if addr == IO_LYC:
+            if self._ppu is not None:
+                return self._ppu.get_lyc() & 0xFF
+            else:
+                # Si no hay PPU conectada, devolver 0 (comportamiento por defecto)
+                return 0
+        
         # Interceptar lectura del registro P1 (0xFF00) - Joypad Input
         # El Joypad maneja su propia lógica de lectura (Active Low, selector de bits 4-5)
         if addr == IO_P1:
@@ -377,15 +387,25 @@ class MMU:
                 # )
         
         # Interceptar escritura al registro STAT (0xFF41)
-        # STAT es de lectura/escritura, pero los bits 0-1 (modo PPU) son de solo lectura
-        # Solo los bits 2-6 pueden ser escritos por el software
-        # Los bits 0-1 siempre reflejan el estado actual de la PPU
+        # STAT es de lectura/escritura, pero los bits 0-2 (modo PPU y LYC flag) son de solo lectura
+        # Solo los bits 3-6 pueden ser escritos por el software
+        # Los bits 0-2 siempre reflejan el estado actual de la PPU
         if addr == IO_STAT:
-            # Guardar el valor escrito en memoria (para los bits configurables 2-6)
-            # Los bits 0-1 se ignoran porque son de solo lectura
-            # En hardware real, escribir en bits 0-1 no tiene efecto
-            self._memory[addr] = value & 0xFC  # Solo guardar bits 2-7 (limpiar bits 0-1)
-            # logger.debug(f"IO WRITE: STAT = 0x{value:02X} (bits 0-1 ignorados, solo 2-7 guardados)")
+            # Guardar el valor escrito en memoria (para los bits configurables 3-6)
+            # Los bits 0-2 se ignoran porque son de solo lectura
+            # En hardware real, escribir en bits 0-2 no tiene efecto
+            self._memory[addr] = value & 0xF8  # Solo guardar bits 3-7 (limpiar bits 0-2)
+            # logger.debug(f"IO WRITE: STAT = 0x{value:02X} (bits 0-2 ignorados, solo 3-7 guardados)")
+            return
+        
+        # Interceptar escritura al registro LYC (0xFF45)
+        # LYC es de lectura/escritura y permite configurar el valor de línea
+        # con el que se compara LY para generar interrupciones STAT
+        if addr == IO_LYC:
+            if self._ppu is not None:
+                self._ppu.set_lyc(value)
+            # También guardar en memoria para consistencia (aunque la PPU es la fuente de verdad)
+            self._memory[addr] = value & 0xFF
             return
         
         # Interceptar escritura al registro P1 (0xFF00) - Joypad Input

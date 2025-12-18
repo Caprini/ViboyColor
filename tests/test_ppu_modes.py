@@ -126,11 +126,15 @@ class TestPPUModes:
         ppu = PPU(mmu)
         mmu.set_ppu(ppu)
         
+        # CRÍTICO: Encender el LCD (LCDC bit 7 = 1) para que la PPU avance
+        mmu.write_byte(0xFF40, 0x80)  # LCDC bit 7 = 1 (LCD enabled)
+        
         # Inicialmente Mode 2 (OAM Search) -> bits 0-1 = 10
         stat = mmu.read_byte(IO_STAT)
         assert (stat & 0x03) == PPU_MODE_2_OAM_SEARCH, f"STAT debe tener bits 0-1 = 2, pero es {stat & 0x03}"
         
         # Avanzar a Mode 3 (Pixel Transfer) -> bits 0-1 = 11
+        # 80 ciclos nos pone justo al inicio de Mode 3
         ppu.step(80)
         stat = mmu.read_byte(IO_STAT)
         assert (stat & 0x03) == PPU_MODE_3_PIXEL_TRANSFER, f"STAT debe tener bits 0-1 = 3, pero es {stat & 0x03}"
@@ -149,61 +153,81 @@ class TestPPUModes:
 
     def test_stat_register_write_preserves_configurable_bits(self) -> None:
         """
-        Test: Escribir en STAT preserva los bits configurables (2-6) pero ignora bits 0-1.
+        Test: Escribir en STAT preserva los bits configurables (3-6) pero ignora bits 0-2.
         
         El software puede escribir en STAT para configurar interrupciones (bits 3-6),
-        pero los bits 0-1 (modo PPU) son de solo lectura y siempre reflejan el estado real.
+        pero los bits 0-2 (modo PPU y LYC flag) son de solo lectura y siempre reflejan el estado real.
         """
         mmu = MMU(None)
         ppu = PPU(mmu)
         mmu.set_ppu(ppu)
+        
+        # CRÍTICO: Encender el LCD (LCDC bit 7 = 1) para que la PPU avance
+        mmu.write_byte(0xFF40, 0x80)  # LCDC bit 7 = 1 (LCD enabled)
+        
+        # Asegurar que LY != LYC para que el bit 2 sea 0 (no afecta el test)
+        # LYC se inicializa a 0, y LY también es 0 inicialmente, así que pueden coincidir
+        # Configurar LYC a un valor diferente para evitar coincidencia
+        ppu.set_lyc(100)
         
         # Configurar algunos bits en STAT (bits 3-6 para interrupciones)
         # Por ejemplo: 0b11110000 = habilitar todas las interrupciones STAT
         mmu.write_byte(IO_STAT, 0xF0)
         
-        # Leer STAT - debe tener los bits configurables (2-6) preservados
-        # pero los bits 0-1 deben reflejar el modo actual (Mode 2 = 10)
+        # Leer STAT - debe tener los bits configurables (3-6) preservados
+        # pero los bits 0-2 deben reflejar el estado actual (modo y LYC flag)
         stat = mmu.read_byte(IO_STAT)
         
-        # Bits 2-6 deben estar configurados (0xF0 = 11110000)
-        assert (stat & 0xFC) == 0xF0, f"Bits configurables deben ser 0xF0, pero son 0x{stat & 0xFC:02X}"
+        # Bits 3-6 deben estar configurados (0xF0 = 11110000, bits 3-6 = 111100)
+        # Máscara 0xF8 para bits 3-7 (ignorar bits 0-2)
+        assert (stat & 0xF8) == 0xF0, f"Bits configurables (3-6) deben ser 0xF0, pero son 0x{stat & 0xF8:02X}"
         
         # Bits 0-1 deben reflejar el modo actual (Mode 2 = 10)
         assert (stat & 0x03) == PPU_MODE_2_OAM_SEARCH, f"Bits de modo deben ser 2, pero son {stat & 0x03}"
         
+        # Bit 2 debe ser 0 porque LY (0) != LYC (100)
+        assert (stat & 0x04) == 0, "Bit 2 (LYC flag) debe ser 0 cuando LY != LYC"
+        
         # Cambiar el modo PPU (avanzar a Mode 3)
         ppu.step(80)
         
-        # Leer STAT de nuevo - bits configurables deben seguir igual
+        # Leer STAT de nuevo - bits configurables (3-6) deben seguir igual
         # pero bits 0-1 deben reflejar el nuevo modo (Mode 3 = 11)
         stat = mmu.read_byte(IO_STAT)
-        assert (stat & 0xFC) == 0xF0, "Bits configurables deben seguir siendo 0xF0"
+        assert (stat & 0xF8) == 0xF0, "Bits configurables (3-6) deben seguir siendo 0xF0"
         assert (stat & 0x03) == PPU_MODE_3_PIXEL_TRANSFER, f"Bits de modo deben ser 3, pero son {stat & 0x03}"
 
     def test_stat_write_ignores_mode_bits(self) -> None:
         """
-        Test: Escribir en los bits 0-1 de STAT no tiene efecto (son de solo lectura).
+        Test: Escribir en los bits 0-2 de STAT no tiene efecto (son de solo lectura).
         
-        Aunque el software intente escribir en los bits 0-1 de STAT,
-        estos siempre reflejan el modo PPU actual y no pueden ser modificados.
+        Aunque el software intente escribir en los bits 0-2 de STAT,
+        estos siempre reflejan el estado actual de la PPU (modo y LYC flag) y no pueden ser modificados.
         """
         mmu = MMU(None)
         ppu = PPU(mmu)
         mmu.set_ppu(ppu)
         
+        # CRÍTICO: Encender el LCD (LCDC bit 7 = 1) para que la PPU avance
+        mmu.write_byte(0xFF40, 0x80)  # LCDC bit 7 = 1 (LCD enabled)
+        
+        # Asegurar que LY != LYC para que el bit 2 sea 0 (no afecta el test)
+        ppu.set_lyc(100)
+        
         # Estamos en Mode 2 (OAM Search) -> bits 0-1 = 10
         assert ppu.get_mode() == PPU_MODE_2_OAM_SEARCH
         
         # Intentar escribir 0x03 (bits 0-1 = 11) en STAT
-        # Esto NO debe cambiar el modo, solo los bits configurables
+        # Esto NO debe cambiar el modo, solo los bits configurables (3-6)
         mmu.write_byte(IO_STAT, 0x03)
         
         # Leer STAT - los bits 0-1 deben seguir siendo 2 (modo actual)
-        # Los bits 2-6 deben ser 0 (porque escribimos 0x03 que solo tiene bits 0-1)
+        # El bit 2 debe ser 0 (LY != LYC)
+        # Los bits 3-6 deben ser 0 (porque escribimos 0x03 que solo tiene bits 0-1)
         stat = mmu.read_byte(IO_STAT)
         assert (stat & 0x03) == PPU_MODE_2_OAM_SEARCH, "Bits 0-1 no deben cambiar por escritura"
-        assert (stat & 0xFC) == 0x00, "Bits configurables deben ser 0"
+        assert (stat & 0x04) == 0, "Bit 2 (LYC flag) debe ser 0 cuando LY != LYC"
+        assert (stat & 0xF8) == 0x00, "Bits configurables (3-6) deben ser 0"
 
     def test_mode_transitions_multiple_lines(self) -> None:
         """

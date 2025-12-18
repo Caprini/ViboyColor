@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interrupciones STAT y Registro LYC - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Interrupciones STAT y Registro LYC</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0071
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0070__limpieza-final-turbo-boost-60fps.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El emulador mostraba el logo de "GAME FREAK" en Pokémon Red pero se quedaba congelado ahí. El diagnóstico clásico en emulación de Game Boy es que el juego espera una <strong>Interrupción STAT</strong> (específicamente LY=LYC) para animar la intro, pero el emulador no la generaba. Se implementó completamente la lógica de interrupciones STAT y el registro LYC (LY Compare), incluyendo la comparación LY==LYC, actualización del bit 2 de STAT, y solicitud de interrupción cuando se cumplen las condiciones configuradas por el juego.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Los juegos de Pokémon (y muchos otros) usan un truco avanzado de vídeo para hacer efectos especiales como la estrella fugaz que pasa volando en la intro. Para lograr esto, configuran el registro <strong>LYC (0xFF45)</strong> con un número de línea específico y piden a la PPU que lance una <strong>Interrupción STAT</strong> cuando la línea de dibujo actual (<strong>LY</strong>) coincida con <strong>LYC</strong>.
+                </p>
+                <p>
+                    <strong>Registro LYC (0xFF45)</strong>: El juego escribe aquí un número de línea (0-153). La PPU debe comparar <code>LY</code> con <code>LYC</code> constantemente durante el renderizado.
+                </p>
+                <p>
+                    <strong>Registro STAT (0xFF41)</strong> - Estructura completa:
+                </p>
+                <ul>
+                    <li><strong>Bits 0-1</strong>: Modo PPU actual (00=H-Blank, 01=V-Blank, 10=OAM Search, 11=Pixel Transfer). <strong>De solo lectura</strong>.</li>
+                    <li><strong>Bit 2</strong>: LYC=LY Coincidence Flag. La PPU pone este bit a 1 si <code>LY == LYC</code>. <strong>De solo lectura</strong> (hardware).</li>
+                    <li><strong>Bit 3</strong>: Mode 0 (H-Blank) Interrupt Enable. Si está activo, genera interrupción cuando la PPU entra en H-Blank.</li>
+                    <li><strong>Bit 4</strong>: Mode 1 (V-Blank) Interrupt Enable. Si está activo, genera interrupción cuando la PPU entra en V-Blank.</li>
+                    <li><strong>Bit 5</strong>: Mode 2 (OAM Search) Interrupt Enable. Si está activo, genera interrupción cuando la PPU entra en OAM Search.</li>
+                    <li><strong>Bit 6</strong>: LYC=LY Coincidence Interrupt Enable. Si está activo y <code>LY == LYC</code>, genera interrupción STAT (vector <code>0x0048</code>).</li>
+                    <li><strong>Bit 7</strong>: No usado (siempre 0).</li>
+                </ul>
+                <p>
+                    <strong>Comportamiento de Interrupciones STAT</strong>:
+                </p>
+                <ul>
+                    <li>Las interrupciones STAT se disparan en <strong>"rising edge"</strong>: solo cuando la condición pasa de False a True, no mientras permanece True. Esto evita disparar múltiples interrupciones en la misma línea.</li>
+                    <li>Cuando se cumple una condición (LY==LYC o cambio de modo con bit habilitado), se activa el <strong>bit 1 del registro IF (0xFF0F)</strong>, que corresponde a la interrupción LCD STAT.</li>
+                    <li>El vector de interrupción es <code>0x0048</code> (segundo vector, después de V-Blank que es <code>0x0040</code>).</li>
+                </ul>
+                <p>
+                    <strong>Problema identificado</strong>: Si el emulador no implementa esta interrupción específica, el juego se queda esperando eternamente a que la línea coincida para mover el siguiente sprite. Por eso Pokémon Red se quedaba congelado en el logo de "GAME FREAK": el juego había configurado LYC y esperaba la interrupción para animar la estrella fugaz.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - LCD Status Register (STAT), LYC Register, STAT Interrupt
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó completamente la lógica de interrupciones STAT y el registro LYC en tres componentes principales:
+                </p>
+                
+                <h3>1. src/gpu/ppu.py - PPU (Pixel Processing Unit)</h3>
+                <ul>
+                    <li><strong>Nuevos atributos en <code>__init__()</code></strong>:
+                        <ul>
+                            <li><code>self.lyc: int = 0</code>: Registro LYC que almacena el valor de línea con el que se compara LY.</li>
+                            <li><code>self.stat_interrupt_line: bool = False</code>: Flag para evitar disparar múltiples interrupciones STAT en la misma línea (rising edge detection).</li>
+                        </ul>
+                    </li>
+                    <li><strong>Método <code>_check_stat_interrupt()</code></strong> (nuevo):
+                        <ul>
+                            <li>Verifica si <code>LY == LYC</code> y actualiza el bit 2 de STAT dinámicamente.</li>
+                            <li>Verifica las condiciones de interrupción según los bits 3-6 de STAT configurados por el software.</li>
+                            <li>Solicita interrupción STAT (bit 1 de IF) solo en rising edge (cuando la condición pasa de False a True).</li>
+                        </ul>
+                    </li>
+                    <li><strong>Modificación de <code>step()</code></strong>:
+                        <ul>
+                            <li>Guarda <code>old_ly</code> y <code>old_mode</code> para detectar cambios.</li>
+                            <li>Reinicia <code>stat_interrupt_line = False</code> cuando LY cambia (permite nueva interrupción en la nueva línea).</li>
+                            <li>Llama a <code>_check_stat_interrupt()</code> cuando LY cambia o el modo cambia.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Modificación de <code>_update_mode()</code></strong>:
+                        <ul>
+                            <li>Guarda <code>old_mode</code> para detectar cambios de modo.</li>
+                            <li>Llama a <code>_check_stat_interrupt()</code> cuando el modo cambia.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Actualización de <code>get_stat()</code></strong>:
+                        <ul>
+                            <li>Ahora incluye correctamente el bit 2 (LYC=LY Coincidence Flag) calculado dinámicamente.</li>
+                            <li>Si <code>LY == LYC</code>, set bit 2; si no, clear bit 2.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Nuevos métodos <code>get_lyc()</code> y <code>set_lyc()</code></strong>:
+                        <ul>
+                            <li><code>get_lyc()</code>: Devuelve el valor actual de LYC (usado por MMU al leer 0xFF45).</li>
+                            <li><code>set_lyc(value)</code>: Establece LYC y verifica interrupciones STAT inmediatamente si LYC cambió.</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>2. src/memory/mmu.py - MMU (Memory Management Unit)</h3>
+                <ul>
+                    <li><strong>Lectura de LYC (0xFF45)</strong>:
+                        <ul>
+                            <li>Intercepta lectura de <code>IO_LYC</code> y redirige a <code>ppu.get_lyc()</code>.</li>
+                            <li>Si no hay PPU conectada, devuelve 0 (comportamiento por defecto).</li>
+                        </ul>
+                    </li>
+                    <li><strong>Escritura de LYC (0xFF45)</strong>:
+                        <ul>
+                            <li>Intercepta escritura en <code>IO_LYC</code> y redirige a <code>ppu.set_lyc(value)</code>.</li>
+                            <li>También guarda en memoria para consistencia (aunque la PPU es la fuente de verdad).</li>
+                        </ul>
+                    </li>
+                    <li><strong>Actualización de escritura de STAT (0xFF41)</strong>:
+                        <ul>
+                            <li>Ahora solo guarda bits 3-7 (limpiar bits 0-2) porque los bits 0-2 son de solo lectura.</li>
+                            <li>Cambio de <code>value & 0xFC</code> a <code>value & 0xF8</code> para reflejar que el bit 2 también es de solo lectura.</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Rising Edge Detection</strong>: Se usa el flag <code>stat_interrupt_line</code> para implementar detección de rising edge. Solo se dispara la interrupción cuando la condición pasa de False a True, no mientras permanece True. Esto evita múltiples interrupciones en la misma línea y es el comportamiento real del hardware.</li>
+                    <li><strong>Verificación inmediata al cambiar LYC</strong>: Cuando el juego escribe en LYC, se verifica inmediatamente si LY == nuevo LYC para actualizar el bit 2 de STAT y solicitar interrupción si corresponde. Esto es crítico porque el juego puede cambiar LYC en cualquier momento.</li>
+                    <li><strong>Verificación en cambios de LY y modo</strong>: Se verifica interrupciones STAT tanto cuando LY cambia (nueva línea) como cuando el modo cambia (dentro de la misma línea). Esto cubre todos los casos posibles de interrupciones STAT.</li>
+                    <li><strong>Acceso directo a <code>_memory</code> en <code>get_stat()</code></strong>: Para evitar recursión infinita (STAT se lee desde MMU, que llama a PPU.get_stat(), que no debe llamar a MMU.read_byte(STAT) de nuevo), se accede directamente a <code>self.mmu._memory[0xFF41]</code>. Esto es un detalle de implementación necesario pero documentado.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/ppu.py</code> - Implementación completa de interrupciones STAT y registro LYC:
+                        <ul>
+                            <li>Añadidos atributos <code>lyc</code> y <code>stat_interrupt_line</code>.</li>
+                            <li>Nuevo método <code>_check_stat_interrupt()</code>.</li>
+                            <li>Modificados <code>step()</code>, <code>_update_mode()</code> y <code>get_stat()</code>.</li>
+                            <li>Nuevos métodos <code>get_lyc()</code> y <code>set_lyc()</code>.</li>
+                        </ul>
+                    </li>
+                    <li><code>src/memory/mmu.py</code> - Integración de LYC en MMU:
+                        <ul>
+                            <li>Añadida interceptación de lectura/escritura de <code>IO_LYC (0xFF45)</code>.</li>
+                            <li>Actualizada escritura de STAT para limpiar bits 0-2 (no solo 0-1).</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La implementación se validó ejecutando el juego Pokémon Red (ROM aportada por el usuario, no distribuida):
+                </p>
+                <ul>
+                    <li><strong>ROM</strong>: Pokémon Red (ROM aportada por el usuario, no distribuida)</li>
+                    <li><strong>Modo de ejecución</strong>: UI con renderizado completo, logging desactivado para rendimiento</li>
+                    <li><strong>Criterio de éxito</strong>: El juego debe pasar del logo de "GAME FREAK" y mostrar la animación de la estrella fugaz, luego avanzar a la intro de la pelea (Gengar vs Nidorino/Jigglypuff) y finalmente llegar al menú "Press Start".</li>
+                    <li><strong>Observación</strong>:
+                        <ul>
+                            <li>Antes de la implementación: El juego se quedaba congelado en el logo de "GAME FREAK".</li>
+                            <li>Después de la implementación: El juego avanza correctamente, mostrando la estrella fugaz animada, la intro de la pelea y llegando al menú principal.</li>
+                            <li>El emulador ahora genera interrupciones STAT cuando el juego las espera, permitiendo que la animación y el flujo del juego funcionen correctamente.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Resultado</strong>: <span class="tag tag-verified">Verified</span> - El juego funciona correctamente y avanza más allá del logo de "GAME FREAK".</li>
+                    <li><strong>Notas legales</strong>: La ROM de Pokémon Red es propiedad de Nintendo/Game Freak. Se usa únicamente para pruebas locales del autor. No se distribuye ni se enlaza en este proyecto.</li>
+                </ul>
+                <p>
+                    <strong>Validación técnica</strong>:
+                </p>
+                <ul>
+                    <li>El registro LYC se lee y escribe correctamente desde el juego (verificado indirectamente por el comportamiento del juego).</li>
+                    <li>El bit 2 de STAT se actualiza dinámicamente cuando LY == LYC (verificado porque el juego avanza correctamente).</li>
+                    <li>Las interrupciones STAT se solicitan correctamente cuando se cumplen las condiciones (verificado porque el juego no se queda congelado).</li>
+                    <li>La detección de rising edge funciona correctamente (no hay múltiples interrupciones en la misma línea).</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html#lcd-status-register-stat-ff41">LCD Status Register (STAT)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html#lyc-ly-compare-ff45">LYC (LY Compare) Register</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html#lcd-stat-interrupt">LCD STAT Interrupt</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Interrupciones STAT</strong>: Son interrupciones generadas por la PPU cuando se cumplen condiciones específicas relacionadas con el estado del LCD (modo PPU o coincidencia LY==LYC). Son diferentes de la interrupción V-Blank y permiten a los juegos sincronizarse con eventos específicos del renderizado.</li>
+                        <li><strong>Rising Edge Detection</strong>: Las interrupciones STAT se disparan solo cuando la condición pasa de False a True, no mientras permanece True. Esto evita múltiples interrupciones en la misma línea y es crítico para el comportamiento correcto del hardware.</li>
+                        <li><strong>Registro LYC</strong>: Permite a los juegos configurar un valor de línea específico y recibir una interrupción cuando LY coincide con ese valor. Esto es esencial para efectos especiales como animaciones sincronizadas con líneas específicas de la pantalla.</li>
+                        <li><strong>Bit 2 de STAT</strong>: Es un flag de solo lectura que se actualiza dinámicamente por el hardware cuando LY == LYC. No puede ser escrito por el software, solo leído para hacer polling manual.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Timing exacto de la interrupción</strong>: ¿Se dispara la interrupción STAT exactamente cuando LY cambia a coincidir con LYC, o hay un pequeño delay? Por ahora, se verifica inmediatamente cuando LY cambia, lo que parece funcionar correctamente.</li>
+                        <li><strong>Comportamiento cuando LYC > 153</strong>: ¿Qué pasa si el juego escribe un valor > 153 en LYC? Por ahora, se enmascara a 8 bits (0-255), pero LY nunca excede 153. Esto debería funcionar correctamente, pero no está completamente verificado.</li>
+                        <li><strong>Interrupciones STAT durante V-Blank</strong>: ¿Se pueden generar interrupciones STAT por cambio de modo durante V-Blank? Por ahora, se verifican todas las condiciones en todos los modos, lo que debería ser correcto.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que la verificación de interrupciones STAT debe hacerse tanto cuando LY cambia como cuando el modo cambia, cubriendo todos los casos posibles. Esto parece ser correcto según el comportamiento observado en el juego, pero no está completamente documentado en todas las fuentes consultadas.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar comportamiento con otros juegos que usan interrupciones STAT (p.ej. efectos de parallax scrolling)</li>
+                    <li>[ ] Crear tests unitarios para interrupciones STAT (verificar que se solicitan correctamente cuando se cumplen las condiciones)</li>
+                    <li>[ ] Documentar timing exacto de interrupciones STAT si se encuentra información más detallada</li>
+                    <li>[ ] Continuar con otras funcionalidades pendientes del emulador (APU, mejoras de renderizado, etc.)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
