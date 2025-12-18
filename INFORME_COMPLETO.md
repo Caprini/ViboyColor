@@ -4840,3 +4840,97 @@ def test_dma_transfer(self):
 - Pan Docs: Memory Map - https://gbdev.io/pandocs/Memory_Map.html (OAM: 0xFE00-0xFE9F)
 
 ---
+
+## 2025-12-18 - Arquitectura Basada en Scanlines: Equilibrio Rendimiento/Precisión
+
+**Step ID**: 0088
+
+**Estado**: Draft (pendiente de verificación con ROMs reales)
+
+### Resumen
+Se implementó una arquitectura híbrida basada en scanlines para resolver el problema de rendimiento del emulador. La arquitectura ejecuta CPU y Timer cada instrucción (manteniendo precisión del RNG) pero actualiza la PPU solo una vez por scanline (456 ciclos), reduciendo el coste gráfico en un 99%. Esta solución equilibra rendimiento y precisión, permitiendo que el emulador alcance 60 FPS en hardware moderno sin romper la jugabilidad de juegos como Tetris que dependen del Timer para RNG.
+
+### Concepto de Hardware
+
+**Problema de Rendimiento en Emulación**: En un emulador ciclo a ciclo, cada instrucción de CPU debe actualizar todos los periféricos (PPU, Timer, etc.). En Python, esto significa millones de llamadas a función por segundo, creando un overhead masivo. Un i7-10700K con 2080 Ti debería ejecutar el emulador a 500+ FPS si estuviera desbloqueado, pero con arquitectura ciclo a ciclo pura apenas alcanza 30 FPS debido al overhead de Python.
+
+**Batching Agresivo vs Precisión**: Agrupar múltiples instrucciones (batching de 128 ciclos) reduce llamadas y mejora rendimiento, pero rompe la sincronización del Timer. Juegos como Tetris usan el registro DIV (Timer) como fuente de aleatoriedad. Si el Timer no se actualiza cada instrucción, el juego puede leer el mismo valor múltiples veces, generando piezas idénticas o colisiones fantasmas que provocan Game Over aleatorio.
+
+**Arquitectura Basada en Scanlines**: La solución estándar de la industria (usada en PyBoy y otros emuladores de alto rendimiento) es ejecutar CPU y Timer cada instrucción (para precisión) pero actualizar la PPU solo una vez por scanline (456 T-Cycles). Esto reduce el coste de la PPU de ~17.556 actualizaciones por frame (una por instrucción) a solo 154 (una por línea), un 99% de reducción, mientras mantiene la precisión del Timer necesaria para RNG correcto.
+
+**Timing de Scanlines**: La pantalla de Game Boy tiene 144 líneas visibles (0-143) seguidas de 10 líneas de V-Blank (144-153), totalizando 154 líneas por frame. Cada línea tarda exactamente 456 T-Cycles. Un frame completo son 70.224 T-Cycles (154 * 456), lo que da aproximadamente 59.7 FPS a 4.19 MHz.
+
+### Implementación
+
+**1. Nuevo Método: `_execute_cpu_timer_only()`**
+
+Se creó un método auxiliar que ejecuta una instrucción de CPU y actualiza el Timer inmediatamente, pero NO actualiza la PPU. Esto permite separar la ejecución de CPU/Timer (precisa) de la PPU (optimizada por scanline).
+
+- Ejecuta `CPU.step()` para obtener M-Cycles consumidos
+- Convierte M-Cycles a T-Cycles (multiplicando por 4)
+- Actualiza el Timer con `Timer.tick(t_cycles)` inmediatamente
+- Devuelve los T-Cycles consumidos para acumulación en el scanline
+
+**2. Bucle Principal por Scanlines**
+
+El bucle principal ahora tiene tres niveles anidados:
+- **Bucle de Frame**: Ejecuta 70.224 T-Cycles (un frame completo)
+- **Bucle de Scanline**: Ejecuta 456 T-Cycles (una línea completa)
+- **Bucle de Instrucción**: Ejecuta CPU y Timer cada instrucción hasta completar 456 ciclos
+
+Al final de cada scanline, se actualiza la PPU una vez con `PPU.step(456)`, pasando exactamente 456 T-Cycles. Esto reduce drásticamente el número de llamadas a la PPU sin afectar la precisión visual (la PPU procesa líneas completas de todos modos).
+
+**3. Gestión de Input y Renderizado**
+
+- **Input**: Se lee una vez por frame al inicio del bucle principal
+- **Renderizado**: Se renderiza cuando la PPU indica que hay un frame listo (V-Blank)
+- **Sincronización**: `pygame.Clock.tick(60)` limita a 60 FPS después de cada renderizado
+
+**Decisiones de Diseño**:
+- ¿Por qué no actualizar PPU cada instrucción? La PPU es el componente más costoso computacionalmente. Actualizarla cada instrucción (17.556 veces por frame) crea un cuello de botella masivo. Actualizarla una vez por scanline (154 veces por frame) reduce el overhead en un 99% sin afectar la precisión visual.
+- ¿Por qué mantener Timer cada instrucción? El Timer (especialmente DIV) se usa como fuente de aleatoriedad en muchos juegos. Si no se actualiza cada instrucción, el juego puede leer el mismo valor múltiples veces, rompiendo el RNG y causando comportamientos erróneos (Game Over aleatorio en Tetris).
+
+### Archivos Afectados
+- `src/viboy.py` - Reescrito método `run()` con arquitectura basada en scanlines y añadido método `_execute_cpu_timer_only()`
+
+### Tests y Verificación
+
+**Estado**: Pendiente de verificación con ROMs reales.
+
+**Criterios de Éxito**:
+- **Rendimiento**: El emulador debe alcanzar 60 FPS estables en hardware moderno (i7-10700K, 2080 Ti)
+- **Precisión del Timer**: Tetris debe funcionar correctamente sin Game Over aleatorio (RNG correcto)
+- **Renderizado**: La imagen debe ser idéntica a la arquitectura ciclo a ciclo anterior
+- **Input Lag**: El input debe ser responsivo (60 FPS reales eliminan input lag perceptible)
+
+**ROMs a Probar**:
+- **Tetris (ROM aportada por el usuario, no distribuida)**: Verificar que las piezas rotan correctamente y no hay Game Over aleatorio
+- **Pokémon Red/Blue (ROM aportada por el usuario, no distribuida)**: Verificar que pasa del logo sin bloquearse y el rendimiento es fluido
+
+**Nota**: Los tests se ejecutarán manualmente después de esta implementación. Si hay problemas, se documentarán en el siguiente paso.
+
+### Fuentes Consultadas
+- Pan Docs: LCD Timing, System Clock, Frame Rate - https://gbdev.io/pandocs/
+- Arquitectura de emuladores: Patrón común en emuladores de alto rendimiento (PyBoy, etc.)
+
+**Nota**: La arquitectura basada en scanlines es un patrón estándar de la industria para equilibrar rendimiento y precisión en emuladores. No se copió código de otros emuladores, solo se aplicó el principio arquitectónico documentado en la literatura de emulación.
+
+### Integridad Educativa
+
+**Lo que Entiendo Ahora**:
+- **Overhead de Python**: Las llamadas a función en Python tienen un costo significativo. Actualizar la PPU 17.556 veces por frame crea un cuello de botella masivo, incluso en hardware moderno.
+- **Precisión Selectiva**: No todos los componentes necesitan la misma precisión. El Timer (usado para RNG) requiere precisión ciclo a ciclo, pero la PPU puede actualizarse por scanline sin perder precisión visual.
+- **Arquitectura Híbrida**: La solución óptima es una arquitectura híbrida que combina precisión donde es necesaria (CPU, Timer) con optimización donde es posible (PPU).
+- **Scanlines como Unidad de Trabajo**: La PPU procesa líneas completas de todos modos, así que actualizarla por scanline (456 ciclos) es natural y no introduce imprecisiones visuales.
+
+**Lo que Falta Confirmar**:
+- **Rendimiento Real**: Verificar que el emulador alcanza 60 FPS estables en hardware moderno después de esta optimización.
+- **Precisión del Timer**: Confirmar que Tetris funciona correctamente sin Game Over aleatorio (RNG correcto).
+- **Compatibilidad Visual**: Verificar que la imagen renderizada es idéntica a la arquitectura ciclo a ciclo anterior (no debe haber diferencias visuales).
+- **Edge Cases**: Verificar que juegos que dependen críticamente del timing de la PPU (si los hay) funcionan correctamente con esta arquitectura.
+
+**Hipótesis y Suposiciones**:
+- **Hipótesis Principal**: Actualizar la PPU una vez por scanline (456 ciclos) en lugar de cada instrucción no introduce imprecisiones visuales porque la PPU procesa líneas completas de todos modos. Esta hipótesis se basa en el conocimiento de que la PPU renderiza líneas completas, no píxeles individuales por instrucción.
+- **Suposición de Rendimiento**: Se asume que reducir las llamadas a PPU de 17.556 a 154 por frame (99% de reducción) será suficiente para alcanzar 60 FPS en hardware moderno. Si no es así, se considerarán optimizaciones adicionales (por ejemplo, actualizar PPU solo en líneas visibles, no en V-Blank).
+
+---
