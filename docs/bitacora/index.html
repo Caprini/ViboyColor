@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0068 - Aritmética de Pila Avanzada (SP+r8) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0068__aritmetica-pila-sp-offset.html" class="entry-link">
+                                    Aritmética de Pila Avanzada (SP+r8)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0068 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementaron dos opcodes críticos de aritmética de pila con offset: ADD SP, r8 (0xE8) y LD HL, SP+r8 (0xF8). Estos opcodes permiten calcular direcciones de pila con un offset con signo de 8 bits, una operación común en código de juegos para acceder a variables locales. El emulador había avanzado más de 1 millón de ciclos ejecutando Pokémon y chocó con el opcode 0xF8 no implementado en PC=0x1D5C. Ambos opcodes tienen flags especiales (H y C) que se calculan basándose en el byte bajo de SP, no en los 12 bits bajos como en ADD HL, rr. Validado con 9 tests unitarios que pasan correctamente.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0067 - Corrección de Arquitectura del Game Loop -->
                     <li>
                         <div class="entry-header">

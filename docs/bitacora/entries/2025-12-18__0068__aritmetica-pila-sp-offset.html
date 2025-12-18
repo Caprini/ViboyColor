@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aritmética de Pila Avanzada (SP+r8) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Aritmética de Pila Avanzada (SP+r8)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0068
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0067__correccion-arquitectura-game-loop.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementaron dos opcodes críticos de aritmética de pila con offset: <code>ADD SP, r8</code> (0xE8) y <code>LD HL, SP+r8</code> (0xF8). Estos opcodes permiten calcular direcciones de pila con un offset con signo de 8 bits, una operación común en código de juegos para acceder a variables locales o estructuras de datos en la pila. El emulador había avanzado más de 1 millón de ciclos ejecutando Pokémon y chocó con el opcode 0xF8 no implementado en PC=0x1D5C, lo que indica un progreso significativo. Ambos opcodes tienen flags especiales (H y C) que se calculan basándose en el byte bajo de SP, no en los 12 bits bajos como en ADD HL, rr.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La CPU LR35902 proporciona dos instrucciones para realizar aritmética de pila con offset:
+                </p>
+                <ul>
+                    <li><strong>ADD SP, r8 (0xE8)</strong>: Suma un entero con signo de 8 bits al Stack Pointer (SP). El offset se lee como un byte con signo usando representación Two's Complement (0x00-0x7F son positivos, 0x80-0xFF son negativos). El resultado se almacena en SP y consume 4 M-Cycles.</li>
+                    <li><strong>LD HL, SP+r8 (0xF8)</strong>: Calcula SP + offset (mismo formato de offset) y almacena el resultado en HL. SP NO se modifica. Consume 3 M-Cycles.</li>
+                </ul>
+                <p>
+                    <strong>Flags especiales:</strong> Ambas instrucciones tienen un comportamiento único con los flags:
+                </p>
+                <ul>
+                    <li><strong>Z (Zero)</strong>: Siempre 0 (no se toca).</li>
+                    <li><strong>N (Subtract)</strong>: Siempre 0 (es una suma).</li>
+                    <li><strong>H (Half-Carry)</strong>: Se activa si hay carry del bit 3 al 4 (nibble bajo). Se calcula como: <code>((sp & 0xF) + (offset & 0xF)) > 0xF</code>.</li>
+                    <li><strong>C (Carry)</strong>: Se activa si hay carry del bit 7 al 8 (byte bajo). Se calcula como: <code>((sp & 0xFF) + (offset & 0xFF)) > 0xFF</code>.</li>
+                </ul>
+                <p>
+                    <strong>Diferencia crítica con ADD HL, rr:</strong> En ADD HL, rr, los flags H y C se calculan en los 12 bits bajos (bits 0-11) y 16 bits respectivamente. En ADD SP, r8 y LD HL, SP+r8, los flags se calculan solo en el byte bajo (bits 0-7) de SP, porque estamos sumando un valor de 8 bits a un valor de 16 bits.
+                </p>
+                <p>
+                    <strong>Uso en juegos:</strong> Estas instrucciones son fundamentales para acceder a variables locales en la pila. Por ejemplo, si una función tiene variables locales en la pila, puede usar <code>LD HL, SP-4</code> para obtener un puntero a esas variables sin modificar SP.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó un helper genérico <code>_add_sp_offset()</code> que calcula SP + offset y devuelve el resultado junto con los flags H y C. Este helper se reutiliza en ambos opcodes para mantener consistencia y evitar duplicación de código.
+                </p>
+                
+                <h3>Helper: _add_sp_offset()</h3>
+                <p>
+                    El helper recibe un offset con signo (rango [-128, 127]) y devuelve una tupla <code>(result, h_flag, c_flag)</code>:
+                </p>
+                <ul>
+                    <li>Convierte el offset a su representación unsigned para cálculos de flags.</li>
+                    <li>Calcula el resultado con wrap-around de 16 bits: <code>(sp + offset) & 0xFFFF</code>.</li>
+                    <li>Calcula H flag: <code>((sp_low & 0xF) + (offset_low & 0xF)) > 0xF</code>.</li>
+                    <li>Calcula C flag: <code>((sp_low + offset_low) & 0x100) != 0</code>.</li>
+                </ul>
+
+                <h3>Opcode 0xE8: ADD SP, r8</h3>
+                <p>
+                    Implementado en <code>_op_add_sp_r8()</code>:
+                </p>
+                <ul>
+                    <li>Lee el offset usando <code>_read_signed_byte()</code> (ya existente).</li>
+                    <li>Llama a <code>_add_sp_offset()</code> para calcular resultado y flags.</li>
+                    <li>Actualiza SP con el resultado.</li>
+                    <li>Actualiza flags: Z=0, N=0, H y C según cálculo.</li>
+                    <li>Retorna 4 M-Cycles.</li>
+                </ul>
+
+                <h3>Opcode 0xF8: LD HL, SP+r8</h3>
+                <p>
+                    Implementado en <code>_op_ld_hl_sp_r8()</code>:
+                </p>
+                <ul>
+                    <li>Lee el offset usando <code>_read_signed_byte()</code>.</li>
+                    <li>Llama a <code>_add_sp_offset()</code> para calcular resultado y flags.</li>
+                    <li>Actualiza HL con el resultado (SP NO se modifica).</li>
+                    <li>Actualiza flags: Z=0, N=0, H y C según cálculo.</li>
+                    <li>Retorna 3 M-Cycles.</li>
+                </ul>
+
+                <h3>Integración en tabla de despacho</h3>
+                <p>
+                    Ambos opcodes se añadieron a la tabla de despacho <code>_opcode_table</code> en <code>__init__()</code>:
+                </p>
+                <ul>
+                    <li><code>0xE8: self._op_add_sp_r8</code></li>
+                    <li><code>0xF8: self._op_ld_hl_sp_r8</code></li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadido helper <code>_add_sp_offset()</code> y handlers <code>_op_add_sp_r8()</code> y <code>_op_ld_hl_sp_r8()</code>. Integrados en tabla de despacho.</li>
+                    <li><code>tests/test_cpu_sp_arithmetic.py</code> - Nuevo archivo con 9 tests unitarios que cubren ambos opcodes: offsets positivos/negativos, flags H y C, wrap-around, y verificación de que SP no cambia en LD HL, SP+r8.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se crearon 9 tests unitarios exhaustivos que cubren todos los casos relevantes:
+                </p>
+                <ul>
+                    <li><strong>ADD SP, r8 (5 tests):</strong> Offset positivo, offset negativo, half-carry, carry, wrap-around.</li>
+                    <li><strong>LD HL, SP+r8 (4 tests):</strong> Offset positivo, offset negativo, flags H y C, verificación de que SP no cambia.</li>
+                </ul>
+                
+                <h3>Ejecución de Tests</h3>
+                <p><strong>Comando ejecutado:</strong></p>
+                <pre><code>python -m pytest tests/test_cpu_sp_arithmetic.py -v</code></pre>
+                
+                <p><strong>Entorno:</strong></p>
+                <ul>
+                    <li>OS: Windows 10</li>
+                    <li>Python: 3.13.5</li>
+                </ul>
+                
+                <p><strong>Resultado:</strong></p>
+                <pre><code>============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.2, pluggy-1.6.0
+collected 9 items
+
+tests/test_cpu_sp_arithmetic.py::TestAddSpR8::test_add_sp_positive PASSED
+tests/test_cpu_sp_arithmetic.py::TestAddSpR8::test_add_sp_negative PASSED
+tests/test_cpu_sp_arithmetic.py::TestAddSpR8::test_add_sp_with_half_carry PASSED
+tests/test_cpu_sp_arithmetic.py::TestAddSpR8::test_add_sp_with_carry PASSED
+tests/test_cpu_sp_arithmetic.py::TestAddSpR8::test_add_sp_wraparound PASSED
+tests/test_cpu_sp_arithmetic.py::TestLdHlSpR8::test_ld_hl_sp_r8_positive PASSED
+tests/test_cpu_sp_arithmetic.py::TestLdHlSpR8::test_ld_hl_sp_r8_negative PASSED
+tests/test_cpu_sp_arithmetic.py::TestLdHlSpR8::test_ld_hl_sp_r8_with_flags PASSED
+tests/test_cpu_sp_arithmetic.py::TestLdHlSpR8::test_ld_hl_sp_r8_sp_unchanged PASSED
+
+============================== 9 passed in 0.15s ==============================</code></pre>
+                
+                <p><strong>Qué valida:</strong></p>
+                <ul>
+                    <li><strong>Correctitud aritmética:</strong> Los tests verifican que SP + offset se calcula correctamente, incluyendo casos con wrap-around (0xFFFF + 1 = 0x0000).</li>
+                    <li><strong>Flags H y C:</strong> Los tests verifican que los flags se calculan correctamente basándose en el byte bajo de SP, no en los 12 bits bajos como en ADD HL, rr.</li>
+                    <li><strong>Preservación de SP:</strong> Los tests verifican que en LD HL, SP+r8, el Stack Pointer no se modifica, solo se usa para calcular HL.</li>
+                    <li><strong>Flags Z y N:</strong> Los tests verifican que Z=0 y N=0 siempre, independientemente del resultado.</li>
+                </ul>
+                
+                <p><strong>Código del test (ejemplo):</strong></p>
+                <pre><code>def test_add_sp_positive(self):
+    """Test: Verificar que ADD SP, r8 suma un offset positivo correctamente."""
+    mmu = MMU()
+    cpu = CPU(mmu)
+    
+    cpu.registers.set_pc(0x0100)
+    cpu.registers.set_sp(0x1000)
+    
+    # Escribir opcode y offset
+    mmu.write_byte(0x0100, 0xE8)  # ADD SP, r8
+    mmu.write_byte(0x0101, 0x05)  # +5
+    
+    cycles = cpu.step()
+    
+    # Verificar resultado
+    assert cpu.registers.get_sp() == 0x1005, "SP debe ser 0x1005"
+    
+    # Verificar flags
+    assert not cpu.registers.get_flag_z(), "Z debe ser 0"
+    assert not cpu.registers.get_flag_n(), "N debe ser 0"
+    assert not cpu.registers.get_flag_h(), "H debe ser 0 (no hay half-carry)"
+    assert not cpu.registers.get_flag_c(), "C debe ser 0 (no hay carry)"
+    
+    # Verificar ciclos
+    assert cycles == 4, "ADD SP, r8 debe consumir 4 M-Cycles"</code></pre>
+                
+                <p>
+                    <strong>Por qué estos tests demuestran el hardware:</strong> Los tests verifican que el cálculo de flags H y C se basa en el byte bajo de SP (bits 0-7), no en los 12 bits bajos como en ADD HL, rr. Esto es una característica específica del hardware LR35902 que diferencia estas instrucciones de otras operaciones aritméticas de 16 bits. Los tests también verifican que el offset se interpreta correctamente como un entero con signo (Two's Complement), permitiendo offsets negativos que son comunes en código de juegos para acceder a variables locales en la pila.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - ADD SP, r8 / LD HL, SP+r8</a></li>
+                    <li>Pan Docs: Flags behavior for SP+r8 instructions (diferencia con ADD HL, rr)</li>
+                </ul>
+                <p>
+                    <em>Nota: La implementación se basó en la documentación de Pan Docs sobre el comportamiento de flags en estas instrucciones específicas, que difiere del comportamiento estándar de ADD HL, rr.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Flags especiales en SP+r8:</strong> Los flags H y C en ADD SP, r8 y LD HL, SP+r8 se calculan basándose en el byte bajo de SP (bits 0-7), no en los 12 bits bajos como en ADD HL, rr. Esto es porque estamos sumando un valor de 8 bits a un valor de 16 bits, y el hardware solo verifica el desbordamiento del byte bajo.</li>
+                        <li><strong>Uso en código de juegos:</strong> Estas instrucciones son fundamentales para acceder a variables locales en la pila. Por ejemplo, <code>LD HL, SP-4</code> obtiene un puntero a variables locales sin modificar SP, permitiendo acceso eficiente a estructuras de datos en la pila.</li>
+                        <li><strong>Diferencia con ADD HL, rr:</strong> Aunque ambas son operaciones aritméticas de 16 bits, el cálculo de flags es diferente. En ADD HL, rr, H se calcula en los 12 bits bajos (bits 0-11), mientras que en SP+r8, H se calcula solo en el nibble bajo (bits 0-3).</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento en casos límite:</strong> Los tests cubren casos normales y wrap-around, pero no se han probado casos extremos como SP=0x0000 con offset negativo grande o SP=0xFFFF con offset positivo grande. Sin embargo, los tests de wrap-around cubren estos casos implícitamente.</li>
+                        <li><strong>Validación con ROMs reales:</strong> La implementación se validó con tests unitarios, pero aún no se ha probado ejecutando una ROM real que use estos opcodes. El hecho de que el emulador haya llegado a ejecutar 0xF8 en Pokémon indica que el juego los necesita, pero la validación final será cuando el juego avance más allá de ese punto.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición sobre el cálculo de flags:</strong> La implementación asume que el cálculo de flags H y C se basa en el byte bajo de SP (bits 0-7), no en los 12 bits bajos. Esta suposición está respaldada por la documentación de Pan Docs, pero no se ha verificado con hardware real. Los tests unitarios verifican que el cálculo es correcto según esta suposición.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar Pokémon (pkmn.gb) y verificar que avanza más allá de PC=0x1D5C (donde chocó con 0xF8).</li>
+                    <li>[ ] Verificar que el juego muestra la intro (estrella fugaz, copyright) después de implementar estos opcodes.</li>
+                    <li>[ ] Si aparecen más opcodes no implementados, implementarlos siguiendo el mismo patrón.</li>
+                    <li>[ ] Continuar con la implementación de subsistemas faltantes (APU, si es necesario para el juego).</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

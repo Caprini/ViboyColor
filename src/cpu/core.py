@@ -181,6 +181,9 @@ class CPU:
             0x19: self._op_add_hl_de,      # ADD HL, DE
             0x29: self._op_add_hl_hl,      # ADD HL, HL
             0x39: self._op_add_hl_sp,      # ADD HL, SP
+            # Aritmética de pila con offset (SP+r8)
+            0xE8: self._op_add_sp_r8,      # ADD SP, r8
+            0xF8: self._op_ld_hl_sp_r8,    # LD HL, SP+r8
             # Retornos condicionales
             0xC0: self._op_ret_nz,         # RET NZ
             0xC8: self._op_ret_z,          # RET Z
@@ -4728,6 +4731,164 @@ class CPU:
             f"H={self.registers.get_flag_h()} C={self.registers.get_flag_c()}"
         )
         return 2
+
+    # ========== Handlers de Aritmética de Pila con Offset (SP+r8) ==========
+    
+    def _add_sp_offset(self, offset: int) -> tuple[int, bool, bool]:
+        """
+        Helper para ADD SP, r8 y LD HL, SP+r8.
+        
+        Calcula SP + offset (donde offset es un entero con signo de 8 bits)
+        y devuelve el resultado junto con los flags H y C.
+        
+        CRÍTICO: Los flags H y C se calculan de forma especial:
+        - H (Half-Carry): Se activa si hay carry del bit 3 al 4 (nibble bajo)
+        - C (Carry): Se activa si hay carry del bit 7 al 8 (byte bajo)
+        
+        Esto es diferente a ADD HL, rr porque aquí estamos sumando un valor
+        de 8 bits (con signo) a un valor de 16 bits, y los flags se calculan
+        solo en el byte bajo de SP.
+        
+        Args:
+            offset: Offset con signo de 8 bits (rango [-128, 127])
+            
+        Returns:
+            Tupla (result, h_flag, c_flag) donde:
+            - result: SP + offset (16 bits, con wrap-around)
+            - h_flag: True si hay half-carry (bit 3 -> 4)
+            - c_flag: True si hay carry (bit 7 -> 8)
+            
+        Fórmulas:
+        - Half-Carry: ((sp & 0xF) + (offset & 0xF)) > 0xF
+        - Carry: ((sp & 0xFF) + (offset & 0xFF)) > 0xFF
+        
+        Fuente: Pan Docs - CPU Instruction Set (ADD SP, r8 / LD HL, SP+r8)
+        """
+        sp = self.registers.get_sp()
+        
+        # Convertir offset a unsigned para cálculos de flags
+        # Si offset es negativo, lo convertimos a su representación unsigned
+        offset_unsigned = offset & 0xFF
+        
+        # Calcular resultado (16 bits con wrap-around)
+        result = (sp + offset) & 0xFFFF
+        
+        # Calcular flags basándose en el byte bajo de SP
+        sp_low = sp & 0xFF
+        offset_low = offset_unsigned
+        
+        # Half-Carry: carry del bit 3 al 4 (nibble bajo)
+        h_flag = ((sp_low & 0xF) + (offset_low & 0xF)) > 0xF
+        
+        # Carry: carry del bit 7 al 8 (byte bajo)
+        c_flag = ((sp_low + offset_low) & 0x100) != 0
+        
+        return (result, h_flag, c_flag)
+    
+    def _op_add_sp_r8(self) -> int:
+        """
+        ADD SP, r8 (Add signed 8-bit offset to Stack Pointer) - Opcode 0xE8
+        
+        Suma un entero con signo de 8 bits al Stack Pointer (SP).
+        
+        El offset se lee como un byte con signo (Two's Complement):
+        - 0x00-0x7F (0-127): Positivos
+        - 0x80-0xFF (128-255): Negativos (-128 a -1)
+        
+        Flags:
+        - Z: Siempre 0 (no se toca)
+        - N: Siempre 0 (es una suma)
+        - H: Se activa si hay carry del bit 3 al 4 (nibble bajo)
+        - C: Se activa si hay carry del bit 7 al 8 (byte bajo)
+        
+        Returns:
+            4 M-Cycles
+            
+        Fuente: Pan Docs - Instruction Set (ADD SP, r8)
+        """
+        offset = self._read_signed_byte()
+        old_sp = self.registers.get_sp()
+        
+        # Calcular nuevo SP y flags
+        new_sp, h_flag, c_flag = self._add_sp_offset(offset)
+        
+        # Actualizar SP
+        self.registers.set_sp(new_sp)
+        
+        # Actualizar flags
+        # Z: siempre 0
+        self.registers.clear_flag(FLAG_Z)
+        # N: siempre 0
+        self.registers.clear_flag(FLAG_N)
+        # H: según cálculo
+        if h_flag:
+            self.registers.set_flag(FLAG_H)
+        else:
+            self.registers.clear_flag(FLAG_H)
+        # C: según cálculo
+        if c_flag:
+            self.registers.set_flag(FLAG_C)
+        else:
+            self.registers.clear_flag(FLAG_C)
+        
+        logger.debug(
+            f"ADD SP, {offset:+d} -> SP=0x{old_sp:04X} + {offset:+d} = 0x{new_sp:04X} "
+            f"H={h_flag} C={c_flag}"
+        )
+        return 4
+    
+    def _op_ld_hl_sp_r8(self) -> int:
+        """
+        LD HL, SP+r8 (Load HL with SP + signed 8-bit offset) - Opcode 0xF8
+        
+        Calcula SP + offset (donde offset es un entero con signo de 8 bits)
+        y almacena el resultado en HL. SP NO se modifica.
+        
+        El offset se lee como un byte con signo (Two's Complement):
+        - 0x00-0x7F (0-127): Positivos
+        - 0x80-0xFF (128-255): Negativos (-128 a -1)
+        
+        Flags:
+        - Z: Siempre 0 (no se toca)
+        - N: Siempre 0 (es una suma)
+        - H: Se activa si hay carry del bit 3 al 4 (nibble bajo)
+        - C: Se activa si hay carry del bit 7 al 8 (byte bajo)
+        
+        Returns:
+            3 M-Cycles
+            
+        Fuente: Pan Docs - Instruction Set (LD HL, SP+r8)
+        """
+        offset = self._read_signed_byte()
+        sp = self.registers.get_sp()
+        
+        # Calcular HL = SP + offset y flags
+        hl_value, h_flag, c_flag = self._add_sp_offset(offset)
+        
+        # Actualizar HL (SP no cambia)
+        self.registers.set_hl(hl_value)
+        
+        # Actualizar flags
+        # Z: siempre 0
+        self.registers.clear_flag(FLAG_Z)
+        # N: siempre 0
+        self.registers.clear_flag(FLAG_N)
+        # H: según cálculo
+        if h_flag:
+            self.registers.set_flag(FLAG_H)
+        else:
+            self.registers.clear_flag(FLAG_H)
+        # C: según cálculo
+        if c_flag:
+            self.registers.set_flag(FLAG_C)
+        else:
+            self.registers.clear_flag(FLAG_C)
+        
+        logger.debug(
+            f"LD HL, SP{offset:+d} -> HL=0x{hl_value:04X} (SP=0x{sp:04X} no cambia) "
+            f"H={h_flag} C={c_flag}"
+        )
+        return 3
 
     # ========== Handlers de Retornos Condicionales ==========
     
