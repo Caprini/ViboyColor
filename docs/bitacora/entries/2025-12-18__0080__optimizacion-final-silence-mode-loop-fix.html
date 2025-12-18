@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Optimización Final: Silence Mode & Loop Fix - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Optimización Final: Silence Mode & Loop Fix</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0080
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0079__optimizacion-radical-limpieza-logs-controles.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El emulador funcionaba correctamente pero a solo 14 FPS debido a que el logging seguía activo
+                    en el bucle crítico. Windows es especialmente lento gestionando la salida de terminal, y escribir
+                    logs miles de veces por segundo bloqueaba el hilo principal. Se aplicó la "Solución Nuclear de
+                    Rendimiento": silenciar completamente el logging (solo ERROR), eliminar todos los prints del
+                    bucle crítico, y optimizar la estructura del bucle principal según especificación exacta.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En un emulador, el bucle principal debe ejecutar ~4.19 millones de instrucciones por segundo
+                    para mantener la velocidad correcta. Cualquier operación I/O (especialmente escribir en consola)
+                    dentro del bucle crítico introduce latencia que se multiplica por millones de ejecuciones.
+                </p>
+                <p>
+                    Windows tiene un problema conocido: la gestión de la salida de terminal es extremadamente lenta
+                    comparada con Linux/macOS. Un solo <code>print()</code> o <code>logger.info()</code> puede tardar
+                    varios milisegundos, y si se ejecuta miles de veces por segundo, consume el 80% del tiempo de CPU.
+                </p>
+                <p>
+                    La solución es simple pero crítica: <strong>silencio total</strong> en el bucle de ejecución.
+                    Solo se permite logging de errores fatales (ERROR level), y todos los prints de diagnóstico deben
+                    estar fuera del bucle o completamente desactivados.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se realizaron tres cambios principales:
+                </p>
+                
+                <h3>1. Silenciar Logging en main.py</h3>
+                <p>
+                    Cambiado el nivel de logging de <code>INFO</code> a <code>ERROR</code>. Solo errores fatales
+                    se mostrarán. El formato se simplificó a <code>"%(message)s"</code> para reducir overhead.
+                </p>
+
+                <h3>2. Eliminar Prints del Bucle Crítico</h3>
+                <p>
+                    Se eliminaron todos los <code>print()</code> del método <code>tick()</code> y del bucle principal.
+                    Las alertas de "CPU devolvió 0 ciclos" ahora solo fuerzan el avance sin imprimir nada.
+                </p>
+
+                <h3>3. Optimizar Bucle Principal</h3>
+                <p>
+                    El bucle principal se reescribió siguiendo la estructura exacta especificada:
+                </p>
+                <ul>
+                    <li><strong>1. Gestionar Input</strong>: Al inicio del frame, antes de ejecutar instrucciones</li>
+                    <li><strong>2. Ejecutar Lógica de Frame</strong>: Bucle interno que ejecuta CPU/PPU/Timer hasta completar un frame</li>
+                    <li><strong>3. Sincronización</strong>: <code>clock.tick(60)</code> una sola vez por frame, fuera del bucle interno</li>
+                    <li><strong>4. Título con FPS</strong>: Actualizar solo cada 60 frames para no frenar</li>
+                </ul>
+                <p>
+                    Se eliminó código innecesario: auto-press de Start, heartbeat de diagnóstico, monitor de signos vitales,
+                    y toda la lógica de logging que estaba comentada pero aún presente.
+                </p>
+
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>main.py</code>: Logging configurado a ERROR level</li>
+                    <li><code>src/viboy.py</code>: Bucle principal optimizado, prints eliminados</li>
+                    <li><code>src/io/joypad.py</code>: Verificado (ya estaba correcto, solo solicita interrupciones en transición OFF→ON)</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>main.py</code> - Cambio de nivel de logging a ERROR</li>
+                    <li><code>src/viboy.py</code> - Eliminación de prints, optimización del bucle principal</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>ROM de prueba:</strong> Tetris (ROM aportada por el usuario, no distribuida)
+                </p>
+                <p>
+                    <strong>Modo de ejecución:</strong> UI con pygame, logging completamente silenciado
+                </p>
+                <p>
+                    <strong>Criterio de éxito:</strong>
+                </p>
+                <ul>
+                    <li>La terminal debe estar completamente vacía (sin salida)</li>
+                    <li>La ventana debe mostrar "FPS: 60.0" (o muy cerca)</li>
+                    <li>Los controles deben responder instantáneamente</li>
+                    <li>La animación debe ser fluida (bloques cayendo rápidamente)</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> <span class="tag tag-verified">Verified</span>
+                </p>
+                <p>
+                    <strong>Notas legales:</strong> La ROM de Tetris es aportada por el usuario para pruebas locales.
+                    No se distribuye, no se adjunta, y no se enlazan descargas.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Conocimiento general de rendimiento de I/O en Windows</li>
+                    <li>Mejores prácticas de optimización de bucles de emulación</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li>
+                            <strong>I/O es el enemigo del rendimiento:</strong> Cualquier operación de escritura
+                            en consola dentro de un bucle que se ejecuta millones de veces por segundo es catastrófico.
+                            Windows es especialmente lento en esto.
+                        </li>
+                        <li>
+                            <strong>Silencio total = rendimiento máximo:</strong> Para alcanzar 60 FPS en un emulador
+                            Python, el bucle crítico debe estar completamente silenciado. Solo errores fatales.
+                        </li>
+                        <li>
+                            <strong>Estructura del bucle importa:</strong> El orden de las operaciones (input → ejecución → sincronización)
+                            y la frecuencia de actualizaciones (título cada 60 frames) afectan significativamente el rendimiento.
+                        </li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>
+                            <strong>Rendimiento en Linux/macOS:</strong> No se ha probado si el mismo código alcanza
+                            60 FPS en otros sistemas operativos. Windows es conocido por ser más lento en I/O de terminal.
+                        </li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el problema principal era el logging, pero no se ha medido con precisión el impacto
+                        de cada componente (logging vs estructura del bucle vs actualización de título). La solución
+                        aplicada es una "solución nuclear" que silencia todo, lo cual es correcto para rendimiento máximo
+                        pero dificulta el debugging futuro.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar rendimiento en Linux/macOS</li>
+                    <li>[ ] Implementar sistema de logging condicional (solo activar con flag --debug o --verbose)</li>
+                    <li>[ ] Optimizar renderizado si aún hay cuellos de botella</li>
+                    <li>[ ] Probar otros juegos para verificar compatibilidad general</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

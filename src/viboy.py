@@ -298,9 +298,8 @@ class Viboy:
                 
                 # CRÍTICO: Protección contra bucle infinito también en HALT
                 if cycles == 0:
-                    pc = self._cpu.registers.get_pc()
-                    print(f"🚨 ALERTA: CPU devolvió 0 ciclos en HALT (PC={pc:04X})!", flush=True)
-                    cycles = 1  # Forzar avance para no colgar
+                    # Silenciado para rendimiento: solo forzar avance
+                    cycles = 4  # Forzar avance para no colgar
                 
                 total_cycles += cycles
                 
@@ -326,11 +325,10 @@ class Viboy:
         
         # CRÍTICO: Protección contra bucle infinito
         # Si la CPU devuelve 0 ciclos, el contador de tiempo nunca avanza
-        # y el emulador se congela. Forzamos al menos 1 ciclo para evitar deadlock.
+        # y el emulador se congela. Forzamos al menos 4 ciclos para evitar deadlock.
         if cycles == 0:
-            pc = self._cpu.registers.get_pc()
-            print(f"🚨 ALERTA: CPU devolvió 0 ciclos en PC={pc:04X}!", flush=True)
-            cycles = 1  # Forzar avance para no colgar
+            # Silenciado para rendimiento: solo forzar avance
+            cycles = 4  # Forzar avance para no colgar
         
         # Acumular ciclos totales
         self._total_cycles += cycles
@@ -382,151 +380,72 @@ class Viboy:
         if self._cpu is None:
             raise RuntimeError("Sistema no inicializado. Llama a load_cartridge() primero.")
         
-        logger.info("Iniciando bucle principal de ejecución...")
+        # Configuración de rendimiento máximo
+        TARGET_FPS = 60
+        CYCLES_PER_FRAME = 70224  # T-Cycles por frame
         
-        # CRÍTICO: Forzar un render inicial para mostrar el visual heartbeat
-        # Esto asegura que la ventana muestre algo incluso si el juego no entra en V-Blank
-        if self._renderer is not None:
-            self._renderer.render_frame()
-        
-        # Contador de frames para heartbeat (cada 300 frames ≈ 5 segundos)
+        # Contador de frames para actualizar título (solo cada 60 frames)
         frame_count = 0
         
-        # Heartbeat de tiempo real (cada segundo) para diagnóstico OAM
-        last_heartbeat_time = time.time()
-        
-        # PRUEBA: Auto-press de Start para desbloquear logo
-        start_time = time.time()
-        auto_start_pressed = False
-        
         try:
-            # BUCLE EXTERNO: Por cada frame (60 FPS)
+            # BUCLE PRINCIPAL: Por cada frame (60 FPS)
             while True:
-                # PRUEBA: Auto-press de Start después de 2 segundos
-                current_time = time.time()
-                if not auto_start_pressed and current_time - start_time > 2.0:
-                    logger.info("🤖 AUTO-PRESS: Pulsando START para desbloquear...")
-                    if self._joypad is not None:
-                        self._joypad.press("start")
-                    auto_start_pressed = True
-                if auto_start_pressed and current_time - start_time > 2.2:
-                    if self._joypad is not None:
-                        self._joypad.release("start")
-                
-                # CRÍTICO: Llamar a pygame.event.pump() una vez por frame para evitar
-                # que Windows marque la ventana como "No responde"
-                if self._renderer is not None:
-                    try:
-                        import pygame
-                        pygame.event.pump()
-                    except ImportError:
-                        pass
-                
-                # Manejar eventos de Pygame (cierre de ventana y teclado) - UNA VEZ POR FRAME
+                # 1. Gestionar Input (CRÍTICO: Hacerlo al inicio del frame)
                 if self._renderer is not None:
                     should_continue = self._handle_pygame_events()
                     if not should_continue:
-                        logger.info("Ventana cerrada por el usuario")
                         break
                 
-                # BUCLE INTERNO: Ejecutar un frame completo de CPU/PPU
-                # Ejecutamos instrucciones hasta que la PPU indique que un frame está listo
-                # Límite de seguridad: máximo 2 frames de ciclos para evitar bucles infinitos
-                max_cycles_per_frame = self.CYCLES_PER_FRAME * 4 * 2  # 2 frames como límite
-                frame_cycles = 0  # T-Cycles acumulados en este frame
-                frame_rendered = False
-                
-                while not frame_rendered and frame_cycles < max_cycles_per_frame:
-                    # Ejecutar una instrucción
+                # 2. Ejecutar Lógica de Frame (CPU + PPU)
+                frame_cycles = 0
+                while frame_cycles < CYCLES_PER_FRAME:
                     cycles = self.tick()
+                    # Si hay bug de 0 ciclos, forzar 4 para evitar deadlock
+                    if cycles == 0:
+                        cycles = 4
                     
-                    # Acumular ciclos del frame (convertir M-Cycles a T-Cycles)
-                    frame_cycles += cycles * 4
+                    # Convertir M-Cycles a T-Cycles
+                    t_cycles = cycles * 4
+                    self._ppu.step(t_cycles)
+                    self._timer.tick(t_cycles)
+                    frame_cycles += t_cycles
                     
-                    # CRÍTICO: Renderizar cuando la PPU indica que un frame está listo
-                    # Esto desacopla el renderizado de las interrupciones, permitiendo que
-                    # se dibuje cada frame incluso si IME=False o si el juego usa polling.
-                    if self._ppu is not None and self._ppu.is_frame_ready():
-                        frame_rendered = True
-                        frame_count += 1
-                        
-                        # Heartbeat y diagnóstico OAM desactivados para mejorar rendimiento
-                        # (comentado - solo activar si es necesario para debugging)
-                        # if frame_count % 300 == 0:
-                        #     fps = self._clock.get_fps() if self._clock is not None else 0.0
-                        #     heartbeat_msg = f"💓 Heartbeat (frame {frame_count}): FPS={fps:.2f}"
-                        #     logger.info(heartbeat_msg)
-                        # 
-                        # current_time = time.time()
-                        # if current_time - last_heartbeat_time >= 1.0:
-                        #     last_heartbeat_time = current_time
-                        #     if self._mmu is not None:
-                        #         oam_sample = [self._mmu.read_byte(0xFE00 + i) for i in range(16)]
-                        #         oam_checksum = sum(oam_sample)
-                        #         non_zero_count = sum(1 for b in oam_sample if b != 0)
-                        #         logger.info(
-                        #             f"👾 OAM SAMPLE: Checksum={oam_checksum} | "
-                        #             f"Non-zero bytes={non_zero_count}/16 | "
-                        #             f"First sprite: Y={oam_sample[0]}, X={oam_sample[1]}, "
-                        #             f"Tile={oam_sample[2]}, Flags=0x{oam_sample[3]:02X}"
-                        #         )
-                        
-                        # Renderizar el frame
+                    # Renderizar solo si PPU avisa (V-Blank)
+                    if self._ppu.is_frame_ready():
                         if self._renderer is not None:
                             self._renderer.render_frame()
-                            # pygame.display.flip() ya se llama dentro de render_frame()
-                            
-                            # Actualizar título de ventana con FPS
-                            if self._clock is not None:
-                                fps = self._clock.get_fps()
-                                try:
-                                    import pygame
-                                    pygame.display.set_caption(f"Viboy Color - FPS: {fps:.1f}")
-                                except ImportError:
-                                    pass
+                            try:
+                                import pygame
+                                pygame.display.flip()
+                            except ImportError:
+                                pass
                 
-                # Si no se renderizó un frame (LCD apagado o problema), renderizar heartbeat periódico
-                if not frame_rendered and self._renderer is not None:
-                    self._cycles_since_render += frame_cycles
-                    # Renderizar cada ~70,224 T-Cycles (1 frame) para mantener el heartbeat visible
-                    if self._cycles_since_render >= 70_224:
-                        self._renderer.render_frame()
-                        self._cycles_since_render = 0
-                
-                # Monitor de Signos Vitales desactivado para rendimiento
-                # (comentado para mejorar FPS - solo activar si es necesario para diagnóstico)
-                # current_time = time.time()
-                # if current_time - last_realtime_log > 1.0:
-                #     last_realtime_log = current_time
-                #     pc = self._cpu.registers.get_pc()
-                #     lcdc = self._mmu.read_byte(0xFF40) if self._mmu is not None else 0
-                #     ly = self._ppu.get_ly() if self._ppu is not None else 0
-                #     vital_msg = f"⏱️ VITAL: PC={pc:04X} | LCDC={lcdc:02X} | LY={ly} | Cycles={self._total_cycles}"
-                #     logging.info(vital_msg)
-                
-                # CRÍTICO: Control de FPS - FUERA del bucle interno de instrucciones
-                # tick() espera el tiempo necesario para mantener 60 FPS
-                # Esto se ejecuta UNA VEZ POR FRAME, no por instrucción
+                # 3. Sincronización (Solo una vez por frame)
                 if self._clock is not None:
-                    self._clock.tick(60)
+                    self._clock.tick(TARGET_FPS)
+                
+                # 4. Título con FPS (Solo cada 60 frames para no frenar)
+                frame_count += 1
+                if frame_count % 60 == 0 and self._clock is not None:
+                    try:
+                        import pygame
+                        fps = self._clock.get_fps()
+                        pygame.display.set_caption(f"Viboy Color - FPS: {fps:.1f}")
+                    except ImportError:
+                        pass
         
         except KeyboardInterrupt:
-            # Salir limpiamente con Ctrl+C
-            logger.info("Ejecución interrumpida por el usuario (Ctrl+C)")
-            print(f"\n✅ Ejecución detenida. Total de ciclos: {self._total_cycles}")
+            # Salir limpiamente con Ctrl+C (solo en excepciones críticas)
+            pass
         
         except NotImplementedError as e:
             # Opcode no implementado
             logger.error(f"Opcode no implementado: {e}")
-            print(f"\n❌ Error: {e}")
-            print(f"   Total de ciclos ejecutados: {self._total_cycles}")
             raise
         
         except Exception as e:
             # Otro error inesperado
             logger.error(f"Error inesperado: {e}", exc_info=True)
-            print(f"\n❌ Error inesperado: {e}")
-            print(f"   Total de ciclos ejecutados: {self._total_cycles}")
             raise
         finally:
             # Cerrar renderer si está activo

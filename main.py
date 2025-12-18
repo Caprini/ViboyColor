@@ -19,11 +19,10 @@ if sys.platform == "win32":
 from src.viboy import Viboy
 
 # Configurar logging básico
-# WARNING para evitar spam en consola durante ejecución normal
-# Solo se mostrarán mensajes importantes (warnings y errores)
+# ERROR: Solo errores fatales. Silencio total para máximo rendimiento.
 logging.basicConfig(
-    level=logging.WARNING,  # WARNING para rendimiento óptimo
-    format="%(levelname)s: %(message)s",
+    level=logging.ERROR,  # Solo errores fatales
+    format="%(message)s",
     force=True,  # Forzar reconfiguración
 )
 
