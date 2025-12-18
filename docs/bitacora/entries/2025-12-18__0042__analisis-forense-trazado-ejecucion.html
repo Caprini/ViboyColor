@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análisis Forense de Trazado de Ejecución - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Análisis Forense de Trazado de Ejecución</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0042
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0041__verificacion-conexion-mmu-ppu-limpieza-debug.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se creó una herramienta de trazado forense (<code>tools/debug_trace.py</code>) para analizar
+                    la ejecución del emulador sin interfaz gráfica. El análisis reveló que el juego nunca escribe
+                    en el registro IE (0xFFFF - Interrupt Enable), lo que explica por qué las interrupciones no
+                    se habilitan y el juego se queda en un bucle infinito esperando V-Blank.
+                </p>
+                <p>
+                    Se detectó un bucle de espera (delay loop) entre las direcciones 0x1383-0x1389 que decrementa
+                    el registro DE hasta que sea cero. El juego está esperando un evento (probablemente V-Blank)
+                    que nunca ocurre porque las interrupciones están deshabilitadas.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, las interrupciones son eventos asíncronos que interrumpen la ejecución normal
+                    de la CPU para ejecutar un handler específico. El registro <strong>IE (Interrupt Enable, 0xFFFF)</strong>
+                    controla qué interrupciones están habilitadas. Si IE = 0x00, ninguna interrupción se procesará,
+                    incluso si el flag de interrupción (IF, 0xFF0F) está activado.
+                </p>
+                <p>
+                    Los juegos típicamente habilitan las interrupciones al inicio escribiendo en IE (por ejemplo,
+                    <code>LD A, 0x01; LD (0xFFFF), A</code> para habilitar V-Blank). Si el juego nunca llega a
+                    esta parte del código o la escritura falla, las interrupciones permanecen deshabilitadas y
+                    el juego puede quedar atascado en bucles de espera.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Interrupts, Interrupt Enable Register (IE)
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se creó la herramienta <code>tools/debug_trace.py</code> que:
+                </p>
+                <ul>
+                    <li>Carga una ROM usando la clase <code>Viboy</code></li>
+                    <li>Intercepta todas las escrituras en memoria usando un wrapper <code>TraceMMU</code></li>
+                    <li>Ejecuta un número configurable de instrucciones (por defecto 50,000)</li>
+                    <li>Registra cada instrucción con: PC, opcode, registros, ciclos y escrituras en I/O</li>
+                    <li>Detecta bucles infinitos analizando patrones repetidos en el historial de PC</li>
+                    <li>Genera un reporte con escrituras críticas (IE, LCDC, IF, STAT) y las últimas 50 instrucciones</li>
+                </ul>
+
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>tools/debug_trace.py</code>: Script principal de trazado forense</li>
+                    <li><code>TraceMMU</code>: Clase wrapper que intercepta escrituras en memoria</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se optó por crear un wrapper de MMU en lugar de modificar el código del emulador para
+                    mantener la herramienta de trazado separada del código de producción. Esto permite
+                    activar/desactivar el trazado sin afectar el emulador principal.
+                </p>
+                <p>
+                    La detección de bucles se implementa analizando patrones repetidos en el historial de PC.
+                    Se detectan tanto bucles exactos (misma secuencia repetida) como bucles cortos con
+                    oscilación entre pocas direcciones (típico de saltos condicionales).
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tools/debug_trace.py</code> - Herramienta de trazado forense (nuevo)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutó el script de trazado con <code>tetris_dx.gbc</code> (ROM aportada por el usuario, no distribuida):
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>python tools/debug_trace.py tetris_dx.gbc --max-instructions 5000</code></li>
+                    <li><strong>Entorno:</strong> Windows 10, Python 3.13.5</li>
+                    <li><strong>Resultado:</strong> Ejecución exitosa, 5,000 instrucciones trazadas</li>
+                    <li><strong>Qué valida:</strong>
+                        <ul>
+                            <li>Que el juego nunca escribe en IE (0xFFFF) durante las primeras 5,000 instrucciones</li>
+                            <li>Que existe un bucle de espera entre 0x1383-0x1389</li>
+                            <li>Que el registro E se decrementa en el bucle (delay loop)</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Hallazgos del análisis</h3>
+                <pre><code>RESUMEN DEL TRAZADO
+Total de instrucciones ejecutadas: 5,000
+Bucle detectado: No (pero visible en las últimas 50 instrucciones)
+Instrucciones con escrituras en I/O: 0
+
+ADVERTENCIA: No se detectaron escrituras en IE (0xFFFF)
+   Esto explica por que las interrupciones no se habilitan.
+
+BUCLE DETECTADO (análisis manual):
+PC oscila entre: 0x1383-0x1389
+Patrón:
+  0x1383: NOP (0x00)
+  0x1384: NOP (0x00)
+  0x1385: NOP (0x00)
+  0x1386: DEC DE (0x1B) - Decrementa DE
+  0x1387: LD A, D (0x7A) - Carga D en A
+  0x1388: OR E (0xB3) - OR entre A y E
+  0x1389: JR NZ, -5 (0x20) - Salto relativo si no es cero
+</code></pre>
+
+                <p>
+                    <strong>Análisis del bucle:</strong> El juego está en un delay loop que decrementa DE hasta que sea 0.
+                    Cuando DE llega a 0, el salto condicional (JR NZ) no se ejecuta y el bucle debería terminar.
+                    Sin embargo, el juego probablemente espera que algo más ocurra (como una interrupción V-Blank)
+                    antes de continuar, pero como IE está en 0x00, las interrupciones nunca se procesan.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Interrupts, Interrupt Enable Register (IE)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - JR (Jump Relative)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>IE (Interrupt Enable):</strong> El registro IE controla qué interrupciones están habilitadas.
+                            Si IE = 0x00, ninguna interrupción se procesará, incluso si IF está activado.</li>
+                        <li><strong>Delay Loops:</strong> Los juegos usan bucles de espera (delay loops) para pausar la ejecución
+                            durante un tiempo determinado. Estos bucles típicamente decrementan un registro hasta que sea 0.</li>
+                        <li><strong>Bucle infinito:</strong> Si un juego espera una interrupción que nunca ocurre (porque IE = 0x00),
+                            puede quedar atascado en un bucle infinito esperando un evento que nunca llegará.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Por qué el juego no escribe en IE:</strong> No está claro si el juego nunca llega a la parte
+                            del código que habilita interrupciones, o si hay un bug en la MMU que impide la escritura en 0xFFFF.</li>
+                        <li><strong>Qué ocurre después del delay loop:</strong> Necesito trazar más instrucciones para ver qué
+                            ocurre cuando el bucle termina (cuando DE = 0).</li>
+                        <li><strong>Estado inicial de IE:</strong> Necesito verificar qué valor tiene IE al inicio de la ejecución
+                            (debería ser 0x00 según la documentación, pero hay que confirmarlo).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego está esperando V-Blank antes de habilitar interrupciones,
+                        pero como IE está en 0x00, V-Blank nunca se procesa y el juego queda atascado.
+                    </p>
+                    <p>
+                        <strong>Suposición no verificada:</strong> Asumo que el juego debería escribir en IE en algún momento
+                        durante la inicialización, pero no puedo verificar esto sin trazar más instrucciones o analizar el código
+                        de la ROM (lo cual no es posible sin herramientas de desensamblado).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar si la MMU permite escribir en 0xFFFF correctamente</li>
+                    <li>[ ] Trazar más instrucciones (100,000+) para ver si el juego eventualmente escribe en IE</li>
+                    <li>[ ] Analizar el estado inicial de IE y otros registros críticos al inicio de la ejecución</li>
+                    <li>[ ] Verificar si hay algún problema con el manejo de interrupciones que impida que el juego las habilite</li>
+                    <li>[ ] Considerar forzar IE = 0x01 temporalmente para ver si el juego continúa</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

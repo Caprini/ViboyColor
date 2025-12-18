@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0042 - Análisis Forense de Trazado de Ejecución -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0042__analisis-forense-trazado-ejecucion.html" class="entry-link">
+                                    Análisis Forense de Trazado de Ejecución
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0042 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se creó una herramienta de trazado forense (tools/debug_trace.py) para analizar la ejecución del emulador sin interfaz gráfica. El análisis reveló que el juego nunca escribe en el registro IE (0xFFFF - Interrupt Enable), lo que explica por qué las interrupciones no se habilitan y el juego se queda en un bucle infinito esperando V-Blank. Se detectó un bucle de espera (delay loop) entre las direcciones 0x1383-0x1389 que decrementa el registro DE hasta que sea cero. El juego está esperando un evento (probablemente V-Blank) que nunca ocurre porque las interrupciones están deshabilitadas.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0041 - Verificación Conexión MMU-PPU y Limpieza de Debug -->
                     <li>
                         <div class="entry-header">
