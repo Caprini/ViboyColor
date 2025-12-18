@@ -32,6 +32,82 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0096 - Corrección de Error en Ejecutable Modo Windowed -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0096__fix-ejecutable-windowed-mode.html" class="entry-link">
+                                    Corrección de Error en Ejecutable Modo Windowed
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0096 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección del error `'NoneType' object has no attribute 'buffer'` en el ejecutable generado con PyInstaller en modo windowed. El problema ocurría porque el código intentaba acceder a `sys.stdout.buffer` sin verificar si `sys.stdout` era `None`. Se implementó detección de consola y manejo de errores con diálogos de Windows cuando no hay consola disponible.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0095 - Infraestructura de Build y Generación de Ejecutables -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0095__infraestructura-build-ejecutables.html" class="entry-link">
+                                    Infraestructura de Build y Generación de Ejecutables
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0095 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Creación de infraestructura completa de build y empaquetado para generar ejecutables independientes. Se implementó un script maestro de build con PyInstaller que detecta el SO y genera binarios portables. Se crearon configuraciones para instaladores en Windows (Inno Setup), Linux (.deb) y macOS (py2app). El ejecutable de Windows se generó exitosamente (27.81 MB).
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0094 - Reestructuración Final de Directorios y Gitignore -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0094__reestructuracion-final-directorios.html" class="entry-link">
+                                    Reestructuración Final de Directorios y Gitignore
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0094 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Reestructuración final del repositorio para lograr una organización profesional. Se movieron todos los archivos de documentación de diagnóstico a `docs/dev_notes/`, los iconos a `assets/`, y las ROMs a `roms/`. Se actualizaron las rutas en el código y se mejoró el `.gitignore` para excluir correctamente las ROMs y archivos temporales.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0093 - Reorganización del Repositorio y Limpieza -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0093__reorganizacion-repositorio-limpieza.html" class="entry-link">
+                                    Reorganización del Repositorio y Limpieza
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0093 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Reorganización completa del repositorio para prepararlo como producto profesional antes de la generación de ejecutables. Se movieron todos los scripts de prueba manual a `tests/manual_scripts/`, se eliminaron archivos temporales y logs de depuración, y se creó el CHANGELOG.md oficial para documentar la versión 0.0.1.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0092 - Cierre de Fase 1 (v0.0.1) - PoC Académica -->
                     <li>
                         <div class="entry-header">

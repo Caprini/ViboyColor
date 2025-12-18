@@ -1,0 +1,14 @@
+#!/bin/bash
+# Script post-instalación para el paquete .deb
+# Se ejecuta después de instalar el paquete
+
+set -e
+
+echo "Viboy Color instalado correctamente."
+echo "Puedes ejecutarlo desde el menú de aplicaciones o desde la terminal."
+
+# Crear enlace simbólico si es necesario (opcional)
+# ln -sf /usr/bin/viboy-color /usr/local/bin/viboy-color
+
+exit 0
+

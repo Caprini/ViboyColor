@@ -11,10 +11,15 @@ import sys
 from pathlib import Path
 
 # Configurar encoding UTF-8 para Windows (permite mostrar emojis en consola)
+# Nota: En modo windowed de PyInstaller, sys.stdout/stderr pueden ser None
 if sys.platform == "win32":
     import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    # Solo configurar encoding si hay consola disponible
+    # En modo windowed (--noconsole), sys.stdout/stderr son None
+    if sys.stdout is not None and hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    if sys.stderr is not None and hasattr(sys.stderr, 'buffer'):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 from src.viboy import Viboy
 
@@ -29,6 +34,9 @@ logging.basicConfig(
 
 def main() -> None:
     """Función principal del emulador"""
+    # Detectar si hay consola disponible (no disponible en modo windowed de PyInstaller)
+    has_console = sys.stdout is not None
+    
     parser = argparse.ArgumentParser(
         description="Viboy Color - Emulador educativo de Game Boy Color"
     )
@@ -58,13 +66,29 @@ def main() -> None:
         # Modo verbose: mostrar INFO (incluye heartbeat)
         logging.getLogger().setLevel(logging.INFO)
     
-    print("Viboy Color - Sistema Iniciado")
-    print("=" * 50)
+    # Solo mostrar mensajes en consola si está disponible
+    if has_console:
+        print("Viboy Color - Sistema Iniciado")
+        print("=" * 50)
     
     # Si no se proporciona ROM, mostrar mensaje y salir
     if not args.rom:
-        print("Error: Se requiere especificar una ROM")
-        print("Uso: python main.py <ruta_a_rom.gb> [--debug]")
+        if has_console:
+            print("Error: Se requiere especificar una ROM")
+            print("Uso: python main.py <ruta_a_rom.gb> [--debug]")
+        else:
+            # En modo windowed, mostrar diálogo de error
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    "Error: Se requiere especificar una ROM\n\nUso: ViboyColor.exe <ruta_a_rom.gb>",
+                    "Viboy Color - Error",
+                    0x10  # MB_ICONERROR
+                )
+            except Exception:
+                # Si falla el diálogo, usar logging
+                logging.error("Error: Se requiere especificar una ROM")
         sys.exit(1)
     
     # Inicializar sistema Viboy
@@ -73,7 +97,7 @@ def main() -> None:
         
         # Obtener información del cartucho
         cartridge = viboy.get_cartridge()
-        if cartridge is not None:
+        if cartridge is not None and has_console:
             header_info = cartridge.get_header_info()
             
             print(f"\n📦 Cartucho cargado:")
@@ -85,30 +109,59 @@ def main() -> None:
         
         # Obtener estado inicial de la CPU
         cpu = viboy.get_cpu()
-        if cpu is not None:
+        if cpu is not None and has_console:
             print(f"\n🖥️  CPU inicializada:")
             print(f"   PC = 0x{cpu.registers.get_pc():04X}")
             print(f"   SP = 0x{cpu.registers.get_sp():04X}")
         
-        print("\n✅ Sistema listo para ejecutar")
-        if args.debug:
-            print("   Modo DEBUG activado - Mostrando trazas de instrucciones")
-            print("   Presiona Ctrl+C para detener\n")
-        elif args.verbose:
-            print("   Modo VERBOSE activado - Mostrando heartbeat y mensajes INFO")
-            print("   Presiona Ctrl+C para detener\n")
-        else:
-            print("   Presiona Ctrl+C para detener")
-            print("   (Usa --verbose para ver el heartbeat con VRAM_SUM)\n")
+        if has_console:
+            print("\n✅ Sistema listo para ejecutar")
+            if args.debug:
+                print("   Modo DEBUG activado - Mostrando trazas de instrucciones")
+                print("   Presiona Ctrl+C para detener\n")
+            elif args.verbose:
+                print("   Modo VERBOSE activado - Mostrando heartbeat y mensajes INFO")
+                print("   Presiona Ctrl+C para detener\n")
+            else:
+                print("   Presiona Ctrl+C para detener")
+                print("   (Usa --verbose para ver el heartbeat con VRAM_SUM)\n")
         
         # Ejecutar bucle principal
         viboy.run(debug=args.debug)
         
     except (FileNotFoundError, IOError, ValueError) as e:
-        print(f"\n❌ Error al cargar ROM: {e}")
+        error_msg = f"Error al cargar ROM: {e}"
+        if has_console:
+            print(f"\n❌ {error_msg}")
+        else:
+            # En modo windowed, mostrar diálogo de error
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    error_msg,
+                    "Viboy Color - Error",
+                    0x10  # MB_ICONERROR
+                )
+            except Exception:
+                logging.error(error_msg)
         sys.exit(1)
     except (NotImplementedError, RuntimeError) as e:
-        # Errores de ejecución (opcode no implementado, etc.)
+        error_msg = f"Error de ejecución: {e}"
+        if has_console:
+            print(f"\n❌ {error_msg}")
+        else:
+            # En modo windowed, mostrar diálogo de error
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    error_msg,
+                    "Viboy Color - Error",
+                    0x10  # MB_ICONERROR
+                )
+            except Exception:
+                logging.error(error_msg)
         sys.exit(1)
 
 

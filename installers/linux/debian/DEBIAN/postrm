@@ -1,0 +1,13 @@
+#!/bin/bash
+# Script post-eliminación para el paquete .deb
+# Se ejecuta después de desinstalar el paquete
+
+set -e
+
+echo "Viboy Color desinstalado correctamente."
+
+# Limpiar enlaces simbólicos si existen (opcional)
+# rm -f /usr/local/bin/viboy-color
+
+exit 0
+

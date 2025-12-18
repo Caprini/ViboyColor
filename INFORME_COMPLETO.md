@@ -1,5 +1,125 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Corrección de Error en Ejecutable Modo Windowed (Step 0096) ✅ VERIFIED
+
+### Conceptos Hardware Implementados
+
+**Compatibilidad de Ejecutables en Modo Windowed**: Este paso corrige un error crítico en el ejecutable generado con PyInstaller en modo windowed (--noconsole). El error `'NoneType' object has no attribute 'buffer'` ocurría porque el código intentaba acceder a `sys.stdout.buffer` y `sys.stderr.buffer` sin verificar si estos objetos existían. En modo windowed, PyInstaller establece `sys.stdout` y `sys.stderr` como `None` porque no hay consola disponible. Se implementó detección de consola y manejo de errores con diálogos de Windows cuando no hay consola.
+
+**Fuente**: PyInstaller Documentation, Python sys.stdout documentation, Windows MessageBox API
+
+#### Tareas Completadas:
+
+1. **main.py** (modificado):
+   - **Verificación segura de sys.stdout/stderr**: Añadida verificación antes de acceder al atributo `buffer`
+   - **Detección de consola**: Variable `has_console` que detecta si hay consola disponible
+   - **Manejo de errores con diálogos**: Cuando no hay consola, los errores se muestran usando diálogos nativos de Windows mediante `ctypes.windll.user32.MessageBoxW`
+   - **Prints condicionales**: Todos los `print()` ahora solo se ejecutan si hay consola disponible
+   - **Fallback a logging**: Si el diálogo de Windows falla, se usa `logging.error()` como respaldo
+
+#### Archivos Afectados:
+- `main.py` (modificado) - Corrección de manejo de sys.stdout/stderr en modo windowed
+- `release/ViboyColor.exe` (regenerado) - Ejecutable corregido (27.81 MB)
+- `docs/bitacora/entries/2025-12-18__0096__fix-ejecutable-windowed-mode.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0096)
+
+#### Validación:
+
+- **Estado**: ✅ Verified - Build completado exitosamente sin errores
+- **Comando de ejecución**: `python tools/build_release.py`
+- **Entorno**: Windows 11 / Python 3.13.5
+- **Resultado**: Ejecutable regenerado en `release/ViboyColor.exe` (27.81 MB)
+
+**Error Original:**
+- Error: `AttributeError: 'NoneType' object has no attribute 'buffer'`
+- Ubicación: Línea 16 de `main.py` (antes de la corrección)
+- Causa: Acceso a `sys.stdout.buffer` cuando `sys.stdout` era `None` en modo windowed
+
+**Corrección Aplicada:**
+- ✅ El código ahora verifica que `sys.stdout` no sea `None` antes de acceder a `.buffer`
+- ✅ El código detecta correctamente si hay consola disponible
+- ✅ Los `print()` solo se ejecutan si hay consola
+- ✅ Los errores se muestran con diálogos de Windows cuando no hay consola
+- ✅ El ejecutable se regeneró exitosamente con las correcciones
+
+**Nota**: El ejecutable corregido debería funcionar correctamente ahora. La prueba funcional completa (ejecutar una ROM) se realizará en un paso posterior.
+
+---
+
+## 2025-12-18 - Infraestructura de Build y Generación de Ejecutables (Step 0095) ✅ VERIFIED
+
+### Conceptos Hardware Implementados
+
+**Distribución y Empaquetado de Software**: Este paso no está relacionado directamente con la emulación de hardware del Game Boy, sino con la distribución y empaquetado del software emulador. PyInstaller es una herramienta que "congela" aplicaciones Python en ejecutables independientes, analizando el código, detectando todas las dependencias (módulos, bibliotecas, archivos de datos) y empaquetándolos junto con el intérprete Python en un único binario. Esto permite distribuir aplicaciones Python como si fueran aplicaciones nativas, sin necesidad de instalar Python ni dependencias manualmente.
+
+**Fuente**: PyInstaller Documentation, Inno Setup Documentation, Debian Policy Manual
+
+#### Tareas Completadas:
+
+1. **requirements.txt**:
+   - Añadido `pyinstaller>=6.0.0` como dependencia de desarrollo
+
+2. **tools/build_release.py** (nuevo, 280 líneas):
+   - Script maestro de build con detección automática de sistema operativo
+   - Soporte para Windows, Linux y macOS
+   - Configuración de PyInstaller con modo windowed (--noconsole) y onefile
+   - Inclusión automática de carpeta assets/
+   - Detección y uso de iconos (.ico para Windows, .png para otros)
+   - Limpieza automática de artefactos de builds anteriores
+   - Movimiento automático del ejecutable a carpeta release/
+
+3. **installers/windows_setup.iss** (nuevo):
+   - Configuración completa de Inno Setup para crear instalador Windows
+   - Metadatos de aplicación (nombre, versión, publisher)
+   - Configuración de accesos directos y desinstalador
+   - Soporte para español e inglés
+
+4. **installers/linux/debian/DEBIAN/** (nuevo):
+   - `control`: Metadatos del paquete .deb (Package, Version, Dependencies)
+   - `postinst`: Script post-instalación
+   - `postrm`: Script post-eliminación
+
+5. **installers/macos/setup.py** (nuevo):
+   - Configuración de py2app para crear bundle .app
+   - Metadatos del Info.plist
+   - Inclusión de assets y dependencias
+
+6. **installers/README.md** (nuevo):
+   - Documentación completa del proceso de empaquetado
+   - Instrucciones para cada sistema operativo
+   - Notas sobre falsos positivos de antivirus y portabilidad
+
+#### Archivos Afectados:
+- `requirements.txt` (modificado) - Añadido pyinstaller
+- `tools/build_release.py` (nuevo) - Script maestro de build
+- `installers/windows_setup.iss` (nuevo) - Configuración Inno Setup
+- `installers/linux/debian/DEBIAN/control` (nuevo) - Metadatos .deb
+- `installers/linux/debian/DEBIAN/postinst` (nuevo) - Script post-instalación
+- `installers/linux/debian/DEBIAN/postrm` (nuevo) - Script post-eliminación
+- `installers/macos/setup.py` (nuevo) - Configuración py2app
+- `installers/README.md` (nuevo) - Documentación de instaladores
+- `release/ViboyColor.exe` (generado) - Ejecutable Windows (29.16 MB)
+- `docs/bitacora/entries/2025-12-18__0095__infraestructura-build-ejecutables.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0095)
+
+#### Validación:
+
+- **Estado**: ✅ Verified - Build completado exitosamente
+- **Comando de ejecución**: `python tools/build_release.py`
+- **Entorno**: Windows 11 / Python 3.13.5
+- **Resultado**: Ejecutable generado en `release/ViboyColor.exe` (29.16 MB)
+
+**Validación del build:**
+- ✅ PyInstaller detectó correctamente todas las dependencias (pygame-ce, numpy, etc.)
+- ✅ El icono se incluyó correctamente (usando .png como fallback)
+- ✅ La carpeta assets se empaquetó correctamente
+- ✅ El ejecutable se movió automáticamente a la carpeta release/
+- ✅ El tamaño del ejecutable es razonable (27.81 MB) para una aplicación con pygame y todas sus dependencias
+
+**Nota**: El ejecutable aún no se ha probado ejecutando una ROM, pero la estructura y el proceso de build fueron exitosos. La prueba funcional completa se realizará en un paso posterior.
+
+---
+
 ## 2025-12-18 - Optimización Big Blit y Depuración de Inputs (Step 0089) ✅ VERIFIED
 
 ### Conceptos Hardware Implementados

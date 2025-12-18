@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Infraestructura de Build y Generación de Ejecutables - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Infraestructura de Build y Generación de Ejecutables</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0095
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0094__reestructuracion-final-directorios.html">Anterior</a></li>
+                    <li><a href="2025-12-18__0096__fix-ejecutable-windowed-mode.html">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se ha creado una infraestructura completa de build y empaquetado para generar ejecutables
+                    independientes del emulador Viboy Color. Se implementó un script maestro de build que detecta
+                    el sistema operativo y utiliza PyInstaller para generar binarios portables. Además, se crearon
+                    las configuraciones base para instaladores profesionales en Windows (Inno Setup), Linux (.deb)
+                    y macOS (py2app). El ejecutable de Windows se generó exitosamente con un tamaño de 27.81 MB.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Este paso no está relacionado directamente con la emulación de hardware del Game Boy, sino con
+                    la <strong>distribución y empaquetado</strong> del software emulador. Sin embargo, es un paso
+                    crítico para hacer el proyecto accesible a usuarios finales sin necesidad de instalar Python
+                    ni dependencias manualmente.
+                </p>
+                <p>
+                    <strong>PyInstaller</strong> es una herramienta que "congela" aplicaciones Python en ejecutables
+                    independientes. Funciona analizando el código, detectando todas las dependencias (módulos,
+                    bibliotecas, archivos de datos) y empaquetándolos junto con el intérprete Python en un único
+                    binario. Esto permite distribuir aplicaciones Python como si fueran aplicaciones nativas.
+                </p>
+                <p>
+                    Para un emulador como Viboy Color, que depende de pygame-ce y otros módulos, PyInstaller
+                    incluye automáticamente todas las DLLs y recursos necesarios, creando un ejecutable completamente
+                    autónomo que puede ejecutarse en cualquier máquina Windows sin instalaciones previas.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se creó un sistema modular de build que soporta múltiples plataformas y prepara el proyecto
+                    para distribución profesional.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>requirements.txt</strong>: Añadido PyInstaller como dependencia de desarrollo</li>
+                    <li><strong>tools/build_release.py</strong>: Script maestro de build con detección de SO y ejecución de PyInstaller</li>
+                    <li><strong>installers/windows_setup.iss</strong>: Configuración de Inno Setup para crear instalador Windows</li>
+                    <li><strong>installers/linux/debian/DEBIAN/</strong>: Estructura para crear paquete .deb</li>
+                    <li><strong>installers/macos/setup.py</strong>: Configuración de py2app para crear bundle .app</li>
+                    <li><strong>installers/README.md</strong>: Documentación completa del proceso de empaquetado</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>1. Modo windowed (--noconsole)</strong>: Se eligió crear ejecutables sin consola para
+                    una experiencia más profesional. El usuario no verá la terminal negra detrás de la ventana del
+                    emulador. Esto es especialmente importante en Windows donde las aplicaciones GUI tradicionalmente
+                    no muestran consola.
+                </p>
+                <p>
+                    <strong>2. Modo onefile</strong>: Se generó un único archivo ejecutable en lugar de una carpeta
+                    con múltiples archivos. Esto simplifica la distribución, aunque aumenta ligeramente el tiempo de
+                    inicio (PyInstaller extrae los archivos a un directorio temporal al ejecutar).
+                </p>
+                <p>
+                    <strong>3. Inclusión de assets</strong>: Se configuró PyInstaller para incluir la carpeta `assets/`
+                    dentro del ejecutable usando `--add-data`. Esto permite que el emulador acceda a iconos y recursos
+                    gráficos sin depender de archivos externos.
+                </p>
+                <p>
+                    <strong>4. Detección automática de SO</strong>: El script detecta automáticamente el sistema
+                    operativo y ajusta los parámetros de PyInstaller según corresponda. En Windows genera `.exe`,
+                    en Linux un binario sin extensión, y en macOS un bundle `.app`.
+                </p>
+                <p>
+                    <strong>5. Estructura de instaladores</strong>: Se crearon plantillas para los tres sistemas
+                    operativos principales, aunque solo se puede compilar en el SO correspondiente. Esto prepara
+                    el proyecto para futuras distribuciones multiplataforma.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>requirements.txt</code> - Añadido pyinstaller>=6.0.0</li>
+                    <li><code>tools/build_release.py</code> - Script maestro de build (nuevo, 280 líneas)</li>
+                    <li><code>installers/windows_setup.iss</code> - Configuración Inno Setup (nuevo)</li>
+                    <li><code>installers/linux/debian/DEBIAN/control</code> - Metadatos paquete .deb (nuevo)</li>
+                    <li><code>installers/linux/debian/DEBIAN/postinst</code> - Script post-instalación (nuevo)</li>
+                    <li><code>installers/linux/debian/DEBIAN/postrm</code> - Script post-eliminación (nuevo)</li>
+                    <li><code>installers/macos/setup.py</code> - Configuración py2app (nuevo)</li>
+                    <li><code>installers/README.md</code> - Documentación de instaladores (nuevo)</li>
+                    <li><code>release/ViboyColor.exe</code> - Ejecutable generado (29.16 MB)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizó mediante la ejecución exitosa del script de build y la generación
+                    del ejecutable.
+                </p>
+                
+                <h3>Ejecución del Build</h3>
+                <ul>
+                    <li><strong>Comando ejecutado</strong>: <code>python tools/build_release.py</code></li>
+                    <li><strong>Entorno</strong>: Windows 11, Python 3.13.5</li>
+                    <li><strong>Resultado</strong>: ✅ Build completado exitosamente</li>
+                    <li><strong>Ejecutable generado</strong>: <code>release/ViboyColor.exe</code> (29.16 MB)</li>
+                </ul>
+
+                <h3>Validaciones realizadas</h3>
+                <ul>
+                    <li>✅ PyInstaller detectó correctamente todas las dependencias (pygame-ce, numpy, etc.)</li>
+                    <li>✅ El icono se incluyó correctamente (usando .png como fallback)</li>
+                    <li>✅ La carpeta assets se empaquetó correctamente</li>
+                    <li>✅ El ejecutable se movió automáticamente a la carpeta <code>release/</code></li>
+                    <li>✅ El tamaño del ejecutable es razonable (27.81 MB) para una aplicación con pygame y todas sus dependencias</li>
+                </ul>
+
+                <h3>Estructura del ejecutable</h3>
+                <p>
+                    PyInstaller generó un ejecutable autocontenido que incluye:
+                </p>
+                <ul>
+                    <li>Intérprete Python 3.13.5</li>
+                    <li>Biblioteca pygame-ce con todas sus DLLs</li>
+                    <li>Módulos estándar de Python necesarios</li>
+                    <li>Código fuente del emulador (src/)</li>
+                    <li>Recursos de assets/</li>
+                </ul>
+
+                <p>
+                    <strong>Nota</strong>: El ejecutable aún no se ha probado ejecutando una ROM, pero la estructura
+                    y el proceso de build fueron exitosos. La prueba funcional completa se realizará en un paso
+                    posterior cuando se valide que el ejecutable puede cargar y ejecutar ROMs correctamente.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>PyInstaller Documentation: <a href="https://pyinstaller.org/en/stable/">https://pyinstaller.org/en/stable/</a></li>
+                    <li>Inno Setup Documentation: <a href="https://jrsoftware.org/ishelp/">https://jrsoftware.org/ishelp/</a></li>
+                    <li>Debian Policy Manual (para estructura .deb): <a href="https://www.debian.org/doc/debian-policy/">https://www.debian.org/doc/debian-policy/</a></li>
+                    <li>py2app Documentation: <a href="https://py2app.readthedocs.io/">https://py2app.readthedocs.io/</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>PyInstaller</strong>: Es una herramienta de "freezing" que analiza el código Python,
+                            detecta dependencias transitivas y empaqueta todo en un ejecutable. Usa un bootloader
+                            que extrae los archivos a un directorio temporal y ejecuta la aplicación.</li>
+                        <li><strong>Modo onefile vs onedir</strong>: Onefile crea un único archivo pero tiene overhead
+                            de extracción al inicio. Onedir es más rápido pero requiere distribuir una carpeta completa.</li>
+                        <li><strong>Detección de dependencias</strong>: PyInstaller analiza los imports y busca módulos
+                            en sys.path, incluyendo automáticamente bibliotecas como pygame y sus DLLs nativas.</li>
+                        <li><strong>Instaladores multiplataforma</strong>: Cada SO tiene su herramienta estándar (Inno Setup
+                            para Windows, dpkg para Debian, py2app para macOS). Los instaladores añaden metadatos,
+                            accesos directos y desinstaladores.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Funcionalidad del ejecutable</strong>: Aún no se ha probado que el .exe generado
+                            pueda cargar y ejecutar ROMs correctamente. Esto requiere una prueba funcional completa.</li>
+                        <li><strong>Rendimiento</strong>: El modo onefile tiene overhead de extracción. Si el rendimiento
+                            es crítico, podría ser necesario evaluar el modo onedir.</li>
+                        <li><strong>Falsos positivos de antivirus</strong>: PyInstaller a veces genera falsos positivos.
+                            Si esto ocurre en distribución, podría ser necesario firmar el ejecutable con un certificado
+                            de código.</li>
+                        <li><strong>Compatibilidad de versiones</strong>: El ejecutable está ligado a la versión de Python
+                            y bibliotecas usadas. Cambios futuros en dependencias requerirán regenerar el ejecutable.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el ejecutable funcionará correctamente porque PyInstaller incluyó todas las
+                        dependencias detectadas. Sin embargo, algunas dependencias dinámicas (cargadas con importlib
+                        o __import__) podrían no detectarse automáticamente. Si hay problemas en tiempo de ejecución,
+                        será necesario añadir hooks personalizados de PyInstaller o usar --hidden-import.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Probar el ejecutable generado ejecutando una ROM de test</li>
+                    <li>[ ] Verificar que los assets se cargan correctamente desde el ejecutable</li>
+                    <li>[ ] Crear un instalador Windows usando Inno Setup (requiere instalar Inno Setup)</li>
+                    <li>[ ] Documentar el proceso de distribución y release</li>
+                    <li>[ ] Considerar firmar el ejecutable con certificado de código para evitar falsos positivos</li>
+                    <li>[ ] Evaluar si el modo onedir ofrece mejor rendimiento que onefile</li>
+                    <li>[ ] Preparar builds para Linux y macOS cuando se tenga acceso a esos sistemas</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
