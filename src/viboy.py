@@ -665,10 +665,12 @@ class Viboy:
                     if event.type == pygame.KEYDOWN:
                         button = key_mapping.get(event.key)
                         if button:
+                            logger.debug(f"KEY PRESS: {event.key} -> button '{button}'")
                             self._joypad.press(button)
                     elif event.type == pygame.KEYUP:
                         button = key_mapping.get(event.key)
                         if button:
+                            logger.debug(f"KEY RELEASE: {event.key} -> button '{button}'")
                             self._joypad.release(button)
             
             return True

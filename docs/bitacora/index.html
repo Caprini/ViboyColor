@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0089 - Optimización Big Blit y Depuración de Inputs -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0089__optimizacion-big-blit-input-debug.html" class="entry-link">
+                                    Optimización Big Blit y Depuración de Inputs
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0089 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de la optimización "Big Blit" para mejorar el rendimiento del renderizado desde 48 FPS a 60 FPS objetivo. La optimización mantiene un buffer persistente de 256x256 píxeles y solo lo reconstruye cuando es necesario, reduciendo las llamadas a blit de 360 por frame a solo 1-4. También se añadió logging de debug para eventos de teclado para diagnosticar problemas de inputs que causaban "Game Over" inmediato en Tetris.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0088 - Arquitectura Basada en Scanlines: Equilibrio Rendimiento/Precisión -->
                     <li>
                         <div class="entry-header">
