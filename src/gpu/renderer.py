@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from ..memory.mmu import MMU
 
 # Importar constantes de MMU para acceso a registros I/O
-from ..memory.mmu import IO_LCDC, IO_BGP, IO_SCX, IO_SCY, IO_OBP0, IO_OBP1
+from ..memory.mmu import IO_LCDC, IO_BGP, IO_SCX, IO_SCY, IO_OBP0, IO_OBP1, IO_WX, IO_WY
 
 logger = logging.getLogger(__name__)
 
@@ -195,21 +195,24 @@ class Renderer:
 
     def render_frame(self) -> None:
         """
-        Renderiza un frame completo del Background (fondo) de la Game Boy.
+        Renderiza un frame completo del Background (fondo) y Window (ventana) de la Game Boy.
         
-        Este método implementa el renderizado básico del Background según la configuración
+        Este método implementa el renderizado básico del Background y Window según la configuración
         del registro LCDC (LCD Control, 0xFF40):
         - Bit 7: LCD Enable (si es 0, pantalla blanca)
+        - Bit 5: Window Enable (si es 1, se dibuja la Window encima del fondo)
         - Bit 4: Tile Data Area (0x8000 unsigned o 0x8800 signed)
-        - Bit 3: Tile Map Area (0x9800 o 0x9C00)
+        - Bit 3: Tile Map Area (0x9800 o 0x9C00) - para Background
+        - Bit 6: Window Tile Map Area (0=0x9800, 1=0x9C00) - para Window
         - Bit 0: BG Display (si es 0, fondo blanco)
         
         La pantalla muestra 160x144 píxeles, que corresponden a 20x18 tiles (cada tile es 8x8).
         El tilemap es de 32x32 tiles (256x256 píxeles), pero solo se renderiza la ventana visible.
         
-        Por ahora, ignoramos Scroll (SCX/SCY) y Window, dibujando asumiendo cámara en (0,0).
+        La Window es una capa opaca que se dibuja encima del Background pero debajo de los Sprites.
+        Se usa para HUDs y menús fijos que no deben moverse con el scroll del fondo.
         
-        Fuente: Pan Docs - LCD Control Register, Background Tile Map
+        Fuente: Pan Docs - LCD Control Register, Background Tile Map, Window
         """
         # Leer registro LCDC
         lcdc = self.mmu.read_byte(IO_LCDC) & 0xFF
@@ -304,6 +307,28 @@ class Renderer:
         
         logger.debug(f"Scroll: SCX=0x{scx:02X} ({scx}), SCY=0x{scy:02X} ({scy})")
         
+        # Leer registros de Window (WX/WY)
+        # WY (0xFF4A): Window Y - Posición Y en pantalla donde empieza la ventana
+        # WX (0xFF4B): Window X - Posición X en pantalla + 7 (offset histórico)
+        # La Window es una capa opaca que se dibuja encima del fondo pero debajo de los sprites
+        wy = self.mmu.read_byte(IO_WY) & 0xFF
+        wx = self.mmu.read_byte(IO_WX) & 0xFF
+        
+        # Leer bits de LCDC para Window
+        lcdc_bit5 = (lcdc & 0x20) != 0  # Bit 5: Window Enable
+        lcdc_bit6 = (lcdc & 0x40) != 0  # Bit 6: Window Tile Map Area (0=0x9800, 1=0x9C00)
+        
+        # Determinar tilemap base para Window
+        if lcdc_bit6:
+            window_map_base = 0x9C00
+        else:
+            window_map_base = 0x9800
+        
+        logger.debug(
+            f"Window: WX=0x{wx:02X} ({wx}), WY=0x{wy:02X} ({wy}), "
+            f"Enable={lcdc_bit5}, Map=0x{window_map_base:04X}"
+        )
+        
         # Limpiar framebuffer con color de fondo (índice 0 de la paleta)
         self.buffer.fill(palette[0])
         
@@ -380,66 +405,129 @@ class Renderer:
             # Renderizar píxeles de la pantalla (160x144 píxeles)
             # Para cada píxel de pantalla, calcular qué píxel del tilemap corresponde
             # aplicando el scroll: map_pixel = (screen_pixel + scroll) % 256
+            # La Window se dibuja encima del fondo, así que verificamos primero si el píxel
+            # está dentro de la región de Window
             for screen_y in range(GB_HEIGHT):  # 0-143 (144 líneas)
                 for screen_x in range(GB_WIDTH):  # 0-159 (160 columnas)
-                    # Calcular posición en el tilemap aplicando scroll
-                    # Wrap-around a 256 píxeles (tamaño del tilemap)
-                    map_x = (screen_x + scx) & 0xFF  # Wrap-around a 256 píxeles
-                    map_y = (screen_y + scy) & 0xFF  # Wrap-around a 256 píxeles
+                    # Verificar si el píxel está dentro de la región de Window
+                    # Window está habilitada si LCDC bit 5 = 1
+                    # El píxel está dentro si: screen_y >= wy y screen_x + 7 >= wx
+                    # (WX tiene un offset histórico de 7 píxeles)
+                    is_in_window = False
+                    if lcdc_bit5 and screen_y >= wy and (screen_x + 7) >= wx:
+                        is_in_window = True
                     
-                    # Convertir coordenadas de píxel a coordenadas de tile
-                    # Cada tile es de 8x8 píxeles
-                    tile_map_x = map_x // TILE_SIZE  # 0-31 (32 tiles de ancho)
-                    tile_map_y = map_y // TILE_SIZE  # 0-31 (32 tiles de alto)
-                    
-                    # Calcular posición del píxel dentro del tile (0-7)
-                    pixel_in_tile_x = map_x % TILE_SIZE
-                    pixel_in_tile_y = map_y % TILE_SIZE
-                    
-                    # Leer Tile ID del tilemap
-                    # El tilemap es de 32x32 bytes, cada byte es un Tile ID
-                    map_addr = map_base + (tile_map_y * 32) + tile_map_x
-                    tile_id = self.mmu.read_byte(map_addr) & 0xFF
-                    
-                    # Calcular dirección del tile en VRAM según el modo de direccionamiento
-                    signed_id: int | None = None
-                    if unsigned_addressing:
-                        # Modo unsigned: tile_id es 0-255, dirección = data_base + (tile_id * 16)
-                        tile_addr = data_base + (tile_id * BYTES_PER_TILE)
-                    else:
-                        # Modo signed: tile_id es -128 a 127, donde 0 está en 0x9000
-                        # Convertir a signed: si tile_id >= 128, es negativo
-                        if tile_id >= 128:
-                            signed_id = tile_id - 256  # Convertir a signed (-128 a -1)
-                        else:
-                            signed_id = tile_id  # 0 a 127
-                        # Tile ID 0 está en 0x9000, así que: 0x9000 + (signed_id * 16)
-                        tile_addr = 0x9000 + (signed_id * BYTES_PER_TILE)
-                    
-                    # Asegurar que la dirección esté en VRAM (0x8000-0x9FFF)
-                    if tile_addr < VRAM_START or tile_addr > VRAM_END:
-                        # Si está fuera de VRAM, dibujar píxel con color de fondo (índice 0)
-                        color = palette[0]
-                    else:
-                        # Leer el píxel específico del tile
-                        # Cada línea del tile ocupa 2 bytes
-                        tile_line_addr = tile_addr + (pixel_in_tile_y * 2)
-                        byte1 = self.mmu.read_byte(tile_line_addr) & 0xFF
-                        byte2 = self.mmu.read_byte(tile_line_addr + 1) & 0xFF
+                    if is_in_window:
+                        # Renderizar píxel de Window
+                        # Calcular coordenadas relativas a la Window
+                        # win_x = screen_x - (wx - 7)
+                        # win_y = screen_y - wy
+                        win_x = screen_x - (wx - 7)
+                        win_y = screen_y - wy
                         
-                        # Decodificar el píxel específico de la línea
-                        # El píxel está en la posición pixel_in_tile_x (0-7, de izquierda a derecha)
-                        # Necesitamos el bit (7 - pixel_in_tile_x) de cada byte
-                        bit_pos = 7 - pixel_in_tile_x
-                        bit_low = (byte1 >> bit_pos) & 0x01
-                        bit_high = (byte2 >> bit_pos) & 0x01
-                        color_index = (bit_high << 1) | bit_low
-                        color = palette[color_index]
-                    
-                    # Escribir píxel directamente en el framebuffer
-                    # PixelArray permite acceso directo como matriz 2D: pixels[x, y] = color
-                    pixels[screen_x, screen_y] = color
-                    tiles_drawn += 1
+                        # Convertir coordenadas de píxel a coordenadas de tile en el tilemap de Window
+                        tile_map_x = win_x // TILE_SIZE  # 0-31 (32 tiles de ancho)
+                        tile_map_y = win_y // TILE_SIZE  # 0-31 (32 tiles de alto)
+                        
+                        # Calcular posición del píxel dentro del tile (0-7)
+                        pixel_in_tile_x = win_x % TILE_SIZE
+                        pixel_in_tile_y = win_y % TILE_SIZE
+                        
+                        # Leer Tile ID del tilemap de Window
+                        window_map_addr = window_map_base + (tile_map_y * 32) + tile_map_x
+                        tile_id = self.mmu.read_byte(window_map_addr) & 0xFF
+                        
+                        # Calcular dirección del tile en VRAM según el modo de direccionamiento
+                        # La Window usa el mismo modo de direccionamiento que el fondo (bit 4 de LCDC)
+                        if unsigned_addressing:
+                            tile_addr = data_base + (tile_id * BYTES_PER_TILE)
+                        else:
+                            # Modo signed
+                            if tile_id >= 128:
+                                signed_id = tile_id - 256
+                            else:
+                                signed_id = tile_id
+                            tile_addr = 0x9000 + (signed_id * BYTES_PER_TILE)
+                        
+                        # Asegurar que la dirección esté en VRAM
+                        if tile_addr < VRAM_START or tile_addr > VRAM_END:
+                            color = palette[0]
+                        else:
+                            # Leer el píxel específico del tile
+                            tile_line_addr = tile_addr + (pixel_in_tile_y * 2)
+                            byte1 = self.mmu.read_byte(tile_line_addr) & 0xFF
+                            byte2 = self.mmu.read_byte(tile_line_addr + 1) & 0xFF
+                            
+                            # Decodificar el píxel
+                            bit_pos = 7 - pixel_in_tile_x
+                            bit_low = (byte1 >> bit_pos) & 0x01
+                            bit_high = (byte2 >> bit_pos) & 0x01
+                            color_index = (bit_high << 1) | bit_low
+                            color = palette[color_index]
+                        
+                        # Escribir píxel de Window
+                        pixels[screen_x, screen_y] = color
+                        tiles_drawn += 1
+                    else:
+                        # Renderizar píxel de Background (fondo)
+                        # Calcular posición en el tilemap aplicando scroll
+                        # Wrap-around a 256 píxeles (tamaño del tilemap)
+                        map_x = (screen_x + scx) & 0xFF  # Wrap-around a 256 píxeles
+                        map_y = (screen_y + scy) & 0xFF  # Wrap-around a 256 píxeles
+                        
+                        # Convertir coordenadas de píxel a coordenadas de tile
+                        # Cada tile es de 8x8 píxeles
+                        tile_map_x = map_x // TILE_SIZE  # 0-31 (32 tiles de ancho)
+                        tile_map_y = map_y // TILE_SIZE  # 0-31 (32 tiles de alto)
+                        
+                        # Calcular posición del píxel dentro del tile (0-7)
+                        pixel_in_tile_x = map_x % TILE_SIZE
+                        pixel_in_tile_y = map_y % TILE_SIZE
+                        
+                        # Leer Tile ID del tilemap
+                        # El tilemap es de 32x32 bytes, cada byte es un Tile ID
+                        map_addr = map_base + (tile_map_y * 32) + tile_map_x
+                        tile_id = self.mmu.read_byte(map_addr) & 0xFF
+                        
+                        # Calcular dirección del tile en VRAM según el modo de direccionamiento
+                        signed_id: int | None = None
+                        if unsigned_addressing:
+                            # Modo unsigned: tile_id es 0-255, dirección = data_base + (tile_id * 16)
+                            tile_addr = data_base + (tile_id * BYTES_PER_TILE)
+                        else:
+                            # Modo signed: tile_id es -128 a 127, donde 0 está en 0x9000
+                            # Convertir a signed: si tile_id >= 128, es negativo
+                            if tile_id >= 128:
+                                signed_id = tile_id - 256  # Convertir a signed (-128 a -1)
+                            else:
+                                signed_id = tile_id  # 0 a 127
+                            # Tile ID 0 está en 0x9000, así que: 0x9000 + (signed_id * 16)
+                            tile_addr = 0x9000 + (signed_id * BYTES_PER_TILE)
+                        
+                        # Asegurar que la dirección esté en VRAM (0x8000-0x9FFF)
+                        if tile_addr < VRAM_START or tile_addr > VRAM_END:
+                            # Si está fuera de VRAM, dibujar píxel con color de fondo (índice 0)
+                            color = palette[0]
+                        else:
+                            # Leer el píxel específico del tile
+                            # Cada línea del tile ocupa 2 bytes
+                            tile_line_addr = tile_addr + (pixel_in_tile_y * 2)
+                            byte1 = self.mmu.read_byte(tile_line_addr) & 0xFF
+                            byte2 = self.mmu.read_byte(tile_line_addr + 1) & 0xFF
+                            
+                            # Decodificar el píxel específico de la línea
+                            # El píxel está en la posición pixel_in_tile_x (0-7, de izquierda a derecha)
+                            # Necesitamos el bit (7 - pixel_in_tile_x) de cada byte
+                            bit_pos = 7 - pixel_in_tile_x
+                            bit_low = (byte1 >> bit_pos) & 0x01
+                            bit_high = (byte2 >> bit_pos) & 0x01
+                            color_index = (bit_high << 1) | bit_low
+                            color = palette[color_index]
+                        
+                        # Escribir píxel directamente en el framebuffer
+                        # PixelArray permite acceso directo como matriz 2D: pixels[x, y] = color
+                        pixels[screen_x, screen_y] = color
+                        tiles_drawn += 1
         
         # Escalar el framebuffer a la ventana y hacer blit
         # pygame.transform.scale es rápido porque opera sobre una superficie completa
@@ -460,7 +548,7 @@ class Renderer:
         logger.debug(
             f"Frame renderizado: {tiles_drawn} píxeles dibujados, {sprites_drawn} sprites dibujados, "
             f"map_base=0x{map_base:04X}, data_base=0x{data_base:04X}, unsigned={unsigned_addressing}, "
-            f"SCX=0x{scx:02X}, SCY=0x{scy:02X}"
+            f"SCX=0x{scx:02X}, SCY=0x{scy:02X}, Window={lcdc_bit5} (WX=0x{wx:02X}, WY=0x{wy:02X})"
         )
 
     def _draw_tile_with_palette(self, x: int, y: int, tile_addr: int, palette: list[tuple[int, int, int]]) -> None:

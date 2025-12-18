@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0039 - Implementación de la Capa Window -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0039__capa-window.html" class="entry-link">
+                                    Implementación de la Capa Window (Ventana)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0039 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó la capa Window (Ventana) en la PPU para completar la arquitectura gráfica del emulador. La Window es una capa opaca que se dibuja encima del Background pero debajo de los Sprites, y se usa para HUDs, marcadores y menús fijos que no deben moverse con el scroll del fondo. En juegos como Tetris DX, la Window se usa para la columna derecha donde se muestra la puntuación, el nivel y la "Siguiente Pieza". La implementación incluye el control de los registros WX (0xFF4B) y WY (0xFF4A), así como los bits 5 y 6 del registro LCDC para habilitar la Window y seleccionar su tilemap. Suite de tests (4 tests) validando posicionamiento, offset, enable bit y selección de tilemap. Todos los tests pasan.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0038 - DMA y Renderizado de Sprites -->
                     <li>
                         <div class="entry-header">

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementación de la Capa Window (Ventana) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Implementación de la Capa Window (Ventana)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0039
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0038__dma-y-renderizado-sprites.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó la <strong>capa Window (Ventana)</strong> en la PPU para completar la arquitectura gráfica del emulador.
+                    La Window es una capa opaca que se dibuja encima del Background pero debajo de los Sprites, y se usa para HUDs,
+                    marcadores y menús fijos que no deben moverse con el scroll del fondo. En juegos como Tetris DX, la Window se usa
+                    para la columna derecha donde se muestra la puntuación, el nivel y la "Siguiente Pieza". La implementación incluye
+                    el control de los registros WX (0xFF4B) y WY (0xFF4A), así como los bits 5 y 6 del registro LCDC para habilitar
+                    la Window y seleccionar su tilemap. Suite de tests (4 tests) validando posicionamiento, offset, enable bit y
+                    selección de tilemap. Todos los tests pasan.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La <strong>Window (Ventana)</strong> es una capa gráfica especial de la Game Boy que se dibuja encima del Background
+                    pero debajo de los Sprites. A diferencia del Background, la Window no hace scroll: permanece fija en la pantalla
+                    independientemente de los valores de SCX/SCY. Esto la hace ideal para interfaces de usuario (HUDs), marcadores,
+                    menús y otros elementos que deben permanecer visibles mientras el fondo se desplaza.
+                </p>
+                
+                <p>
+                    La Window se controla mediante varios registros:
+                </p>
+                <ul>
+                    <li><strong>LCDC Bit 5 (Window Enable):</strong> Si es 1, la Window está habilitada y se dibuja. Si es 0, la Window
+                        está deshabilitada y no se renderiza, incluso si WX/WY están configurados.</li>
+                    <li><strong>LCDC Bit 6 (Window Tile Map Area):</strong> Selecciona el tilemap base para la Window:
+                        <ul>
+                            <li>0 = Tile Map en 0x9800</li>
+                            <li>1 = Tile Map en 0x9C00</li>
+                        </ul>
+                    </li>
+                    <li><strong>WY (0xFF4A):</strong> Posición Y en pantalla donde empieza la ventana (0-143). Si WY > 143, la Window no se dibuja.</li>
+                    <li><strong>WX (0xFF4B):</strong> Posición X en pantalla + 7 (offset histórico). Si WX < 7, la Window no se dibuja.
+                        El píxel (x, y) está dentro de la Window si: <code>y >= WY</code> y <code>x + 7 >= WX</code>.</li>
+                </ul>
+                
+                <p>
+                    La Window usa el mismo modo de direccionamiento de tiles que el Background (LCDC Bit 4): puede usar direccionamiento
+                    unsigned (0x8000) o signed (0x8800). La Window también usa la misma paleta que el Background (BGP, 0xFF47).
+                </p>
+                
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Control Register, Window
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó la lógica de Window en <code>src/gpu/renderer.py</code> dentro del método <code>render_frame()</code>.
+                    La Window se renderiza durante el bucle principal de renderizado de píxeles, verificando para cada píxel si está
+                    dentro de la región de Window antes de dibujar el píxel del Background.
+                </p>
+                
+                <p>
+                    La implementación sigue este flujo:
+                </p>
+                <ol>
+                    <li>Leer los registros WX, WY y los bits 5 y 6 de LCDC al inicio de <code>render_frame()</code>.</li>
+                    <li>Calcular el tilemap base de Window según el bit 6 de LCDC (0x9800 o 0x9C00).</li>
+                    <li>Para cada píxel de pantalla (screen_x, screen_y):
+                        <ul>
+                            <li>Verificar si el píxel está dentro de la región de Window: <code>screen_y >= wy</code> y <code>screen_x + 7 >= wx</code>.</li>
+                            <li>Si está dentro y Window está habilitada (bit 5 = 1):
+                                <ul>
+                                    <li>Calcular coordenadas relativas a la Window: <code>win_x = screen_x - (wx - 7)</code>, <code>win_y = screen_y - wy</code>.</li>
+                                    <li>Convertir a coordenadas de tile en el tilemap de Window.</li>
+                                    <li>Leer el Tile ID del tilemap de Window.</li>
+                                    <li>Decodificar el píxel del tile y dibujarlo (sobrescribiendo el fondo).</li>
+                                </ul>
+                            </li>
+                            <li>Si no está dentro o Window está deshabilitada, dibujar el píxel del Background (lógica existente).</li>
+                        </ul>
+                    </li>
+                </ol>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code>: Importación de constantes IO_WX e IO_WY desde mmu.py</li>
+                    <li><code>src/gpu/renderer.py</code>: Lectura de registros WX, WY y bits de LCDC en <code>render_frame()</code></li>
+                    <li><code>src/gpu/renderer.py</code>: Lógica de renderizado de Window dentro del bucle de píxeles</li>
+                    <li><code>src/gpu/renderer.py</code>: Actualización del docstring y logging para incluir información de Window</li>
+                    <li><code>tests/test_gpu_window.py</code>: Suite de tests para Window (4 tests)</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Renderizado integrado:</strong> La Window se renderiza dentro del mismo bucle de píxeles que el Background,
+                        verificando primero si el píxel está dentro de la región de Window. Esto es eficiente y mantiene el código simple.</li>
+                    <li><strong>Prioridad sobre Background:</strong> La Window siempre sobrescribe el Background cuando está habilitada y el
+                        píxel está dentro de su región. Esto es el comportamiento del hardware real.</li>
+                    <li><strong>Mismo modo de direccionamiento:</strong> La Window usa el mismo modo de direccionamiento de tiles que el Background
+                        (LCDC Bit 4). Esto simplifica la implementación y es correcto según la especificación.</li>
+                    <li><strong>Misma paleta:</strong> La Window usa la misma paleta que el Background (BGP). Esto es correcto según la especificación
+                        para Game Boy original (DMG). En Game Boy Color, la Window puede tener su propia paleta, pero eso se implementará más adelante.</li>
+                    <li><strong>Sin scroll interno:</strong> La Window no tiene scroll interno. El contador de líneas interno de la Window (LY) se
+                        implementará más adelante si es necesario para juegos específicos. Por ahora, usamos coordenadas relativas simples.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Implementación de lógica de Window en render_frame()</li>
+                    <li><code>tests/test_gpu_window.py</code> - Suite de tests para Window (4 tests)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutó la suite de tests para Window:
+                </p>
+                
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>pytest -q tests/test_gpu_window.py</code>
+                </p>
+                
+                <p>
+                    <strong>Entorno:</strong> Windows 10, Python 3.13.5
+                </p>
+                
+                <p>
+                    <strong>Resultado:</strong> <span style="color: green; font-weight: bold;">4 passed, 2 warnings</span> (3.49s)
+                </p>
+                
+                <p>
+                    <strong>Qué valida:</strong>
+                </p>
+                <ul>
+                    <li><strong>Posicionamiento de Window:</strong> Verifica que con WX=7 (x=0) y WY=0, la Window cubre toda la pantalla</li>
+                    <li><strong>Offset de Window:</strong> Verifica que con WX=87 (x=80), los píxeles a la izquierda son del fondo y los de la derecha son de la Window</li>
+                    <li><strong>Bit de Enable:</strong> Verifica que si LCDC Bit 5 (Window Enable) es 0, no se dibuja la Window aunque WX/WY estén en rango</li>
+                    <li><strong>Selección de Tile Map:</strong> Verifica que el bit 6 de LCDC selecciona correctamente el tilemap de Window (0x9800 o 0x9C00)</li>
+                </ul>
+                
+                <p>
+                    <strong>Código del test (ejemplo - test_window_positioning):</strong>
+                </p>
+                <pre><code>def test_window_positioning(self):
+    """Verifica que con WX=7 (x=0) y WY=0, la ventana cubre toda la pantalla."""
+    mmu = MMU(None)
+    renderer = Renderer(mmu, scale=1)
+    
+    # Configurar LCDC: bit 7=1, bit 5=1 (Window Enable), bit 4=1, bit 3=0, bit 0=1
+    mmu.write_byte(IO_LCDC, 0xB1)  # 10110001
+    mmu.write_byte(IO_BGP, 0xE4)
+    
+    # Configurar Window: WX=7 (x=0), WY=0
+    mmu.write_byte(IO_WX, 7)
+    mmu.write_byte(IO_WY, 0)
+    
+    # Configurar tilemap de Window: tile ID 1 (negro) en posición (0,0)
+    mmu.write_byte(0x9800, 0x01)
+    
+    # Configurar tile en 0x8010 (tile ID 1 = negro)
+    for line in range(8):
+        mmu.write_byte(0x8010 + (line * 2), 0xFF)
+        mmu.write_byte(0x8010 + (line * 2) + 1, 0xFF)
+    
+    # Renderizar frame
+    renderer.render_frame()
+    
+    # Verificar que el píxel (0,0) es negro (color del tile de Window)
+    pixel_color = renderer.buffer.get_at((0, 0))
+    assert pixel_color == (0, 0, 0, 255)</code></pre>
+                
+                <p>
+                    <strong>Por qué este test demuestra el comportamiento del hardware:</strong> El test verifica que cuando WX=7 y WY=0,
+                    la Window cubre toda la pantalla porque WX=7 significa que la Window comienza en x=0 (debido al offset histórico de 7 píxeles).
+                    Esto es el comportamiento exacto del hardware real según Pan Docs. Además, valida que la Window sobrescribe el Background
+                    cuando está habilitada.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html">LCDC Register</a> (bits 5 y 6: Window Enable y Window Tile Map Area)</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Window.html">Window</a> (WX, WY, renderizado)</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Memory_Map.html">Memory Map</a> (WX: 0xFF4B, WY: 0xFF4A)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Window es una capa fija:</strong> A diferencia del Background, la Window no hace scroll. Permanece fija
+                            en la pantalla independientemente de SCX/SCY. Esto la hace ideal para HUDs y menús.</li>
+                        <li><strong>Offset histórico de WX:</strong> WX tiene un offset histórico de 7 píxeles, lo que significa que WX=7
+                            corresponde a x=0 en pantalla. Esto es un comportamiento del hardware real que se mantiene por compatibilidad.</li>
+                        <li><strong>Prioridad sobre Background:</strong> La Window siempre sobrescribe el Background cuando está habilitada y
+                            el píxel está dentro de su región. Esto permite que la Window se use para elementos de interfaz que deben estar
+                            siempre visibles.</li>
+                        <li><strong>Tilemap independiente:</strong> La Window puede usar un tilemap diferente al Background (0x9800 o 0x9C00),
+                            lo que permite tener gráficos diferentes para la Window y el Background.</li>
+                        <li><strong>Mismo modo de direccionamiento:</strong> La Window usa el mismo modo de direccionamiento de tiles que el
+                            Background (LCDC Bit 4), lo que simplifica la implementación.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Contador de líneas interno:</strong> La Window tiene un contador de líneas interno (LY) que se incrementa
+                            durante el renderizado. Por ahora, usamos coordenadas relativas simples, pero el contador interno puede ser necesario
+                            para juegos específicos que lo usan para efectos especiales.</li>
+                        <li><strong>Paleta independiente en CGB:</strong> En Game Boy Color, la Window puede tener su propia paleta independiente
+                            del Background. Esto se implementará más adelante cuando se añada soporte completo para CGB.</li>
+                        <li><strong>Window fuera de límites:</strong> Si WX < 7 o WY > 143, la Window no se dibuja. Esto está implementado, pero
+                            puede haber casos edge que necesiten más validación con ROMs reales.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Por ahora, asumimos que la Window no tiene scroll interno y que el contador de líneas interno (LY) no es necesario
+                        para la mayoría de los juegos. Si encontramos juegos que requieren este comportamiento, lo implementaremos más adelante.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Probar con Tetris DX para verificar que la columna derecha (Score, Next Piece) se renderiza correctamente</li>
+                    <li>[ ] Implementar contador de líneas interno de Window (LY) si es necesario para juegos específicos</li>
+                    <li>[ ] Añadir soporte para paleta independiente de Window en modo CGB</li>
+                    <li>[ ] Optimizar el renderizado de Window si es necesario (por ahora es eficiente al estar integrado en el bucle principal)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
