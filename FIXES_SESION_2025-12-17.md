@@ -203,6 +203,55 @@ Posteriormente, estos cambios se documentarán correctamente en las bitácoras c
 
 ---
 
+### Fix 006: Análisis Comparativo - Mario.gbc vs Tetris DX
+**Estado**: ✅ Análisis completado
+
+### Objetivo
+Probar el emulador con una ROM diferente (mario.gbc) para comparar el comportamiento y validar que los fixes implementados funcionan correctamente.
+
+### Hallazgos Principales
+
+#### Mario.gbc - Ejecución Exitosa
+- ✅ **0 errores de opcodes no implementados** (1,000,000 ciclos ejecutados)
+- ✅ **LCDC se activa correctamente**: Cambia de `0x00 → 0x87` (bit 7=1, bit 0=1)
+- ✅ **BGP en paleta normal**: `0xE4` (permite ver gráficos)
+- ✅ **Scroll activo**: SCX=4, SCY=112
+- ✅ **Juego avanza**: PC final = 0xFF87 (no se queda atascado)
+
+#### Comparación con Tetris DX
+
+| Aspecto | Tetris DX | Mario.gbc |
+|---------|-----------|-----------|
+| **Opcodes faltantes** | ❌ 0xD9, 0x1A, 0x3A | ✅ Ninguno |
+| **LCDC inicial** | 0x80 (bit 7=1, bit 0=0) | 0x00 → 0x87 (bit 7=1, bit 0=1) |
+| **BGP inicial** | 0x00 (todo blanco) | 0xE4 (paleta normal) |
+| **Scroll** | SCX=0, SCY=0 | SCX=4, SCY=112 |
+| **Estado final** | Atascado | Avanza correctamente |
+
+### Conclusión
+Mario.gbc es un **mejor caso de prueba** que Tetris DX porque:
+1. No requiere opcodes adicionales (todos ya implementados)
+2. Activa el LCD correctamente (ambos bits de LCDC activos)
+3. Usa paleta normal (permite ver gráficos)
+4. Avanza en ejecución (no se queda atascado)
+
+**Recomendación**: Usar Mario.gbc como ROM de referencia para validar renderizado y comportamiento general, mientras que Tetris DX puede usarse para identificar opcodes faltantes.
+
+### Archivos Creados
+- `HALLAZGOS_MARIO_GBC.md` - Documento detallado con análisis completo
+- `test_mario.py` - Script de prueba básico
+- `test_mario_monitor.py` - Script de monitoreo de registros I/O
+- `test_mario_ui.py` - Script para ejecutar con UI
+
+### Validación Realizada
+- **Comando ejecutado**: `python3 test_mario_monitor.py`
+- **Entorno**: macOS (darwin 21.6.0), Python 3.9.6
+- **Resultado**: ✅ 1,000,000 ciclos ejecutados sin errores
+- **Cambios detectados en LCDC**: 3 cambios (0x00 → 0x87 → 0x07 → 0x87)
+- **Estado final**: LCDC=0x87 (LCD y Background activos), BGP=0xE4, Scroll activo
+
+---
+
 ## Notas Generales
 
 - Todos los fixes deben seguir el principio clean-room (sin copiar código de otros emuladores)
