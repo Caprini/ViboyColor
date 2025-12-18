@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0034 - Opcodes LD Indirect -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-17__0034__opcodes-ld-indirect.html" class="entry-link">
+                                    Opcodes LD Indirect (0x0A, 0x1A, 0x3A)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-17 | 
+                            <strong>Step ID:</strong> 0034 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementaron tres opcodes de carga indirecta que faltaban en el emulador: LD A, (BC) (0x0A), LD A, (DE) (0x1A) y LD A, (HL-) (0x3A). Estos opcodes son esenciales para que Tetris DX pueda ejecutarse correctamente, ya que el juego los utiliza frecuentemente para leer datos de memoria usando diferentes registros como punteros. Suite de tests (5 tests) validando lectura desde BC, DE, HL con decremento, wrap-around y casos límite. Todos los tests pasan.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0033 - Forzar Renderizado y Scroll -->
                     <li>
                         <div class="entry-header">

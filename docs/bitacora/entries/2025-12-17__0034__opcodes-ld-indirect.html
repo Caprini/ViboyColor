@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Opcodes LD Indirect (0x0A, 0x1A, 0x3A) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Opcodes LD Indirect (0x0A, 0x1A, 0x3A)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-17
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0034
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-17__0033__forzar-renderizado-scroll.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementaron tres opcodes de carga indirecta que faltaban en el emulador: <strong>LD A, (BC)</strong> (0x0A),
+                    <strong>LD A, (DE)</strong> (0x1A) y <strong>LD A, (HL-)</strong> (0x3A). Estos opcodes son esenciales para que Tetris DX
+                    pueda ejecutarse correctamente, ya que el juego los utiliza frecuentemente para leer datos de memoria usando diferentes
+                    registros como punteros. Se crearon <strong>5 tests</strong> para validar el comportamiento de estos opcodes, todos pasando
+                    correctamente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La CPU LR35902 de la Game Boy soporta múltiples formas de acceder a memoria usando registros de 16 bits como punteros.
+                    Los registros <strong>BC</strong>, <strong>DE</strong> y <strong>HL</strong> pueden usarse como punteros para leer y escribir
+                    en memoria, proporcionando flexibilidad en las operaciones de transferencia de datos.
+                </p>
+                <p>
+                    <strong>LD A, (BC)</strong> (0x0A): Lee un byte de la dirección de memoria apuntada por BC y lo carga en A. Es el gemelo
+                    de <code>LD (BC), A</code> (0x02): mientras que 0x02 escribe A en memoria, 0x0A lee de memoria y lo guarda en A.
+                </p>
+                <p>
+                    <strong>LD A, (DE)</strong> (0x1A): Similar a LD A, (BC), pero usando DE como puntero. Es el gemelo de <code>LD (DE), A</code> (0x12).
+                    Útil para leer datos usando DE como puntero de origen en operaciones de copia.
+                </p>
+                <p>
+                    <strong>LD A, (HL-)</strong> (0x3A): Lee un byte de la dirección apuntada por HL y lo carga en A, luego decrementa HL.
+                    Es el complemento de <code>LD (HL-), A</code>. Útil para bucles de lectura rápida que recorren la memoria hacia atrás.
+                    El decremento de HL permite iterar eficientemente sobre arrays o buffers en memoria.
+                </p>
+                <p>
+                    Todos estos opcodes consumen <strong>2 M-Cycles</strong>: uno para fetch del opcode y otro para la lectura de memoria.
+                    Los registros puntero (BC, DE, HL) no se modifican excepto en el caso de LD A, (HL-), donde HL se decrementa.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Instruction Set (LD A, (BC)), (LD A, (DE)), (LDD A, (HL))
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron tres métodos en la clase <code>CPU</code> para manejar estos opcodes:
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/cpu/core.py</code>: Añadidos métodos <code>_op_ld_a_bc_ptr()</code>, <code>_op_ld_a_de_ptr()</code> y <code>_op_ldd_a_hl_ptr()</code></li>
+                    <li><code>src/cpu/core.py</code>: Registrados opcodes 0x0A, 0x1A y 0x3A en el dispatch table</li>
+                    <li><code>tests/test_cpu_ld_indirect.py</code>: Nuevo archivo con 5 tests para validar los opcodes</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>LD A, (BC)</strong> y <strong>LD A, (DE)</strong> son prácticamente idénticos en implementación, solo difieren en el registro
+                    usado como puntero. Se mantuvieron como métodos separados para claridad y consistencia con la estructura del código.
+                </p>
+                <p>
+                    Para <strong>LD A, (HL-)</strong>, el decremento de HL se implementa con wrap-around de 16 bits usando <code>(hl_addr - 1) & 0xFFFF</code>,
+                    asegurando que si HL es 0x0000, al decrementar se convierte en 0xFFFF (comportamiento estándar de la Game Boy).
+                </p>
+                <p>
+                    Todos los métodos incluyen logging a nivel DEBUG para facilitar la depuración, mostrando el valor leído, la dirección de memoria
+                    y el estado final de los registros afectados.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadidos métodos <code>_op_ld_a_bc_ptr()</code>, <code>_op_ld_a_de_ptr()</code> y <code>_op_ldd_a_hl_ptr()</code>, registrados opcodes en dispatch table</li>
+                    <li><code>tests/test_cpu_ld_indirect.py</code> - Nuevo archivo con 5 tests: <code>test_ld_a_bc_ptr</code>, <code>test_ld_a_de_ptr</code>, <code>test_ld_a_bc_ptr_wrap_around</code>, <code>test_ld_a_de_ptr_zero</code>, <code>test_ld_a_hl_ptr_decrement</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se crearon <strong>5 tests</strong> en <code>tests/test_cpu_ld_indirect.py</code> para validar el comportamiento de los opcodes:
+                </p>
+                <ul>
+                    <li><strong>test_ld_a_bc_ptr</strong>: Verifica que LD A, (BC) lee correctamente de memoria, actualiza A y no modifica BC</li>
+                    <li><strong>test_ld_a_de_ptr</strong>: Verifica que LD A, (DE) lee correctamente de memoria, actualiza A y no modifica DE</li>
+                    <li><strong>test_ld_a_bc_ptr_wrap_around</strong>: Verifica que LD A, (BC) funciona correctamente con direcciones en el límite (0xFFFF)</li>
+                    <li><strong>test_ld_a_de_ptr_zero</strong>: Verifica que LD A, (DE) funciona correctamente con dirección 0x0000</li>
+                    <li><strong>test_ld_a_hl_ptr_decrement</strong>: Verifica que LD A, (HL-) lee correctamente, actualiza A y decrementa HL</li>
+                </ul>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>pytest -q tests/test_cpu_ld_indirect.py</code>
+                </p>
+                <p>
+                    <strong>Entorno:</strong> macOS, Python 3.10+
+                </p>
+                <p>
+                    <strong>Resultado:</strong> ✅ <strong>5 passed</strong> (todos los tests pasan correctamente)
+                </p>
+                <p>
+                    <strong>Qué valida:</strong>
+                </p>
+                <ul>
+                    <li>Los opcodes leen correctamente de memoria usando los registros como punteros</li>
+                    <li>El registro A se actualiza con el valor leído</li>
+                    <li>Los registros puntero (BC, DE) no se modifican excepto HL en LD A, (HL-)</li>
+                    <li>El timing es correcto (2 M-Cycles para todos)</li>
+                    <li>El wrap-around funciona correctamente en casos límite</li>
+                </ul>
+                <p>
+                    <strong>Código del test (ejemplo - test_ld_a_de_ptr):</strong>
+                </p>
+                <pre><code>def test_ld_a_de_ptr(self) -> None:
+    """Test: Verificar LD A, (DE) - opcode 0x1A"""
+    mmu = MMU(None)
+    cpu = CPU(mmu)
+    
+    cpu.registers.set_pc(0x0100)
+    cpu.registers.set_de(0xD000)
+    cpu.registers.set_a(0x00)
+    
+    mmu.write_byte(0xD000, 0x55)
+    mmu.write_byte(0x0100, 0x1A)  # LD A, (DE)
+    
+    cycles = cpu.step()
+    
+    assert cycles == 2
+    assert cpu.registers.get_a() == 0x55
+    assert cpu.registers.get_pc() == 0x0101
+    assert cpu.registers.get_de() == 0xD000</code></pre>
+                <p>
+                    <strong>Validación con Tetris DX:</strong> El juego dejó de crashearse con errores de opcodes no implementados (0x1A y 0x3A),
+                    confirmando que estos opcodes son necesarios para la ejecución correcta del juego.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">CPU Instruction Set</a> - LD A, (BC), LD A, (DE), LDD A, (HL)</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Registers_and_Flags.html">CPU Registers and Flags</a> - Registros BC, DE, HL como punteros</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Punteros en LR35902:</strong> Los registros de 16 bits (BC, DE, HL) pueden usarse como punteros para acceder a memoria, proporcionando flexibilidad en las operaciones de transferencia de datos.</li>
+                        <li><strong>Opcodes gemelos:</strong> Muchos opcodes tienen versiones de lectura y escritura (ej: LD A, (BC) y LD (BC), A), permitiendo transferencias bidireccionales.</li>
+                        <li><strong>Opcodes con post-incremento/decremento:</strong> LD A, (HL-) es parte de una familia de opcodes que modifican el puntero después de la operación, útil para bucles eficientes.</li>
+                        <li><strong>Timing consistente:</strong> Los opcodes de carga indirecta consumen 2 M-Cycles (fetch + read), independientemente del registro usado como puntero.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>LD A, (BC+) y LD A, (DE+):</strong> No existen en el set de instrucciones de LR35902, solo existen versiones con HL (LD A, (HL+)). Esto es consistente con la arquitectura, donde HL es el registro más versátil.</li>
+                        <li><strong>Comportamiento con direcciones inválidas:</strong> En hardware real, todas las direcciones de 16 bits son válidas (0x0000-0xFFFF), pero algunas regiones tienen comportamientos especiales (ej: memoria de video, I/O). Nuestro emulador maneja esto a través de la MMU.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Ninguna suposición crítica.</strong> La implementación sigue directamente la especificación de Pan Docs y los tests
+                        validan el comportamiento esperado. El wrap-around de 16 bits para el decremento de HL en LD A, (HL-) es estándar en arquitecturas
+                        de 16 bits y está documentado.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar por qué BGP=0x00 (paleta completamente blanca) en Tetris DX</li>
+                    <li>[ ] Verificar si los tiles se cargan en VRAM después de la inicialización</li>
+                    <li>[ ] Implementar Window (WX/WY) para soportar ventanas superpuestas</li>
+                    <li>[ ] Implementar Sprites (OAM) para renderizar objetos móviles</li>
+                    <li>[ ] Continuar implementando opcodes faltantes según se encuentren durante la ejecución de juegos</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

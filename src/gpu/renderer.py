@@ -301,6 +301,69 @@ class Renderer:
         # Limpiar pantalla con color de fondo (índice 0 de la paleta)
         self.screen.fill(palette[0])
         
+        # DIAGNÓSTICO: Verificar contenido de VRAM y tilemap cuando se renderiza
+        # Verificar algunos tiles del tilemap (primeras 16 posiciones = primera fila)
+        tilemap_sample = []
+        for i in range(16):
+            tile_id = self.mmu.read_byte(map_base + i) & 0xFF
+            tilemap_sample.append(tile_id)
+        
+        # Verificar si hay tiles no vacíos (tile_id != 0)
+        non_zero_tiles = [t for t in tilemap_sample if t != 0]
+        
+        # Verificar algunos bytes de VRAM (primeros 32 bytes = 2 tiles)
+        vram_sample = []
+        for i in range(32):
+            vram_byte = self.mmu.read_byte(VRAM_START + i) & 0xFF
+            vram_sample.append(vram_byte)
+        
+        # Verificar si VRAM tiene datos (no todo ceros)
+        non_zero_vram = [b for b in vram_sample if b != 0]
+        
+        # Verificar también en el rango 0x9000-0x9060 (donde están los tiles en modo signed)
+        vram_9000_sample = []
+        for i in range(32):
+            vram_byte = self.mmu.read_byte(0x9000 + i) & 0xFF
+            vram_9000_sample.append(vram_byte)
+        non_zero_vram_9000 = [b for b in vram_9000_sample if b != 0]
+        
+        # Log diagnóstico (INFO para que siempre se muestre)
+        # Si hay tiles en el tilemap, verificar qué hay en la dirección del tile
+        tile_diagnosis = ""
+        if len(non_zero_tiles) > 0:
+            # Tomar el primer tile no-cero como ejemplo
+            example_tile_id = non_zero_tiles[0]
+            # Calcular dirección del tile en VRAM
+            if unsigned_addressing:
+                example_tile_addr = data_base + (example_tile_id * BYTES_PER_TILE)
+            else:
+                # Modo signed
+                if example_tile_id >= 128:
+                    signed_id = example_tile_id - 256
+                else:
+                    signed_id = example_tile_id
+                example_tile_addr = 0x9000 + (signed_id * BYTES_PER_TILE)
+            
+            # Leer los primeros 4 bytes del tile (2 líneas)
+            tile_bytes = []
+            for i in range(4):
+                tile_byte = self.mmu.read_byte(example_tile_addr + i) & 0xFF
+                tile_bytes.append(tile_byte)
+            
+            tile_diagnosis = (
+                f", Tile 0x{example_tile_id:02X} @ 0x{example_tile_addr:04X} = "
+                f"{[f'{b:02X}' for b in tile_bytes]}"
+            )
+        
+        logger.info(
+            f"DIAGNÓSTICO VRAM/Tilemap: "
+            f"Tilemap[0:16]={[f'{t:02X}' for t in tilemap_sample[:8]]}... "
+            f"(tiles no-0: {len(non_zero_tiles)}/16), "
+            f"VRAM[0x8000:0x8020]={len(non_zero_vram)} bytes no-0, "
+            f"VRAM[0x9000:0x9020]={len(non_zero_vram_9000)} bytes no-0"
+            f"{tile_diagnosis}"
+        )
+        
         # Contador de tiles dibujados
         tiles_drawn = 0
         

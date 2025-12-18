@@ -2828,6 +2828,70 @@ def test_lcdc_bit0_off_no_bg_render(self) -> None:
 
 ---
 
+## 2025-12-17 - Paso 0034: Opcodes LD Indirect (0x0A, 0x1A, 0x3A)
+
+### Título del Cambio
+Opcodes LD Indirect (0x0A, 0x1A, 0x3A)
+
+### Descripción Técnica Breve
+Se implementaron tres opcodes de carga indirecta que faltaban en el emulador: **LD A, (BC)** (0x0A), **LD A, (DE)** (0x1A) y **LD A, (HL-)** (0x3A). Estos opcodes son esenciales para que Tetris DX pueda ejecutarse correctamente, ya que el juego los utiliza frecuentemente para leer datos de memoria usando diferentes registros como punteros.
+
+### Archivos Afectados
+- `src/cpu/core.py` - Añadidos métodos `_op_ld_a_bc_ptr()`, `_op_ld_a_de_ptr()` y `_op_ldd_a_hl_ptr()`, registrados opcodes 0x0A, 0x1A y 0x3A en dispatch table
+- `tests/test_cpu_ld_indirect.py` - Nuevo archivo con 5 tests para validar lectura desde BC, DE, HL con decremento, wrap-around y casos límite
+
+### Cómo se Validó
+
+#### Tests Unitarios - Opcodes LD Indirect
+- **Comando ejecutado**: `pytest -q tests/test_cpu_ld_indirect.py`
+- **Entorno**: macOS (darwin 21.6.0), Python 3.10+
+- **Resultado**: **5 passed** (todos los tests pasan correctamente)
+
+**Qué valida**:
+- `test_ld_a_bc_ptr`: Verifica que LD A, (BC) lee correctamente de memoria, actualiza A y no modifica BC. Valida que el opcode 0x0A funciona correctamente usando BC como puntero.
+- `test_ld_a_de_ptr`: Verifica que LD A, (DE) lee correctamente de memoria, actualiza A y no modifica DE. Valida que el opcode 0x1A funciona correctamente usando DE como puntero.
+- `test_ld_a_bc_ptr_wrap_around`: Verifica que LD A, (BC) funciona correctamente con direcciones en el límite (0xFFFF). Valida que el wrap-around funciona correctamente.
+- `test_ld_a_de_ptr_zero`: Verifica que LD A, (DE) funciona correctamente con dirección 0x0000. Valida que el opcode funciona en casos límite.
+- `test_ld_a_hl_ptr_decrement`: Verifica que LD A, (HL-) lee correctamente, actualiza A y decrementa HL. Valida que el opcode 0x3A funciona correctamente y decrementa HL después de la lectura.
+
+**Código del test (fragmento esencial)**:
+```python
+def test_ld_a_de_ptr(self) -> None:
+    """Test: Verificar LD A, (DE) - opcode 0x1A"""
+    mmu = MMU(None)
+    cpu = CPU(mmu)
+    
+    cpu.registers.set_pc(0x0100)
+    cpu.registers.set_de(0xD000)
+    cpu.registers.set_a(0x00)
+    
+    mmu.write_byte(0xD000, 0x55)
+    mmu.write_byte(0x0100, 0x1A)  # LD A, (DE)
+    
+    cycles = cpu.step()
+    
+    assert cycles == 2
+    assert cpu.registers.get_a() == 0x55
+    assert cpu.registers.get_pc() == 0x0101
+    assert cpu.registers.get_de() == 0xD000
+```
+
+**Ruta completa**: `tests/test_cpu_ld_indirect.py`
+
+**Validación con ROM Real (Tetris DX)**:
+- **ROM**: Tetris DX (ROM aportada por el usuario, no distribuida)
+- **Modo de ejecución**: UI con Pygame, logging DEBUG activado
+- **Criterio de éxito**: El juego debe ejecutarse sin crashear por opcodes no implementados. Antes de esta implementación, Tetris DX se crasheaba con errores de opcodes 0x1A y 0x3A no implementados.
+- **Observación**: Con estos opcodes implementados, el juego dejó de crashearse con errores de opcodes no implementados (0x1A y 0x3A), confirmando que estos opcodes son necesarios para la ejecución correcta del juego.
+- **Resultado**: **verified** - Los opcodes funcionan correctamente y el juego puede ejecutarse más allá de los puntos donde se crasheaba anteriormente.
+- **Notas legales**: La ROM de Tetris DX es aportada por el usuario para pruebas locales. No se distribuye, no se adjunta, y no se enlaza descarga alguna. Solo se usa para validar el comportamiento del emulador.
+
+#### Fuentes Consultadas:
+- Pan Docs: CPU Instruction Set - https://gbdev.io/pandocs/CPU_Instruction_Set.html
+- Pan Docs: CPU Registers and Flags - https://gbdev.io/pandocs/CPU_Registers_and_Flags.html
+
+---
+
 ## 2025-12-17 - Paso 0033: Forzar Renderizado y Scroll (SCX/SCY)
 
 ### Título del Cambio

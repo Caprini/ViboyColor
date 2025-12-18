@@ -119,6 +119,7 @@ class CPU:
             0xD4: self._op_call_nc_nn,  # CALL NC, nn (Call if Not Carry)
             0xDC: self._op_call_c_nn,   # CALL C, nn (Call if Carry)
             0xC9: self._op_ret,         # RET
+            0xD9: self._op_reti,        # RETI (Return from Interrupt)
             # Control de Interrupciones
             0xF3: self._op_di,          # DI (Disable Interrupts)
             0xFB: self._op_ei,          # EI (Enable Interrupts)
@@ -132,6 +133,9 @@ class CPU:
             0x22: self._op_ldi_hl_a,       # LD (HL+), A (LDI (HL), A)
             0x32: self._op_ldd_hl_a,       # LD (HL-), A (LDD (HL), A)
             0x2A: self._op_ldi_a_hl_ptr,   # LD A, (HL+) (LDI A, (HL))
+            0x3A: self._op_ldd_a_hl_ptr,   # LD A, (HL-) (LDD A, (HL))
+            0x0A: self._op_ld_a_bc_ptr,    # LD A, (BC)
+            0x1A: self._op_ld_a_de_ptr,    # LD A, (DE)
             0x02: self._op_ld_bc_ptr_a,    # LD (BC), A
             0x12: self._op_ld_de_ptr_a,    # LD (DE), A
             0xEA: self._op_ld_nn_ptr_a,    # LD (nn), A (direccionamiento directo)
@@ -2251,6 +2255,42 @@ class CPU:
         logger.debug(f"RET -> PC=0x{return_addr:04X} (SP=0x{self.registers.get_sp():04X})")
         return 4
 
+    def _op_reti(self) -> int:
+        """
+        RETI (Return from Interrupt) - Opcode 0xD9
+        
+        Retorna de una rutina de interrupción (ISR - Interrupt Service Routine).
+        Es igual que RET pero además reactiva IME (Interrupt Master Enable).
+        
+        Cuando una interrupción se procesa, IME se desactiva automáticamente para
+        evitar interrupciones anidadas. RETI reactiva IME para permitir que las
+        interrupciones vuelvan a funcionar después de salir de la rutina.
+        
+        Proceso:
+        1. POP dirección de retorno de la pila
+        2. Saltar a esa dirección (establecer PC = dirección de retorno)
+        3. Reactivar IME (IME = True)
+        
+        Returns:
+            4 M-Cycles (fetch opcode + pop 2 bytes de la pila)
+            
+        Fuente: Pan Docs - CPU Instruction Set (RETI)
+        """
+        # Recuperar dirección de retorno de la pila
+        return_addr = self._pop_word()
+        
+        # Saltar a la dirección de retorno
+        self.registers.set_pc(return_addr)
+        
+        # Reactivar IME (esto es lo que diferencia RETI de RET)
+        self.ime = True
+        
+        logger.debug(
+            f"RETI -> PC=0x{return_addr:04X}, IME=True "
+            f"(SP=0x{self.registers.get_sp():04X})"
+        )
+        return 4
+
     # ========== Handlers de Control de Interrupciones ==========
 
     def _op_di(self) -> int:
@@ -2579,6 +2619,93 @@ class CPU:
         new_hl = (hl_addr + 1) & 0xFFFF
         self.registers.set_hl(new_hl)
         logger.debug(f"LD A, (HL+) -> A = 0x{value:02X} from (0x{hl_addr:04X}), HL = 0x{new_hl:04X}")
+        return 2
+    
+    def _op_ldd_a_hl_ptr(self) -> int:
+        """
+        LD A, (HL-) / LDD A, (HL) (Load from (HL) into A and decrement HL) - Opcode 0x3A
+        
+        Lee el valor de la dirección apuntada por HL y lo carga en A, luego decrementa HL.
+        
+        Es el complemento de LD (HL-), A. Útil para bucles de lectura rápida que recorren
+        la memoria hacia atrás.
+        
+        Ejemplo:
+        - HL = 0xC000
+        - Memoria[0xC000] = 0x42
+        - Ejecutar LD A, (HL-)
+        - Resultado: A = 0x42, HL = 0xBFFF
+        
+        Returns:
+            2 M-Cycles (fetch opcode + read from memory)
+            
+        Fuente: Pan Docs - Instruction Set (LDD A, (HL))
+        """
+        hl_addr = self.registers.get_hl()
+        value = self.mmu.read_byte(hl_addr)
+        self.registers.set_a(value)
+        # Decrementar HL (wrap-around de 16 bits)
+        new_hl = (hl_addr - 1) & 0xFFFF
+        self.registers.set_hl(new_hl)
+        logger.debug(f"LD A, (HL-) -> A = 0x{value:02X} from (0x{hl_addr:04X}), HL = 0x{new_hl:04X}")
+        return 2
+    
+    def _op_ld_a_bc_ptr(self) -> int:
+        """
+        LD A, (BC) (Load from memory address pointed by BC into A) - Opcode 0x0A
+        
+        Lee un byte de la dirección de memoria apuntada por BC y lo carga en A.
+        
+        Es el gemelo de LD (BC), A: mientras que 0x02 escribe A en memoria,
+        0x0A lee de memoria y lo guarda en A.
+        
+        Similar a LD A, (HL) pero usando BC como puntero. Útil para leer
+        datos usando BC como contador o puntero secundario.
+        
+        Ejemplo:
+        - BC = 0xC000
+        - Memoria[0xC000] = 0x42
+        - Ejecutar LD A, (BC)
+        - Resultado: A = 0x42, BC sigue siendo 0xC000
+        
+        Returns:
+            2 M-Cycles (fetch opcode + read from memory)
+            
+        Fuente: Pan Docs - Instruction Set (LD A, (BC))
+        """
+        bc_addr = self.registers.get_bc()
+        value = self.mmu.read_byte(bc_addr)
+        self.registers.set_a(value)
+        logger.debug(f"LD A, (BC) -> A = 0x{value:02X} from (0x{bc_addr:04X})")
+        return 2
+    
+    def _op_ld_a_de_ptr(self) -> int:
+        """
+        LD A, (DE) (Load from memory address pointed by DE into A) - Opcode 0x1A
+        
+        Lee un byte de la dirección de memoria apuntada por DE y lo carga en A.
+        
+        Es el gemelo de LD (DE), A: mientras que 0x12 escribe A en memoria,
+        0x1A lee de memoria y lo guarda en A.
+        
+        Similar a LD A, (HL) pero usando DE como puntero. Útil para leer
+        datos usando DE como puntero de origen en operaciones de copia.
+        
+        Ejemplo:
+        - DE = 0xD000
+        - Memoria[0xD000] = 0x55
+        - Ejecutar LD A, (DE)
+        - Resultado: A = 0x55, DE sigue siendo 0xD000
+        
+        Returns:
+            2 M-Cycles (fetch opcode + read from memory)
+            
+        Fuente: Pan Docs - Instruction Set (LD A, (DE))
+        """
+        de_addr = self.registers.get_de()
+        value = self.mmu.read_byte(de_addr)
+        self.registers.set_a(value)
+        logger.debug(f"LD A, (DE) -> A = 0x{value:02X} from (0x{de_addr:04X})")
         return 2
     
     def _op_ld_bc_ptr_a(self) -> int:

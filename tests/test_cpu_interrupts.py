@@ -246,3 +246,41 @@ class TestCPUInterrupts:
             assert cpu.registers.get_pc() == expected_vector, \
                 f"{name} debe saltar a 0x{expected_vector:04X}, pero saltó a 0x{cpu.registers.get_pc():04X}"
 
+    def test_reti_reactivates_ime(self) -> None:
+        """
+        Test: RETI reactiva IME después de retornar de una interrupción.
+        
+        Verifica que RETI:
+        - Hace POP de la dirección de retorno de la pila
+        - Salta a esa dirección (igual que RET)
+        - Reactiva IME (esto es lo que lo diferencia de RET)
+        - Consume 4 M-Cycles
+        """
+        mmu = MMU(None)
+        cpu = CPU(mmu)
+        
+        # Configurar estado inicial
+        cpu.registers.set_pc(0x0040)  # Estamos en la rutina de interrupción V-Blank
+        cpu.registers.set_sp(0xFFFC)  # Stack Pointer (ya se hizo PUSH PC antes)
+        cpu.ime = False  # IME desactivado (se desactiva automáticamente al procesar interrupción)
+        
+        # Simular que hay una dirección de retorno en la pila (0x1234)
+        # La pila crece hacia abajo, así que 0xFFFC contiene el LSB y 0xFFFD contiene el MSB
+        mmu.write_byte(0xFFFC, 0x34)  # LSB de 0x1234
+        mmu.write_byte(0xFFFD, 0x12)  # MSB de 0x1234
+        
+        # Escribir RETI en la posición actual
+        mmu.write_byte(0x0040, 0xD9)  # Opcode RETI
+        
+        # Ejecutar RETI
+        cycles = cpu.step()
+        
+        # Verificaciones
+        assert cycles == 4, f"RETI debe consumir 4 M-Cycles, consumió {cycles}"
+        assert cpu.registers.get_pc() == 0x1234, \
+            f"PC debe ser 0x1234 (dirección de retorno), es 0x{cpu.registers.get_pc():04X}"
+        assert cpu.registers.get_sp() == 0xFFFE, \
+            f"SP debe ser 0xFFFE (incrementó 2 bytes), es 0x{cpu.registers.get_sp():04X}"
+        assert cpu.ime is True, \
+            "IME debe estar activado después de RETI (esto es lo que diferencia RETI de RET)"
+
