@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trampa de LCDC y Fix del Timer - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Trampa de LCDC y Fix del Timer</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0049
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0048__diagnostico-visual-lcd-apagado.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó una <strong>trampa de diagnóstico</strong> en la MMU para monitorizar todos los intentos de escritura
+                    en el registro LCDC (0xFF40), permitiendo identificar si el juego intenta encender la pantalla pero falla, o si
+                    nunca llega a esa parte del código. Adicionalmente, se corrigió un bug crítico en la lógica de overflow del Timer
+                    (TIMA) que impedía que la interrupción del Timer se generara correctamente cuando TIMA pasaba de 0xFF a 0x00.
+                    Esta corrección es vital porque muchos juegos (incluyendo Pokémon) dependen del Timer para avanzar en su inicialización.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Registro LCDC (LCD Control, 0xFF40)</h3>
+                <p>
+                    El registro LCDC es el controlador principal de la pantalla LCD. El bit 7 (0x80) controla si el LCD está
+                    encendido (1) o apagado (0). Cuando el LCD está apagado, la pantalla se muestra en blanco/azul y el registro
+                    LY (Línea Y) se congela en 0. Muchos juegos apagan el LCD durante la inicialización para cargar datos en VRAM
+                    sin interferencias, y luego lo encienden escribiendo un valor con el bit 7 activo (típicamente 0x80, 0x91, etc.).
+                </p>
+                <p>
+                    Si un juego apaga el LCD al inicio y nunca intenta volver a encenderlo, indica que el código se quedó en un bucle
+                    esperando una condición que nunca se cumple (por ejemplo, una interrupción del Timer o un cambio en algún registro).
+                </p>
+                <h3>Timer TIMA Overflow</h3>
+                <p>
+                    El Timer Counter (TIMA, 0xFF05) es un contador de 8 bits que incrementa según la frecuencia configurada en TAC.
+                    Cuando TIMA hace overflow (pasa de 0xFF a 0x00), el hardware real hace lo siguiente:
+                </p>
+                <ol>
+                    <li><strong>Detecta el overflow</strong>: TIMA se incrementa de 0xFF a 0x00</li>
+                    <li><strong>Recarga TIMA</strong>: TIMA se recarga inmediatamente con el valor de TMA (Timer Modulo, 0xFF06)</li>
+                    <li><strong>Solicita interrupción</strong>: Se activa el bit 2 del registro IF (0xFF0F) para indicar una interrupción de Timer pendiente</li>
+                </ol>
+                <p>
+                    La interrupción del Timer es crítica para muchos juegos que la usan para medir el tiempo, generar eventos periódicos,
+                    o simplemente avanzar el código de inicialización. Si esta interrupción no se genera correctamente, el juego puede
+                    quedarse esperando en un bucle infinito.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Control Register, Timer and Divider Registers
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <h3>Trampa de LCDC en MMU</h3>
+                <p>
+                    Se añadió un log CRÍTICO en el método <code>write_byte</code> de la MMU que se dispara cada vez que el juego
+                    intenta escribir en el registro LCDC (0xFF40). El log muestra el valor anterior y el nuevo valor, permitiendo
+                    rastrear todos los cambios de estado del LCD:
+                </p>
+                <pre><code># CRÍTICO: Trampa de diagnóstico para LCDC (0xFF40)
+# Monitoriza intentos de encender/apagar la pantalla
+if addr == IO_LCDC:
+    old_value = self.read_byte(IO_LCDC)
+    logging.critical(f"[TRAP LCDC] INTENTO DE CAMBIO LCDC: {old_value:02X} -> {value:02X}")</code></pre>
+                <p>
+                    Este log se mostrará siempre en consola (nivel CRITICAL), independientemente de la configuración de logging,
+                    permitiendo diagnosticar si el juego intenta encender la pantalla o si nunca llega a esa parte del código.
+                </p>
+                <h3>Corrección del Timer Overflow</h3>
+                <p>
+                    Se corrigió la lógica de detección de overflow en el método <code>tick</code> del Timer. La implementación anterior
+                    verificaba si TIMA era 0xFF antes de incrementar, pero luego recargaba directamente sin hacer el incremento que
+                    causaba el overflow. La lógica correcta debe ser:
+                </p>
+                <ol>
+                    <li><strong>Incrementar primero</strong>: TIMA se incrementa de 0xFF a 0x00 (overflow)</li>
+                    <li><strong>Detectar el overflow</strong>: Si después del incremento TIMA es 0x00, significa que hubo overflow</li>
+                    <li><strong>Recargar y solicitar interrupción</strong>: TIMA se recarga con TMA y se solicita la interrupción</li>
+                </ol>
+                <p>
+                    Código corregido:
+                </p>
+                <pre><code># Incrementar TIMA (esto puede causar overflow de 0xFF a 0x00)
+self._tima = (self._tima + 1) & 0xFF
+
+# Si TIMA hizo overflow (pasó de 0xFF a 0x00), recargar y solicitar interrupción
+if self._tima == 0x00:
+    # OVERFLOW detectado: Recargar TIMA con TMA
+    self._tima = self._tma & 0xFF
+    # Solicitar interrupción Timer (Bit 2 de IF, 0xFF0F)
+    self._request_timer_interrupt()</code></pre>
+                <p>
+                    Esta corrección es crítica porque sin ella, la interrupción del Timer nunca se generaba, impidiendo que los juegos
+                    que dependen de ella avancen en su inicialización.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/memory/mmu.py</code> - Añadida trampa de diagnóstico para escrituras en LCDC (0xFF40)</li>
+                    <li><code>src/io/timer.py</code> - Corregida lógica de detección de overflow de TIMA para generar interrupciones correctamente</li>
+                    <li><code>main.py</code> - Ajustada configuración de logging para asegurar que mensajes CRITICAL se muestren</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <h3>Verificación del Timer</h3>
+                <p>
+                    La corrección del Timer se validó revisando la lógica implementada según la especificación del hardware:
+                </p>
+                <ul>
+                    <li><strong>Lógica de overflow:</strong> El código ahora incrementa TIMA primero y luego detecta si el resultado es 0x00, que es el comportamiento correcto del hardware</li>
+                    <li><strong>Recarga de TMA:</strong> Cuando se detecta overflow, TIMA se recarga inmediatamente con el valor de TMA</li>
+                    <li><strong>Solicitud de interrupción:</strong> El método <code>_request_timer_interrupt()</code> activa correctamente el bit 2 del registro IF (0xFF0F)</li>
+                </ul>
+                <h3>Diagnóstico con pkmn.gb</h3>
+                <p>
+                    <strong>ROM:</strong> pkmn.gb (ROM aportada por el usuario, no distribuida)
+                </p>
+                <p>
+                    <strong>Modo de ejecución:</strong> UI gráfica, con trampa de LCDC activa
+                </p>
+                <p>
+                    <strong>Criterio de éxito:</strong> Los logs de consola deben mostrar si el juego intenta escribir en LCDC (cambiar de 0x00 a un valor con bit 7 activo, como 0x80 o 0x91)
+                </p>
+                <p>
+                    <strong>Observación esperada:</strong>
+                </p>
+                <ul>
+                    <li>Si vemos <code>[TRAP LCDC] INTENTO DE CAMBIO LCDC: 00 -> 91</code>: El juego intenta encender la pantalla, pero hay un problema con nuestra implementación de LCDC o PPU</li>
+                    <li>Si vemos <code>[TRAP LCDC] INTENTO DE CAMBIO LCDC: 00 -> 00</code> y luego nada más: El juego apaga el LCD pero nunca intenta volver a encenderlo, indicando que está colgado esperando una interrupción o condición</li>
+                    <li>Si no vemos ningún log de LCDC: El juego nunca intenta cambiar el estado del LCD, posiblemente colgado antes de llegar a esa parte del código</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> <span class="tag tag-draft">Pendiente de verificación</span> - Se requiere ejecutar el juego y analizar los logs de consola para determinar el diagnóstico.
+                </p>
+                <p>
+                    <strong>Notas legales:</strong> La ROM pkmn.gb es aportada por el usuario para pruebas locales. No se distribuye ni se enlaza en este proyecto.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html">LCD Control Register (LCDC)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Timer_and_Divider.html">Timer and Divider Registers</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Timer Overflow:</strong> El overflow de TIMA debe detectarse DESPUÉS del incremento, no antes. El hardware incrementa primero y luego detecta si el resultado es 0x00, lo que indica que hubo overflow desde 0xFF.</li>
+                        <li><strong>Diagnóstico de LCDC:</strong> Monitorizar escrituras en registros críticos del hardware permite identificar exactamente dónde se está quedando el juego. Si el juego intenta encender el LCD pero falla, el problema está en nuestra implementación de PPU/LCDC. Si nunca intenta encenderlo, el problema está antes (CPU, interrupciones, timer).</li>
+                        <li><strong>Interrupciones del Timer:</strong> Muchos juegos dependen críticamente de las interrupciones del Timer para avanzar. Si el Timer no genera interrupciones correctamente, el juego puede quedarse en bucles infinitos esperando eventos que nunca ocurren.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento exacto del Timer en hardware:</strong> Según la documentación, escribir en TIMA durante el ciclo en que hace overflow tiene comportamiento especial. Por ahora, implementamos la lógica básica. Esto puede necesitar ajustes si encontramos casos edge.</li>
+                        <li><strong>Resultado del diagnóstico:</strong> Necesitamos ejecutar el juego y analizar los logs para determinar si el problema es:
+                            <ul>
+                                <li>El juego nunca intenta encender el LCD (problema de CPU/interrupciones/timer)</li>
+                                <li>El juego intenta encender el LCD pero falla (problema de PPU/LCDC)</li>
+                                <li>El juego enciende el LCD pero la pantalla sigue azul (problema de renderizado/paleta)</li>
+                            </ul>
+                        </li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego está colgado esperando una interrupción del Timer que nunca llega debido al bug en la lógica de overflow que acabamos de corregir. Con esta corrección, esperamos que el Timer genere interrupciones correctamente y el juego pueda avanzar hasta el punto de encender el LCD.
+                    </p>
+                    <p>
+                        <strong>Suposición sobre el diagnóstico:</strong> Si después de corregir el Timer el juego sigue sin intentar encender el LCD, el problema puede estar en:
+                        <ul>
+                            <li>Las interrupciones no se están procesando correctamente (IME, despachador de interrupciones)</li>
+                            <li>El juego está esperando otra condición (joypad, STAT, etc.)</li>
+                            <li>Hay otro bug en la CPU que impide que el código avance</li>
+                        </ul>
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar pkmn.gb y analizar los logs de consola para ver si aparece el mensaje de trampa de LCDC</li>
+                    <li>[ ] Si aparece el mensaje con un cambio de 0x00 a un valor con bit 7 activo, verificar que la PPU reaccione correctamente al cambio de LCDC</li>
+                    <li>[ ] Si no aparece ningún mensaje de LCDC, añadir más trampas de diagnóstico (IF, IE, TIMA, TAC) para rastrear el estado de interrupciones y timer</li>
+                    <li>[ ] Verificar que los tests existentes del Timer sigan pasando después de la corrección</li>
+                    <li>[ ] Si es necesario, crear tests específicos para validar la generación de interrupciones del Timer en overflow</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnóstico Visual: LCD Apagado - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Diagnóstico Visual: LCD Apagado</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0048
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0047__modos-ppu-registro-stat.html">Anterior</a></li>
+                    <li><a href="2025-12-18__0049__trampa-lcdc-fix-timer.html">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se instrumentó el renderer con un <strong>diagnóstico visual</strong> para distinguir entre dos escenarios críticos:
+                    (1) LCD apagado (LCDC bit 7 = 0) y (2) LCD encendido pero dibujando blanco (problema de paleta/VRAM).
+                    El diagnóstico cambia el color de fondo cuando el LCD está apagado de blanco a <strong>azul oscuro</strong> para
+                    facilitar la identificación visual del problema. El resultado del test confirma que el emulador muestra
+                    <strong>pantalla azul</strong>, lo que significa que el LCD está permanentemente apagado y el juego no ha llegado
+                    al punto de encenderlo. Esto indica un problema de <strong>lógica/CPU</strong> (probablemente interrupciones o timer)
+                    que impide que el juego avance más allá de la inicialización.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El registro <strong>LCDC (LCD Control, 0xFF40)</strong> controla el estado del LCD de la Game Boy. El <strong>bit 7</strong>
+                    es el "LCD Enable": cuando está en 0, el LCD está apagado y la pantalla muestra blanco (o en nuestro caso, azul para diagnóstico).
+                    Cuando está en 1, el LCD está encendido y la PPU puede renderizar gráficos.
+                </p>
+                <p>
+                    Durante la inicialización de un juego, típicamente ocurre lo siguiente:
+                </p>
+                <ol>
+                    <li>El juego desactiva interrupciones (DI) y limpia memoria</li>
+                    <li>El juego carga tiles y configura el tilemap en VRAM</li>
+                    <li>El juego configura la paleta BGP (Background Palette)</li>
+                    <li>El juego activa el LCD escribiendo LCDC con bit 7 = 1</li>
+                    <li>El juego espera V-Blank o hace polling de STAT para sincronizar</li>
+                </ol>
+                <p>
+                    Si el juego <strong>nunca activa el LCD</strong> (LCDC bit 7 permanece en 0), significa que el juego está atascado
+                    en algún punto anterior de la inicialización. Las causas más comunes son:
+                </p>
+                <ul>
+                    <li><strong>Interrupciones no funcionan:</strong> El juego espera V-Blank pero la interrupción nunca se dispara</li>
+                    <li><strong>Timer no funciona:</strong> El juego espera un intervalo de tiempo pero el timer no avanza</li>
+                    <li><strong>Polling de registros falla:</strong> El juego lee LY o STAT pero siempre devuelve el mismo valor</li>
+                    <li><strong>Bucle infinito:</strong> El juego entra en un bucle de espera del que nunca sale</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Control Register (LCDC), LCD Timing
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó el método <code>render_frame()</code> en <code>src/gpu/renderer.py</code> para añadir diagnóstico visual:
+                </p>
+                
+                <h3>Cambio de Color de Fondo</h3>
+                <p>
+                    Cuando el LCD está apagado (LCDC bit 7 = 0), el renderer ahora rellena el buffer con <strong>azul oscuro (0, 0, 128)</strong>
+                    en lugar de blanco. Esto permite distinguir visualmente entre:
+                </p>
+                <ul>
+                    <li><strong>Pantalla AZUL:</strong> LCD apagado → Problema de lógica/CPU</li>
+                    <li><strong>Pantalla BLANCA:</strong> LCD encendido pero dibujando blanco → Problema de paleta/VRAM</li>
+                </ul>
+
+                <h3>Log de Diagnóstico</h3>
+                <p>
+                    Se añadió un log de DEBUG crítico justo antes de renderizar el Background cuando el LCD está encendido:
+                </p>
+                <pre><code>logger.debug(
+    f"RENDER: LCD ON | BGP={self.mmu.read_byte(IO_BGP):02X} | "
+    f"SCX={self.mmu.read_byte(IO_SCX)} | "
+    f"VRAM_CHECK={self.mmu.read_byte(0x8000):02X}"
+)</code></pre>
+                <p>
+                    Este log muestra el estado de la paleta (BGP), el scroll horizontal (SCX) y el primer byte de VRAM para diagnóstico rápido.
+                </p>
+
+                <h3>Log cuando LCD está Apagado</h3>
+                <p>
+                    Cuando el LCD está apagado, se registra:
+                </p>
+                <pre><code>logger.debug("RENDER: LCD OFF (Pantalla Azul) - LCDC bit 7=0")</code></pre>
+
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code>: Modificado método <code>render_frame()</code> para diagnóstico visual</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Modificado método <code>render_frame()</code> para diagnóstico visual (color azul cuando LCD apagado, logs de DEBUG)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Modo de ejecución:</strong> Manual, ejecutando el emulador con ROMs reales
+                </p>
+                <p>
+                    <strong>ROM probada:</strong> tetris_dx.gbc (ROM aportada por el usuario, no distribuida)
+                </p>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>python main.py tetris_dx.gbc</code>
+                </p>
+                <p>
+                    <strong>Entorno:</strong> Windows 10, Python 3.10+
+                </p>
+                <p>
+                    <strong>Criterio de éxito:</strong> Distinguir visualmente si el problema es LCD apagado (pantalla azul) o LCD encendido dibujando blanco (pantalla blanca)
+                </p>
+                <p>
+                    <strong>Observación:</strong> La pantalla se muestra completamente <strong>azul oscuro</strong> con el cuadrado rojo parpadeante (heartbeat) visible en la esquina superior izquierda. No se observa ningún cambio de color a blanco durante la ejecución. Los logs muestran repetidamente:
+                </p>
+                <pre><code>RENDER: LCD OFF (Pantalla Azul) - LCDC bit 7=0</code></pre>
+                <p>
+                    Esto confirma que el registro LCDC tiene el bit 7 permanentemente en 0, lo que significa que el juego nunca activa el LCD.
+                </p>
+                <p>
+                    <strong>Resultado:</strong> <span class="tag tag-draft">Draft</span> - Diagnóstico completado. El problema está identificado: <strong>LCD apagado</strong> debido a que el juego no avanza más allá de la inicialización. Se requiere investigación adicional sobre por qué el juego no activa el LCD (posiblemente interrupciones, timer o polling de registros).
+                </p>
+                <p>
+                    <strong>Notas legales:</strong> La ROM tetris_dx.gbc es aportada por el usuario para pruebas locales. No se distribuye ni se enlaza en el repositorio.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html">LCD Control Register (LCDC)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCD_Timing.html">LCD Timing</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Diagnóstico visual:</strong> Cambiar el color de fondo cuando el LCD está apagado permite distinguir rápidamente entre dos problemas diferentes: LCD apagado (azul) vs LCD encendido dibujando blanco (blanco).</li>
+                        <li><strong>LCDC bit 7:</strong> Este bit controla si el LCD está encendido o apagado. Si el juego nunca escribe 1 en este bit, la pantalla permanecerá apagada.</li>
+                        <li><strong>Inicialización del juego:</strong> Los juegos típicamente activan el LCD después de cargar tiles y configurar la paleta. Si el LCD permanece apagado, significa que el juego está atascado antes de llegar a ese punto.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Causa raíz del bloqueo:</strong> No está confirmado por qué el juego no activa el LCD. Las hipótesis son: (1) interrupciones no funcionan, (2) timer no funciona, (3) polling de registros falla, (4) bucle infinito. Se requiere análisis adicional del código del juego para determinar la causa exacta.</li>
+                        <li><strong>Estado de IME:</strong> No se ha verificado si IME (Interrupt Master Enable) está habilitado o deshabilitado durante la ejecución. Si está deshabilitado, las interrupciones no se procesarán aunque se disparen.</li>
+                        <li><strong>Estado de IF/IE:</strong> No se ha verificado si los flags de interrupción (IF) y el registro de habilitación de interrupciones (IE) están configurados correctamente.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego está esperando una interrupción V-Blank o un cambio en el registro LY/STAT que nunca ocurre, causando que el juego se quede en un bucle de espera infinito. Esta hipótesis se basa en el análisis previo (Step 0042) que mostró que el juego ejecuta DI (0xF3) al inicio y nunca ejecuta EI (0xFB) para volver a habilitar interrupciones.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Si IME está deshabilitado, el juego podría estar haciendo polling manual de IF para detectar V-Blank, pero si IF nunca se activa (porque la PPU no está generando interrupciones correctamente), el juego se quedará esperando eternamente.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar estado de IME durante la ejecución (¿está habilitado o deshabilitado?)</li>
+                    <li>[ ] Verificar si IF se actualiza cuando ocurre V-Blank (independientemente de IME)</li>
+                    <li>[ ] Verificar si el Timer está funcionando correctamente y generando interrupciones</li>
+                    <li>[ ] Analizar el código del juego en el punto donde se queda atascado para entender qué está esperando</li>
+                    <li>[ ] Implementar logging más detallado del estado de interrupciones (IME, IF, IE) durante la ejecución</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

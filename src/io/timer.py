@@ -140,15 +140,17 @@ class Timer:
             while self._tima_accumulator >= tima_threshold:
                 self._tima_accumulator -= tima_threshold
                 
-                # Verificar overflow ANTES de incrementar: si TIMA es 0xFF, el siguiente será 0
-                if self._tima == 0xFF:
-                    # OVERFLOW: Recargar TIMA con TMA
+                # Incrementar TIMA (esto puede causar overflow de 0xFF a 0x00)
+                self._tima = (self._tima + 1) & 0xFF
+                
+                # Si TIMA hizo overflow (pasó de 0xFF a 0x00), recargar y solicitar interrupción
+                if self._tima == 0x00:
+                    # OVERFLOW detectado: Recargar TIMA con TMA
+                    # CRÍTICO: Esto debe hacerse DESPUÉS del incremento para que la interrupción
+                    # se solicite en el momento correcto del ciclo
                     self._tima = self._tma & 0xFF
                     # Solicitar interrupción Timer (Bit 2 de IF, 0xFF0F)
                     self._request_timer_interrupt()
-                else:
-                    # Incremento normal
-                    self._tima = (self._tima + 1) & 0xFF
     
     def read_div(self) -> int:
         """

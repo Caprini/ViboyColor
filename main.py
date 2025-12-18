@@ -12,9 +12,11 @@ from pathlib import Path
 from src.viboy import Viboy
 
 # Configurar logging básico
+# CRITICAL siempre se muestra, incluso si el nivel es INFO
 logging.basicConfig(
     level=logging.INFO,
     format="%(levelname)s: %(message)s",
+    force=True,  # Forzar reconfiguración
 )
 
 

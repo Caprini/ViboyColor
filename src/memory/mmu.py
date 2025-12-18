@@ -38,6 +38,10 @@ if TYPE_CHECKING:
     from ..io.timer import Timer
 
 logger = logging.getLogger(__name__)
+# CRITICAL siempre debe mostrarse, independientemente del nivel del logger raíz
+# Asegurar que los mensajes CRITICAL se muestren para diagnóstico
+if logger.level == logging.NOTSET:
+    logger.setLevel(logging.CRITICAL)
 
 # ========== Constantes de Registros de Hardware (I/O Ports) ==========
 # La Game Boy controla sus periféricos escribiendo en direcciones específicas
@@ -383,6 +387,12 @@ class MMU:
             if self._timer is not None:
                 self._timer.write_tac(value)
                 return  # No escribir en memoria, el Timer maneja su propio estado
+        
+        # CRÍTICO: Trampa de diagnóstico para LCDC (0xFF40)
+        # Monitoriza intentos de encender/apagar la pantalla
+        if addr == IO_LCDC:
+            old_value = self.read_byte(IO_LCDC)
+            logging.critical(f"[TRAP LCDC] INTENTO DE CAMBIO LCDC: {old_value:02X} -> {value:02X}")
         
         # Interceptar escritura al registro DMA (0xFF46) - DMA Transfer
         # Cuando se escribe un valor XX en 0xFF46, se inicia una transferencia DMA
