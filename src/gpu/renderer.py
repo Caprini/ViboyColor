@@ -218,71 +218,22 @@ class Renderer:
         lcdc = self.mmu.read_byte(IO_LCDC) & 0xFF
         lcdc_bit7 = (lcdc & 0x80) != 0
         
-        # DIAGNÓSTICO: Log cuando LCDC es 0x80 (LCD ON, BG OFF) - estado crítico para Pokémon
-        if lcdc == 0x80:
-            logger.debug(
-                "RENDER: LCDC is 0x80 (Only LCD ON, BG OFF). "
-                "Drawing... (Game expects V-Blank interrupt to configure graphics)"
-            )
+        # Logs de diagnóstico desactivados para mejorar rendimiento
         
         # Leer registro BGP (Background Palette)
         bgp = self.mmu.read_byte(IO_BGP) & 0xFF
         
-        # Logging de diagnóstico (DEBUG para no ralentizar)
-        logger.debug(
-            f"Render frame: LCDC=0x{lcdc:02X} (bit7={lcdc_bit7}, LCD {'ON' if lcdc_bit7 else 'OFF'}), "
-            f"BGP=0x{bgp:02X}"
-        )
+        # Logs de diagnóstico desactivados para mejorar rendimiento
         
-        # VISUAL HEARTBEAT: Dibujar un cuadrado pequeño parpadeante en la esquina (0,0) para confirmar
-        # que Pygame está renderizando. Si vemos el cuadrado parpadeando, el video funciona
-        # y el problema es interno del emulador (no es un fallo de la ventana).
-        # Lógica: parpadea cada segundo (0.5s encendido, 0.5s apagado)
-        # CRÍTICO: Debe ejecutarse SIEMPRE, incluso si el LCD está apagado
-        try:
-            import time
-            heartbeat_on = (time.time() % 1.0) > 0.5
-            # Limpiar buffer primero
-            # DIAGNÓSTICO: Usar AZUL OSCURO cuando LCD está apagado para distinguir visualmente
-            # Si vemos pantalla AZUL = LCD apagado (problema de lógica/CPU)
-            # Si vemos pantalla BLANCA = LCD encendido pero dibujando blanco (problema de paleta/VRAM)
-            if not lcdc_bit7:
-                self.buffer.fill((0, 0, 128))  # Azul oscuro cuando LCD está apagado
-            else:
-                self.buffer.fill((255, 255, 255))  # Blanco cuando LCD está encendido
-            # Dibujar un cuadrado de 4x4 píxeles en la esquina (0,0) para que sea más visible
-            # después del escalado (4x4 en 160x144 se convierte en 12x12 en 480x432)
-            if heartbeat_on:
-                # Dibujar cuadrado rojo brillante
-                pygame.draw.rect(self.buffer, (255, 0, 0), (0, 0, 4, 4))
-            else:
-                # Dibujar cuadrado del color de fondo
-                if not lcdc_bit7:
-                    pygame.draw.rect(self.buffer, (0, 0, 128), (0, 0, 4, 4))
-                else:
-                    pygame.draw.rect(self.buffer, (255, 255, 255), (0, 0, 4, 4))
-        except Exception as e:
-            # Si falla el heartbeat, loguear el error para diagnóstico
-            logger.warning(f"Visual heartbeat falló: {e}")
-            pass
-        
-        # MODO RAYOS X: Forzar renderizado incluso si el LCD está apagado
-        # Esto es un modo de debug para ver qué hay en la VRAM cuando el juego
-        # apaga rápidamente el LCD (p.ej. Pokémon Red que enciende/apaga el LCD
-        # en milisegundos). Cuando el LCD está apagado, forzamos una configuración
-        # de LCDC para "adivinar" qué habría si estuviera encendido.
-        #
-        # NOTA: Esto no es comportamiento real del hardware, solo una herramienta
-        # de diagnóstico para entender qué hay en la VRAM durante el arranque.
+        # Comportamiento normal: Si el LCD está apagado (bit 7=0), mostrar pantalla blanca
+        # y no renderizar gráficos. Esto es el comportamiento real del hardware.
         if not lcdc_bit7:
-            # Forzar LCDC=0x91 para renderizar:
-            # - Bit 7=1: LCD ON (forzado)
-            # - Bit 4=1: Tile Data desde 0x8000 (unsigned)
-            # - Bit 3=0: Tile Map desde 0x9800
-            # - Bit 0=1: BG Display ON
-            lcdc = 0x91
-            lcdc_bit7 = True
-            logger.debug("RAYOS X: LCD apagado detectado, forzando render con LCDC=0x91 para visualizar VRAM")
+            # Pantalla blanca cuando LCD está apagado (comportamiento real del hardware)
+            self.buffer.fill((255, 255, 255))
+            scaled_buffer = pygame.transform.scale(self.buffer, (self.window_width, self.window_height))
+            self.screen.blit(scaled_buffer, (0, 0))
+            pygame.display.flip()
+            return
         
         # HACK EDUCATIVO: Ignorar Bit 0 de LCDC (BG Display)
         # En Game Boy Color, el Bit 0 no apaga el fondo, sino que cambia la prioridad
@@ -309,7 +260,8 @@ class Renderer:
         # No hay ninguna condición que bloquee el renderizado aquí - el código continúa
         # directamente a dibujar el fondo.
         
-        logger.debug("HACK EDUCATIVO: Ignorando Bit 0 de LCDC para compatibilidad con juegos CGB (LCDC=0x80)")
+        # HACK EDUCATIVO: Ignorar Bit 0 de LCDC (BG Display) - mantenido por compatibilidad
+        # pero sin logs para mejorar rendimiento
         
         # Bit 3: Tile Map Area
         # 0 = 0x9800, 1 = 0x9C00
@@ -341,13 +293,7 @@ class Renderer:
             PALETTE_GREYSCALE[(bgp >> 6) & 0x03],
         ]
         
-        # Advertencia si BGP es 0x00 (todo blanco) o 0xFF (todo negro)
-        if bgp == 0x00:
-            logger.warning("BGP=0x00: Paleta completamente blanca - pantalla aparecerá toda blanca")
-        elif bgp == 0xFF:
-            logger.info("BGP=0xFF: Paleta completamente negra")
-        elif bgp == 0xE4:
-            logger.debug("BGP=0xE4: Paleta estándar Game Boy (blanco->gris claro->gris oscuro->negro)")
+        # Logs de paleta desactivados para mejorar rendimiento
         
         # Leer registros de Scroll (SCX/SCY)
         # SCX (0xFF43): Scroll X - desplazamiento horizontal del fondo
@@ -356,7 +302,7 @@ class Renderer:
         scx = self.mmu.read_byte(IO_SCX) & 0xFF
         scy = self.mmu.read_byte(IO_SCY) & 0xFF
         
-        logger.debug(f"Scroll: SCX=0x{scx:02X} ({scx}), SCY=0x{scy:02X} ({scy})")
+        # Logs de scroll desactivados para mejorar rendimiento
         
         # Leer registros de Window (WX/WY)
         # WY (0xFF4A): Window Y - Posición Y en pantalla donde empieza la ventana
@@ -375,96 +321,17 @@ class Renderer:
         else:
             window_map_base = 0x9800
         
-        logger.debug(
-            f"Window: WX=0x{wx:02X} ({wx}), WY=0x{wy:02X} ({wy}), "
-            f"Enable={lcdc_bit5}, Map=0x{window_map_base:04X}"
-        )
+        # Logs de window desactivados para mejorar rendimiento
         
         # Limpiar framebuffer con color de fondo (índice 0 de la paleta)
         self.buffer.fill(palette[0])
         
-        # DIAGNÓSTICO CRÍTICO: Log del estado del LCD y paleta justo antes de renderizar
-        logger.debug(
-            f"RENDER: LCD ON | BGP={self.mmu.read_byte(IO_BGP):02X} | "
-            f"SCX={self.mmu.read_byte(IO_SCX)} | "
-            f"VRAM_CHECK={self.mmu.read_byte(0x8000):02X}"
-        )
+        # Logs de diagnóstico desactivados para mejorar rendimiento
         
-        # VISUAL HEARTBEAT: Asegurar que el cuadrado parpadeante esté visible también cuando el LCD está encendido
-        # (ya se dibujó arriba cuando el LCD estaba apagado, pero lo redibujamos aquí para que sea consistente)
-        try:
-            import time
-            heartbeat_on = (time.time() % 1.0) > 0.5
-            # Dibujar un cuadrado de 4x4 píxeles en la esquina (0,0)
-            if heartbeat_on:
-                pygame.draw.rect(self.buffer, (255, 0, 0), (0, 0, 4, 4))
-            else:
-                pygame.draw.rect(self.buffer, palette[0], (0, 0, 4, 4))
-        except Exception:
-            pass
+        # Visual heartbeat eliminado para mejorar rendimiento
         
-        # DIAGNÓSTICO: Verificar contenido de VRAM y tilemap cuando se renderiza
-        # Verificar algunos tiles del tilemap (primeras 16 posiciones = primera fila)
-        tilemap_sample = []
-        for i in range(16):
-            tile_id = self.mmu.read_byte(map_base + i) & 0xFF
-            tilemap_sample.append(tile_id)
-        
-        # Verificar si hay tiles no vacíos (tile_id != 0)
-        non_zero_tiles = [t for t in tilemap_sample if t != 0]
-        
-        # Verificar algunos bytes de VRAM (primeros 32 bytes = 2 tiles)
-        vram_sample = []
-        for i in range(32):
-            vram_byte = self.mmu.read_byte(VRAM_START + i) & 0xFF
-            vram_sample.append(vram_byte)
-        
-        # Verificar si VRAM tiene datos (no todo ceros)
-        non_zero_vram = [b for b in vram_sample if b != 0]
-        
-        # Verificar también en el rango 0x9000-0x9060 (donde están los tiles en modo signed)
-        vram_9000_sample = []
-        for i in range(32):
-            vram_byte = self.mmu.read_byte(0x9000 + i) & 0xFF
-            vram_9000_sample.append(vram_byte)
-        non_zero_vram_9000 = [b for b in vram_9000_sample if b != 0]
-        
-        # Log diagnóstico (INFO para que siempre se muestre)
-        # Si hay tiles en el tilemap, verificar qué hay en la dirección del tile
-        tile_diagnosis = ""
-        if len(non_zero_tiles) > 0:
-            # Tomar el primer tile no-cero como ejemplo
-            example_tile_id = non_zero_tiles[0]
-            # Calcular dirección del tile en VRAM
-            if unsigned_addressing:
-                example_tile_addr = data_base + (example_tile_id * BYTES_PER_TILE)
-            else:
-                # Modo signed
-                if example_tile_id >= 128:
-                    signed_id = example_tile_id - 256
-                else:
-                    signed_id = example_tile_id
-                example_tile_addr = 0x9000 + (signed_id * BYTES_PER_TILE)
-            
-            # Leer los primeros 4 bytes del tile (2 líneas)
-            tile_bytes = []
-            for i in range(4):
-                tile_byte = self.mmu.read_byte(example_tile_addr + i) & 0xFF
-                tile_bytes.append(tile_byte)
-            
-            tile_diagnosis = (
-                f", Tile 0x{example_tile_id:02X} @ 0x{example_tile_addr:04X} = "
-                f"{[f'{b:02X}' for b in tile_bytes]}"
-            )
-        
-        logger.debug(
-            f"DIAGNÓSTICO VRAM/Tilemap: "
-            f"Tilemap[0:16]={[f'{t:02X}' for t in tilemap_sample[:8]]}... "
-            f"(tiles no-0: {len(non_zero_tiles)}/16), "
-            f"VRAM[0x8000:0x8020]={len(non_zero_vram)} bytes no-0, "
-            f"VRAM[0x9000:0x9020]={len(non_zero_vram_9000)} bytes no-0"
-            f"{tile_diagnosis}"
-        )
+        # Diagnóstico de VRAM desactivado para mejorar rendimiento
+        # (comentado - solo activar si es necesario para debugging)
         
         # Contador de tiles dibujados
         tiles_drawn = 0
@@ -616,11 +483,7 @@ class Renderer:
         
         # Actualizar la pantalla
         pygame.display.flip()
-        logger.debug(
-            f"Frame renderizado: {tiles_drawn} píxeles dibujados, {sprites_drawn} sprites dibujados, "
-            f"map_base=0x{map_base:04X}, data_base=0x{data_base:04X}, unsigned={unsigned_addressing}, "
-            f"SCX=0x{scx:02X}, SCY=0x{scy:02X}, Window={lcdc_bit5} (WX=0x{wx:02X}, WY=0x{wy:02X})"
-        )
+        # Logs de frame desactivados para mejorar rendimiento
 
     def _draw_tile_with_palette(self, x: int, y: int, tile_addr: int, palette: list[tuple[int, int, int]]) -> None:
         """
@@ -686,8 +549,7 @@ class Renderer:
         
         # Si los sprites están deshabilitados, no renderizar nada
         if not lcdc_bit1:
-            logger.debug("Sprites deshabilitados (LCDC bit 1=0)")
-            return 0
+                return 0
         
         # Leer paletas de sprites
         obp0 = self.mmu.read_byte(IO_OBP0) & 0xFF  # Object Palette 0
@@ -816,7 +678,6 @@ class Renderer:
             
             sprites_drawn += 1
         
-        logger.debug(f"Sprites renderizados: {sprites_drawn}/40")
         return sprites_drawn
 
     def _draw_tile(self, x: int, y: int, tile_addr: int) -> None:

@@ -389,12 +389,8 @@ class Viboy:
         if self._renderer is not None:
             self._renderer.render_frame()
         
-        # Contador de frames para heartbeat (cada 60 frames ≈ 1 segundo)
+        # Contador de frames para heartbeat (cada 300 frames ≈ 5 segundos)
         frame_count = 0
-        
-        # Monitor de Signos Vitales basado en Tiempo Real
-        # Este monitor funciona incluso cuando el LCD está apagado y no hay frames
-        last_realtime_log = time.time()
         
         try:
             # BUCLE EXTERNO: Por cada frame (60 FPS)
@@ -436,16 +432,11 @@ class Viboy:
                         frame_rendered = True
                         frame_count += 1
                         
-                        # Heartbeat: cada 60 frames (≈1 segundo), mostrar estado
-                        # Incluir información de diagnóstico de VRAM
-                        # CRÍTICO: Usar print() además de logger para asegurar visibilidad
-                        # incluso si el nivel de logging está en WARNING
-                        if frame_count % 60 == 0:
+                        # Heartbeat: cada 300 frames (≈5 segundos), mostrar estado básico
+                        # Reducido para mejorar rendimiento (sin cálculos pesados de VRAM)
+                        if frame_count % 300 == 0:
                             fps = self._clock.get_fps() if self._clock is not None else 0.0
-                            vram_writes = self._mmu.get_vram_write_count() if self._mmu is not None else 0
-                            vram_sum = self._mmu.get_vram_checksum() if self._mmu is not None else 0
-                            heartbeat_msg = f"💓 Heartbeat (frame {frame_count}): FPS={fps:.2f}, VRAM writes={vram_writes}, VRAM_SUM={vram_sum}"
-                            print(heartbeat_msg, flush=True)  # print() para visibilidad garantizada
+                            heartbeat_msg = f"💓 Heartbeat (frame {frame_count}): FPS={fps:.2f}"
                             logger.info(heartbeat_msg)
                         
                         # Renderizar el frame
@@ -470,21 +461,16 @@ class Viboy:
                         self._renderer.render_frame()
                         self._cycles_since_render = 0
                 
-                # Monitor de Signos Vitales (cada 1.0 segundos reales)
-                # Funciona incluso cuando el LCD está apagado y no hay frames
-                current_time = time.time()
-                if current_time - last_realtime_log > 1.0:
-                    last_realtime_log = current_time
-                    pc = self._cpu.registers.get_pc()
-                    lcdc = self._mmu.read_byte(0xFF40) if self._mmu is not None else 0
-                    ly = self._ppu.get_ly() if self._ppu is not None else 0
-                    vital_msg = f"⏱️ VITAL: PC={pc:04X} | LCDC={lcdc:02X} | LY={ly} | Cycles={self._total_cycles}"
-                    logging.info(vital_msg)
-                    
-                    # DIAGNÓSTICO DE VRAM: Si LCDC es 00, ¿hay datos en VRAM?
-                    if lcdc & 0x80 == 0:
-                        vram_sum = self._mmu.get_vram_checksum() if self._mmu is not None else 0
-                        logging.info(f"   ↳ LCD OFF (Cargando...) | VRAM Checksum: {vram_sum}")
+                # Monitor de Signos Vitales desactivado para rendimiento
+                # (comentado para mejorar FPS - solo activar si es necesario para diagnóstico)
+                # current_time = time.time()
+                # if current_time - last_realtime_log > 1.0:
+                #     last_realtime_log = current_time
+                #     pc = self._cpu.registers.get_pc()
+                #     lcdc = self._mmu.read_byte(0xFF40) if self._mmu is not None else 0
+                #     ly = self._ppu.get_ly() if self._ppu is not None else 0
+                #     vital_msg = f"⏱️ VITAL: PC={pc:04X} | LCDC={lcdc:02X} | LY={ly} | Cycles={self._total_cycles}"
+                #     logging.info(vital_msg)
                 
                 # CRÍTICO: Control de FPS - FUERA del bucle interno de instrucciones
                 # tick() espera el tiempo necesario para mantener 60 FPS
