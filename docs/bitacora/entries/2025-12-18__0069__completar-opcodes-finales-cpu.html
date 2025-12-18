@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Completar Opcodes Finales de la CPU - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Completar Opcodes Finales de la CPU</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0069
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0068__aritmetica-pila-sp-offset.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó el opcode crítico <code>LD SP, HL</code> (0xF9) que faltaba en el set de instrucciones de la CPU. Este opcode es esencial para configurar stack frames y cambiar de contexto en rutinas complejas. También se verificó que los opcodes <code>JP (HL)</code> (0xE9) y <code>RETI</code> (0xD9) estaban correctamente implementados. El emulador había avanzado ejecutando Pokémon Red y chocó con el opcode 0xF9 no implementado, lo que indica que estamos muy cerca de completar el set de instrucciones. Se crearon 8 tests unitarios que validan el comportamiento correcto de estos tres opcodes críticos.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La CPU LR35902 proporciona tres instrucciones críticas para manipulación de pila y control de flujo:
+                </p>
+                <ul>
+                    <li><strong>LD SP, HL (0xF9)</strong>: Carga el valor del par de registros HL en el Stack Pointer (SP). Esta instrucción es útil para resetear la pila, cambiar de contexto (cambiar de stack frame) o configurar la pila al inicio de una rutina. Consume 2 M-Cycles y NO modifica flags. Es la operación inversa de <code>LD HL, SP+r8</code> (0xF8), pero sin offset.</li>
+                    <li><strong>JP (HL) (0xE9)</strong>: Salto indirecto usando el valor del par de registros HL como dirección destino. Es equivalente a <code>JP HL</code>, pero la sintaxis oficial es <code>JP (HL)</code>. Esta instrucción es útil para implementar tablas de saltos o llamadas a funciones mediante punteros. Consume 1 M-Cycle (solo lectura de registros, no memoria).</li>
+                    <li><strong>RETI (0xD9)</strong>: Retorna de una rutina de interrupción (ISR - Interrupt Service Routine). Es igual que <code>RET</code> pero además reactiva IME (Interrupt Master Enable). Cuando una interrupción se procesa, IME se desactiva automáticamente para evitar interrupciones anidadas. RETI reactiva IME para permitir que las interrupciones vuelvan a funcionar después de salir de la rutina. Consume 4 M-Cycles.</li>
+                </ul>
+                <p>
+                    <strong>Uso en juegos:</strong> Estas instrucciones son fundamentales para:
+                </p>
+                <ul>
+                    <li><code>LD SP, HL</code>: Configurar stack frames en rutinas complejas, especialmente en sistemas de menú o combate donde se necesita cambiar de contexto.</li>
+                    <li><code>JP (HL)</code>: Implementar tablas de saltos (jump tables) donde diferentes valores en HL apuntan a diferentes rutinas. También se usa para llamadas indirectas a funciones.</li>
+                    <li><code>RETI</code>: Manejo correcto de interrupciones, especialmente V-Blank, que es crítico para el renderizado de gráficos.</li>
+                </ul>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó el opcode 0xF9 (<code>LD SP, HL</code>) y se verificó que los opcodes 0xE9 y 0xD9 estaban correctamente implementados.
+                </p>
+                
+                <h3>Opcode 0xF9: LD SP, HL</h3>
+                <p>
+                    Implementado en <code>_op_ld_sp_hl()</code>:
+                </p>
+                <ul>
+                    <li>Lee el valor de HL usando <code>self.registers.get_hl()</code>.</li>
+                    <li>Establece SP al valor de HL usando <code>self.registers.set_sp(hl_value)</code>.</li>
+                    <li>NO modifica flags (a diferencia de otras instrucciones LD).</li>
+                    <li>Consume 2 M-Cycles (fetch opcode + lectura de registros).</li>
+                </ul>
+                <p>
+                    La implementación es simple pero crítica: permite que los juegos configuren la pila dinámicamente basándose en valores calculados en HL.
+                </p>
+
+                <h3>Verificación de Opcodes Existentes</h3>
+                <p>
+                    Se verificó que los siguientes opcodes estaban correctamente implementados:
+                </p>
+                <ul>
+                    <li><strong>0xE9 (JP HL)</strong>: Ya implementado en <code>_op_jp_hl()</code>. Salta a la dirección en HL sin leer de memoria.</li>
+                    <li><strong>0xD9 (RETI)</strong>: Ya implementado en <code>_op_reti()</code>. Hace POP de la dirección de retorno y reactiva IME.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Simplicidad:</strong> La implementación de <code>LD SP, HL</code> es directa porque no requiere cálculos complejos ni modificación de flags. Se mantiene consistente con otras instrucciones LD de 16 bits como <code>LD SP, d16</code> (0x31).
+                </p>
+                <p>
+                    <strong>Tests exhaustivos:</strong> Se crearon tests para cubrir casos edge como wrap-around, valores cero, y verificación de que los flags no se modifican.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadido opcode 0xF9 a la tabla de despacho e implementada función <code>_op_ld_sp_hl()</code></li>
+                    <li><code>tests/test_cpu_final_ops.py</code> - Creado archivo nuevo con 8 tests unitarios para validar 0xF9, 0xE9 y 0xD9</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se crearon 8 tests unitarios en <code>tests/test_cpu_final_ops.py</code> que validan el comportamiento correcto de los tres opcodes:
+                </p>
+                
+                <h3>Tests para LD SP, HL (0xF9)</h3>
+                <ul>
+                    <li><strong>test_ld_sp_hl_basic</strong>: Verifica carga básica de HL en SP y que consume 2 M-Cycles.</li>
+                    <li><strong>test_ld_sp_hl_wraparound</strong>: Verifica manejo correcto de wrap-around con HL = 0xFFFF.</li>
+                    <li><strong>test_ld_sp_hl_zero</strong>: Verifica funcionamiento con HL = 0x0000.</li>
+                    <li><strong>test_ld_sp_hl_no_flags</strong>: Verifica que los flags NO se modifican (crítico).</li>
+                </ul>
+
+                <h3>Tests para JP (HL) (0xE9)</h3>
+                <ul>
+                    <li><strong>test_jp_hl_basic</strong>: Verifica salto básico a dirección en HL y que consume 1 M-Cycle.</li>
+                    <li><strong>test_jp_hl_jump_table</strong>: Verifica uso como tabla de saltos (usa valor del registro, no lee de memoria).</li>
+                </ul>
+
+                <h3>Tests para RETI (0xD9)</h3>
+                <ul>
+                    <li><strong>test_reti_basic</strong>: Verifica retorno de interrupción, reactivación de IME y que consume 4 M-Cycles.</li>
+                    <li><strong>test_reti_vs_ret</strong>: Verifica que RETI reactiva IME mientras que RET no lo hace.</li>
+                </ul>
+
+                <h3>Ejecución de Tests</h3>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>pytest tests/test_cpu_final_ops.py -v</code>
+                </p>
+                <p>
+                    <strong>Entorno:</strong> Windows 10, Python 3.13.5
+                </p>
+                <p>
+                    <strong>Resultado:</strong> ✅ <strong>8 passed</strong> en 0.06s
+                </p>
+                <p>
+                    <strong>Qué valida:</strong>
+                </p>
+                <ul>
+                    <li>Que <code>LD SP, HL</code> carga correctamente el valor de HL en SP sin modificar flags.</li>
+                    <li>Que <code>JP (HL)</code> salta correctamente a la dirección en HL usando solo el valor del registro.</li>
+                    <li>Que <code>RETI</code> retorna correctamente de interrupciones y reactiva IME (diferencia clave con RET).</li>
+                </ul>
+
+                <h3>Código del Test (Fragmento Esencial)</h3>
+                <pre><code>def test_ld_sp_hl_basic(self):
+    """Test: Verificar que LD SP, HL carga el valor de HL en SP."""
+    mmu = MMU()
+    cpu = CPU(mmu)
+    
+    cpu.registers.set_pc(0x0100)
+    cpu.registers.set_hl(0x1234)
+    cpu.registers.set_sp(0x0000)
+    
+    mmu.write_byte(0x0100, 0xF9)  # LD SP, HL
+    
+    cycles = cpu.step()
+    
+    assert cpu.registers.get_sp() == 0x1234, "SP debe ser 0x1234"
+    assert cpu.registers.get_hl() == 0x1234, "HL no debe cambiar"
+    assert cycles == 2, "LD SP, HL debe consumir 2 M-Cycles"</code></pre>
+
+                <p>
+                    <strong>Por qué este test demuestra algo del hardware:</strong> El test verifica que la CPU puede transferir el valor de un par de registros (HL) directamente al Stack Pointer sin realizar cálculos ni modificar flags. Esto es esencial para configurar stack frames dinámicamente, una operación común en código de juegos complejos.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set</a> - Referencia para LD SP, HL (0xF9), JP (HL) (0xE9) y RETI (0xD9)</li>
+                </ul>
+                <p>
+                    <em>Nota: Implementación basada en documentación técnica oficial de la CPU LR35902. No se consultó código de otros emuladores.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>LD SP, HL es crítico para stack frames:</strong> Los juegos usan esta instrucción para configurar la pila dinámicamente, especialmente en rutinas complejas como sistemas de menú o combate donde se necesita cambiar de contexto.</li>
+                        <li><strong>JP (HL) usa el valor del registro, no lee de memoria:</strong> A diferencia de instrucciones como <code>JP (nn)</code> que leen de memoria, <code>JP (HL)</code> usa directamente el valor del registro HL como dirección destino. Esto es útil para tablas de saltos.</li>
+                        <li><strong>RETI reactiva IME automáticamente:</strong> La diferencia clave entre RET y RETI es que RETI reactiva IME después de retornar, permitiendo que las interrupciones vuelvan a funcionar. Esto es esencial para el manejo correcto de interrupciones.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Opcodes restantes:</strong> Aunque hemos implementado los opcodes más comunes, puede haber algunos opcodes "fantasma" o poco usados que aún no están implementados. Se validará ejecutando ROMs de test completas.</li>
+                        <li><strong>Comportamiento en casos edge:</strong> Aunque los tests cubren casos básicos y wrap-around, el comportamiento real con ROMs comerciales puede revelar casos edge adicionales.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>LD SP, HL no modifica flags:</strong> Esta suposición está respaldada por la documentación de Pan Docs y se validó con tests. Sin embargo, si en el futuro encontramos comportamiento inesperado con ROMs reales, habrá que revisar.
+                    </p>
+                    <p>
+                        <strong>JP (HL) no lee de memoria:</strong> Esta suposición está respaldada por la documentación y se validó con tests. La instrucción usa directamente el valor del registro HL como dirección destino.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar Pokémon Red/Blue para verificar que el emulador avanza más allá del opcode 0xF9</li>
+                    <li>[ ] Identificar cualquier otro opcode faltante que pueda aparecer durante la ejecución</li>
+                    <li>[ ] Validar que el emulador puede ejecutar código complejo como sistemas de menú o combate</li>
+                    <li>[ ] Continuar con mejoras de renderizado y sincronización si es necesario</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

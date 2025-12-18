@@ -184,6 +184,7 @@ class CPU:
             # Aritmética de pila con offset (SP+r8)
             0xE8: self._op_add_sp_r8,      # ADD SP, r8
             0xF8: self._op_ld_hl_sp_r8,    # LD HL, SP+r8
+            0xF9: self._op_ld_sp_hl,       # LD SP, HL
             # Retornos condicionales
             0xC0: self._op_ret_nz,         # RET NZ
             0xC8: self._op_ret_z,          # RET Z
@@ -4889,6 +4890,35 @@ class CPU:
             f"H={h_flag} C={c_flag}"
         )
         return 3
+
+    def _op_ld_sp_hl(self) -> int:
+        """
+        LD SP, HL (Load Stack Pointer from HL) - Opcode 0xF9
+        
+        Carga el valor del par de registros HL en el Stack Pointer (SP).
+        Esta instrucción es útil para:
+        - Resetear la pila a una dirección conocida
+        - Cambiar de contexto (cambiar de stack frame)
+        - Configurar la pila al inicio de una rutina
+        
+        Es la operación inversa de LD HL, SP+r8 (0xF8), pero sin offset.
+        A diferencia de LD HL, SP+r8, esta instrucción NO modifica flags.
+        
+        Ejemplo:
+        - Si HL = 0xC000
+        - Ejecutar LD SP, HL
+        - Resultado: SP = 0xC000
+        
+        Returns:
+            2 M-Cycles (fetch opcode + lectura de registros)
+            
+        Fuente: Pan Docs - Instruction Set (LD SP, HL)
+        """
+        hl_value = self.registers.get_hl()
+        self.registers.set_sp(hl_value)
+        
+        logger.debug(f"LD SP, HL -> SP=0x{hl_value:04X} (HL=0x{hl_value:04X})")
+        return 2
 
     # ========== Handlers de Retornos Condicionales ==========
     

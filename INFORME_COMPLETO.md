@@ -1,5 +1,56 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Completar Opcodes Finales de la CPU (Step 0069) ✅ VERIFICADO
+
+### Conceptos Hardware Implementados
+
+**LD SP, HL (0xF9)**: Carga el valor del par de registros HL en el Stack Pointer (SP). Esta instrucción es útil para resetear la pila, cambiar de contexto (cambiar de stack frame) o configurar la pila al inicio de una rutina. Es la operación inversa de `LD HL, SP+r8` (0xF8), pero sin offset. Consume 2 M-Cycles y NO modifica flags. Es esencial para configurar stack frames dinámicamente en rutinas complejas como sistemas de menú o combate.
+
+**JP (HL) (0xE9)**: Salto indirecto usando el valor del par de registros HL como dirección destino. Es equivalente a `JP HL`, pero la sintaxis oficial es `JP (HL)`. Esta instrucción es útil para implementar tablas de saltos o llamadas a funciones mediante punteros. Consume 1 M-Cycle (solo lectura de registros, no memoria). A diferencia de instrucciones como `JP (nn)` que leen de memoria, `JP (HL)` usa directamente el valor del registro HL como dirección destino.
+
+**RETI (0xD9)**: Retorna de una rutina de interrupción (ISR - Interrupt Service Routine). Es igual que `RET` pero además reactiva IME (Interrupt Master Enable). Cuando una interrupción se procesa, IME se desactiva automáticamente para evitar interrupciones anidadas. RETI reactiva IME para permitir que las interrupciones vuelvan a funcionar después de salir de la rutina. Consume 4 M-Cycles.
+
+**Fuente**: Pan Docs - CPU Instruction Set (LD SP, HL / JP (HL) / RETI)
+
+#### Tareas Completadas:
+
+1. **Opcode 0xF9: `LD SP, HL` en `src/cpu/core.py`**:
+   - Implementado en `_op_ld_sp_hl()`
+   - Lee el valor de HL usando `self.registers.get_hl()`
+   - Establece SP al valor de HL usando `self.registers.set_sp(hl_value)`
+   - NO modifica flags (a diferencia de otras instrucciones LD)
+   - Consume 2 M-Cycles (fetch opcode + lectura de registros)
+   - Añadido a la tabla de despacho `_opcode_table`
+
+2. **Verificación de Opcodes Existentes**:
+   - Verificado que 0xE9 (JP HL) está correctamente implementado en `_op_jp_hl()`
+   - Verificado que 0xD9 (RETI) está correctamente implementado en `_op_reti()`
+
+3. **Tests unitarios (`tests/test_cpu_final_ops.py`)**:
+   - 8 tests exhaustivos que cubren:
+     - LD SP, HL: básico, wrap-around, valores cero, verificación de que flags no se modifican
+     - JP (HL): salto básico, uso como tabla de saltos
+     - RETI: retorno de interrupción, reactivación de IME, diferencia con RET
+
+#### Archivos Afectados:
+- `src/cpu/core.py` (modificado) - Añadido opcode 0xF9 a la tabla de despacho e implementada función `_op_ld_sp_hl()`
+- `tests/test_cpu_final_ops.py` (nuevo) - 8 tests unitarios que validan 0xF9, 0xE9 y 0xD9
+- `docs/bitacora/entries/2025-12-18__0069__completar-opcodes-finales-cpu.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0069)
+- `INFORME_COMPLETO.md` (modificado, añadida entrada 0069)
+
+#### Validación:
+- **Estado**: ✅ Verified - Todos los tests pasan correctamente
+- **Tests ejecutados**: `pytest tests/test_cpu_final_ops.py -v`
+- **Resultado**: 8 passed en 0.06s (Windows 10, Python 3.13.5)
+- **Qué valida**: 
+  - Que `LD SP, HL` carga correctamente el valor de HL en SP sin modificar flags
+  - Que `JP (HL)` salta correctamente a la dirección en HL usando solo el valor del registro
+  - Que `RETI` retorna correctamente de interrupciones y reactiva IME (diferencia clave con RET)
+- **Próximo paso**: Ejecutar Pokémon Red/Blue para verificar que el emulador avanza más allá del opcode 0xF9
+
+---
+
 ## 2025-12-18 - Aritmética de Pila Avanzada (SP+r8) (Step 0068) ✅ VERIFICADO
 
 ### Conceptos Hardware Implementados

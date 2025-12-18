@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0069 - Completar Opcodes Finales de la CPU -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0069__completar-opcodes-finales-cpu.html" class="entry-link">
+                                    Completar Opcodes Finales de la CPU
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0069 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó el opcode crítico LD SP, HL (0xF9) que faltaba en el set de instrucciones de la CPU. Este opcode es esencial para configurar stack frames y cambiar de contexto en rutinas complejas. También se verificó que los opcodes JP (HL) (0xE9) y RETI (0xD9) estaban correctamente implementados. El emulador había avanzado ejecutando Pokémon Red y chocó con el opcode 0xF9 no implementado, lo que indica que estamos muy cerca de completar el set de instrucciones. Se crearon 8 tests unitarios que validan el comportamiento correcto de estos tres opcodes críticos.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0068 - Aritmética de Pila Avanzada (SP+r8) -->
                     <li>
                         <div class="entry-header">
