@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0047 - Modos PPU y Registro STAT -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0047__modos-ppu-registro-stat.html" class="entry-link">
+                                    Modos PPU y Registro STAT
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0047 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó la máquina de estados de modos PPU (Mode 0, 1, 2, 3) que controla el ciclo de vida de cada línea de escaneo. La PPU ahora actualiza dinámicamente su modo según el timing de la línea (OAM Search: 0-79 ciclos, Pixel Transfer: 80-251, H-Blank: 252-455, V-Blank: líneas 144-153), permitiendo que los juegos detecten cuándo es seguro acceder a la VRAM. Se integró el registro STAT (0xFF41) en la MMU para que los juegos puedan leer el modo PPU actual (bits 0-1) y configurar interrupciones basadas en modos (bits 3-6). Esta implementación es crítica porque muchos juegos esperan que STAT cambie dinámicamente antes de continuar con la inicialización. Se crearon 7 tests completos que validan transiciones de modo, V-Blank, lectura/escritura de STAT. Todos los tests pasan correctamente.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0046 - Forzar Modo DMG y Visual Heartbeat -->
                     <li>
                         <div class="entry-header">

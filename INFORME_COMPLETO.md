@@ -1,5 +1,73 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Modos PPU y Registro STAT (Step 0047)
+
+### Conceptos Hardware Implementados
+
+**Los 4 Modos de la PPU**: Cada línea de escaneo de 456 T-Cycles se divide en estados que indican qué está haciendo la PPU en cada momento. **Mode 2 (OAM Search)**: Primeros ~80 ciclos. La PPU busca sprites en OAM (Object Attribute Memory) que intersectan con la línea actual. Durante este modo, la CPU está bloqueada de acceder a OAM (0xFE00-0xFE9F) para evitar conflictos de acceso. **Mode 3 (Pixel Transfer)**: Siguientes ~172 ciclos (80-251). La PPU dibuja los píxeles de la línea leyendo tiles de VRAM y aplicando paletas. Durante este modo, la CPU está bloqueada de acceder a VRAM (0x8000-0x9FFF) y OAM para evitar corrupción de datos durante el renderizado. **Mode 0 (H-Blank)**: Resto de la línea (~204 ciclos, 252-455). Descanso horizontal después de dibujar la línea. Durante este modo, la CPU puede acceder libremente a VRAM y OAM para actualizar tiles, tilemaps, sprites, etc. **Mode 1 (V-Blank)**: Líneas 144-153 completas (10 líneas). Descanso vertical después de dibujar todas las líneas visibles. Durante este modo, la CPU puede acceder libremente a VRAM y OAM. Es el momento ideal para actualizar gráficos, ya que no hay renderizado activo.
+
+**Registro STAT (0xFF41)**: Los juegos leen constantemente este registro para saber en qué modo está la PPU. Bits 0-1: Modo PPU actual (00=H-Blank, 01=V-Blank, 10=OAM Search, 11=Pixel Transfer). De solo lectura. Bit 2: LYC=LY Coincidence Flag (LY == LYC). Indica si la línea actual coincide con LYC. Bit 3: Mode 0 (H-Blank) Interrupt Enable. Si está activo, genera interrupción cuando entra en H-Blank. Bit 4: Mode 1 (V-Blank) Interrupt Enable. Si está activo, genera interrupción cuando entra en V-Blank. Bit 5: Mode 2 (OAM Search) Interrupt Enable. Si está activo, genera interrupción cuando entra en OAM Search. Bit 6: LYC=LY Coincidence Interrupt Enable. Si está activo, genera interrupción cuando LY == LYC. Bit 7: No usado (siempre 0).
+
+**Problema identificado**: Si el registro STAT no se actualiza dinámicamente, los juegos que hacen polling de STAT esperan eternamente a que la PPU entre en un modo seguro (H-Blank o V-Blank) antes de continuar. Esto causa que el juego se quede congelado con el LCD apagado (LCDC=0x00), esperando una señal que nunca llega.
+
+**Fuente**: Pan Docs - LCD Status Register (STAT), PPU Modes, LCD Timing
+
+#### Tareas Completadas:
+
+1. **Máquina de Estados de Modos PPU (`src/gpu/ppu.py`)**:
+   - Añadido atributo `mode` a la clase `PPU` para almacenar el modo PPU actual
+   - Implementado método `_update_mode()` que calcula el modo según el punto en la línea (line_cycles) y LY
+   - Modificado método `step()` para llamar a `_update_mode()` antes y después de procesar líneas completas
+   - Añadidos métodos `get_mode()` y `get_stat()` para exponer el modo y el valor del registro STAT
+   - Añadidas constantes de modos (PPU_MODE_0_HBLANK, PPU_MODE_1_VBLANK, PPU_MODE_2_OAM_SEARCH, PPU_MODE_3_PIXEL_TRANSFER) y timing (MODE_2_CYCLES=80, MODE_3_CYCLES=172, MODE_0_CYCLES=204)
+
+2. **Registro STAT en MMU (`src/memory/mmu.py`)**:
+   - Añadida interceptación de lectura de STAT (0xFF41): Llama a `ppu.get_stat()` que combina el modo actual (bits 0-1) con los bits configurables (2-6) guardados en memoria
+   - Añadida interceptación de escritura de STAT (0xFF41): Guarda solo los bits configurables (2-6) en memoria, ignorando los bits 0-1 que son de solo lectura
+   - El método `get_stat()` en la PPU lee directamente de `mmu._memory[0xFF41]` para evitar recursión infinita
+
+3. **Tests (`tests/test_ppu_modes.py`)**:
+   - Creados 7 tests completos que validan:
+     - Transiciones de modo durante línea visible (Mode 2 → 3 → 0)
+     - Modo V-Blank (Mode 1) en líneas 144-153
+     - Reinicio de modo en nueva línea (debe ser Mode 2 al inicio)
+     - Lectura de STAT con modo correcto en bits 0-1
+     - Escritura en STAT preserva bits configurables pero ignora bits 0-1
+     - Múltiples líneas con ciclo de modos correcto
+
+#### Archivos Afectados:
+- `src/gpu/ppu.py` (modificado) - Máquina de estados de modos PPU, métodos `_update_mode()`, `get_mode()`, `get_stat()`
+- `src/memory/mmu.py` (modificado) - Interceptación de lectura/escritura de STAT (0xFF41)
+- `tests/test_ppu_modes.py` (nuevo) - 7 tests completos para validar modos PPU y registro STAT
+- `docs/bitacora/entries/2025-12-18__0047__modos-ppu-registro-stat.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0047)
+
+#### Validación:
+- **Estado**: Verified - Todos los tests pasan
+- **Entorno**: Windows 10, Python 3.13.5
+- **Comando ejecutado**: `pytest -q tests/test_ppu_modes.py`
+- **Resultado**: **7 passed** en 0.25s
+- **Qué valida**: Los tests verifican que los modos PPU cambian correctamente según el timing de la línea (0-79: Mode 2, 80-251: Mode 3, 252-455: Mode 0, líneas 144-153: Mode 1), que el registro STAT devuelve el modo correcto en bits 0-1, y que escribir en STAT preserva los bits configurables pero ignora los bits 0-1. Esto es crítico porque los juegos hacen polling de STAT para saber cuándo pueden acceder a VRAM de forma segura. Si el timing es incorrecto, los juegos pueden intentar escribir en VRAM durante Pixel Transfer, causando corrupción de datos o comportamiento impredecible.
+- **Próximo paso**: Ejecutar una ROM real (Tetris DX, Pokémon Red, etc.) para verificar que el juego detecta correctamente los cambios de modo en STAT y puede continuar con la inicialización. Se espera que el juego encienda el LCD (LCDC=0x80 o 0x91) después de detectar que la PPU está en un modo seguro.
+
+#### Lo que Entiendo Ahora:
+- **Máquina de Estados PPU**: La PPU no es un componente estático que solo cuenta líneas. Es una máquina de estados que cambia dinámicamente entre 4 modos según el timing de la línea. Los juegos dependen críticamente de estos cambios de modo para saber cuándo pueden acceder a VRAM de forma segura.
+- **Registro STAT como interfaz de comunicación**: STAT no es solo un registro de estado, es una interfaz de comunicación entre la CPU y la PPU. Los juegos leen STAT constantemente para sincronizarse con el renderizado y evitar escribir en VRAM durante Pixel Transfer (que causaría corrupción de datos).
+- **Bloqueo de acceso a VRAM**: Durante Mode 3 (Pixel Transfer), la CPU está bloqueada de acceder a VRAM porque la PPU está leyendo activamente tiles y datos de paleta. Si la CPU intenta escribir durante este modo, puede causar artefactos visuales o comportamiento impredecible. El hardware real bloquea físicamente el acceso, pero en un emulador debemos simular esto actualizando STAT correctamente para que los juegos sepan cuándo no deben escribir.
+
+#### Lo que Falta Confirmar:
+- **LYC=LY Coincidence Flag (bit 2 de STAT)**: Aún no está implementado. Este bit se activa cuando LY == LYC (LY Compare, registro 0xFF45). Los juegos pueden usar esto para generar interrupciones en líneas específicas (efectos de scroll, splits de pantalla, etc.).
+- **Interrupciones basadas en modos STAT**: Los bits 3-6 de STAT permiten habilitar interrupciones cuando la PPU entra en un modo específico. Aún no está implementado el sistema de interrupciones STAT, solo el registro es legible/escritable.
+- **Bloqueo real de acceso a VRAM**: Actualmente solo actualizamos STAT, pero no bloqueamos físicamente el acceso a VRAM durante Mode 3. En hardware real, escribir en VRAM durante Pixel Transfer puede causar artefactos. En un emulador preciso, deberíamos detectar estos accesos y manejarlos apropiadamente (ignorar, retrasar, o generar artefactos visuales).
+- **Validación con ROM real**: Pendiente de ejecutar una ROM real para verificar que el juego detecta correctamente los cambios de modo y enciende el LCD después de detectar que la PPU está en un modo seguro.
+
+#### Hipótesis y Suposiciones:
+**Hipótesis principal**: Implementar los modos PPU y el registro STAT permitirá que los juegos detecten correctamente cuándo es seguro acceder a VRAM, resultando en que el juego encienda el LCD (LCDC=0x80 o 0x91) y continúe con la inicialización en lugar de quedarse congelado esperando una señal que nunca llega.
+
+**Suposición**: Los tiempos exactos de cada modo (80, 172, 204 ciclos) están basados en Pan Docs, pero no he verificado con hardware real o test ROMs si estos tiempos son exactos o si hay variaciones. En hardware real, el timing puede variar ligeramente según el contenido renderizado (número de sprites, complejidad del tilemap, etc.), pero para un emulador básico, usar tiempos fijos es una aproximación razonable.
+
+---
+
 ## 2025-12-18 - Forzar Modo DMG y Visual Heartbeat (Step 0046)
 
 ### Conceptos Hardware Implementados

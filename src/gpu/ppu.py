@@ -42,6 +42,23 @@ VBLANK_START = 144         # Inicio de V-Blank (línea 144)
 TOTAL_LINES = 154          # Total de líneas por frame (144 visibles + 10 V-Blank)
 CYCLES_PER_FRAME = TOTAL_LINES * CYCLES_PER_SCANLINE  # 70,224 T-Cycles
 
+# Constantes de Modos PPU
+# Fuente: Pan Docs - LCD Status Register (STAT)
+# Cada línea de 456 ciclos se divide en 3 modos (para líneas visibles):
+# - Mode 2 (OAM Search): 0-79 ciclos (80 ciclos) - La PPU busca sprites en OAM
+# - Mode 3 (Pixel Transfer): 80-251 ciclos (172 ciclos) - La PPU dibuja píxeles (CPU bloqueada de VRAM)
+# - Mode 0 (H-Blank): 252-455 ciclos (204 ciclos) - Descanso horizontal (CPU puede tocar VRAM)
+# - Mode 1 (V-Blank): Líneas 144-153 completas (10 líneas) - Descanso vertical
+PPU_MODE_0_HBLANK = 0      # H-Blank (CPU puede acceder a VRAM)
+PPU_MODE_1_VBLANK = 1      # V-Blank (CPU puede acceder a VRAM)
+PPU_MODE_2_OAM_SEARCH = 2  # OAM Search (CPU bloqueada de OAM)
+PPU_MODE_3_PIXEL_TRANSFER = 3  # Pixel Transfer (CPU bloqueada de VRAM y OAM)
+
+# Timing de modos dentro de una línea visible (en T-Cycles)
+MODE_2_CYCLES = 80   # OAM Search: primeros 80 ciclos
+MODE_3_CYCLES = 172  # Pixel Transfer: siguientes 172 ciclos (80-251)
+MODE_0_CYCLES = 204  # H-Blank: resto (252-455)
+
 
 class PPU:
     """
@@ -61,7 +78,7 @@ class PPU:
         
         La PPU necesita acceso a la MMU para:
         - Solicitar interrupciones (escribir en IF, 0xFF0F)
-        - Leer configuración del LCD (LCDC, STAT, etc.) - futuro
+        - Leer configuración del LCD (LCDC, STAT, etc.)
         
         Args:
             mmu: Instancia de MMU para acceso a memoria e I/O
@@ -77,7 +94,12 @@ class PPU:
         # Cuando llega a 456, avanzamos a la siguiente línea
         self.clock: int = 0
         
-        logger.debug("PPU inicializada: LY=0, clock=0")
+        # Modo PPU actual: Indica en qué estado está la PPU (Mode 0, 1, 2 o 3)
+        # Se actualiza dinámicamente en step() según el timing de la línea
+        # Inicialmente Mode 2 (OAM Search) al inicio de la primera línea
+        self.mode: int = PPU_MODE_2_OAM_SEARCH
+        
+        logger.debug("PPU inicializada: LY=0, clock=0, mode=2 (OAM Search)")
 
     def step(self, cycles: int) -> None:
         """
@@ -85,23 +107,30 @@ class PPU:
         
         Este método debe llamarse después de cada instrucción de la CPU, pasando
         los T-Cycles (ciclos de reloj) consumidos. La PPU acumula estos ciclos
-        y avanza las líneas de escaneo cuando corresponde.
+        y avanza las líneas de escaneo cuando corresponde, actualizando dinámicamente
+        el modo PPU (Mode 0, 1, 2 o 3) según el timing de la línea.
         
         Comportamiento:
         1. Acumula ciclos en el clock interno
-        2. Si clock >= 456: Resta 456, incrementa LY
-        3. Si LY == 144: ¡Entramos en V-Blank! Solicita interrupción (bit 0 en IF)
-        4. Si LY > 153: Reinicia LY a 0 (nuevo frame)
+        2. Actualiza el modo PPU según el punto en la línea actual (line_cycles)
+        3. Si clock >= 456: Resta 456, incrementa LY, reinicia modo a Mode 2
+        4. Si LY == 144: ¡Entramos en V-Blank! Solicita interrupción (bit 0 en IF)
+        5. Si LY > 153: Reinicia LY a 0 (nuevo frame)
         
         Args:
             cycles: Número de T-Cycles (ciclos de reloj) a procesar
                    NOTA: La CPU devuelve M-Cycles, que deben convertirse a T-Cycles
                    multiplicando por 4 antes de llamar a este método.
         
-        Fuente: Pan Docs - LCD Timing, V-Blank Interrupt
+        Fuente: Pan Docs - LCD Timing, V-Blank Interrupt, STAT Register
         """
         # Acumular ciclos en el clock interno
         self.clock += cycles
+        
+        # Actualizar el modo PPU según el punto actual en la línea
+        # Esto debe hacerse ANTES de procesar líneas completas para que
+        # el modo sea correcto durante toda la línea
+        self._update_mode()
         
         # Mientras tengamos suficientes ciclos para completar una línea (456 T-Cycles)
         while self.clock >= CYCLES_PER_SCANLINE:
@@ -110,6 +139,10 @@ class PPU:
             
             # Avanzar a la siguiente línea
             self.ly += 1
+            
+            # Al inicio de cada nueva línea, el modo es Mode 2 (OAM Search)
+            # Se actualizará automáticamente en la siguiente llamada a _update_mode()
+            self.mode = PPU_MODE_2_OAM_SEARCH
             
             # Si llegamos a V-Blank (línea 144), solicitar interrupción
             if self.ly == VBLANK_START:
@@ -136,6 +169,42 @@ class PPU:
             if self.ly > 153:
                 self.ly = 0
                 logger.debug(f"PPU: Nuevo frame iniciado (LY={self.ly})")
+        
+        # Actualizar el modo después de procesar líneas completas
+        # (por si quedaron ciclos residuales en la línea actual)
+        self._update_mode()
+
+    def _update_mode(self) -> None:
+        """
+        Actualiza el modo PPU actual según el punto en la línea (line_cycles) y LY.
+        
+        Lógica de estados:
+        - Si LY >= 144: Mode 1 (V-Blank) - Líneas 144-153 completas
+        - Si LY < 144 (línea visible):
+            - Si line_cycles < 80: Mode 2 (OAM Search)
+            - Si line_cycles < 252: Mode 3 (Pixel Transfer)
+            - Si line_cycles < 456: Mode 0 (H-Blank)
+        
+        Fuente: Pan Docs - LCD Status Register (STAT), PPU Modes
+        """
+        # Si estamos en V-Blank (líneas 144-153), siempre Mode 1
+        if self.ly >= VBLANK_START:
+            self.mode = PPU_MODE_1_VBLANK
+            return
+        
+        # Para líneas visibles (0-143), el modo depende de los ciclos dentro de la línea
+        # line_cycles es el contador de ciclos dentro de la línea actual (0-455)
+        line_cycles = self.clock
+        
+        if line_cycles < MODE_2_CYCLES:
+            # Primeros 80 ciclos: Mode 2 (OAM Search)
+            self.mode = PPU_MODE_2_OAM_SEARCH
+        elif line_cycles < (MODE_2_CYCLES + MODE_3_CYCLES):
+            # Siguientes 172 ciclos (80-251): Mode 3 (Pixel Transfer)
+            self.mode = PPU_MODE_3_PIXEL_TRANSFER
+        else:
+            # Resto (252-455): Mode 0 (H-Blank)
+            self.mode = PPU_MODE_0_HBLANK
 
     def get_ly(self) -> int:
         """
@@ -148,4 +217,60 @@ class PPU:
             Valor de LY (0-153)
         """
         return self.ly
+
+    def get_mode(self) -> int:
+        """
+        Devuelve el modo PPU actual (0, 1, 2 o 3).
+        
+        Este método es usado por la MMU cuando se lee el registro STAT (0xFF41)
+        para obtener los bits 0-1 que indican el modo actual.
+        
+        Returns:
+            Modo PPU actual:
+            - 0: H-Blank (CPU puede acceder a VRAM)
+            - 1: V-Blank (CPU puede acceder a VRAM)
+            - 2: OAM Search (CPU bloqueada de OAM)
+            - 3: Pixel Transfer (CPU bloqueada de VRAM y OAM)
+        """
+        return self.mode
+
+    def get_stat(self) -> int:
+        """
+        Devuelve el valor del registro STAT (0xFF41) combinando el modo actual
+        con los bits configurados por el software.
+        
+        El registro STAT tiene la siguiente estructura:
+        - Bits 0-1: Modo PPU actual (00=H-Blank, 01=V-Blank, 10=OAM Search, 11=Pixel Transfer)
+        - Bit 2: LYC=LY Coincidence Flag (LY == LYC)
+        - Bit 3: Mode 0 (H-Blank) Interrupt Enable
+        - Bit 4: Mode 1 (V-Blank) Interrupt Enable
+        - Bit 5: Mode 2 (OAM Search) Interrupt Enable
+        - Bit 6: LYC=LY Coincidence Interrupt Enable
+        - Bit 7: No usado (siempre 0)
+        
+        Los bits 2-6 son configurables por el software escribiendo en STAT.
+        Los bits 0-1 son de solo lectura y reflejan el estado actual de la PPU.
+        
+        CRÍTICO: No usar mmu.read_byte(0xFF41) aquí porque causaría recursión infinita.
+        En su lugar, accedemos directamente a la memoria interna de la MMU.
+        
+        Returns:
+            Valor del registro STAT (0x00-0xFF)
+        
+        Fuente: Pan Docs - LCD Status Register (STAT)
+        """
+        # Leer el valor de STAT directamente de la memoria interna (evita recursión)
+        # La MMU guarda los bits configurables (2-6) en _memory[0xFF41]
+        # Accedemos directamente a través de un método interno o atributo
+        # NOTA: Esto requiere acceso a _memory, que es un detalle de implementación
+        # pero es necesario para evitar recursión
+        stat_value = self.mmu._memory[0xFF41] & 0xFF
+        
+        # Limpiar los bits 0-1 (modo actual) y reemplazarlos con el modo real
+        stat_value = (stat_value & 0xFC) | self.mode
+        
+        # TODO: Implementar LYC=LY Coincidence Flag (bit 2)
+        # Por ahora, el bit 2 se mantiene como está en memoria
+        
+        return stat_value & 0xFF
 

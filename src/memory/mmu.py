@@ -236,6 +236,17 @@ class MMU:
                 # Si no hay PPU conectada, devolver 0 (comportamiento por defecto)
                 return 0
         
+        # Interceptar lectura del registro STAT (0xFF41)
+        # STAT es un registro de lectura/escritura que indica el estado actual del LCD
+        # Los bits 0-1 (modo PPU) son de solo lectura y vienen de la PPU
+        # Los bits 2-6 son configurables por el software
+        if addr == IO_STAT:
+            if self._ppu is not None:
+                return self._ppu.get_stat() & 0xFF
+            else:
+                # Si no hay PPU conectada, devolver el valor de memoria (puede tener bits configurables)
+                return self._memory[addr] & 0xFF
+        
         # Interceptar lectura del registro P1 (0xFF00) - Joypad Input
         # El Joypad maneja su propia lógica de lectura (Active Low, selector de bits 4-5)
         if addr == IO_P1:
@@ -328,6 +339,18 @@ class MMU:
         if addr == IO_LY:
             logger.debug(f"IO WRITE: LY (solo lectura, ignorado) = 0x{value:02X}")
             return  # Ignorar escritura a LY
+        
+        # Interceptar escritura al registro STAT (0xFF41)
+        # STAT es de lectura/escritura, pero los bits 0-1 (modo PPU) son de solo lectura
+        # Solo los bits 2-6 pueden ser escritos por el software
+        # Los bits 0-1 siempre reflejan el estado actual de la PPU
+        if addr == IO_STAT:
+            # Guardar el valor escrito en memoria (para los bits configurables 2-6)
+            # Los bits 0-1 se ignoran porque son de solo lectura
+            # En hardware real, escribir en bits 0-1 no tiene efecto
+            self._memory[addr] = value & 0xFC  # Solo guardar bits 2-7 (limpiar bits 0-1)
+            logger.debug(f"IO WRITE: STAT = 0x{value:02X} (bits 0-1 ignorados, solo 2-7 guardados)")
+            return
         
         # Interceptar escritura al registro P1 (0xFF00) - Joypad Input
         # El juego escribe en P1 para seleccionar qué leer (bits 4-5)
