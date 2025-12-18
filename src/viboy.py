@@ -99,9 +99,6 @@ class Viboy:
         # Contador de ciclos desde el último render (para heartbeat visual)
         self._cycles_since_render: int = 0
         
-        # Estado de V-Blank anterior (para detectar transición)
-        self._prev_vblank: bool = False
-        
         # Sistema de trazado activado por LCDC=0x80 (Trap Trace)
         # Se activa cuando se detecta que LCDC se escribe con 0x80
         self._trace_active: bool = False
@@ -481,13 +478,11 @@ class Viboy:
                         self._renderer.render_frame()
                         self._cycles_since_render = 0
                 
-                # Detectar inicio de V-Blank para renderizar
+                # CRÍTICO: Renderizar cuando la PPU indica que un frame está listo
+                # Esto desacopla el renderizado de las interrupciones, permitiendo que
+                # se dibuje cada frame incluso si IME=False o si el juego usa polling.
                 if self._ppu is not None and self._renderer is not None:
-                    ly = self._ppu.get_ly()
-                    in_vblank = ly >= 144
-                    
-                    # Si acabamos de entrar en V-Blank, renderizar el frame
-                    if in_vblank and not self._prev_vblank:
+                    if self._ppu.is_frame_ready():
                         frame_count += 1
                         
                         # Heartbeat: cada 60 frames (≈1 segundo), mostrar estado
@@ -509,6 +504,7 @@ class Viboy:
                         # Log del estado de LCDC, IE, IF para debugging (DEBUG para evitar spam)
                         # CRÍTICO: Cambiado a DEBUG para evitar spam en consola que mata el rendimiento
                         if self._mmu is not None:
+                            ly = self._ppu.get_ly()
                             lcdc = self._mmu.read_byte(0xFF40)
                             ie = self._mmu.read_byte(0xFFFF)
                             if_reg = self._mmu.read_byte(0xFF0F)
@@ -534,8 +530,6 @@ class Viboy:
                                 pygame.display.set_caption(f"Viboy Color - FPS: {fps:.1f}")
                             except ImportError:
                                 pass
-                    
-                    self._prev_vblank = in_vblank
                     
                     # Control de FPS: limitar a 60 FPS (Game Boy original: ~59.73 FPS)
                     # tick() espera el tiempo necesario para mantener 60 FPS

@@ -99,6 +99,11 @@ class PPU:
         # Inicialmente Mode 2 (OAM Search) al inicio de la primera línea
         self.mode: int = PPU_MODE_2_OAM_SEARCH
         
+        # Flag para indicar que un frame está listo para renderizar
+        # Se activa cuando LY pasa de 143 a 144 (inicio de V-Blank)
+        # Permite desacoplar el renderizado de las interrupciones
+        self.frame_ready: bool = False
+        
         logger.debug("PPU inicializada: LY=0, clock=0, mode=2 (OAM Search)")
 
     def step(self, cycles: int) -> None:
@@ -161,7 +166,7 @@ class PPU:
             # Se actualizará automáticamente en la siguiente llamada a _update_mode()
             self.mode = PPU_MODE_2_OAM_SEARCH
             
-            # Si llegamos a V-Blank (línea 144), solicitar interrupción
+            # Si llegamos a V-Blank (línea 144), solicitar interrupción y marcar frame listo
             if self.ly == VBLANK_START:
                 # CRÍTICO: Activar bit 0 del registro IF (Interrupt Flag) en 0xFF0F
                 # Este bit corresponde a la interrupción V-Blank.
@@ -180,6 +185,13 @@ class PPU:
                 if_val = self.mmu.read_byte(0xFF0F)
                 if_val |= 0x01  # Set bit 0 (V-Blank interrupt)
                 self.mmu.write_byte(0xFF0F, if_val)
+                
+                # CRÍTICO: Marcar frame como listo para renderizar
+                # Esto permite desacoplar el renderizado de las interrupciones.
+                # El bucle principal puede comprobar este flag independientemente
+                # del estado de IME o si se procesan interrupciones.
+                self.frame_ready = True
+                
                 # CRÍTICO: Log informativo para diagnóstico (no debug, para que siempre se vea)
                 logger.info(f"🎯 PPU: V-Blank iniciado (LY={self.ly}), IF actualizado a 0x{if_val:02X} (independiente de IME)")
                 logger.debug(f"PPU: V-Blank iniciado (LY={self.ly}), IF actualizado (independiente de IME)")
@@ -253,6 +265,26 @@ class PPU:
         """
         return self.mode
 
+    def is_frame_ready(self) -> bool:
+        """
+        Comprueba si hay un frame listo para renderizar y resetea el flag.
+        
+        Este método permite desacoplar el renderizado de las interrupciones.
+        Cuando LY pasa de 143 a 144 (inicio de V-Blank), se activa el flag
+        `frame_ready`. El bucle principal puede comprobar este flag y renderizar
+        independientemente del estado de IME o si se procesan interrupciones.
+        
+        IMPORTANTE: Este método resetea el flag a False después de leerlo.
+        Esto asegura que cada frame solo se renderiza una vez.
+        
+        Returns:
+            True si hay un frame listo para renderizar, False en caso contrario
+        """
+        if self.frame_ready:
+            self.frame_ready = False
+            return True
+        return False
+    
     def get_stat(self) -> int:
         """
         Devuelve el valor del registro STAT (0xFF41) combinando el modo actual

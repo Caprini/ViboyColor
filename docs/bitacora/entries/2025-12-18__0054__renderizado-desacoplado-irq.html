@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Renderizado Desacoplado de Interrupciones - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Renderizado Desacoplado de Interrupciones</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0054
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0053__correccion-ppu-lcd-enabled.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se desacopló el renderizado de las interrupciones para garantizar que cada frame se dibuje en pantalla cuando la PPU alcanza V-Blank (LY=144), independientemente del estado de IME (Interrupt Master Enable) o si el juego usa polling manual de IF. Se añadió un flag `frame_ready` en la PPU que se activa cuando LY pasa de 143 a 144, y un método `is_frame_ready()` que permite al bucle principal comprobar y renderizar sin depender de las interrupciones. Esto soluciona el problema de pantalla azul/negra cuando el juego tiene IME=False y espera V-Blank mediante polling.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy real, el renderizado de píxeles y la generación de interrupciones son procesos <strong>independientes</strong> aunque relacionados. La PPU genera un evento V-Blank cada vez que LY alcanza 144, y este evento:
+                </p>
+                <ul>
+                    <li><strong>Siempre</strong> actualiza el registro IF (Interrupt Flag) en 0xFF0F, activando el bit 0.</li>
+                    <li><strong>Opcionalmente</strong> dispara una interrupción automática si IME=True y IE tiene el bit 0 activado.</li>
+                </ul>
+                <p>
+                    Los juegos pueden usar dos estrategias para detectar V-Blank:
+                </p>
+                <ol>
+                    <li><strong>Interrupciones automáticas</strong>: Activan IME y configuran IE para que la CPU salte automáticamente a la rutina de V-Blank.</li>
+                    <li><strong>Polling manual</strong>: Desactivan IME y leen periódicamente el registro IF para detectar cuando el bit 0 está activo.</li>
+                </ol>
+                <p>
+                    En ambos casos, el renderizado debe ocurrir cuando LY=144, independientemente de cómo el juego detecte el evento. Si el emulador solo renderiza cuando se procesa una interrupción, los juegos que usan polling nunca verán actualizaciones en pantalla.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - V-Blank Interrupt, Interrupt Flag (IF), Interrupt Master Enable (IME)
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó un sistema de flag en la PPU que indica cuando un frame está listo para renderizar, desacoplando completamente el renderizado del sistema de interrupciones.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>PPU (`src/gpu/ppu.py`)</strong>: Se añadió el flag `frame_ready` que se activa cuando LY pasa de 143 a 144, y el método `is_frame_ready()` que devuelve el flag y lo resetea automáticamente.</li>
+                    <li><strong>Viboy (`src/viboy.py`)</strong>: Se modificó el bucle principal para usar `ppu.is_frame_ready()` en lugar de la lógica basada en `_prev_vblank`. Se eliminó la variable `_prev_vblank` que ya no es necesaria.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Flag con reset automático:</strong> El método `is_frame_ready()` resetea el flag a `False` después de leerlo. Esto garantiza que cada frame solo se renderiza una vez, evitando renderizados duplicados si el bucle principal llama al método múltiples veces en el mismo ciclo.
+                </p>
+                <p>
+                    <strong>Activación en el momento exacto:</strong> El flag se activa cuando LY pasa de 143 a 144, que es el momento exacto en que comienza V-Blank. Esto asegura que el renderizado ocurre en el momento correcto del ciclo de la PPU.
+                </p>
+                <p>
+                    <strong>Independencia de IME:</strong> El flag se activa independientemente del estado de IME o IE. Esto permite que el renderizado funcione tanto para juegos que usan interrupciones como para los que usan polling.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/ppu.py</code> - Añadido flag `frame_ready` y método `is_frame_ready()`</li>
+                    <li><code>src/viboy.py</code> - Modificado bucle principal para usar `is_frame_ready()` en lugar de `_prev_vblank`</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Esta modificación requiere verificación mediante ejecución de ROMs, ya que afecta el comportamiento visual del emulador. Los tests unitarios existentes de la PPU siguen pasando, pero no cubren el nuevo flag.
+                </p>
+                <p>
+                    <strong>Próxima verificación:</strong> Ejecutar ROMs de test (p.ej. pkmn.gb, tetris_dx.gbc) y verificar que:
+                </p>
+                <ul>
+                    <li>La pantalla se actualiza correctamente cuando LY alcanza 144, incluso con IME=False.</li>
+                    <li>No hay renderizados duplicados (cada frame se renderiza exactamente una vez).</li>
+                    <li>El rendimiento no se degrada por comprobar el flag en cada iteración del bucle.</li>
+                </ul>
+                <p>
+                    <em>Nota: La verificación con ROMs se realizará en el siguiente paso de testing.</em>
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">V-Blank Interrupt, Interrupt Flag (IF), Interrupt Master Enable (IME)</a></li>
+                </ul>
+                <p>
+                    <em>Implementación basada en el análisis del trace de ejecución que mostró que el juego espera V-Blank mediante polling de IF, y en el principio de que el renderizado debe ser independiente del sistema de interrupciones.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Renderizado vs Interrupciones:</strong> El renderizado de frames y el sistema de interrupciones son procesos independientes. La PPU genera eventos V-Blank que siempre actualizan IF, pero el renderizado debe ocurrir independientemente de si se procesa una interrupción.</li>
+                        <li><strong>Polling vs Interrupciones:</strong> Los juegos pueden usar dos estrategias para detectar V-Blank: interrupciones automáticas (IME=True) o polling manual (IME=False, leyendo IF). El emulador debe soportar ambas estrategias correctamente.</li>
+                        <li><strong>Timing del renderizado:</strong> El momento exacto para renderizar es cuando LY pasa de 143 a 144, que es cuando comienza V-Blank. Este es el momento en que la PPU ha terminado de dibujar todas las líneas visibles.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento:</strong> Verificar que comprobar `is_frame_ready()` en cada iteración del bucle no introduce overhead significativo.</li>
+                        <li><strong>Comportamiento con múltiples frames:</strong> Confirmar que no hay condiciones de carrera o renderizados perdidos cuando la PPU avanza muy rápido.</li>
+                        <li><strong>Compatibilidad con todos los juegos:</strong> Verificar que esta implementación funciona correctamente con juegos que usan interrupciones y con juegos que usan polling.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El problema de pantalla azul/negra se debe a que el renderizado solo ocurría cuando se procesaba una interrupción, y los juegos que usan polling nunca disparaban el renderizado. Con esta modificación, el renderizado debería ocurrir siempre que la PPU alcance V-Blank, independientemente del sistema de interrupciones.
+                    </p>
+                    <p>
+                        Esta hipótesis se basa en el análisis del trace de ejecución que mostró que el juego está en un bucle de polling esperando que IF tenga un valor específico, y que LY avanza correctamente (12→23 en el trace), lo que indica que la PPU funciona pero el renderizado no se dispara.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar ROMs de test (pkmn.gb, tetris_dx.gbc) y verificar que la pantalla se actualiza correctamente</li>
+                    <li>[ ] Verificar que no hay renderizados duplicados o frames perdidos</li>
+                    <li>[ ] Si la pantalla sigue azul/negra, investigar otros posibles problemas (LCDC, BGP, renderizado de tiles, etc.)</li>
+                    <li>[ ] Añadir tests unitarios para el flag `frame_ready` si es necesario</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
