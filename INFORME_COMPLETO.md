@@ -1,5 +1,74 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Forzar Modo DMG y Visual Heartbeat (Step 0046)
+
+### Conceptos Hardware Implementados
+
+**Detección de Hardware en Game Boy**: Los juegos Dual Mode (compatibles con Game Boy Clásica y Game Boy Color) leen el registro A al inicio para detectar el tipo de hardware. A=0x01 indica Game Boy Clásica (DMG), A=0x11 indica Game Boy Color (CGB), y A=0xFF indica Game Boy Pocket / Super Game Boy. En una Game Boy real, la Boot ROM interna establece el registro A según el hardware detectado. Si el juego detecta CGB (A=0x11), intenta usar características avanzadas como VRAM Banks (2 bancos de 8KB cada uno), paletas CGB (sistema RGB555 de 15 bits), y modos de prioridad diferentes. Si el emulador se identifica como CGB pero no implementa estas características, el juego intenta usar VRAM Bank 1 o paletas CGB que no existen, resultando en una pantalla negra o gráficos invisibles.
+
+**Visual Heartbeat**: Un píxel parpadeante en la esquina superior izquierda (0,0) del framebuffer confirma que Pygame está renderizando correctamente. Si el píxel parpadea, el problema es interno del emulador (no es un fallo de la ventana o Pygame). Si no parpadea, el problema puede estar en la inicialización de Pygame o en la actualización de la ventana.
+
+**Fuente**: Pan Docs - Boot ROM, Post-Boot State, Game Boy Color detection, LCD Control Register
+
+#### Tareas Completadas:
+
+1. **Forzado de Modo DMG (`src/viboy.py`)**: 
+   - Modificado el método `_initialize_post_boot_state()` para establecer explícitamente el registro A a 0x01 después de inicializar PC y SP
+   - Esto asegura que todos los juegos detecten el emulador como una Game Boy Clásica desde el inicio, evitando que intenten usar características CGB no implementadas
+   - Los juegos Dual Mode usarán el código compatible con DMG en lugar de características CGB
+
+2. **Visual Heartbeat (`src/gpu/renderer.py`)**:
+   - Añadido un cuadrado parpadeante de 4x4 píxeles (12x12 en ventana escalada) en la esquina superior izquierda (0,0) del framebuffer
+   - El cuadrado parpadea cada segundo (0.5s encendido, 0.5s apagado), usando color rojo brillante (255, 0, 0) cuando está encendido
+   - Se ejecuta SIEMPRE, incluso cuando el LCD está apagado, para confirmar que Pygame está renderizando
+   - Render inicial forzado al inicio del bucle principal para mostrar el heartbeat inmediatamente
+   - Render periódico cada ~70,224 T-Cycles (1 frame) para mantener el heartbeat visible incluso sin V-Blanks
+   - Si el usuario ve el cuadrado parpadeando, confirma que Pygame está funcionando y que el problema es interno del emulador
+
+3. **Monitor de LCDC y BGP en Heartbeat (`src/viboy.py`)**:
+   - Mejorado el heartbeat del bucle principal para incluir información de LCDC y BGP
+   - Esto permite diagnosticar problemas de renderizado: LCDC=0x00 indica que el juego ha apagado la pantalla, LCDC=0x80/0x91 indica LCD encendido, BGP=0x00 indica paleta completamente blanca, BGP=0xE4 indica paleta estándar Game Boy
+
+#### Archivos Afectados:
+- `src/viboy.py` (modificado) - Forzado de modo DMG (A=0x01) en inicialización post-boot y monitor de LCDC/BGP en heartbeat
+- `src/gpu/renderer.py` (modificado) - Visual heartbeat (píxel parpadeante) en render_frame
+- `docs/bitacora/entries/2025-12-18__0046__forzar-modo-dmg-heartbeat-visual.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0046)
+- `docs/bitacora/entries/2025-12-18__0045__doctor-viboy-diagnostico-halt.html` (modificado, actualizado link "Siguiente")
+
+#### Validación:
+- **Estado**: Verified - Verificado con Tetris DX
+- **ROM verificada**: Tetris DX (ROM aportada por el usuario, no distribuida)
+- **Entorno**: Windows 10, Python 3.13.5, pygame-ce 2.5.6
+- **Resultados**:
+  - ✅ **Registro A**: Correctamente establecido a 0x01 (DMG mode)
+    - Log: `INFO: ✅ Post-Boot State: PC=0x0100, SP=0xFFFE, A=0x01 (DMG mode forzado)`
+    - Log: `INFO: 🚀 Inicio: PC=0x0100 | A=0x01 (DMG=✅) | LCDC=0x00 | BGP=0xE4`
+  - ✅ **Heartbeat del bucle principal**: Funciona correctamente, muestra PC, A, LCDC y BGP
+  - ✅ **Visual Heartbeat**: Implementado como cuadrado rojo parpadeante de 4x4 píxeles, visible incluso cuando LCD está apagado
+- **Correcciones realizadas durante verificación**:
+  1. **Visual heartbeat no visible**: Movido al inicio de `render_frame()` para ejecutarse siempre, añadido render inicial forzado y render periódico
+  2. **Heartbeat demasiado pequeño**: Cambiado de 1 píxel a cuadrado de 4x4 píxeles (12x12 en ventana escalada)
+  3. **Heartbeat del bucle principal no se mostraba**: Añadido heartbeat inicial y también en el primer frame
+
+#### Lo que Entiendo Ahora:
+- **Detección de hardware**: Los juegos Dual Mode leen el registro A al inicio para detectar el tipo de hardware. A=0x01 indica Game Boy Clásica, A=0x11 indica Game Boy Color.
+- **Comportamiento Dual Mode**: Los juegos Dual Mode tienen dos rutas de código: una para DMG (compatible) y otra para CGB (con características avanzadas). Al forzar A=0x01, el juego usa la ruta DMG.
+- **Visual Heartbeat**: Un píxel parpadeante es una herramienta simple y efectiva para confirmar que Pygame está funcionando. Si el píxel parpadea, el problema es interno del emulador.
+
+#### Lo que Falta Confirmar:
+- **Verificación con otros juegos**: Pendiente de probar con Super Mario Bros. Deluxe y otros juegos Dual Mode para confirmar que detectan modo DMG correctamente.
+- **Comportamiento de otros juegos**: Algunos juegos pueden tener lógica de detección más compleja o pueden requerir características CGB mínimas incluso en modo DMG.
+- **Impacto en juegos DMG puros**: Los juegos que solo funcionan en Game Boy Clásica deberían seguir funcionando igual, pero debe verificarse.
+- **Renderizado de gráficos**: Aunque el registro A está correcto y el heartbeat funciona, el juego aún muestra pantalla negra/blanca. Esto sugiere que el problema puede estar en el renderizado de tiles, VRAM, o en la inicialización del juego.
+
+#### Hipótesis y Suposiciones:
+**Hipótesis principal**: Forzar A=0x01 hará que los juegos Dual Mode usen el código compatible con DMG, evitando que intenten usar características CGB no implementadas y resultando en renderizado correcto (no pantalla negra).
+
+**Suposición**: El visual heartbeat será visible si Pygame está funcionando correctamente. Si no es visible, el problema está en la inicialización de Pygame o en la actualización de la ventana.
+
+---
+
 ## 2025-12-18 - Doctor Viboy: Diagnóstico Autónomo y Fix de HALT (Step 0045)
 
 ### Conceptos Hardware Implementados

@@ -227,12 +227,35 @@ class Renderer:
             f"BGP=0x{bgp:02X}"
         )
         
+        # VISUAL HEARTBEAT: Dibujar un cuadrado pequeño parpadeante en la esquina (0,0) para confirmar
+        # que Pygame está renderizando. Si vemos el cuadrado parpadeando, el video funciona
+        # y el problema es interno del emulador (no es un fallo de la ventana).
+        # Lógica: parpadea cada segundo (0.5s encendido, 0.5s apagado)
+        # CRÍTICO: Debe ejecutarse SIEMPRE, incluso si el LCD está apagado
+        try:
+            import time
+            heartbeat_on = (time.time() % 1.0) > 0.5
+            # Limpiar buffer primero
+            self.buffer.fill((255, 255, 255))
+            # Dibujar un cuadrado de 4x4 píxeles en la esquina (0,0) para que sea más visible
+            # después del escalado (4x4 en 160x144 se convierte en 12x12 en 480x432)
+            if heartbeat_on:
+                # Dibujar cuadrado rojo brillante
+                pygame.draw.rect(self.buffer, (255, 0, 0), (0, 0, 4, 4))
+            else:
+                # Dibujar cuadrado blanco (igual al fondo)
+                pygame.draw.rect(self.buffer, (255, 255, 255), (0, 0, 4, 4))
+        except Exception as e:
+            # Si falla el heartbeat, loguear el error para diagnóstico
+            logger.warning(f"Visual heartbeat falló: {e}")
+            pass
+        
         # Bit 7: LCD Enable
         # Si el LCD está desactivado, pintar pantalla blanca y retornar
         # NOTA: En modo debug, podríamos renderizar VRAM de todas formas, pero
         # por ahora respetamos el comportamiento del hardware real
         if not lcdc_bit7:
-            self.buffer.fill((255, 255, 255))
+            # El heartbeat ya está dibujado arriba, solo escalar y mostrar
             scaled_buffer = pygame.transform.scale(self.buffer, (self.window_width, self.window_height))
             self.screen.blit(scaled_buffer, (0, 0))
             pygame.display.flip()
@@ -331,6 +354,19 @@ class Renderer:
         
         # Limpiar framebuffer con color de fondo (índice 0 de la paleta)
         self.buffer.fill(palette[0])
+        
+        # VISUAL HEARTBEAT: Asegurar que el cuadrado parpadeante esté visible también cuando el LCD está encendido
+        # (ya se dibujó arriba cuando el LCD estaba apagado, pero lo redibujamos aquí para que sea consistente)
+        try:
+            import time
+            heartbeat_on = (time.time() % 1.0) > 0.5
+            # Dibujar un cuadrado de 4x4 píxeles en la esquina (0,0)
+            if heartbeat_on:
+                pygame.draw.rect(self.buffer, (255, 0, 0), (0, 0, 4, 4))
+            else:
+                pygame.draw.rect(self.buffer, palette[0], (0, 0, 4, 4))
+        except Exception:
+            pass
         
         # DIAGNÓSTICO: Verificar contenido de VRAM y tilemap cuando se renderiza
         # Verificar algunos tiles del tilemap (primeras 16 posiciones = primera fila)

@@ -96,6 +96,9 @@ class Viboy:
         # Contador de ciclos totales ejecutados
         self._total_cycles: int = 0
         
+        # Contador de ciclos desde el último render (para heartbeat visual)
+        self._cycles_since_render: int = 0
+        
         # Estado de V-Blank anterior (para detectar transición)
         self._prev_vblank: bool = False
         
@@ -204,10 +207,21 @@ class Viboy:
         - SP = 0xFFFE (top de la pila)
         - Registros con valores específicos
         
-        Por ahora, inicializamos valores básicos. Más adelante, cuando implementemos
-        la Boot ROM, estos valores se establecerán automáticamente.
+        CRÍTICO: El registro A determina la identidad del hardware:
+        - A = 0x01: Game Boy Clásica (DMG)
+        - A = 0x11: Game Boy Color (CGB)
+        - A = 0xFF: Game Boy Pocket / Super Game Boy
         
-        Fuente: Pan Docs - Boot ROM, Post-Boot State
+        Los juegos Dual Mode (CGB/DMG) leen el registro A al inicio para detectar
+        el tipo de hardware y ajustar su comportamiento. Si detectan CGB (A=0x11),
+        intentan usar características avanzadas (VRAM Banks, paletas CGB) que aún
+        no están implementadas, resultando en pantalla negra.
+        
+        Por ahora, forzamos A=0x01 para ejecutar en modo DMG (compatible con nuestro
+        emulador actual). Más adelante, cuando implementemos características CGB,
+        podremos cambiar esto a 0x11.
+        
+        Fuente: Pan Docs - Boot ROM, Post-Boot State, Game Boy Color detection
         """
         if self._cpu is None:
             return
@@ -218,10 +232,21 @@ class Viboy:
         # SP inicializado a 0xFFFE (top de la pila)
         self._cpu.registers.set_sp(0xFFFE)
         
-        logger.debug(
-            f"Post-Boot State: PC=0x{self._cpu.registers.get_pc():04X}, "
-            f"SP=0x{self._cpu.registers.get_sp():04X}"
-        )
+        # CRÍTICO: Forzar modo DMG (Game Boy Clásica)
+        # A = 0x01 indica que es una Game Boy Clásica, no Color
+        # Esto hace que los juegos Dual Mode usen el código compatible con DMG
+        self._cpu.registers.set_a(0x01)
+        
+        # Verificar que se estableció correctamente
+        reg_a = self._cpu.registers.get_a()
+        if reg_a != 0x01:
+            logger.error(f"⚠️ ERROR: Registro A no se estableció correctamente. Esperado: 0x01, Obtenido: 0x{reg_a:02X}")
+        else:
+            logger.info(
+                f"✅ Post-Boot State: PC=0x{self._cpu.registers.get_pc():04X}, "
+                f"SP=0x{self._cpu.registers.get_sp():04X}, "
+                f"A=0x{reg_a:02X} (DMG mode forzado)"
+            )
 
     def tick(self) -> int:
         """
@@ -323,6 +348,27 @@ class Viboy:
         
         logger.info("Iniciando bucle principal de ejecución...")
         
+        # Heartbeat inicial: mostrar estado al inicio para diagnóstico
+        if self._mmu is not None:
+            pc = self._cpu.registers.get_pc()
+            reg_a = self._cpu.registers.get_a()
+            lcdc = self._mmu.read_byte(0xFF40)
+            bgp = self._mmu.read_byte(0xFF47)
+            logger.info(
+                f"🚀 Inicio: PC=0x{pc:04X} | A=0x{reg_a:02X} (DMG={'✅' if reg_a == 0x01 else '❌'}) | "
+                f"LCDC=0x{lcdc:02X} | BGP=0x{bgp:02X}"
+            )
+        else:
+            pc = self._cpu.registers.get_pc()
+            reg_a = self._cpu.registers.get_a()
+            logger.info(f"🚀 Inicio: PC=0x{pc:04X} | A=0x{reg_a:02X} (DMG={'✅' if reg_a == 0x01 else '❌'})")
+        
+        # CRÍTICO: Forzar un render inicial para mostrar el visual heartbeat
+        # Esto asegura que la ventana muestre algo incluso si el juego no entra en V-Blank
+        if self._renderer is not None:
+            logger.info("🖼️  Forzando render inicial para mostrar visual heartbeat...")
+            self._renderer.render_frame()
+        
         # Contador de frames para heartbeat (cada 60 frames ≈ 1 segundo)
         frame_count = 0
         
@@ -353,6 +399,16 @@ class Viboy:
                 # Ejecutar una instrucción
                 cycles = self.tick()
                 
+                # CRÍTICO: Renderizar periódicamente para mostrar el heartbeat incluso si no hay V-Blank
+                # Esto asegura que el visual heartbeat sea visible cuando el LCD está apagado
+                # o cuando el juego no está generando V-Blanks
+                if self._renderer is not None:
+                    self._cycles_since_render += cycles * 4  # Convertir a T-Cycles
+                    # Renderizar cada ~70,224 T-Cycles (1 frame) para mantener el heartbeat visible
+                    if self._cycles_since_render >= 70_224:
+                        self._renderer.render_frame()
+                        self._cycles_since_render = 0
+                
                 # Detectar inicio de V-Blank para renderizar
                 if self._ppu is not None and self._renderer is not None:
                     ly = self._ppu.get_ly()
@@ -363,10 +419,20 @@ class Viboy:
                         frame_count += 1
                         
                         # Heartbeat: cada 60 frames (≈1 segundo), mostrar estado
-                        if frame_count % 60 == 0:
+                        # También mostrar en el primer frame para diagnóstico inmediato
+                        if frame_count % 60 == 0 or frame_count == 1:
                             pc = self._cpu.registers.get_pc()
                             fps = self._clock.get_fps() if self._clock is not None else 0.0
-                            logger.info(f"Heartbeat: PC=0x{pc:04X} | FPS={fps:.2f}")
+                            # Monitor de LCDC y BGP para diagnóstico
+                            if self._mmu is not None:
+                                lcdc = self._mmu.read_byte(0xFF40)
+                                bgp = self._mmu.read_byte(0xFF47)
+                                logger.info(
+                                    f"💓 Heartbeat (frame {frame_count}): PC=0x{pc:04X} | FPS={fps:.2f} | "
+                                    f"LCDC=0x{lcdc:02X} | BGP=0x{bgp:02X}"
+                                )
+                            else:
+                                logger.info(f"💓 Heartbeat (frame {frame_count}): PC=0x{pc:04X} | FPS={fps:.2f}")
                         
                         # Log del estado de LCDC, IE, IF para debugging (DEBUG para evitar spam)
                         # CRÍTICO: Cambiado a DEBUG para evitar spam en consola que mata el rendimiento
