@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doctor Viboy: Diagnóstico Autónomo y Fix de HALT - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Doctor Viboy: Diagnóstico Autónomo y Fix de HALT</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0045
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0044__timer-completo-tima-tma-tac.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se creó la herramienta <strong>Doctor Viboy</strong> (<code>tools/doctor_viboy.py</code>), un analizador
+                    autónomo de bloqueos que detecta bucles infinitos, desensambla el código del bucle, muestra el estado
+                    completo del sistema y aplica heurísticas de diagnóstico. El Doctor identificó que el emulador se quedaba
+                    congelado porque la CPU entraba en estado HALT esperando interrupciones que nunca llegaban, ya que durante
+                    HALT solo se avanzaban 4 T-Cycles por tick, insuficientes para que la PPU generara interrupciones V-Blank.
+                    Se implementó un fix en <code>src/viboy.py</code> que hace avanzar múltiples ciclos durante HALT (hasta 114
+                    M-Cycles = 456 T-Cycles = 1 línea de PPU) para que los subsistemas sigan funcionando normalmente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>HALT en la Game Boy</strong>: La instrucción HALT (opcode 0x76) pone la CPU en modo de bajo consumo.
+                    La CPU deja de ejecutar instrucciones (el PC no avanza) hasta que ocurre una interrupción. Sin embargo,
+                    <strong>el reloj del sistema sigue funcionando</strong> durante HALT. Esto significa que:
+                </p>
+                <ul>
+                    <li>La PPU (Pixel Processing Unit) sigue avanzando líneas y generando interrupciones V-Blank</li>
+                    <li>El Timer sigue contando y puede generar interrupciones</li>
+                    <li>Otros subsistemas siguen funcionando normalmente</li>
+                </ul>
+                <p>
+                    Cuando la CPU está en HALT y hay interrupciones pendientes (en IE y IF), la CPU se despierta automáticamente,
+                    incluso si IME (Interrupt Master Enable) está desactivado. Esto permite que los juegos hagan "polling" manual
+                    de IF después de HALT.
+                </p>
+                <p>
+                    <strong>Problema identificado</strong>: En la implementación anterior, cuando la CPU estaba en HALT, el método
+                    <code>step()</code> devolvía solo 1 M-Cycle (4 T-Cycles) por tick. La PPU necesita 456 T-Cycles para completar
+                    una línea de escaneo, por lo que necesitaría 114 ticks en HALT para avanzar una sola línea. Esto hacía que la
+                    PPU avanzara extremadamente lento y nunca generara interrupciones V-Blank, causando que el juego se quedara
+                    congelado esperando interrupciones que nunca llegaban.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - HALT behavior, System Clock, Interrupts
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>1. Herramienta Doctor Viboy</h3>
+                <p>
+                    Se creó <code>tools/doctor_viboy.py</code>, una herramienta de diagnóstico autónoma que:
+                </p>
+                <ul>
+                    <li><strong>Ejecuta el emulador sin interfaz gráfica</strong>: Carga una ROM y ejecuta instrucciones paso a paso</li>
+                    <li><strong>Detecta bucles infinitos</strong>: Mantiene un historial de las últimas 100 direcciones PC visitadas y detecta cuando el PC está atrapado en un rango pequeño de memoria durante muchas iteraciones (umbral: 5000 iteraciones)</li>
+                    <li><strong>Desensambla el bucle</strong>: Implementa un mini-desensamblador básico que muestra las instrucciones del bucle con sus mnemónicos (NOP, HALT, LD A, (nn), CP d8, JR, etc.)</li>
+                    <li><strong>Muestra el estado completo del sistema</strong>: Registros CPU (AF, BC, DE, HL, PC, SP, Flags), IME, estado HALT, y registros de hardware (LCDC, STAT, LY, IF, IE, DIV, TIMA, TAC)</li>
+                    <li><strong>Aplica heurísticas de diagnóstico</strong>: Analiza las instrucciones del bucle y el estado del hardware para identificar la causa:
+                        <ul>
+                            <li>Si lee 0xFF44 (LY) y compara con 144: "Esperando V-Blank"</li>
+                            <li>Si lee 0xFF0F (IF): "Esperando Interrupción (Polling)"</li>
+                            <li>Si lee 0xFF04 o 0xFF05: "Esperando Timer"</li>
+                            <li>Si lee 0xFF41 (STAT): "Esperando Modo LCD"</li>
+                            <li>Si CPU está en HALT sin interrupciones activas: "CPU en HALT esperando interrupción, pero ninguna está activa"</li>
+                        </ul>
+                    </li>
+                    <li><strong>Proporciona recomendaciones específicas</strong>: Basadas en el diagnóstico, sugiere qué verificar o qué componente puede estar fallando</li>
+                </ul>
+
+                <h3>2. Fix de HALT en Viboy</h3>
+                <p>
+                    Se modificó el método <code>tick()</code> en <code>src/viboy.py</code> para manejar correctamente el estado HALT:
+                </p>
+                <ul>
+                    <li><strong>Detección de HALT</strong>: Si la CPU está en HALT, se entra en un bucle especial</li>
+                    <li><strong>Avance múltiple de ciclos</strong>: Durante HALT, se ejecutan múltiples ticks (hasta 114 M-Cycles = 456 T-Cycles = 1 línea completa de PPU) en una sola llamada a <code>tick()</code></li>
+                    <li><strong>Despertar automático</strong>: Si la CPU se despierta (ya no está en HALT) o hay interrupciones pendientes, se sale del bucle</li>
+                    <li><strong>Límite de seguridad</strong>: Se usa un límite máximo (114 M-Cycles) para evitar bucles infinitos si algo falla</li>
+                </ul>
+                <p>
+                    Esto simula correctamente el comportamiento del hardware: durante HALT, el reloj del sistema sigue funcionando
+                    y los subsistemas (PPU, Timer) siguen avanzando normalmente, permitiendo que se generen interrupciones que
+                    despierten a la CPU.
+                </p>
+
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>tools/doctor_viboy.py</strong> (nuevo): Herramienta de diagnóstico autónoma con detector de bucles, desensamblador básico, análisis de estado y heurísticas de diagnóstico</li>
+                    <li><strong>src/viboy.py</strong> (modificado): Mejora del método <code>tick()</code> para avanzar múltiples ciclos durante HALT, permitiendo que la PPU y el Timer sigan funcionando normalmente</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Por qué 114 M-Cycles durante HALT</strong>: 114 M-Cycles = 456 T-Cycles = exactamente 1 línea completa de PPU.
+                    Esto permite que la PPU avance al menos una línea por cada llamada a <code>tick()</code> durante HALT, asegurando
+                    que el progreso sea visible y que eventualmente se generen interrupciones V-Blank.
+                </p>
+                <p>
+                    <strong>Límite de seguridad</strong>: El límite de 114 M-Cycles evita bucles infinitos si algo falla. En hardware real,
+                    el reloj sigue funcionando indefinidamente, pero en el emulador necesitamos un límite para evitar que el programa
+                    se quede atascado si hay un bug.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tools/doctor_viboy.py</code> - Nueva herramienta de diagnóstico autónoma (creado)</li>
+                    <li><code>src/viboy.py</code> - Mejora del método <code>tick()</code> para manejar HALT correctamente (modificado)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizó ejecutando el Doctor Viboy con ROMs reales:
+                </p>
+                
+                <h3>A) Ejecución del Doctor Viboy con tetris_dx.gbc</h3>
+                <ul>
+                    <li><strong>Comando ejecutado</strong>: <code>python tools/doctor_viboy.py tetris_dx.gbc --max-instructions 1000000</code></li>
+                    <li><strong>Entorno</strong>: Windows 10, Python 3.13.5</li>
+                    <li><strong>Resultado</strong>: PASSED - 1,000,000 instrucciones ejecutadas sin detectar bucles infinitos</li>
+                    <li><strong>Qué valida</strong>:
+                        <ul>
+                            <li>El emulador no se queda congelado en bucles infinitos</li>
+                            <li>El PC cambia normalmente durante la ejecución</li>
+                            <li>La CPU puede despertarse de HALT cuando ocurren interrupciones</li>
+                        </ul>
+                    </li>
+                    <li><strong>Observación</strong>: El PC cambió normalmente (0x12E1 → 0x01D2 → 0x0616 → 0x5055 → 0x0283 → 0x4528 → 0x41A7 → 0x41B3 → 0x02DF → 0x0283), confirmando que el emulador avanza correctamente</li>
+                </ul>
+
+                <h3>B) Ejecución del Doctor Viboy con mario.gbc</h3>
+                <ul>
+                    <li><strong>Comando ejecutado</strong>: <code>python tools/doctor_viboy.py mario.gbc --max-instructions 500000</code></li>
+                    <li><strong>Entorno</strong>: Windows 10, Python 3.13.5</li>
+                    <li><strong>Resultado</strong>: PASSED - 500,000 instrucciones ejecutadas sin detectar bucles infinitos</li>
+                    <li><strong>Qué valida</strong>:
+                        <ul>
+                            <li>El fix de HALT funciona correctamente con diferentes ROMs</li>
+                            <li>El emulador no se queda congelado con mario.gbc</li>
+                        </ul>
+                    </li>
+                    <li><strong>Observación</strong>: El PC cambió normalmente (0x12DF → 0x145F → 0x025B → 0x025A → 0x51F9), confirmando que el emulador funciona correctamente</li>
+                </ul>
+
+                <h3>C) Diagnóstico del problema original (antes del fix)</h3>
+                <ul>
+                    <li><strong>Comando ejecutado</strong>: <code>python tools/doctor_viboy.py tetris_dx.gbc</code></li>
+                    <li><strong>Resultado</strong>: BUCLE INFINITO DETECTADO en 0x0283 (NOP)</li>
+                    <li><strong>Diagnóstico generado</strong>:
+                        <ul>
+                            <li>CPU en HALT esperando interrupción, pero ninguna está activa</li>
+                            <li>V-Blank habilitada pero no activa (IF bit 0 = 0)</li>
+                            <li>LY = 119 (no había llegado a 144 para activar V-Blank)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Conclusión</strong>: El Doctor Viboy identificó correctamente que el problema era que la CPU estaba en HALT esperando interrupciones que nunca llegaban porque la PPU no avanzaba lo suficientemente rápido durante HALT</li>
+                </ul>
+
+                <p>
+                    <strong>Notas legales</strong>: Las ROMs tetris_dx.gbc y mario.gbc son aportadas por el usuario para pruebas locales.
+                    No se distribuyen, no se suben al repositorio, y no se enlazan descargas.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">https://gbdev.io/pandocs/</a> - HALT behavior, System Clock, Interrupts</li>
+                    <li>Pan Docs: LCD Timing, V-Blank Interrupt</li>
+                    <li>Pan Docs: CPU Instruction Set (HALT opcode 0x76)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>HALT y el reloj del sistema</strong>: Cuando la CPU está en HALT, el reloj del sistema sigue funcionando.
+                            Los subsistemas (PPU, Timer) deben seguir avanzando normalmente. Esto es crítico para que se generen
+                            interrupciones que despierten a la CPU.</li>
+                        <li><strong>Timing durante HALT</strong>: En hardware real, durante HALT la CPU consume 1 ciclo por tick pero el
+                            reloj del sistema sigue funcionando a 4.19 MHz. La PPU y el Timer siguen avanzando a su velocidad normal.
+                            En el emulador, necesitamos simular esto avanzando múltiples ciclos durante HALT.</li>
+                        <li><strong>Herramientas de diagnóstico</strong>: Crear herramientas de diagnóstico autónomas es esencial para
+                            identificar problemas complejos como bucles infinitos. El Doctor Viboy puede detectar problemas que serían
+                            difíciles de encontrar manualmente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Precisión del timing durante HALT</strong>: El límite de 114 M-Cycles es una aproximación. En hardware
+                            real, el reloj sigue funcionando indefinidamente. ¿Es suficiente este límite para todos los casos? Se validará
+                            con más ROMs y tests.</li>
+                        <li><strong>Comportamiento exacto de HALT con IME desactivado</strong>: Según la documentación, HALT con IME=False
+                            puede tener comportamientos especiales. Se validará con más tests específicos.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Límite de 114 M-Cycles durante HALT</strong>: Asumimos que avanzar hasta 114 M-Cycles (1 línea de PPU) por
+                        cada llamada a <code>tick()</code> durante HALT es suficiente para que la PPU y el Timer avancen normalmente. Esto
+                        se basa en el hecho de que 456 T-Cycles es el tiempo de una línea completa de PPU, pero no está completamente
+                        verificado con documentación específica. Se validará empíricamente con ROMs reales.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Probar el emulador con más ROMs para validar que el fix de HALT funciona en todos los casos</li>
+                    <li>[ ] Mejorar el Doctor Viboy para detectar más patrones de bucles (ej: bucles que esperan cambios en registros específicos)</li>
+                    <li>[ ] Añadir más heurísticas de diagnóstico al Doctor Viboy (ej: detectar esperas de DMA, esperas de cambios en STAT)</li>
+                    <li>[ ] Crear tests unitarios específicos para validar el comportamiento de HALT con diferentes configuraciones de IME e interrupciones</li>
+                    <li>[ ] Documentar el comportamiento exacto de HALT según la documentación técnica</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

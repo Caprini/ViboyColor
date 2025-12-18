@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0045 - Doctor Viboy: Diagnóstico Autónomo y Fix de HALT -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0045__doctor-viboy-diagnostico-halt.html" class="entry-link">
+                                    Doctor Viboy: Diagnóstico Autónomo y Fix de HALT
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0045 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se creó la herramienta Doctor Viboy (tools/doctor_viboy.py), un analizador autónomo de bloqueos que detecta bucles infinitos, desensambla el código del bucle, muestra el estado completo del sistema y aplica heurísticas de diagnóstico. El Doctor identificó que el emulador se quedaba congelado porque la CPU entraba en estado HALT esperando interrupciones que nunca llegaban, ya que durante HALT solo se avanzaban 4 T-Cycles por tick, insuficientes para que la PPU generara interrupciones V-Blank. Se implementó un fix en src/viboy.py que hace avanzar múltiples ciclos durante HALT (hasta 114 M-Cycles = 456 T-Cycles = 1 línea de PPU) para que los subsistemas sigan funcionando normalmente. Verificado con tetris_dx.gbc (1M instrucciones) y mario.gbc (500K instrucciones) sin detectar bucles infinitos.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0044 - Timer Completo: TIMA, TMA y TAC -->
                     <li>
                         <div class="entry-header">

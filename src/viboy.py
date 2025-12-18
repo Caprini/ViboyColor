@@ -230,17 +230,56 @@ class Viboy:
         Este método es el "latido" del sistema. Cada llamada ejecuta una instrucción
         y devuelve los ciclos consumidos.
         
+        CRÍTICO: Si la CPU está en HALT, el reloj del sistema sigue funcionando.
+        La PPU y el Timer deben seguir avanzando normalmente. Para evitar que el
+        emulador se quede congelado esperando interrupciones, cuando la CPU está
+        en HALT avanzamos múltiples ciclos hasta que ocurra algo (interrupción
+        o cambio de estado).
+        
         Returns:
             Número de M-Cycles consumidos por la instrucción ejecutada
             
         Raises:
             RuntimeError: Si el sistema no está inicializado correctamente
             NotImplementedError: Si se encuentra un opcode no implementado
+            
+        Fuente: Pan Docs - HALT behavior, System Clock
         """
         if self._cpu is None:
             raise RuntimeError("Sistema no inicializado. Llama a load_cartridge() primero.")
         
-        # Ejecutar una instrucción
+        # Si la CPU está en HALT, simular el paso del tiempo de forma más agresiva
+        # para que la PPU y el Timer puedan avanzar y generar interrupciones.
+        # En hardware real, el reloj sigue funcionando durante HALT.
+        if self._cpu.halted:
+            # Avanzar ciclos hasta que ocurra algo (interrupción o cambio de estado)
+            # Usamos un límite de seguridad para evitar bucles infinitos
+            max_halt_cycles = 114  # 114 M-Cycles = 456 T-Cycles = 1 línea de PPU
+            total_cycles = 0
+            
+            for _ in range(max_halt_cycles):
+                # Ejecutar un tick de HALT (consume 1 M-Cycle)
+                cycles = self._cpu.step()
+                total_cycles += cycles
+                
+                # Convertir a T-Cycles y avanzar subsistemas
+                t_cycles = cycles * 4
+                if self._ppu is not None:
+                    self._ppu.step(t_cycles)
+                if self._timer is not None:
+                    self._timer.tick(t_cycles)
+                
+                # Si la CPU se despertó (ya no está en HALT), salir
+                if not self._cpu.halted:
+                    break
+                
+                # Si hay interrupciones pendientes, la CPU debería despertarse
+                # en el siguiente handle_interrupts(), así que continuamos
+            
+            self._total_cycles += total_cycles
+            return total_cycles
+        
+        # Ejecutar una instrucción normal
         cycles = self._cpu.step()
         
         # Acumular ciclos totales

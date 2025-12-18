@@ -1,5 +1,46 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Doctor Viboy: Diagnóstico Autónomo y Fix de HALT (Step 0045)
+
+### Conceptos Hardware Implementados
+
+**HALT en la Game Boy**: La instrucción HALT (opcode 0x76) pone la CPU en modo de bajo consumo. La CPU deja de ejecutar instrucciones (el PC no avanza) hasta que ocurre una interrupción. Sin embargo, **el reloj del sistema sigue funcionando** durante HALT. Esto significa que la PPU (Pixel Processing Unit) sigue avanzando líneas y generando interrupciones V-Blank, el Timer sigue contando y puede generar interrupciones, y otros subsistemas siguen funcionando normalmente. Cuando la CPU está en HALT y hay interrupciones pendientes (en IE y IF), la CPU se despierta automáticamente, incluso si IME (Interrupt Master Enable) está desactivado.
+
+**Problema identificado**: En la implementación anterior, cuando la CPU estaba en HALT, el método `step()` devolvía solo 1 M-Cycle (4 T-Cycles) por tick. La PPU necesita 456 T-Cycles para completar una línea de escaneo, por lo que necesitaría 114 ticks en HALT para avanzar una sola línea. Esto hacía que la PPU avanzara extremadamente lento y nunca generara interrupciones V-Blank, causando que el juego se quedara congelado esperando interrupciones que nunca llegaban.
+
+**Fuente**: Pan Docs - HALT behavior, System Clock, Interrupts
+
+#### Tareas Completadas:
+
+1. **Herramienta Doctor Viboy (`tools/doctor_viboy.py`)**:
+   - Nueva herramienta de diagnóstico autónoma que ejecuta el emulador sin interfaz gráfica
+   - Detecta bucles infinitos analizando el historial de direcciones PC (últimas 100 direcciones, umbral de 5000 iteraciones)
+   - Desensambla el código del bucle con un mini-desensamblador básico (NOP, HALT, LD A, (nn), CP d8, JR, etc.)
+   - Muestra el estado completo del sistema: registros CPU (AF, BC, DE, HL, PC, SP, Flags), IME, estado HALT, y registros de hardware (LCDC, STAT, LY, IF, IE, DIV, TIMA, TAC)
+   - Aplica heurísticas de diagnóstico: detecta esperas de V-Blank, Timer, Interrupciones, Modo LCD, y HALT sin interrupciones
+   - Proporciona recomendaciones específicas basadas en el diagnóstico
+
+2. **Fix de HALT en Viboy (`src/viboy.py`)**:
+   - Modificado el método `tick()` para manejar correctamente el estado HALT
+   - Durante HALT, se ejecutan múltiples ticks (hasta 114 M-Cycles = 456 T-Cycles = 1 línea completa de PPU) en una sola llamada a `tick()`
+   - Si la CPU se despierta (ya no está en HALT) o hay interrupciones pendientes, se sale del bucle
+   - Límite de seguridad de 114 M-Cycles para evitar bucles infinitos si algo falla
+   - Esto simula correctamente el comportamiento del hardware: durante HALT, el reloj del sistema sigue funcionando y los subsistemas (PPU, Timer) siguen avanzando normalmente
+
+#### Archivos Afectados:
+- `tools/doctor_viboy.py` (nuevo) - Herramienta de diagnóstico autónoma con detector de bucles, desensamblador básico, análisis de estado y heurísticas de diagnóstico
+- `src/viboy.py` (modificado) - Mejora del método `tick()` para avanzar múltiples ciclos durante HALT, permitiendo que la PPU y el Timer sigan funcionando normalmente
+- `docs/bitacora/entries/2025-12-18__0045__doctor-viboy-diagnostico-halt.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0045)
+- `docs/bitacora/entries/2025-12-18__0044__timer-completo-tima-tma-tac.html` (modificado, actualizado link "Siguiente")
+
+#### Validación:
+- **Doctor Viboy con tetris_dx.gbc**: 1,000,000 instrucciones ejecutadas sin detectar bucles infinitos. PC cambió normalmente (0x12E1 → 0x01D2 → 0x0616 → 0x5055 → 0x0283 → 0x4528 → 0x41A7 → 0x41B3 → 0x02DF → 0x0283)
+- **Doctor Viboy con mario.gbc**: 500,000 instrucciones ejecutadas sin detectar bucles infinitos. PC cambió normalmente (0x12DF → 0x145F → 0x025B → 0x025A → 0x51F9)
+- **Diagnóstico del problema original**: El Doctor Viboy identificó correctamente que el problema era que la CPU estaba en HALT esperando interrupciones que nunca llegaban porque la PPU no avanzaba lo suficientemente rápido durante HALT
+
+---
+
 ## 2025-12-18 - Timer Completo: TIMA, TMA y TAC (Step 0044)
 
 ### Conceptos Hardware Implementados
