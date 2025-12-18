@@ -47,7 +47,7 @@
                             <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
                         </div>
                         <p class="entry-summary">
-                            Se creó una herramienta de trazado forense (tools/debug_trace.py) para analizar la ejecución del emulador sin interfaz gráfica. El análisis reveló que el juego nunca escribe en el registro IE (0xFFFF - Interrupt Enable), lo que explica por qué las interrupciones no se habilitan y el juego se queda en un bucle infinito esperando V-Blank. Se detectó un bucle de espera (delay loop) entre las direcciones 0x1383-0x1389 que decrementa el registro DE hasta que sea cero. El juego está esperando un evento (probablemente V-Blank) que nunca ocurre porque las interrupciones están deshabilitadas.
+                            Se creó una herramienta de trazado forense (tools/debug_trace.py) para analizar la ejecución del emulador sin interfaz gráfica. El análisis de las primeras instrucciones reveló que el juego ejecuta DI (0xF3) en 0x0150, deshabilitando IME (Interrupt Master Enable) al inicio. El juego nunca ejecuta EI (0xFB) para volver a habilitar las interrupciones, lo que explica por qué el juego se queda en un bucle infinito esperando V-Blank. Se detectó un bucle de espera (delay loop) entre 0x1383-0x1389 que decrementa DE desde 0x06D6 hasta 0. El problema no es solo IE, sino que IME está deshabilitado.
                         </p>
                     </li>
                     

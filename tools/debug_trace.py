@@ -352,11 +352,22 @@ def main() -> None:
             print(f"... y {len(lcdc_writes) - 10} más")
         print()
     
+    # Mostrar primeras 50 instrucciones
+    print("=" * 80)
+    print("PRIMERAS 50 INSTRUCCIONES (Inicio de ejecucion)")
+    print("=" * 80)
+    first_instructions = min(50, len(instruction_log))
+    for line in instruction_log[:first_instructions]:
+        print(line)
+    print("=" * 80)
+    print()
+    
     # Mostrar últimas 50 instrucciones
     print("=" * 80)
-    print("ÚLTIMAS 50 INSTRUCCIONES")
+    print("ULTIMAS 50 INSTRUCCIONES (Estado actual)")
     print("=" * 80)
-    for line in instruction_log[-50:]:
+    last_instructions = min(50, len(instruction_log))
+    for line in instruction_log[-last_instructions:]:
         print(line)
     print("=" * 80)
 
