@@ -218,6 +218,13 @@ class Renderer:
         lcdc = self.mmu.read_byte(IO_LCDC) & 0xFF
         lcdc_bit7 = (lcdc & 0x80) != 0
         
+        # DIAGNÓSTICO: Log cuando LCDC es 0x80 (LCD ON, BG OFF) - estado crítico para Pokémon
+        if lcdc == 0x80:
+            logger.debug(
+                "RENDER: LCDC is 0x80 (Only LCD ON, BG OFF). "
+                "Drawing... (Game expects V-Blank interrupt to configure graphics)"
+            )
+        
         # Leer registro BGP (Background Palette)
         bgp = self.mmu.read_byte(IO_BGP) & 0xFF
         
@@ -236,22 +243,31 @@ class Renderer:
             import time
             heartbeat_on = (time.time() % 1.0) > 0.5
             # Limpiar buffer primero
-            self.buffer.fill((255, 255, 255))
+            # DIAGNÓSTICO: Usar AZUL OSCURO cuando LCD está apagado para distinguir visualmente
+            # Si vemos pantalla AZUL = LCD apagado (problema de lógica/CPU)
+            # Si vemos pantalla BLANCA = LCD encendido pero dibujando blanco (problema de paleta/VRAM)
+            if not lcdc_bit7:
+                self.buffer.fill((0, 0, 128))  # Azul oscuro cuando LCD está apagado
+            else:
+                self.buffer.fill((255, 255, 255))  # Blanco cuando LCD está encendido
             # Dibujar un cuadrado de 4x4 píxeles en la esquina (0,0) para que sea más visible
             # después del escalado (4x4 en 160x144 se convierte en 12x12 en 480x432)
             if heartbeat_on:
                 # Dibujar cuadrado rojo brillante
                 pygame.draw.rect(self.buffer, (255, 0, 0), (0, 0, 4, 4))
             else:
-                # Dibujar cuadrado blanco (igual al fondo)
-                pygame.draw.rect(self.buffer, (255, 255, 255), (0, 0, 4, 4))
+                # Dibujar cuadrado del color de fondo
+                if not lcdc_bit7:
+                    pygame.draw.rect(self.buffer, (0, 0, 128), (0, 0, 4, 4))
+                else:
+                    pygame.draw.rect(self.buffer, (255, 255, 255), (0, 0, 4, 4))
         except Exception as e:
             # Si falla el heartbeat, loguear el error para diagnóstico
             logger.warning(f"Visual heartbeat falló: {e}")
             pass
         
         # Bit 7: LCD Enable
-        # Si el LCD está desactivado, pintar pantalla blanca y retornar
+        # Si el LCD está desactivado, pintar pantalla azul oscuro (diagnóstico) y retornar
         # NOTA: En modo debug, podríamos renderizar VRAM de todas formas, pero
         # por ahora respetamos el comportamiento del hardware real
         if not lcdc_bit7:
@@ -259,7 +275,7 @@ class Renderer:
             scaled_buffer = pygame.transform.scale(self.buffer, (self.window_width, self.window_height))
             self.screen.blit(scaled_buffer, (0, 0))
             pygame.display.flip()
-            logger.debug("LCDC: LCD desactivado (bit 7=0), pantalla blanca - 0 tiles dibujados")
+            logger.debug("RENDER: LCD OFF (Pantalla Azul) - LCDC bit 7=0")
             return
         
         # HACK EDUCATIVO: Ignorar Bit 0 de LCDC (BG Display)
@@ -354,6 +370,13 @@ class Renderer:
         
         # Limpiar framebuffer con color de fondo (índice 0 de la paleta)
         self.buffer.fill(palette[0])
+        
+        # DIAGNÓSTICO CRÍTICO: Log del estado del LCD y paleta justo antes de renderizar
+        logger.debug(
+            f"RENDER: LCD ON | BGP={self.mmu.read_byte(IO_BGP):02X} | "
+            f"SCX={self.mmu.read_byte(IO_SCX)} | "
+            f"VRAM_CHECK={self.mmu.read_byte(0x8000):02X}"
+        )
         
         # VISUAL HEARTBEAT: Asegurar que el cuadrado parpadeante esté visible también cuando el LCD está encendido
         # (ya se dibujó arriba cuando el LCD estaba apagado, pero lo redibujamos aquí para que sea consistente)

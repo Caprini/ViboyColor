@@ -1,5 +1,115 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Rastreo de Interrupciones V-Blank (Step 0050)
+
+### Conceptos Hardware Implementados
+
+**Flujo de Inicialización de Juegos**: Cuando un juego enciende el LCD escribiendo `0x80` en el registro LCDC (0xFF40), está activando el bit 7 (LCD Enable) pero dejando el bit 0 (BG Display) en 0. Esto significa que el LCD está encendido pero el fondo no se dibuja todavía. El juego entonces espera a que la PPU genere la interrupción V-Blank (vector 0x0040) para configurar el resto de los gráficos (activar fondo, sprites, etc.). Si la interrupción V-Blank no se despacha correctamente, el juego se queda congelado esperando una interrupción que nunca llega.
+
+**Condiciones para Despacho de Interrupciones**: Una interrupción se despacha solo si se cumplen tres condiciones simultáneas: (1) IME (Interrupt Master Enable) está activado (True), (2) IE (Interrupt Enable, 0xFFFF) tiene el bit correspondiente activado, y (3) IF (Interrupt Flag, 0xFF0F) tiene el bit correspondiente activado. Si alguna de estas condiciones falla, la interrupción no se procesa aunque esté "pendiente".
+
+**Diagnóstico de Interrupciones**: El log de despacho de interrupciones permite identificar si el problema está en la CPU (no acepta interrupciones porque IME=False o IE no está configurado) o en la PPU (no genera V-Blank correctamente en IF). Si aparece el log `⚡ INTERRUPT DISPATCHED! Vector: 0040`, la CPU funciona correctamente y el problema es gráfico. Si no aparece, el bug está en el sistema de interrupciones.
+
+**Fuente**: Pan Docs - Interrupts, V-Blank Interrupt, LCD Control Register, Interrupt Enable (IE) Register, Interrupt Flag (IF) Register
+
+#### Tareas Completadas:
+
+1. **Log de Despacho de Interrupciones (`src/cpu/core.py`)**:
+   - Añadido log informativo en método `handle_interrupts()` justo después de que la CPU acepta una interrupción y salta al vector
+   - El log muestra: vector de interrupción, PC previo, y tipo de interrupción (V-Blank, LCD STAT, Timer, Serial, Joypad)
+   - Se ejecuta solo cuando la interrupción se despacha realmente (IME=True, IE activado, IF activado)
+
+2. **Log de Estado LCDC 0x80 (`src/gpu/renderer.py`)**:
+   - Añadido log de debug en método `render_frame()` que se activa cuando LCDC es exactamente `0x80`
+   - Este estado indica que el LCD está encendido pero el fondo está apagado, un estado transitorio que el juego usa mientras espera V-Blank
+
+#### Archivos Afectados:
+- `src/cpu/core.py` (modificado) - Añadido log informativo en `handle_interrupts()` cuando se despacha una interrupción
+- `src/gpu/renderer.py` (modificado) - Añadido log de debug cuando LCDC es 0x80
+- `docs/bitacora/entries/2025-12-18__0050__rastreo-interrupciones-vblank.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0050)
+
+#### Validación:
+- **Estado**: Draft - Pendiente de ejecución manual para verificar si aparece el log de interrupción
+- **Entorno**: Windows 10, Python 3.13.5
+- **ROM probada**: Pokémon Red (ROM aportada por el usuario, no distribuida)
+- **Comando ejecutado**: `python main.py pkmn.gb`
+- **Criterio de éxito**: 
+  - Ver el mensaje `CRITICAL: [TRAP LCDC] INTENTO DE CAMBIO LCDC: 00 -> 80` (confirmado en paso anterior)
+  - Ver el mensaje `⚡ INTERRUPT DISPATCHED! Vector: 0040 | PC Previo: XXXX | Tipo: V-Blank` después del cambio de LCDC
+  - Si NO aparece el mensaje de interrupción, identificar por qué (IME=False, IE sin configurar, IF no generado)
+- **Qué valida**: El log de despacho de interrupciones permite identificar si el problema está en la CPU (no acepta interrupciones) o en la PPU (no genera V-Blank). Si aparece el log, la CPU funciona correctamente y el problema es gráfico. Si no aparece, el bug está en el sistema de interrupciones.
+- **Próximo paso**: Ejecutar el emulador y buscar el log `⚡ INTERRUPT DISPATCHED!`. Si aparece, investigar por qué el renderer no dibuja correctamente después de V-Blank. Si no aparece, añadir logs adicionales para verificar el estado de IME, IE, e IF cuando se escribe 0x80 en LCDC.
+
+#### Lo que Entiendo Ahora:
+- **Flujo de inicialización**: Los juegos encienden el LCD con BG apagado (0x80) y esperan V-Blank para configurar el resto de gráficos. Si V-Blank no se despacha, el juego se congela.
+- **Condiciones para interrupciones**: Una interrupción se despacha solo si IME=True, IE tiene el bit activado, e IF tiene el bit activado. Si alguna falla, la interrupción no se procesa.
+- **Diagnóstico de interrupciones**: El log de despacho permite identificar si el problema está en la CPU o en la PPU.
+
+#### Lo que Falta Confirmar:
+- **Estado de IME en Pokémon**: Verificar si IME está activado cuando el juego escribe 0x80 en LCDC. Si IME=False, las interrupciones no se procesarán aunque estén pendientes.
+- **Configuración de IE**: Verificar si el registro IE (0xFFFF) tiene el bit 0 (V-Blank) activado. Si no está activado, la interrupción no se procesará aunque IF esté activado.
+- **Generación de V-Blank por PPU**: Verificar si la PPU está generando correctamente el flag de interrupción en IF (0xFF0F) cuando entra en modo V-Blank.
+
+#### Hipótesis y Suposiciones:
+**Hipótesis principal**: El juego enciende el LCD (0x80), pero la interrupción V-Blank no se despacha porque: (a) IME está desactivado, (b) IE no tiene el bit 0 activado, o (c) la PPU no está generando correctamente el flag en IF.
+
+**Próximo paso de verificación**: Ejecutar el emulador y buscar el log `⚡ INTERRUPT DISPATCHED!`. Si aparece, el problema es gráfico. Si no aparece, el problema está en el sistema de interrupciones.
+
+---
+
+## 2025-12-18 - Diagnóstico Visual: LCD Apagado (Step 0048)
+
+### Conceptos Hardware Implementados
+
+**Registro LCDC (LCD Control, 0xFF40)**: Controla el estado del LCD de la Game Boy. El **bit 7** es el "LCD Enable": cuando está en 0, el LCD está apagado y la pantalla muestra blanco (o azul para diagnóstico). Cuando está en 1, el LCD está encendido y la PPU puede renderizar gráficos.
+
+**Diagnóstico Visual**: Para distinguir entre dos problemas críticos, se cambia el color de fondo cuando el LCD está apagado de blanco a **azul oscuro**. Esto permite identificar visualmente:
+- **Pantalla AZUL**: LCD apagado → Problema de lógica/CPU (el juego no ha llegado a encender el LCD)
+- **Pantalla BLANCA**: LCD encendido pero dibujando blanco → Problema de paleta/VRAM (BGP=0x00 o VRAM vacía)
+
+**Inicialización del Juego**: Durante la inicialización, los juegos típicamente: (1) desactivan interrupciones (DI) y limpian memoria, (2) cargan tiles y configuran el tilemap en VRAM, (3) configuran la paleta BGP, (4) activan el LCD escribiendo LCDC con bit 7 = 1, (5) esperan V-Blank o hacen polling de STAT para sincronizar. Si el juego nunca activa el LCD, significa que está atascado en algún punto anterior de la inicialización.
+
+**Fuente**: Pan Docs - LCD Control Register (LCDC), LCD Timing
+
+#### Tareas Completadas:
+
+1. **Diagnóstico Visual en Renderer (`src/gpu/renderer.py`)**:
+   - Modificado método `render_frame()` para cambiar el color de fondo cuando LCD está apagado de blanco a azul oscuro (0, 0, 128)
+   - Añadido log de DEBUG crítico cuando LCD está encendido: muestra BGP, SCX y primer byte de VRAM
+   - Añadido log cuando LCD está apagado: "RENDER: LCD OFF (Pantalla Azul) - LCDC bit 7=0"
+
+#### Archivos Afectados:
+- `src/gpu/renderer.py` (modificado) - Diagnóstico visual (color azul cuando LCD apagado, logs de DEBUG)
+- `docs/bitacora/entries/2025-12-18__0048__diagnostico-visual-lcd-apagado.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0048)
+
+#### Validación:
+- **Estado**: Draft - Diagnóstico completado, problema identificado
+- **Entorno**: Windows 10, Python 3.10+
+- **ROM probada**: tetris_dx.gbc (ROM aportada por el usuario, no distribuida)
+- **Comando ejecutado**: `python main.py tetris_dx.gbc`
+- **Resultado**: **Pantalla AZUL** confirmada. El LCD está permanentemente apagado (LCDC bit 7 = 0). Los logs muestran repetidamente "RENDER: LCD OFF (Pantalla Azul) - LCDC bit 7=0", confirmando que el juego nunca activa el LCD.
+- **Qué valida**: El diagnóstico visual permite distinguir entre LCD apagado (azul) y LCD encendido dibujando blanco (blanco). El resultado confirma que el problema es de **lógica/CPU**: el juego no avanza más allá de la inicialización y nunca activa el LCD. Las causas probables son: (1) interrupciones no funcionan, (2) timer no funciona, (3) polling de registros falla, (4) bucle infinito.
+- **Próximo paso**: Investigar por qué el juego no activa el LCD. Verificar estado de IME, IF, IE durante la ejecución. Analizar el código del juego en el punto donde se queda atascado para entender qué está esperando.
+
+#### Lo que Entiendo Ahora:
+- **Diagnóstico visual**: Cambiar el color de fondo cuando el LCD está apagado permite distinguir rápidamente entre dos problemas diferentes: LCD apagado (azul) vs LCD encendido dibujando blanco (blanco).
+- **LCDC bit 7**: Este bit controla si el LCD está encendido o apagado. Si el juego nunca escribe 1 en este bit, la pantalla permanecerá apagada.
+- **Inicialización del juego**: Los juegos típicamente activan el LCD después de cargar tiles y configurar la paleta. Si el LCD permanece apagado, significa que el juego está atascado antes de llegar a ese punto.
+
+#### Lo que Falta Confirmar:
+- **Causa raíz del bloqueo**: No está confirmado por qué el juego no activa el LCD. Las hipótesis son: (1) interrupciones no funcionan, (2) timer no funciona, (3) polling de registros falla, (4) bucle infinito. Se requiere análisis adicional del código del juego para determinar la causa exacta.
+- **Estado de IME**: No se ha verificado si IME (Interrupt Master Enable) está habilitado o deshabilitado durante la ejecución. Si está deshabilitado, las interrupciones no se procesarán aunque se disparen.
+- **Estado de IF/IE**: No se ha verificado si los flags de interrupción (IF) y el registro de habilitación de interrupciones (IE) están configurados correctamente.
+
+#### Hipótesis y Suposiciones:
+**Hipótesis principal**: El juego está esperando una interrupción V-Blank o un cambio en el registro LY/STAT que nunca ocurre, causando que el juego se quede en un bucle de espera infinito. Esta hipótesis se basa en el análisis previo (Step 0042) que mostró que el juego ejecuta DI (0xF3) al inicio y nunca ejecuta EI (0xFB) para volver a habilitar interrupciones.
+
+**Suposición**: Si IME está deshabilitado, el juego podría estar haciendo polling manual de IF para detectar V-Blank, pero si IF nunca se activa (porque la PPU no está generando interrupciones correctamente), el juego se quedará esperando eternamente.
+
+---
+
 ## 2025-12-18 - Modos PPU y Registro STAT (Step 0047)
 
 ### Conceptos Hardware Implementados

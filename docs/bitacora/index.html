@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0050 - Rastreo de Interrupciones V-Blank -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0050__rastreo-interrupciones-vblank.html" class="entry-link">
+                                    Rastreo de Interrupciones V-Blank
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0050 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se añadieron logs de diagnóstico críticos para monitorizar el despacho de interrupciones en la CPU, específicamente para detectar si la interrupción V-Blank (0x0040) se está ejecutando correctamente después de que el juego enciende el LCD. El diagnóstico incluye un log informativo con el símbolo ⚡ cuando se despacha una interrupción, mostrando el vector, el PC previo y el tipo de interrupción. Adicionalmente, se añadió un log en el renderer para detectar cuando LCDC es 0x80 (LCD ON, BG OFF), un estado crítico que indica que el juego espera la interrupción V-Blank para configurar el resto de los gráficos.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0049 - Trampa de LCDC y Fix del Timer -->
                     <li>
                         <div class="entry-header">

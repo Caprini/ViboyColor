@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rastreo de Interrupciones V-Blank - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Rastreo de Interrupciones V-Blank</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0050
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0049__trampa-lcdc-fix-timer.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se añadieron <strong>logs de diagnóstico críticos</strong> para monitorizar el despacho de interrupciones en la CPU,
+                    específicamente para detectar si la interrupción V-Blank (0x0040) se está ejecutando correctamente después de que
+                    el juego enciende el LCD. El diagnóstico incluye un log informativo con el símbolo ⚡ cuando se despacha una interrupción,
+                    mostrando el vector, el PC previo y el tipo de interrupción. Adicionalmente, se añadió un log en el renderer para
+                    detectar cuando LCDC es 0x80 (LCD ON, BG OFF), un estado crítico que indica que el juego espera la interrupción V-Blank
+                    para configurar el resto de los gráficos.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, cuando un juego enciende el LCD escribiendo <code>0x80</code> en el registro LCDC (0xFF40),
+                    está activando el bit 7 (LCD Enable) pero dejando el bit 0 (BG Display) en 0. Esto significa que el LCD está
+                    encendido pero el fondo no se dibuja todavía.
+                </p>
+                <p>
+                    El flujo típico de inicialización de un juego es:
+                </p>
+                <ol>
+                    <li><strong>Encender LCD</strong>: Escribir <code>0x80</code> en LCDC (LCD ON, BG OFF)</li>
+                    <li><strong>Esperar V-Blank</strong>: El juego espera a que la PPU genere la interrupción V-Blank (vector 0x0040)</li>
+                    <li><strong>Configurar gráficos</strong>: Dentro del handler de V-Blank, el juego activa el fondo y sprites (escribe <code>0x93</code> o similar en LCDC)</li>
+                </ol>
+                <p>
+                    Si la interrupción V-Blank no se despacha correctamente después del paso 1, el juego se queda congelado esperando
+                    una interrupción que nunca llega. Esto puede ocurrir si:
+                </p>
+                <ul>
+                    <li><strong>IME está desactivado</strong>: La CPU tiene las interrupciones deshabilitadas (IME=False)</li>
+                    <li><strong>IE no está configurado</strong>: El registro IE (0xFFFF) no tiene el bit 0 (V-Blank) activado</li>
+                    <li><strong>IF no se está generando</strong>: La PPU no está generando correctamente el flag de interrupción en IF (0xFF0F)</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Interrupts, V-Blank Interrupt, LCD Control Register
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadieron dos puntos de diagnóstico estratégicos:
+                </p>
+                
+                <h3>1. Log de Despacho de Interrupciones (CPU)</h3>
+                <p>
+                    En <code>src/cpu/core.py</code>, método <code>handle_interrupts()</code>, se añadió un log informativo
+                    justo después de que la CPU acepta una interrupción y salta al vector. El log muestra:
+                </p>
+                <ul>
+                    <li>Vector de interrupción (0x0040 para V-Blank, 0x0048 para STAT, etc.)</li>
+                    <li>PC previo (dirección donde estaba la CPU antes de saltar)</li>
+                    <li>Tipo de interrupción (V-Blank, LCD STAT, Timer, Serial, Joypad)</li>
+                </ul>
+                <p>
+                    Este log se ejecuta <strong>solo cuando la interrupción se despacha realmente</strong>, es decir, cuando:
+                    IME=True, IE tiene el bit activado, IF tiene el bit activado, y la CPU acepta la interrupción.
+                </p>
+
+                <h3>2. Log de Estado LCDC 0x80 (Renderer)</h3>
+                <p>
+                    En <code>src/gpu/renderer.py</code>, método <code>render_frame()</code>, se añadió un log de debug
+                    que se activa cuando LCDC es exactamente <code>0x80</code>. Este estado indica que el LCD está encendido
+                    pero el fondo está apagado, lo cual es un estado transitorio que el juego usa mientras espera V-Blank.
+                </p>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Nivel de log INFO para interrupciones</strong>: Se usa <code>logger.info()</code> para que el log
+                        sea visible incluso sin modo debug, ya que es crítico para el diagnóstico.</li>
+                    <li><strong>Nivel de log DEBUG para LCDC 0x80</strong>: Se usa <code>logger.debug()</code> porque es menos crítico
+                        y puede generar muchos mensajes si el juego permanece en ese estado.</li>
+                    <li><strong>Símbolo ⚡ para interrupciones</strong>: Se añadió un símbolo visual distintivo para facilitar
+                        la búsqueda en los logs.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadido log informativo en <code>handle_interrupts()</code> cuando se despacha una interrupción</li>
+                    <li><code>src/gpu/renderer.py</code> - Añadido log de debug cuando LCDC es 0x80</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Modo de ejecución:</strong> Manual con ROM comercial (Pokémon Red, aportada por el usuario, no distribuida)
+                </p>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>python main.py pkmn.gb</code>
+                </p>
+                <p>
+                    <strong>Entorno:</strong> Windows 10, Python 3.13.5
+                </p>
+                <p>
+                    <strong>Criterio de éxito:</strong> 
+                </p>
+                <ul>
+                    <li>Ver el mensaje <code>CRITICAL: [TRAP LCDC] INTENTO DE CAMBIO LCDC: 00 -> 80</code> (confirmado en paso anterior)</li>
+                    <li>Ver el mensaje <code>⚡ INTERRUPT DISPATCHED! Vector: 0040 | PC Previo: XXXX | Tipo: V-Blank</code> después del cambio de LCDC</li>
+                    <li>Si NO aparece el mensaje de interrupción, identificar por qué (IME=False, IE sin configurar, IF no generado)</li>
+                </ul>
+                <p>
+                    <strong>Observación esperada:</strong>
+                </p>
+                <ul>
+                    <li>Si aparece <code>⚡ INTERRUPT DISPATCHED! Vector: 0040</code>: La CPU funciona correctamente y el problema es gráfico (renderer no dibuja lo que el juego espera tras V-Blank)</li>
+                    <li>Si NO aparece: El bug está en el sistema de interrupciones (IME, IE, IF, o generación de V-Blank por la PPU)</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> <span class="tag tag-draft">Draft</span> - Pendiente de ejecución manual para verificar si aparece el log de interrupción
+                </p>
+                <p>
+                    <strong>Notas legales:</strong> La ROM de Pokémon Red es aportada por el usuario para pruebas locales, no se distribuye ni se enlaza en el repositorio.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Interrupts, V-Blank Interrupt, LCD Control Register</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Interrupt Enable (IE) Register, Interrupt Flag (IF) Register</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Flujo de inicialización de juegos:</strong> Los juegos encienden el LCD con BG apagado (0x80) y esperan V-Blank para configurar el resto de gráficos. Si V-Blank no se despacha, el juego se congela.</li>
+                        <li><strong>Condiciones para interrupciones:</strong> Una interrupción se despacha solo si IME=True, IE tiene el bit activado, e IF tiene el bit activado. Si alguna de estas condiciones falla, la interrupción no se procesa.</li>
+                        <li><strong>Diagnóstico de interrupciones:</strong> El log de despacho de interrupciones permite identificar si el problema está en la CPU (no acepta interrupciones) o en la PPU (no genera V-Blank).</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Estado de IME en Pokémon:</strong> Verificar si IME está activado cuando el juego escribe 0x80 en LCDC. Si IME=False, las interrupciones no se procesarán aunque estén pendientes.</li>
+                        <li><strong>Configuración de IE:</strong> Verificar si el registro IE (0xFFFF) tiene el bit 0 (V-Blank) activado. Si no está activado, la interrupción no se procesará aunque IF esté activado.</li>
+                        <li><strong>Generación de V-Blank por PPU:</strong> Verificar si la PPU está generando correctamente el flag de interrupción en IF (0xFF0F) cuando entra en modo V-Blank.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego enciende el LCD (0x80), pero la interrupción V-Blank no se despacha porque:
+                        (a) IME está desactivado, (b) IE no tiene el bit 0 activado, o (c) la PPU no está generando correctamente el flag en IF.
+                    </p>
+                    <p>
+                        <strong>Próximo paso de verificación:</strong> Ejecutar el emulador y buscar el log <code>⚡ INTERRUPT DISPATCHED!</code>.
+                        Si aparece, el problema es gráfico. Si no aparece, el problema está en el sistema de interrupciones.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con Pokémon Red y verificar si aparece el log <code>⚡ INTERRUPT DISPATCHED! Vector: 0040</code></li>
+                    <li>[ ] Si NO aparece: Añadir logs adicionales para verificar el estado de IME, IE, e IF cuando se escribe 0x80 en LCDC</li>
+                    <li>[ ] Si aparece: Investigar por qué el renderer no dibuja correctamente después de V-Blank (verificar configuración de paletas, VRAM, tilemap)</li>
+                    <li>[ ] Verificar que la PPU está generando correctamente el flag de V-Blank en IF cuando entra en modo V-Blank</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
