@@ -1,5 +1,118 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Verificación Conexión MMU-PPU y Limpieza de Debug
+
+### Conceptos Hardware Implementados
+
+**Registro LY (0xFF44) - Solo Lectura desde PPU**: El registro LY (Línea actual) en la dirección `0xFF44` es un registro de **solo lectura** que indica qué línea de escaneo se está dibujando actualmente (rango 0-153). En hardware real, este registro está conectado directamente a la PPU (Pixel Processing Unit), no a la memoria RAM. Cuando el software lee 0xFF44, el hardware devuelve el valor actual de LY desde la PPU. Si el juego lee un valor incorrecto (por ejemplo, siempre 0), puede quedarse en un bucle infinito esperando que LY cambie, lo que causa el síntoma de "pantalla blanca eterna" o "emulador congelado".
+
+**Importancia Crítica de la Conexión MMU-PPU**: La MMU necesita una referencia a la PPU para poder devolver el valor correcto de LY cuando se lee 0xFF44. Esta conexión se establece después de crear ambas instancias para evitar dependencias circulares. Si esta conexión no funciona correctamente, el juego nunca sabrá que el barrido de pantalla avanza y se quedará esperando para siempre.
+
+**Fuente**: Pan Docs - LCD Timing, LY Register (0xFF44)
+
+#### Tareas Completadas:
+
+1. **Verificación de la Conexión MMU-PPU**:
+   - Se verificó que el código existente en `src/memory/mmu.py` (líneas 232-237) ya maneja correctamente la lectura de LY desde la PPU.
+   - Se confirmó que la conexión se establece correctamente en `src/viboy.py` mediante `mmu.set_ppu(ppu)` después de crear ambas instancias.
+   - El test `test_ly_read_from_mmu` confirma que la funcionalidad está operativa.
+
+2. **Limpieza de Código de Debug**:
+   - **Eliminado**: Print de "DEBUG PROBE" cada 1000 iteraciones (líneas 313-325 de `src/viboy.py`).
+   - **Eliminado**: Límite de seguridad con prints de emergencia (líneas 327-332).
+   - **Eliminado**: Print de "V-BLANK DETECTADO" (líneas 348-354).
+   - **Mantenido**: Heartbeat con `logger.info()` cada 60 frames para confirmar que el emulador está vivo.
+
+#### Archivos Afectados:
+- `src/viboy.py` (modificado) - Eliminados prints de debug temporales del bucle principal
+- `docs/bitacora/entries/2025-12-18__0041__verificacion-conexion-mmu-ppu-limpieza-debug.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0041)
+- `docs/bitacora/entries/2025-12-18__0040__sonda-diagnostico-congelamiento.html` (modificado, actualizado link "Siguiente")
+
+#### Tests y Verificación:
+
+**Ejecución de Tests**: `python -m pytest tests/test_ppu_timing.py::TestPPUTiming::test_ly_read_from_mmu -v`
+- **Entorno**: Windows, Python 3.13.5
+- **Resultado**: ✅ **1 test PASSED** en 0.25s
+- **Qué valida**:
+  - La MMU puede leer LY desde la PPU a través del registro 0xFF44
+  - El valor devuelto por MMU coincide con el valor interno de la PPU
+  - El valor cambia correctamente cuando la PPU avanza líneas
+
+**Suite Completa de Tests PPU Timing**: `python -m pytest tests/test_ppu_timing.py -v`
+- **Resultado**: ✅ **8 tests PASSED** en 0.25s
+- Todos los tests de timing de la PPU pasan correctamente, confirmando que la implementación es sólida.
+
+**Hipótesis sobre el Problema de "Pantalla Blanca"**: El problema observado en el paso anterior (0040) NO se debe a un problema de conexión MMU-PPU, ya que el código está correctamente implementado y los tests pasan. El problema probablemente se debe a otro factor, como el manejo de interrupciones V-Blank o algún otro registro de I/O que no está implementado correctamente. Esto se investigará en pasos posteriores.
+
+---
+
+## 2025-12-18 - Sonda de Diagnóstico para Congelamiento
+
+### Conceptos Hardware Implementados
+
+**Diagnóstico de Congelamiento en Emuladores**: Cuando un emulador parece "congelarse", hay tres causas principales: (1) Bucle infinito en CPU donde el juego espera una interrupción que nunca llega, (2) Bloqueo gráfico donde la librería gráfica espera datos que no llegan, o (3) Error silencioso en un hilo o proceso. Para diagnosticar el problema, se necesita instrumentación que muestre el estado interno del emulador periódicamente: PC (si se repite, está en bucle), LY (si siempre es 0, el Timer/PPU no avanza), IME (si es False y IF tiene bits, la CPU ignora interrupciones), IF (qué interrupciones están pendientes), IE (qué interrupciones están habilitadas), y LCDC (si la pantalla está encendida).
+
+**Pygame Event Pump en Windows**: En Windows, si no se llama a `pygame.event.pump()` frecuentemente, el sistema operativo marca la ventana como "No responde" porque no está procesando mensajes de la cola de eventos. Esto puede hacer que la ventana parezca congelada aunque el emulador esté ejecutando código normalmente. Por eso, es crítico llamar a `pygame.event.pump()` al inicio de cada iteración del bucle principal.
+
+**Bucle de Espera Activa**: Muchos juegos de Game Boy esperan interrupciones V-Blank haciendo polling de LY o esperando que IME se active. Si IME está deshabilitado y el juego no lo activa, puede quedar atascado en un bucle esperando algo que nunca ocurre.
+
+#### Tareas Completadas:
+
+1. **Modificación de Viboy (`src/viboy.py`)**:
+   - Añadido `import sys` para poder usar `sys.exit()` en el límite de seguridad.
+   - Añadida variable `debug_counter = 0` que se incrementa en cada iteración del bucle principal.
+   - Añadida llamada explícita a `pygame.event.pump()` al inicio de cada iteración (antes de `_handle_pygame_events()`) para evitar que Windows marque la ventana como "No responde".
+   - Añadida sonda periódica cada 1000 iteraciones que imprime información de diagnóstico usando `print()` directo (para evitar buffering de logging):
+     - PC (Program Counter)
+     - SP (Stack Pointer)
+     - IME (Interrupt Master Enable)
+     - LY (Línea actual de la PPU)
+     - IF (Interrupt Flag register)
+     - IE (Interrupt Enable register)
+     - LCDC (LCD Control register)
+   - Añadido log especial cuando LY llega a 144 (V-Blank) para verificar si la interrupción se activa.
+   - Añadido límite de seguridad de 50000 iteraciones para evitar bucles infinitos que inunden la terminal.
+
+#### Archivos Afectados:
+- `src/viboy.py` (modificado) - Añadida sonda de diagnóstico en método `run()`
+- `docs/bitacora/entries/2025-12-18__0040__sonda-diagnostico-congelamiento.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0040)
+- `docs/bitacora/entries/2025-12-18__0039__capa-window.html` (modificado, actualizado link "Siguiente")
+
+#### Tests y Verificación:
+
+**Ejecución de ROM (Diagnóstico)**: `python main.py tetris_dx.gbc`
+- **ROM**: Tetris DX (ROM aportada por el usuario, no distribuida)
+- **Modo de ejecución**: UI con Pygame, logging en nivel INFO
+- **Entorno**: Windows 10, Python 3.13.5, pygame-ce 2.5.6
+- **Criterio de éxito**: Ver líneas `DEBUG PROBE` periódicamente en la consola
+- **Observación**:
+  ```
+  DEBUG PROBE: iter=1000 | PC=1387 | SP=FFFC | IME=False | LY=12 | IF=00 | IE=00 | LCDC=00
+  DEBUG PROBE: iter=2000 | PC=1386 | SP=FFFC | IME=False | LY=25 | IF=00 | IE=00 | LCDC=00
+  DEBUG PROBE: iter=3000 | PC=1385 | SP=FFFC | IME=False | LY=37 | IF=00 | IE=00 | LCDC=00
+  DEBUG PROBE: iter=4000 | PC=1384 | SP=FFFC | IME=False | LY=50 | IF=00 | IE=00 | LCDC=00
+  DEBUG PROBE: iter=5000 | PC=1383 | SP=FFFC | IME=False | LY=62 | IF=00 | IE=00 | LCDC=00
+  DEBUG PROBE: iter=6000 | PC=1389 | SP=FFFC | IME=False | LY=75 | IF=00 | IE=00 | LCDC=00
+  DEBUG PROBE: iter=7000 | PC=1388 | SP=FFFC | IME=False | LY=87 | IF=00 | IE=00 | LCDC=00
+  ```
+- **Análisis de resultados**:
+  - ✅ **PC está cambiando**: 1387 → 1386 → 1385 → 1384 → 1383 → 1389 → 1388. El emulador NO se congela, está ejecutando código.
+  - ✅ **LY está avanzando**: 12 → 25 → 37 → 50 → 62 → 75 → 87. La PPU funciona correctamente.
+  - ⚠️ **IME=False**: Las interrupciones están deshabilitadas, por lo que aunque IF se active, no se procesarán.
+  - ⚠️ **IF=00**: No hay interrupciones pendientes. Esto podría indicar que V-Blank no se está activando o se está limpiando inmediatamente.
+  - ⚠️ **IE=00**: No hay interrupciones habilitadas. El juego no ha configurado IE todavía.
+  - ⚠️ **LCDC=00**: La pantalla está apagada (bit 7 = 0). Esto es normal al inicio, pero el juego debería activarla.
+- **Resultado**: La sonda funciona correctamente y revela que el emulador NO se congela. El juego está ejecutando código pero parece estar en un bucle esperando interrupciones V-Blank. Se necesita más investigación para entender por qué el juego no avanza.
+- **Notas legales**: ROM comercial aportada por el usuario para pruebas locales. No se distribuye ni se incluye en el repositorio.
+
+**Hipótesis Principal**: El juego está en un bucle de espera activa esperando que se active la interrupción V-Blank, pero como IME=False, las interrupciones no se procesan. El juego probablemente ejecutará `EI` (Enable Interrupts) en algún momento para activar IME, pero puede que esté esperando alguna otra condición primero (por ejemplo, que la pantalla esté encendida o que algún registro esté en un valor específico).
+
+**Próximos Pasos**: Ejecutar el emulador de nuevo con la sonda mejorada (incluye IE y LCDC) para ver si IE se activa, verificar si IF se activa cuando LY llega a 144, analizar qué código está ejecutando el juego en las direcciones 0x1383-0x1389, y verificar si el juego espera que LCDC bit 7 = 1 antes de continuar.
+
+---
+
 ## 2025-12-18 - Timer (DIV) y Limpieza de Logs
 
 ### Conceptos Hardware Implementados

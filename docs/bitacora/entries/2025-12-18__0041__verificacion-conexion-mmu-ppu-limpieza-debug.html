@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificación Conexión MMU-PPU y Limpieza de Debug - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Verificación Conexión MMU-PPU y Limpieza de Debug</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0041
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0040__sonda-diagnostico-congelamiento.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se verificó y confirmó que la <strong>conexión entre MMU y PPU</strong> para la lectura del registro
+                    <code>LY</code> (0xFF44) está correctamente implementada. El código existente ya manejaba correctamente
+                    la lectura de LY desde la PPU cuando el juego accede a la dirección 0xFF44. Se eliminaron los prints
+                    de debug temporales que se habían añadido en el paso anterior (sonda de diagnóstico) para limpiar
+                    el código y mejorar el rendimiento. El test <code>test_ly_read_from_mmu</code> confirma que la
+                    funcionalidad está operativa.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El registro <strong>LY</strong> (Línea actual) en la dirección <code>0xFF44</code> es un registro
+                    de <strong>solo lectura</strong> que indica qué línea de escaneo se está dibujando actualmente
+                    (rango 0-153). Los juegos leen constantemente este registro para sincronizarse y saber cuándo
+                    pueden actualizar la VRAM de forma segura (durante V-Blank, cuando LY >= 144).
+                </p>
+                <p>
+                    En hardware real, el registro LY está conectado directamente a la PPU (Pixel Processing Unit),
+                    no a la memoria RAM. Cuando el software lee 0xFF44, el hardware devuelve el valor actual de LY
+                    desde la PPU, no desde una celda de memoria. Si el juego lee un valor incorrecto (por ejemplo, 0
+                    constante), puede quedarse en un bucle infinito esperando que LY cambie.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Timing, LY Register (0xFF44)
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se verificó que la implementación existente en <code>src/memory/mmu.py</code> ya maneja correctamente
+                    la lectura de LY:
+                </p>
+                <pre><code># En read_byte(), líneas 232-237
+if addr == IO_LY:
+    if self._ppu is not None:
+        return self._ppu.get_ly() & 0xFF
+    else:
+        return 0</code></pre>
+                <p>
+                    La conexión PPU-MMU se establece correctamente en <code>src/viboy.py</code> mediante el método
+                    <code>set_ppu()</code> después de crear ambas instancias (evitando dependencias circulares).
+                </p>
+                
+                <h3>Limpieza de código de debug</h3>
+                <p>
+                    Se eliminaron los prints de debug temporales que se habían añadido en el paso anterior:
+                </p>
+                <ul>
+                    <li><strong>Eliminado:</strong> Print de "DEBUG PROBE" cada 1000 iteraciones (líneas 313-325)</li>
+                    <li><strong>Eliminado:</strong> Límite de seguridad con prints de emergencia (líneas 327-332)</li>
+                    <li><strong>Eliminado:</strong> Print de "V-BLANK DETECTADO" (líneas 348-354)</li>
+                    <li><strong>Mantenido:</strong> Heartbeat con <code>logger.info()</code> cada 60 frames (línea 364)</li>
+                </ul>
+                <p>
+                    Estos prints estaban ralentizando la ejecución y ya no son necesarios ahora que se confirmó
+                    que la conexión MMU-PPU funciona correctamente.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Eliminados prints de debug temporales del bucle principal</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutó el test existente que verifica la lectura de LY desde la MMU:
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>pytest tests/test_ppu_timing.py::TestPPUTiming::test_ly_read_from_mmu -v</code></li>
+                    <li><strong>Entorno:</strong> Windows, Python 3.13.5</li>
+                    <li><strong>Resultado:</strong> <code>PASSED</code> (1 passed in 0.25s)</li>
+                    <li><strong>Qué valida:</strong>
+                        <ul>
+                            <li>La MMU puede leer LY desde la PPU a través del registro 0xFF44</li>
+                            <li>El valor devuelto por MMU coincide con el valor interno de la PPU</li>
+                            <li>El valor cambia correctamente cuando la PPU avanza líneas</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Código del test:</strong>
+                </p>
+                <pre><code>def test_ly_read_from_mmu(self) -> None:
+    """Test: La MMU puede leer LY desde la PPU a través del registro 0xFF44."""
+    mmu = MMU(None)
+    ppu = PPU(mmu)
+    mmu.set_ppu(ppu)
+    
+    # Inicialmente LY debe ser 0
+    assert mmu.read_byte(0xFF44) == 0
+    
+    # Avanzar algunas líneas
+    ppu.step(456 * 5)  # 5 líneas
+    
+    # LY debe ser 5
+    assert ppu.get_ly() == 5
+    
+    # La MMU debe devolver el mismo valor
+    assert mmu.read_byte(0xFF44) == 5</code></pre>
+                <p>
+                    <strong>Por qué este test demuestra algo del hardware:</strong> Este test verifica que cuando el
+                    software (juego) lee la dirección 0xFF44, obtiene el valor actual de LY desde la PPU, no desde
+                    la memoria RAM. Esto es crítico porque los juegos dependen de este valor para sincronizarse y
+                    saber cuándo pueden actualizar la VRAM de forma segura. Si la MMU devolviera un valor incorrecto
+                    (por ejemplo, siempre 0), el juego se quedaría en un bucle infinito esperando que LY cambie.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html#lcd-status-register-stat-ff41">LCD Timing, LY Register (0xFF44)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Registro LY (0xFF44):</strong> Es un registro de solo lectura conectado directamente a la PPU. Cuando el software lee esta dirección, el hardware devuelve el valor actual de LY desde la PPU, no desde la memoria RAM.</li>
+                        <li><strong>Conexión MMU-PPU:</strong> La MMU necesita una referencia a la PPU para poder devolver el valor correcto de LY cuando se lee 0xFF44. Esta conexión se establece después de crear ambas instancias para evitar dependencias circulares.</li>
+                        <li><strong>Importancia crítica:</strong> Si el juego lee un valor incorrecto de LY (por ejemplo, siempre 0), puede quedarse en un bucle infinito esperando que LY cambie, lo que causa el síntoma de "pantalla blanca eterna" o "emulador congelado".</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento en hardware real:</strong> Según la documentación, LY es de solo lectura y escribir en él no tiene efecto. Esto ya está implementado correctamente en el código (se ignora silenciosamente).</li>
+                        <li><strong>Timing exacto:</strong> La PPU avanza LY cada 456 T-Cycles. Esto está implementado y verificado por los tests, pero podría necesitar ajustes finos si se detectan problemas de sincronización en juegos reales.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El problema de "pantalla blanca eterna" que se observó en el paso anterior
+                        (0040) NO se debe a un problema de conexión MMU-PPU, ya que el código está correctamente implementado
+                        y los tests pasan. El problema probablemente se debe a otro factor, como:
+                    </p>
+                    <ul>
+                        <li>El juego está esperando una interrupción V-Blank que no se está procesando correctamente</li>
+                        <li>El juego está esperando que pase un tiempo específico (contando ciclos) antes de continuar</li>
+                        <li>Hay algún otro registro de I/O que no está implementado correctamente</li>
+                    </ul>
+                    <p>
+                        Esta hipótesis se validará en pasos posteriores cuando se pruebe el emulador con ROMs reales
+                        y se observe el comportamiento detallado.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Si el problema de "pantalla blanca" persiste, investigar el manejo de interrupciones V-Blank</li>
+                    <li>[ ] Verificar que las interrupciones se procesan correctamente cuando IME está habilitado</li>
+                    <li>[ ] Probar el emulador con ROMs de test para validar el comportamiento completo</li>
+                    <li>[ ] Continuar con la implementación de características faltantes según sea necesario</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

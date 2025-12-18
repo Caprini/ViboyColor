@@ -25,6 +25,7 @@ Fuente: Pan Docs - System Clock, Timing
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -284,6 +285,15 @@ class Viboy:
         
         try:
             while True:
+                # CRÍTICO: Llamar a pygame.event.pump() en cada iteración para evitar
+                # que Windows marque la ventana como "No responde"
+                if self._renderer is not None:
+                    try:
+                        import pygame
+                        pygame.event.pump()
+                    except ImportError:
+                        pass
+                
                 # Manejar eventos de Pygame (cierre de ventana y teclado)
                 if self._renderer is not None:
                     # Manejar eventos de ventana y teclado

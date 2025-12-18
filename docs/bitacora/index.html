@@ -32,6 +32,44 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0041 - Verificación Conexión MMU-PPU y Limpieza de Debug -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0041__verificacion-conexion-mmu-ppu-limpieza-debug.html" class="entry-link">
+                                    Verificación Conexión MMU-PPU y Limpieza de Debug
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0041 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se verificó y confirmó que la conexión entre MMU y PPU para la lectura del registro LY (0xFF44) está correctamente implementada. El código existente ya manejaba correctamente la lectura de LY desde la PPU cuando el juego accede a la dirección 0xFF44. Se eliminaron los prints de debug temporales que se habían añadido en el paso anterior (sonda de diagnóstico) para limpiar el código y mejorar el rendimiento. El test test_ly_read_from_mmu confirma que la funcionalidad está operativa. Si el juego lee un valor incorrecto de LY (por ejemplo, siempre 0), puede quedarse en un bucle infinito esperando que LY cambie, lo que causa el síntoma de "pantalla blanca eterna".
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0040 - Sonda de Diagnóstico para Congelamiento -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0040__sonda-diagnostico-congelamiento.html" class="entry-link">
+                                    Sonda de Diagnóstico para Congelamiento
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0040 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó una sonda de diagnóstico en el bucle principal del emulador para identificar dónde se atasca la ejecución cuando el emulador parece congelarse. La sonda imprime información periódica del estado del sistema (PC, SP, IME, LY, IF, IE, LCDC) cada 1000 iteraciones usando print() directo para evitar buffering de logging. Además, se añadió un log especial cuando LY llega a 144 (V-Blank) para verificar si las interrupciones se activan correctamente. Se añadió también una llamada explícita a pygame.event.pump() al inicio de cada iteración para evitar que Windows marque la ventana como "No responde". Con esta instrumentación, se descubrió que el emulador NO se congela: está ejecutando código normalmente, pero el juego parece estar en un bucle esperando interrupciones V-Blank.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0039 - Implementación de la Capa Window -->
                     <li>
                         <div class="entry-header">

@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sonda de Diagnóstico para Congelamiento - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Sonda de Diagnóstico para Congelamiento</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0040
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0039__capa-window.html">Anterior</a></li>
+                    <li><a href="2025-12-18__0041__verificacion-conexion-mmu-ppu-limpieza-debug.html">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó una <strong>sonda de diagnóstico</strong> en el bucle principal del emulador para identificar
+                    dónde se atasca la ejecución cuando el emulador parece congelarse. La sonda imprime información periódica
+                    del estado del sistema (PC, SP, IME, LY, IF, IE, LCDC) cada 1000 iteraciones usando <code>print()</code>
+                    directo para evitar buffering de logging. Además, se añadió un log especial cuando LY llega a 144 (V-Blank)
+                    para verificar si las interrupciones se activan correctamente. Se añadió también una llamada explícita a
+                    <code>pygame.event.pump()</code> al inicio de cada iteración para evitar que Windows marque la ventana como
+                    "No responde". Con esta instrumentación, se descubrió que el emulador <strong>NO se congela</strong>: está
+                    ejecutando código normalmente, pero el juego parece estar en un bucle esperando interrupciones V-Blank.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Cuando un emulador parece "congelarse", hay tres causas principales:
+                </p>
+                <ol>
+                    <li><strong>Bucle Infinito en CPU:</strong> El juego espera una interrupción (ej: V-Blank) que nunca llega
+                        o que la CPU no procesa, quedándose en un <code>JR -2</code> eterno (bucle de espera activa).</li>
+                    <li><strong>Bloqueo Gráfico:</strong> La librería gráfica (Pygame) está esperando a dibujar algo y no le llegan
+                        datos, bloqueando la ventana (aparece "No responde" en Windows).</li>
+                    <li><strong>Error Silencioso:</strong> Hay una excepción ocurriendo en un hilo o proceso que no estamos viendo.</li>
+                </ol>
+                
+                <p>
+                    Para diagnosticar el problema, necesitamos <strong>instrumentación</strong> que nos muestre el estado interno
+                    del emulador periódicamente:
+                </p>
+                <ul>
+                    <li><strong>PC (Program Counter):</strong> Si se repite, está en un bucle. Si avanza, está ejecutando código.</li>
+                    <li><strong>LY (Línea actual):</strong> Si siempre es 0, el Timer/PPU no avanza. Si avanza, la PPU funciona.</li>
+                    <li><strong>IME (Interrupt Master Enable):</strong> Si es False y IF tiene bits, la CPU está ignorando interrupciones.</li>
+                    <li><strong>IF (Interrupt Flag):</strong> Indica qué interrupciones están pendientes (bit 0 = V-Blank).</li>
+                    <li><strong>IE (Interrupt Enable):</strong> Indica qué interrupciones están habilitadas (bit 0 = V-Blank).</li>
+                    <li><strong>LCDC:</strong> Indica si la pantalla está encendida (bit 7 = 1).</li>
+                </ul>
+                
+                <p>
+                    <strong>Pygame Event Pump:</strong> En Windows, si no se llama a <code>pygame.event.pump()</code> frecuentemente,
+                    el sistema operativo marca la ventana como "No responde" porque no está procesando mensajes de la cola de eventos.
+                    Esto puede hacer que la ventana parezca congelada aunque el emulador esté ejecutando código normalmente.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó el método <code>run()</code> en <code>src/viboy.py</code> para añadir instrumentación de diagnóstico
+                    sin tocar la lógica de emulación.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>src/viboy.py:</strong> Añadida sonda de diagnóstico en el bucle principal</li>
+                </ul>
+
+                <h3>Cambios realizados</h3>
+                <ol>
+                    <li><strong>Importación de sys:</strong> Añadido <code>import sys</code> para poder usar <code>sys.exit()</code>
+                        en el límite de seguridad.</li>
+                    
+                    <li><strong>Contador de diagnóstico:</strong> Añadida variable <code>debug_counter = 0</code> que se incrementa
+                        en cada iteración del bucle principal.</li>
+                    
+                    <li><strong>Llamada explícita a pygame.event.pump():</strong> Añadida al inicio de cada iteración del bucle
+                        (antes de <code>_handle_pygame_events()</code>) para evitar que Windows marque la ventana como "No responde".</li>
+                    
+                    <li><strong>Sonda periódica:</strong> Cada 1000 iteraciones, imprime información de diagnóstico usando <code>print()</code>
+                        directo (para evitar buffering de logging):
+                        <pre><code>DEBUG PROBE: iter=1000 | PC=1387 | SP=FFFC | IME=False | LY=12 | IF=00 | IE=00 | LCDC=00</code></pre>
+                    </li>
+                    
+                    <li><strong>Log especial de V-Blank:</strong> Cuando LY llega a 144, imprime un log especial para verificar
+                        si la interrupción V-Blank se activa:
+                        <pre><code>🔵 V-BLANK DETECTADO: LY=144 | IF=01 | IE=01 | IME=False</code></pre>
+                    </li>
+                    
+                    <li><strong>Límite de seguridad:</strong> Después de 50000 iteraciones, el emulador se detiene automáticamente
+                        para evitar bucles infinitos que inunden la terminal.</li>
+                </ol>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Uso de print() directo:</strong> Se usa <code>print()</code> en lugar de <code>logger.info()</code>
+                        para evitar buffering y asegurar que los mensajes aparezcan inmediatamente en la consola.</li>
+                    <li><strong>Frecuencia de 1000 iteraciones:</strong> Suficientemente frecuente para detectar bucles, pero no tan
+                        frecuente como para saturar la terminal. Cada 1000 iteraciones ≈ cada ~250 instrucciones (dependiendo de ciclos).</li>
+                    <li><strong>Límite de 50000 iteraciones:</strong> Permite capturar ~50 muestras antes de detenerse, suficiente para
+                        identificar patrones de comportamiento.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Añadida sonda de diagnóstico en método <code>run()</code>:
+                        <ul>
+                            <li>Importación de <code>sys</code></li>
+                            <li>Contador <code>debug_counter</code></li>
+                            <li>Llamada a <code>pygame.event.pump()</code> al inicio de cada iteración</li>
+                            <li>Sonda periódica cada 1000 iteraciones</li>
+                            <li>Log especial cuando LY = 144</li>
+                            <li>Límite de seguridad de 50000 iteraciones</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Esta es una modificación de diagnóstico, no una funcionalidad nueva. No se crearon tests unitarios,
+                    pero se ejecutó el emulador con una ROM comercial para verificar que la sonda funciona correctamente.
+                </p>
+                
+                <h3>Ejecución de ROM (Diagnóstico)</h3>
+                <ul>
+                    <li><strong>ROM:</strong> Tetris DX (ROM aportada por el usuario, no distribuida)</li>
+                    <li><strong>Modo de ejecución:</strong> UI con Pygame, logging en nivel INFO</li>
+                    <li><strong>Comando ejecutado:</strong> <code>python main.py tetris_dx.gbc</code></li>
+                    <li><strong>Entorno:</strong> Windows 10, Python 3.13.5, pygame-ce 2.5.6</li>
+                    <li><strong>Criterio de éxito:</strong> Ver líneas <code>DEBUG PROBE</code> periódicamente en la consola</li>
+                    <li><strong>Observación:</strong>
+                        <pre><code>DEBUG PROBE: iter=1000 | PC=1387 | SP=FFFC | IME=False | LY=12 | IF=00 | IE=00 | LCDC=00
+DEBUG PROBE: iter=2000 | PC=1386 | SP=FFFC | IME=False | LY=25 | IF=00 | IE=00 | LCDC=00
+DEBUG PROBE: iter=3000 | PC=1385 | SP=FFFC | IME=False | LY=37 | IF=00 | IE=00 | LCDC=00
+DEBUG PROBE: iter=4000 | PC=1384 | SP=FFFC | IME=False | LY=50 | IF=00 | IE=00 | LCDC=00
+DEBUG PROBE: iter=5000 | PC=1383 | SP=FFFC | IME=False | LY=62 | IF=00 | IE=00 | LCDC=00
+DEBUG PROBE: iter=6000 | PC=1389 | SP=FFFC | IME=False | LY=75 | IF=00 | IE=00 | LCDC=00
+DEBUG PROBE: iter=7000 | PC=1388 | SP=FFFC | IME=False | LY=87 | IF=00 | IE=00 | LCDC=00</code></pre>
+                    </li>
+                    <li><strong>Análisis de resultados:</strong>
+                        <ul>
+                            <li>✅ <strong>PC está cambiando:</strong> 1387 → 1386 → 1385 → 1384 → 1383 → 1389 → 1388. El emulador NO se congela, está ejecutando código.</li>
+                            <li>✅ <strong>LY está avanzando:</strong> 12 → 25 → 37 → 50 → 62 → 75 → 87. La PPU funciona correctamente.</li>
+                            <li>⚠️ <strong>IME=False:</strong> Las interrupciones están deshabilitadas, por lo que aunque IF se active, no se procesarán.</li>
+                            <li>⚠️ <strong>IF=00:</strong> No hay interrupciones pendientes. Esto podría indicar que V-Blank no se está activando o se está limpiando inmediatamente.</li>
+                            <li>⚠️ <strong>IE=00:</strong> No hay interrupciones habilitadas. El juego no ha configurado IE todavía.</li>
+                            <li>⚠️ <strong>LCDC=00:</strong> La pantalla está apagada (bit 7 = 0). Esto es normal al inicio, pero el juego debería activarla.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Resultado:</strong> <span class="tag tag-draft">Draft</span> - La sonda funciona correctamente y revela que el emulador NO se congela. El juego está ejecutando código pero parece estar en un bucle esperando interrupciones V-Blank. Se necesita más investigación para entender por qué el juego no avanza.</li>
+                    <li><strong>Notas legales:</strong> ROM comercial aportada por el usuario para pruebas locales. No se distribuye ni se incluye en el repositorio.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Interrupts, V-Blank, LCD Timing</a></li>
+                    <li>Pygame Documentation: <a href="https://www.pygame.org/docs/ref/event.html#pygame.event.pump">pygame.event.pump()</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Diagnóstico de congelamiento:</strong> Cuando un emulador parece congelarse, la primera herramienta
+                            es añadir instrumentación para ver qué está pasando internamente. Los valores de PC, LY, IME, IF, IE y LCDC
+                            proporcionan información valiosa sobre el estado del sistema.</li>
+                        <li><strong>Pygame Event Pump:</strong> En Windows, es crítico llamar a <code>pygame.event.pump()</code> frecuentemente
+                            para evitar que el sistema operativo marque la ventana como "No responde". Esto no es un problema del emulador,
+                            sino del sistema operativo esperando que la aplicación procese mensajes de la cola de eventos.</li>
+                        <li><strong>Bucle de espera activa:</strong> Muchos juegos de Game Boy esperan interrupciones V-Blank haciendo polling
+                            de LY o esperando que IME se active. Si IME está deshabilitado y el juego no lo activa, puede quedar atascado.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Por qué el juego no avanza:</strong> El juego está ejecutando código (PC cambia) y la PPU funciona (LY avanza),
+                            pero parece estar en un bucle esperando algo. Necesito verificar:
+                            <ul>
+                                <li>¿Se activa IF cuando LY llega a 144?</li>
+                                <li>¿El juego activa IE en algún momento?</li>
+                                <li>¿El juego ejecuta EI (Enable Interrupts) para activar IME?</li>
+                                <li>¿Qué código está ejecutando en las direcciones 0x1383-0x1389?</li>
+                            </ul>
+                        </li>
+                        <li><strong>Estado inicial del juego:</strong> Necesito verificar si el juego espera que la pantalla esté encendida
+                            (LCDC bit 7 = 1) antes de continuar, o si hay alguna otra condición que no se está cumpliendo.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego está en un bucle de espera activa esperando que se active la interrupción
+                        V-Blank, pero como IME=False, las interrupciones no se procesan. El juego probablemente ejecutará <code>EI</code>
+                        (Enable Interrupts) en algún momento para activar IME, pero puede que esté esperando alguna otra condición primero
+                        (por ejemplo, que la pantalla esté encendida o que algún registro esté en un valor específico).
+                    </p>
+                    <p>
+                        <strong>Suposición no verificada:</strong> Asumo que el juego debería activar IE y ejecutar EI en algún momento durante
+                        la inicialización. Si esto no ocurre, puede ser un bug en la emulación o una condición que no se está cumpliendo.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador de nuevo con la sonda mejorada (incluye IE y LCDC) para ver si IE se activa</li>
+                    <li>[ ] Verificar si IF se activa cuando LY llega a 144 (usando el log especial de V-Blank)</li>
+                    <li>[ ] Analizar qué código está ejecutando el juego en las direcciones 0x1383-0x1389 (posible bucle de espera)</li>
+                    <li>[ ] Verificar si el juego espera que LCDC bit 7 = 1 antes de continuar</li>
+                    <li>[ ] Si el problema persiste, considerar añadir un desensamblador básico para ver qué instrucciones se están ejecutando</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
