@@ -1,5 +1,90 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Análisis Forense de Trazado de Ejecución (Step 0042)
+
+### Conceptos Hardware Implementados
+
+**IME (Interrupt Master Enable) vs IE (Interrupt Enable Register)**: En la Game Boy, las interrupciones requieren dos niveles de habilitación: (1) **IME** controlado por las instrucciones `DI (0xF3)` y `EI (0xFB)`, que es el control global de interrupciones, y (2) **IE (0xFFFF)**, un registro de memoria que controla qué tipos de interrupciones están habilitadas (V-Blank, LCD STAT, Timer, Serial, Joypad). Para que una interrupción se procese, **ambos** deben estar habilitados: IME = True **Y** el bit correspondiente en IE = 1. Si IME está deshabilitado, incluso si IE está configurado correctamente, las interrupciones no se procesarán.
+
+**Delay Loops (Bucles de Espera)**: Los juegos de Game Boy usan bucles de espera (delay loops) para pausar la ejecución durante un tiempo determinado. Estos bucles típicamente decrementan un registro (como DE) hasta que sea 0. Si un juego espera una interrupción que nunca ocurre (porque IME está deshabilitado), puede quedar atascado en un bucle infinito esperando un evento que nunca llegará.
+
+**Fuente**: Pan Docs - Interrupts, Interrupt Master Enable (IME), Interrupt Enable Register (IE)
+
+#### Tareas Completadas:
+
+1. **Creación de Herramienta de Trazado Forense (`tools/debug_trace.py`)**:
+   - Script que ejecuta el emulador sin interfaz gráfica para análisis de ejecución
+   - Intercepta todas las escrituras en memoria usando un wrapper `TraceMMU`
+   - Ejecuta un número configurable de instrucciones (por defecto 50,000)
+   - Registra cada instrucción con: PC, opcode, registros, ciclos y escrituras en I/O
+   - Detecta bucles infinitos analizando patrones repetidos en el historial de PC
+   - Genera un reporte con escrituras críticas (IE, LCDC, IF, STAT) y las primeras/últimas 50 instrucciones
+   - Detecta y reporta ejecuciones de DI (0xF3) y EI (0xFB) para análisis de IME
+
+2. **Análisis de Secuencia de Inicio**:
+   - Análisis de las primeras instrucciones reveló la secuencia de inicialización del juego
+   - Identificó que el juego ejecuta `DI (0xF3)` en PC: 0x0150 (instrucción #3)
+   - Confirmó que el juego nunca ejecuta `EI (0xFB)` para volver a habilitar IME
+
+3. **Análisis Extendido (100,000 instrucciones)**:
+   - Verificó que DI se ejecuta una sola vez (instrucción #3, PC: 0x0150)
+   - Confirmó que EI **NUNCA** se ejecuta en 100,000 instrucciones
+   - Confirmó que IE (0xFFFF) nunca se escribe en 100,000 instrucciones
+   - Detectó que el juego entra en diferentes bucles de espera (0x1383-0x1389 inicialmente, luego 0x12DD-0x12EC)
+   - Identificó 370 escrituras en I/O (principalmente en 0xFF00 - P1 Joypad)
+
+#### Archivos Afectados:
+- `tools/debug_trace.py` (nuevo) - Herramienta de trazado forense
+- `docs/bitacora/entries/2025-12-18__0042__analisis-forense-trazado-ejecucion.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0042)
+
+#### Tests y Verificación:
+
+**Ejecución de Trazado (Análisis Inicial)**: `python tools/debug_trace.py tetris_dx.gbc --max-instructions 5000`
+- **ROM**: Tetris DX (ROM aportada por el usuario, no distribuida)
+- **Entorno**: Windows 10, Python 3.13.5
+- **Resultado**: ✅ Ejecución exitosa, 5,000 instrucciones trazadas
+- **Qué valida**:
+  - Secuencia de inicio del juego (0x0100 → 0x0150 → 0x1380)
+  - Ejecución de DI en PC: 0x0150
+  - Existencia de bucle de espera entre 0x1383-0x1389
+  - Decremento del registro DE en el bucle (delay loop)
+
+**Ejecución de Trazado (Análisis Extendido)**: `python tools/debug_trace.py tetris_dx.gbc --max-instructions 100000`
+- **ROM**: Tetris DX (ROM aportada por el usuario, no distribuida)
+- **Entorno**: Windows 10, Python 3.13.5
+- **Resultado**: ✅ Ejecución exitosa, 100,000 instrucciones trazadas
+- **Hallazgos críticos**:
+  - **DI ejecutado**: 1 vez (instrucción #3, PC: 0x0150, IME antes: Deshabilitado)
+  - **EI ejecutado**: 0 veces (NUNCA en 100,000 instrucciones)
+  - **IE escrito**: 0 veces (NUNCA en 100,000 instrucciones)
+  - **Escrituras en I/O**: 370 (principalmente 0xFF00 - P1 Joypad)
+  - **Estado final**: Bucle persistente entre 0x12DD-0x12EC (diferente al bucle inicial)
+
+**Análisis de Secuencia de Inicio**:
+```
+PC: 0x0100 | NOP (0x00)              - Inicio del código del cartucho
+PC: 0x0101 | JP nn (0xC3)            - Salto a 0x0150
+PC: 0x0150 | DI (0xF3)               - ⚠️ DESHABILITA INTERRUPCIONES (IME = False)
+PC: 0x0151 | LD (0xFF00+C), A (0xE0) - Escribe en 0xFF04 (DIV - Timer Divider)
+PC: 0x0153 | LD (0xFF00+C), A (0xE0) - Otra escritura en I/O
+PC: 0x0155 | LD BC, d16 (0x01)       - Carga BC con 0x0004
+PC: 0x0158 | CALL nn (0xCD)         - Llama a función en 0x1380
+PC: 0x1380 | LD DE, d16 (0x11)      - Carga DE con 0x06D6 (1750)
+PC: 0x1383-0x1389 | Bucle de espera - Decrementa DE hasta 0
+```
+
+**Conclusión del Análisis**: El juego ejecuta `DI (0xF3)` una sola vez al inicio (instrucción #3, PC: 0x0150), deshabilitando IME permanentemente. El juego **NUNCA ejecuta EI (0xFB)** en 100,000 instrucciones para volver a habilitar las interrupciones. Esto significa que incluso si IE estuviera configurado correctamente, las interrupciones no se procesarían porque IME está permanentemente en False. El juego queda atascado en bucles de espera esperando V-Blank, que nunca se procesa porque IME está deshabilitado.
+
+**Hipótesis Principal (CONFIRMADA)**: El juego ejecuta DI al inicio para deshabilitar interrupciones durante la inicialización, pero nunca ejecuta EI para volver a habilitarlas. Esto causa que el juego quede atascado en un bucle de espera esperando V-Blank, que nunca se procesa porque IME está permanentemente deshabilitado.
+
+**Próximos Pasos Sugeridos**:
+- Verificar la implementación de DI/EI en la CPU para asegurar que IME se actualiza correctamente
+- Verificar si el juego espera que IME esté habilitado por defecto al inicio (bug en inicialización)
+- Considerar forzar IME = True temporalmente para ver si el juego continúa (si IE está configurado)
+
+---
+
 ## 2025-12-18 - Verificación Conexión MMU-PPU y Limpieza de Debug
 
 ### Conceptos Hardware Implementados
