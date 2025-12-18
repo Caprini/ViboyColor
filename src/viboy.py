@@ -199,7 +199,14 @@ class Viboy:
         # Simular "Post-Boot State" (sin Boot ROM)
         self._initialize_post_boot_state()
         
-        logger.info(f"Cartucho cargado: {self._cartridge.get_header_info()['title']}")
+        # Mostrar información del cartucho cargado
+        header_info = self._cartridge.get_header_info()
+        logger.info(
+            f"Cartucho cargado: {header_info['title']} | "
+            f"Tipo: {header_info['cartridge_type']} | "
+            f"ROM: {header_info['rom_size']}KB | "
+            f"RAM: {header_info['ram_size']}KB"
+        )
 
     def _initialize_post_boot_state(self) -> None:
         """

@@ -170,7 +170,9 @@ class Cartridge:
                 bank = 1
             
             self._rom_bank = bank
-            logger.debug(f"MBC1: Cambio de banco ROM a {bank} (escritura 0x{value:02X} en 0x{addr:04X})")
+            # Obtener tipo de cartucho para el mensaje
+            cart_type = self._header_info.get("cartridge_type", "0x??")
+            logger.info(f"🏦 MBC: Cambio de Banco ROM a {bank:02X} (tipo {cart_type}, escritura 0x{value:02X} en 0x{addr:04X})")
         
         # Otros rangos (RAM enable, RAM bank, mode select) se ignoran por ahora
         # TODO: Implementar RAM banking y mode select cuando sea necesario

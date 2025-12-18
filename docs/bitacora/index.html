@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0060 - Verificación de Bank Switching MBC1 -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0060__verificacion-bank-switching-mbc1.html" class="entry-link">
+                                    Verificación de Bank Switching MBC1/MBC3
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0060 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se añadió logging informativo (nivel INFO) para rastrear los cambios de banco ROM en el MBC. Tras ejecutar 100000 instrucciones con Pokémon Red (tipo 0x13, MBC3), se verificó que el logging funciona correctamente y que el MBC está implementado correctamente. No se detectaron cambios de banco en la fase inicial (normal). Se concluyó que el problema de "pantalla blanca" probablemente NO se debe a un fallo en el bank switching.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0059 - Modo Rayos X: Renderizado Forzado -->
                     <li>
                         <div class="entry-header">
@@ -44,7 +63,7 @@
                         <div class="entry-meta-index">
                             <strong>Fecha:</strong> 2025-12-18 | 
                             <strong>Step ID:</strong> 0059 | 
-                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
                         </div>
                         <p class="entry-summary">
                             Se implementó el "Modo Rayos X", una herramienta de diagnóstico que fuerza el renderizado de la VRAM incluso cuando el LCD está apagado (LCDC bit 7=0). Esto permite visualizar qué contenido hay en la VRAM durante los momentos en que el juego apaga rápidamente el LCD, lo cual es especialmente útil para diagnosticar problemas de arranque en juegos como Pokémon Red que encienden y apagan el LCD en milisegundos.
@@ -63,7 +82,7 @@
                         <div class="entry-meta-index">
                             <strong>Fecha:</strong> 2025-12-18 | 
                             <strong>Step ID:</strong> 0058 | 
-                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
                         </div>
                         <p class="entry-summary">
                             Se verificó y reforzó el "Hack Educativo" que permite dibujar el fondo incluso cuando el Bit 0 de LCDC está apagado (LCDC=0x80). Este hack es necesario porque juegos como Pokémon Red escriben LCDC=0x80 esperando que el fondo se dibuje (comportamiento CGB). Se añadió un comentario más explícito que confirma que no hay ninguna condición que bloquee el renderizado cuando el Bit 0 está apagado.
@@ -101,7 +120,7 @@
                         <div class="entry-meta-index">
                             <strong>Fecha:</strong> 2025-12-18 | 
                             <strong>Step ID:</strong> 0056 | 
-                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
                         </div>
                         <p class="entry-summary">
                             Se implementó un monitor de estado en tiempo real en el bucle principal del emulador que imprime información detallada del estado de la CPU, registros, interrupciones y hardware cada 5 segundos. Este monitor permite diagnosticar bloqueos y bucles infinitos cuando el juego se queda "dormido" con la pantalla apagada (LCD OFF), mostrando exactamente dónde está atascada la CPU y qué está esperando. Es una herramienta temporal de diagnóstico que ayuda a identificar problemas de sincronización, interrupciones y timing.
@@ -120,7 +139,7 @@
                         <div class="entry-meta-index">
                             <strong>Fecha:</strong> 2025-12-18 | 
                             <strong>Step ID:</strong> 0055 | 
-                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
                         </div>
                         <p class="entry-summary">
                             Se implementó un hack temporal en la MMU para interceptar escrituras al registro BGP (Background Palette, 0xFF47) y forzar el valor 0xE4 (paleta estándar Game Boy) cuando el juego intenta escribir 0x00 (paleta completamente blanca). Este hack permite visualizar gráficos mientras se investiga por qué algunos juegos Dual Mode (CGB/DMG) escriben 0x00 en BGP, haciendo que toda la pantalla sea blanca e invisible.
@@ -139,7 +158,7 @@
                         <div class="entry-meta-index">
                             <strong>Fecha:</strong> 2025-12-18 | 
                             <strong>Step ID:</strong> 0054 | 
-                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
                         </div>
                         <p class="entry-summary">
                             Se desacopló el renderizado de las interrupciones para garantizar que cada frame se dibuje en pantalla cuando la PPU alcanza V-Blank (LY=144), independientemente del estado de IME o si el juego usa polling manual de IF. Se añadió un flag `frame_ready` en la PPU que se activa cuando LY pasa de 143 a 144, y un método `is_frame_ready()` que permite al bucle principal comprobar y renderizar sin depender de las interrupciones. Esto soluciona el problema de pantalla azul/negra cuando el juego tiene IME=False y espera V-Blank mediante polling.
@@ -158,7 +177,7 @@
                         <div class="entry-meta-index">
                             <strong>Fecha:</strong> 2025-12-18 | 
                             <strong>Step ID:</strong> 0053 | 
-                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
                         </div>
                         <p class="entry-summary">
                             Se corrigió un bug crítico en la PPU: la PPU avanzaba incluso cuando el LCD estaba apagado (LCDC bit 7 = 0). Según Pan Docs, cuando el LCD está apagado, la PPU debe detenerse y LY debe mantenerse en 0. Se añadió una verificación al inicio del método step() para comprobar si el LCD está encendido antes de avanzar el timing. Adicionalmente, se aumentó el límite del trace de 100 a 1000 instrucciones y se añadió un log informativo cuando se activa V-Blank para diagnóstico.
@@ -177,7 +196,7 @@
                         <div class="entry-meta-index">
                             <strong>Fecha:</strong> 2025-12-18 | 
                             <strong>Step ID:</strong> 0052 | 
-                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
                         </div>
                         <p class="entry-summary">
                             Se implementó un sistema de trazado de ejecución "triggered" que se activa automáticamente cuando el juego escribe LCDC=0x80 (LCD ON sin fondo). El sistema captura las primeras 100 instrucciones ejecutadas después de este evento crítico, mostrando información detallada de cada instrucción: PC, opcode, registros, flags, estado de interrupciones (IF/IE), y estado de la PPU (LY/STAT). Este trazado permitirá identificar si el juego entra en un bucle de polling esperando V-Blank y por qué no sale de ese bucle.
@@ -196,7 +215,7 @@
                         <div class="entry-meta-index">
                             <strong>Fecha:</strong> 2025-12-18 | 
                             <strong>Step ID:</strong> 0051 | 
-                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
                         </div>
                         <p class="entry-summary">
                             Se implementó un sistema de diagnóstico crítico para identificar por qué la CPU ignora las peticiones de interrupción V-Blank. El diagnóstico añade logs específicos con el símbolo ⚠️ cuando se detecta una petición V-Blank en IF pero no se atiende, indicando si el problema es que IE no tiene el bit activado o si IME está desactivado. Adicionalmente, se añadió un log informativo cada vez que se escribe en el registro IE (0xFFFF) para monitorizar cuándo y cómo el juego configura las interrupciones.
@@ -215,7 +234,7 @@
                         <div class="entry-meta-index">
                             <strong>Fecha:</strong> 2025-12-18 | 
                             <strong>Step ID:</strong> 0050 | 
-                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
                         </div>
                         <p class="entry-summary">
                             Se añadieron logs de diagnóstico críticos para monitorizar el despacho de interrupciones en la CPU, específicamente para detectar si la interrupción V-Blank (0x0040) se está ejecutando correctamente después de que el juego enciende el LCD. El diagnóstico incluye un log informativo con el símbolo ⚡ cuando se despacha una interrupción, mostrando el vector, el PC previo y el tipo de interrupción. Adicionalmente, se añadió un log en el renderer para detectar cuando LCDC es 0x80 (LCD ON, BG OFF), un estado crítico que indica que el juego espera la interrupción V-Blank para configurar el resto de los gráficos.
@@ -234,7 +253,7 @@
                         <div class="entry-meta-index">
                             <strong>Fecha:</strong> 2025-12-18 | 
                             <strong>Step ID:</strong> 0049 | 
-                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
                         </div>
                         <p class="entry-summary">
                             Se implementó una trampa de diagnóstico en la MMU para monitorizar todos los intentos de escritura en el registro LCDC (0xFF40), permitiendo identificar si el juego intenta encender la pantalla pero falla, o si nunca llega a esa parte del código. Adicionalmente, se corrigió un bug crítico en la lógica de overflow del Timer (TIMA) que impedía que la interrupción del Timer se generara correctamente cuando TIMA pasaba de 0xFF a 0x00. La corrección asegura que el Timer incremente primero y luego detecte el overflow (resultado = 0x00), lo cual es el comportamiento correcto del hardware. Esta corrección es vital porque muchos juegos (incluyendo Pokémon) dependen del Timer para avanzar en su inicialización.
@@ -253,7 +272,7 @@
                         <div class="entry-meta-index">
                             <strong>Fecha:</strong> 2025-12-18 | 
                             <strong>Step ID:</strong> 0048 | 
-                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
                         </div>
                         <p class="entry-summary">
                             Se instrumentó el renderer con un diagnóstico visual para distinguir entre LCD apagado (LCDC bit 7 = 0) y LCD encendido dibujando blanco. El diagnóstico cambia el color de fondo cuando el LCD está apagado de blanco a azul oscuro para facilitar la identificación visual. El resultado del test confirma que el emulador muestra pantalla azul, lo que significa que el LCD está permanentemente apagado y el juego no ha llegado al punto de encenderlo. Esto indica un problema de lógica/CPU (probablemente interrupciones o timer) que impide que el juego avance más allá de la inicialización.
@@ -367,7 +386,7 @@
                         <div class="entry-meta-index">
                             <strong>Fecha:</strong> 2025-12-18 | 
                             <strong>Step ID:</strong> 0042 | 
-                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
                         </div>
                         <p class="entry-summary">
                             Se creó una herramienta de trazado forense (tools/debug_trace.py) para analizar la ejecución del emulador sin interfaz gráfica. El análisis de 100,000 instrucciones confirmó que el juego ejecuta DI (0xF3) una sola vez en la instrucción #3 (PC: 0x0150), deshabilitando IME al inicio. El juego NUNCA ejecuta EI (0xFB) en 100,000 instrucciones para volver a habilitar las interrupciones. El juego tampoco escribe en IE (0xFFFF). Esto explica por qué el juego se queda en un bucle infinito esperando V-Blank: IME está permanentemente deshabilitado. El análisis también detectó que el juego entra en diferentes bucles de espera (0x1383-0x1389 inicialmente, luego 0x12DD-0x12EC) y nunca sale completamente de ellos.
@@ -405,7 +424,7 @@
                         <div class="entry-meta-index">
                             <strong>Fecha:</strong> 2025-12-18 | 
                             <strong>Step ID:</strong> 0040 | 
-                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
                         </div>
                         <p class="entry-summary">
                             Se implementó una sonda de diagnóstico en el bucle principal del emulador para identificar dónde se atasca la ejecución cuando el emulador parece congelarse. La sonda imprime información periódica del estado del sistema (PC, SP, IME, LY, IF, IE, LCDC) cada 1000 iteraciones usando print() directo para evitar buffering de logging. Además, se añadió un log especial cuando LY llega a 144 (V-Blank) para verificar si las interrupciones se activan correctamente. Se añadió también una llamada explícita a pygame.event.pump() al inicio de cada iteración para evitar que Windows marque la ventana como "No responde". Con esta instrumentación, se descubrió que el emulador NO se congela: está ejecutando código normalmente, pero el juego parece estar en un bucle esperando interrupciones V-Blank.

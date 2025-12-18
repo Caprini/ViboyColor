@@ -38,10 +38,10 @@ if TYPE_CHECKING:
     from ..io.timer import Timer
 
 logger = logging.getLogger(__name__)
+# Permitir INFO para diagnóstico de MBC (bank switching)
 # CRITICAL siempre debe mostrarse, independientemente del nivel del logger raíz
-# Asegurar que los mensajes CRITICAL se muestren para diagnóstico
 if logger.level == logging.NOTSET:
-    logger.setLevel(logging.CRITICAL)
+    logger.setLevel(logging.INFO)  # Cambiado a INFO para diagnóstico
 
 # ========== Constantes de Registros de Hardware (I/O Ports) ==========
 # La Game Boy controla sus periféricos escribiendo en direcciones específicas
@@ -325,6 +325,9 @@ class MMU:
         # Aunque la ROM es "Read Only", el MBC interpreta escrituras como comandos
         if addr <= 0x7FFF:
             if self._cartridge is not None:
+                # Logging para diagnóstico: escrituras en rango de cambio de banco
+                if 0x2000 <= addr < 0x4000:
+                    logger.info(f"MMU: Escritura en rango MBC (0x{addr:04X}) = 0x{value:02X} -> Cartucho")
                 self._cartridge.write_byte(addr, value)
                 return
             # Si no hay cartucho, permitir escritura directa en memoria (útil para tests)
