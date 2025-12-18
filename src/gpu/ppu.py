@@ -311,13 +311,13 @@ class PPU:
                 signal = True
                 # Leer IE (Interrupt Enable) para diagnóstico
                 ie_value = self.mmu.read_byte(0xFFFF) & 0xFF
-                # Instrumentación para diagnóstico: detectar señal STAT activa por LYC
-                logger.info(
-                    f"🚨 STAT SIGNAL ACTIVE! (LYC Match) "
-                    f"Mode={self.mode} LY={self.ly} LYC={self.lyc} "
-                    f"STAT={stat_value:02X} IE={ie_value:02X} "
-                    f"(Bit 6 LYC Int Enable: True, IE bit 1 STAT: {(ie_value & 0x02) != 0})"
-                )
+                # Instrumentación para diagnóstico: detectar señal STAT activa por LYC - COMENTADO para rendimiento
+                # logger.info(
+                #     f"🚨 STAT SIGNAL ACTIVE! (LYC Match) "
+                #     f"Mode={self.mode} LY={self.ly} LYC={self.lyc} "
+                #     f"STAT={stat_value:02X} IE={ie_value:02X} "
+                #     f"(Bit 6 LYC Int Enable: True, IE bit 1 STAT: {(ie_value & 0x02) != 0})"
+                # )
         else:
             # Si LY != LYC, el bit 2 debe estar limpio
             # Preservamos los bits configurables (3-7) y actualizamos bits 0-2
@@ -337,31 +337,31 @@ class PPU:
         ie_value = self.mmu.read_byte(0xFFFF) & 0xFF
         if self.mode == PPU_MODE_0_HBLANK and (stat_value & 0x08) != 0:  # Bit 3 activo
             signal = True
-            # Instrumentación para diagnóstico: detectar señal STAT activa por H-Blank
-            logger.info(
-                f"🚨 STAT SIGNAL ACTIVE! (H-Blank) "
-                f"Mode={self.mode} LY={self.ly} LYC={self.lyc} "
-                f"STAT={stat_value:02X} IE={ie_value:02X} "
-                f"(Bit 3 H-Blank Int Enable: True, IE bit 1 STAT: {(ie_value & 0x02) != 0})"
-            )
+            # Instrumentación para diagnóstico: detectar señal STAT activa por H-Blank - COMENTADO para rendimiento
+            # logger.info(
+            #     f"🚨 STAT SIGNAL ACTIVE! (H-Blank) "
+            #     f"Mode={self.mode} LY={self.ly} LYC={self.lyc} "
+            #     f"STAT={stat_value:02X} IE={ie_value:02X} "
+            #     f"(Bit 3 H-Blank Int Enable: True, IE bit 1 STAT: {(ie_value & 0x02) != 0})"
+            # )
         elif self.mode == PPU_MODE_1_VBLANK and (stat_value & 0x10) != 0:  # Bit 4 activo
             signal = True
-            # Instrumentación para diagnóstico: detectar señal STAT activa por V-Blank
-            logger.info(
-                f"🚨 STAT SIGNAL ACTIVE! (V-Blank) "
-                f"Mode={self.mode} LY={self.ly} LYC={self.lyc} "
-                f"STAT={stat_value:02X} IE={ie_value:02X} "
-                f"(Bit 4 V-Blank Int Enable: True, IE bit 1 STAT: {(ie_value & 0x02) != 0})"
-            )
+            # Instrumentación para diagnóstico: detectar señal STAT activa por V-Blank - COMENTADO para rendimiento
+            # logger.info(
+            #     f"🚨 STAT SIGNAL ACTIVE! (V-Blank) "
+            #     f"Mode={self.mode} LY={self.ly} LYC={self.lyc} "
+            #     f"STAT={stat_value:02X} IE={ie_value:02X} "
+            #     f"(Bit 4 V-Blank Int Enable: True, IE bit 1 STAT: {(ie_value & 0x02) != 0})"
+            # )
         elif self.mode == PPU_MODE_2_OAM_SEARCH and (stat_value & 0x20) != 0:  # Bit 5 activo
             signal = True
-            # Instrumentación para diagnóstico: detectar señal STAT activa por OAM Search
-            logger.info(
-                f"🚨 STAT SIGNAL ACTIVE! (OAM Search) "
-                f"Mode={self.mode} LY={self.ly} LYC={self.lyc} "
-                f"STAT={stat_value:02X} IE={ie_value:02X} "
-                f"(Bit 5 OAM Int Enable: True, IE bit 1 STAT: {(ie_value & 0x02) != 0})"
-            )
+            # Instrumentación para diagnóstico: detectar señal STAT activa por OAM Search - COMENTADO para rendimiento
+            # logger.info(
+            #     f"🚨 STAT SIGNAL ACTIVE! (OAM Search) "
+            #     f"Mode={self.mode} LY={self.ly} LYC={self.lyc} "
+            #     f"STAT={stat_value:02X} IE={ie_value:02X} "
+            #     f"(Bit 5 OAM Int Enable: True, IE bit 1 STAT: {(ie_value & 0x02) != 0})"
+            # )
         
         # Disparar interrupción en rising edge (solo si signal es True y antes era False)
         if signal and not self.stat_interrupt_line:
@@ -371,8 +371,8 @@ class PPU:
             if_val |= 0x02  # Set bit 1 (LCD STAT interrupt)
             self.mmu.write_byte(0xFF0F, if_val)
             
-            # Log para diagnóstico (activado temporalmente para debugging)
-            logger.info(f"🎯 PPU: STAT interrupt triggered (LY={self.ly}, LYC={self.lyc}, mode={self.mode}), IF actualizado a 0x{if_val:02X}")
+            # Log para diagnóstico (activado temporalmente para debugging) - COMENTADO para rendimiento
+            # logger.info(f"🎯 PPU: STAT interrupt triggered (LY={self.ly}, LYC={self.lyc}, mode={self.mode}), IF actualizado a 0x{if_val:02X}")
         
         # Actualizar flag de interrupción STAT
         self.stat_interrupt_line = signal
@@ -435,8 +435,8 @@ class PPU:
         old_lyc = self.lyc
         self.lyc = value & 0xFF
         
-        # Log para diagnóstico (activado temporalmente para debugging)
-        logger.info(f"📝 PPU: LYC escrito = {self.lyc} (LY actual = {self.ly})")
+        # Log para diagnóstico (activado temporalmente para debugging) - COMENTADO para rendimiento
+        # logger.info(f"📝 PPU: LYC escrito = {self.lyc} (LY actual = {self.ly})")
         
         # Si LYC cambió, verificar interrupciones STAT inmediatamente
         # (el bit 2 de STAT puede cambiar si LY == nuevo LYC)

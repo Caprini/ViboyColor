@@ -520,11 +520,15 @@ class CPU:
         # 4. Saltar al vector de interrupción
         self.registers.set_pc(interrupt_vector)
         
-        # DIAGNÓSTICO: Log cuando se despacha una interrupción (crítico para debugging)
-        logger.info(
-            f"⚡ INTERRUPT DISPATCHED! Vector: {interrupt_vector:04X} | "
-            f"PC Previo: {current_pc:04X} | Tipo: {interrupt_names[interrupt_bit]}"
-        )
+        # DIAGNÓSTICO: Log cuando se despacha una interrupción (crítico para debugging) - COMENTADO para rendimiento
+        # logger.info(
+        #     f"⚡ INTERRUPT DISPATCHED! Vector: {interrupt_vector:04X} | "
+        #     f"PC Previo: {current_pc:04X} | Tipo: {interrupt_names[interrupt_bit]}"
+        # )
+        
+        # DIAGNÓSTICO ESPECÍFICO: Log cuando se dispara la interrupción del Timer - COMENTADO para rendimiento
+        # if interrupt_vector == 0x0050:
+        #     logger.info(f"⚡ TIMER INTERRUPT DISPATCHED! (TIMA Overflow)")
         
         # 5. Retornar 5 M-Cycles consumidos
         return 5
