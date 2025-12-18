@@ -224,6 +224,9 @@ def main() -> None:
     # Historial de PC para detección de bucles
     pc_history: deque[int] = deque(maxlen=20)
     
+    # Detectar ejecución de DI/EI
+    di_ei_log: list[dict] = []  # Lista de ejecuciones de DI/EI
+    
     # Wrapper de MMU para interceptar escrituras
     trace_mmu = TraceMMU(mmu, trace_log)
     
@@ -262,6 +265,24 @@ def main() -> None:
                 'SP': regs.get_sp(),
                 'F': regs.get_f(),
             }
+            
+            # Detectar ejecución de DI (0xF3) o EI (0xFB)
+            if opcode == 0xF3:  # DI
+                di_ei_log.append({
+                    'pc': pc_before,
+                    'opcode': opcode,
+                    'instruction': 'DI',
+                    'instruction_count': instruction_count + 1,
+                    'ime_before': cpu.ime,
+                })
+            elif opcode == 0xFB:  # EI
+                di_ei_log.append({
+                    'pc': pc_before,
+                    'opcode': opcode,
+                    'instruction': 'EI',
+                    'instruction_count': instruction_count + 1,
+                    'ime_before': cpu.ime,
+                })
             
             # Registrar instrucción
             memory_writes = list(trace_log) if trace_log else None
@@ -325,6 +346,21 @@ def main() -> None:
     
     print(f"Instrucciones con escrituras en I/O: {len(all_writes)}")
     print()
+    
+    # Mostrar ejecuciones de DI/EI
+    if di_ei_log:
+        print("=" * 80)
+        print("EJECUCIONES DE DI/EI (Interrupt Master Enable)")
+        print("=" * 80)
+        for entry in di_ei_log:
+            ime_status = "Habilitado" if entry['ime_before'] else "Deshabilitado"
+            print(f"Instruccion #{entry['instruction_count']:,} | PC: 0x{entry['pc']:04X} | "
+                  f"{entry['instruction']} (0x{entry['opcode']:02X}) | IME antes: {ime_status}")
+        print()
+    else:
+        print("ADVERTENCIA: No se detectaron ejecuciones de DI o EI")
+        print("   El juego nunca habilita/deshabilita IME durante el trazado.")
+        print()
     
     # Buscar escrituras en IE (0xFFFF)
     ie_writes = [line for line in instruction_log if "IE=" in line]

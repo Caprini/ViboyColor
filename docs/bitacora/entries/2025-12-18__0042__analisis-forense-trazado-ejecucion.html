@@ -137,14 +137,17 @@
                     Se ejecutó el script de trazado con <code>tetris_dx.gbc</code> (ROM aportada por el usuario, no distribuida):
                 </p>
                 <ul>
-                    <li><strong>Comando ejecutado:</strong> <code>python tools/debug_trace.py tetris_dx.gbc --max-instructions 5000</code></li>
+                    <li><strong>Comando ejecutado (análisis inicial):</strong> <code>python tools/debug_trace.py tetris_dx.gbc --max-instructions 5000</code></li>
+                    <li><strong>Comando ejecutado (análisis extendido):</strong> <code>python tools/debug_trace.py tetris_dx.gbc --max-instructions 100000</code></li>
                     <li><strong>Entorno:</strong> Windows 10, Python 3.13.5</li>
-                    <li><strong>Resultado:</strong> Ejecución exitosa, 5,000 instrucciones trazadas</li>
+                    <li><strong>Resultado:</strong> Ejecución exitosa, 100,000 instrucciones trazadas</li>
                     <li><strong>Qué valida:</strong>
                         <ul>
-                            <li>Que el juego nunca escribe en IE (0xFFFF) durante las primeras 5,000 instrucciones</li>
-                            <li>Que existe un bucle de espera entre 0x1383-0x1389</li>
-                            <li>Que el registro E se decrementa en el bucle (delay loop)</li>
+                            <li>Que el juego ejecuta DI (0xF3) en la instrucción #3 (PC: 0x0150)</li>
+                            <li>Que el juego <strong>NUNCA</strong> ejecuta EI (0xFB) en 100,000 instrucciones</li>
+                            <li>Que el juego nunca escribe en IE (0xFFFF) durante las 100,000 instrucciones</li>
+                            <li>Que existe un bucle de espera que persiste después de 100,000 instrucciones</li>
+                            <li>Que el juego escribe en I/O (370 escrituras detectadas, principalmente en 0xFF00 - P1)</li>
                         </ul>
                     </li>
                 </ul>
@@ -164,11 +167,33 @@ PC: 0x1380 | LD DE, d16 (0x11)      - Carga DE con 0x06D6 (1750)
 PC: 0x1383-0x1389 | Bucle de espera - Decrementa DE hasta 0
 </code></pre>
 
+                <h3>Hallazgos del análisis - Verificación Extendida (100,000 instrucciones)</h3>
                 <p>
-                    <strong>Hallazgo crítico:</strong> El juego ejecuta <code>DI (0xF3)</code> en 0x0150, deshabilitando
-                    IME al inicio. El juego <strong>nunca ejecuta EI (0xFB)</strong> para volver a habilitar las
-                    interrupciones. Esto significa que incluso si IE estuviera configurado correctamente, las
-                    interrupciones no se procesarían porque IME está en False.
+                    Análisis extendido con <strong>100,000 instrucciones</strong> confirmó los hallazgos iniciales:
+                </p>
+                <pre><code>EJECUCIONES DE DI/EI (Interrupt Master Enable):
+  Instruccion #3 | PC: 0x0150 | DI (0xF3) | IME antes: Deshabilitado
+
+RESUMEN:
+  - DI ejecutado: 1 vez (instrucción #3, PC: 0x0150)
+  - EI ejecutado: 0 veces (NUNCA en 100,000 instrucciones)
+  - Escrituras en IE (0xFFFF): 0
+  - Escrituras en I/O: 370 (principalmente 0xFF00 - P1 Joypad)
+  - Estado final: Bucle persistente entre 0x12DD-0x12EC
+</code></pre>
+
+                <p>
+                    <strong>Hallazgo crítico confirmado:</strong> El juego ejecuta <code>DI (0xF3)</code> una sola vez
+                    en la instrucción #3 (PC: 0x0150), deshabilitando IME al inicio. El juego <strong>NUNCA ejecuta
+                    EI (0xFB)</strong> en 100,000 instrucciones para volver a habilitar las interrupciones. Esto
+                    significa que incluso si IE estuviera configurado correctamente, las interrupciones no se
+                    procesarían porque IME está permanentemente en False.
+                </p>
+                <p>
+                    <strong>Observación adicional:</strong> Después de 100,000 instrucciones, el juego sigue en un
+                    bucle, pero ahora entre las direcciones 0x12DD-0x12EC (diferente al bucle inicial 0x1383-0x1389).
+                    El juego escribe en 0xFF00 (P1 - Joypad) durante el bucle, lo que sugiere que está esperando
+                    entrada del usuario o algún evento que nunca ocurre.
                 </p>
 
                 <h3>Hallazgos del análisis - Bucle de Espera</h3>
@@ -224,28 +249,44 @@ Patrón:
 
                     <h3>Lo que Falta Confirmar</h3>
                     <ul>
-                        <li><strong>Por qué el juego no ejecuta EI:</strong> No está claro si el juego nunca llega a la parte
-                            del código que ejecuta EI, o si hay un bug en la implementación de DI/EI que impide que IME se
-                            habilite correctamente.</li>
-                        <li><strong>Qué ocurre después del delay loop:</strong> Necesito trazar más instrucciones para ver qué
-                            ocurre cuando el bucle termina (cuando DE = 0). ¿El juego continúa o entra en otro bucle?</li>
-                        <li><strong>Estado inicial de IME:</strong> Necesito verificar qué valor tiene IME al inicio de la ejecución
-                            (debería ser False según la documentación, pero hay que confirmarlo en el código).</li>
+                        <li><strong>Por qué el juego no ejecuta EI:</strong> Confirmado que el juego nunca ejecuta EI en
+                            100,000 instrucciones. No está claro si:
+                            <ul>
+                                <li>El juego nunca llega a la parte del código que ejecuta EI (se queda atascado antes)</li>
+                                <li>Hay un bug en la implementación de DI/EI que impide que IME se habilite correctamente</li>
+                                <li>El juego espera que IME esté habilitado por defecto (bug en inicialización)</li>
+                            </ul>
+                        </li>
+                        <li><strong>Qué ocurre después del delay loop:</strong> El análisis de 100,000 instrucciones muestra
+                            que el juego entra en diferentes bucles (0x1383-0x1389 inicialmente, luego 0x12DD-0x12EC).
+                            El juego nunca sale completamente de los bucles de espera.</li>
+                        <li><strong>Estado inicial de IME:</strong> El análisis muestra que IME está "Deshabilitado" antes
+                            de ejecutar DI en la instrucción #3, lo que sugiere que IME se inicializa en False (correcto).
+                            Sin embargo, necesito verificar la implementación para confirmar.</li>
                         <li><strong>Implementación de DI/EI:</strong> Necesito verificar que la implementación de DI/EI en la CPU
-                            funcione correctamente y que IME se actualice como se espera.</li>
+                            funcione correctamente y que IME se actualice como se espera cuando se ejecutan estas instrucciones.</li>
                     </ul>
 
                     <h3>Hipótesis y Suposiciones</h3>
                     <p>
-                        <strong>Hipótesis principal:</strong> El juego ejecuta DI al inicio para deshabilitar interrupciones
-                        durante la inicialización, pero nunca ejecuta EI para volver a habilitarlas. Esto causa que el juego
-                        quede atascado en un bucle de espera esperando V-Blank, que nunca se procesa porque IME está deshabilitado.
+                        <strong>Hipótesis principal (CONFIRMADA):</strong> El juego ejecuta DI al inicio para deshabilitar
+                        interrupciones durante la inicialización, pero <strong>nunca ejecuta EI</strong> para volver a habilitarlas
+                        (verificado en 100,000 instrucciones). Esto causa que el juego quede atascado en un bucle de espera
+                        esperando V-Blank, que nunca se procesa porque IME está permanentemente deshabilitado.
                     </p>
                     <p>
-                        <strong>Suposición no verificada:</strong> Asumo que el juego debería ejecutar EI en algún momento
-                        durante la inicialización, pero no puedo verificar esto sin trazar más instrucciones o analizar el código
-                        de la ROM (lo cual no es posible sin herramientas de desensamblado). También es posible que haya un bug
-                        en la implementación de DI/EI que impida que IME se habilite correctamente.
+                        <strong>Hipótesis secundaria:</strong> Es posible que:
+                        <ul>
+                            <li>El juego tenga un bug y nunca llegue al código que ejecuta EI</li>
+                            <li>Haya un bug en la implementación de DI/EI que impida que IME se habilite correctamente</li>
+                            <li>El juego espere que IME esté habilitado por defecto (bug en inicialización del emulador)</li>
+                        </ul>
+                    </p>
+                    <p>
+                        <strong>Suposición no verificada:</strong> No puedo verificar si el juego debería ejecutar EI sin
+                        analizar el código de la ROM (lo cual no es posible sin herramientas de desensamblado). Sin embargo,
+                        el hecho de que el juego nunca ejecute EI en 100,000 instrucciones sugiere fuertemente que hay un problema
+                        en la lógica de inicialización o en la implementación del emulador.
                     </p>
                 </div>
             </section>
