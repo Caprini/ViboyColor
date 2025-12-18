@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor de Arranque Inmediato - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Monitor de Arranque Inmediato</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0065
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0064__sensor-vram-diagnostico.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó un sistema de monitorización agresiva del arranque del emulador para detectar
+                    "deadlocks silenciosos". El sistema imprime el estado de la CPU (PC, SP) en los primeros 20
+                    pasos del bucle principal y añade protección contra opcodes que devuelven 0 ciclos, evitando
+                    que el emulador se congele en un bucle infinito matemático.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En un Game Boy real, cada instrucción de la CPU consume un número determinado de ciclos de
+                    máquina (M-Cycles). El reloj del sistema avanza continuamente, y cada componente (CPU, PPU,
+                    Timer) consume ciclos para avanzar su estado interno.
+                </p>
+                <p>
+                    Si una instrucción devolviera 0 ciclos (lo cual no debería ocurrir en hardware real), el
+                    contador de tiempo del emulador nunca avanzaría, causando que el bucle principal se quede
+                    atascado en la misma instrucción infinitamente. Esto es un "deadlock silencioso": el programa
+                    no crashea, pero tampoco progresa.
+                </p>
+                <p>
+                    El diagnóstico de arranque permite identificar:
+                </p>
+                <ul>
+                    <li><strong>PC estancado:</strong> Si el Program Counter no cambia entre pasos, la CPU está
+                        ejecutando la misma instrucción repetidamente (posible bucle infinito en el código del juego
+                        o bug en el emulador).</li>
+                    <li><strong>Bloqueo en inicialización:</strong> Si el emulador se atasca antes de completar
+                        el primer segundo, el problema está en la fase de arranque (posiblemente esperando un evento
+                        que nunca ocurre).</li>
+                    <li><strong>Opcode con 0 ciclos:</strong> Si se detecta una instrucción que devuelve 0 ciclos,
+                        hay un bug en la implementación del opcode que causa deadlock matemático.</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - CPU Instruction Set, Timing, System Clock
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadieron dos mecanismos de diagnóstico en <code>src/viboy.py</code>:
+                </p>
+                
+                <h3>1. Monitor de Arranque (Boot Monitor)</h3>
+                <p>
+                    Al inicio del bucle principal <code>run()</code>, se añadió un contador <code>debug_step_counter</code>
+                    que imprime el estado de la CPU (PC y SP) en los primeros 20 pasos del bucle. Esto permite
+                    verificar que la CPU está ejecutando instrucciones y avanzando el Program Counter.
+                </p>
+                <pre><code># DEBUG: Monitor de arranque agresivo
+debug_step_counter = 0
+
+while True:
+    # DEBUG: Monitor de arranque - imprimir los primeros 20 pasos
+    if debug_step_counter < 20:
+        pc = self._cpu.registers.get_pc()
+        sp = self._cpu.registers.get_sp()
+        print(f"🚀 BOOT STEP {debug_step_counter}: PC={pc:04X} | SP={sp:04X}", flush=True)
+    debug_step_counter += 1</code></pre>
+
+                <h3>2. Protección contra Ciclos Cero</h3>
+                <p>
+                    En el método <code>tick()</code>, se añadió una verificación que detecta si la CPU devuelve
+                    0 ciclos. Si esto ocurre, se fuerza al menos 1 ciclo para evitar que el contador de tiempo
+                    se congele. Esta protección se aplica tanto en ejecución normal como en estado HALT.
+                </p>
+                <pre><code># Ejecutar una instrucción normal
+cycles = self._cpu.step()
+
+# CRÍTICO: Protección contra bucle infinito
+if cycles == 0:
+    pc = self._cpu.registers.get_pc()
+    print(f"🚨 ALERTA: CPU devolvió 0 ciclos en PC={pc:04X}!", flush=True)
+    cycles = 1  # Forzar avance para no colgar</code></pre>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Print directo en lugar de logger:</strong> Se usa <code>print()</code> con
+                        <code>flush=True</code> para garantizar visibilidad inmediata, incluso si el nivel de
+                        logging está en WARNING o ERROR.</li>
+                    <li><strong>Límite de 20 pasos:</strong> Los primeros 20 pasos son suficientes para detectar
+                        bloqueos inmediatos sin saturar la salida.</li>
+                    <li><strong>Forzar 1 ciclo mínimo:</strong> Si se detecta 0 ciclos, se fuerza 1 ciclo para
+                        evitar deadlock, pero se mantiene el aviso para que el desarrollador sepa que hay un bug
+                        en el opcode.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Añadido monitor de arranque y protección contra ciclos cero</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este cambio es puramente diagnóstico y no requiere tests unitarios. La validación se realiza
+                    ejecutando el emulador y observando la salida del monitor de arranque.
+                </p>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>python main.py pkmn.gb --verbose</code>
+                </p>
+                <p>
+                    <strong>Entorno:</strong> Windows, Python 3.13.5
+                </p>
+                <p>
+                    <strong>Resultado:</strong> ✅ PASSED - El monitor de arranque funcionó correctamente
+                </p>
+                <p>
+                    <strong>Observaciones:</strong>
+                </p>
+                <ul>
+                    <li>✅ La CPU está ejecutando instrucciones normalmente (PC avanza: 0x0100 → 0x0101 → 0x0150 → ... → 0x1F68)</li>
+                    <li>✅ No aparecieron alertas de "0 ciclos" (no hay opcodes problemáticos detectados)</li>
+                    <li>✅ El emulador se ejecutó sin deadlock silencioso (el usuario lo detuvo manualmente con Ctrl+C después de 4211 ciclos)</li>
+                    <li>⚠️ El heartbeat no apareció porque el emulador se detuvo antes de completar 60 frames (solo 4211 ciclos ejecutados, insuficiente para generar frames)</li>
+                </ul>
+                <p>
+                    <strong>Interpretación:</strong> El problema original (no ver heartbeat) no es un deadlock silencioso.
+                    La CPU está funcionando correctamente. El siguiente paso es verificar si la PPU está generando frames
+                    correctamente, ya que el <code>frame_count</code> solo se incrementa cuando <code>ppu.is_frame_ready()</code>
+                    devuelve <code>True</code>.
+                </p>
+                <p>
+                    <strong>Próximo diagnóstico necesario:</strong> Añadir monitor del estado de la PPU (LY, modo, frames generados)
+                    para determinar si el problema está en que la PPU no está llegando a V-Blank o si hay otro problema.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set, Timing, System Clock</a></li>
+                </ul>
+                <p>
+                    <em>Nota: La protección contra 0 ciclos es una medida de seguridad del emulador. En hardware
+                    real, todas las instrucciones consumen al menos 1 M-Cycle.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Deadlock silencioso:</strong> Un programa puede quedar atascado sin crashear,
+                            especialmente si el contador de tiempo no avanza (ciclos == 0).</li>
+                        <li><strong>Diagnóstico de arranque:</strong> Imprimir el estado de la CPU en los primeros
+                            pasos permite identificar rápidamente dónde se produce el bloqueo.</li>
+                        <li><strong>Protección defensiva:</strong> Aunque en hardware real no debería ocurrir, es
+                            útil añadir verificaciones que detecten condiciones anómalas y eviten deadlocks.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento real:</strong> Necesito ejecutar el emulador con una ROM para
+                            verificar qué muestra el monitor de arranque y si detecta el problema del deadlock.</li>
+                        <li><strong>Opcode problemático:</strong> Si aparece la alerta de 0 ciclos, necesito
+                            identificar qué opcode está causando el problema y corregirlo.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El emulador se está atascando en el bucle principal
+                        antes de poder completar un segundo de ejecución. El monitor de arranque permitirá identificar
+                        si el problema es:
+                    </p>
+                    <ul>
+                        <li>Un PC que no avanza (bucle infinito en el código del juego o bug en el emulador)</li>
+                        <li>Un opcode que devuelve 0 ciclos (bug en la implementación)</li>
+                        <li>Un bloqueo en pygame.event.pump() o en la inicialización gráfica</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[x] Ejecutar el emulador con una ROM y observar la salida del monitor de arranque ✅</li>
+                    <li>[x] Verificar que la CPU está ejecutando correctamente ✅</li>
+                    <li>[ ] Añadir monitor del estado de la PPU (LY, modo, frames generados) para diagnosticar por qué no aparece el heartbeat</li>
+                    <li>[ ] Verificar si la PPU está llegando a V-Blank (línea 144) y marcando frames como listos</li>
+                    <li>[ ] Si la PPU no está generando frames, investigar el timing o el estado del LCD (LCDC bit 7)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

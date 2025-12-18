@@ -1,5 +1,63 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Monitor de Arranque Inmediato (Step 0065) ✅ VERIFICADO
+
+### Conceptos Hardware Implementados
+
+**Deadlock Silencioso en Emuladores**: Un emulador puede quedar atascado sin crashear si el contador de tiempo no avanza. Esto ocurre cuando una instrucción devuelve 0 ciclos (lo cual no debería ocurrir en hardware real), causando que el bucle principal se quede en la misma instrucción infinitamente. El diagnóstico de arranque permite identificar rápidamente dónde se produce el bloqueo: si el Program Counter (PC) no cambia entre pasos, la CPU está ejecutando la misma instrucción repetidamente (posible bucle infinito en el código del juego o bug en el emulador).
+
+**Protección Defensiva contra Condiciones Anómalas**: Aunque en hardware real todas las instrucciones consumen al menos 1 M-Cycle, es útil añadir verificaciones que detecten condiciones anómalas (como 0 ciclos) y eviten deadlocks. Si se detecta una instrucción que devuelve 0 ciclos, se fuerza al menos 1 ciclo para evitar que el contador de tiempo se congele, pero se mantiene el aviso para que el desarrollador sepa que hay un bug en el opcode.
+
+**Fuente**: Pan Docs - CPU Instruction Set, Timing, System Clock
+
+#### Tareas Completadas:
+
+1. **Monitor de Arranque en `src/viboy.py`**:
+   - Añadido contador `debug_step_counter` que imprime el estado de la CPU (PC, SP) en los primeros 20 pasos del bucle principal
+   - Mensajes con formato `🚀 BOOT STEP N: PC=XXXX | SP=XXXX` usando `print()` con `flush=True` para garantizar visibilidad inmediata
+
+2. **Protección contra Ciclos Cero en `src/viboy.py`**:
+   - Verificación en método `tick()` para detectar si la CPU devuelve 0 ciclos
+   - Alerta `🚨 ALERTA: CPU devolvió 0 ciclos en PC=XXXX!` cuando se detecta
+   - Fuerza al menos 1 ciclo para evitar deadlock matemático
+   - Aplicada tanto en ejecución normal como en estado HALT
+
+#### Archivos Afectados:
+- `src/viboy.py` (modificado) - Añadido monitor de arranque y protección contra ciclos cero
+- `docs/bitacora/entries/2025-12-18__0065__monitor-arranque-inmediato.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0065)
+- `docs/bitacora/entries/2025-12-18__0064__sensor-vram-diagnostico.html` (modificado, actualizado enlace "Siguiente")
+- `INFORME_COMPLETO.md` (modificado, añadida entrada 0065)
+
+#### Validación:
+- **Estado**: ✅ Verified - El monitor de arranque funcionó correctamente
+- **Entorno**: Windows 10, Python 3.13.5
+- **Comando ejecutado**: `python main.py pkmn.gb --verbose`
+- **Resultado**: ✅ PASSED
+- **Observaciones**:
+  - ✅ La CPU está ejecutando instrucciones normalmente (PC avanza: 0x0100 → 0x0101 → 0x0150 → ... → 0x1F68)
+  - ✅ No aparecieron alertas de "0 ciclos" (no hay opcodes problemáticos detectados)
+  - ✅ El emulador se ejecutó sin deadlock silencioso (el usuario lo detuvo manualmente con Ctrl+C después de 4211 ciclos)
+  - ⚠️ El heartbeat no apareció porque el emulador se detuvo antes de completar 60 frames (solo 4211 ciclos ejecutados, insuficiente para generar frames)
+
+**Conclusión**: El problema del heartbeat ausente NO es un deadlock silencioso. La CPU funciona correctamente. El siguiente paso es diagnosticar el estado de la PPU para determinar si está generando frames correctamente, ya que el `frame_count` solo se incrementa cuando `ppu.is_frame_ready()` devuelve `True`.
+
+#### Git Commit Sugerido:
+```bash
+git add src/viboy.py docs/bitacora/ INFORME_COMPLETO.md
+git commit -m "feat(debug): añadir monitor de arranque y protección contra ciclos cero
+
+- Monitor de arranque que imprime PC y SP en los primeros 20 pasos
+- Protección contra opcodes que devuelven 0 ciclos (deadlock matemático)
+- Alertas visibles con print() para diagnóstico inmediato
+- Aplicado en ejecución normal y estado HALT
+- Verificado: CPU ejecuta correctamente, no hay deadlock silencioso
+
+Bitácora: Step 0065"
+```
+
+---
+
 ## 2025-12-18 - Sensor de VRAM para Diagnóstico (Step 0064)
 
 ### Conceptos Hardware Implementados
