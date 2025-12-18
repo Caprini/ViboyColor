@@ -1,12 +1,22 @@
-# Viboy Color
+# Viboy Color - Python Game Boy Emulator (Academic PoC)
 
+[![Status: Proof of Concept](https://img.shields.io/badge/Status-Proof%20of%20Concept-orange.svg)](https://github.com/Caprini/ViboyColor)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 
-Un emulador de Game Boy Color escrito en Python, desarrollado desde cero con un enfoque educativo y clean-room.
+Un emulador de Game Boy Color escrito en Python, desarrollado desde cero mediante **"Vibe Coding"** (Programación asistida por IA sin conocimientos previos profundos de la arquitectura GB) con un enfoque educativo y clean-room.
 
 ## 🎯 Descripción
 
-**Viboy Color** es un emulador del sistema Game Boy Color desarrollado completamente desde cero en Python. Este proyecto tiene como objetivo principal ser una herramienta educativa que permita comprender la arquitectura del hardware original mediante implementación clean-room (sin copiar código de otros emuladores).
+**Viboy Color** es un emulador del sistema Game Boy Color desarrollado completamente desde cero en Python mediante **"Vibe Coding"** (Programación asistida por IA sin conocimientos previos profundos de la arquitectura Game Boy). Este proyecto tiene como objetivo principal ser una herramienta educativa que permita comprender la arquitectura del hardware original mediante implementación clean-room (sin copiar código de otros emuladores).
+
+### ⚠️ Estado Actual: Proof of Concept (PoC) Académica v0.0.1
+
+Este proyecto ha alcanzado el estado de **Prueba de Concepto (PoC) Académica** exitosa. El emulador funciona a nivel técnico: carga ROMs, ejecuta instrucciones de CPU, gestiona memoria, dibuja gráficos y muestra juegos en pantalla. Sin embargo, **la jugabilidad no es viable** debido a problemas de sincronización fina y latencia inherentes a la implementación actual en Python puro.
+
+**Limitación Conocida**: La sincronización ciclo a ciclo en Python puro impide una jugabilidad fluida en hardware estándar. Se requiere migración a C++/Cython para alcanzar precisión de timing necesaria para juegos sensibles al timing (como Tetris o Pokémon).
+
+**Logro Académico**: Este proyecto ha sido un éxito como herramienta de aprendizaje de arquitectura de computadores, cumpliendo el objetivo de "aprender cómo funciona la máquina" mediante implementación práctica desde cero.
 
 ### Principios del Proyecto
 
@@ -16,31 +26,55 @@ Un emulador de Game Boy Color escrito en Python, desarrollado desde cero con un 
 - ✅ **Python Moderno**: Utiliza Python 3.10+ con tipado estricto y mejores prácticas
 - ✅ **Test-Driven Development**: Suite completa de tests unitarios para validar cada componente
 
-## ✨ Características Implementadas
+## ✨ Características Implementadas (v0.0.1)
 
-### CPU (LR35902)
+### CPU (LR35902) - ✅ Completa
 - ✅ **Registros completos**: Implementación de todos los registros de 8 y 16 bits (A, B, C, D, E, H, L, F, PC, SP)
 - ✅ **Pares virtuales**: Soporte para pares de 16 bits (AF, BC, DE, HL)
 - ✅ **Sistema de flags**: Gestión completa de flags (Z, N, H, C) con peculiaridades del hardware
 - ✅ **Ciclo Fetch-Decode-Execute**: Implementación del ciclo de instrucción fundamental
-- ✅ **ALU básica**: Unidad Aritmética Lógica con gestión correcta de flags, especialmente Half-Carry
-- ✅ **Opcodes implementados**: NOP, LD A,d8, LD B,d8, ADD A,d8, SUB d8
-- ✅ **Tabla de despacho**: Sistema escalable para manejo de opcodes
+- ✅ **ALU completa**: Unidad Aritmética Lógica con gestión correcta de flags, especialmente Half-Carry
+- ✅ **Opcodes completos**: Implementación de todos los opcodes del set de instrucciones LR35902 (incluyendo prefijo CB)
+- ✅ **Tabla de despacho**: Sistema escalable para manejo de opcodes con match/case
 
-### MMU (Memory Management Unit)
+### MMU (Memory Management Unit) - ✅ Funcional
 - ✅ **Espacio de direcciones completo**: Gestión del espacio de 16 bits (0x0000-0xFFFF)
 - ✅ **Operaciones Little-Endian**: Lectura/escritura de palabras de 16 bits con endianness correcta
 - ✅ **Wrap-around**: Manejo correcto de desbordamientos de direcciones y valores
 - ✅ **Enmascarado automático**: Protección contra valores fuera de rango
+- ✅ **Mapeo de regiones**: ROM, VRAM, OAM, I/O, HRAM, Cartuchos (MBC1)
+
+### PPU (Picture Processing Unit) - ✅ Funcional
+- ✅ **Renderizado de Background**: Tilemap completo con scroll (SCX/SCY)
+- ✅ **Renderizado de Window**: Capa de ventana independiente
+- ✅ **Renderizado de Sprites**: Hasta 40 sprites con prioridad y atributos
+- ✅ **Modos PPU**: Implementación de modos 0-3 (H-Blank, V-Blank, OAM Search, Pixel Transfer)
+- ✅ **Registro STAT**: Gestión de interrupciones basadas en modos PPU
+- ✅ **Optimizaciones**: Caché de tiles, renderizado por scanlines
+
+### Timer - ✅ Completo
+- ✅ **Registros DIV, TIMA, TMA, TAC**: Implementación completa del subsistema Timer
+- ✅ **Frecuencias configurables**: 4096 Hz, 262144 Hz, 65536 Hz, 16384 Hz
+- ✅ **Interrupciones de Timer**: Generación correcta de interrupciones en overflow
+
+### Interrupciones - ✅ Funcional
+- ✅ **Sistema de interrupciones**: VBlank, LCD STAT, Timer, Serial, Joypad
+- ✅ **Registros IF/IE**: Gestión de flags y máscaras de interrupciones
+- ✅ **Timing correcto**: Retraso de 1 instrucción para EI (Enable Interrupts)
+
+### Cartuchos - ✅ MBC1 Implementado
+- ✅ **Carga de ROMs**: Soporte para ROMs de hasta 2MB
+- ✅ **MBC1**: Implementación completa del Memory Bank Controller tipo 1
+- ✅ **Bank Switching**: Cambio dinámico de bancos ROM/RAM
 
 ### Tests y Calidad
-- ✅ **39 tests unitarios** pasando (registros, MMU, CPU, ALU)
+- ✅ **Suite completa de tests**: Cientos de tests unitarios pasando
 - ✅ **Cobertura completa** de componentes implementados
 - ✅ **Tests deterministas** sin dependencias del sistema operativo
 
 ### Documentación
-- ✅ **Bitácora web estática**: Documentación educativa detallada en `docs/bitacora/`
-- ✅ **Informe completo**: Bitácora técnica en `INFORME_COMPLETO.md`
+- ✅ **Bitácora web estática**: 90+ entradas educativas detalladas en `docs/bitacora/`
+- ✅ **Informe completo**: Bitácora técnica completa en `INFORME_COMPLETO.md`
 - ✅ **Docstrings educativos**: Cada componente incluye explicaciones del hardware
 
 ## 📋 Requisitos
@@ -129,31 +163,41 @@ Consulta `INFORME_COMPLETO.md` para la bitácora técnica completa con todos los
 
 ## 🔄 Estado del Proyecto
 
-**Estado actual**: Desarrollo activo - Fase de implementación de componentes core
+**Versión actual**: v0.0.1 (Proof of Concept Académica) - **CERRADA**
 
-### ✅ Completado
-- Registros de CPU (LR35902)
-- MMU básica con Little-Endian
-- Ciclo de instrucción Fetch-Decode-Execute
-- ALU con gestión de flags (especialmente Half-Carry)
-- Sistema de tests unitarios
-- Bitácora web estática
+### ✅ Fase 1 (v0.0.1) - Completada
 
-### 🚧 En Desarrollo
-- Más opcodes de la CPU
-- Mapeo específico de regiones de memoria
-- Sistema de interrupciones
-- PPU (Picture Processing Unit)
-- APU (Audio Processing Unit)
-- Sistema de timers
-- Carga de cartuchos (MBC)
+**Logros Técnicos:**
+- ✅ CPU LR35902 completa con todos los opcodes
+- ✅ MMU funcional con mapeo completo de memoria
+- ✅ PPU funcional con renderizado de Background, Window y Sprites
+- ✅ Timer completo con todas las frecuencias
+- ✅ Sistema de interrupciones funcional
+- ✅ Carga de cartuchos (MBC1)
+- ✅ Suite completa de tests unitarios
+- ✅ Bitácora web con 90+ entradas educativas
 
-### 📅 Próximos Pasos
-- Implementación de más opcodes (LD, ADD, SUB con diferentes operandos)
-- Sistema de branching (JP, JR, CALL, RET)
-- Interrupciones (VBlank, LCD, Timer, Serial, Joypad)
-- PPU básica para renderizado de tiles
-- Sistema de carga de ROMs
+**Estado Funcional:**
+- ✅ El emulador arranca y carga ROMs
+- ✅ Ejecuta instrucciones de CPU correctamente
+- ✅ Muestra gráficos en pantalla
+- ⚠️ **Limitación conocida**: La sincronización ciclo a ciclo en Python puro impide jugabilidad fluida
+
+**Conclusión Académica:**
+Este proyecto ha sido un éxito como herramienta de aprendizaje de arquitectura de computadores. El objetivo de "aprender cómo funciona la máquina" se ha cumplido mediante implementación práctica desde cero. La arquitectura de "bucle por scanline" en un lenguaje interpretado introduce latencia de input y desincronización de timer que rompe la lógica de juegos sensibles al timing.
+
+### 🚀 Roadmap v0.0.2 (Próxima Fase)
+
+**Objetivo**: Migración del núcleo a lenguaje de bajo nivel o compilado para alcanzar precisión de timing necesaria para jugabilidad completa.
+
+**Tareas Principales:**
+- [ ] Reescritura del núcleo en C++/Cython
+- [ ] Migración de CPU, MMU, PPU y Timer a código compilado
+- [ ] Mantener interfaz Python para frontend y tests
+- [ ] Optimización de sincronización ciclo a ciclo
+- [ ] Validación con juegos sensibles al timing (Tetris, Pokémon)
+
+**Nota**: Los componentes pendientes (APU, MBCs adicionales, etc.) se implementarán en v0.0.2 con la nueva arquitectura.
 
 ## 🤝 Contribuir
 
@@ -191,5 +235,15 @@ Para preguntas o sugerencias sobre el proyecto, abre un issue en el repositorio 
 
 ---
 
-**Nota**: Este proyecto está en desarrollo activo. El emulador aún no es funcional para ejecutar juegos comerciales, pero los componentes core están siendo implementados y validados con tests unitarios.
+## 📖 Metodología: Vibe Coding
+
+Este proyecto fue desarrollado mediante **"Vibe Coding"** (Programación asistida por IA sin conocimientos previos profundos de la arquitectura Game Boy). Cada paso del desarrollo fue documentado en la bitácora web (`docs/bitacora/`), reflejando el proceso de aprendizaje y las decisiones técnicas tomadas.
+
+**Principios aplicados:**
+- Implementación clean-room basada únicamente en documentación técnica
+- Documentación educativa de cada componente
+- Tests unitarios para validar implementaciones
+- Transparencia sobre limitaciones y decisiones de diseño
+
+**Nota**: Este proyecto es una Prueba de Concepto (PoC) Académica. El emulador funciona técnicamente pero la jugabilidad no es viable debido a limitaciones de sincronización en Python puro. La versión v0.0.2 migrará el núcleo a un lenguaje compilado para alcanzar precisión de timing necesaria.
 

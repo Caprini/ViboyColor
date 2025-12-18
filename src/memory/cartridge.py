@@ -175,7 +175,7 @@ class Cartridge:
             # logger.info(f"🏦 MBC: Cambio de Banco ROM a {bank:02X} (tipo {cart_type}, escritura 0x{value:02X} en 0x{addr:04X})")
         
         # Otros rangos (RAM enable, RAM bank, mode select) se ignoran por ahora
-        # TODO: Implementar RAM banking y mode select cuando sea necesario
+        # Deferred to v0.0.2: Implementar RAM banking y mode select cuando sea necesario
 
     def get_header_info(self) -> dict[str, str | int]:
         """
