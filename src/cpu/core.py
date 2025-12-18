@@ -28,6 +28,9 @@ if TYPE_CHECKING:
     from ..memory.mmu import MMU
 
 logger = logging.getLogger(__name__)
+# OPTIMIZACIÓN: Desactivar logging a nivel CRITICAL para máximo rendimiento
+# Todas las llamadas a logger.debug() quedan desactivadas sin overhead
+logger.setLevel(logging.CRITICAL)
 
 
 class CPU:
@@ -303,20 +306,20 @@ class CPU:
                             value = self.mmu.read_byte(hl_addr)
                             op_func_inner(value)
                             op_name = op_func_inner.__name__.upper().replace('_', ' ')
-                            logger.debug(
-                                f"{op_name} A, (HL) -> "
-                                f"A=0x{self.registers.get_a():02X} (HL)=0x{value:02X}"
-                            )
+                            # logger.debug(
+                            #     f"{op_name} A, (HL) -> "
+                            #     f"A=0x{self.registers.get_a():02X} (HL)=0x{value:02X}"
+                            # )
                             return 2  # Acceso a memoria = 2 M-Cycles
                         else:
                             # Obtener valor del registro usando el helper existente
                             value = self._get_register_value(reg_idx_inner)
                             op_func_inner(value)
                             op_name = op_func_inner.__name__.upper().replace('_', ' ')
-                            logger.debug(
-                                f"{op_name} A, {reg_name_inner} -> "
-                                f"A=0x{self.registers.get_a():02X}"
-                            )
+                            # logger.debug(
+                            #     f"{op_name} A, {reg_name_inner} -> "
+                            #     f"A=0x{self.registers.get_a():02X}"
+                            # )
                             return 1  # Registro = 1 M-Cycle
                     return handler
                 
@@ -445,39 +448,42 @@ class CPU:
         if (if_reg & 0x01):  # Si hay V-Blank pendiente en hardware
             is_enabled_in_ie = (ie & 0x01) != 0
             if not is_enabled_in_ie:
-                logging.debug(f"⚠️ V-Blank IGNORADO: No habilitado en IE (IE={ie:02X})")
+                # logging.debug(f"⚠️ V-Blank IGNORADO: No habilitado en IE (IE={ie:02X})")
+                pass
             elif not self.ime:
-                logging.debug(f"⚠️ V-Blank IGNORADO: IME desactivado (DI ejecutado)")
+                # logging.debug(f"⚠️ V-Blank IGNORADO: IME desactivado (DI ejecutado)")
+                pass
             else:
                 # Si llega aquí, debería saltar (pero pending podría ser 0 si IE no tiene el bit)
                 pass
         
         # DIAGNÓSTICO: Log cuando IF tiene bits activados pero pending == 0 (IE sin activar)
-        if if_reg != 0 and pending == 0:
-            logger.debug(
-                f"IF activado pero IE no: IF=0x{if_reg:02X} IE=0x{ie:02X} "
-                f"IME={self.ime} (interrupciones deshabilitadas en IE)"
-            )
+        # Logging comentado para rendimiento (eliminado overhead crítico)
+        # if if_reg != 0 and pending == 0:
+        #     logger.debug(
+        #         f"IF activado pero IE no: IF=0x{if_reg:02X} IE=0x{ie:02X} "
+        #         f"IME={self.ime} (interrupciones deshabilitadas en IE)"
+        #     )
         
         # Si no hay interrupciones pendientes, no hacer nada
         if pending == 0:
             return 0
         
         # DIAGNÓSTICO: Log cuando hay interrupciones pendientes
-        # Esto ayuda a identificar por qué la CPU no acepta interrupciones
-        logger.debug(
-            f"Intento de Interrupción: IME={self.ime} IE=0x{ie:02X} IF=0x{if_reg:02X} "
-            f"pending=0x{pending:02X} halted={self.halted}"
-        )
+        # Logging comentado para rendimiento (eliminado overhead crítico)
+        # logger.debug(
+        #     f"Intento de Interrupción: IME={self.ime} IE=0x{ie:02X} IF=0x{if_reg:02X} "
+        #     f"pending=0x{pending:02X} halted={self.halted}"
+        # )
         
         # Despertar de HALT si hay interrupciones pendientes (incluso si IME es False)
         if self.halted:
             self.halted = False
-            logger.debug("HALT: Despertando por interrupción pendiente en IF/IE")
+            # logger.debug("HALT: Despertando por interrupción pendiente en IF/IE")
         
         # Si IME no está activado, no procesar la interrupción (solo despertamos)
         if not self.ime:
-            logger.debug(f"Interrupción pendiente ignorada: IME=False (IE=0x{ie:02X}, IF=0x{if_reg:02X})")
+            # logger.debug(f"Interrupción pendiente ignorada: IME=False (IE=0x{ie:02X}, IF=0x{if_reg:02X})")
             return 0
         
         # Buscar el bit de menor peso activo (mayor prioridad)
@@ -572,7 +578,8 @@ class CPU:
         # Fetch: leer opcode
         opcode = self.fetch_byte()
         
-        logger.debug(f"PC=0x{self.registers.get_pc()-1:04X} Opcode=0x{opcode:02X}")
+        # Logging comentado para rendimiento (eliminado overhead de ~1.8s en profiling)
+        # logger.debug(f"PC=0x{self.registers.get_pc()-1:04X} Opcode=0x{opcode:02X}")
         
         # Decode/Execute: identifica y ejecuta el opcode
         cycles = self._execute_opcode(opcode)
@@ -647,7 +654,7 @@ class CPU:
         # Escribir byte en la nueva posición de SP
         self.mmu.write_byte(new_sp, value)
         
-        logger.debug(f"PUSH byte 0x{value:02X} -> SP: 0x{sp:04X} -> 0x{new_sp:04X}")
+        # logger.debug(f"PUSH byte 0x{value:02X} -> SP: 0x{sp:04X} -> 0x{new_sp:04X}")
     
     def _pop_byte(self) -> int:
         """
@@ -673,7 +680,7 @@ class CPU:
         new_sp = (sp + 1) & 0xFFFF
         self.registers.set_sp(new_sp)
         
-        logger.debug(f"POP byte 0x{value:02X} <- SP: 0x{sp:04X} -> 0x{new_sp:04X}")
+        # logger.debug(f"POP byte 0x{value:02X} <- SP: 0x{sp:04X} -> 0x{new_sp:04X}")
         
         return value
     
@@ -707,7 +714,7 @@ class CPU:
         self._push_byte(high_byte)  # Decrementa SP y escribe high
         self._push_byte(low_byte)   # Decrementa SP y escribe low
         
-        logger.debug(f"PUSH word 0x{value:04X} -> SP final: 0x{self.registers.get_sp():04X}")
+        # logger.debug(f"PUSH word 0x{value:04X} -> SP final: 0x{self.registers.get_sp():04X}")
     
     def _pop_word(self) -> int:
         """
@@ -734,7 +741,7 @@ class CPU:
         # Combinar en orden Little-Endian: (high << 8) | low
         value = ((high_byte << 8) | low_byte) & 0xFFFF
         
-        logger.debug(f"POP word 0x{value:04X} <- SP final: 0x{self.registers.get_sp():04X}")
+        # logger.debug(f"POP word 0x{value:04X} <- SP final: 0x{self.registers.get_sp():04X}")
         
         return value
     

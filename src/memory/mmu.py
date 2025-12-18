@@ -38,10 +38,9 @@ if TYPE_CHECKING:
     from ..io.timer import Timer
 
 logger = logging.getLogger(__name__)
-# Permitir INFO para diagnóstico de MBC (bank switching) y VRAM
-# CRÍTICO: Establecer nivel INFO explícitamente para que los mensajes de VRAM WRITE se muestren
-# independientemente del nivel del logger raíz
-logger.setLevel(logging.INFO)  # Forzar INFO para diagnóstico de VRAM y MBC
+# OPTIMIZACIÓN: Desactivar logging a nivel CRITICAL para máximo rendimiento
+# Todas las llamadas a logger.debug/info() quedan desactivadas sin overhead
+logger.setLevel(logging.CRITICAL)
 
 # ========== Constantes de Registros de Hardware (I/O Ports) ==========
 # La Game Boy controla sus periféricos escribiendo en direcciones específicas
@@ -153,6 +152,11 @@ class MMU:
     En esta primera iteración, usa un almacenamiento lineal simple (bytearray).
     Más adelante se implementará mapeo específico por regiones de memoria.
     """
+    
+    # Optimización de rendimiento: __slots__ reduce overhead de acceso a atributos
+    __slots__ = [
+        '_memory', '_cartridge', '_ppu', '_joypad', '_timer', 'vram_write_count'
+    ]
 
     # Tamaño total del espacio de direcciones (16 bits = 65536 bytes)
     MEMORY_SIZE = 0x10000  # 65536 bytes
@@ -211,9 +215,12 @@ class MMU:
         """
         Lee un byte (8 bits) de la dirección especificada.
         
-        El mapeo de memoria es:
-        - 0x0000 - 0x7FFF: ROM Area (Cartucho)
-        - 0x8000 - 0xFFFF: Otras regiones (VRAM, WRAM, I/O, etc.)
+        OPTIMIZACIÓN: Reordenado para Fast Path - ROM primero (más frecuente).
+        El orden de los if/elif está optimizado por frecuencia de acceso:
+        1. ROM (0x0000-0x7FFF) - más frecuente (fetch de instrucciones)
+        2. WRAM/HRAM (0xC000-0xFFFF) - muy frecuente
+        3. IO registers (0xFF00-0xFF7F) - frecuente pero específicos
+        4. VRAM (0x8000-0x9FFF) - menos frecuente
         
         Args:
             addr: Dirección de memoria (0x0000 a 0xFFFF)
@@ -227,88 +234,55 @@ class MMU:
         # Aseguramos que la dirección esté en el rango válido
         addr = addr & 0xFFFF
         
+        # OPTIMIZACIÓN FAST PATH: ROM primero (más frecuente - fetch de código)
         # Si está en el área de ROM (0x0000 - 0x7FFF), delegar al cartucho
         if addr <= 0x7FFF:
             if self._cartridge is not None:
                 return self._cartridge.read_byte(addr)
             else:
                 # Si no hay cartucho, leer de memoria interna (útil para tests)
-                # En hardware real esto sería ROM del cartucho, pero para tests
-                # permitimos escribir/leer directamente en memoria
                 return self._memory[addr] & 0xFF
         
-        # Interceptar lectura del registro LY (0xFF44)
-        # LY es un registro de solo lectura que indica qué línea se está dibujando
-        # Su valor viene de la PPU, no de la memoria interna
-        if addr == IO_LY:
-            if self._ppu is not None:
-                return self._ppu.get_ly() & 0xFF
-            else:
-                # Si no hay PPU conectada, devolver 0 (comportamiento por defecto)
+        # WRAM/HRAM (0xC000-0xFFFF) - muy frecuente, fast path directo
+        if 0xC000 <= addr <= 0xFFFF:
+            # Interceptar registros I/O específicos primero
+            if addr == IO_LY:
+                if self._ppu is not None:
+                    return self._ppu.get_ly() & 0xFF
                 return 0
-        
-        # Interceptar lectura del registro STAT (0xFF41)
-        # STAT es un registro de lectura/escritura que indica el estado actual del LCD
-        # Los bits 0-1 (modo PPU) son de solo lectura y vienen de la PPU
-        # Los bits 2-6 son configurables por el software
-        if addr == IO_STAT:
-            if self._ppu is not None:
-                return self._ppu.get_stat() & 0xFF
-            else:
-                # Si no hay PPU conectada, devolver el valor de memoria (puede tener bits configurables)
+            if addr == IO_STAT:
+                if self._ppu is not None:
+                    return self._ppu.get_stat() & 0xFF
                 return self._memory[addr] & 0xFF
-        
-        # Interceptar lectura del registro LYC (0xFF45)
-        # LYC es un registro de lectura/escritura que almacena el valor de línea
-        # con el que se compara LY para generar interrupciones STAT
-        if addr == IO_LYC:
-            if self._ppu is not None:
-                return self._ppu.get_lyc() & 0xFF
-            else:
-                # Si no hay PPU conectada, devolver 0 (comportamiento por defecto)
+            if addr == IO_LYC:
+                if self._ppu is not None:
+                    return self._ppu.get_lyc() & 0xFF
                 return 0
-        
-        # Interceptar lectura del registro P1 (0xFF00) - Joypad Input
-        # El Joypad maneja su propia lógica de lectura (Active Low, selector de bits 4-5)
-        if addr == IO_P1:
-            if self._joypad is not None:
-                return self._joypad.read() & 0xFF
-            else:
-                # Si no hay Joypad conectado, devolver 0xFF (todos los botones sueltos)
-                # 0xFF = 11111111 = todos los bits a 1 = todos los botones sueltos
+            if addr == IO_P1:
+                if self._joypad is not None:
+                    return self._joypad.read() & 0xFF
                 return 0xFF
-        
-        # Interceptar lectura del registro DIV (0xFF04) - Timer Divider
-        # DIV expone los 8 bits altos del contador interno del Timer
-        if addr == IO_DIV:
-            if self._timer is not None:
-                return self._timer.read_div() & 0xFF
-            else:
-                # Si no hay Timer conectado, devolver 0 (comportamiento por defecto)
+            if addr == IO_DIV:
+                if self._timer is not None:
+                    return self._timer.read_div() & 0xFF
                 return 0
-        
-        # Interceptar lectura del registro TIMA (0xFF05) - Timer Counter
-        if addr == IO_TIMA:
-            if self._timer is not None:
-                return self._timer.read_tima() & 0xFF
-            else:
+            if addr == IO_TIMA:
+                if self._timer is not None:
+                    return self._timer.read_tima() & 0xFF
                 return 0
-        
-        # Interceptar lectura del registro TMA (0xFF06) - Timer Modulo
-        if addr == IO_TMA:
-            if self._timer is not None:
-                return self._timer.read_tma() & 0xFF
-            else:
+            if addr == IO_TMA:
+                if self._timer is not None:
+                    return self._timer.read_tma() & 0xFF
                 return 0
-        
-        # Interceptar lectura del registro TAC (0xFF07) - Timer Control
-        if addr == IO_TAC:
-            if self._timer is not None:
-                return self._timer.read_tac() & 0xFF
-            else:
+            if addr == IO_TAC:
+                if self._timer is not None:
+                    return self._timer.read_tac() & 0xFF
                 return 0
+            # HRAM o otros (0xFF80-0xFFFF excepto I/O)
+            return self._memory[addr] & 0xFF
         
-        # Para otras regiones, leer de la memoria interna
+        # VRAM/OAM (0x8000-0xFEFF) - menos frecuente, al final
+        # Para estas regiones, leer directamente de memoria interna
         return self._memory[addr] & 0xFF
 
     def write_byte(self, addr: int, value: int) -> None:
