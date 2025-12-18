@@ -113,12 +113,24 @@ class PPU:
             
             # Si llegamos a V-Blank (línea 144), solicitar interrupción
             if self.ly == VBLANK_START:
-                # Activar bit 0 del registro IF (Interrupt Flag) en 0xFF0F
-                # Este bit corresponde a la interrupción V-Blank
+                # CRÍTICO: Activar bit 0 del registro IF (Interrupt Flag) en 0xFF0F
+                # Este bit corresponde a la interrupción V-Blank.
+                #
+                # IMPORTANTE: IF se actualiza SIEMPRE cuando ocurre V-Blank,
+                # INDEPENDIENTEMENTE del estado de IME (Interrupt Master Enable).
+                # Esto permite que los juegos hagan "polling" manual de IF para
+                # detectar V-Blank sin usar interrupciones automáticas.
+                #
+                # Comportamiento hardware:
+                # - El hardware activa IF cuando ocurre el evento (V-Blank)
+                # - IME solo controla si la CPU procesa la interrupción automáticamente
+                # - Los juegos pueden leer IF manualmente incluso con IME=False
+                #
+                # Fuente: Pan Docs - Interrupts, V-Blank Interrupt Flag
                 if_val = self.mmu.read_byte(0xFF0F)
                 if_val |= 0x01  # Set bit 0 (V-Blank interrupt)
                 self.mmu.write_byte(0xFF0F, if_val)
-                logger.debug(f"PPU: V-Blank iniciado (LY={self.ly}), interrupción solicitada")
+                logger.debug(f"PPU: V-Blank iniciado (LY={self.ly}), IF actualizado (independiente de IME)")
             
             # Si pasamos la última línea (153), reiniciar a 0 (nuevo frame)
             if self.ly > 153:

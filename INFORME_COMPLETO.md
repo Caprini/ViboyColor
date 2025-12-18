@@ -1,5 +1,58 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - V-Blank Polling: IF Independiente de IME
+
+### Conceptos Hardware Implementados
+
+**IF (Interrupt Flag) es Hardware Puro**: El registro `IF (0xFF0F)` se actualiza automáticamente por el hardware cuando ocurre un evento (V-Blank, Timer, etc.), **independientemente** del estado de `IME` (Interrupt Master Enable) o `IE` (Interrupt Enable). Esto permite que los juegos hagan "polling" manual de `IF` para detectar V-Blank sin usar interrupciones automáticas. Cuando un juego ejecuta `DI` (Disable Interrupts, `IME=False`) y nunca ejecuta `EI` (Enable Interrupts), el hardware sigue actualizando `IF` cuando ocurre V-Blank. El juego puede leer `IF` manualmente y detectar V-Blank para actualizar gráficos.
+
+**Separación de Responsabilidades en Interrupciones**: 
+- `IF` indica "qué eventos han ocurrido" (hardware puro, siempre se actualiza)
+- `IE` indica "qué eventos quiero procesar automáticamente" (configuración de software)
+- `IME` indica "si quiero procesar interrupciones automáticamente" (configuración de software)
+
+El hardware siempre actualiza `IF`, pero solo procesa automáticamente si `IME=True` y el bit correspondiente está activo en `IE`.
+
+**Fuente**: Pan Docs - Interrupts, V-Blank Interrupt Flag
+
+#### Tareas Completadas:
+
+1. **Mejora de Documentación (`src/gpu/ppu.py`)**:
+   - Se añadió documentación explícita en el método `step()` (líneas 115-121) explicando que `IF` se actualiza siempre cuando ocurre V-Blank, independientemente de `IME`.
+   - Se documentó que esto permite polling manual de `IF` para juegos que no usan interrupciones automáticas.
+   - Se mejoró el mensaje de log para indicar que `IF` se actualiza independientemente de `IME`.
+
+2. **Tests de V-Blank Polling (`tests/test_ppu_vblank_polling.py`)**:
+   - **Nuevo archivo** con 3 tests que validan el comportamiento crítico de polling:
+     - `test_vblank_sets_if_with_ime_false`: Verifica que `IF` se activa cuando ocurre V-Blank, incluso con `IME=False`.
+     - `test_vblank_if_persists_until_cleared`: Verifica que `IF` permanece activo hasta que el juego lo limpia manualmente, y que se reactiva en el siguiente V-Blank.
+     - `test_vblank_if_independent_of_ie`: Verifica que `IF` se actualiza independientemente del registro `IE`.
+
+#### Archivos Afectados:
+- `src/gpu/ppu.py` (modificado) - Mejora de documentación en método `step()` para explicar que `IF` se actualiza independientemente de `IME`
+- `tests/test_ppu_vblank_polling.py` (nuevo) - Tests para validar V-Blank polling
+- `docs/bitacora/entries/2025-12-18__0043__vblank-polling-if-independiente-ime.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0043)
+- `docs/bitacora/entries/2025-12-18__0042__analisis-forense-trazado-ejecucion.html` (modificado, actualizado link "Siguiente")
+
+#### Tests y Verificación:
+
+**Ejecución de Tests**: `python -m pytest tests/test_ppu_vblank_polling.py -v`
+- **Entorno**: Windows 10, Python 3.13.5
+- **Resultado**: ✅ **3 tests PASSED** en 0.31s
+- **Qué valida**:
+  - `test_vblank_sets_if_with_ime_false`: Valida que el registro `IF` se actualiza cuando ocurre V-Blank (LY=144), incluso cuando `IME=False`. Esto demuestra que el hardware actualiza `IF` independientemente del estado de `IME`, permitiendo polling manual.
+  - `test_vblank_if_persists_until_cleared`: Valida que `IF` permanece activo hasta que el juego lo limpia manualmente, y que se reactiva en el siguiente V-Blank. Esto demuestra el comportamiento de polling: el juego puede leer `IF`, detectar V-Blank, hacer su trabajo, y limpiar el bit manualmente.
+  - `test_vblank_if_independent_of_ie`: Valida que `IF` se actualiza incluso cuando `IE` (Interrupt Enable) tiene el bit 0 deshabilitado. Esto demuestra que `IF` es hardware puro y no depende de la configuración de `IE`.
+
+**Suite Completa de Tests PPU**: `python -m pytest tests/test_ppu_vblank_polling.py tests/test_ppu_timing.py -v`
+- **Resultado**: ✅ **11 tests PASSED** (3 nuevos + 8 existentes) en 0.29s
+- Todos los tests de timing y polling de la PPU pasan correctamente.
+
+**Hipótesis sobre el Problema de "Pantalla Blanca"**: El análisis forense del paso 0042 reveló que el juego ejecuta `DI` al inicio y nunca ejecuta `EI`, dejando `IME=False` permanentemente. Sin embargo, el hardware sigue actualizando `IF` cuando ocurre V-Blank, permitiendo que el juego haga polling manual. Si el juego hace polling de `IF` y detecta V-Blank correctamente, debería poder actualizar gráficos. Si el problema persiste, puede deberse a que el juego espera algún otro estado (por ejemplo, `LCDC` encendido) antes de hacer polling, o que hay un problema en cómo el juego lee/limpia `IF`.
+
+---
+
 ## 2025-12-18 - Análisis Forense de Trazado de Ejecución (Step 0042)
 
 ### Conceptos Hardware Implementados

@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>V-Blank Polling: IF Independiente de IME - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>V-Blank Polling: IF Independiente de IME</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0043
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0042__analisis-forense-trazado-ejecucion.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se verificó y documentó que el registro <strong>IF (Interrupt Flag, 0xFF0F)</strong> se actualiza
+                    <strong>siempre</strong> cuando ocurre V-Blank, independientemente del estado de <strong>IME (Interrupt Master Enable)</strong>.
+                    Esto permite que los juegos hagan "polling" manual de IF para detectar V-Blank sin usar interrupciones
+                    automáticas. Se crearon tests específicos para validar este comportamiento crítico y se mejoró la
+                    documentación en el código para dejar claro este aspecto del hardware.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, existen dos mecanismos para detectar eventos del hardware (V-Blank, Timer, etc.):
+                </p>
+                <ol>
+                    <li>
+                        <strong>Interrupciones Automáticas</strong>: Si <code>IME=True</code>, <code>IE</code> tiene el bit activo,
+                        y <code>IF</code> tiene el bit activo, la CPU automáticamente salta al vector de interrupción.
+                    </li>
+                    <li>
+                        <strong>Polling Manual</strong>: El juego lee manualmente el registro <code>IF</code> y verifica si
+                        algún bit está activo. Si detecta V-Blank (bit 0), ejecuta su propia rutina de actualización.
+                    </li>
+                </ol>
+                <p>
+                    <strong>CRÍTICO</strong>: El registro <code>IF</code> es <strong>hardware puro</strong>. Cuando ocurre un evento
+                    (V-Blank, Timer, etc.), el hardware <strong>siempre</strong> activa el bit correspondiente en <code>IF</code>,
+                    <strong>independientemente</strong> de:
+                </p>
+                <ul>
+                    <li>El estado de <code>IME</code> (Interrupt Master Enable)</li>
+                    <li>El estado de <code>IE</code> (Interrupt Enable, 0xFFFF)</li>
+                </ul>
+                <p>
+                    Esto significa que incluso si un juego ejecuta <code>DI</code> (Disable Interrupts, <code>IME=False</code>)
+                    y nunca ejecuta <code>EI</code> (Enable Interrupts), el hardware sigue actualizando <code>IF</code> cuando
+                    ocurre V-Blank. El juego puede leer <code>IF</code> manualmente y detectar V-Blank para actualizar gráficos.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - Interrupts, V-Blank Interrupt Flag
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se verificó que la implementación actual en <code>src/gpu/ppu.py</code> ya actualiza <code>IF</code>
+                    correctamente cuando ocurre V-Blank, sin depender de <code>IME</code>. Sin embargo, se mejoró la
+                    documentación para dejar explícito este comportamiento crítico.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li>
+                        <code>src/gpu/ppu.py</code>: Se añadió documentación explícita en el método <code>step()</code>
+                        explicando que <code>IF</code> se actualiza siempre, independientemente de <code>IME</code>.
+                    </li>
+                    <li>
+                        <code>tests/test_ppu_vblank_polling.py</code>: Nuevo archivo con 3 tests que validan:
+                        <ul>
+                            <li><code>test_vblank_sets_if_with_ime_false</code>: Verifica que <code>IF</code> se activa con <code>IME=False</code></li>
+                            <li><code>test_vblank_if_persists_until_cleared</code>: Verifica que <code>IF</code> persiste hasta limpieza manual</li>
+                            <li><code>test_vblank_if_independent_of_ie</code>: Verifica que <code>IF</code> se actualiza independientemente de <code>IE</code></li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    La implementación actual ya era correcta: la PPU actualiza <code>IF</code> directamente llamando a
+                    <code>mmu.write_byte(0xFF0F, if_val | 0x01)</code> sin verificar el estado de <code>IME</code>.
+                    Esto es correcto porque <code>IF</code> es un registro de hardware que se actualiza automáticamente
+                    cuando ocurre el evento, no cuando la CPU procesa la interrupción.
+                </p>
+                <p>
+                    La MMU permite escribir libremente en <code>0xFF0F</code> (no hay restricciones especiales), lo cual
+                    es correcto porque el hardware puede actualizar <code>IF</code> en cualquier momento.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/ppu.py</code> - Mejora de documentación en método <code>step()</code> para explicar que <code>IF</code> se actualiza independientemente de <code>IME</code></li>
+                    <li><code>tests/test_ppu_vblank_polling.py</code> - Nuevo archivo con tests para validar V-Blank polling</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron los tests nuevos para validar el comportamiento de V-Blank polling:
+                </p>
+                
+                <h3>Comando ejecutado</h3>
+                <pre><code>pytest tests/test_ppu_vblank_polling.py -v</code></pre>
+                
+                <h3>Entorno</h3>
+                <ul>
+                    <li><strong>OS</strong>: Windows 10</li>
+                    <li><strong>Python</strong>: 3.13.5</li>
+                </ul>
+                
+                <h3>Resultado</h3>
+                <pre><code>============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.2, pluggy-1.6.0
+collecting ... collected 3 items
+
+tests/test_ppu_vblank_polling.py::TestPPUVBlankPolling::test_vblank_sets_if_with_ime_false PASSED [ 33%]
+tests/test_ppu_vblank_polling.py::TestPPUVBlankPolling::test_vblank_if_persists_until_cleared PASSED [ 66%]
+tests/test_ppu_vblank_polling.py::TestPPUVBlankPolling::test_vblank_if_independent_of_ie PASSED [100%]
+
+======================== 3 passed, 2 warnings in 0.31s ========================</code></pre>
+                
+                <h3>Qué valida</h3>
+                <ul>
+                    <li>
+                        <strong>test_vblank_sets_if_with_ime_false</strong>: Valida que el registro <code>IF</code> se actualiza
+                        cuando ocurre V-Blank (LY=144), incluso cuando <code>IME=False</code>. Esto demuestra que el hardware
+                        actualiza <code>IF</code> independientemente del estado de <code>IME</code>, permitiendo polling manual.
+                    </li>
+                    <li>
+                        <strong>test_vblank_if_persists_until_cleared</strong>: Valida que <code>IF</code> permanece activo
+                        hasta que el juego lo limpia manualmente, y que se reactiva en el siguiente V-Blank. Esto demuestra
+                        el comportamiento de polling: el juego puede leer <code>IF</code>, detectar V-Blank, hacer su trabajo,
+                        y limpiar el bit manualmente.
+                    </li>
+                    <li>
+                        <strong>test_vblank_if_independent_of_ie</strong>: Valida que <code>IF</code> se actualiza incluso
+                        cuando <code>IE</code> (Interrupt Enable) tiene el bit 0 deshabilitado. Esto demuestra que <code>IF</code>
+                        es hardware puro y no depende de la configuración de <code>IE</code>.
+                    </li>
+                </ul>
+                
+                <h3>Código del test</h3>
+                <p>
+                    Fragmento esencial del test principal:
+                </p>
+                <pre><code>def test_vblank_sets_if_with_ime_false(self) -> None:
+    """Test: IF se actualiza cuando ocurre V-Blank, incluso con IME=False."""
+    mmu = MMU(None)
+    cpu = CPU(mmu)
+    ppu = PPU(mmu)
+    mmu.set_ppu(ppu)
+    
+    # Configurar IME=False (interrupciones automáticas deshabilitadas)
+    cpu.ime = False
+    
+    # Limpiar IF inicialmente
+    mmu.write_byte(IO_IF, 0x00)
+    
+    # Avanzar PPU hasta V-Blank (línea 144)
+    total_cycles = 144 * 456
+    ppu.step(total_cycles)
+    
+    # CRÍTICO: IF debe tener el bit 0 activado, incluso con IME=False
+    if_val = mmu.read_byte(IO_IF)
+    assert (if_val & 0x01) == 0x01</code></pre>
+                
+                <p>
+                    <strong>Por qué este test demuestra algo del hardware</strong>: Este test verifica que el registro <code>IF</code>
+                    se comporta como hardware puro: se actualiza automáticamente cuando ocurre el evento (V-Blank), sin depender
+                    de la configuración de software (<code>IME</code>). Esto es exactamente cómo funciona el hardware real de la
+                    Game Boy, permitiendo que los juegos hagan polling manual incluso cuando las interrupciones automáticas están
+                    deshabilitadas.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts</a> - Explicación de IF, IE, IME y polling</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html">LCD Timing</a> - V-Blank y registro LY</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li>
+                            <strong>IF es hardware puro</strong>: El registro <code>IF (0xFF0F)</code> se actualiza automáticamente
+                            por el hardware cuando ocurre un evento (V-Blank, Timer, etc.), independientemente del estado de <code>IME</code>
+                            o <code>IE</code>. Esto es diferente de otros sistemas donde los flags de interrupción pueden depender de
+                            la configuración de software.
+                        </li>
+                        <li>
+                            <strong>Polling vs Interrupciones Automáticas</strong>: Los juegos pueden usar dos estrategias para detectar
+                            V-Blank: (1) Interrupciones automáticas (requiere <code>IME=True</code>, <code>IE</code> con bit activo,
+                            y <code>IF</code> con bit activo), o (2) Polling manual (leer <code>IF</code> periódicamente y verificar bits).
+                            La segunda estrategia funciona incluso con <code>IME=False</code>.
+                        </li>
+                        <li>
+                            <strong>Separación de responsabilidades</strong>: <code>IF</code> indica "qué eventos han ocurrido",
+                            <code>IE</code> indica "qué eventos quiero procesar automáticamente", y <code>IME</code> indica "si quiero
+                            procesar interrupciones automáticamente". El hardware siempre actualiza <code>IF</code>, pero solo procesa
+                            automáticamente si <code>IME=True</code> y el bit correspondiente está activo en <code>IE</code>.
+                        </li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>
+                            <strong>Comportamiento en hardware real</strong>: Aunque la documentación y los tests confirman que <code>IF</code>
+                            se actualiza independientemente de <code>IME</code>, sería útil verificar esto con un test ROM específico que
+                            haga polling de <code>IF</code> con <code>IME=False</code> y verifique que detecta V-Blank correctamente.
+                        </li>
+                        <li>
+                            <strong>Timing exacto</strong>: El test actual verifica que <code>IF</code> se activa cuando <code>LY=144</code>,
+                            pero no verifica el timing exacto dentro del ciclo de la línea. En hardware real, <code>IF</code> se activa
+                            al inicio de la línea 144, pero no está claro si ocurre al principio o al final del ciclo de la línea.
+                        </li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición verificada</strong>: La implementación actual asume que <code>IF</code> se actualiza cuando
+                        <code>LY</code> llega a 144, independientemente de <code>IME</code>. Los tests confirman que esta suposición
+                        es correcta y coincide con el comportamiento documentado del hardware.
+                    </p>
+                    <p>
+                        <strong>Suposición pendiente</strong>: Asumimos que el timing de activación de <code>IF</code> (al inicio de
+                        la línea 144) es correcto, pero esto no está completamente verificado con test ROMs. Si un juego hace polling
+                        muy preciso del timing, podría haber discrepancias menores.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar que los juegos que hacen polling de <code>IF</code> con <code>IME=False</code> pueden detectar V-Blank correctamente</li>
+                    <li>[ ] Si el juego sigue sin avanzar, investigar si hay otros aspectos del polling que no están implementados correctamente</li>
+                    <li>[ ] Considerar añadir logging opcional para rastrear cuando el juego lee/escribe en <code>IF</code> para depurar polling</li>
+                    <li>[ ] Verificar si el juego espera algún estado específico de <code>LCDC</code> o otros registros antes de hacer polling</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

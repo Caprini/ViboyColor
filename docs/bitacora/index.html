@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0043 - V-Blank Polling: IF Independiente de IME -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0043__vblank-polling-if-independiente-ime.html" class="entry-link">
+                                    V-Blank Polling: IF Independiente de IME
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0043 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se verificó y documentó que el registro IF (Interrupt Flag, 0xFF0F) se actualiza siempre cuando ocurre V-Blank, independientemente del estado de IME (Interrupt Master Enable). Esto permite que los juegos hagan "polling" manual de IF para detectar V-Blank sin usar interrupciones automáticas. Se crearon 3 tests específicos que validan este comportamiento crítico: test_vblank_sets_if_with_ime_false, test_vblank_if_persists_until_cleared, y test_vblank_if_independent_of_ie. Todos los tests pasan correctamente. Se mejoró la documentación en src/gpu/ppu.py para dejar explícito este comportamiento del hardware.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0042 - Análisis Forense de Trazado de Ejecución -->
                     <li>
                         <div class="entry-header">
