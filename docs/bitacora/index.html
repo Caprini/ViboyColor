@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0051 - Diagnóstico de Bloqueo de Interrupciones -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0051__diagnostico-bloqueo-interrupciones.html" class="entry-link">
+                                    Diagnóstico de Bloqueo de Interrupciones
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0051 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó un sistema de diagnóstico crítico para identificar por qué la CPU ignora las peticiones de interrupción V-Blank. El diagnóstico añade logs específicos con el símbolo ⚠️ cuando se detecta una petición V-Blank en IF pero no se atiende, indicando si el problema es que IE no tiene el bit activado o si IME está desactivado. Adicionalmente, se añadió un log informativo cada vez que se escribe en el registro IE (0xFFFF) para monitorizar cuándo y cómo el juego configura las interrupciones.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0050 - Rastreo de Interrupciones V-Blank -->
                     <li>
                         <div class="entry-header">

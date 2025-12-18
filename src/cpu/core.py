@@ -437,6 +437,17 @@ class CPU:
         # Calcular interrupciones pendientes: IE & IF (solo los 5 bits bajos importan)
         pending = (ie & if_reg & 0x1F) & 0x1F
         
+        # DIAGNÓSTICO CRÍTICO: Si hay petición V-Blank en IF, identificar por qué no se atiende
+        if (if_reg & 0x01):  # Si hay V-Blank pendiente en hardware
+            is_enabled_in_ie = (ie & 0x01) != 0
+            if not is_enabled_in_ie:
+                logging.debug(f"⚠️ V-Blank IGNORADO: No habilitado en IE (IE={ie:02X})")
+            elif not self.ime:
+                logging.debug(f"⚠️ V-Blank IGNORADO: IME desactivado (DI ejecutado)")
+            else:
+                # Si llega aquí, debería saltar (pero pending podría ser 0 si IE no tiene el bit)
+                pass
+        
         # DIAGNÓSTICO: Log cuando IF tiene bits activados pero pending == 0 (IE sin activar)
         if if_reg != 0 and pending == 0:
             logger.debug(

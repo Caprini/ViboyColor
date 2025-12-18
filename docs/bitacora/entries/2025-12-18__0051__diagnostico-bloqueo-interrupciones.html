@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnóstico de Bloqueo de Interrupciones - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Diagnóstico de Bloqueo de Interrupciones</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0051
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0050__rastreo-interrupciones-vblank.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó un <strong>sistema de diagnóstico crítico</strong> para identificar por qué la CPU ignora las peticiones de interrupción V-Blank.
+                    El diagnóstico añade logs específicos con el símbolo ⚠️ cuando se detecta una petición V-Blank en IF pero no se atiende,
+                    indicando si el problema es que IE no tiene el bit activado o si IME está desactivado. Adicionalmente, se añadió un log
+                    informativo cada vez que se escribe en el registro IE (0xFFFF) para monitorizar cuándo y cómo el juego configura las interrupciones.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, para que una interrupción se procese correctamente, deben cumplirse <strong>tres condiciones simultáneas</strong>:
+                </p>
+                <ol>
+                    <li><strong>IF tiene el bit activado</strong>: El hardware (PPU, Timer, etc.) ha generado una petición de interrupción
+                        y ha activado el bit correspondiente en el registro IF (0xFF0F).</li>
+                    <li><strong>IE tiene el bit activado</strong>: El software ha habilitado esa interrupción escribiendo el bit correspondiente
+                        en el registro IE (0xFFFF). Esto permite que el juego seleccione qué interrupciones quiere recibir.</li>
+                    <li><strong>IME está activado</strong>: La CPU tiene las interrupciones habilitadas globalmente. IME se activa con la instrucción
+                        <code>EI</code> (Enable Interrupts) y se desactiva con <code>DI</code> (Disable Interrupts).</li>
+                </ol>
+                <p>
+                    Si alguna de estas condiciones no se cumple, la interrupción <strong>no se procesa</strong>, aunque el hardware siga generando
+                    la petición en IF. Esto es especialmente crítico para V-Blank, ya que muchos juegos dependen de esta interrupción para avanzar
+                    en su inicialización.
+                </p>
+                <p>
+                    El diagnóstico implementado verifica específicamente la interrupción V-Blank (bit 0 de IF/IE) porque es la primera que debería
+                    ocurrir después de encender el LCD. Si V-Blank no se procesa, el juego se queda esperando indefinidamente.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Interrupts, Interrupt Enable Register (IE), Interrupt Flag Register (IF), IME
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadieron dos puntos de diagnóstico estratégicos:
+                </p>
+                
+                <h3>1. Diagnóstico de V-Blank en handle_interrupts() (CPU)</h3>
+                <p>
+                    En <code>src/cpu/core.py</code>, método <code>handle_interrupts()</code>, se añadió un bloque de diagnóstico
+                    <strong>antes de verificar si hay interrupciones pendientes</strong>. El diagnóstico verifica específicamente si hay
+                    una petición V-Blank en IF (bit 0) y por qué no se está atendiendo:
+                </p>
+                <ul>
+                    <li><strong>Si IE no tiene el bit 0 activado</strong>: Se logea <code>⚠️ V-Blank IGNORADO: No habilitado en IE (IE=XX)</code></li>
+                    <li><strong>Si IME está desactivado</strong>: Se logea <code>⚠️ V-Blank IGNORADO: IME desactivado (DI ejecutado)</code></li>
+                </ul>
+                <p>
+                    Este diagnóstico se ejecuta <strong>cada vez que handle_interrupts() se llama</strong>, incluso si no hay interrupciones
+                    pendientes, lo que permite detectar el problema en tiempo real.
+                </p>
+
+                <h3>2. Log de Escritura en IE (MMU)</h3>
+                <p>
+                    En <code>src/memory/mmu.py</code>, método <code>write_byte()</code>, se añadió un log informativo que se activa
+                    cada vez que se escribe en el registro IE (0xFFFF). El log muestra:
+                </p>
+                <ul>
+                    <li>El valor escrito en IE (formato hexadecimal)</li>
+                    <li>Qué interrupciones se están habilitando (V-Blank, STAT, Timer) en formato legible</li>
+                </ul>
+                <p>
+                    Este log permite identificar si el juego <strong>nunca escribe en IE</strong> (lo cual sería un bug del juego o un problema
+                    de emulación anterior) o si escribe un valor incorrecto.
+                </p>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Nivel de log DEBUG para diagnóstico V-Blank</strong>: Se usa <code>logging.debug()</code> para que el log
+                        sea visible cuando se active el modo debug, pero no sature la consola en modo normal.</li>
+                    <li><strong>Nivel de log INFO para escritura en IE</strong>: Se usa <code>logging.info()</code> porque es un evento
+                        menos frecuente y crítico para entender el flujo de inicialización del juego.</li>
+                    <li><strong>Símbolo ⚠️ para alertas</strong>: Se añadió un símbolo visual distintivo para facilitar la búsqueda en los logs
+                        y distinguir estos mensajes de diagnóstico de otros logs.</li>
+                    <li><strong>Verificación antes de calcular pending</strong>: El diagnóstico se ejecuta antes de calcular <code>pending</code>
+                        para poder distinguir entre "IE no tiene el bit" y "IME desactivado", ya que ambos casos resultan en <code>pending == 0</code>.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Añadido diagnóstico de V-Blank en <code>handle_interrupts()</code> antes de verificar IME</li>
+                    <li><code>src/memory/mmu.py</code> - Añadido log informativo cuando se escribe en IE (0xFFFF)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Modo de ejecución:</strong> Manual con ROM comercial (Pokémon Red, aportada por el usuario, no distribuida)
+                </p>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>python main.py pkmn.gb</code>
+                </p>
+                <p>
+                    <strong>Entorno:</strong> Windows 10, Python 3.13.5
+                </p>
+                <p>
+                    <strong>Criterio de éxito:</strong> 
+                </p>
+                <ul>
+                    <li>Ver mensajes de diagnóstico <code>⚠️ V-Blank IGNORADO</code> en la consola cuando se ejecuta el emulador</li>
+                    <li>Ver mensajes <code>SET IE REGISTER</code> si el juego intenta configurar IE</li>
+                    <li>Identificar la causa raíz del bloqueo de interrupciones (IE no configurado o IME desactivado)</li>
+                </ul>
+                <p>
+                    <strong>Observación esperada:</strong>
+                </p>
+                <p>
+                    Al ejecutar el emulador, deberían aparecer en la consola mensajes de diagnóstico que indiquen por qué la interrupción V-Blank
+                    no se está procesando. Si el mensaje es <code>⚠️ V-Blank IGNORADO: No habilitado en IE</code>, significa que el juego nunca
+                    escribió en IE para habilitar V-Blank. Si el mensaje es <code>⚠️ V-Blank IGNORADO: IME desactivado</code>, significa que
+                    el juego ejecutó <code>DI</code> y nunca ejecutó <code>EI</code> o <code>RETI</code>.
+                </p>
+                <p>
+                    <strong>Resultado:</strong> <span class="tag tag-draft">Pendiente de ejecución</span>
+                </p>
+                <p>
+                    <strong>Notas legales:</strong> La ROM de Pokémon Red es aportada por el usuario para pruebas locales. No se distribuye
+                    ni se incluye en el repositorio. No se enlazan descargas de ROMs comerciales.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html#interrupt-enable-register-ie-0xffff">Interrupt Enable Register (IE, 0xFFFF)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html#interrupt-flag-register-if-0xff0f">Interrupt Flag Register (IF, 0xFF0F)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#ei-enable-interrupts">EI (Enable Interrupts)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#di-disable-interrupts">DI (Disable Interrupts)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Condiciones para procesar interrupciones</strong>: Una interrupción requiere tres condiciones simultáneas:
+                            IF activado, IE activado, e IME activado. Si cualquiera de estas falla, la interrupción no se procesa.</li>
+                        <li><strong>Diagnóstico proactivo</strong>: Para identificar problemas de interrupciones, es necesario verificar cada
+                            condición por separado, no solo el resultado final (pending == 0).</li>
+                        <li><strong>Flujo de inicialización</strong>: Muchos juegos encienden el LCD (LCDC=0x80) y luego esperan V-Blank para
+                            configurar el resto de los gráficos. Si V-Blank no se procesa, el juego se congela.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Causa raíz del bloqueo</strong>: Necesito ejecutar el emulador y ver qué mensaje de diagnóstico aparece
+                            para identificar si el problema es IE no configurado o IME desactivado.</li>
+                        <li><strong>Timing de escritura en IE</strong>: No estoy seguro de cuándo exactamente los juegos escriben en IE.
+                            Algunos juegos pueden hacerlo muy temprano en la inicialización, otros pueden hacerlo después de encender el LCD.</li>
+                        <li><strong>Comportamiento de IME en inicialización</strong>: No estoy seguro si la CPU inicia con IME activado o desactivado
+                            por defecto. Esto podría afectar el diagnóstico.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego nunca escribe en IE para habilitar V-Blank, o lo hace después de encender
+                        el LCD pero la interrupción ya se perdió. Alternativamente, el juego ejecutó <code>DI</code> en algún momento y nunca
+                        ejecutó <code>EI</code> o <code>RETI</code>.
+                    </p>
+                    <p>
+                        <strong>Suposición sobre IME inicial:</strong> Asumo que la CPU inicia con IME desactivado (como en muchos sistemas embebidos),
+                        pero esto necesita confirmación con documentación o tests.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con <code>python main.py pkmn.gb</code> y buscar mensajes <code>⚠️ V-Blank IGNORADO</code></li>
+                    <li>[ ] Si aparece <code>No habilitado en IE</code>: Verificar si hay mensajes <code>SET IE REGISTER</code> en los logs</li>
+                    <li>[ ] Si aparece <code>IME desactivado</code>: Buscar en los logs dónde se ejecutó <code>DI</code> y por qué no se ejecutó <code>EI</code></li>
+                    <li>[ ] Implementar fix según la causa identificada (forzar IE, forzar IME, o corregir lógica de EI/DI)</li>
+                    <li>[ ] Verificar que el juego avance después del fix ejecutando nuevamente la ROM</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

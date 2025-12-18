@@ -394,6 +394,10 @@ class MMU:
             old_value = self.read_byte(IO_LCDC)
             logging.critical(f"[TRAP LCDC] INTENTO DE CAMBIO LCDC: {old_value:02X} -> {value:02X}")
         
+        # DIAGNÓSTICO: Log cuando se escribe en IE (Interrupt Enable, 0xFFFF)
+        if addr == IO_IE:
+            logging.info(f"SET IE REGISTER: {value:02X} (habilitando interrupciones: V-Blank={bool(value & 0x01)}, STAT={bool(value & 0x02)}, Timer={bool(value & 0x04)})")
+        
         # Interceptar escritura al registro DMA (0xFF46) - DMA Transfer
         # Cuando se escribe un valor XX en 0xFF46, se inicia una transferencia DMA
         # que copia 160 bytes desde la dirección XX00 hasta OAM (0xFE00-0xFE9F)
