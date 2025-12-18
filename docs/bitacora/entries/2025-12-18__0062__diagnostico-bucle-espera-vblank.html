@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnóstico: Bucle de Espera de V-Blank y Escrituras en VRAM - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Diagnóstico: Bucle de Espera de V-Blank y Escrituras en VRAM</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0062
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0061__desbloqueo-vram-diagnostico-escrituras.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Tras confirmar que el juego no está escribiendo en VRAM (VRAM writes=0), se añadió un sistema
+                    de diagnóstico periódico que muestra el estado completo del emulador cada 5 segundos. El diagnóstico
+                    reveló que el juego está en un bucle pequeño (PC oscila entre 0x006B, 0x006D, 0x006F) ejecutando
+                    muy pocas instrucciones (~60 por segundo), lo que impide que la PPU avance lo suficiente para
+                    llegar a V-Blank (LY=144). El juego está esperando V-Blank antes de copiar gráficos a VRAM,
+                    pero nunca llega porque la PPU avanza demasiado lento.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, la PPU (Pixel Processing Unit) avanza sincronizada con la CPU. Cada instrucción
+                    de la CPU consume ciclos de reloj (M-Cycles), que se convierten a T-Cycles (ciclos de reloj del
+                    sistema) para avanzar la PPU. La PPU necesita 456 T-Cycles para completar una línea de escaneo,
+                    y 144 líneas visibles + 10 líneas de V-Blank = 154 líneas por frame completo.
+                </p>
+                <p>
+                    <strong>Dependencia crítica:</strong> Si la CPU ejecuta muy pocas instrucciones, la PPU avanza muy
+                    lento. Si la PPU no llega a V-Blank (LY=144), el juego que está esperando V-Blank nunca sale del
+                    bucle de espera. Esto crea un círculo vicioso: el juego espera V-Blank, pero V-Blank no ocurre
+                    porque el juego ejecuta muy pocas instrucciones.
+                </p>
+                <p>
+                    <strong>Polling de STAT:</strong> Muchos juegos hacen polling del registro STAT (0xFF41) esperando
+                    que la PPU entre en modo V-Blank (bit 0-1 = 01) antes de copiar gráficos a VRAM. Si la PPU nunca
+                    llega a V-Blank, el juego queda atrapado en el bucle de espera.
+                </p>
+                <p>
+                    Fuente: Pan Docs - LCD Timing, V-Blank, STAT Register, System Clock
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió un sistema de diagnóstico periódico en el bucle principal de ejecución que muestra
+                    información completa del estado del emulador cada 5 segundos, independientemente de si hay frames
+                    listos o no. Esto permite diagnosticar problemas de timing y sincronización.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>Viboy (src/viboy.py)</strong>:
+                        <ul>
+                            <li>Añadido contador de instrucciones ejecutadas</li>
+                            <li>Añadido diagnóstico periódico cada 5 segundos que muestra:
+                                <ul>
+                                    <li>Número de instrucciones ejecutadas</li>
+                                    <li>Número de escrituras en VRAM detectadas</li>
+                                    <li>PC (Program Counter) actual</li>
+                                    <li>Estado de HALT de la CPU</li>
+                                    <li>LCDC (LCD Control Register)</li>
+                                    <li>STAT (LCD Status Register)</li>
+                                    <li>LY (Línea actual de la PPU)</li>
+                                    <li>IF (Interrupt Flag Register)</li>
+                                    <li>IE (Interrupt Enable Register)</li>
+                                </ul>
+                            </li>
+                            <li>Modificado el heartbeat para incluir el contador de escrituras en VRAM</li>
+                        </ul>
+                    </li>
+                    <li><strong>MMU (src/memory/mmu.py)</strong>:
+                        <ul>
+                            <li>Añadido método <code>get_vram_write_count()</code> para obtener el contador de escrituras en VRAM</li>
+                            <li>Añadido mensaje informativo al inicializar indicando que el diagnóstico VRAM está activo</li>
+                        </ul>
+                    </li>
+                    <li><strong>PPU (src/gpu/ppu.py)</strong>:
+                        <ul>
+                            <li>Activado logging temporal cuando se genera V-Blank (LY=144) para diagnóstico</li>
+                        </ul>
+                    </li>
+                    <li><strong>main.py</strong>:
+                        <ul>
+                            <li>Configurado encoding UTF-8 para Windows para permitir mostrar emojis en consola</li>
+                            <li>Cambiado nivel de logging a INFO temporalmente para diagnóstico</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Diagnóstico periódico independiente de frames:</strong> El diagnóstico se ejecuta cada
+                        5 segundos basado en tiempo real, no en frames. Esto permite diagnosticar problemas incluso
+                        cuando no hay frames listos o cuando el juego está congelado.</li>
+                    <li><strong>Información completa del estado:</strong> El diagnóstico muestra todos los registros
+                        críticos (PC, LCDC, STAT, LY, IF, IE) para entender completamente qué está haciendo el
+                        emulador en cada momento.</li>
+                    <li><strong>Logging de V-Blank:</strong> Se activó temporalmente el logging cuando la PPU genera
+                        V-Blank para verificar si la PPU está avanzando correctamente.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Añadido diagnóstico periódico cada 5 segundos con información completa del estado del emulador</li>
+                    <li><code>src/memory/mmu.py</code> - Añadido método <code>get_vram_write_count()</code> y mensaje informativo de diagnóstico activo</li>
+                    <li><code>src/gpu/ppu.py</code> - Activado logging temporal cuando se genera V-Blank</li>
+                    <li><code>main.py</code> - Configurado encoding UTF-8 para Windows y nivel de logging a INFO</li>
+                    <li><code>docs/bitacora/entries/2025-12-18__0062__diagnostico-bucle-espera-vblank.html</code> (nuevo)</li>
+                    <li><code>docs/bitacora/index.html</code> (modificado, añadida entrada 0062)</li>
+                    <li><code>docs/bitacora/entries/2025-12-18__0061__desbloqueo-vram-diagnostico-escrituras.html</code> (modificado, actualizado enlace "Siguiente")</li>
+                    <li><code>INFORME_COMPLETO.md</code> (modificado, añadida entrada 0062)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Estado:</strong> <span class="tag tag-draft">En diagnóstico</span>
+                </p>
+                <p>
+                    <strong>Comando ejecutado:</strong>
+                </p>
+                <pre><code>python main.py pkmn.gb</code></pre>
+                <p>
+                    <strong>Entorno:</strong> Windows 10, Python 3.13.5
+                </p>
+                <p>
+                    <strong>ROM de prueba:</strong> Pokémon Red (ROM aportada por el usuario, no distribuida)
+                </p>
+                <p>
+                    <strong>Resultado observado:</strong>
+                </p>
+                <ul>
+                    <li><strong>Diagnóstico periódico muestra:</strong>
+                        <pre><code>INFO: 📊 Diagnóstico: 304 instrucciones, VRAM writes=0, PC=0x006F, 
+     HALTED=False, LCDC=0x80, STAT=0x00, LY=6, IF=0x00, IE=0x00
+INFO: 📊 Diagnóstico: 605 instrucciones, VRAM writes=0, PC=0x006B, 
+     HALTED=False, LCDC=0x80, STAT=0x00, LY=13, IF=0x00, IE=0x00
+INFO: 📊 Diagnóstico: 906 instrucciones, VRAM writes=0, PC=0x006D, 
+     HALTED=False, LCDC=0x80, STAT=0x00, LY=20, IF=0x00, IE=0x00
+INFO: 📊 Diagnóstico: 1,208 instrucciones, VRAM writes=0, PC=0x006B, 
+     HALTED=False, LCDC=0x80, STAT=0x00, LY=27, IF=0x00, IE=0x00</code></pre>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Interpretación del resultado:</strong>
+                </p>
+                <ul>
+                    <li><strong>El juego SÍ está ejecutando código:</strong> El PC cambia entre 0x006B, 0x006D, 0x006F,
+                        lo que indica que está en un bucle pequeño pero activo.</li>
+                    <li><strong>El juego ejecuta muy pocas instrucciones:</strong> Solo ~60 instrucciones por segundo
+                        (304 instrucciones en 5 segundos). Una Game Boy real ejecuta millones de instrucciones por
+                        segundo, así que esto es extremadamente lento.</li>
+                    <li><strong>La PPU avanza muy lento:</strong> LY solo llega a 6, 13, 20, 27... en 5 segundos. Para
+                        llegar a V-Blank (LY=144) necesitaría mucho más tiempo.</li>
+                    <li><strong>El juego NO está escribiendo en VRAM:</strong> VRAM writes=0 en todos los diagnósticos.</li>
+                    <li><strong>El juego está esperando V-Blank:</strong> El PC oscila en un rango muy bajo (0x006B-0x006F),
+                        lo que sugiere un bucle de espera. Probablemente está haciendo polling de STAT esperando que
+                        la PPU entre en modo V-Blank.</li>
+                    <li><strong>No hay interrupciones habilitadas:</strong> IE=0x00 (no hay interrupciones habilitadas) e
+                        IF=0x00 (no hay interrupciones pendientes).</li>
+                    <li><strong>LCDC=0x80:</strong> El LCD está encendido (bit 7=1), pero el BG Display está apagado
+                        (bit 0=0).</li>
+                    <li><strong>STAT=0x00:</strong> La PPU está en modo 0 (H-Blank), no en V-Blank.</li>
+                </ul>
+                <p>
+                    <strong>Qué valida:</strong> Este diagnóstico confirma que:
+                    <ul>
+                        <li>✅ El juego está ejecutando código (no está congelado completamente)</li>
+                        <li>✅ El juego NO está escribiendo en VRAM (VRAM writes=0)</li>
+                        <li>⚠️ El juego ejecuta muy pocas instrucciones (~60 por segundo, extremadamente lento)</li>
+                        <li>⚠️ La PPU avanza muy lento (LY solo llega a 27 en 5 segundos, necesita llegar a 144 para V-Blank)</li>
+                        <li>⚠️ El juego está en un bucle esperando V-Blank que nunca ocurre porque la PPU avanza demasiado lento</li>
+                    </ul>
+                </p>
+                <p>
+                    <strong>Próximo paso:</strong> Investigar por qué el juego ejecuta tan pocas instrucciones. Posibles
+                    causas:
+                    <ul>
+                        <li>El juego está en un bucle muy lento (muchas instrucciones por iteración)</li>
+                        <li>Hay un problema con el timing que hace que el emulador vaya muy lento</li>
+                        <li>El juego está esperando algún evento que nunca ocurre</li>
+                        <li>Hay un problema con la sincronización de la PPU que hace que avance muy lento</li>
+                    </ul>
+                    También se debe verificar si la PPU llega a V-Blank después de esperar más tiempo (20-30 segundos)
+                    para confirmar si el problema es solo de velocidad o si hay un problema más fundamental.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#lcd-timing">LCD Timing</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#lcd-status-register-stat-ff41">LCD Status Register (STAT)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#v-blank">V-Blank</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#system-clock">System Clock</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Dependencia crítica entre CPU y PPU:</strong> La PPU avanza sincronizada con la CPU.
+                            Si la CPU ejecuta muy pocas instrucciones, la PPU avanza muy lento. Si la PPU no llega a
+                            V-Blank, el juego que está esperando V-Blank nunca sale del bucle de espera. Esto crea un
+                            círculo vicioso.</li>
+                        <li><strong>Polling de STAT:</strong> Muchos juegos hacen polling del registro STAT esperando
+                            que la PPU entre en modo V-Blank antes de copiar gráficos a VRAM. Si la PPU nunca llega a
+                            V-Blank, el juego queda atrapado en el bucle de espera.</li>
+                        <li><strong>Diagnóstico sistemático:</strong> Añadir información completa del estado del emulador
+                            (PC, LCDC, STAT, LY, IF, IE) permite diagnosticar problemas de timing y sincronización de
+                            forma sistemática. Sin esta información, es imposible entender por qué el juego no avanza.</li>
+                        <li><strong>Velocidad de ejecución:</strong> Una Game Boy real ejecuta millones de instrucciones
+                            por segundo. Si el emulador ejecuta solo ~60 instrucciones por segundo, hay un problema grave
+                            de timing o sincronización.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿Por qué el juego ejecuta tan pocas instrucciones?</strong> Necesito investigar si
+                            el problema es:
+                            <ul>
+                                <li>Un bucle muy lento en el código del juego</li>
+                                <li>Un problema con el timing del emulador</li>
+                                <li>Un problema con la sincronización de la PPU</li>
+                                <li>El juego está esperando algún evento que nunca ocurre</li>
+                            </ul>
+                        </li>
+                        <li><strong>¿La PPU llega a V-Blank si esperamos más tiempo?</strong> Si después de 20-30 segundos
+                            la PPU llega a LY=144 y se genera V-Blank, entonces el problema es solo de velocidad. Si nunca
+                            llega, hay un problema más fundamental con la sincronización.</li>
+                        <li><strong>¿El juego sale del bucle cuando ocurre V-Blank?</strong> Si la PPU llega a V-Blank
+                            y el juego sale del bucle, entonces el problema está resuelto. Si no sale, hay otro problema
+                            (quizás el juego está esperando algo más además de V-Blank).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego está en un bucle esperando V-Blank, pero la PPU
+                        avanza demasiado lento porque el juego ejecuta muy pocas instrucciones. Esto crea un círculo
+                        vicioso: el juego espera V-Blank, pero V-Blank no ocurre porque el juego ejecuta muy pocas
+                        instrucciones.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Asumo que el problema es de velocidad/timing, no un bug fundamental
+                        en la implementación. Si el juego ejecutara a velocidad normal, la PPU avanzaría normalmente y
+                        llegaría a V-Blank, permitiendo que el juego salga del bucle y copie gráficos a VRAM.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y esperar 20-30 segundos para verificar si la PPU llega a V-Blank
+                        (LY=144) y si se genera la interrupción V-Blank (mensaje "🎯 PPU: V-Blank iniciado").</li>
+                    <li>[ ] Si la PPU llega a V-Blank pero el juego no sale del bucle, investigar qué más está esperando
+                        el juego (quizás está esperando que se habilite IE o que se procese la interrupción).</li>
+                    <li>[ ] Si la PPU nunca llega a V-Blank, investigar por qué el juego ejecuta tan pocas instrucciones:
+                        <ul>
+                            <li>Verificar si hay un problema con el timing del emulador</li>
+                            <li>Verificar si hay un problema con la sincronización de la PPU</li>
+                            <li>Verificar si el juego está en un bucle muy lento</li>
+                            <li>Verificar si el juego está esperando algún evento que nunca ocurre</li>
+                        </ul>
+                    </li>
+                    <li>[ ] Una vez resuelto el problema de velocidad/timing, verificar si el juego empieza a escribir
+                        en VRAM después de salir del bucle de espera.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

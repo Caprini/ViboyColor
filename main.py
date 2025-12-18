@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Viboy Color - Emulador de Game Boy Color
 Punto de entrada principal del emulador
@@ -9,13 +10,19 @@ import logging
 import sys
 from pathlib import Path
 
+# Configurar encoding UTF-8 para Windows (permite mostrar emojis en consola)
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 from src.viboy import Viboy
 
 # Configurar logging básico
-# WARNING para evitar spam en consola que mata el rendimiento
-# Solo se mostrarán WARNING, ERROR y CRITICAL
+# INFO temporalmente para diagnóstico de VRAM (ver paso 0061)
+# Normalmente sería WARNING para evitar spam en consola
 logging.basicConfig(
-    level=logging.WARNING,
+    level=logging.INFO,  # Cambiado a INFO para ver mensajes de VRAM WRITE
     format="%(levelname)s: %(message)s",
     force=True,  # Forzar reconfiguración
 )

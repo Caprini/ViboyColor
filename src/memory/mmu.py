@@ -38,10 +38,10 @@ if TYPE_CHECKING:
     from ..io.timer import Timer
 
 logger = logging.getLogger(__name__)
-# Permitir INFO para diagnóstico de MBC (bank switching)
-# CRITICAL siempre debe mostrarse, independientemente del nivel del logger raíz
-if logger.level == logging.NOTSET:
-    logger.setLevel(logging.INFO)  # Cambiado a INFO para diagnóstico
+# Permitir INFO para diagnóstico de MBC (bank switching) y VRAM
+# CRÍTICO: Establecer nivel INFO explícitamente para que los mensajes de VRAM WRITE se muestren
+# independientemente del nivel del logger raíz
+logger.setLevel(logging.INFO)  # Forzar INFO para diagnóstico de VRAM y MBC
 
 # ========== Constantes de Registros de Hardware (I/O Ports) ==========
 # La Game Boy controla sus periféricos escribiendo en direcciones específicas
@@ -199,6 +199,13 @@ class MMU:
         # Referencia al Timer (se establece después para evitar dependencia circular)
         # El Timer necesita la MMU para leer/escribir DIV
         self._timer = None  # type: ignore
+        
+        # Contador temporal para diagnóstico de escrituras en VRAM
+        # Se usa para limitar el logging a las primeras 10 escrituras
+        self.vram_write_count = 0
+        
+        # Mensaje informativo al inicializar (solo una vez)
+        logger.info("🔍 Diagnóstico VRAM activo: Se registrarán las primeras 10 escrituras en VRAM (0x8000-0x9FFF)")
 
     def read_byte(self, addr: int) -> int:
         """
@@ -448,7 +455,30 @@ class MMU:
             self._memory[addr] = value
             return
         
+        # DIAGNÓSTICO TEMPORAL: Logging de escrituras en VRAM (0x8000-0x9FFF)
+        # Esto nos permite verificar si el juego está intentando escribir gráficos
+        # y si la MMU está bloqueando estas escrituras por alguna razón
+        # Solo logueamos las primeras 10 escrituras para no saturar la consola
+        # IMPORTANTE: Este código debe estar ANTES de cualquier return que pueda
+        # interceptar la escritura, pero DESPUÉS de los returns de registros especiales
+        if 0x8000 <= addr <= 0x9FFF:
+            self.vram_write_count += 1
+            if self.vram_write_count <= 10:
+                # Usar print() además de logger para asegurar visibilidad
+                # flush=True para asegurar que se muestre inmediatamente
+                print(f"💾 VRAM WRITE #{self.vram_write_count}: {value:02X} en {addr:04X}", flush=True)
+                logger.info(f"💾 VRAM WRITE #{self.vram_write_count}: {value:02X} en {addr:04X}")
+            elif self.vram_write_count == 11:
+                # Mensaje informativo cuando se alcanza el límite
+                print(f"💾 VRAM WRITE: (se han detectado más de 10 escrituras, ocultando el resto)", flush=True)
+                logger.info(f"💾 VRAM WRITE: (se han detectado más de 10 escrituras, ocultando el resto)")
+        
         # Escribimos el byte en la memoria
+        # NOTA: No hay restricción de escritura en VRAM basada en modo PPU.
+        # En hardware real, escribir en VRAM durante Mode 3 puede causar artefactos,
+        # pero el hardware no bloquea físicamente el acceso. Los juegos deben
+        # hacer polling de STAT para evitar escribir durante Pixel Transfer.
+        # Fuente: Pan Docs - VRAM Access Restrictions
         self._memory[addr] = value
 
     def read_word(self, addr: int) -> int:
@@ -560,4 +590,13 @@ class MMU:
         """
         self._timer = timer
         # logger.debug("MMU: Timer conectado para lectura/escritura de DIV")
+    
+    def get_vram_write_count(self) -> int:
+        """
+        Devuelve el número de escrituras en VRAM detectadas (para diagnóstico).
+        
+        Returns:
+            Número de escrituras en VRAM detectadas desde la inicialización
+        """
+        return self.vram_write_count
 

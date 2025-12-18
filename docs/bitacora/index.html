@@ -32,6 +32,44 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0062 - Diagnóstico: Bucle de Espera de V-Blank -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0062__diagnostico-bucle-espera-vblank.html" class="entry-link">
+                                    Diagnóstico: Bucle de Espera de V-Blank y Escrituras en VRAM
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0062 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se añadió un sistema de diagnóstico periódico que muestra el estado completo del emulador cada 5 segundos. El diagnóstico reveló que el juego está en un bucle pequeño (PC oscila entre 0x006B, 0x006D, 0x006F) ejecutando muy pocas instrucciones (~60 por segundo), lo que impide que la PPU avance lo suficiente para llegar a V-Blank (LY=144). El juego está esperando V-Blank antes de copiar gráficos a VRAM, pero nunca llega porque la PPU avanza demasiado lento.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0061 - Desbloqueo Total de VRAM y Diagnóstico de Escrituras -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0061__desbloqueo-vram-diagnostico-escrituras.html" class="entry-link">
+                                    Desbloqueo Total de VRAM y Diagnóstico de Escrituras
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0061 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Tras verificar que el MBC funciona y que el LCD se enciende (LCDC=0x80), pero la pantalla sigue siendo blanca incluso en modo Rayos X, se añadió logging temporal para diagnosticar si el juego está intentando escribir gráficos en VRAM (0x8000-0x9FFF). Se confirmó que no hay ninguna restricción de escritura en VRAM en la MMU. El logging reveló que el juego SÍ escribe en VRAM, pero todos los valores son 0x00, lo que explica la pantalla blanca. El problema no está en el bloqueo de acceso, sino en que el juego está escribiendo ceros en lugar de datos gráficos reales.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0060 - Verificación de Bank Switching MBC1 -->
                     <li>
                         <div class="entry-header">

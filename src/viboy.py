@@ -366,6 +366,10 @@ class Viboy:
         # Contador de frames para heartbeat (cada 60 frames ≈ 1 segundo)
         frame_count = 0
         
+        # Contador de instrucciones para diagnóstico periódico
+        instruction_count = 0
+        last_diagnostic_time = time.time()
+        
         try:
             while True:
                 # CRÍTICO: Llamar a pygame.event.pump() en cada iteración para evitar
@@ -387,6 +391,26 @@ class Viboy:
                 
                 # Ejecutar una instrucción
                 cycles = self.tick()
+                instruction_count += 1
+                
+                # Diagnóstico periódico cada 5 segundos (independiente de frames)
+                current_time = time.time()
+                if current_time - last_diagnostic_time >= 5.0:
+                    vram_writes = self._mmu.get_vram_write_count() if self._mmu is not None else 0
+                    pc = self._cpu.registers.get_pc() if self._cpu is not None else 0
+                    halted = self._cpu.halted if self._cpu is not None else False
+                    lcdc = self._mmu.read_byte(0xFF40) if self._mmu is not None else 0
+                    stat = self._ppu.get_stat() if self._ppu is not None else 0
+                    ly = self._ppu.get_ly() if self._ppu is not None else 0
+                    if_val = self._mmu.read_byte(0xFF0F) if self._mmu is not None else 0
+                    ie_val = self._mmu.read_byte(0xFFFF) if self._mmu is not None else 0
+                    logger.info(
+                        f"📊 Diagnóstico: {instruction_count:,} instrucciones, "
+                        f"VRAM writes={vram_writes}, PC=0x{pc:04X}, "
+                        f"HALTED={halted}, LCDC=0x{lcdc:02X}, STAT=0x{stat:02X}, LY={ly}, "
+                        f"IF=0x{if_val:02X}, IE=0x{ie_val:02X}"
+                    )
+                    last_diagnostic_time = current_time
                 
                 # CRÍTICO: Renderizar periódicamente para mostrar el heartbeat incluso si no hay V-Blank
                 # Esto asegura que el visual heartbeat sea visible cuando el LCD está apagado
@@ -406,10 +430,11 @@ class Viboy:
                         frame_count += 1
                         
                         # Heartbeat: cada 60 frames (≈1 segundo), mostrar estado
-                        # Solo mostrar FPS para verificar rendimiento
+                        # Incluir información de diagnóstico de VRAM
                         if frame_count % 60 == 0:
                             fps = self._clock.get_fps() if self._clock is not None else 0.0
-                            logger.info(f"💓 Heartbeat (frame {frame_count}): FPS={fps:.2f}")
+                            vram_writes = self._mmu.get_vram_write_count() if self._mmu is not None else 0
+                            logger.info(f"💓 Heartbeat (frame {frame_count}): FPS={fps:.2f}, VRAM writes={vram_writes}")
                         self._renderer.render_frame()
                         # pygame.display.flip() ya se llama dentro de render_frame()
                         

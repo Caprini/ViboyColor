@@ -1,5 +1,133 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Diagnóstico: Bucle de Espera de V-Blank y Escrituras en VRAM (Step 0062)
+
+### Conceptos Hardware Implementados
+
+**Dependencia Crítica entre CPU y PPU**: La PPU avanza sincronizada con la CPU. Cada instrucción de la CPU consume ciclos de reloj (M-Cycles), que se convierten a T-Cycles para avanzar la PPU. Si la CPU ejecuta muy pocas instrucciones, la PPU avanza muy lento. Si la PPU no llega a V-Blank (LY=144), el juego que está esperando V-Blank nunca sale del bucle de espera, creando un círculo vicioso.
+
+**Polling de STAT**: Muchos juegos hacen polling del registro STAT (0xFF41) esperando que la PPU entre en modo V-Blank (bit 0-1 = 01) antes de copiar gráficos a VRAM. Si la PPU nunca llega a V-Blank, el juego queda atrapado en el bucle de espera.
+
+**Fuente**: Pan Docs - LCD Timing, V-Blank, STAT Register, System Clock
+
+#### Tareas Completadas:
+
+1. **Sistema de Diagnóstico Periódico en Viboy (`src/viboy.py`)**:
+   - Añadido contador de instrucciones ejecutadas
+   - Añadido diagnóstico periódico cada 5 segundos que muestra: número de instrucciones, VRAM writes, PC, HALTED, LCDC, STAT, LY, IF, IE
+   - Modificado el heartbeat para incluir el contador de escrituras en VRAM
+
+2. **MMU (`src/memory/mmu.py`)**:
+   - Añadido método `get_vram_write_count()` para obtener el contador de escrituras en VRAM
+   - Añadido mensaje informativo al inicializar indicando que el diagnóstico VRAM está activo
+
+3. **PPU (`src/gpu/ppu.py`)**:
+   - Activado logging temporal cuando se genera V-Blank (LY=144) para diagnóstico
+
+4. **main.py**:
+   - Configurado encoding UTF-8 para Windows para permitir mostrar emojis en consola
+   - Cambiado nivel de logging a INFO temporalmente para diagnóstico
+
+#### Archivos Afectados:
+- `src/viboy.py` (modificado) - Añadido diagnóstico periódico cada 5 segundos
+- `src/memory/mmu.py` (modificado) - Añadido método `get_vram_write_count()` y mensaje informativo
+- `src/gpu/ppu.py` (modificado) - Activado logging temporal de V-Blank
+- `main.py` (modificado) - Configurado encoding UTF-8 y nivel de logging
+- `docs/bitacora/entries/2025-12-18__0062__diagnostico-bucle-espera-vblank.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0062)
+- `docs/bitacora/entries/2025-12-18__0061__desbloqueo-vram-diagnostico-escrituras.html` (modificado, actualizado enlace "Siguiente")
+- `INFORME_COMPLETO.md` (modificado, añadida entrada 0062)
+
+#### Validación:
+- **Estado**: Draft - En diagnóstico
+- **Entorno**: Windows 10, Python 3.13.5
+- **Comando ejecutado**: `python main.py pkmn.gb`
+- **ROM de prueba**: Pokémon Red (ROM aportada por el usuario, no distribuida)
+- **Resultado observado**:
+  - El juego ejecuta muy pocas instrucciones (~60 por segundo, extremadamente lento)
+  - La PPU avanza muy lento (LY solo llega a 6, 13, 20, 27... en 5 segundos)
+  - El juego está en un bucle pequeño (PC oscila entre 0x006B, 0x006D, 0x006F)
+  - VRAM writes=0 (el juego no está escribiendo en VRAM)
+  - LCDC=0x80 (LCD encendido, pero BG Display apagado)
+  - STAT=0x00 (PPU en modo H-Blank, no V-Blank)
+  - IF=0x00, IE=0x00 (no hay interrupciones pendientes ni habilitadas)
+- **Interpretación del resultado**:
+  - El juego está esperando V-Blank antes de copiar gráficos a VRAM
+  - Pero la PPU nunca llega a V-Blank porque avanza demasiado lento
+  - Esto crea un círculo vicioso: el juego espera V-Blank, pero V-Blank no ocurre porque el juego ejecuta muy pocas instrucciones
+- **Qué valida**: Este diagnóstico confirma que el problema no es que el juego no intente escribir en VRAM, sino que está atrapado en un bucle esperando V-Blank que nunca ocurre debido a la lentitud de ejecución.
+- **Próximo paso**: Investigar por qué el juego ejecuta tan pocas instrucciones. Verificar si la PPU llega a V-Blank después de esperar más tiempo (20-30 segundos).
+
+#### Lo que Entiendo Ahora:
+- **Dependencia crítica entre CPU y PPU**: Si la CPU ejecuta muy pocas instrucciones, la PPU avanza muy lento. Si la PPU no llega a V-Blank, el juego que está esperando V-Blank nunca sale del bucle de espera.
+- **Polling de STAT**: Muchos juegos hacen polling del registro STAT esperando que la PPU entre en modo V-Blank antes de copiar gráficos a VRAM.
+- **Diagnóstico sistemático**: Añadir información completa del estado del emulador permite diagnosticar problemas de timing y sincronización de forma sistemática.
+
+#### Lo que Falta Confirmar:
+- **¿Por qué el juego ejecuta tan pocas instrucciones?** Necesito investigar si el problema es un bucle muy lento, un problema con el timing del emulador, o un problema con la sincronización de la PPU.
+- **¿La PPU llega a V-Blank si esperamos más tiempo?** Si después de 20-30 segundos la PPU llega a LY=144, entonces el problema es solo de velocidad. Si nunca llega, hay un problema más fundamental.
+
+## 2025-12-18 - Desbloqueo Total de VRAM y Diagnóstico de Escrituras (Step 0061)
+
+### Conceptos Hardware Implementados
+
+**Restricciones de Acceso a VRAM**: En la Game Boy, la VRAM (0x8000-0x9FFF) almacena los datos gráficos (tiles, mapas de fondo, atributos de ventana). Durante el renderizado, la PPU lee activamente esta memoria. En hardware real, la VRAM no está bloqueada físicamente durante Pixel Transfer (Modo 3), pero escribir durante este modo puede causar artefactos visuales. Los juegos deben hacer polling del registro STAT (0xFF41) para detectar cuándo la PPU está en un modo seguro (H-Blank o V-Blank) antes de escribir en VRAM.
+
+**Diagnóstico de Pantalla Blanca**: Si un emulador implementa restricciones de acceso a VRAM de forma demasiado estricta o errónea, la CPU intenta escribir gráficos pero la MMU bloquea el acceso, dejando la VRAM vacía (blanca). Por eso es crítico verificar que las escrituras en VRAM se están permitiendo correctamente.
+
+**Fuente**: Pan Docs - VRAM Access Restrictions, STAT Register, Memory Map
+
+#### Tareas Completadas:
+
+1. **Revisión de MMU (`src/memory/mmu.py`)**:
+   - Se revisó el método `write_byte` para verificar si existía algún bloqueo de escritura en VRAM
+   - Se confirmó que **no hay ninguna restricción explícita** que bloquee escrituras en VRAM basada en el modo PPU
+   - Se añadió un contador `vram_write_count` en el constructor para limitar el logging a las primeras 10 escrituras
+   - Se añadió logging temporal en `write_byte` que detecta escrituras en el rango 0x8000-0x9FFF y las registra con el mensaje `💾 VRAM WRITE: {value:02X} en {addr:04X}`
+   - Se añadió un comentario explícito que explica que no hay restricción de escritura en VRAM basada en modo PPU, y que los juegos deben hacer polling de STAT para evitar escribir durante Pixel Transfer
+
+#### Archivos Afectados:
+- `src/memory/mmu.py` (modificado) - Añadido contador `vram_write_count` y logging temporal para diagnóstico de escrituras en VRAM
+- `docs/bitacora/entries/2025-12-18__0061__desbloqueo-vram-diagnostico-escrituras.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0061)
+- `docs/bitacora/entries/2025-12-18__0060__verificacion-bank-switching-mbc1.html` (modificado, actualizado enlace "Siguiente")
+
+#### Validación:
+- **Estado**: Verified - Ejecución completada con resultados claros
+- **Entorno**: Windows 10, Python 3.13.5
+- **Comando ejecutado**: `python test_vram_writes.py` (script de prueba que ejecuta 100,000 instrucciones)
+- **ROM de prueba**: Pokémon Red (ROM aportada por el usuario, no distribuida)
+- **Resultado observado**:
+  - ✅ **SÍ aparecen mensajes de VRAM WRITE**: El juego está intentando escribir en VRAM. Se detectaron 10 escrituras durante la inicialización (limitadas por el contador de logging).
+  - ⚠️ **PERO todos los valores son 0x00**: El juego está escribiendo ceros en VRAM, lo que explica por qué la pantalla es blanca. Las primeras 10 escrituras fueron:
+    ```
+    INFO: 💾 VRAM WRITE: 00 en 8000
+    INFO: 💾 VRAM WRITE: 00 en 8001
+    INFO: 💾 VRAM WRITE: 00 en 8002
+    INFO: 💾 VRAM WRITE: 00 en 8003
+    INFO: 💾 VRAM WRITE: 00 en 8004
+    INFO: 💾 VRAM WRITE: 00 en 8005
+    INFO: 💾 VRAM WRITE: 00 en 8006
+    INFO: 💾 VRAM WRITE: 00 en 8007
+    INFO: 💾 VRAM WRITE: 00 en 8008
+    INFO: 💾 VRAM WRITE: 00 en 8009
+    ```
+- **Interpretación del resultado**:
+  - El juego **SÍ está ejecutando código** que escribe en VRAM (no hay bloqueo de acceso).
+  - El problema es que está escribiendo **ceros en lugar de datos gráficos reales**.
+  - Posibles causas: (1) El juego está inicializando la VRAM a ceros (normal durante el arranque, pero debería copiar datos después), (2) El juego intenta copiar datos desde ROM/RAM pero la fuente está vacía o no se está leyendo correctamente, (3) Hay un problema con el DMA, (4) El juego está esperando algún evento (interrupción, cambio de modo PPU) antes de copiar los datos reales.
+- **Qué valida**: Este paso confirma que: (1) ✅ La MMU NO está bloqueando escrituras en VRAM (las escrituras se permiten correctamente), (2) ✅ El juego está ejecutando código que escribe en VRAM (no se cuelga antes de llegar a la rutina de copia), (3) ⚠️ El problema es que el juego está escribiendo ceros en lugar de datos gráficos reales.
+- **Próximo paso**: Investigar por qué el juego está escribiendo ceros en VRAM. Posibles áreas a revisar: DMA (registro 0xFF46), copias manuales (LD, LDI, LDD), timing (espera de eventos como V-Blank), o fase de inicialización (borrado seguido de copia que no se ejecuta).
+
+#### Lo que Entiendo Ahora:
+- **VRAM no está bloqueada físicamente**: Aunque la documentación menciona que la VRAM está "bloqueada" durante Pixel Transfer, el hardware real no bloquea físicamente el acceso. Simplemente puede causar artefactos visuales si la CPU escribe durante el renderizado. Los juegos deben hacer polling de STAT para evitar escribir en momentos inadecuados.
+- **Diagnóstico sistemático**: Cuando la pantalla es blanca, hay que verificar sistemáticamente: (1) ¿El LCD está encendido? (LCDC bit 7), (2) ¿El MBC funciona? (bank switching), (3) ¿El juego escribe en VRAM? (logging), (4) ¿El Renderer lee correctamente? (decodificación de tiles). Este paso verifica el punto (3).
+- **Logging como herramienta de diagnóstico**: El logging temporal es una herramienta poderosa para entender qué está haciendo el juego en tiempo real. Limitar el logging a las primeras N escrituras evita saturar la consola mientras proporciona información suficiente para diagnosticar el problema.
+
+#### Lo que Falta Confirmar:
+- **¿El juego escribe en VRAM?** Pendiente de ejecutar la ROM y verificar si aparecen los mensajes de logging. Si no aparecen, el problema está en la lógica de inicialización del juego (CPU, interrupciones, o polling de STAT).
+- **Si escribe pero la pantalla es blanca**: Entonces el problema está en el Renderer. Posibles causas: (1) Lee mal la VRAM, (2) Los tiles están configurados al revés (0x8000 vs 0x8800), (3) La paleta está mal configurada, (4) El scroll está mal calculado.
+
 ## 2025-12-18 - Modo Rayos X: Renderizado Forzado (Step 0059)
 
 ### Conceptos Hardware Implementados

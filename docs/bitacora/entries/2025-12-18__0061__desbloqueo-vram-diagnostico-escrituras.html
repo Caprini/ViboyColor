@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Desbloqueo Total de VRAM y Diagnóstico de Escrituras - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Desbloqueo Total de VRAM y Diagnóstico de Escrituras</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0061
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0060__verificacion-bank-switching-mbc1.html">Anterior</a></li>
+                    <li><a href="2025-12-18__0062__diagnostico-bucle-espera-vblank.html">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Tras verificar que el MBC funciona correctamente y que el LCD se enciende (LCDC=0x80), pero la pantalla
+                    sigue siendo blanca incluso en modo Rayos X, la hipótesis es que la MMU podría estar bloqueando escrituras
+                    en VRAM (0x8000-0x9FFF) debido a restricciones de modo PPU o errores de rango. Se añadió logging temporal
+                    para diagnosticar si el juego está intentando escribir gráficos en VRAM y se eliminó cualquier restricción
+                    de escritura que pudiera existir.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, la VRAM (Video RAM, 0x8000-0x9FFF) es una región de memoria de 8KB que almacena los datos
+                    gráficos: tiles (bloques de 8x8 píxeles), mapas de fondo, y atributos de ventana. Durante el renderizado,
+                    la PPU lee activamente esta memoria para generar la imagen en pantalla.
+                </p>
+                <p>
+                    <strong>Restricciones de acceso a VRAM:</strong> En hardware real, la VRAM está bloqueada (solo lectura o
+                    inaccesible) mientras la PPU está dibujando (Modo 3 - Pixel Transfer). Sin embargo, el hardware no bloquea
+                    físicamente el acceso; simplemente puede causar artefactos visuales si la CPU escribe durante Pixel Transfer.
+                    Los juegos deben hacer polling del registro STAT (0xFF41) para detectar cuándo la PPU está en un modo seguro
+                    (H-Blank o V-Blank) antes de escribir en VRAM.
+                </p>
+                <p>
+                    <strong>Problema diagnóstico:</strong> Si un emulador implementa esta restricción de forma demasiado estricta
+                    o errónea, la CPU intenta escribir gráficos, la MMU dice "¡Acceso Denegado!", y la VRAM se queda vacía
+                    (blanca). Por eso es crítico verificar que las escrituras en VRAM se están permitiendo correctamente.
+                </p>
+                <p>
+                    Fuente: Pan Docs - VRAM Access Restrictions, STAT Register
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se revisó el método <code>write_byte</code> de la MMU para verificar si existía algún bloqueo de escritura
+                    en VRAM. Tras la revisión, se confirmó que <strong>no hay ninguna restricción explícita</strong> que bloquee
+                    escrituras en VRAM basada en el modo PPU. El código simplemente escribe en <code>self._memory[addr] = value</code>
+                    al final del método si no es un registro especial.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>MMU (src/memory/mmu.py)</strong>: Se añadió un contador <code>vram_write_count</code> en el
+                        constructor para limitar el logging a las primeras 10 escrituras. Se añadió logging temporal en
+                        <code>write_byte</code> que detecta escrituras en el rango 0x8000-0x9FFF y las registra con el mensaje
+                        <code>💾 VRAM WRITE: {value:02X} en {addr:04X}</code>.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Logging limitado a 10 escrituras:</strong> Para no saturar la consola, solo se loguean las
+                        primeras 10 escrituras en VRAM. Esto es suficiente para verificar que el juego está intentando escribir
+                        gráficos.</li>
+                    <li><strong>Sin bloqueo de escritura:</strong> Se confirmó que no hay ningún chequeo de <code>ppu.mode == 3</code>
+                        o similar que bloquee escrituras. El código permite todas las escrituras en VRAM, como debe ser. En hardware
+                        real, escribir durante Pixel Transfer puede causar artefactos, pero no bloquea el acceso.</li>
+                    <li><strong>Nota documental:</strong> Se añadió un comentario explícito en el código que explica que no hay
+                        restricción de escritura en VRAM basada en modo PPU, y que los juegos deben hacer polling de STAT para
+                        evitar escribir durante Pixel Transfer.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/memory/mmu.py</code> - Añadido contador <code>vram_write_count</code> y logging temporal
+                        para diagnóstico de escrituras en VRAM (0x8000-0x9FFF).</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </p>
+                <p>
+                    <strong>Comando ejecutado:</strong>
+                </p>
+                <pre><code>python test_vram_writes.py</code></pre>
+                <p>
+                    <strong>Entorno:</strong> Windows 10, Python 3.13.5
+                </p>
+                <p>
+                    <strong>ROM de prueba:</strong> Pokémon Red (ROM aportada por el usuario, no distribuida)
+                </p>
+                <p>
+                    <strong>Resultado:</strong>
+                </p>
+                <ul>
+                    <li><strong>✅ SÍ aparecen mensajes de VRAM WRITE:</strong> El juego está intentando escribir en VRAM.
+                        Se detectaron 10 escrituras durante la inicialización (limitadas por el contador de logging).</li>
+                    <li><strong>⚠️ PERO todos los valores son 0x00:</strong> El juego está escribiendo ceros en VRAM, lo que
+                        explica por qué la pantalla es blanca. Las primeras 10 escrituras fueron:
+                        <pre><code>INFO: 💾 VRAM WRITE: 00 en 8000
+INFO: 💾 VRAM WRITE: 00 en 8001
+INFO: 💾 VRAM WRITE: 00 en 8002
+INFO: 💾 VRAM WRITE: 00 en 8003
+INFO: 💾 VRAM WRITE: 00 en 8004
+INFO: 💾 VRAM WRITE: 00 en 8005
+INFO: 💾 VRAM WRITE: 00 en 8006
+INFO: 💾 VRAM WRITE: 00 en 8007
+INFO: 💾 VRAM WRITE: 00 en 8008
+INFO: 💾 VRAM WRITE: 00 en 8009</code></pre>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Interpretación del resultado:</strong>
+                </p>
+                <ul>
+                    <li>El juego <strong>SÍ está ejecutando código</strong> que escribe en VRAM (no hay bloqueo de acceso).</li>
+                    <li>El problema es que está escribiendo <strong>ceros en lugar de datos gráficos reales</strong>.</li>
+                    <li>Posibles causas:
+                        <ul>
+                            <li>El juego está inicializando la VRAM a ceros (comportamiento normal durante el arranque, pero debería
+                                copiar datos después).</li>
+                            <li>El juego intenta copiar datos desde ROM/RAM pero la fuente está vacía o no se está leyendo correctamente.</li>
+                            <li>Hay un problema con el DMA (Direct Memory Access) que copia datos a OAM/VRAM.</li>
+                            <li>El juego está esperando algún evento (interrupción, cambio de modo PPU) antes de copiar los datos reales.</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Qué valida:</strong> Este paso confirma que:
+                    <ul>
+                        <li>✅ La MMU NO está bloqueando escrituras en VRAM (las escrituras se permiten correctamente).</li>
+                        <li>✅ El juego está ejecutando código que escribe en VRAM (no se cuelga antes de llegar a la rutina de copia).</li>
+                        <li>⚠️ El problema es que el juego está escribiendo ceros en lugar de datos gráficos reales.</li>
+                    </ul>
+                </p>
+                <p>
+                    <strong>Próximo paso:</strong> Investigar por qué el juego está escribiendo ceros en VRAM. Posibles áreas a revisar:
+                    <ul>
+                        <li>DMA: Verificar si el DMA está funcionando correctamente (registro 0xFF46).</li>
+                        <li>Copias manuales: Verificar si las instrucciones de copia (LD, LDI, LDD) están leyendo correctamente desde ROM/RAM.</li>
+                        <li>Timing: Verificar si el juego está esperando algún evento (V-Blank, cambio de modo PPU) antes de copiar datos.</li>
+                        <li>Inicialización: Verificar si el juego está en una fase de inicialización donde primero borra la VRAM y luego copia datos.</li>
+                    </ul>
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#vram-access-restrictions">VRAM Access Restrictions</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#lcd-status-register-stat-ff41">LCD Status Register (STAT)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#memory-map">Memory Map</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>VRAM no está bloqueada físicamente:</strong> Aunque la documentación menciona que la VRAM
+                            está "bloqueada" durante Pixel Transfer, el hardware real no bloquea físicamente el acceso. Simplemente
+                            puede causar artefactos visuales si la CPU escribe durante el renderizado. Los juegos deben hacer
+                            polling de STAT para evitar escribir en momentos inadecuados.</li>
+                        <li><strong>Diagnóstico sistemático:</strong> Cuando la pantalla es blanca, hay que verificar sistemáticamente:
+                            (1) ¿El LCD está encendido? (LCDC bit 7), (2) ¿El MBC funciona? (bank switching), (3) ¿El juego escribe
+                            en VRAM? (logging), (4) ¿El Renderer lee correctamente? (decodificación de tiles). Este paso verifica
+                            el punto (3).</li>
+                        <li><strong>Logging como herramienta de diagnóstico:</strong> El logging temporal es una herramienta poderosa
+                            para entender qué está haciendo el juego en tiempo real. Limitar el logging a las primeras N escrituras
+                            evita saturar la consola mientras proporciona información suficiente para diagnosticar el problema.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿Por qué el juego escribe ceros en VRAM?</strong> Se confirmó que el juego SÍ escribe en VRAM,
+                            pero todos los valores son 0x00. Esto podría ser:
+                            <ul>
+                                <li>Inicialización normal: El juego primero borra la VRAM a ceros y luego copia datos (pero la copia
+                                    no se está ejecutando o falla).</li>
+                                <li>Problema con DMA: El DMA podría estar copiando desde una fuente vacía o no estar funcionando correctamente.</li>
+                                <li>Problema con copias manuales: Las instrucciones de copia (LD, LDI, LDD) podrían estar leyendo ceros
+                                    desde ROM/RAM o no estar ejecutándose correctamente.</li>
+                                <li>Timing: El juego podría estar esperando un evento (V-Blank, cambio de modo PPU) antes de copiar datos reales.</li>
+                            </ul>
+                        </li>
+                        <li><strong>¿El Renderer lee correctamente la VRAM?</strong> Aunque el problema principal es que se escriben ceros,
+                            también hay que verificar que el Renderer lee correctamente la VRAM cuando hay datos válidos. Esto se puede
+                            verificar más adelante cuando se resuelva el problema de escritura de ceros.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal (CONFIRMADA):</strong> La MMU no está bloqueando escrituras en VRAM. El juego
+                        SÍ está escribiendo en VRAM, pero está escribiendo ceros en lugar de datos gráficos reales.
+                    </p>
+                    <p>
+                        <strong>Nueva hipótesis:</strong> El juego está en una fase de inicialización donde primero borra la VRAM
+                        a ceros y luego debería copiar datos gráficos desde ROM/RAM, pero la copia no se está ejecutando o está fallando.
+                        Posibles causas: (1) DMA no funciona correctamente, (2) Copias manuales leen desde fuente vacía, (3) El juego
+                        espera un evento que no ocurre (V-Blank, cambio de modo PPU), (4) El juego se cuelga después de borrar VRAM
+                        pero antes de copiar datos.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Asumimos que el logging temporal no afecta el rendimiento ni el comportamiento
+                        del emulador. Si el logging causa problemas, se puede desactivar o reducir el número de mensajes.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[✅] Ejecutar ROM y verificar si aparecen mensajes <code>💾 VRAM WRITE</code> - <strong>COMPLETADO</strong>:
+                        Se confirmó que el juego SÍ escribe en VRAM, pero todos los valores son 0x00.</li>
+                    <li>[ ] Investigar por qué el juego escribe ceros en VRAM:
+                        <ul>
+                            <li>Verificar si el DMA está funcionando correctamente (registro 0xFF46).</li>
+                            <li>Verificar si las instrucciones de copia (LD, LDI, LDD) están leyendo correctamente desde ROM/RAM.</li>
+                            <li>Verificar si el juego está esperando algún evento (V-Blank, cambio de modo PPU) antes de copiar datos.</li>
+                            <li>Añadir logging para rastrear lecturas desde ROM/RAM durante las copias.</li>
+                        </ul>
+                    </li>
+                    <li>[ ] Una vez resuelto el problema de escritura de ceros, verificar que el Renderer lee correctamente la VRAM
+                        cuando hay datos válidos.</li>
+                    <li>[ ] Reducir o eliminar el logging temporal una vez diagnosticado el problema completamente.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
