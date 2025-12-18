@@ -192,8 +192,8 @@ class PPU:
                 # del estado de IME o si se procesan interrupciones.
                 self.frame_ready = True
                 
-                # Log para diagnóstico (temporal)
-                logger.info(f"🎯 PPU: V-Blank iniciado (LY={self.ly}), IF actualizado a 0x{if_val:02X}")
+                # Log para diagnóstico (comentado para rendimiento)
+                # logger.info(f"🎯 PPU: V-Blank iniciado (LY={self.ly}), IF actualizado a 0x{if_val:02X}")
             
             # Si pasamos la última línea (153), reiniciar a 0 (nuevo frame)
             if self.ly > 153:

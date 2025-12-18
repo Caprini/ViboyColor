@@ -1,5 +1,74 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Limpieza de Diagnósticos y Optimización de Rendimiento (Step 0063)
+
+### Conceptos Hardware Implementados
+
+**Overhead de Logging en Bucles Críticos**: El bucle principal de un emulador se ejecuta millones de veces por segundo (4.194.304 ciclos por segundo en Game Boy real). Cada operación dentro del bucle (logs, prints, checks condicionales) consume tiempo de CPU que debería estar dedicado a la emulación. Incluso si un log no se imprime (por nivel de logging), el código que comprueba condiciones, formatea strings y evalúa expresiones consume ciclos de CPU. En un bucle crítico, esto puede reducir el rendimiento en varios órdenes de magnitud.
+
+**Principio de Optimización**: El código de producción debe tener el mínimo overhead posible. Los diagnósticos deben estar desactivados por defecto y solo activarse cuando sea necesario para debugging. El nivel de logging debe ser WARNING o superior en producción.
+
+**Fuente**: Principios generales de optimización de software, rendimiento de bucles críticos.
+
+#### Tareas Completadas:
+
+1. **Limpieza en `main.py`**:
+   - Cambiado nivel de logging de `INFO` a `WARNING` para evitar spam en consola durante ejecución normal
+
+2. **Limpieza en `src/viboy.py`**:
+   - Eliminado contador de instrucciones y diagnóstico periódico cada 5 segundos
+   - Eliminado código de debug con trazas de instrucciones (que referenciaba variables no existentes)
+   - Mantenido solo el heartbeat cada 60 frames (1 vez por segundo) para monitoreo básico
+
+3. **Limpieza en `src/memory/mmu.py`**:
+   - Comentado mensaje informativo de diagnóstico VRAM al inicializar
+   - Comentado logging de escrituras en rango MBC (bank switching)
+   - Comentado logging del hack de BGP (forzar paleta visible)
+   - Comentado todo el bloque de diagnóstico de escrituras en VRAM (prints y logs)
+
+4. **Limpieza en `src/gpu/ppu.py`**:
+   - Comentado log de V-Blank iniciado (que se ejecutaba 60 veces por segundo)
+
+#### Archivos Afectados:
+- `main.py` (modificado) - Cambio de nivel de logging a WARNING
+- `src/viboy.py` (modificado) - Eliminación de diagnóstico periódico y código debug
+- `src/memory/mmu.py` (modificado) - Comentado de todos los logs/prints de diagnóstico
+- `src/gpu/ppu.py` (modificado) - Comentado de log de V-Blank
+- `docs/bitacora/entries/2025-12-18__0063__limpieza-diagnosticos-optimizacion-rendimiento.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0063)
+- `docs/bitacora/entries/2025-12-18__0062__diagnostico-bucle-espera-vblank.html` (modificado, actualizado enlace "Siguiente")
+- `INFORME_COMPLETO.md` (modificado, añadida entrada 0063)
+
+#### Validación:
+- **Estado**: Verified - El emulador funciona correctamente a velocidad real
+- **Entorno**: Windows 10, Python 3.13.5
+- **Comando ejecutado**: `python main.py pkmn.gb`
+- **ROM de prueba**: Pokémon Red (ROM aportada por el usuario, no distribuida)
+- **Resultado observado**:
+  - Antes de la limpieza: LY pasaba de 27 a 34 en 5 segundos (0.01% velocidad real)
+  - Después de la limpieza: El juego arranca instantáneamente y muestra la intro correctamente
+  - FPS se mantiene estable en ~60.0
+  - La consola solo muestra el heartbeat cada segundo con información de FPS
+  - El emulador funciona a velocidad real (~60 FPS) y el juego arranca sin problemas
+
+#### Git Commit Sugerido:
+```bash
+git add main.py src/viboy.py src/memory/mmu.py src/gpu/ppu.py docs/bitacora/
+git commit -m "perf(core): limpieza de diagnósticos y optimización de rendimiento
+
+- Cambiar nivel de logging a WARNING en main.py
+- Eliminar diagnóstico periódico y código debug en viboy.py
+- Comentar todos los prints/logs de diagnóstico en mmu.py
+- Comentar log de V-Blank en ppu.py
+- Restaurar rendimiento: de 0.01% a 100% velocidad real (~60 FPS)
+
+El emulador ahora funciona correctamente a velocidad real y los juegos
+arrancan instantáneamente. Los diagnósticos están comentados pero
+disponibles para reactivación si es necesario."
+```
+
+---
+
 ## 2025-12-18 - Diagnóstico: Bucle de Espera de V-Blank y Escrituras en VRAM (Step 0062)
 
 ### Conceptos Hardware Implementados

@@ -19,10 +19,10 @@ if sys.platform == "win32":
 from src.viboy import Viboy
 
 # Configurar logging básico
-# INFO temporalmente para diagnóstico de VRAM (ver paso 0061)
-# Normalmente sería WARNING para evitar spam en consola
+# WARNING para evitar spam en consola durante ejecución normal
+# Solo se mostrarán mensajes importantes (warnings y errores)
 logging.basicConfig(
-    level=logging.INFO,  # Cambiado a INFO para ver mensajes de VRAM WRITE
+    level=logging.WARNING,  # WARNING para rendimiento óptimo
     format="%(levelname)s: %(message)s",
     force=True,  # Forzar reconfiguración
 )

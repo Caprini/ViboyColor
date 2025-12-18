@@ -204,8 +204,8 @@ class MMU:
         # Se usa para limitar el logging a las primeras 10 escrituras
         self.vram_write_count = 0
         
-        # Mensaje informativo al inicializar (solo una vez)
-        logger.info("🔍 Diagnóstico VRAM activo: Se registrarán las primeras 10 escrituras en VRAM (0x8000-0x9FFF)")
+        # Mensaje informativo al inicializar (comentado para rendimiento)
+        # logger.info("🔍 Diagnóstico VRAM activo: Se registrarán las primeras 10 escrituras en VRAM (0x8000-0x9FFF)")
 
     def read_byte(self, addr: int) -> int:
         """
@@ -332,9 +332,9 @@ class MMU:
         # Aunque la ROM es "Read Only", el MBC interpreta escrituras como comandos
         if addr <= 0x7FFF:
             if self._cartridge is not None:
-                # Logging para diagnóstico: escrituras en rango de cambio de banco
-                if 0x2000 <= addr < 0x4000:
-                    logger.info(f"MMU: Escritura en rango MBC (0x{addr:04X}) = 0x{value:02X} -> Cartucho")
+                # Logging para diagnóstico: escrituras en rango de cambio de banco (comentado para rendimiento)
+                # if 0x2000 <= addr < 0x4000:
+                #     logger.info(f"MMU: Escritura en rango MBC (0x{addr:04X}) = 0x{value:02X} -> Cartucho")
                 self._cartridge.write_byte(addr, value)
                 return
             # Si no hay cartucho, permitir escritura directa en memoria (útil para tests)
@@ -370,10 +370,11 @@ class MMU:
                 # Forzar paleta visible (0xE4 = paleta estándar Game Boy)
                 # 0xE4 = 11100100: Color 0=Blanco, Color 1=Gris claro, Color 2=Gris oscuro, Color 3=Negro
                 value = 0xE4
-                logging.warning(
-                    f"🔥 HACK: Forzando BGP 0x00 -> 0xE4 para visibilidad "
-                    f"(el juego intentó escribir paleta blanca, forzamos paleta estándar)"
-                )
+                # Logging comentado para rendimiento (solo activar si es necesario para diagnóstico)
+                # logging.warning(
+                #     f"🔥 HACK: Forzando BGP 0x00 -> 0xE4 para visibilidad "
+                #     f"(el juego intentó escribir paleta blanca, forzamos paleta estándar)"
+                # )
         
         # Interceptar escritura al registro STAT (0xFF41)
         # STAT es de lectura/escritura, pero los bits 0-1 (modo PPU) son de solo lectura
@@ -455,23 +456,23 @@ class MMU:
             self._memory[addr] = value
             return
         
-        # DIAGNÓSTICO TEMPORAL: Logging de escrituras en VRAM (0x8000-0x9FFF)
+        # DIAGNÓSTICO TEMPORAL: Logging de escrituras en VRAM (comentado para rendimiento)
         # Esto nos permite verificar si el juego está intentando escribir gráficos
         # y si la MMU está bloqueando estas escrituras por alguna razón
         # Solo logueamos las primeras 10 escrituras para no saturar la consola
         # IMPORTANTE: Este código debe estar ANTES de cualquier return que pueda
         # interceptar la escritura, pero DESPUÉS de los returns de registros especiales
-        if 0x8000 <= addr <= 0x9FFF:
-            self.vram_write_count += 1
-            if self.vram_write_count <= 10:
-                # Usar print() además de logger para asegurar visibilidad
-                # flush=True para asegurar que se muestre inmediatamente
-                print(f"💾 VRAM WRITE #{self.vram_write_count}: {value:02X} en {addr:04X}", flush=True)
-                logger.info(f"💾 VRAM WRITE #{self.vram_write_count}: {value:02X} en {addr:04X}")
-            elif self.vram_write_count == 11:
-                # Mensaje informativo cuando se alcanza el límite
-                print(f"💾 VRAM WRITE: (se han detectado más de 10 escrituras, ocultando el resto)", flush=True)
-                logger.info(f"💾 VRAM WRITE: (se han detectado más de 10 escrituras, ocultando el resto)")
+        # if 0x8000 <= addr <= 0x9FFF:
+        #     self.vram_write_count += 1
+        #     if self.vram_write_count <= 10:
+        #         # Usar print() además de logger para asegurar visibilidad
+        #         # flush=True para asegurar que se muestre inmediatamente
+        #         print(f"💾 VRAM WRITE #{self.vram_write_count}: {value:02X} en {addr:04X}", flush=True)
+        #         logger.info(f"💾 VRAM WRITE #{self.vram_write_count}: {value:02X} en {addr:04X}")
+        #     elif self.vram_write_count == 11:
+        #         # Mensaje informativo cuando se alcanza el límite
+        #         print(f"💾 VRAM WRITE: (se han detectado más de 10 escrituras, ocultando el resto)", flush=True)
+        #         logger.info(f"💾 VRAM WRITE: (se han detectado más de 10 escrituras, ocultando el resto)")
         
         # Escribimos el byte en la memoria
         # NOTA: No hay restricción de escritura en VRAM basada en modo PPU.
