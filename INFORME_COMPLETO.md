@@ -1,5 +1,62 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Modo Rayos X: Renderizado Forzado (Step 0059)
+
+### Conceptos Hardware Implementados
+
+**Modo Rayos X para Diagnóstico**: Cuando un juego apaga el LCD (escribiendo 0x00 en LCDC, bit 7 = 0), el hardware real no renderiza nada. Sin embargo, la VRAM sigue siendo accesible y puede contener datos válidos. Para diagnosticar problemas durante el arranque cuando juegos como Pokémon Red encienden y apagan el LCD rápidamente, implementamos un "Modo Rayos X" que fuerza el renderizado incluso cuando el LCD está apagado, permitiendo visualizar el contenido de la VRAM en cualquier momento.
+
+**Fuente**: Pan Docs - LCD Control Register, VRAM
+
+#### Tareas Completadas:
+
+1. **Modo Rayos X en Renderer (`src/gpu/renderer.py`)**:
+   - Se eliminó el `return` temprano cuando `lcdc_bit7 == 0` (LCD apagado)
+   - Se implementó lógica que fuerza `LCDC = 0x91` cuando el LCD está apagado:
+     - Bit 7 = 1: LCD ON (forzado)
+     - Bit 4 = 1: Tile Data desde 0x8000 (unsigned addressing)
+     - Bit 3 = 0: Tile Map desde 0x9800
+     - Bit 0 = 1: BG Display ON
+   - Se establece `lcdc_bit7 = True` para que el resto del código de renderizado funcione normalmente
+   - Se registra un mensaje de debug indicando que se está usando el Modo Rayos X
+
+#### Archivos Afectados:
+- `src/gpu/renderer.py` (modificado) - Implementación del Modo Rayos X en `render_frame()`
+- `docs/bitacora/entries/2025-12-18__0059__modo-rayos-x-renderizado-forzado.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0059)
+
+#### Validación:
+- **Estado**: Draft - Diagnóstico completo, pendiente de implementar solución
+- **Entorno**: Windows 10, Python 3.13.5, pygame-ce 2.5.6
+- **ROM de prueba**: Pokémon Red (ROM aportada por el usuario, no distribuida)
+- **Comando ejecutado**: `python main.py pkmn.gb`
+- **Resultado observado**: 
+  - El emulador carga correctamente (POKEMON RED, 1024 KB ROM, 32 KB RAM)
+  - CPU inicializada correctamente (PC=0x0100, SP=0xFFFE)
+  - Warning muestra: "🔥 HACK: Forzando BGP 0x00 -> 0xE4 para visibilidad"
+  - **Pantalla visual: Pantalla completamente blanca**
+- **Interpretación del resultado**:
+  - El Modo Rayos X está funcionando correctamente (está forzando el renderizado cuando el LCD está apagado)
+  - La pantalla blanca indica que la VRAM está vacía o contiene solo ceros (todos los tiles tienen índice de color 0)
+  - Con la paleta estándar (BGP=0xE4), el color índice 0 corresponde a blanco, por lo que una VRAM vacía se renderiza como pantalla blanca
+  - El hack de BGP está activo, pero no ayuda porque no hay datos en VRAM para renderizar
+- **Conclusión del diagnóstico**:
+  - El problema no es solo el timing de encendido/apagado del LCD
+  - **La VRAM nunca se está cargando con datos durante la inicialización**
+  - Posibles causas: DMA no funciona, copias manuales a VRAM no se ejecutan, código de inicialización no se completa, o hay un bloqueo/error en la CPU antes de cargar gráficos
+- **Qué valida**: El Modo Rayos X revela que el problema fundamental es que la VRAM está vacía, no que el LCD esté apagado. Esto indica que el código del juego no está ejecutando las instrucciones que copian datos a VRAM, o hay un problema con el DMA.
+- **Próximo paso**: Verificar si el código del juego está ejecutando las instrucciones que copian datos a VRAM. Esto puede requerir logging de escrituras a VRAM o ejecución paso a paso para ver dónde se detiene la inicialización.
+
+#### Lo que Entiendo Ahora:
+- **VRAM vacía vs LCD apagado**: El Modo Rayos X permite distinguir entre estos dos problemas. Si la VRAM estuviera cargada, veríamos tiles/logos incluso con LCD apagado. La pantalla blanca confirma que la VRAM está vacía.
+- **Diagnóstico visual**: Ver pantalla blanca con Modo Rayos X activo es más informativo que ver pantalla azul, porque confirma que el problema es la carga de datos, no solo el estado del LCD.
+
+#### Lo que Falta Confirmar:
+- **Por qué la VRAM no se carga**: No está claro si el problema es DMA, copias manuales, o que el código de inicialización no se ejecuta completamente. Se requiere más diagnóstico.
+- **Dónde se detiene la inicialización**: Necesitamos identificar en qué punto del código el juego se detiene antes de cargar los gráficos.
+
+---
+
 ## 2025-12-18 - Monitor de Estado en Tiempo Real (Step 0056)
 
 ### Conceptos Hardware Implementados

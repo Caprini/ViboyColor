@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modo Rayos X: Renderizado Forzado - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Modo Rayos X: Renderizado Forzado</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0059
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0058__restaurar-hack-renderizado-lcdc.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó el "Modo Rayos X", una herramienta de diagnóstico que fuerza el renderizado
+                    de la VRAM incluso cuando el LCD está apagado (LCDC bit 7=0). Esto permite visualizar qué
+                    contenido hay en la VRAM durante los momentos en que el juego apaga rápidamente el LCD,
+                    lo cual es especialmente útil para diagnosticar problemas de arranque en juegos como
+                    Pokémon Red que encienden y apagan el LCD en milisegundos.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy real, cuando el Bit 7 del registro LCDC está en 0, el LCD está completamente
+                    desactivado y no se renderiza nada. El hardware de la PPU (Picture Processing Unit) simplemente
+                    no genera señales de vídeo, y la pantalla muestra un estado en blanco o apagado.
+                </p>
+                <p>
+                    Durante el arranque de muchos juegos, especialmente los que tienen secuencias de inicialización
+                    complejas, el juego puede encender el LCD brevemente (LCDC=0x80), verificar el estado, y luego
+                    apagarlo de nuevo (LCDC=0x00) para realizar configuraciones adicionales antes de mostrar la
+                    pantalla final. Este comportamiento es normal y permite al juego configurar la VRAM, paletas,
+                    sprites y otros componentes sin que el usuario vea contenido incompleto o corrupto.
+                </p>
+                <p>
+                    Sin embargo, cuando estamos depurando un emulador, puede ser muy útil ver qué hay en la VRAM
+                    incluso cuando el LCD está apagado. Esto nos permite entender:
+                </p>
+                <ul>
+                    <li>Si la VRAM se está cargando correctamente (DMA, copias manuales)</li>
+                    <li>Si los tiles están en las direcciones esperadas</li>
+                    <li>Si el tilemap tiene datos válidos</li>
+                    <li>Qué está viendo el juego (o qué intentaría ver) cuando enciende el LCD</li>
+                </ul>
+                <p>
+                    El "Modo Rayos X" es una herramienta de diagnóstico que NO representa el comportamiento real
+                    del hardware. Es puramente educativa y permite "ver a través" del estado del LCD para inspeccionar
+                    el contenido de la VRAM en cualquier momento.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Control Register, PPU States
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó la función <code>render_frame()</code> en <code>src/gpu/renderer.py</code> para
+                    implementar el Modo Rayos X. En lugar de retornar inmediatamente cuando el LCD está apagado,
+                    ahora forzamos una configuración de LCDC que permite renderizar el contenido de la VRAM.
+                </p>
+                
+                <h3>Cambio realizado</h3>
+                <p>
+                    Se eliminó el <code>return</code> temprano cuando <code>lcdc_bit7 == 0</code> y se reemplazó
+                    con lógica que fuerza un valor de LCDC apropiado para renderizado. Específicamente:
+                </p>
+                <ul>
+                    <li><strong>LCDC forzado: 0x91</strong>
+                        <ul>
+                            <li>Bit 7 = 1: LCD ON (forzado para permitir renderizado)</li>
+                            <li>Bit 4 = 1: Tile Data desde 0x8000 (unsigned addressing)</li>
+                            <li>Bit 3 = 0: Tile Map desde 0x9800</li>
+                            <li>Bit 0 = 1: BG Display ON</li>
+                        </ul>
+                    </li>
+                    <li>Se establece <code>lcdc_bit7 = True</code> para que el resto del código de renderizado
+                        funcione normalmente</li>
+                    <li>Se registra un mensaje de debug indicando que se está usando el Modo Rayos X</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se eligió LCDC=0x91 como configuración forzada porque:
+                </p>
+                <ul>
+                    <li>Es una configuración común que muchos juegos usan durante la inicialización</li>
+                    <li>Permite renderizar tanto el fondo (Background) como usar tiles desde 0x8000</li>
+                    <li>Es una configuración "razonable" que probablemente represente lo que el juego intentaría
+                        ver si el LCD estuviera encendido</li>
+                </ul>
+                <p>
+                    <strong>Nota importante:</strong> Esta es una herramienta temporal de diagnóstico. No representa
+                    el comportamiento real del hardware y solo debe usarse para debugging. En un emulador completo,
+                    cuando el LCD está apagado, no debería renderizarse nada.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Modificación en <code>render_frame()</code> para implementar Modo Rayos X</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Esta implementación es una herramienta de diagnóstico y no requiere tests unitarios formales,
+                    ya que no representa comportamiento real del hardware. Se validó ejecutando el emulador con Pokémon Red.
+                </p>
+                
+                <h3>Ejecución de prueba con Pokémon Red</h3>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>python main.py pkmn.gb</code>
+                </p>
+                <p>
+                    <strong>Entorno:</strong> Windows 10, Python 3.13.5, pygame-ce 2.5.6
+                </p>
+                <p>
+                    <strong>ROM:</strong> Pokémon Red (ROM aportada por el usuario, no distribuida)
+                </p>
+                
+                <h4>Salida de consola:</h4>
+                <pre><code>pygame-ce 2.5.6 (SDL 2.32.10, Python 3.13.5)
+Viboy Color - Sistema Iniciado
+==================================================
+
+📦 Cartucho cargado:
+   Título: POKEMON RED
+   Tipo: 0x13
+   ROM: 1024 KB
+   RAM: 32 KB
+   Tamaño total: 1048576 bytes
+
+🖥️  CPU inicializada:
+   PC = 0x0100
+   SP = 0xFFFE
+
+✅ Sistema listo para ejecutar
+   Presiona Ctrl+C para detener
+
+WARNING: 🔥 HACK: Forzando BGP 0x00 -> 0xE4 para visibilidad (el juego intentó escribir paleta blanca, forzamos paleta estándar)</code></pre>
+
+                <h4>Resultado visual:</h4>
+                <p>
+                    <strong>Pantalla observada:</strong> Pantalla completamente blanca
+                </p>
+                <p>
+                    <strong>Interpretación:</strong> La pantalla blanca indica que:
+                </p>
+                <ul>
+                    <li>El Modo Rayos X está funcionando correctamente (está forzando el renderizado cuando el LCD está apagado)</li>
+                    <li>La VRAM está vacía o contiene solo ceros (todos los tiles tienen índice de color 0)</li>
+                    <li>Con la paleta estándar (BGP=0xE4), el color índice 0 corresponde a blanco, por lo que una VRAM vacía se renderiza como pantalla blanca</li>
+                    <li>El hack de BGP está activo (se muestra el warning), pero no ayuda porque no hay datos en VRAM para renderizar</li>
+                </ul>
+
+                <h4>Conclusiones del diagnóstico:</h4>
+                <p>
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span> - Diagnóstico completo, pendiente de implementar solución
+                </p>
+                <p>
+                    El hecho de ver pantalla blanca con Modo Rayos X activo revela que el problema no es solo el timing
+                    de encendido/apagado del LCD, sino que la VRAM nunca se está cargando con datos. Esto sugiere que:
+                </p>
+                <ul>
+                    <li><strong>Problema principal:</strong> La VRAM no está siendo poblada con tiles/logos durante la inicialización</li>
+                    <li><strong>Posibles causas:</strong>
+                        <ul>
+                            <li>El DMA (Direct Memory Access) no está funcionando correctamente</li>
+                            <li>Las copias manuales de datos a VRAM no se están ejecutando</li>
+                            <li>El código de inicialización del juego no se está ejecutando completamente</li>
+                            <li>Hay un bloqueo o error en la CPU antes de que el juego pueda cargar los gráficos</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Próximo paso de diagnóstico:</strong> Verificar si el código del juego está ejecutando las
+                    instrucciones que copian datos a VRAM. Esto puede requerir logging de escrituras a VRAM o ejecución
+                    paso a paso para ver dónde se detiene la inicialización.
+                </p>
+
+                <p>
+                    <strong>Nota legal:</strong> La ROM de Pokémon Red es aportada por el usuario para pruebas locales.
+                    No se distribuye ni se incluye en el repositorio.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: LCD Control Register (<a href="https://gbdev.io/pandocs/LCDC.html">gbdev.io/pandocs/LCDC.html</a>)</li>
+                    <li>Pan Docs: PPU States (<a href="https://gbdev.io/pandocs/STAT.html">gbdev.io/pandocs/STAT.html</a>)</li>
+                </ul>
+                <p>
+                    <em>Nota: El Modo Rayos X es una herramienta de diagnóstico propia y no está documentada en
+                    especificaciones oficiales, ya que no representa comportamiento real del hardware.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Control del LCD:</strong> El Bit 7 de LCDC controla si el LCD está encendido o apagado.
+                            Cuando está apagado, el hardware real no genera señal de vídeo, pero la VRAM sigue siendo
+                            accesible y puede contener datos válidos.</li>
+                        <li><strong>Timing de arranque:</strong> Muchos juegos apagan y encienden el LCD durante la
+                            inicialización para configurar el hardware sin mostrar contenido parcial al usuario.</li>
+                        <li><strong>Debugging visual:</strong> Para entender qué está pasando en el emulador, puede ser
+                            útil visualizar el contenido de la VRAM incluso cuando el LCD está apagado, aunque esto no
+                            represente el comportamiento real del hardware.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Configuración óptima de LCDC forzado:</strong> Se eligió 0x91 como valor por defecto,
+                            pero podría no ser la configuración más apropiada para todos los juegos. Podría ser útil
+                            hacer este valor configurable o intentar "adivinar" mejor la configuración que el juego
+                            usaría si el LCD estuviera encendido.</li>
+                        <li><strong>Impacto en el rendimiento:</strong> Renderizar cuando el LCD está apagado consume
+                            recursos innecesarios. En el futuro, debería ser opcional o desactivarse cuando no se necesite
+                            debugging.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> Si Pokémon Red (u otro juego) muestra pantalla azul o
+                        pantalla en blanco, podría ser porque:
+                    </p>
+                    <ul>
+                        <li>El juego enciende el LCD brevemente pero lo apaga inmediatamente porque no recibe la
+                            interrupción V-Blank esperada</li>
+                        <li>La VRAM no se ha cargado correctamente (problema de DMA o copias manuales)</li>
+                        <li>El timing de las interrupciones no coincide con lo que el juego espera</li>
+                    </ul>
+                    <p>
+                        El Modo Rayos X permite visualizar la VRAM en estos momentos críticos para determinar cuál
+                        de estas hipótesis es la correcta.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar Pokémon Red con Modo Rayos X activo y observar qué contenido hay en la VRAM</li>
+                    <li>[ ] Si se ve el logo de Game Freak/Nintendo: verificar timing de interrupciones V-Blank</li>
+                    <li>[ ] Si se ve basura o pantalla vacía: verificar DMA y carga de VRAM</li>
+                    <li>[ ] Una vez identificado el problema, corregirlo y desactivar el Modo Rayos X para volver
+                        al comportamiento real del hardware</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

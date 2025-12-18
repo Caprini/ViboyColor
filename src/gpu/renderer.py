@@ -266,17 +266,23 @@ class Renderer:
             logger.warning(f"Visual heartbeat falló: {e}")
             pass
         
-        # Bit 7: LCD Enable
-        # Si el LCD está desactivado, pintar pantalla azul oscuro (diagnóstico) y retornar
-        # NOTA: En modo debug, podríamos renderizar VRAM de todas formas, pero
-        # por ahora respetamos el comportamiento del hardware real
+        # MODO RAYOS X: Forzar renderizado incluso si el LCD está apagado
+        # Esto es un modo de debug para ver qué hay en la VRAM cuando el juego
+        # apaga rápidamente el LCD (p.ej. Pokémon Red que enciende/apaga el LCD
+        # en milisegundos). Cuando el LCD está apagado, forzamos una configuración
+        # de LCDC para "adivinar" qué habría si estuviera encendido.
+        #
+        # NOTA: Esto no es comportamiento real del hardware, solo una herramienta
+        # de diagnóstico para entender qué hay en la VRAM durante el arranque.
         if not lcdc_bit7:
-            # El heartbeat ya está dibujado arriba, solo escalar y mostrar
-            scaled_buffer = pygame.transform.scale(self.buffer, (self.window_width, self.window_height))
-            self.screen.blit(scaled_buffer, (0, 0))
-            pygame.display.flip()
-            logger.debug("RENDER: LCD OFF (Pantalla Azul) - LCDC bit 7=0")
-            return
+            # Forzar LCDC=0x91 para renderizar:
+            # - Bit 7=1: LCD ON (forzado)
+            # - Bit 4=1: Tile Data desde 0x8000 (unsigned)
+            # - Bit 3=0: Tile Map desde 0x9800
+            # - Bit 0=1: BG Display ON
+            lcdc = 0x91
+            lcdc_bit7 = True
+            logger.debug("RAYOS X: LCD apagado detectado, forzando render con LCDC=0x91 para visualizar VRAM")
         
         # HACK EDUCATIVO: Ignorar Bit 0 de LCDC (BG Display)
         # En Game Boy Color, el Bit 0 no apaga el fondo, sino que cambia la prioridad
