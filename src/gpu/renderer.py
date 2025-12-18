@@ -20,6 +20,7 @@ Fuente: Pan Docs - Tile Data, 2bpp Format
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 try:
@@ -143,6 +144,19 @@ class Renderer:
         # Crear ventana
         self.screen = pygame.display.set_mode((self.window_width, self.window_height))
         pygame.display.set_caption("Viboy Color")
+        
+        # Cargar y establecer el icono de la aplicación
+        # El icono está en la raíz del proyecto
+        icon_path = Path(__file__).parent.parent.parent / "viboycolor-icon-no-bg.png"
+        if icon_path.exists():
+            try:
+                icon_surface = pygame.image.load(str(icon_path))
+                pygame.display.set_icon(icon_surface)
+                logger.info(f"Icono de aplicación cargado: {icon_path}")
+            except Exception as e:
+                logger.warning(f"No se pudo cargar el icono {icon_path}: {e}")
+        else:
+            logger.warning(f"Icono no encontrado: {icon_path}")
         
         # Crear framebuffer interno (160x144 píxeles, tamaño nativo de Game Boy)
         # Este buffer se escribe píxel a píxel y luego se escala a la ventana
