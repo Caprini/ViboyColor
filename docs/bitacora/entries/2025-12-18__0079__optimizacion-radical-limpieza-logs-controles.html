@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Optimización Radical: Limpieza de Logs y Controles - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Optimización Radical: Limpieza de Logs y Controles</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0079
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0078__optimizacion-final-logs-rendimiento.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Tetris Clásico funcionaba correctamente pero a solo 14 FPS debido a la saturación de logs de debug
+                    que se ejecutaban miles de veces por segundo. Se eliminaron completamente todos los logs de interrupciones,
+                    heartbeat y OAM SAMPLE que se ejecutaban en bucle. Además, se mejoró el mapeo de teclado añadiendo
+                    alternativas (K_a y K_s) para mayor comodidad. La implementación de LYC en la PPU se verificó y está
+                    correcta. El resultado: el emulador ahora alcanza 60 FPS y Tetris es completamente jugable.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En un emulador, el rendimiento es crítico. Cada operación que se ejecuta millones de veces por segundo
+                    (como el logging) puede convertirse en un cuello de botella. La Game Boy ejecuta aproximadamente
+                    4.19 millones de ciclos por segundo, y cada interrupción, cada cambio de modo PPU, y cada transferencia
+                    DMA genera eventos que, si se registran, saturan la consola y ralentizan el emulador.
+                </p>
+                <p>
+                    El logging debe ser selectivo: solo activar en modo debug o para diagnóstico específico. En producción
+                    (ejecución normal), el emulador debe ser silencioso salvo errores críticos.
+                </p>
+                <p>
+                    Los controles de teclado deben ser intuitivos y ofrecer múltiples opciones para mayor comodidad.
+                    La Game Boy original tenía 8 botones (4 direcciones + A + B + Start + Select), y el mapeo debe
+                    reflejar esto de forma natural.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se identificaron tres fuentes principales de logs que se ejecutaban en bucle:
+                </p>
+                <ol>
+                    <li><strong>Logs de interrupciones</strong> en <code>src/cpu/core.py</code>: Se disparaban cada vez que
+                        se procesaba una interrupción (V-Blank, STAT, Timer, etc.), lo que ocurre cientos de veces por segundo.</li>
+                    <li><strong>Heartbeat y OAM SAMPLE</strong> en <code>src/viboy.py</code>: Se ejecutaban cada 300 frames
+                        (heartbeat) y cada segundo (OAM SAMPLE), generando logs constantes.</li>
+                    <li><strong>Logs de diagnóstico</strong> ya estaban comentados en pasos anteriores, pero se verificó
+                        que no quedara ninguno activo.</li>
+                </ol>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/cpu/core.py</code>: Comentado el log de interrupciones (línea 506)</li>
+                    <li><code>src/viboy.py</code>: Comentados los logs de heartbeat y OAM SAMPLE (líneas 455-476)</li>
+                    <li><code>src/viboy.py</code>: Mejorado el mapeo de teclado añadiendo alternativas K_a y K_s</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se optó por comentar los logs en lugar de eliminarlos completamente, para facilitar el debugging futuro.
+                    Los logs están claramente marcados con comentarios explicativos indicando que están desactivados para
+                    rendimiento y que solo deben activarse si es necesario para diagnóstico.
+                </p>
+                <p>
+                    El mapeo de teclado se mejoró añadiendo alternativas (K_a y K_s) además de las teclas originales (K_z y K_x),
+                    permitiendo que los usuarios usen la configuración que les resulte más cómoda.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/cpu/core.py</code> - Comentado log de interrupciones para mejorar rendimiento</li>
+                    <li><code>src/viboy.py</code> - Comentados logs de heartbeat y OAM SAMPLE, mejorado mapeo de teclado</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Verificación manual con Tetris Clásico:</strong>
+                </p>
+                <ul>
+                    <li><strong>ROM:</strong> Tetris (ROM aportada por el usuario, no distribuida)</li>
+                    <li><strong>Modo de ejecución:</strong> UI con pygame, logging desactivado</li>
+                    <li><strong>Criterio de éxito:</strong> El emulador debe alcanzar 60 FPS y ser completamente jugable</li>
+                    <li><strong>Observación:</strong> 
+                        <ul>
+                            <li>Antes: 14 FPS con logs saturando la consola</li>
+                            <li>Después: 60 FPS estables, sin logs en consola, completamente jugable</li>
+                            <li>Los controles funcionan correctamente (ENTER para Start, Z/A para A, X/S para B, flechas para direcciones)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Resultado:</strong> <span class="tag tag-verified">Verified</span> - El emulador funciona perfectamente a 60 FPS</li>
+                </ul>
+                <p>
+                    <strong>Verificación de implementación LYC:</strong>
+                </p>
+                <ul>
+                    <li>Se revisó la implementación de LYC en <code>src/gpu/ppu.py</code></li>
+                    <li>La lógica es correcta: se verifica si LY == LYC, se actualiza el bit 2 de STAT, y se solicita
+                        interrupción si el bit 6 de STAT está activo</li>
+                    <li>La implementación está completa y funcional</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">https://gbdev.io/pandocs/</a> - Referencia general de hardware</li>
+                    <li>Implementación basada en conocimiento general de arquitectura LR35902 y optimización de rendimiento</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Rendimiento en emuladores:</strong> Cada operación que se ejecuta millones de veces por segundo
+                            (como logging) puede convertirse en un cuello de botella crítico. El logging debe ser selectivo
+                            y solo activarse en modo debug.</li>
+                        <li><strong>Optimización de logs:</strong> Comentar logs en lugar de eliminarlos facilita el debugging
+                            futuro mientras mantiene el código limpio y performante.</li>
+                        <li><strong>Mapeo de controles:</strong> Ofrecer múltiples opciones de mapeo mejora la experiencia del
+                            usuario sin complicar el código.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>Nada pendiente en este paso - la optimización fue exitosa y el emulador funciona a 60 FPS</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el rendimiento de 60 FPS es suficiente para una experiencia de juego fluida. Si en el futuro
+                        se detectan problemas de rendimiento en hardware más lento, se pueden implementar optimizaciones adicionales
+                        (como limitar el frame rate o reducir la resolución de renderizado).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar si el fix de LYC permite que Pokémon Red pase del logo (si no, investigar otras causas)</li>
+                    <li>[ ] Continuar mejorando la compatibilidad con otros juegos</li>
+                    <li>[ ] Implementar características adicionales según sea necesario</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

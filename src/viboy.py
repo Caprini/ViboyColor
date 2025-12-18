@@ -450,30 +450,26 @@ class Viboy:
                         frame_rendered = True
                         frame_count += 1
                         
-                        # Heartbeat: cada 300 frames (≈5 segundos), mostrar estado básico
-                        # Reducido para mejorar rendimiento (sin cálculos pesados de VRAM)
-                        if frame_count % 300 == 0:
-                            fps = self._clock.get_fps() if self._clock is not None else 0.0
-                            heartbeat_msg = f"💓 Heartbeat (frame {frame_count}): FPS={fps:.2f}"
-                            logger.info(heartbeat_msg)
-                        
-                        # Heartbeat de tiempo real (cada segundo) para diagnóstico OAM
-                        current_time = time.time()
-                        if current_time - last_heartbeat_time >= 1.0:
-                            last_heartbeat_time = current_time
-                            # OAM Checksum (primeros 16 bytes = 4 sprites)
-                            if self._mmu is not None:
-                                oam_sample = [self._mmu.read_byte(0xFE00 + i) for i in range(16)]
-                                # Calcular checksum simple (suma de los primeros 16 bytes)
-                                oam_checksum = sum(oam_sample)
-                                # Detectar si hay sprites no-vacíos (Y != 0 y Y != 0xFF típicamente)
-                                non_zero_count = sum(1 for b in oam_sample if b != 0)
-                                logger.info(
-                                    f"👾 OAM SAMPLE: Checksum={oam_checksum} | "
-                                    f"Non-zero bytes={non_zero_count}/16 | "
-                                    f"First sprite: Y={oam_sample[0]}, X={oam_sample[1]}, "
-                                    f"Tile={oam_sample[2]}, Flags=0x{oam_sample[3]:02X}"
-                                )
+                        # Heartbeat y diagnóstico OAM desactivados para mejorar rendimiento
+                        # (comentado - solo activar si es necesario para debugging)
+                        # if frame_count % 300 == 0:
+                        #     fps = self._clock.get_fps() if self._clock is not None else 0.0
+                        #     heartbeat_msg = f"💓 Heartbeat (frame {frame_count}): FPS={fps:.2f}"
+                        #     logger.info(heartbeat_msg)
+                        # 
+                        # current_time = time.time()
+                        # if current_time - last_heartbeat_time >= 1.0:
+                        #     last_heartbeat_time = current_time
+                        #     if self._mmu is not None:
+                        #         oam_sample = [self._mmu.read_byte(0xFE00 + i) for i in range(16)]
+                        #         oam_checksum = sum(oam_sample)
+                        #         non_zero_count = sum(1 for b in oam_sample if b != 0)
+                        #         logger.info(
+                        #             f"👾 OAM SAMPLE: Checksum={oam_checksum} | "
+                        #             f"Non-zero bytes={non_zero_count}/16 | "
+                        #             f"First sprite: Y={oam_sample[0]}, X={oam_sample[1]}, "
+                        #             f"Tile={oam_sample[2]}, Flags=0x{oam_sample[3]:02X}"
+                        #         )
                         
                         # Renderizar el frame
                         if self._renderer is not None:
@@ -601,13 +597,16 @@ class Viboy:
             pygame.event.pump()
             
             # Mapeo de teclas a botones del Joypad
+            # Múltiples teclas mapean al mismo botón para mayor comodidad
             key_mapping: dict[int, str] = {
                 pygame.K_UP: "up",
                 pygame.K_DOWN: "down",
                 pygame.K_LEFT: "left",
                 pygame.K_RIGHT: "right",
-                pygame.K_z: "a",
-                pygame.K_x: "b",
+                pygame.K_z: "a",      # Z o A para botón A
+                pygame.K_a: "a",       # Alternativa: A también mapea a botón A
+                pygame.K_x: "b",       # X o S para botón B
+                pygame.K_s: "b",       # Alternativa: S también mapea a botón B
                 pygame.K_RETURN: "start",
                 pygame.K_RSHIFT: "select",
             }

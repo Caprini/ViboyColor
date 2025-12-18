@@ -501,9 +501,9 @@ class CPU:
             interrupt_bit = 4
             interrupt_vector = 0x0060
         
-        # Log de interrupción
-        interrupt_names = ["V-Blank", "LCD STAT", "Timer", "Serial", "Joypad"]
-        logger.info(f"INTERRUPT: {interrupt_names[interrupt_bit]} triggered -> 0x{interrupt_vector:04X}")
+        # Log de interrupción (comentado para rendimiento)
+        # interrupt_names = ["V-Blank", "LCD STAT", "Timer", "Serial", "Joypad"]
+        # logger.info(f"INTERRUPT: {interrupt_names[interrupt_bit]} triggered -> 0x{interrupt_vector:04X}")
         
         # Procesar la interrupción:
         # 1. Desactivar IME (evitar interrupciones anidadas inmediatas)
