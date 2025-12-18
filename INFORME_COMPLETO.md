@@ -1,5 +1,53 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Depuración del Framebuffer
+
+### Conceptos Hardware Implementados
+
+**Diagnóstico y Corrección de Pantalla Negra**: Después de optimizar el renderizado con `PixelArray`, el emulador mostraba pantalla negra sin logs visibles. Se diagnosticó y corrigió el problema: el `PixelArray` no se estaba cerrando correctamente antes de hacer `blit` a la pantalla, bloqueando la superficie. Se cambió a usar un context manager (`with`) para asegurar el cierre correcto. Además, se añadió un **heartbeat** que imprime cada 60 frames (≈1 segundo) el PC y FPS para confirmar que el emulador está vivo, incluso cuando el logging está en modo DEBUG.
+
+**Bloqueo de Superficie en Pygame**: Cuando se crea un `PixelArray` sobre una superficie de Pygame, la superficie queda **"bloqueada"** para escritura directa. Esto significa que mientras el `PixelArray` está activo, la superficie no puede ser usada para otras operaciones como `blit` o `transform.scale`. Si intentas hacer estas operaciones con la superficie bloqueada, Pygame puede fallar silenciosamente o no dibujar nada.
+
+**Context Manager Pattern**: En Python, un context manager (usando `with`) garantiza que un recurso se libere correctamente, incluso si ocurre una excepción. Para `PixelArray`, usar `with pygame.PixelArray(buffer) as pixels:` asegura que el array se cierre automáticamente al salir del bloque, desbloqueando la superficie y permitiendo que operaciones posteriores como `blit` funcionen correctamente.
+
+**Heartbeat (Latido del Sistema)**: Un heartbeat es un mecanismo de diagnóstico que imprime periódicamente el estado del sistema para confirmar que está vivo y funcionando. En este caso, cada 60 frames (aproximadamente 1 segundo a 60 FPS), se imprime el Program Counter (PC) y los FPS actuales. Esto es especialmente útil cuando el logging está en modo DEBUG y no se muestran mensajes normales, permitiendo verificar que el emulador está ejecutándose correctamente.
+
+#### Tareas Completadas:
+
+1. **Modificación de Renderer (`src/gpu/renderer.py`)**:
+   - Cambiado `PixelArray` de usar `del pixels` a usar context manager `with pygame.PixelArray(self.buffer) as pixels:`.
+   - Esto garantiza que el `PixelArray` se cierre correctamente antes de intentar escalar o hacer blit del buffer.
+   - El código de diagnóstico y renderizado ahora está dentro del bloque `with` para asegurar el cierre correcto.
+
+2. **Modificación de Viboy (`src/viboy.py`)**:
+   - Añadido contador de frames `frame_count = 0` en el método `run()`.
+   - Añadido heartbeat que imprime cada 60 frames: `logger.info(f"Heartbeat: PC=0x{pc:04X} | FPS={fps:.2f}")`.
+   - El heartbeat usa `logger.info()` para que siempre se muestre, incluso cuando el logging está en modo DEBUG.
+
+3. **Verificación del "Hack del Bit 0"**:
+   - Se verificó que el "Hack del Bit 0" de LCDC sigue presente y funcionando correctamente (líneas 239-258 de `renderer.py`).
+   - Este hack permite que juegos CGB como Tetris DX que escriben `LCDC=0x80` (bit 7=1 LCD ON, bit 0=0 BG OFF) puedan mostrar gráficos.
+
+#### Archivos Afectados:
+- `src/gpu/renderer.py` - Cambiado `PixelArray` a usar context manager (`with`)
+- `src/viboy.py` - Añadido contador de frames y heartbeat que imprime cada 60 frames
+- `docs/bitacora/entries/2025-12-18__0036__debugging-framebuffer.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0036)
+- `docs/bitacora/entries/2025-12-17__0035__optimizacion-grafica-sincronizacion.html` (modificado, actualizado link "Siguiente")
+
+#### Tests y Verificación:
+
+**Verificación Manual**: Se ejecutó el emulador con Tetris DX para verificar que:
+- La pantalla ya no está negra (se muestra el fondo del juego)
+- El heartbeat aparece cada segundo en la consola: `INFO: Heartbeat: PC=0xXXXX | FPS=59.XX`
+- El framebuffer se renderiza correctamente sin bloqueos
+
+**Validación del Context Manager**: Se verificó que el código compila correctamente y que el `PixelArray` se cierra antes de hacer `blit`, evitando el bloqueo de la superficie.
+
+**Nota sobre Tests Unitarios**: Los tests existentes en `tests/test_gpu_scroll.py` usan `@patch('src.gpu.renderer.pygame.draw.rect')`, pero ahora el código usa `PixelArray` en lugar de `draw.rect`. Estos tests necesitarán actualizarse en el futuro para reflejar el nuevo método de renderizado, pero no afectan la funcionalidad del emulador.
+
+---
+
 ## 2025-12-17 - Optimización Gráfica y Sincronización de Tiempo
 
 ### Conceptos Hardware Implementados

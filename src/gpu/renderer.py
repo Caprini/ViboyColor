@@ -307,10 +307,6 @@ class Renderer:
         # Limpiar framebuffer con color de fondo (índice 0 de la paleta)
         self.buffer.fill(palette[0])
         
-        # Bloquear el framebuffer para escritura rápida de píxeles
-        # PixelArray permite escribir píxeles como si fuera una matriz 2D
-        pixels = pygame.PixelArray(self.buffer)
-        
         # DIAGNÓSTICO: Verificar contenido de VRAM y tilemap cuando se renderiza
         # Verificar algunos tiles del tilemap (primeras 16 posiciones = primera fila)
         tilemap_sample = []
@@ -377,72 +373,73 @@ class Renderer:
         # Contador de tiles dibujados
         tiles_drawn = 0
         
-        # Renderizar píxeles de la pantalla (160x144 píxeles)
-        # Para cada píxel de pantalla, calcular qué píxel del tilemap corresponde
-        # aplicando el scroll: map_pixel = (screen_pixel + scroll) % 256
-        for screen_y in range(GB_HEIGHT):  # 0-143 (144 líneas)
-            for screen_x in range(GB_WIDTH):  # 0-159 (160 columnas)
-                # Calcular posición en el tilemap aplicando scroll
-                # Wrap-around a 256 píxeles (tamaño del tilemap)
-                map_x = (screen_x + scx) & 0xFF  # Wrap-around a 256 píxeles
-                map_y = (screen_y + scy) & 0xFF  # Wrap-around a 256 píxeles
-                
-                # Convertir coordenadas de píxel a coordenadas de tile
-                # Cada tile es de 8x8 píxeles
-                tile_map_x = map_x // TILE_SIZE  # 0-31 (32 tiles de ancho)
-                tile_map_y = map_y // TILE_SIZE  # 0-31 (32 tiles de alto)
-                
-                # Calcular posición del píxel dentro del tile (0-7)
-                pixel_in_tile_x = map_x % TILE_SIZE
-                pixel_in_tile_y = map_y % TILE_SIZE
-                
-                # Leer Tile ID del tilemap
-                # El tilemap es de 32x32 bytes, cada byte es un Tile ID
-                map_addr = map_base + (tile_map_y * 32) + tile_map_x
-                tile_id = self.mmu.read_byte(map_addr) & 0xFF
-                
-                # Calcular dirección del tile en VRAM según el modo de direccionamiento
-                signed_id: int | None = None
-                if unsigned_addressing:
-                    # Modo unsigned: tile_id es 0-255, dirección = data_base + (tile_id * 16)
-                    tile_addr = data_base + (tile_id * BYTES_PER_TILE)
-                else:
-                    # Modo signed: tile_id es -128 a 127, donde 0 está en 0x9000
-                    # Convertir a signed: si tile_id >= 128, es negativo
-                    if tile_id >= 128:
-                        signed_id = tile_id - 256  # Convertir a signed (-128 a -1)
-                    else:
-                        signed_id = tile_id  # 0 a 127
-                    # Tile ID 0 está en 0x9000, así que: 0x9000 + (signed_id * 16)
-                    tile_addr = 0x9000 + (signed_id * BYTES_PER_TILE)
-                
-                # Asegurar que la dirección esté en VRAM (0x8000-0x9FFF)
-                if tile_addr < VRAM_START or tile_addr > VRAM_END:
-                    # Si está fuera de VRAM, dibujar píxel con color de fondo (índice 0)
-                    color = palette[0]
-                else:
-                    # Leer el píxel específico del tile
-                    # Cada línea del tile ocupa 2 bytes
-                    tile_line_addr = tile_addr + (pixel_in_tile_y * 2)
-                    byte1 = self.mmu.read_byte(tile_line_addr) & 0xFF
-                    byte2 = self.mmu.read_byte(tile_line_addr + 1) & 0xFF
+        # Bloquear el framebuffer para escritura rápida de píxeles
+        # PixelArray permite escribir píxeles como si fuera una matriz 2D
+        # Usar context manager para asegurar cierre correcto antes de blit
+        with pygame.PixelArray(self.buffer) as pixels:
+            # Renderizar píxeles de la pantalla (160x144 píxeles)
+            # Para cada píxel de pantalla, calcular qué píxel del tilemap corresponde
+            # aplicando el scroll: map_pixel = (screen_pixel + scroll) % 256
+            for screen_y in range(GB_HEIGHT):  # 0-143 (144 líneas)
+                for screen_x in range(GB_WIDTH):  # 0-159 (160 columnas)
+                    # Calcular posición en el tilemap aplicando scroll
+                    # Wrap-around a 256 píxeles (tamaño del tilemap)
+                    map_x = (screen_x + scx) & 0xFF  # Wrap-around a 256 píxeles
+                    map_y = (screen_y + scy) & 0xFF  # Wrap-around a 256 píxeles
                     
-                    # Decodificar el píxel específico de la línea
-                    # El píxel está en la posición pixel_in_tile_x (0-7, de izquierda a derecha)
-                    # Necesitamos el bit (7 - pixel_in_tile_x) de cada byte
-                    bit_pos = 7 - pixel_in_tile_x
-                    bit_low = (byte1 >> bit_pos) & 0x01
-                    bit_high = (byte2 >> bit_pos) & 0x01
-                    color_index = (bit_high << 1) | bit_low
-                    color = palette[color_index]
-                
-                # Escribir píxel directamente en el framebuffer
-                # PixelArray permite acceso directo como matriz 2D: pixels[x, y] = color
-                pixels[screen_x, screen_y] = color
-                tiles_drawn += 1
-        
-        # Liberar el PixelArray (importante: debe cerrarse antes de usar el buffer)
-        del pixels
+                    # Convertir coordenadas de píxel a coordenadas de tile
+                    # Cada tile es de 8x8 píxeles
+                    tile_map_x = map_x // TILE_SIZE  # 0-31 (32 tiles de ancho)
+                    tile_map_y = map_y // TILE_SIZE  # 0-31 (32 tiles de alto)
+                    
+                    # Calcular posición del píxel dentro del tile (0-7)
+                    pixel_in_tile_x = map_x % TILE_SIZE
+                    pixel_in_tile_y = map_y % TILE_SIZE
+                    
+                    # Leer Tile ID del tilemap
+                    # El tilemap es de 32x32 bytes, cada byte es un Tile ID
+                    map_addr = map_base + (tile_map_y * 32) + tile_map_x
+                    tile_id = self.mmu.read_byte(map_addr) & 0xFF
+                    
+                    # Calcular dirección del tile en VRAM según el modo de direccionamiento
+                    signed_id: int | None = None
+                    if unsigned_addressing:
+                        # Modo unsigned: tile_id es 0-255, dirección = data_base + (tile_id * 16)
+                        tile_addr = data_base + (tile_id * BYTES_PER_TILE)
+                    else:
+                        # Modo signed: tile_id es -128 a 127, donde 0 está en 0x9000
+                        # Convertir a signed: si tile_id >= 128, es negativo
+                        if tile_id >= 128:
+                            signed_id = tile_id - 256  # Convertir a signed (-128 a -1)
+                        else:
+                            signed_id = tile_id  # 0 a 127
+                        # Tile ID 0 está en 0x9000, así que: 0x9000 + (signed_id * 16)
+                        tile_addr = 0x9000 + (signed_id * BYTES_PER_TILE)
+                    
+                    # Asegurar que la dirección esté en VRAM (0x8000-0x9FFF)
+                    if tile_addr < VRAM_START or tile_addr > VRAM_END:
+                        # Si está fuera de VRAM, dibujar píxel con color de fondo (índice 0)
+                        color = palette[0]
+                    else:
+                        # Leer el píxel específico del tile
+                        # Cada línea del tile ocupa 2 bytes
+                        tile_line_addr = tile_addr + (pixel_in_tile_y * 2)
+                        byte1 = self.mmu.read_byte(tile_line_addr) & 0xFF
+                        byte2 = self.mmu.read_byte(tile_line_addr + 1) & 0xFF
+                        
+                        # Decodificar el píxel específico de la línea
+                        # El píxel está en la posición pixel_in_tile_x (0-7, de izquierda a derecha)
+                        # Necesitamos el bit (7 - pixel_in_tile_x) de cada byte
+                        bit_pos = 7 - pixel_in_tile_x
+                        bit_low = (byte1 >> bit_pos) & 0x01
+                        bit_high = (byte2 >> bit_pos) & 0x01
+                        color_index = (bit_high << 1) | bit_low
+                        color = palette[color_index]
+                    
+                    # Escribir píxel directamente en el framebuffer
+                    # PixelArray permite acceso directo como matriz 2D: pixels[x, y] = color
+                    pixels[screen_x, screen_y] = color
+                    tiles_drawn += 1
         
         # Escalar el framebuffer a la ventana y hacer blit
         # pygame.transform.scale es rápido porque opera sobre una superficie completa

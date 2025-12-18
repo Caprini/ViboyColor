@@ -263,6 +263,9 @@ class Viboy:
         
         logger.info("Iniciando bucle principal de ejecución...")
         
+        # Contador de frames para heartbeat (cada 60 frames ≈ 1 segundo)
+        frame_count = 0
+        
         try:
             while True:
                 # Manejar eventos de Pygame (cierre de ventana y teclado)
@@ -288,6 +291,14 @@ class Viboy:
                     
                     # Si acabamos de entrar en V-Blank, renderizar el frame
                     if in_vblank and not self._prev_vblank:
+                        frame_count += 1
+                        
+                        # Heartbeat: cada 60 frames (≈1 segundo), mostrar estado
+                        if frame_count % 60 == 0:
+                            pc = self._cpu.registers.get_pc()
+                            fps = self._clock.get_fps() if self._clock is not None else 0.0
+                            logger.info(f"Heartbeat: PC=0x{pc:04X} | FPS={fps:.2f}")
+                        
                         # Log del estado de LCDC, IE, IF para debugging
                         if self._mmu is not None:
                             lcdc = self._mmu.read_byte(0xFF40)
