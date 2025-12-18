@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timer (DIV) y Limpieza de Logs - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Timer (DIV) y Limpieza de Logs</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0037
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0036__debugging-framebuffer.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El emulador sufría de <strong>rendimiento inaceptable</strong> debido a logs excesivos que bloqueaban el hilo principal
+                    (especialmente en MacBook Air 2015). Se silenciaron los logs de nivel <code>INFO</code> dentro del bucle crítico
+                    (MMU y renderer), cambiándolos a <code>DEBUG</code>. Además, se implementó el subsistema <strong>Timer</strong> con el
+                    registro <strong>DIV (0xFF04)</strong>, que es crítico para juegos como Tetris DX que lo usan para generación de números
+                    aleatorios (RNG). El Timer incrementa continuamente a 16384 Hz (cada 256 T-Cycles) y se resetea cuando se escribe en 0xFF04.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El <strong>Timer</strong> de la Game Boy es un sistema de temporización que incluye varios registros:
+                </p>
+                <ul>
+                    <li><strong>DIV (0xFF04)</strong>: Divider Register - Contador que incrementa continuamente a velocidad fija (16384 Hz).</li>
+                    <li><strong>TIMA (0xFF05)</strong>: Timer Counter - Contador configurable que puede generar interrupciones.</li>
+                    <li><strong>TMA (0xFF06)</strong>: Timer Modulo - Valor de recarga cuando TIMA desborda.</li>
+                    <li><strong>TAC (0xFF07)</strong>: Timer Control - Controla si TIMA está activo y su frecuencia.</li>
+                </ul>
+                <p>
+                    En este paso, implementamos solo <strong>DIV</strong>, que es el más crítico para muchos juegos.
+                </p>
+                <h3>Registro DIV (0xFF04)</h3>
+                <p>
+                    DIV es un contador interno de <strong>16 bits</strong> que incrementa a velocidad fija: <strong>16384 Hz</strong>.
+                    El registro DIV expone solo los <strong>8 bits altos</strong> del contador interno (bits 8-15).
+                </p>
+                <p>
+                    <strong>Características clave:</strong>
+                </p>
+                <ul>
+                    <li>Incrementa cada <strong>256 T-Cycles</strong> (4.194304 MHz / 16384 Hz = 256).</li>
+                    <li>Cualquier <strong>escritura en DIV resetea el contador interno a 0</strong>, independientemente del valor escrito.</li>
+                    <li>Muchos juegos usan DIV para generar números aleatorios (RNG) leyendo su valor en momentos impredecibles.</li>
+                    <li>El contador interno hace wrap-around automáticamente (0xFFFF → 0x0000).</li>
+                </ul>
+                <p>
+                    <strong>Impacto del Logging:</strong> Imprimir en <code>stdout</code> es una operación <strong>lentísima</strong> que bloquea
+                    el hilo principal. En un MacBook Air 2015, escribir miles de mensajes por segundo en la consola puede reducir el rendimiento
+                    de 60 FPS a menos de 1 FPS. Por eso, los logs de nivel <code>INFO</code> dentro del bucle crítico deben cambiarse a
+                    <code>DEBUG</code> para que solo aparezcan cuando se active explícitamente el modo debug.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Timer and Divider Registers
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <h3>1. Limpieza de Logs</h3>
+                <p>
+                    Se cambiaron los siguientes logs de <code>INFO</code> a <code>DEBUG</code>:
+                </p>
+                <ul>
+                    <li><strong>MMU (<code>src/memory/mmu.py</code>)</strong>: Log "IO WRITE" que se ejecutaba cada vez que se escribía en un registro I/O (0xFF00-0xFF7F).</li>
+                    <li><strong>Renderer (<code>src/gpu/renderer.py</code>)</strong>: Log "LCDC: LCD desactivado" que se ejecutaba cada frame cuando el LCD estaba apagado.</li>
+                    <li><strong>Viboy (<code>src/viboy.py</code>)</strong>: Log "V-Blank" que se ejecutaba cada frame durante V-Blank.</li>
+                </ul>
+                <p>
+                    El <strong>heartbeat</strong> (cada 60 frames ≈ 1 segundo) se mantiene en <code>INFO</code> para confirmar que el emulador está vivo.
+                </p>
+                
+                <h3>2. Implementación del Timer</h3>
+                <p>
+                    Se creó la clase <code>Timer</code> en <code>src/io/timer.py</code> con los siguientes métodos:
+                </p>
+                <ul>
+                    <li><code>tick(t_cycles)</code>: Avanza el Timer según los T-Cycles transcurridos. Acumula ciclos en el contador interno.</li>
+                    <li><code>read_div()</code>: Lee el registro DIV (8 bits altos del contador interno).</li>
+                    <li><code>write_div(value)</code>: Resetea el contador interno a 0. El valor escrito se ignora.</li>
+                    <li><code>get_div_counter()</code>: Obtiene el valor completo del contador interno (16 bits) para tests.</li>
+                </ul>
+                <p>
+                    <strong>Implementación del contador:</strong> El contador interno es de 16 bits y se incrementa acumulando T-Cycles.
+                    DIV expone solo los 8 bits altos: <code>DIV = (div_counter >> 8) & 0xFF</code>.
+                </p>
+                
+                <h3>3. Integración en MMU</h3>
+                <p>
+                    Se añadió soporte para leer/escribir DIV (0xFF04) en la MMU:
+                </p>
+                <ul>
+                    <li>En <code>read_byte(0xFF04)</code>: Se intercepta la lectura y se delega al Timer.</li>
+                    <li>En <code>write_byte(0xFF04)</code>: Se intercepta la escritura y se delega al Timer (resetea el contador).</li>
+                    <li>Se añadió el método <code>set_timer()</code> para conectar el Timer a la MMU (evitar dependencia circular).</li>
+                </ul>
+                
+                <h3>4. Integración en Viboy</h3>
+                <p>
+                    Se integró el Timer en el sistema principal:
+                </p>
+                <ul>
+                    <li>Se crea una instancia de <code>Timer</code> en <code>__init__()</code> y <code>load_cartridge()</code>.</li>
+                    <li>Se conecta el Timer a la MMU mediante <code>mmu.set_timer()</code>.</li>
+                    <li>En el método <code>tick()</code>, se llama a <code>timer.tick(t_cycles)</code> después de ejecutar la instrucción de la CPU.</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> Por ahora, solo se implementa DIV. TIMA/TMA/TAC se añadirán más adelante cuando sean necesarios.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/io/timer.py</code> - Nueva clase Timer con registro DIV</li>
+                    <li><code>src/io/__init__.py</code> - Exporta Timer</li>
+                    <li><code>src/memory/mmu.py</code> - Integración de Timer (lectura/escritura de 0xFF04), silenciado de logs IO WRITE</li>
+                    <li><code>src/gpu/renderer.py</code> - Silenciado de logs "LCDC desactivado"</li>
+                    <li><code>src/viboy.py</code> - Integración de Timer en sistema principal, silenciado de logs V-Blank</li>
+                    <li><code>tests/test_io_timer.py</code> - Suite de tests para Timer (10 tests)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests para el Timer con <strong>10 tests</strong> que validan:
+                </p>
+                <ul>
+                    <li>Inicialización correcta (DIV = 0)</li>
+                    <li>Incremento de DIV cada 256 T-Cycles</li>
+                    <li>Incremento múltiple y wrap-around</li>
+                    <li>Reset de DIV al escribir en 0xFF04</li>
+                    <li>Integración con MMU (lectura/escritura)</li>
+                </ul>
+                
+                <h3>Ejecución de Tests</h3>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>python3 -m pytest tests/test_io_timer.py -v</code>
+                </p>
+                <p>
+                    <strong>Entorno:</strong> macOS (darwin 21.6.0), Python 3.9.6
+                </p>
+                <p>
+                    <strong>Resultado:</strong> ✅ <strong>10 tests PASSED</strong> en 0.46s
+                </p>
+                <p>
+                    <strong>Qué valida:</strong>
+                </p>
+                <ul>
+                    <li>El Timer incrementa correctamente a 16384 Hz (cada 256 T-Cycles).</li>
+                    <li>DIV expone solo los 8 bits altos del contador interno de 16 bits.</li>
+                    <li>Cualquier escritura en DIV resetea el contador interno, independientemente del valor escrito.</li>
+                    <li>La integración con MMU funciona correctamente (lectura/escritura de 0xFF04).</li>
+                </ul>
+                
+                <h3>Código de Tests</h3>
+                <p>
+                    Fragmento clave del test que valida el incremento de DIV:
+                </p>
+                <pre><code>def test_div_increment(self) -> None:
+    """Test: Verificar que DIV incrementa cada 256 T-Cycles"""
+    timer = Timer()
+    
+    # DIV debe empezar en 0
+    assert timer.read_div() == 0
+    
+    # Avanzar 255 T-Cycles (aún no debe incrementar)
+    timer.tick(255)
+    assert timer.read_div() == 0
+    
+    # Avanzar 1 T-Cycle más (total 256) -> DIV debe incrementar
+    timer.tick(1)
+    assert timer.read_div() == 1
+    
+    # Avanzar otros 256 T-Cycles -> DIV debe ser 2
+    timer.tick(256)
+    assert timer.read_div() == 2</code></pre>
+                
+                <p>
+                    <strong>Por qué este test demuestra el comportamiento del hardware:</strong> El test verifica que DIV incrementa
+                    exactamente cada 256 T-Cycles, que es la frecuencia correcta (16384 Hz) según la especificación del hardware.
+                    Además, valida que el contador interno se acumula correctamente y que DIV expone solo los 8 bits altos.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Timer_and_Divider_Registers.html">Timer and Divider Registers</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Memory_Map.html">Memory Map</a> (registros I/O 0xFF00-0xFF7F)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>DIV es crítico para RNG:</strong> Muchos juegos usan DIV para generar números aleatorios leyendo su valor
+                            en momentos impredecibles. Si DIV siempre devuelve 0, los juegos pueden quedarse esperando o generar secuencias
+                            predecibles.</li>
+                        <li><strong>El logging mata el rendimiento:</strong> Escribir en <code>stdout</code> es extremadamente lento y bloquea
+                            el hilo principal. En hardware antiguo (MacBook Air 2015), esto puede reducir el rendimiento de 60 FPS a menos de 1 FPS.</li>
+                        <li><strong>DIV expone solo 8 bits altos:</strong> El contador interno es de 16 bits, pero DIV solo expone los bits 8-15.
+                            Esto significa que DIV incrementa cada 256 T-Cycles (cuando el bit 8 del contador cambia).</li>
+                        <li><strong>Reset de DIV:</strong> Cualquier escritura en DIV resetea el contador interno a 0, independientemente del valor
+                            escrito. Este es un comportamiento del hardware real, no un bug.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>TIMA/TMA/TAC:</strong> Por ahora solo implementamos DIV. TIMA (Timer Counter) y TAC (Timer Control) se
+                            implementarán más adelante cuando sean necesarios para juegos específicos. TIMA puede generar interrupciones
+                            cuando desborda, lo cual es más complejo.</li>
+                        <li><strong>Valor inicial de DIV:</strong> En una Game Boy real, el contador interno puede tener un valor aleatorio
+                            al encender. Por ahora, lo inicializamos a 0 para reproducibilidad en tests. Esto podría afectar a juegos que
+                            dependen del valor inicial para RNG.</li>
+                        <li><strong>Impacto en rendimiento real:</strong> Aunque silenciamos los logs, aún no hemos probado el emulador con
+                            una ROM real (como Tetris DX) para confirmar que el rendimiento mejora significativamente. Esto se validará en
+                            el siguiente paso.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición sobre frecuencia de DIV:</strong> Asumimos que DIV incrementa cada 256 T-Cycles basándonos en
+                        la documentación (16384 Hz = 4194304 Hz / 256). Esta suposición está respaldada por Pan Docs, pero no la hemos
+                        verificado con hardware real o test ROMs específicas.
+                    </p>
+                    <p>
+                        <strong>Suposición sobre reset de DIV:</strong> Asumimos que cualquier escritura en DIV resetea el contador interno,
+                        independientemente del valor escrito. Esta suposición está respaldada por Pan Docs y es un comportamiento común en
+                        hardware de la época.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Probar el emulador con Tetris DX para confirmar que el rendimiento mejora significativamente</li>
+                    <li>[ ] Verificar que DIV se lee correctamente durante la ejecución del juego</li>
+                    <li>[ ] Confirmar que el LCD se enciende después de la carga inicial (ahora que el rendimiento debería ser normal)</li>
+                    <li>[ ] Implementar TIMA/TMA/TAC si son necesarios para juegos específicos</li>
+                    <li>[ ] Ajustar el valor inicial de DIV si es necesario para compatibilidad con juegos que dependen de RNG</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

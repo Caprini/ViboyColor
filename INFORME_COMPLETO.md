@@ -1,5 +1,79 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Timer (DIV) y Limpieza de Logs
+
+### Conceptos Hardware Implementados
+
+**Timer y Registro DIV (0xFF04)**: El Timer de la Game Boy es un sistema de temporización que incluye varios registros. En este paso, implementamos el registro **DIV (0xFF04)**, que es un contador interno de 16 bits que incrementa continuamente a velocidad fija: **16384 Hz** (cada 256 T-Cycles). El registro DIV expone solo los **8 bits altos** del contador interno (bits 8-15). Cualquier escritura en DIV resetea el contador interno a 0, independientemente del valor escrito. Muchos juegos usan DIV para generar números aleatorios (RNG) leyendo su valor en momentos impredecibles.
+
+**Impacto del Logging en Rendimiento**: Imprimir en `stdout` es una operación **extremadamente lenta** que bloquea el hilo principal. En un MacBook Air 2015, escribir miles de mensajes por segundo en la consola puede reducir el rendimiento de 60 FPS a menos de 1 FPS. Por eso, los logs de nivel `INFO` dentro del bucle crítico (MMU y renderer) deben cambiarse a `DEBUG` para que solo aparezcan cuando se active explícitamente el modo debug.
+
+**Frecuencia de DIV**: DIV incrementa cada **256 T-Cycles** porque la frecuencia del sistema es 4.194304 MHz y la frecuencia de DIV es 16384 Hz: 4194304 / 16384 = 256. Esto significa que cada vez que el bit 8 del contador interno cambia, DIV incrementa.
+
+#### Tareas Completadas:
+
+1. **Limpieza de Logs (Optimización de Rendimiento)**:
+   - **MMU (`src/memory/mmu.py`)**: Cambiado log "IO WRITE" de `logger.info()` a `logger.debug()` (línea 287).
+   - **Renderer (`src/gpu/renderer.py`)**: Cambiado log "LCDC: LCD desactivado" de `logger.info()` a `logger.debug()` (línea 236).
+   - **Viboy (`src/viboy.py`)**: Cambiado log "V-Blank" de `logger.info()` a `logger.debug()` (líneas 309-317).
+   - El **heartbeat** (cada 60 frames) se mantiene en `INFO` para confirmar que el emulador está vivo.
+
+2. **Implementación del Timer (`src/io/timer.py`)**:
+   - Creada clase `Timer` con contador interno de 16 bits (`_div_counter`).
+   - Método `tick(t_cycles)`: Acumula T-Cycles en el contador interno.
+   - Método `read_div()`: Devuelve los 8 bits altos del contador (`(div_counter >> 8) & 0xFF`).
+   - Método `write_div(value)`: Resetea el contador interno a 0 (el valor escrito se ignora).
+   - Método `get_div_counter()`: Obtiene el valor completo del contador interno (para tests).
+
+3. **Integración en MMU (`src/memory/mmu.py`)**:
+   - Añadida referencia a `Timer` en `TYPE_CHECKING` y en `__init__()`.
+   - Interceptada lectura de `IO_DIV (0xFF04)` en `read_byte()`: delega al Timer.
+   - Interceptada escritura en `IO_DIV (0xFF04)` en `write_byte()`: delega al Timer (resetea contador).
+   - Añadido método `set_timer()` para conectar el Timer a la MMU (evitar dependencia circular).
+
+4. **Integración en Viboy (`src/viboy.py`)**:
+   - Importado `Timer` desde `src.io.timer`.
+   - Añadida instancia `_timer` en `__init__()` y `load_cartridge()`.
+   - Conectado Timer a MMU mediante `mmu.set_timer()`.
+   - En método `tick()`, se llama a `timer.tick(t_cycles)` después de ejecutar la instrucción de la CPU.
+
+5. **Tests (`tests/test_io_timer.py`)**:
+   - Creada suite completa de 10 tests validando:
+     - Inicialización correcta (DIV = 0)
+     - Incremento de DIV cada 256 T-Cycles
+     - Incremento múltiple y wrap-around
+     - Reset de DIV al escribir en 0xFF04
+     - Integración con MMU (lectura/escritura)
+   - Todos los tests pasan: ✅ **10 tests PASSED** en 0.46s
+
+#### Archivos Afectados:
+- `src/io/timer.py` (nuevo) - Clase Timer con registro DIV
+- `src/io/__init__.py` (modificado) - Exporta Timer
+- `src/memory/mmu.py` (modificado) - Integración de Timer (lectura/escritura de 0xFF04), silenciado de logs IO WRITE
+- `src/gpu/renderer.py` (modificado) - Silenciado de logs "LCDC desactivado"
+- `src/viboy.py` (modificado) - Integración de Timer en sistema principal, silenciado de logs V-Blank
+- `tests/test_io_timer.py` (nuevo) - Suite de tests para Timer (10 tests)
+- `docs/bitacora/entries/2025-12-18__0037__timer-y-limpieza-logs.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0037)
+- `docs/bitacora/entries/2025-12-18__0036__debugging-framebuffer.html` (modificado, actualizado link "Siguiente")
+
+#### Tests y Verificación:
+
+**Ejecución de Tests**: `python3 -m pytest tests/test_io_timer.py -v`
+- **Entorno**: macOS (darwin 21.6.0), Python 3.9.6
+- **Resultado**: ✅ **10 tests PASSED** en 0.46s
+- **Qué valida**:
+  - El Timer incrementa correctamente a 16384 Hz (cada 256 T-Cycles)
+  - DIV expone solo los 8 bits altos del contador interno de 16 bits
+  - Cualquier escritura en DIV resetea el contador interno, independientemente del valor escrito
+  - La integración con MMU funciona correctamente (lectura/escritura de 0xFF04)
+
+**Validación del Rendimiento**: Aunque silenciamos los logs, aún no hemos probado el emulador con una ROM real (como Tetris DX) para confirmar que el rendimiento mejora significativamente. Esto se validará en el siguiente paso.
+
+**Nota sobre TIMA/TMA/TAC**: Por ahora, solo implementamos DIV. TIMA (Timer Counter), TMA (Timer Modulo) y TAC (Timer Control) se implementarán más adelante cuando sean necesarios para juegos específicos. TIMA puede generar interrupciones cuando desborda, lo cual es más complejo.
+
+---
+
 ## 2025-12-18 - Depuración del Framebuffer
 
 ### Conceptos Hardware Implementados

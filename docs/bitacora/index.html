@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0037 - Timer (DIV) y Limpieza de Logs -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0037__timer-y-limpieza-logs.html" class="entry-link">
+                                    Timer (DIV) y Limpieza de Logs
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0037 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            El emulador sufría de rendimiento inaceptable debido a logs excesivos que bloqueaban el hilo principal. Se silenciaron los logs de nivel INFO dentro del bucle crítico (MMU y renderer), cambiándolos a DEBUG. Además, se implementó el subsistema Timer con el registro DIV (0xFF04), que es crítico para juegos como Tetris DX que lo usan para generación de números aleatorios (RNG). El Timer incrementa continuamente a 16384 Hz (cada 256 T-Cycles) y se resetea cuando se escribe en 0xFF04. Suite de tests (10 tests) validando incremento, wrap-around, reset e integración con MMU. Todos los tests pasan.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0036 - Depuración del Framebuffer -->
                     <li>
                         <div class="entry-header">

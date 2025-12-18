@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from .cartridge import Cartridge
     from ..gpu.ppu import PPU
     from ..io.joypad import Joypad
+    from ..io.timer import Timer
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +191,10 @@ class MMU:
         # Referencia al Joypad (se establece después para evitar dependencia circular)
         # El Joypad necesita la MMU para solicitar interrupciones
         self._joypad = None  # type: ignore
+        
+        # Referencia al Timer (se establece después para evitar dependencia circular)
+        # El Timer necesita la MMU para leer/escribir DIV
+        self._timer = None  # type: ignore
 
     def read_byte(self, addr: int) -> int:
         """
@@ -241,6 +246,15 @@ class MMU:
                 # 0xFF = 11111111 = todos los bits a 1 = todos los botones sueltos
                 return 0xFF
         
+        # Interceptar lectura del registro DIV (0xFF04) - Timer Divider
+        # DIV expone los 8 bits altos del contador interno del Timer
+        if addr == IO_DIV:
+            if self._timer is not None:
+                return self._timer.read_div() & 0xFF
+            else:
+                # Si no hay Timer conectado, devolver 0 (comportamiento por defecto)
+                return 0
+        
         # Para otras regiones, leer de la memoria interna
         return self._memory[addr] & 0xFF
 
@@ -281,10 +295,11 @@ class MMU:
             self._memory[addr] = value
             return
         
-        # Si está en el rango I/O (0xFF00-0xFF7F), registrar log informativo
+        # Si está en el rango I/O (0xFF00-0xFF7F), registrar log de debug (silenciado por defecto)
+        # CRÍTICO: Cambiado a DEBUG para evitar spam en consola que mata el rendimiento
         if 0xFF00 <= addr <= 0xFF7F:
             reg_name = IO_REGISTER_NAMES.get(addr, f"IO_0x{addr:04X}")
-            logger.info(f"IO WRITE: {reg_name} = 0x{value:02X} (addr: 0x{addr:04X})")
+            logger.debug(f"IO WRITE: {reg_name} = 0x{value:02X} (addr: 0x{addr:04X})")
         
         # Interceptar escritura al registro LY (0xFF44)
         # LY es de solo lectura, pero algunos juegos intentan escribir en él
@@ -299,6 +314,13 @@ class MMU:
             if self._joypad is not None:
                 self._joypad.write(value)
                 return  # No escribir en memoria, el Joypad maneja su propio estado
+        
+        # Interceptar escritura al registro DIV (0xFF04) - Timer Divider
+        # Cualquier escritura en DIV resetea el contador interno del Timer a 0
+        if addr == IO_DIV:
+            if self._timer is not None:
+                self._timer.write_div(value)
+                return  # No escribir en memoria, el Timer maneja su propio estado
         
         # Escribimos el byte en la memoria
         self._memory[addr] = value
@@ -399,4 +421,17 @@ class MMU:
         """
         self._joypad = joypad
         logger.debug("MMU: Joypad conectado para lectura/escritura de P1")
+    
+    def set_timer(self, timer: Timer) -> None:
+        """
+        Establece la referencia al Timer para permitir lectura/escritura del registro DIV.
+        
+        Este método se llama después de crear tanto la MMU como el Timer para evitar
+        dependencias circulares en el constructor.
+        
+        Args:
+            timer: Instancia de Timer
+        """
+        self._timer = timer
+        logger.debug("MMU: Timer conectado para lectura/escritura de DIV")
 

@@ -32,6 +32,7 @@ from .cpu.core import CPU
 from .cpu.registers import Registers
 from .gpu.ppu import PPU
 from .io.joypad import Joypad
+from .io.timer import Timer
 from .memory.cartridge import Cartridge
 from .memory.mmu import MMU
 
@@ -89,6 +90,7 @@ class Viboy:
         self._ppu: PPU | None = None
         self._renderer: Renderer | None = None
         self._joypad: Joypad | None = None
+        self._timer: Timer | None = None
         
         # Contador de ciclos totales ejecutados
         self._total_cycles: int = 0
@@ -111,6 +113,10 @@ class Viboy:
         else:
             # Inicializar sin cartucho (modo de prueba)
             self._mmu = MMU(None)
+            # Inicializar Timer
+            self._timer = Timer()
+            # Conectar Timer a MMU para lectura/escritura de DIV
+            self._mmu.set_timer(self._timer)
             # Inicializar Joypad con la MMU
             self._joypad = Joypad(self._mmu)
             # Conectar Joypad a MMU para lectura/escritura de P1
@@ -148,6 +154,11 @@ class Viboy:
         
         # Inicializar MMU con el cartucho
         self._mmu = MMU(self._cartridge)
+        
+        # Inicializar Timer
+        self._timer = Timer()
+        # Conectar Timer a MMU para lectura/escritura de DIV
+        self._mmu.set_timer(self._timer)
         
         # Inicializar Joypad con la MMU
         self._joypad = Joypad(self._mmu)
@@ -233,9 +244,14 @@ class Viboy:
         # Avanzar la PPU (motor de timing)
         # La CPU devuelve M-Cycles, pero la PPU necesita T-Cycles
         # Conversión: 1 M-Cycle = 4 T-Cycles
+        t_cycles = cycles * 4
         if self._ppu is not None:
-            t_cycles = cycles * 4
             self._ppu.step(t_cycles)
+        
+        # Avanzar el Timer
+        # El Timer también necesita T-Cycles
+        if self._timer is not None:
+            self._timer.tick(t_cycles)
         
         return cycles
 
@@ -299,14 +315,15 @@ class Viboy:
                             fps = self._clock.get_fps() if self._clock is not None else 0.0
                             logger.info(f"Heartbeat: PC=0x{pc:04X} | FPS={fps:.2f}")
                         
-                        # Log del estado de LCDC, IE, IF para debugging
+                        # Log del estado de LCDC, IE, IF para debugging (DEBUG para evitar spam)
+                        # CRÍTICO: Cambiado a DEBUG para evitar spam en consola que mata el rendimiento
                         if self._mmu is not None:
                             lcdc = self._mmu.read_byte(0xFF40)
                             ie = self._mmu.read_byte(0xFFFF)
                             if_reg = self._mmu.read_byte(0xFF0F)
                             bgp = self._mmu.read_byte(0xFF47)
                             if lcdc != 0:
-                                logger.info(
+                                logger.debug(
                                     f"V-Blank: LY={ly}, LCDC=0x{lcdc:02X}, "
                                     f"BGP=0x{bgp:02X}, IE=0x{ie:02X}, IF=0x{if_reg:02X} - Renderizando"
                                 )

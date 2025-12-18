@@ -233,7 +233,7 @@ class Renderer:
             scaled_buffer = pygame.transform.scale(self.buffer, (self.window_width, self.window_height))
             self.screen.blit(scaled_buffer, (0, 0))
             pygame.display.flip()
-            logger.info("LCDC: LCD desactivado (bit 7=0), pantalla blanca - 0 tiles dibujados")
+            logger.debug("LCDC: LCD desactivado (bit 7=0), pantalla blanca - 0 tiles dibujados")
             return
         
         # HACK EDUCATIVO: Ignorar Bit 0 de LCDC (BG Display)
