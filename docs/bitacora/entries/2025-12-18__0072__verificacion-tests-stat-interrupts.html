@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificación y Tests de Interrupciones STAT - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Verificación y Tests de Interrupciones STAT</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0072
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0071__interrupciones-stat-lyc.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se creó una suite completa de tests unitarios para verificar que la implementación de interrupciones STAT y registro LYC funciona correctamente. Los tests validan la comparación LY==LYC, actualización del bit 2 de STAT, solicitud de interrupciones STAT en diferentes condiciones (LYC coincidence, H-Blank, V-Blank, OAM Search), y la detección de rising edge. Todos los tests pasan, confirmando que la implementación es correcta y funcional.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Las interrupciones STAT son críticas para muchos juegos de Game Boy que necesitan sincronizarse con eventos específicos del renderizado. Los tests validan que el emulador implementa correctamente el comportamiento del hardware real:
+                </p>
+                <ul>
+                    <li><strong>Comparación LY==LYC</strong>: El bit 2 de STAT se actualiza dinámicamente cuando LY coincide con LYC.</li>
+                    <li><strong>Interrupciones por modo</strong>: Se pueden habilitar interrupciones cuando la PPU entra en H-Blank, V-Blank u OAM Search.</li>
+                    <li><strong>Rising edge detection</strong>: Las interrupciones solo se disparan cuando la condición pasa de False a True, no mientras permanece True.</li>
+                    <li><strong>Verificación inmediata</strong>: Cuando se escribe en LYC, se verifica inmediatamente si LY coincide con el nuevo valor.</li>
+                </ul>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - LCD Status Register (STAT), LYC Register, STAT Interrupt
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se creó el archivo <code>tests/test_ppu_stat.py</code> con 7 tests unitarios que cubren todos los aspectos críticos de las interrupciones STAT:
+                </p>
+                
+                <h3>Tests implementados</h3>
+                <ul>
+                    <li><strong><code>test_lyc_coincidence_flag</code></strong>: Verifica que el bit 2 de STAT se activa cuando LY == LYC y se desactiva cuando LY != LYC.</li>
+                    <li><strong><code>test_stat_interrupt_lyc_coincidence</code></strong>: Verifica que se solicita interrupción STAT cuando LY == LYC y el bit 6 de STAT está activo.</li>
+                    <li><strong><code>test_stat_interrupt_rising_edge</code></strong>: Verifica que la interrupción solo se dispara en rising edge, no múltiples veces en la misma línea.</li>
+                    <li><strong><code>test_stat_interrupt_mode_hblank</code></strong>: Verifica que se solicita interrupción STAT cuando entra en H-Blank y el bit 3 está activo.</li>
+                    <li><strong><code>test_stat_interrupt_mode_vblank</code></strong>: Verifica que se solicita interrupción STAT cuando entra en V-Blank y el bit 4 está activo.</li>
+                    <li><strong><code>test_stat_interrupt_mode_oam_search</code></strong>: Verifica que se solicita interrupción STAT cuando entra en OAM Search y el bit 5 está activo.</li>
+                    <li><strong><code>test_lyc_write_triggers_check</code></strong>: Verifica que escribir en LYC verifica inmediatamente si LY coincide con el nuevo valor.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Cobertura completa</strong>: Los tests cubren todos los casos de uso principales de las interrupciones STAT, asegurando que la implementación funciona correctamente en todos los escenarios.</li>
+                    <li><strong>Tests deterministas</strong>: Todos los tests son deterministas y no dependen de timing externo o estado aleatorio.</li>
+                    <li><strong>Validación de hardware</strong>: Cada test valida un comportamiento específico del hardware real, no solo que el código no crashea.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tests/test_ppu_stat.py</code> (nuevo) - Suite completa de tests para interrupciones STAT y registro LYC:
+                        <ul>
+                            <li>7 tests unitarios que validan todos los aspectos críticos.</li>
+                            <li>Tests deterministas que no dependen de timing externo.</li>
+                            <li>Cobertura completa de casos de uso principales.</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Ejecución de Tests</strong>: <code>pytest tests/test_ppu_stat.py -v</code>
+                </p>
+                <ul>
+                    <li><strong>Entorno</strong>: Windows, Python 3.13.5</li>
+                    <li><strong>Resultado</strong>: ✅ <strong>7 tests PASSED</strong> en 0.26s</li>
+                    <li><strong>Qué valida</strong>:
+                        <ul>
+                            <li>El bit 2 de STAT se actualiza correctamente cuando LY == LYC.</li>
+                            <li>Las interrupciones STAT se solicitan correctamente cuando se cumplen las condiciones configuradas.</li>
+                            <li>La detección de rising edge funciona correctamente (no hay múltiples interrupciones en la misma línea).</li>
+                            <li>La verificación inmediata al escribir en LYC funciona correctamente.</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Código del test (ejemplo: test_lyc_coincidence_flag)</strong>:
+                </p>
+                <pre><code>def test_lyc_coincidence_flag(self) -> None:
+    """Test: El bit 2 de STAT se activa cuando LY == LYC."""
+    mmu = MMU(None)
+    ppu = PPU(mmu)
+    mmu.set_ppu(ppu)
+    
+    # Encender LCD (LCDC bit 7 = 1)
+    mmu.write_byte(IO_LCDC, 0x80)
+    
+    # Configurar LYC = 10
+    mmu.write_byte(IO_LYC, 10)
+    
+    # Avanzar PPU hasta LY = 10
+    ppu.step(4560)
+    assert ppu.get_ly() == 10
+    
+    # Verificar que el bit 2 de STAT está activo
+    stat = mmu.read_byte(IO_STAT)
+    assert (stat & 0x04) != 0, "Bit 2 de STAT debe estar activo cuando LY == LYC"</code></pre>
+                <p>
+                    <strong>Por qué este test demuestra algo del hardware</strong>: Este test verifica que el bit 2 de STAT (LYC=LY Coincidence Flag) se actualiza dinámicamente por el hardware cuando LY coincide con LYC. En hardware real, este bit es de solo lectura y se actualiza automáticamente por la PPU. El test confirma que nuestro emulador implementa este comportamiento correctamente.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html#lcd-status-register-stat-ff41">LCD Status Register (STAT)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html#lyc-ly-compare-ff45">LYC (LY Compare) Register</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html#lcd-stat-interrupt">LCD STAT Interrupt</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Tests unitarios son esenciales</strong>: Los tests unitarios permiten verificar que la implementación funciona correctamente sin necesidad de ejecutar juegos completos. Esto es especialmente útil para validar comportamientos específicos del hardware que pueden ser difíciles de observar en tiempo de ejecución.</li>
+                        <li><strong>Rising edge detection es crítico</strong>: La detección de rising edge evita que se disparen múltiples interrupciones en la misma línea, lo cual es el comportamiento real del hardware. Los tests confirman que esta implementación funciona correctamente.</li>
+                        <li><strong>Verificación inmediata al cambiar LYC</strong>: Cuando el juego escribe en LYC, el hardware verifica inmediatamente si LY coincide con el nuevo valor. Esto es crítico para juegos que cambian LYC dinámicamente durante el renderizado.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento en juegos reales</strong>: Aunque los tests pasan, es importante verificar que las interrupciones STAT funcionan correctamente en juegos reales que las usan (como Pokémon Red). Si un juego sigue congelado, puede haber un problema de timing o de sincronización que los tests unitarios no detectan.</li>
+                        <li><strong>Timing exacto de interrupciones</strong>: Los tests verifican que las interrupciones se solicitan cuando se cumplen las condiciones, pero no verifican el timing exacto (cuántos ciclos después del evento se solicita la interrupción). En la mayoría de los casos, esto no es crítico, pero puede ser importante para algunos juegos.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que si todos los tests unitarios pasan, la implementación es correcta. Sin embargo, si un juego real sigue congelado, puede haber un problema de integración o de timing que los tests no detectan. En ese caso, sería necesario investigar más a fondo con logs o debugging en tiempo de ejecución.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar que las interrupciones STAT funcionan correctamente en juegos reales (p.ej. Pokémon Red)</li>
+                    <li>[ ] Si un juego sigue congelado, investigar con logs o debugging en tiempo de ejecución</li>
+                    <li>[ ] Documentar timing exacto de interrupciones STAT si se encuentra información más detallada</li>
+                    <li>[ ] Continuar con otras funcionalidades pendientes del emulador (APU, mejoras de renderizado, etc.)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
