@@ -1,5 +1,55 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Interrupciones STAT y Registro LYC (Step 0071) ✅ VERIFICADO
+
+### Conceptos Hardware Implementados
+
+**Interrupciones STAT**: Las interrupciones STAT se generan cuando se cumplen condiciones específicas relacionadas con el estado del LCD (modo PPU o coincidencia LY==LYC). Son diferentes de la interrupción V-Blank y permiten a los juegos sincronizarse con eventos específicos del renderizado.
+
+**Registro LYC (0xFF45)**: Permite a los juegos configurar un valor de línea específico y recibir una interrupción cuando LY coincide con ese valor. Esto es esencial para efectos especiales como animaciones sincronizadas con líneas específicas de la pantalla.
+
+**Registro STAT (0xFF41) - Bit 2**: El bit 2 (LYC=LY Coincidence Flag) es de solo lectura y se actualiza dinámicamente por el hardware cuando LY == LYC. No puede ser escrito por el software, solo leído para hacer polling manual.
+
+**Rising Edge Detection**: Las interrupciones STAT se disparan solo cuando la condición pasa de False a True, no mientras permanece True. Esto evita múltiples interrupciones en la misma línea y es crítico para el comportamiento correcto del hardware.
+
+**Fuente**: Pan Docs - LCD Status Register (STAT), LYC Register, STAT Interrupt
+
+#### Tareas Completadas:
+
+1. **src/gpu/ppu.py**:
+   - Añadidos atributos `lyc` y `stat_interrupt_line` en `__init__()`
+   - Nuevo método `_check_stat_interrupt()` que verifica condiciones de interrupción STAT
+   - Modificados `step()` y `_update_mode()` para detectar cambios y verificar interrupciones
+   - Actualizado `get_stat()` para incluir el bit 2 (LYC flag) calculado dinámicamente
+   - Nuevos métodos `get_lyc()` y `set_lyc()` para acceso al registro LYC
+
+2. **src/memory/mmu.py**:
+   - Añadida interceptación de lectura/escritura de `IO_LYC (0xFF45)`
+   - Actualizada escritura de STAT para limpiar bits 0-2 (no solo 0-1)
+
+3. **tests/test_ppu_modes.py**:
+   - Actualizados tests para reflejar que el bit 2 de STAT es de solo lectura
+   - Añadido encendido del LCD en los tests para que la PPU funcione correctamente
+
+#### Archivos Afectados:
+- `src/gpu/ppu.py` (modificado) - Implementación completa de interrupciones STAT y registro LYC
+- `src/memory/mmu.py` (modificado) - Integración de LYC en MMU
+- `tests/test_ppu_modes.py` (modificado) - Actualización de tests para bit 2 de STAT
+- `docs/bitacora/entries/2025-12-18__0071__interrupciones-stat-lyc.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0071)
+
+#### Validación:
+- **Estado**: ✅ Verified - El juego Pokémon Red avanza correctamente más allá del logo de GAME FREAK
+- **ROM**: Pokémon Red (ROM aportada por el usuario, no distribuida)
+- **Resultado**: El juego ahora avanza correctamente, mostrando la estrella fugaz animada, la intro de la pelea y llegando al menú principal. Antes se quedaba congelado en el logo de "GAME FREAK".
+- **Tests ejecutados**: `pytest tests/test_ppu_modes.py::TestPPUModes::test_stat_register_read tests/test_ppu_modes.py::TestPPUModes::test_stat_register_write_preserves_configurable_bits tests/test_ppu_modes.py::TestPPUModes::test_stat_write_ignores_mode_bits -v`
+- **Resultado de tests**: 3 passed en 0.27s (Windows 10, Python 3.13.5)
+- **Qué valida**: 
+  - Que el registro STAT devuelve el modo correcto en bits 0-1
+  - Que escribir en STAT preserva los bits configurables (3-6) pero ignora bits 0-2
+  - Que el bit 2 de STAT se calcula dinámicamente según LY == LYC
+- **Próximo paso**: Verificar comportamiento con otros juegos que usan interrupciones STAT
+
 ## 2025-12-18 - Completar Opcodes Finales de la CPU (Step 0069) ✅ VERIFICADO
 
 ### Conceptos Hardware Implementados
