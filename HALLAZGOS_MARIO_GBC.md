@@ -94,12 +94,60 @@ Mario.gbc es un **mejor caso de prueba** que Tetris DX porque:
 
 ---
 
+## Verificación de Renderizado Visual
+
+### Estado Actual
+- ✅ **LCDC se activa**: Cambia de `0x00 → 0x87` (bit 7=1, bit 0=1) alrededor del ciclo 279,000
+- ✅ **BGP en paleta normal**: `0xE4` (permite ver gráficos)
+- ✅ **Scroll activo**: SCX=4, SCY=112
+- ⏳ **Renderizado visual**: Pendiente de verificación con UI
+
+### Cómo Verificar el Renderizado
+
+**Opción 1: Script de verificación**
+```bash
+python3 verificar_renderizado_mario.py
+```
+
+**Opción 2: Ejecutar directamente**
+```bash
+python3 main.py mario.gbc
+```
+
+**Opción 3: Capturar solo logs**
+```bash
+python3 main.py mario.gbc 2>&1 | grep -E "(Render|LCDC|BGP|DIAGNÓSTICO|V-Blank|Scroll)"
+```
+
+### Qué Buscar en los Logs
+
+**Logs esperados si el renderizado funciona**:
+```
+INFO: V-Blank: LY=144, LCDC=0x87, BGP=0xE4, IE=0xXX, IF=0xXX - Renderizando
+INFO: Render frame: LCDC=0x87 (bit7=1, LCD ON), BGP=0xE4
+INFO: Scroll: SCX=0x04 (4), SCY=0x70 (112)
+INFO: DIAGNÓSTICO VRAM/Tilemap: Tilemap[0:16]=['XX', ...]... (tiles no-0: X/16), VRAM[0x8000:0x8020]=X bytes no-0
+```
+
+**En la ventana Pygame deberías ver**:
+- ✅ Gráficos visibles (fondo, tiles)
+- ✅ Colores en escala de grises (blanco, gris claro, gris oscuro, negro)
+- ✅ Posible scroll o animación
+
+**Si ves pantalla blanca**:
+- ⚠️ LCDC bit 7=0 (LCD desactivado) - esperar más ciclos
+- ⚠️ BGP=0x00 (paleta blanca)
+- ⚠️ VRAM vacío (tiles no cargados aún)
+
+### Documentación Relacionada
+- `VERIFICACION_RENDERIZADO_MARIO.md` - Guía completa de verificación
+
 ## Próximos Pasos
 
-1. ✅ **Ejecutar con UI** - Verificar que los gráficos se renderizan correctamente
-2. ⏳ **Verificar renderizado** - Confirmar que el fondo y los tiles se dibujan correctamente
-3. ⏳ **Probar interacciones** - Verificar que el joypad responde correctamente
-4. ⏳ **Comparar con Tetris DX** - Entender por qué Tetris DX tiene problemas diferentes
+1. ⏳ **Verificar renderizado visual** - Ejecutar con UI y confirmar que se ven gráficos
+2. ⏳ **Probar interacciones** - Verificar que el joypad responde correctamente
+3. ⏳ **Comparar con Tetris DX** - Entender por qué Tetris DX tiene problemas diferentes
+4. ⏳ **Optimizar renderizado** - Si funciona, considerar optimizaciones de rendimiento
 
 ---
 
