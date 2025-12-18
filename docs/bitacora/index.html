@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0090 - Fix: Renderizado Limpio e Input Estable -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0090__fix-renderizado-limpio-input-estable.html" class="entry-link">
+                                    Fix: Renderizado Limpio e Input Estable
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0090 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección crítica de problemas de "Sprite Trailing" y desincronización de fondo causados por la optimización "Big Blit". Se simplificó el renderizado eliminando el buffer persistente y volviendo a dibujar solo los tiles visibles (20x18) usando la caché de tiles, asegurando que cada frame se dibuje sobre un buffer limpio. Se verificó que el sistema de input solo lanza interrupciones en flanco de bajada, evitando saturación de la CPU. El emulador ahora muestra gráficos limpios y responde correctamente a los controles.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0089 - Optimización Big Blit y Depuración de Inputs -->
                     <li>
                         <div class="entry-header">

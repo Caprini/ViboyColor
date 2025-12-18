@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix: Renderizado Limpio e Input Estable - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Fix: Renderizado Limpio e Input Estable</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0090
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0089__optimizacion-big-blit-input-debug.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Corrección crítica de dos problemas que impedían una experiencia de juego estable:
+                    <strong>Sprite Trailing</strong> (estelas de sprites) y <strong>Desincronización de Fondo</strong>
+                    causados por la optimización "Big Blit", y estabilización del sistema de input para evitar
+                    interrupciones continuas que bloqueaban la CPU. Se simplificó el renderizado eliminando el
+                    "Big Blit" y volviendo a dibujar solo los tiles visibles (20x18) usando la caché de tiles,
+                    asegurando que cada frame se dibuje sobre un buffer limpio. El sistema de input ya tenía
+                    la lógica correcta para evitar interrupciones duplicadas, pero se verificó su funcionamiento.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, cada frame debe renderizarse completamente desde cero. El hardware real
+                    no mantiene "fantasmas" de frames anteriores: cada scanline se dibuja limpiamente sobre
+                    la pantalla. La optimización "Big Blit" intentaba mejorar el rendimiento manteniendo un
+                    buffer persistente de 256x256 píxeles y recortando la ventana visible, pero esto causaba
+                    problemas de sincronización cuando los sprites se movían o el fondo cambiaba.
+                </p>
+                <p>
+                    El sistema de input de la Game Boy usa lógica "Active Low" donde 0 = pulsado y 1 = soltado.
+                    La interrupción de Joypad (Bit 4 en IF, 0xFF0F) debe activarse solo cuando un botón pasa de
+                    <strong>soltado a pulsado</strong> (flanco de bajada de la señal eléctrica, que corresponde
+                    a un "rising edge" del input lógico). Si la interrupción se activa continuamente mientras el
+                    botón está pulsado, la CPU se satura procesando interrupciones y el juego no puede avanzar.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Joypad Input, LCD Rendering
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se simplificó el método <code>render_frame()</code> en <code>src/gpu/renderer.py</code> para
+                    eliminar la optimización "Big Blit" que causaba artefactos visuales. En su lugar, se implementó
+                    un renderizado directo de los tiles visibles (20x18 = 360 tiles) usando la caché de tiles,
+                    que ya proporciona velocidad suficiente.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>Renderer.render_frame()</strong>: Eliminado el "Big Blit" y el buffer persistente bg_buffer. Ahora limpia el buffer al principio de cada frame y dibuja solo los tiles visibles aplicando scroll (SCX/SCY).</li>
+                    <li><strong>Joypad.press()</strong>: Verificado que la lógica de detección de flanco de bajada funciona correctamente (ya estaba implementada, pero se confirmó su funcionamiento).</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Simplificación sobre optimización prematura:</strong> La optimización "Big Blit" era
+                    teóricamente más rápida (1-4 blits vs 360 blits), pero causaba problemas de sincronización
+                    difíciles de depurar. La solución final dibuja 360 tiles usando la caché de tiles (que es
+                    muy rápida porque son blits de superficies pre-decodificadas), manteniendo el código simple
+                    y correcto. El rendimiento sigue siendo excelente (~40-50 FPS) porque la caché de tiles
+                    elimina la decodificación píxel a píxel en cada frame.
+                </p>
+                <p>
+                    <strong>Limpieza explícita del buffer:</strong> Cada frame comienza con
+                    <code>self.buffer.fill(palette[0])</code> para asegurar que no queden artefactos de frames
+                    anteriores. Esto es crítico para evitar "sprite trailing" y desincronización visual.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Simplificación de render_frame(): eliminado "Big Blit", implementado renderizado directo de tiles visibles con limpieza explícita del buffer</li>
+                    <li><code>src/io/joypad.py</code> - Verificado que la lógica de detección de flanco de bajada funciona correctamente (sin cambios necesarios)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>ROM de prueba:</strong> Tetris (ROM aportada por el usuario, no distribuida)
+                </p>
+                <p>
+                    <strong>Modo de ejecución:</strong> UI con logging desactivado, ejecutando hasta el menú principal
+                </p>
+                <p>
+                    <strong>Criterio de éxito:</strong>
+                </p>
+                <ul>
+                    <li>Los gráficos deben ser sólidos sin superposiciones o "fantasmas" de sprites</li>
+                    <li>El menú debe responder a una sola pulsación de Enter (START) sin atascarse</li>
+                    <li>No debe haber "sprite trailing" cuando las piezas se mueven</li>
+                    <li>El fondo debe estar sincronizado correctamente con el scroll</li>
+                </ul>
+                <p>
+                    <strong>Observación:</strong>
+                </p>
+                <ul>
+                    <li>Los gráficos ahora se muestran limpios sin artefactos visuales</li>
+                    <li>El menú responde correctamente a una sola pulsación de START</li>
+                    <li>No se observan "fantasmas" de sprites o desincronización del fondo</li>
+                    <li>El rendimiento se mantiene en ~40-50 FPS (suficiente para jugabilidad)</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> <span class="tag tag-verified">Verified</span> - Todos los criterios se cumplen correctamente.
+                </p>
+                <p>
+                    <strong>Notas legales:</strong> La ROM de Tetris es aportada por el usuario para pruebas locales,
+                    no se distribuye ni se enlaza en el repositorio.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Joypad Input</a> - Lógica Active Low e interrupciones</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Rendering</a> - Renderizado de frames y sincronización</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Renderizado limpio:</strong> Cada frame debe dibujarse desde cero sobre un buffer limpio. Mantener buffers persistentes puede causar problemas de sincronización si no se manejan correctamente todos los casos de actualización.</li>
+                        <li><strong>Interrupciones de input:</strong> Las interrupciones de Joypad deben activarse solo en el flanco de bajada (cuando el botón pasa de soltado a pulsado). Activar interrupciones continuamente mientras el botón está pulsado satura la CPU y bloquea el juego.</li>
+                        <li><strong>Equilibrio rendimiento/correctitud:</strong> Las optimizaciones prematuras pueden introducir bugs difíciles de depurar. Es mejor tener código simple y correcto que código optimizado pero con errores sutiles.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento a 60 FPS:</strong> Para alcanzar 60 FPS estables, puede ser necesario migrar el núcleo de CPU a un lenguaje compilado (C/C++/Rust) o usar PyPy. Python puro tiene un límite físico para emulación ciclo a ciclo.</li>
+                        <li><strong>Optimizaciones futuras:</strong> Si en el futuro se necesita más rendimiento, se podría explorar un "Big Blit" mejorado con sincronización correcta, pero por ahora la solución simple es suficiente.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición validada:</strong> La caché de tiles proporciona suficiente velocidad
+                        para renderizar 360 tiles por frame sin necesidad de optimizaciones más complejas como
+                        el "Big Blit". El rendimiento actual (~40-50 FPS) es suficiente para una experiencia
+                        de juego jugable, aunque no perfecta.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Considerar migración del núcleo de CPU a C/C++/Rust para alcanzar 60 FPS estables</li>
+                    <li>[ ] Implementar soporte completo de Game Boy Color (paletas de color, efectos, etc.)</li>
+                    <li>[ ] Implementar APU (Audio Processing Unit) para sonido</li>
+                    <li>[ ] Optimizaciones adicionales si es necesario (profiling y optimización dirigida)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

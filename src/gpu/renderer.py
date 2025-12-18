@@ -522,90 +522,101 @@ class Renderer:
         
         # OPTIMIZACIÓN: Actualizar caché de tiles antes de renderizar
         # Solo decodifica tiles que han cambiado desde el último frame
-        has_dirty_tiles = any(self.tile_dirty)
         self.update_tile_cache(palette)
         
-        # BIG BLIT OPTIMIZACIÓN: Solo reconstruir bg_buffer si hay cambios
-        # Detectamos cambios en: paleta (BGP), tiles dirty, o cambio de tilemap base
-        palette_changed = (bgp != self._last_bgp) if self._last_bgp is not None else True
-        needs_rebuild = self.bg_buffer_dirty or has_dirty_tiles or palette_changed
+        # FIX: Limpiar framebuffer al principio de cada frame para eliminar artefactos
+        # Esto asegura que no queden "fantasmas" de sprites o gráficos anteriores
+        self.buffer.fill(palette[0])
         
-        if needs_rebuild:
-            # Reconstruir bg_buffer completo (solo cuando es necesario)
-            self.bg_buffer.fill(palette[0])
-            
-            # Renderizar el tilemap completo (32x32 tiles = 256x256 píxeles)
-            for tile_map_y in range(32):
-                for tile_map_x in range(32):
-                    # Leer Tile ID del tilemap
-                    map_addr = map_base + (tile_map_y * 32) + tile_map_x
-                    tile_id = self.mmu.read_byte(map_addr) & 0xFF
-                    
-                    # Calcular índice del tile en la caché según el modo de direccionamiento
-                    if unsigned_addressing:
-                        # Modo unsigned: tile_id es 0-255, pero solo cacheamos 0-383 (0x8000-0x97FF)
-                        if tile_id < 384:
-                            cached_tile_id = tile_id
-                        else:
-                            # Tile fuera del rango cacheado, decodificar directamente
-                            cached_tile_id = None
-                            tile_addr = data_base + (tile_id * BYTES_PER_TILE)
+        # SIMPLIFICACIÓN: Renderizar solo los tiles visibles (20x18 = 360 tiles)
+        # En lugar de usar el "Big Blit" que causaba problemas de sincronización,
+        # dibujamos directamente los tiles visibles usando la caché (que es rápida).
+        # Esto elimina los artefactos de "sprite trailing" y desincronización de fondo.
+        #
+        # La pantalla muestra 160x144 píxeles = 20x18 tiles (cada tile es 8x8).
+        # Aplicamos scroll (SCX/SCY) para determinar qué tiles del tilemap (32x32) dibujar.
+        tiles_visible_x = 20  # 160 píxeles / 8 píxeles por tile
+        tiles_visible_y = 18   # 144 píxeles / 8 píxeles por tile
+        
+        # Calcular el tile inicial del tilemap según el scroll
+        # SCX/SCY se aplican a nivel de píxel, pero necesitamos saber qué tiles mostrar
+        start_tile_x = scx // TILE_SIZE
+        start_tile_y = scy // TILE_SIZE
+        offset_x = scx % TILE_SIZE  # Offset en píxeles dentro del primer tile
+        offset_y = scy % TILE_SIZE  # Offset en píxeles dentro del primer tile
+        
+        # Renderizar los tiles visibles del fondo
+        for screen_tile_y in range(tiles_visible_y + 1):  # +1 para cubrir el offset
+            for screen_tile_x in range(tiles_visible_x + 1):  # +1 para cubrir el offset
+                # Calcular posición del tile en el tilemap (con wrap-around de 32x32)
+                tile_map_x = (start_tile_x + screen_tile_x) % 32
+                tile_map_y = (start_tile_y + screen_tile_y) % 32
+                
+                # Leer Tile ID del tilemap
+                map_addr = map_base + (tile_map_y * 32) + tile_map_x
+                tile_id = self.mmu.read_byte(map_addr) & 0xFF
+                
+                # Calcular índice del tile en la caché según el modo de direccionamiento
+                if unsigned_addressing:
+                    # Modo unsigned: tile_id es 0-255, pero solo cacheamos 0-383 (0x8000-0x97FF)
+                    if tile_id < 384:
+                        cached_tile_id = tile_id
                     else:
-                        # Modo signed: tile_id es -128 a 127, donde 0 está en 0x9000
+                        # Tile fuera del rango cacheado, decodificar directamente
+                        cached_tile_id = None
+                        tile_addr = data_base + (tile_id * BYTES_PER_TILE)
+                else:
+                    # Modo signed: tile_id es -128 a 127, donde 0 está en 0x9000
+                    if tile_id >= 128:
+                        signed_id = tile_id - 256
+                    else:
+                        signed_id = tile_id
+                    tile_addr = 0x9000 + (signed_id * BYTES_PER_TILE)
+                    # Convertir dirección a índice de caché (0x8000-0x97FF)
+                    if VRAM_START <= tile_addr <= 0x97FF:
+                        cached_tile_id = (tile_addr - VRAM_START) // BYTES_PER_TILE
+                    else:
+                        cached_tile_id = None
+                
+                # Calcular posición en pantalla (aplicar offset de scroll)
+                screen_x = (screen_tile_x * TILE_SIZE) - offset_x
+                screen_y = (screen_tile_y * TILE_SIZE) - offset_y
+                
+                # Verificar si el tile está visible en pantalla
+                if screen_x < -TILE_SIZE or screen_x >= GB_WIDTH:
+                    continue
+                if screen_y < -TILE_SIZE or screen_y >= GB_HEIGHT:
+                    continue
+                
+                # Dibujar tile usando caché o decodificar directamente
+                if cached_tile_id is not None and cached_tile_id in self.tile_cache:
+                    # Blit rápido desde caché
+                    self.buffer.blit(self.tile_cache[cached_tile_id], (screen_x, screen_y))
+                else:
+                    # Tile fuera de caché, decodificar directamente (raro, pero posible)
+                    if unsigned_addressing:
+                        tile_addr = data_base + (tile_id * BYTES_PER_TILE)
+                    else:
                         if tile_id >= 128:
                             signed_id = tile_id - 256
                         else:
                             signed_id = tile_id
                         tile_addr = 0x9000 + (signed_id * BYTES_PER_TILE)
-                        # Convertir dirección a índice de caché (0x8000-0x97FF)
-                        if VRAM_START <= tile_addr <= 0x97FF:
-                            cached_tile_id = (tile_addr - VRAM_START) // BYTES_PER_TILE
-                        else:
-                            cached_tile_id = None
                     
-                    # Calcular posición del tile en el buffer (8x8 píxeles)
-                    tile_x = tile_map_x * TILE_SIZE
-                    tile_y = tile_map_y * TILE_SIZE
-                    
-                    # Dibujar tile usando caché o decodificar directamente
-                    if cached_tile_id is not None and cached_tile_id in self.tile_cache:
-                        # Blit rápido desde caché
-                        self.bg_buffer.blit(self.tile_cache[cached_tile_id], (tile_x, tile_y))
-                    else:
-                        # Tile fuera de caché, decodificar directamente (raro, pero posible)
-                        if unsigned_addressing:
-                            tile_addr = data_base + (tile_id * BYTES_PER_TILE)
-                        else:
-                            if tile_id >= 128:
-                                signed_id = tile_id - 256
-                            else:
-                                signed_id = tile_id
-                            tile_addr = 0x9000 + (signed_id * BYTES_PER_TILE)
-                        
-                        if VRAM_START <= tile_addr <= VRAM_END:
-                            # Decodificar tile directamente (fallback)
-                            for line in range(TILE_SIZE):
-                                byte1_addr = tile_addr + (line * 2)
-                                byte2_addr = tile_addr + (line * 2) + 1
-                                byte1 = self.mmu.read_byte(byte1_addr) & 0xFF
-                                byte2 = self.mmu.read_byte(byte2_addr) & 0xFF
-                                pixels = decode_tile_line(byte1, byte2)
-                                for pixel_x, color_index in enumerate(pixels):
-                                    color = palette[color_index]
-                                    self.bg_buffer.set_at((tile_x + pixel_x, tile_y + line), color)
-            
-            # Marcar bg_buffer como limpio después de reconstrucción
-            self.bg_buffer_dirty = False
-            self._last_bgp = bgp
-        
-        # Limpiar framebuffer con color de fondo (índice 0 de la paleta)
-        self.buffer.fill(palette[0])
-        
-        # BIG BLIT: Recortar la ventana visible (160x144) del tilemap completo aplicando scroll
-        # Esta es la optimización clave: en lugar de 360 blits individuales, hacemos 1-4 blits
-        # del bg_buffer completo al buffer final. Esto reduce drásticamente las llamadas a C.
-        scroll_rect = pygame.Rect(scx, scy, GB_WIDTH, GB_HEIGHT)
-        self.buffer.blit(self.bg_buffer, (0, 0), scroll_rect)
+                    if VRAM_START <= tile_addr <= VRAM_END:
+                        # Decodificar tile directamente (fallback)
+                        for line in range(TILE_SIZE):
+                            byte1_addr = tile_addr + (line * 2)
+                            byte2_addr = tile_addr + (line * 2) + 1
+                            byte1 = self.mmu.read_byte(byte1_addr) & 0xFF
+                            byte2 = self.mmu.read_byte(byte2_addr) & 0xFF
+                            pixels = decode_tile_line(byte1, byte2)
+                            for pixel_x, color_index in enumerate(pixels):
+                                color = palette[color_index]
+                                final_x = screen_x + pixel_x
+                                final_y = screen_y + line
+                                if 0 <= final_x < GB_WIDTH and 0 <= final_y < GB_HEIGHT:
+                                    self.buffer.set_at((final_x, final_y), color)
         
         # Renderizar Window encima del fondo (si está habilitada)
         if lcdc_bit5:
@@ -682,14 +693,6 @@ class Renderer:
                                     final_y = tile_screen_y + line
                                     if 0 <= final_x < GB_WIDTH and 0 <= final_y < GB_HEIGHT:
                                         self.buffer.set_at((final_x, final_y), color)
-        
-        # Contador de tiles dibujados (mantenido para compatibilidad, pero ya no es crítico)
-        tiles_drawn = 0
-        
-        # Escalar el framebuffer a la ventana y hacer blit
-        # pygame.transform.scale es rápido porque opera sobre una superficie completa
-        scaled_buffer = pygame.transform.scale(self.buffer, (self.window_width, self.window_height))
-        self.screen.blit(scaled_buffer, (0, 0))
         
         # Renderizar sprites (OBJ) encima del fondo
         # Los sprites se dibujan después del fondo para que aparezcan por encima
