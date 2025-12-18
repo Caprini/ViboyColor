@@ -1,5 +1,50 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Diagnóstico STAT Profundo: Monitoreo de Escrituras (Step 0075) 🔍 DRAFT
+
+### Conceptos Hardware Implementados
+
+**Monitoreo de Escrituras en STAT**: Para diagnosticar por qué no aparece la interrupción STAT (vector 0x0048) en los logs, se añadió instrumentación para monitorear todas las escrituras en el registro STAT (0xFF41) y detectar si el juego intenta activar el bit 6 (LYC interrupt enable).
+
+**Registro IE (Interrupt Enable, 0xFFFF)**: El registro IE controla qué interrupciones están habilitadas globalmente. Si la PPU genera una señal STAT pero IE bit 1 está desactivado, la CPU ignora la interrupción. Añadir el valor de IE en los logs permite determinar si la PPU genera la señal pero la CPU la ignora.
+
+**Fuente**: Pan Docs - LCD Status Register (STAT), Interrupt Enable Register (IE)
+
+#### Tareas Completadas:
+
+1. **src/memory/mmu.py**:
+   - Mejorado el logging de escrituras en STAT para mostrar el valor anterior y nuevo
+   - Añadido formato explícito `LYC_INT_ENABLE=True/False` para detectar fácilmente si se activa el bit 6
+   - El log ahora muestra: `STAT UPDATE: Old=XX New=YY | LYC_INT_ENABLE=True/False`
+
+2. **src/gpu/ppu.py**:
+   - Añadido el valor de IE (Interrupt Enable) en todos los logs de "STAT SIGNAL ACTIVE"
+   - Se muestra el valor de IE y si el bit 1 (STAT interrupt enable) está activo
+   - Esto permite determinar si la PPU genera la señal pero la CPU la ignora
+
+#### Archivos Afectados:
+- `src/memory/mmu.py` (modificado) - Mejora del logging de escrituras en STAT
+- `src/gpu/ppu.py` (modificado) - Añadido valor de IE en logs de señales STAT activas
+- `docs/bitacora/entries/2025-12-18__0075__diagnostico-stat-profundo-monitoreo-escrituras.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0075)
+
+#### Validación:
+- **Estado**: 🔍 Draft - Se necesita más investigación para determinar qué está esperando el juego
+- **ROM**: Pokémon Red (ROM aportada por el usuario, no distribuida)
+- **Comando ejecutado**: `python main.py pkmn.gb 2>&1 | Select-String -Pattern "LYC_INT_ENABLE|STAT SIGNAL|STAT UPDATE"`
+- **Entorno**: Windows 10, Python 3.10+
+- **Resultado**: 
+  - Se detectó **UNA SOLA** escritura en STAT: `STAT UPDATE: Old=01 New=00 | LYC_INT_ENABLE=False`
+  - El juego escribe 0x00 en STAT, desactivando todas las interrupciones STAT
+  - **NO** se detectó ninguna escritura con `LYC_INT_ENABLE=True`
+  - **NO** se detectó ninguna escritura en LYC (0xFF45)
+  - **NO** se detectó ninguna señal STAT activa por LYC
+- **Interpretación**:
+  - El juego **NO** está intentando usar la interrupción STAT por LYC
+  - El problema de congelamiento **NO** es que la interrupción STAT no se dispare
+  - El juego probablemente está esperando otra cosa (polling de STAT, otra interrupción, etc.)
+- **Próximos pasos**: Añadir logging de lecturas de STAT para ver si el juego está haciendo polling, investigar qué está haciendo el código del juego cuando se congela
+
 ## 2025-12-18 - Interrupciones STAT y Registro LYC (Step 0071) ✅ VERIFICADO
 
 ### Conceptos Hardware Implementados

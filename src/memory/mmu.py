@@ -391,17 +391,21 @@ class MMU:
         # Solo los bits 3-6 pueden ser escritos por el software
         # Los bits 0-2 siempre reflejan el estado actual de la PPU
         if addr == IO_STAT:
+            # Guardar el valor anterior para comparación
+            old_stat = self._memory[addr] & 0xFF
             # Guardar el valor escrito en memoria (para los bits configurables 3-6)
             # Los bits 0-2 se ignoran porque son de solo lectura
             # En hardware real, escribir en bits 0-2 no tiene efecto
             self._memory[addr] = value & 0xF8  # Solo guardar bits 3-7 (limpiar bits 0-2)
             # Instrumentación para diagnóstico: detectar configuración de STAT
+            # CRÍTICO: Detectar si se activa el bit 6 (LYC interrupt enable)
+            lyc_int_enable = (value & 0x40) != 0
             logger.info(
-                f"👁️ STAT WRITE: {value:02X} "
-                f"(Bit 3 H-Blank Int: {(value & 0x08) != 0}, "
-                f"Bit 4 V-Blank Int: {(value & 0x10) != 0}, "
-                f"Bit 5 OAM Int: {(value & 0x20) != 0}, "
-                f"Bit 6 LYC Int Enable: {(value & 0x40) != 0})"
+                f"👁️ STAT UPDATE: Old={old_stat:02X} New={value:02X} | "
+                f"LYC_INT_ENABLE={lyc_int_enable} "
+                f"(Bit 3 H-Blank: {(value & 0x08) != 0}, "
+                f"Bit 4 V-Blank: {(value & 0x10) != 0}, "
+                f"Bit 5 OAM: {(value & 0x20) != 0})"
             )
             return
         

@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0075 - Diagnóstico STAT Profundo: Monitoreo de Escrituras -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0075__diagnostico-stat-profundo-monitoreo-escrituras.html" class="entry-link">
+                                    Diagnóstico STAT Profundo: Monitoreo de Escrituras
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0075 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se añadió instrumentación de diagnóstico profundo para monitorear todas las escrituras en el registro STAT (0xFF41) y detectar si el juego intenta activar el bit 6 (LYC interrupt enable). Además, se mejoró el logging en la PPU para incluir el valor de IE (Interrupt Enable) cuando se detecta una señal STAT activa. Hallazgo crítico: Pokémon Red NO activa el bit 6 de STAT ni configura LYC, descartando que el problema sea que la interrupción STAT no se dispare.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0074 - Mejora de Actualización de STAT Bit 2 y write_byte_internal -->
                     <li>
                         <div class="entry-header">

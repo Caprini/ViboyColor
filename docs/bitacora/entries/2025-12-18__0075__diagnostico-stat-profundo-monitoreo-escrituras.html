@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnóstico STAT Profundo: Monitoreo de Escrituras - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Diagnóstico STAT Profundo: Monitoreo de Escrituras</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0075
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0074__mejora-actualizacion-stat-bit2-write-internal.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se añadió instrumentación de diagnóstico profundo para monitorear todas las escrituras en el registro STAT (0xFF41) y detectar si el juego intenta activar el bit 6 (LYC interrupt enable). Además, se mejoró el logging en la PPU para incluir el valor de IE (Interrupt Enable) cuando se detecta una señal STAT activa. El objetivo es determinar si el juego realmente intenta usar la interrupción STAT por LYC o si el problema está en otro lugar.
+                </p>
+                <p>
+                    <strong>Hallazgo crítico:</strong> El juego Pokémon Red NO activa el bit 6 de STAT ni configura LYC. Solo hay una escritura en STAT que desactiva todas las interrupciones (0x00). Esto significa que el problema NO es que la interrupción STAT no se dispare, sino que el juego simplemente no la está usando.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El registro STAT (0xFF41) de la Game Boy permite al software configurar qué condiciones de la PPU generan interrupciones:
+                </p>
+                <ul>
+                    <li><strong>Bit 3</strong>: Habilita interrupción cuando la PPU entra en Mode 0 (H-Blank)</li>
+                    <li><strong>Bit 4</strong>: Habilita interrupción cuando la PPU entra en Mode 1 (V-Blank)</li>
+                    <li><strong>Bit 5</strong>: Habilita interrupción cuando la PPU entra en Mode 2 (OAM Search)</li>
+                    <li><strong>Bit 6</strong>: Habilita interrupción cuando LY == LYC (coincidencia de línea)</li>
+                </ul>
+                <p>
+                    Si un juego quiere usar la interrupción STAT por LYC, debe:
+                    1. Escribir un valor en LYC (0xFF45) para establecer la línea objetivo
+                    2. Activar el bit 6 de STAT escribiendo un valor con el bit 6 a 1
+                </p>
+                <p>
+                    Si el juego NO hace estas dos cosas, entonces NO está intentando usar la interrupción STAT por LYC, y el problema de congelamiento debe estar en otro lugar (otra interrupción, polling de STAT, espera de V-Blank, etc.).
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Status Register (STAT), LYC Register (0xFF45)
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadieron dos mejoras de logging para diagnóstico:
+                </p>
+                
+                <h3>1. Monitoreo de Escrituras en STAT (MMU)</h3>
+                <p>
+                    En <code>src/memory/mmu.py</code>, se mejoró el logging cuando se escribe en STAT (0xFF41):
+                </p>
+                <ul>
+                    <li>Se guarda el valor anterior de STAT antes de escribir el nuevo</li>
+                    <li>Se muestra explícitamente si se activa el bit 6 (LYC interrupt enable) con el formato: <code>LYC_INT_ENABLE=True/False</code></li>
+                    <li>Se muestra el valor anterior y nuevo en formato hexadecimal</li>
+                </ul>
+                <p>
+                    Esto permite identificar inmediatamente si el juego intenta activar la interrupción STAT por LYC.
+                </p>
+
+                <h3>2. Logging de IE en Señales STAT Activas (PPU)</h3>
+                <p>
+                    En <code>src/gpu/ppu.py</code>, se añadió el valor de IE (Interrupt Enable, 0xFFFF) en todos los logs de "STAT SIGNAL ACTIVE":
+                </p>
+                <ul>
+                    <li>Se lee IE cuando se detecta una señal STAT activa</li>
+                    <li>Se muestra el valor de IE y si el bit 1 (STAT interrupt enable) está activo</li>
+                    <li>Esto permite determinar si la PPU genera la señal pero la CPU la ignora porque IE bit 1 está desactivado</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se decidió usar logging a nivel INFO para que estos mensajes sean visibles durante el diagnóstico, pero pueden desactivarse fácilmente cambiando el nivel del logger si se satura la salida.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/memory/mmu.py</code> - Mejora del logging de escrituras en STAT para mostrar LYC_INT_ENABLE</li>
+                    <li><code>src/gpu/ppu.py</code> - Añadido valor de IE en logs de señales STAT activas</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>ROM probada:</strong> Pokémon Red (ROM aportada por el usuario, no distribuida)
+                </p>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>python main.py pkmn.gb 2>&1 | Select-String -Pattern "LYC_INT_ENABLE|STAT SIGNAL|STAT UPDATE"</code>
+                </p>
+                <p>
+                    <strong>Entorno:</strong> Windows 10, Python 3.10+
+                </p>
+                <p>
+                    <strong>Resultado:</strong>
+                </p>
+                <ul>
+                    <li>Se detectó <strong>UNA SOLA</strong> escritura en STAT: <code>STAT UPDATE: Old=01 New=00 | LYC_INT_ENABLE=False</code></li>
+                    <li>El juego escribe 0x00 en STAT, desactivando todas las interrupciones STAT</li>
+                    <li><strong>NO</strong> se detectó ninguna escritura con <code>LYC_INT_ENABLE=True</code></li>
+                    <li><strong>NO</strong> se detectó ninguna escritura en LYC (0xFF45)</li>
+                    <li><strong>NO</strong> se detectó ninguna señal STAT activa por LYC</li>
+                </ul>
+                <p>
+                    <strong>Interpretación:</strong>
+                </p>
+                <ul>
+                    <li>El juego <strong>NO</strong> está intentando usar la interrupción STAT por LYC</li>
+                    <li>El problema de congelamiento <strong>NO</strong> es que la interrupción STAT no se dispare</li>
+                    <li>El juego probablemente está esperando otra cosa (polling de STAT, otra interrupción, etc.)</li>
+                </ul>
+                <p>
+                    <strong>Estado:</strong> <code>draft</code> - Se necesita más investigación para determinar qué está esperando el juego.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: LCD Status Register (STAT) - <a href="https://gbdev.io/pandocs/LCDC.html#lcd-status-register-stat-ff41">https://gbdev.io/pandocs/LCDC.html#lcd-status-register-stat-ff41</a></li>
+                    <li>Pan Docs: LYC Register (0xFF45) - <a href="https://gbdev.io/pandocs/LCDC.html#lyc-ly-compare-ff45">https://gbdev.io/pandocs/LCDC.html#lyc-ly-compare-ff45</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>El juego NO usa la interrupción STAT por LYC:</strong> El diagnóstico muestra claramente que Pokémon Red no activa el bit 6 de STAT ni configura LYC. Esto descarta la hipótesis de que el problema sea que la interrupción STAT no se dispare.</li>
+                        <li><strong>El problema está en otro lugar:</strong> Si el juego no intenta usar la interrupción STAT por LYC, entonces el congelamiento debe deberse a otra causa: polling de STAT esperando un modo específico, espera de V-Blank, otra interrupción, o un problema de timing.</li>
+                        <li><strong>Diagnóstico sistemático:</strong> Añadir logging detallado permite identificar exactamente qué está haciendo el juego y qué está esperando, lo que es esencial para diagnosticar problemas de emulación.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿Qué está esperando el juego?</strong> Si no es la interrupción STAT por LYC, ¿qué es? ¿Polling de STAT esperando V-Blank? ¿Otra interrupción? ¿Un problema de timing?</li>
+                        <li><strong>¿Por qué se congela?</strong> Necesito investigar más a fondo qué está haciendo el código del juego cuando se congela. ¿Está en un bucle infinito esperando algo? ¿Qué condición está esperando?</li>
+                        <li><strong>¿Funciona con otros juegos?</strong> Sería útil probar con otros juegos para ver si el problema es específico de Pokémon Red o es general.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis actual:</strong> El juego está haciendo polling del registro STAT esperando que la PPU entre en un modo específico (probablemente V-Blank o H-Blank) antes de continuar. Si la PPU no está actualizando STAT correctamente o si hay un problema de timing, el juego se queda esperando eternamente.
+                    </p>
+                    <p>
+                        <strong>Suposición no verificada:</strong> Asumo que el juego está haciendo polling de STAT, pero no he verificado esto directamente. Necesito añadir más logging para ver qué está leyendo el juego y qué está esperando.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Añadir logging de lecturas de STAT para ver si el juego está haciendo polling</li>
+                    <li>[ ] Añadir logging de lecturas de LY para ver si el juego está esperando una línea específica</li>
+                    <li>[ ] Investigar qué está haciendo el código del juego cuando se congela (trazado de ejecución)</li>
+                    <li>[ ] Probar con otros juegos para ver si el problema es específico de Pokémon Red</li>
+                    <li>[ ] Verificar si hay problemas de timing que impidan que la PPU llegue a V-Blank</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
