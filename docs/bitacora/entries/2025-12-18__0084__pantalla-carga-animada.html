@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pantalla de Carga Animada - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Pantalla de Carga Animada</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0084
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0083__optimizacion-batching-frame-skip.html">Anterior</a></li>
+                    <li><a href="2025-12-18__0085__calibracion-precision-batch-size.html">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó una pantalla de carga animada que se muestra durante 3.5 segundos al iniciar el emulador.
+                    La pantalla muestra el icono de la aplicación (<code>viboycolor-icon.png</code>) centrado en la pantalla
+                    y texto "Loading..." con puntos animados que cambian cada 300ms (Loading. → Loading.. → Loading...).
+                    La animación utiliza pygame.time.Clock() para mantener 60 FPS y permite cerrar la aplicación con ESC
+                    o cerrando la ventana durante la carga.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Aunque la pantalla de carga no es parte del hardware original de la Game Boy, es una característica
+                    común en emuladores modernos que mejora la experiencia de usuario. Proporciona feedback visual durante
+                    la inicialización del sistema y da tiempo para que todos los componentes se inicialicen correctamente
+                    antes de comenzar la emulación.
+                </p>
+                <p>
+                    La animación de puntos es una técnica clásica de retro gaming que indica que el sistema está procesando.
+                    El uso de pygame.time.Clock() garantiza que la animación se ejecute a 60 FPS, proporcionando una
+                    experiencia visual suave y profesional.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió el método <code>_show_loading_screen()</code> a la clase <code>Renderer</code> que se ejecuta
+                    automáticamente después de inicializar la ventana de Pygame.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code>: Añadido método <code>_show_loading_screen()</code> y llamada desde <code>__init__()</code></li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Duración configurable:</strong> El método acepta un parámetro <code>duration</code> (por defecto 3.5 segundos) para permitir ajustes futuros.</li>
+                    <li><strong>Escalado automático del icono:</strong> El icono se escala automáticamente si es demasiado grande, manteniendo su proporción y limitando su tamaño a 1/3 de la ventana.</li>
+                    <li><strong>Fuente retro:</strong> Se utiliza una fuente monospace (Courier) en negrita para dar un aspecto retro al texto.</li>
+                    <li><strong>Animación suave:</strong> Los puntos cambian cada 300ms, creando un ciclo de 1 a 3 puntos (Loading. → Loading.. → Loading...).</li>
+                    <li><strong>Control de eventos:</strong> Durante la carga se pueden manejar eventos (cerrar ventana, presionar ESC) para permitir salir si es necesario.</li>
+                    <li><strong>FPS controlado:</strong> Se usa <code>pygame.time.Clock()</code> para mantener 60 FPS durante la animación.</li>
+                </ul>
+
+                <h3>Código implementado</h3>
+                <pre><code>def _show_loading_screen(self, duration: float = 3.5) -> None:
+    """Muestra una pantalla de carga con el icono y texto animado."""
+    # Cargar icono y escalarlo si es necesario
+    icon_path = Path(__file__).parent.parent.parent / "viboycolor-icon.png"
+    # ... carga y escalado del icono ...
+    
+    # Inicializar fuente retro
+    font = pygame.font.SysFont("courier", font_size, bold=True)
+    
+    # Bucle de animación con control de tiempo
+    clock = pygame.time.Clock()
+    start_time = pygame.time.get_ticks()
+    dot_count = 0
+    dot_interval = 300  # Cambiar puntos cada 300ms
+    
+    while elapsed < duration:
+        # Actualizar animación de puntos
+        if current_time - last_dot_time >= dot_interval:
+            dot_count = (dot_count + 1) % 3
+            dots = "." * (dot_count + 1)  # 1, 2, o 3 puntos
+            loading_text = f"Loading{dots}"
+        
+        # Dibujar icono centrado y texto
+        # ... renderizado ...
+        
+        clock.tick(60)  # 60 FPS</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Añadido método <code>_show_loading_screen()</code> y llamada desde <code>__init__()</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizó mediante ejecución manual de la aplicación:
+                </p>
+                <ul>
+                    <li><strong>Verificación visual:</strong> Se ejecutó el emulador y se comprobó que la pantalla de carga aparece correctamente con el icono centrado y el texto animado.</li>
+                    <li><strong>Verificación de duración:</strong> Se confirmó que la pantalla de carga dura aproximadamente 3.5 segundos antes de comenzar la emulación.</li>
+                    <li><strong>Verificación de animación:</strong> Se observó que los puntos cambian suavemente cada 300ms en el ciclo Loading. → Loading.. → Loading...</li>
+                    <li><strong>Verificación de eventos:</strong> Se comprobó que se puede cerrar la aplicación con ESC o cerrando la ventana durante la carga.</li>
+                    <li><strong>Verificación de escalado:</strong> Se verificó que el icono se escala correctamente si es demasiado grande, manteniendo su proporción.</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> <span class="tag tag-verified">Verified</span> - La pantalla de carga funciona correctamente con animación suave y control de eventos.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Documentación de Pygame: <code>pygame.time.Clock()</code> - <a href="https://www.pygame.org/docs/ref/time.html#pygame.time.Clock">https://www.pygame.org/docs/ref/time.html#pygame.time.Clock</a></li>
+                    <li>Documentación de Pygame: <code>pygame.font</code> - <a href="https://www.pygame.org/docs/ref/font.html">https://www.pygame.org/docs/ref/font.html</a></li>
+                    <li>Documentación de Pygame: <code>pygame.transform.scale()</code> - <a href="https://www.pygame.org/docs/ref/transform.html#pygame.transform.scale">https://www.pygame.org/docs/ref/transform.html#pygame.transform.scale</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Control de tiempo en Pygame:</strong> <code>pygame.time.Clock()</code> permite controlar el FPS de la aplicación y <code>pygame.time.get_ticks()</code> proporciona el tiempo transcurrido en milisegundos desde que se inicializó Pygame.</li>
+                        <li><strong>Animación de texto:</strong> La animación de puntos se logra actualizando el texto cada cierto intervalo de tiempo y renderizándolo de nuevo en cada frame.</li>
+                        <li><strong>Escalado de imágenes:</strong> <code>pygame.transform.scale()</code> permite redimensionar imágenes manteniendo o no la proporción, y es importante calcular el factor de escala correctamente para evitar distorsión.</li>
+                        <li><strong>Fuentes del sistema:</strong> Pygame puede usar fuentes del sistema con <code>pygame.font.SysFont()</code>, lo que garantiza compatibilidad entre diferentes sistemas operativos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>No hay aspectos pendientes de confirmar en esta implementación. El comportamiento está bien documentado en la API de Pygame.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        No hay suposiciones en esta implementación. El comportamiento de las funciones de Pygame utilizadas
+                        está documentado oficialmente y la implementación sigue las mejores prácticas para animaciones
+                        y control de tiempo en Pygame.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Continuar con mejoras de rendimiento y funcionalidad del emulador</li>
+                    <li>[ ] Implementar características adicionales según necesidades del proyecto</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

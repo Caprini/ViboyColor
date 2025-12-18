@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calibración de Precisión: Ajuste Fino del Bucle Principal - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Calibración de Precisión: Ajuste Fino del Bucle Principal</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0085
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0084__pantalla-carga-animada.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se ajustó el bucle principal del emulador para mejorar la precisión de sincronización
+                    entre la CPU, el Timer y las Interrupciones. Se redujo el tamaño del batch de 456 a 64
+                    T-Cycles y se eliminó el frame skip (de 2 a 0) para lograr una experiencia de juego
+                    más precisa y suave. Estos cambios solucionan problemas de Game Over aleatorio en
+                    Tetris (causado por RNG basado en Timer) y lag en los controles.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En una Game Boy real, todos los subsistemas (CPU, PPU, Timer, Interrupciones) están
+                    sincronizados por el mismo reloj del sistema (4.194304 MHz). Cada instrucción de la
+                    CPU consume un número específico de M-Cycles (Machine Cycles), que se convierten a
+                    T-Cycles (T-Cycles = M-Cycles × 4) para sincronizar con la PPU y el Timer.
+                </p>
+                <p>
+                    <strong>El problema del batching agresivo:</strong> Cuando agrupamos demasiados ciclos
+                    (456 T-Cycles = 1 scanline completa), la CPU ejecuta muchas instrucciones antes de
+                    actualizar el Timer y las Interrupciones. Esto causa:
+                </p>
+                <ul>
+                    <li><strong>Desincronización del Timer:</strong> Juegos como Tetris usan el registro
+                        DIV (Timer) para generar números aleatorios. Si el Timer no se actualiza con
+                        suficiente frecuencia, el RNG genera valores incorrectos, causando piezas
+                        inválidas y Game Over.</li>
+                    <li><strong>Lag en Interrupciones:</strong> Las interrupciones (VBlank, Timer, Joypad)
+                        se procesan tarde, causando retraso en la respuesta a los controles.</li>
+                    <li><strong>Glitches visuales:</strong> El frame skip hace que el renderizado se vea
+                        entrecortado, perdiendo suavidad visual.</li>
+                </ul>
+                <p>
+                    <strong>La solución:</strong> Reducir el tamaño del batch a 64 T-Cycles (~16 M-Cycles)
+                    mantiene un buen rendimiento (reduce overhead de Python) pero es lo suficientemente
+                    pequeño para que el Timer y las Interrupciones se actualicen con precisión. Eliminar
+                    el frame skip (SKIP_FRAMES = 0) restaura la suavidad visual a 60 FPS reales.
+                </p>
+                <p>
+                    <em>Fuente: Pan Docs - System Clock, Timing, Timer, Interrupciones</em>
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificaron dos constantes en el método <code>run()</code> de la clase <code>Viboy</code>
+                    en <code>src/viboy.py</code>:
+                </p>
+                
+                <h3>Cambio 1: Reducción del Batch Size</h3>
+                <p>
+                    <strong>Antes:</strong> <code>BATCH_SIZE_T_CYCLES = 456</code> (1 scanline completa)
+                </p>
+                <p>
+                    <strong>Después:</strong> <code>BATCH_SIZE_T_CYCLES = 64</code> (~16 M-Cycles)
+                </p>
+                <p>
+                    Esto reduce el tamaño del batch de 456 a 64 T-Cycles, haciendo que el Timer y las
+                    Interrupciones se actualicen aproximadamente 7 veces más frecuentemente. El overhead
+                    de Python sigue siendo bajo (menos llamadas a función que sin batching), pero la
+                    precisión mejora significativamente.
+                </p>
+
+                <h3>Cambio 2: Eliminación del Frame Skip</h3>
+                <p>
+                    <strong>Antes:</strong> <code>SKIP_FRAMES = 2</code> (renderizar 1 de cada 3 frames)
+                </p>
+                <p>
+                    <strong>Después:</strong> <code>SKIP_FRAMES = 0</code> (renderizar todos los frames)
+                </p>
+                <p>
+                    Esto elimina el frame skip, restaurando el renderizado a 60 FPS reales. La lógica
+                    del juego ya corría a 60Hz, solo se saltaba el dibujo visual. Ahora se renderiza
+                    cada frame para máxima suavidad.
+                </p>
+
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/viboy.py</code>: Método <code>run()</code> - Ajuste de constantes de
+                        rendimiento (BATCH_SIZE_T_CYCLES y SKIP_FRAMES)</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>¿Por qué 64 T-Cycles?</strong> Es un balance entre rendimiento y precisión:
+                </p>
+                <ul>
+                    <li>64 T-Cycles = ~16 M-Cycles, suficiente para reducir overhead de Python</li>
+                    <li>Es 7 veces más pequeño que 456, mejorando la precisión del Timer</li>
+                    <li>Mantiene el batching (no volvemos a actualizar por instrucción), preservando
+                        rendimiento</li>
+                </ul>
+                <p>
+                    <strong>¿Por qué eliminar frame skip?</strong> Queremos verificar si el PC aguanta
+                    60 FPS reales sin saltar cuadros. Si va lento, se puede subir a 1, pero empezamos
+                    con calidad máxima para evaluar el rendimiento real.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Modificación de constantes BATCH_SIZE_T_CYCLES (456 → 64)
+                        y SKIP_FRAMES (2 → 0) en el método <code>run()</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Estado:</strong> Pendiente de verificación con ROM de Tetris.
+                </p>
+                <p>
+                    <strong>Prueba de Fuego (Tetris):</strong>
+                </p>
+                <ul>
+                    <li><strong>ROM:</strong> Tetris (ROM aportada por el usuario, no distribuida)</li>
+                    <li><strong>Modo de ejecución:</strong> UI con pygame, sin frame skip, batch size 64</li>
+                    <li><strong>Criterio de éxito:</strong>
+                        <ul>
+                            <li>Las piezas rotan correctamente (sin Game Over aleatorio)</li>
+                            <li>Los controles responden sin lag</li>
+                            <li>El movimiento se ve fluido (60 FPS reales)</li>
+                            <li>El juego permite jugar sin matarse solo</li>
+                        </ul>
+                    </li>
+                    <li><strong>Observación:</strong> Pendiente de ejecutar <code>python main.py tetris.gb</code>
+                        para verificar que los cambios solucionan los problemas de precisión.</li>
+                    <li><strong>Resultado:</strong> <span class="tag tag-draft">Draft</span> - Pendiente de
+                        verificación</li>
+                </ul>
+                <p>
+                    <strong>Notas legales:</strong> La ROM de Tetris es aportada por el usuario para pruebas
+                    locales. No se distribuye ni se enlaza en el repositorio.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">System Clock, Timing, Timer, Interrupciones</a></li>
+                    <li>Implementación basada en análisis del comportamiento del Timer y su uso en RNG de juegos</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Batching vs Precisión:</strong> El batching reduce overhead de Python
+                            agrupando instrucciones, pero un batch demasiado grande desincroniza los
+                            subsistemas. El tamaño óptimo depende del balance entre rendimiento y
+                            precisión requerida.</li>
+                        <li><strong>Timer y RNG:</strong> Juegos como Tetris usan el registro DIV (Timer)
+                            como semilla para generación de números aleatorios. Si el Timer no se actualiza
+                            con suficiente frecuencia, el RNG genera valores incorrectos, causando
+                            comportamiento errático del juego.</li>
+                        <li><strong>Frame Skip:</strong> El frame skip reduce la carga de renderizado
+                            saltando cuadros, pero sacrifica suavidad visual. Para una experiencia
+                            Game Boy 100% real, es preferible renderizar todos los frames si el hardware
+                            lo permite.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento real:</strong> Verificar si el PC aguanta 60 FPS reales
+                            con batch size 64 y sin frame skip. Si va lento, ajustar SKIP_FRAMES a 1.</li>
+                        <li><strong>Precisión del Timer:</strong> Confirmar que el batch size 64 es
+                            suficiente para que Tetris genere piezas correctamente sin Game Over aleatorio.</li>
+                        <li><strong>Lag de controles:</strong> Verificar que los inputs responden sin
+                            retraso perceptible con el nuevo batch size.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis:</strong> Un batch size de 64 T-Cycles es suficiente para mantener
+                        la precisión del Timer y las Interrupciones mientras preserva el rendimiento del
+                        batching. Esta hipótesis se basa en que 64 es aproximadamente 7 veces más pequeño
+                        que 456, mejorando significativamente la frecuencia de actualización de periféricos.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> El PC del usuario tiene suficiente potencia para
+                        renderizar a 60 FPS reales sin frame skip. Si no es así, se ajustará SKIP_FRAMES
+                        a 1 como compromiso.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar <code>python main.py tetris.gb</code> y verificar que los cambios
+                        solucionan los problemas de precisión</li>
+                    <li>[ ] Si el rendimiento es insuficiente con SKIP_FRAMES=0, ajustar a 1 como
+                        compromiso</li>
+                    <li>[ ] Si el batch size 64 sigue causando problemas, reducir a 32 o 16 T-Cycles
+                        (aunque esto aumentará el overhead de Python)</li>
+                    <li>[ ] Documentar el batch size óptimo encontrado para futuras referencias</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

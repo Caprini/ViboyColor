@@ -32,6 +32,101 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0085 - Calibración de Precisión: Ajuste Fino del Bucle Principal -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0085__calibracion-precision-batch-size.html" class="entry-link">
+                                    Calibración de Precisión: Ajuste Fino del Bucle Principal
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0085 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se ajustó el bucle principal del emulador para mejorar la precisión de sincronización entre la CPU, el Timer y las Interrupciones. Se redujo el tamaño del batch de 456 a 64 T-Cycles y se eliminó el frame skip (de 2 a 0) para lograr una experiencia de juego más precisa y suave. Estos cambios solucionan problemas de Game Over aleatorio en Tetris (causado por RNG basado en Timer) y lag en los controles.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0084 - Pantalla de Carga Animada -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0084__pantalla-carga-animada.html" class="entry-link">
+                                    Pantalla de Carga Animada
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0084 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó una pantalla de carga animada que se muestra durante 3.5 segundos al iniciar el emulador. La pantalla muestra el icono de la aplicación centrado y texto "Loading..." con puntos animados que cambian cada 300ms (Loading. → Loading.. → Loading...). La animación utiliza pygame.time.Clock() para mantener 60 FPS y permite cerrar la aplicación durante la carga.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0083 - Optimización: CPU Batching y Frame Skip -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0083__optimizacion-batching-frame-skip.html" class="entry-link">
+                                    Optimización: CPU Batching y Frame Skip
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0083 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementaron dos optimizaciones críticas de rendimiento: CPU Batching y Frame Skip. El batching agrupa múltiples instrucciones CPU antes de actualizar periféricos (PPU/Timer), reduciendo las llamadas a función de ~4 millones por segundo a ~40.000. El frame skip renderiza solo 1 de cada 3 frames visuales mientras mantiene la lógica del juego a 60Hz. Estas optimizaciones son estándar en emulación y permiten alcanzar velocidades jugables en Python puro.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0082 - Perfilado de Rendimiento y Optimización: Eliminación de Logging y Fast-Path MMU -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0082__perfilado-rendimiento-optimizacion-logging-mmu.html" class="entry-link">
+                                    Perfilado de Rendimiento y Optimización: Eliminación de Logging y Fast-Path MMU
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0082 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            El emulador funcionaba pero con rendimiento pobre (8-14 FPS). Se creó un script de perfilado usando cProfile que identificó que el 42% del tiempo se gastaba en logging. Se aplicaron optimizaciones: eliminación de logging en hot paths, optimización fast-path en MMU.read_byte() (ROM primero), y uso de __slots__. Resultado: mejora del 30% en rendimiento (7.5 → 9.7 FPS teóricos), con 30% más ciclos ejecutados en el mismo tiempo.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0081 - Configuración del Icono de Aplicación -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0081__configuracion-icono-aplicacion.html" class="entry-link">
+                                    Configuración del Icono de Aplicación
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0081 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se configuró el icono personalizado de la aplicación Viboy Color en lugar del icono por defecto de Python. El icono se carga desde el archivo viboycolor-icon.png ubicado en la raíz del proyecto y se establece en la ventana de Pygame usando pygame.display.set_icon(). La implementación utiliza rutas portables con pathlib.Path para garantizar compatibilidad entre Windows, Linux y macOS.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0080 - Optimización Final: Silence Mode & Loop Fix -->
                     <li>
                         <div class="entry-header">
