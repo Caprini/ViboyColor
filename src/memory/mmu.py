@@ -322,6 +322,33 @@ class MMU:
                 self._timer.write_div(value)
                 return  # No escribir en memoria, el Timer maneja su propio estado
         
+        # Interceptar escritura al registro DMA (0xFF46) - DMA Transfer
+        # Cuando se escribe un valor XX en 0xFF46, se inicia una transferencia DMA
+        # que copia 160 bytes desde la dirección XX00 hasta OAM (0xFE00-0xFE9F)
+        # La transferencia es inmediata y bloquea el acceso a OAM durante la copia
+        # Fuente: Pan Docs - DMA Transfer
+        if addr == IO_DMA:
+            # El valor escrito (XX) forma la dirección fuente alta: XX00
+            source_base = (value << 8) & 0xFFFF  # XX00 (ej: 0xC0 -> 0xC000)
+            oam_base = 0xFE00  # OAM comienza en 0xFE00
+            oam_size = 160  # OAM tiene 160 bytes (40 sprites * 4 bytes)
+            
+            logger.debug(f"DMA: Copiando {oam_size} bytes desde 0x{source_base:04X} a 0x{oam_base:04X}")
+            
+            # Copiar 160 bytes desde la dirección fuente a OAM
+            # Usamos slice de bytearray para copia rápida
+            for i in range(oam_size):
+                source_addr = (source_base + i) & 0xFFFF
+                # Leer desde la dirección fuente (puede ser ROM, RAM, VRAM, etc.)
+                byte_value = self.read_byte(source_addr)
+                # Escribir en OAM
+                self._memory[oam_base + i] = byte_value
+            
+            logger.debug(f"DMA: Transferencia completada (160 bytes copiados)")
+            # Escribir el valor en el registro DMA (se mantiene el valor escrito)
+            self._memory[addr] = value
+            return
+        
         # Escribimos el byte en la memoria
         self._memory[addr] = value
 

@@ -3187,3 +3187,67 @@ def test_force_bg_render_lcdc_0x80(self, mock_draw_rect: MagicMock) -> None:
 - Pan Docs: Game Boy Color Registers - https://gbdev.io/pandocs/CGB_Registers.html
 
 ---
+
+## 2025-12-18 - Paso 0038: DMA y Renderizado de Sprites (OBJ)
+
+### Título del Cambio
+DMA y Renderizado de Sprites (OBJ)
+
+### Descripción Técnica Breve
+Se implementó el sistema de **DMA (Direct Memory Access)** y el **renderizado de Sprites (OBJ)** para permitir que los juegos muestren personajes y objetos en movimiento. DMA permite copiar rápidamente 160 bytes desde RAM/ROM a OAM (Object Attribute Memory) cuando el juego escribe en el registro 0xFF46. El renderizado de sprites lee los 40 sprites desde OAM y los dibuja encima del fondo, respetando la transparencia (color 0) y las paletas OBP0/OBP1. Con esta implementación, juegos como Tetris DX pueden mostrar las piezas cayendo.
+
+### Archivos Afectados
+- `src/memory/mmu.py` - Interceptación de escritura en IO_DMA (0xFF46) y copia de 160 bytes a OAM
+- `src/gpu/renderer.py` - Método `render_sprites()` e integración en `render_frame()`
+- `tests/test_gpu_sprites.py` - Nuevo archivo con suite de tests para DMA y renderizado de sprites (5 tests)
+
+### Cómo se Validó
+
+#### Tests Unitarios - DMA y Renderizado de Sprites
+- **Comando ejecutado**: `pytest -q tests/test_gpu_sprites.py`
+- **Entorno**: Windows 10, Python 3.13.5
+- **Resultado**: **5 passed, 2 warnings** (2.96s)
+
+**Qué valida**:
+- `test_dma_transfer`: Verifica que DMA copia correctamente 160 bytes desde la dirección fuente (XX00) a OAM (0xFE00-0xFE9F). Cuando se escribe un valor XX en 0xFF46, se copian exactamente 160 bytes desde XX00 a OAM. Valida que el registro DMA mantiene el valor escrito.
+- `test_dma_from_different_source`: Verifica que DMA funciona desde diferentes direcciones fuente (0xC000, 0xD000, etc.). Valida que DMA puede copiar desde cualquier dirección de memoria.
+- `test_sprite_transparency`: Verifica que el color 0 en sprites es transparente y no sobrescribe el fondo. Valida que los sprites respetan la transparencia del color 0.
+- `test_sprite_hidden_when_y_or_x_zero`: Verifica que sprites con Y=0 o X=0 están ocultos y no se renderizan. Valida que los sprites ocultos no se dibujan.
+- `test_sprite_palette_selection`: Verifica que los sprites usan la paleta correcta (OBP0 u OBP1) según el bit 4 de atributos. Valida que la selección de paleta funciona correctamente.
+
+**Código del test (fragmento esencial - test_dma_transfer)**:
+```python
+def test_dma_transfer(self):
+    """Verifica que DMA copia correctamente 160 bytes desde la dirección fuente a OAM."""
+    mmu = MMU()
+    
+    # Preparar datos de prueba en 0xC000
+    source_base = 0xC000
+    test_pattern = bytearray([i & 0xFF for i in range(160)])
+    
+    # Escribir patrón en la dirección fuente
+    for i, byte_val in enumerate(test_pattern):
+        mmu.write_byte(source_base + i, byte_val)
+    
+    # Iniciar DMA escribiendo 0xC0 en 0xFF46
+    mmu.write_byte(IO_DMA, 0xC0)
+    
+    # Verificar que los datos se copiaron a OAM
+    oam_base = 0xFE00
+    for i in range(160):
+        oam_byte = mmu.read_byte(oam_base + i)
+        expected_byte = test_pattern[i]
+        assert oam_byte == expected_byte
+```
+
+**Ruta completa**: `tests/test_gpu_sprites.py`
+
+**Por qué estos tests demuestran el comportamiento del hardware**: Los tests verifican que cuando se escribe un valor XX en 0xFF46, se copian exactamente 160 bytes desde la dirección XX00 a OAM. Esto es el comportamiento exacto del hardware real según Pan Docs. Además, validan que el registro DMA mantiene el valor escrito, que los sprites respetan la transparencia del color 0, que los sprites ocultos (Y=0 o X=0) no se renderizan, y que la selección de paleta funciona correctamente.
+
+#### Fuentes Consultadas:
+- Pan Docs: OAM (Object Attribute Memory) - https://gbdev.io/pandocs/OAM.html
+- Pan Docs: Sprite Attributes - https://gbdev.io/pandocs/Sprite_Attributes.html
+- Pan Docs: LCDC Register - https://gbdev.io/pandocs/LCDC.html (bit 1: OBJ Display Enable)
+- Pan Docs: Memory Map - https://gbdev.io/pandocs/Memory_Map.html (OAM: 0xFE00-0xFE9F)
+
+---

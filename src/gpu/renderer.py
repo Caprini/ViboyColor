@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from ..memory.mmu import MMU
 
 # Importar constantes de MMU para acceso a registros I/O
-from ..memory.mmu import IO_LCDC, IO_BGP, IO_SCX, IO_SCY
+from ..memory.mmu import IO_LCDC, IO_BGP, IO_SCX, IO_SCY, IO_OBP0, IO_OBP1
 
 logger = logging.getLogger(__name__)
 
@@ -446,10 +446,19 @@ class Renderer:
         scaled_buffer = pygame.transform.scale(self.buffer, (self.window_width, self.window_height))
         self.screen.blit(scaled_buffer, (0, 0))
         
+        # Renderizar sprites (OBJ) encima del fondo
+        # Los sprites se dibujan después del fondo para que aparezcan por encima
+        sprites_drawn = self.render_sprites()
+        
+        # Escalar el framebuffer a la ventana y hacer blit
+        # pygame.transform.scale es rápido porque opera sobre una superficie completa
+        scaled_buffer = pygame.transform.scale(self.buffer, (self.window_width, self.window_height))
+        self.screen.blit(scaled_buffer, (0, 0))
+        
         # Actualizar la pantalla
         pygame.display.flip()
         logger.debug(
-            f"Frame renderizado: {tiles_drawn} píxeles dibujados, "
+            f"Frame renderizado: {tiles_drawn} píxeles dibujados, {sprites_drawn} sprites dibujados, "
             f"map_base=0x{map_base:04X}, data_base=0x{data_base:04X}, unsigned={unsigned_addressing}, "
             f"SCX=0x{scx:02X}, SCY=0x{scy:02X}"
         )
@@ -492,6 +501,164 @@ class Renderer:
                     color,
                     (screen_x, screen_y, self.scale, self.scale)
                 )
+
+    def render_sprites(self) -> int:
+        """
+        Renderiza los sprites (OBJ - Objects) desde OAM (Object Attribute Memory).
+        
+        OAM está en 0xFE00-0xFE9F (160 bytes = 40 sprites * 4 bytes).
+        Cada sprite tiene 4 bytes:
+        - Byte 0: Pos Y (posición en pantalla + 16, 0 = oculto)
+        - Byte 1: Pos X (posición en pantalla + 8, 0 = oculto)
+        - Byte 2: Tile ID (índice del tile en VRAM)
+        - Byte 3: Atributos (Bit 7: Prioridad, Bit 6: Y-Flip, Bit 5: X-Flip, Bit 4: Paleta)
+        
+        Los sprites se dibujan encima del fondo (a menos que su prioridad diga lo contrario).
+        El color 0 en un sprite siempre es transparente (no se dibuja).
+        
+        Fuente: Pan Docs - OAM, Sprite Attributes, Sprite Rendering
+        
+        Returns:
+            Número de sprites dibujados
+        """
+        # Leer registro LCDC para verificar si los sprites están habilitados
+        lcdc = self.mmu.read_byte(IO_LCDC) & 0xFF
+        lcdc_bit1 = (lcdc & 0x02) != 0  # Bit 1: OBJ (Sprite) Display Enable
+        
+        # Si los sprites están deshabilitados, no renderizar nada
+        if not lcdc_bit1:
+            logger.debug("Sprites deshabilitados (LCDC bit 1=0)")
+            return 0
+        
+        # Leer paletas de sprites
+        obp0 = self.mmu.read_byte(IO_OBP0) & 0xFF  # Object Palette 0
+        obp1 = self.mmu.read_byte(IO_OBP1) & 0xFF  # Object Palette 1
+        
+        # Decodificar paletas (igual que BGP)
+        palette0 = [
+            PALETTE_GREYSCALE[(obp0 >> 0) & 0x03],
+            PALETTE_GREYSCALE[(obp0 >> 2) & 0x03],
+            PALETTE_GREYSCALE[(obp0 >> 4) & 0x03],
+            PALETTE_GREYSCALE[(obp0 >> 6) & 0x03],
+        ]
+        palette1 = [
+            PALETTE_GREYSCALE[(obp1 >> 0) & 0x03],
+            PALETTE_GREYSCALE[(obp1 >> 2) & 0x03],
+            PALETTE_GREYSCALE[(obp1 >> 4) & 0x03],
+            PALETTE_GREYSCALE[(obp1 >> 6) & 0x03],
+        ]
+        
+        # Si las paletas están en 0x00 (todo blanco), usar paleta por defecto
+        if obp0 == 0x00:
+            palette0 = PALETTE_GREYSCALE
+        if obp1 == 0x00:
+            palette1 = PALETTE_GREYSCALE
+        
+        oam_base = 0xFE00  # OAM comienza en 0xFE00
+        sprites_per_oam = 40  # 40 sprites máximo
+        bytes_per_sprite = 4  # Cada sprite ocupa 4 bytes
+        
+        sprites_drawn = 0
+        
+        # Recorrer todos los sprites en OAM
+        for sprite_index in range(sprites_per_oam):
+            sprite_addr = oam_base + (sprite_index * bytes_per_sprite)
+            
+            # Leer atributos del sprite
+            sprite_y = self.mmu.read_byte(sprite_addr + 0) & 0xFF
+            sprite_x = self.mmu.read_byte(sprite_addr + 1) & 0xFF
+            tile_id = self.mmu.read_byte(sprite_addr + 2) & 0xFF
+            attributes = self.mmu.read_byte(sprite_addr + 3) & 0xFF
+            
+            # Decodificar atributos
+            priority = (attributes & 0x80) != 0  # Bit 7: Prioridad (0 = encima de fondo, 1 = detrás)
+            y_flip = (attributes & 0x40) != 0     # Bit 6: Y-Flip (voltear verticalmente)
+            x_flip = (attributes & 0x20) != 0     # Bit 5: X-Flip (voltear horizontalmente)
+            palette_num = (attributes >> 4) & 0x01  # Bit 4: Paleta (0 = OBP0, 1 = OBP1)
+            
+            # Seleccionar paleta según bit 4
+            palette = palette0 if palette_num == 0 else palette1
+            
+            # Calcular posición en pantalla
+            # Y e X tienen offset: Y = sprite_y - 16, X = sprite_x - 8
+            # Si Y o X son 0, el sprite está oculto
+            screen_y = sprite_y - 16
+            screen_x = sprite_x - 8
+            
+            # Verificar si el sprite está visible en pantalla
+            # Un sprite está oculto si Y=0 o X=0 (o fuera de los límites)
+            if sprite_y == 0 or sprite_x == 0:
+                continue  # Sprite oculto, saltar
+            
+            # Verificar si el sprite está dentro de los límites de la pantalla
+            if screen_y < -7 or screen_y >= GB_HEIGHT or screen_x < -7 or screen_x >= GB_WIDTH:
+                continue  # Sprite fuera de pantalla, saltar
+            
+            # Calcular dirección del tile en VRAM
+            # Los sprites siempre usan direccionamiento unsigned desde 0x8000
+            tile_addr = VRAM_START + (tile_id * BYTES_PER_TILE)
+            
+            # Verificar que el tile esté en VRAM
+            if tile_addr < VRAM_START or tile_addr > VRAM_END:
+                continue  # Tile fuera de VRAM, saltar
+            
+            # Dibujar el sprite tile por tile (8x8 píxeles)
+            # NOTA: Por ahora solo soportamos sprites de 8x8. Los sprites de 8x16
+            # requieren leer 2 tiles consecutivos, pero eso se implementará más adelante.
+            with pygame.PixelArray(self.buffer) as pixels:
+                for tile_y in range(TILE_SIZE):
+                    for tile_x in range(TILE_SIZE):
+                        # Calcular posición del píxel dentro del tile
+                        # Aplicar flip si es necesario
+                        if y_flip:
+                            pixel_tile_y = TILE_SIZE - 1 - tile_y
+                        else:
+                            pixel_tile_y = tile_y
+                        
+                        if x_flip:
+                            pixel_tile_x = TILE_SIZE - 1 - tile_x
+                        else:
+                            pixel_tile_x = tile_x
+                        
+                        # Calcular posición final en pantalla
+                        final_y = screen_y + tile_y
+                        final_x = screen_x + tile_x
+                        
+                        # Verificar si el píxel está dentro de los límites
+                        if final_y < 0 or final_y >= GB_HEIGHT or final_x < 0 or final_x >= GB_WIDTH:
+                            continue  # Píxel fuera de pantalla
+                        
+                        # Leer el píxel del tile
+                        tile_line_addr = tile_addr + (pixel_tile_y * 2)
+                        byte1 = self.mmu.read_byte(tile_line_addr) & 0xFF
+                        byte2 = self.mmu.read_byte(tile_line_addr + 1) & 0xFF
+                        
+                        # Decodificar el píxel específico
+                        bit_pos = 7 - pixel_tile_x
+                        bit_low = (byte1 >> bit_pos) & 0x01
+                        bit_high = (byte2 >> bit_pos) & 0x01
+                        color_index = (bit_high << 1) | bit_low
+                        
+                        # CRÍTICO: El color 0 en sprites es transparente
+                        # No dibujar si color_index == 0
+                        if color_index == 0:
+                            continue
+                        
+                        # NOTA: Por ahora ignoramos la prioridad (bit 7 de atributos)
+                        # En el futuro, si priority=True, el sprite debe dibujarse detrás
+                        # del fondo (excepto color 0 del fondo). Por ahora, todos los sprites
+                        # se dibujan encima del fondo.
+                        
+                        # Obtener color de la paleta
+                        color = palette[color_index]
+                        
+                        # Dibujar píxel en el framebuffer
+                        pixels[final_x, final_y] = color
+            
+            sprites_drawn += 1
+        
+        logger.debug(f"Sprites renderizados: {sprites_drawn}/40")
+        return sprites_drawn
 
     def _draw_tile(self, x: int, y: int, tile_addr: int) -> None:
         """

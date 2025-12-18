@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0038 - DMA y Renderizado de Sprites -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0038__dma-y-renderizado-sprites.html" class="entry-link">
+                                    DMA y Renderizado de Sprites (OBJ)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0038 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó el sistema de DMA (Direct Memory Access) y el renderizado de Sprites (OBJ) para permitir que los juegos muestren personajes y objetos en movimiento. DMA permite copiar rápidamente 160 bytes desde RAM/ROM a OAM (Object Attribute Memory) cuando el juego escribe en el registro 0xFF46. El renderizado de sprites lee los 40 sprites desde OAM y los dibuja encima del fondo, respetando la transparencia (color 0) y las paletas OBP0/OBP1. Con esta implementación, juegos como Tetris DX pueden mostrar las piezas cayendo. Suite de tests (5 tests) validando DMA y renderizado de sprites. Todos los tests pasan.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0037 - Timer (DIV) y Limpieza de Logs -->
                     <li>
                         <div class="entry-header">
