@@ -162,8 +162,8 @@ class Renderer:
         self._last_bgp = None  # Última paleta usada (para detectar cambios)
         
         # Cargar y establecer el icono de la aplicación
-        # El icono está en la raíz del proyecto
-        icon_path = Path(__file__).parent.parent.parent / "viboycolor-icon-no-bg.png"
+        # El icono está en assets/
+        icon_path = Path(__file__).parent.parent.parent / "assets" / "viboycolor-icon-no-bg.png"
         if icon_path.exists():
             try:
                 icon_surface = pygame.image.load(str(icon_path))
@@ -191,7 +191,7 @@ class Renderer:
             duration: Duración de la pantalla de carga en segundos (por defecto 3.5)
         """
         # Cargar el icono para la pantalla de carga
-        icon_path = Path(__file__).parent.parent.parent / "viboycolor-icon.png"
+        icon_path = Path(__file__).parent.parent.parent / "assets" / "viboycolor-icon.png"
         icon_surface = None
         if icon_path.exists():
             try:

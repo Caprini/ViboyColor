@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reorganización del Repositorio y Limpieza - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Reorganización del Repositorio y Limpieza</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0093
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0092__cierre-fase-1-v0.0.1-poc-academica.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Reorganización completa del repositorio para prepararlo como producto profesional antes de la generación de ejecutables. Se movieron todos los scripts de prueba manual a una carpeta dedicada, se eliminaron archivos temporales y logs de depuración, y se creó el CHANGELOG.md oficial para documentar la versión 0.0.1.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Esta entrada no trata sobre hardware del Game Boy, sino sobre organización de proyectos de software. Un repositorio bien estructurado facilita el mantenimiento, la distribución y la comprensión del código por parte de otros desarrolladores.
+                </p>
+                <p>
+                    La separación entre código de producción, tests automatizados y scripts de desarrollo manual es una práctica estándar que mejora la claridad del proyecto y facilita la generación de distribuciones limpias.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se realizó una limpieza completa del repositorio siguiendo las mejores prácticas de organización de proyectos Python:
+                </p>
+                
+                <h3>Reorganización de archivos</h3>
+                <ul>
+                    <li><strong>Carpeta `tests/manual_scripts/`:</strong> Creada para contener todos los scripts de prueba manual desarrollados durante el desarrollo.</li>
+                    <li><strong>Scripts movidos:</strong> Todos los scripts `test_mario*.py` y `verificar_renderizado_mario.py` fueron movidos a la nueva carpeta con rutas ajustadas para funcionar desde su nueva ubicación.</li>
+                    <li><strong>README en manual_scripts:</strong> Se creó documentación explicando el propósito de cada script.</li>
+                </ul>
+
+                <h3>Limpieza de temporales</h3>
+                <ul>
+                    <li><strong>Logs eliminados:</strong> Se eliminaron `interrupts_test.log`, `mbc1_test_log.txt`, `test_lcdc_log.txt`.</li>
+                    <li><strong>Verificación de .gitignore:</strong> Confirmado que `*.log` y `.pytest_cache/` están correctamente ignorados.</li>
+                </ul>
+
+                <h3>Documentación</h3>
+                <ul>
+                    <li><strong>CHANGELOG.md:</strong> Creado siguiendo el formato Keep a Changelog, documentando la versión 0.0.1 con características implementadas y problemas conocidos.</li>
+                    <li><strong>requirements.txt:</strong> Verificado y mantenido limpio con solo las dependencias del proyecto (pygame-ce, pytest, pytest-cov).</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se decidió mantener los scripts de prueba manual en lugar de eliminarlos porque pueden ser útiles para futuras depuraciones y como ejemplos de uso del emulador. Sin embargo, se organizaron en una carpeta dedicada para mantener la raíz del proyecto limpia.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tests/manual_scripts/</code> - Carpeta nueva creada</li>
+                    <li><code>tests/manual_scripts/test_mario.py</code> - Movido y ajustado</li>
+                    <li><code>tests/manual_scripts/test_mario_monitor.py</code> - Movido y ajustado</li>
+                    <li><code>tests/manual_scripts/test_mario_ui.py</code> - Movido y ajustado</li>
+                    <li><code>tests/manual_scripts/test_mario_visual.py</code> - Movido y ajustado</li>
+                    <li><code>tests/manual_scripts/verificar_renderizado_mario.py</code> - Movido y ajustado</li>
+                    <li><code>tests/manual_scripts/README.md</code> - Creado</li>
+                    <li><code>CHANGELOG.md</code> - Creado</li>
+                    <li><code>test_mario.py</code> - Eliminado (movido)</li>
+                    <li><code>test_mario_monitor.py</code> - Eliminado (movido)</li>
+                    <li><code>test_mario_ui.py</code> - Eliminado (movido)</li>
+                    <li><code>test_mario_visual.py</code> - Eliminado (movido)</li>
+                    <li><code>verificar_renderizado_mario.py</code> - Eliminado (movido)</li>
+                    <li><code>interrupts_test.log</code> - Eliminado</li>
+                    <li><code>mbc1_test_log.txt</code> - Eliminado</li>
+                    <li><code>test_lcdc_log.txt</code> - Eliminado</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La reorganización se verificó de la siguiente manera:
+                </p>
+                <ul>
+                    <li><strong>Estructura de carpetas:</strong> Verificada manualmente - todos los scripts están en `tests/manual_scripts/` y la raíz está limpia.</li>
+                    <li><strong>Rutas en scripts:</strong> Todos los scripts movidos fueron ajustados para usar rutas relativas correctas desde su nueva ubicación (usando `Path(__file__).parent.parent.parent` para acceder a la raíz del proyecto).</li>
+                    <li><strong>Archivos eliminados:</strong> Confirmado que todos los logs y scripts originales fueron eliminados de la raíz.</li>
+                    <li><strong>CHANGELOG:</strong> Verificado que sigue el formato estándar y documenta correctamente la versión 0.0.1.</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> No se ejecutaron tests automatizados en este paso ya que es una reorganización de estructura, no un cambio funcional. Los scripts movidos mantienen su funcionalidad original.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Keep a Changelog: <a href="https://keepachangelog.com/es-ES/1.0.0/">https://keepachangelog.com/es-ES/1.0.0/</a></li>
+                    <li>Semantic Versioning: <a href="https://semver.org/spec/v2.0.0.html">https://semver.org/spec/v2.0.0.html</a></li>
+                    <li>Python Project Structure Best Practices (conocimiento general)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Organización de repositorios:</strong> La estructura del proyecto es tan importante como el código. Un repositorio bien organizado facilita el mantenimiento y la distribución.</li>
+                        <li><strong>Separación de concerns:</strong> Los scripts de desarrollo/debugging deben estar separados del código de producción y de los tests automatizados.</li>
+                        <li><strong>Documentación de versiones:</strong> El CHANGELOG es esencial para comunicar cambios entre versiones a usuarios y desarrolladores.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>Nada pendiente - esta es una reorganización administrativa sin impacto funcional.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que mantener los scripts de prueba manual será útil en el futuro. Si no se usan, pueden eliminarse en una futura limpieza.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Generación de ejecutables (PyInstaller o similar)</li>
+                    <li>[ ] Creación de instaladores para Windows/Linux/macOS</li>
+                    <li>[ ] Preparación de release v0.0.1</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

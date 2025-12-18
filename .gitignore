@@ -156,6 +156,7 @@ $RECYCLE.BIN/
 *~
 
 # Game Boy ROMs (no incluir ROMs con derechos de autor)
+roms/
 *.gb
 *.gbc
 *.sav
@@ -170,4 +171,9 @@ $RECYCLE.BIN/
 # Logs
 *.log
 logs/
+
+# Assets temporales (mantener solo PNG en git)
+assets/*.psd
+assets/*.ai
+assets/*.xcf
 

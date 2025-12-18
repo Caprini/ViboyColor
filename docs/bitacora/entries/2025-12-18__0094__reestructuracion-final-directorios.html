@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reestructuración Final de Directorios y Gitignore - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Reestructuración Final de Directorios y Gitignore</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0094
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0093__reorganizacion-repositorio-limpieza.html">Anterior</a></li>
+                    <li><a href="2025-12-18__0095__infraestructura-build-ejecutables.html">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Reestructuración final del repositorio para lograr una organización profesional. Se movieron todos los archivos de documentación de diagnóstico a `docs/dev_notes/`, los iconos a `assets/`, y las ROMs a `roms/`. Se actualizaron las rutas en el código y se mejoró el `.gitignore` para excluir correctamente las ROMs y archivos temporales. La raíz del proyecto queda limpia y lista para distribución.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Esta entrada no trata sobre hardware del Game Boy, sino sobre organización profesional de repositorios de software. Una estructura de directorios clara y consistente facilita el mantenimiento, la distribución y la comprensión del proyecto por parte de colaboradores y usuarios.
+                </p>
+                <p>
+                    La separación de assets, documentación de desarrollo, y recursos (como ROMs) en carpetas dedicadas sigue las mejores prácticas de desarrollo de software, facilitando la creación de instaladores y distribuciones limpias.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se realizó una reestructuración completa siguiendo estándares profesionales:
+                </p>
+                
+                <h3>Nuevas carpetas creadas</h3>
+                <ul>
+                    <li><strong>`docs/dev_notes/`:</strong> Para documentación de desarrollo y diagnósticos (4 archivos .md movidos).</li>
+                    <li><strong>`assets/`:</strong> Para recursos gráficos del proyecto (3 iconos .png movidos).</li>
+                    <li><strong>`roms/`:</strong> Para ROMs de prueba (4 archivos .gb/.gbc movidos, ignorados por git).</li>
+                </ul>
+
+                <h3>Archivos movidos</h3>
+                <ul>
+                    <li><strong>Documentación a `docs/dev_notes/`:</strong>
+                        <ul>
+                            <li>`DIAGNOSTICO_PANTALLA_BLANCA.md`</li>
+                            <li>`FIXES_SESION_2025-12-17.md`</li>
+                            <li>`HALLAZGOS_MARIO_GBC.md`</li>
+                            <li>`VERIFICACION_RENDERIZADO_MARIO.md`</li>
+                        </ul>
+                    </li>
+                    <li><strong>Iconos a `assets/`:</strong>
+                        <ul>
+                            <li>`viboycolor-icon-no-bg.png`</li>
+                            <li>`viboycolor-icon.png`</li>
+                            <li>`viboycolor-logo.png`</li>
+                        </ul>
+                    </li>
+                    <li><strong>ROMs a `roms/`:</strong>
+                        <ul>
+                            <li>`mario.gbc`</li>
+                            <li>`pkmn.gb`</li>
+                            <li>`tetris.gb`</li>
+                            <li>`tetris_dx.gbc`</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Actualizaciones de código</h3>
+                <ul>
+                    <li><strong>`src/gpu/renderer.py`:</strong> Actualizadas las rutas de iconos para apuntar a `assets/` en lugar de la raíz del proyecto.</li>
+                    <li><strong>`tests/manual_scripts/*.py`:</strong> Actualizadas las rutas de ROMs para apuntar a `roms/` en lugar de la raíz del proyecto (5 scripts actualizados).</li>
+                    <li><strong>`tests/manual_scripts/README.md`:</strong> Actualizada la documentación para reflejar la nueva ubicación de ROMs.</li>
+                    <li><strong>`.gitignore`:</strong> Mejorado para incluir `roms/` y archivos temporales de assets (PSD, AI, XCF).</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se decidió mantener los archivos de diagnóstico en lugar de eliminarlos porque documentan decisiones importantes del desarrollo. Las ROMs se mantienen en `roms/` para pruebas locales pero están completamente ignoradas por git para cumplir con aspectos legales de copyright.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>docs/dev_notes/</code> - Carpeta nueva creada</li>
+                    <li><code>docs/dev_notes/DIAGNOSTICO_PANTALLA_BLANCA.md</code> - Movido</li>
+                    <li><code>docs/dev_notes/FIXES_SESION_2025-12-17.md</code> - Movido</li>
+                    <li><code>docs/dev_notes/HALLAZGOS_MARIO_GBC.md</code> - Movido</li>
+                    <li><code>docs/dev_notes/VERIFICACION_RENDERIZADO_MARIO.md</code> - Movido</li>
+                    <li><code>assets/</code> - Carpeta nueva creada</li>
+                    <li><code>assets/viboycolor-icon-no-bg.png</code> - Movido</li>
+                    <li><code>assets/viboycolor-icon.png</code> - Movido</li>
+                    <li><code>assets/viboycolor-logo.png</code> - Movido</li>
+                    <li><code>roms/</code> - Carpeta nueva creada (ignorada por git)</li>
+                    <li><code>src/gpu/renderer.py</code> - Actualizado (rutas de iconos)</li>
+                    <li><code>tests/manual_scripts/test_mario.py</code> - Actualizado (ruta ROM)</li>
+                    <li><code>tests/manual_scripts/test_mario_monitor.py</code> - Actualizado (ruta ROM)</li>
+                    <li><code>tests/manual_scripts/test_mario_ui.py</code> - Actualizado (ruta ROM)</li>
+                    <li><code>tests/manual_scripts/test_mario_visual.py</code> - Actualizado (ruta ROM)</li>
+                    <li><code>tests/manual_scripts/verificar_renderizado_mario.py</code> - Actualizado (ruta ROM)</li>
+                    <li><code>tests/manual_scripts/README.md</code> - Actualizado (documentación)</li>
+                    <li><code>.gitignore</code> - Actualizado (roms/, assets temporales)</li>
+                    <li><code>docs/bitacora/entries/2025-12-18__0094__reestructuracion-final-directorios.html</code> - Creado</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La reestructuración se verificó de la siguiente manera:
+                </p>
+                <ul>
+                    <li><strong>Estructura de carpetas:</strong> Verificada manualmente - todas las carpetas nuevas creadas correctamente.</li>
+                    <li><strong>Archivos movidos:</strong> Confirmado que todos los archivos están en sus nuevas ubicaciones.</li>
+                    <li><strong>Rutas en código:</strong> Actualizadas en `renderer.py` para usar `assets/` en lugar de la raíz.</li>
+                    <li><strong>Gitignore:</strong> Verificado que `roms/` está correctamente ignorado y que los assets temporales también lo están.</li>
+                    <li><strong>Raíz limpia:</strong> Confirmado que la raíz contiene solo archivos esenciales.</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> No se ejecutaron tests automatizados en este paso ya que es una reorganización de estructura. El código mantiene su funcionalidad, solo cambian las rutas de recursos.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Python Project Structure Best Practices (conocimiento general)</li>
+                    <li>Git Best Practices - .gitignore patterns</li>
+                    <li>Software Distribution Best Practices</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Organización de repositorios:</strong> Una estructura profesional facilita el mantenimiento y la distribución del software.</li>
+                        <li><strong>Separación de recursos:</strong> Los assets, documentación y recursos de prueba deben estar organizados en carpetas dedicadas.</li>
+                        <li><strong>Gitignore estratégico:</strong> Es importante excluir correctamente archivos que no deben estar en el repositorio (ROMs, archivos temporales).</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>Nada pendiente - esta es una reorganización administrativa sin impacto funcional.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que esta estructura será adecuada para la generación de instaladores y distribución. Si surge la necesidad de ajustes, se documentarán en futuras entradas.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Generación de ejecutables (PyInstaller o similar)</li>
+                    <li>[ ] Creación de instaladores para Windows/Linux/macOS</li>
+                    <li>[ ] Preparación de release v0.0.1</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
