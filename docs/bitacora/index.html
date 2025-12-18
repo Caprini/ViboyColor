@@ -32,6 +32,44 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0067 - Corrección de Arquitectura del Game Loop -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0067__correccion-arquitectura-game-loop.html" class="entry-link">
+                                    Corrección de Arquitectura del Game Loop
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0067 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se corrigió la arquitectura del bucle principal (Game Loop) del emulador. El problema crítico era que clock.tick(60) estaba dentro del bucle que ejecuta una instrucción por iteración, limitando la ejecución a 60 instrucciones por segundo en lugar de ~4 millones. La solución fue reestructurar el bucle en dos niveles: un bucle externo por frame (60 FPS) y un bucle interno que ejecuta todas las instrucciones necesarias para completar un frame (~70,224 T-Cycles). El control de FPS y la gestión de eventos ahora se ejecutan una vez por frame, fuera del bucle interno de instrucciones.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0066 - Monitor de Signos Vitales en Tiempo Real -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0066__monitor-signos-vitales-tiempo-real.html" class="entry-link">
+                                    Monitor de Signos Vitales en Tiempo Real
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0066 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó un monitor de signos vitales basado en tiempo real que funciona independientemente de los frames de la PPU. El monitor imprime el estado del sistema (PC, LCDC, LY, ciclos totales) cada 1 segundo de tiempo real, incluso cuando el LCD está apagado. Cuando el LCD está apagado, muestra el checksum de VRAM para diagnosticar si el juego está cargando gráficos. Se eliminó el monitor de arranque anterior para limpiar la salida.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0065 - Monitor de Arranque Inmediato -->
                     <li>
                         <div class="entry-header">

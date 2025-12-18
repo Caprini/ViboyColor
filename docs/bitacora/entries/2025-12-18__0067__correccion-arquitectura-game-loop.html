@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrección de Arquitectura del Game Loop - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Corrección de Arquitectura del Game Loop</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0067
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0066__monitor-signos-vitales-tiempo-real.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se corrigió la arquitectura del bucle principal (Game Loop) del emulador. El problema crítico era que <code>clock.tick(60)</code> estaba dentro del bucle que ejecuta una instrucción por iteración, limitando la ejecución a 60 instrucciones por segundo en lugar de ~4 millones. La solución fue reestructurar el bucle en dos niveles: un bucle externo por frame (60 FPS) y un bucle interno que ejecuta todas las instrucciones necesarias para completar un frame (~70,224 T-Cycles). El control de FPS y la gestión de eventos ahora se ejecutan una vez por frame, fuera del bucle interno de instrucciones.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La Game Boy funciona a 4.194304 MHz (4.194.304 ciclos por segundo). Un fotograma (frame) dura aproximadamente 70.224 ciclos de reloj para mantener 59.7 FPS. El bucle principal de un emulador debe ejecutar todas las instrucciones necesarias para completar un frame antes de sincronizar con el tiempo real.
+                </p>
+                <p>
+                    <strong>Arquitectura correcta del Game Loop:</strong>
+                </p>
+                <ul>
+                    <li><strong>Bucle externo:</strong> Por cada frame (60 FPS). Aquí se gestionan eventos y se sincroniza el tiempo.</li>
+                    <li><strong>Bucle interno:</strong> Ejecuta todas las instrucciones necesarias para completar un frame (~70,224 T-Cycles). La CPU ejecuta instrucciones continuamente hasta que la PPU indica que un frame está listo.</li>
+                </ul>
+                <p>
+                    Si el control de FPS (<code>clock.tick(60)</code>) se coloca dentro del bucle de instrucciones, se limita la ejecución a 60 instrucciones por segundo, lo que resulta en un rendimiento extremadamente lento (6000 veces más lento de lo normal).
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - System Clock, Timing, Frame Rate
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se reestructuró el método <code>run()</code> en <code>src/viboy.py</code> para separar claramente el bucle externo (por frame) del bucle interno (instrucciones).
+                </p>
+                
+                <h3>Estructura del bucle corregido:</h3>
+                <pre><code># BUCLE EXTERNO: Por cada frame (60 FPS)
+while True:
+    # 1. Gestionar eventos (una vez por frame)
+    pygame.event.pump()
+    handle_pygame_events()
+    
+    # 2. BUCLE INTERNO: Ejecutar un frame completo de CPU/PPU
+    frame_cycles = 0
+    frame_rendered = False
+    max_cycles_per_frame = CYCLES_PER_FRAME * 4 * 2  # Límite de seguridad
+    
+    while not frame_rendered and frame_cycles < max_cycles_per_frame:
+        # Ejecutar una instrucción
+        cycles = self.tick()
+        frame_cycles += cycles * 4
+        
+        # Si la PPU indica que un frame está listo, renderizar
+        if self._ppu.is_frame_ready():
+            frame_rendered = True
+            self._renderer.render_frame()
+    
+    # 3. Control de FPS - FUERA del bucle interno
+    self._clock.tick(60)  # Una vez por frame, no por instrucción</code></pre>
+
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/viboy.py</code>: Método <code>run()</code> completamente reestructurado con bucle externo/interno separado.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Límite de seguridad:</strong> Se añadió un límite máximo de 2 frames de ciclos para evitar bucles infinitos si la PPU nunca indica que un frame está listo.</li>
+                    <li><strong>Renderizado periódico:</strong> Si no se renderiza un frame (LCD apagado), se mantiene el renderizado periódico para el heartbeat visual.</li>
+                    <li><strong>Eventos una vez por frame:</strong> La gestión de eventos de Pygame se ejecuta una vez por frame, no por instrucción, para mejorar el rendimiento.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Reestructuración completa del método <code>run()</code> con arquitectura de bucle externo/interno</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Verificación pendiente:</strong> Esta corrección debe probarse ejecutando el emulador con una ROM y verificando que:
+                </p>
+                <ul>
+                    <li>El contador de ciclos en el log pase de ~169 ciclos/segundo a ~4,000,000 ciclos/segundo</li>
+                    <li>El registro LY avance rápidamente (de 0 a 144 en milisegundos, no en minutos)</li>
+                    <li>El juego se ejecute a velocidad real (60 FPS)</li>
+                    <li>El monitor de signos vitales muestre ciclos acumulándose correctamente</li>
+                </ul>
+                <p>
+                    <strong>Estado:</strong> Draft - Pendiente de verificación con ejecución real del emulador.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: System Clock, Timing, Frame Rate</li>
+                    <li>Conocimiento general de arquitectura de emuladores y game loops</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Arquitectura del Game Loop:</strong> Un emulador necesita separar claramente la ejecución de instrucciones (bucle interno) de la sincronización con el tiempo real (bucle externo). El control de FPS debe estar fuera del bucle de instrucciones.</li>
+                        <li><strong>Rendimiento:</strong> Colocar <code>clock.tick(60)</code> dentro del bucle de instrucciones limita la ejecución a 60 instrucciones por segundo, lo que resulta en un rendimiento extremadamente lento (6000 veces más lento de lo normal).</li>
+                        <li><strong>Timing de frames:</strong> Un frame de Game Boy dura ~70,224 T-Cycles. El bucle interno debe ejecutar todas las instrucciones necesarias para completar un frame antes de sincronizar con el tiempo real.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Verificación de rendimiento:</strong> Necesito ejecutar el emulador y verificar que el contador de ciclos muestre ~4 millones de ciclos por segundo en lugar de ~169.</li>
+                        <li><strong>Velocidad de LY:</strong> Verificar que LY avance rápidamente (de 0 a 144 en milisegundos).</li>
+                        <li><strong>FPS real:</strong> Verificar que el juego se ejecute a 60 FPS reales.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumo que la reestructuración del bucle resolverá el problema de rendimiento extremo. Sin embargo, es posible que haya otros factores que afecten el rendimiento (por ejemplo, operaciones costosas en el renderizado o en la gestión de eventos). La verificación real con ejecución del emulador confirmará si esta corrección es suficiente.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con una ROM y verificar que el rendimiento sea correcto (~4 millones de ciclos/segundo)</li>
+                    <li>[ ] Verificar que LY avance rápidamente (de 0 a 144 en milisegundos)</li>
+                    <li>[ ] Verificar que el juego se ejecute a 60 FPS reales</li>
+                    <li>[ ] Si el rendimiento sigue siendo lento, investigar otros factores (renderizado, gestión de eventos, etc.)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

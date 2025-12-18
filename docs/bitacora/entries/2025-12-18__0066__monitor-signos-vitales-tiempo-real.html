@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor de Signos Vitales en Tiempo Real - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Monitor de Signos Vitales en Tiempo Real</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0066
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0065__monitor-arranque-inmediato.html">Anterior</a></li>
+                    <li><a href="2025-12-18__0067__correccion-arquitectura-game-loop.html">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó un monitor de signos vitales basado en tiempo real que funciona independientemente de los frames de la PPU. Este monitor imprime el estado del sistema (PC, LCDC, LY, ciclos totales) cada 1 segundo de tiempo real, incluso cuando el LCD está apagado y no se generan frames. Además, cuando el LCD está apagado, muestra el checksum de VRAM para diagnosticar si el juego está cargando gráficos. Se eliminó el monitor de arranque anterior (20 prints) para limpiar la salida.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El monitor de arranque anterior confirmó que la CPU ejecuta instrucciones correctamente (el PC avanza de 0x0100 a 0x1F68 y más allá). Sin embargo, cuando el LCD está apagado (`LCDC=00`), la PPU no avanza `LY` (se mantiene en 0), no se generan frames completos, y por tanto el "Heartbeat" basado en frames nunca aparece. El emulador está funcionando "en la oscuridad": el juego puede estar copiando datos a VRAM con la pantalla apagada (comportamiento correcto), pero no tenemos visibilidad de qué está ocurriendo.
+                </p>
+                <p>
+                    Para diagnosticar el estado del emulador mientras la pantalla está apagada, necesitamos un monitor que funcione basado en <strong>tiempo real</strong> (segundos del reloj del sistema), no en frames. Este monitor debe mostrar:
+                </p>
+                <ul>
+                    <li><strong>PC (Program Counter):</strong> Dónde está ejecutándose el código actualmente</li>
+                    <li><strong>LCDC (LCD Control, 0xFF40):</strong> Si el LCD está encendido (bit 7) y otros controles</li>
+                    <li><strong>LY (Scanline):</strong> Línea actual de la PPU (debe ser 0 si LCD está apagado)</li>
+                    <li><strong>Total de ciclos:</strong> Cuántos ciclos se han ejecutado desde el inicio</li>
+                    <li><strong>VRAM Checksum:</strong> Suma de todos los bytes en VRAM (0x8000-0x9FFF) - si aumenta, el juego está cargando gráficos</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Control Register, VRAM Access
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó el método <code>run()</code> de la clase <code>Viboy</code> para añadir un monitor de signos vitales basado en tiempo real que funciona independientemente de los frames de la PPU.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>Viboy (`src/viboy.py`):</strong> 
+                        <ul>
+                            <li>Se eliminó el monitor de arranque anterior (contador <code>debug_step_counter</code> y los 20 prints de "BOOT STEP")</li>
+                            <li>Se añadió una variable <code>last_realtime_log = time.time()</code> antes del bucle principal</li>
+                            <li>Dentro del bucle, después de ejecutar cada instrucción, se comprueba si han pasado 1.0 segundos desde el último reporte</li>
+                            <li>Si han pasado 1.0 segundos, se imprime un mensaje con el estado actual: PC, LCDC, LY, y total de ciclos</li>
+                            <li>Si el LCD está apagado (`LCDC & 0x80 == 0`), se muestra adicionalmente el checksum de VRAM para diagnosticar si el juego está cargando gráficos</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Intervalo de 1.0 segundos:</strong> Se eligió un intervalo de 1 segundo para balancear entre información útil y no saturar la consola. Este intervalo es suficiente para ver si el PC está avanzando o estático, y si el VRAM checksum está aumentando (indicando carga de gráficos).
+                </p>
+                <p>
+                    <strong>Uso de logging.info() en lugar de print():</strong> Aunque el monitor de arranque usaba <code>print()</code> para garantizar visibilidad, este monitor usa <code>logging.info()</code> porque es menos intrusivo y permite controlar el nivel de logging. Si el usuario necesita visibilidad garantizada, puede configurar el nivel de logging a INFO.
+                </p>
+                <p>
+                    <strong>Diagnóstico de VRAM cuando LCD está apagado:</strong> Cuando el LCD está apagado, el juego suele estar cargando datos gráficos en VRAM. Mostrar el checksum de VRAM permite verificar si el juego está realmente copiando datos o si está en un bucle infinito sin hacer nada. Si el checksum aumenta entre reportes, el juego está cargando gráficos. Si el checksum es 0 y no cambia, el juego está en un bucle infinito.
+                </p>
+                <p>
+                    <strong>Eliminación del monitor de arranque:</strong> El monitor de arranque anterior (20 prints) era útil para diagnosticar deadlocks inmediatos, pero saturaba la consola. Ahora que sabemos que la CPU funciona correctamente, el monitor de tiempo real es más útil para diagnosticar problemas a largo plazo.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Se eliminó el monitor de arranque y se añadió el monitor de signos vitales basado en tiempo real</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este monitor es una herramienta de diagnóstico que se validará ejecutando el emulador con ROMs que muestran problemas de bloqueo (pantalla negra indefinida).
+                </p>
+                <ul>
+                    <li><strong>ROM de prueba:</strong> Pokémon Red (ROM aportada por el usuario, no distribuida) - muestra pantalla negra cuando el LCD está apagado</li>
+                    <li><strong>Modo de ejecución:</strong> UI con monitor activado, ejecutar durante 10-20 segundos</li>
+                    <li><strong>Criterio de éxito:</strong> El monitor debe mostrar información cada 1 segundo con el estado actual del sistema, permitiendo identificar:
+                        <ul>
+                            <li>Si el PC está avanzando o estático (indicando si hay un bucle infinito)</li>
+                            <li>Si el LCDC cambia de 0x00 a 0x80 o 0x91 (indicando que el juego intenta arrancar el video)</li>
+                            <li>Si el VRAM checksum aumenta (indicando que el juego está cargando gráficos)</li>
+                            <li>Si el VRAM checksum es 0 y no cambia (indicando que el juego está en un bucle infinito sin copiar datos)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Observación esperada:</strong> 
+                        <ul>
+                            <li>Si el VRAM checksum aumenta: El juego está cargando gráficos, solo hay que esperar a que termine y encienda el LCD</li>
+                            <li>Si el VRAM checksum es 0 y no cambia: El juego está en un bucle infinito y NO está copiando datos (posible fallo de DMA o lógica)</li>
+                            <li>Si el LCDC cambia a 0x80 o 0x91: El juego intenta arrancar el video</li>
+                        </ul>
+                    </li>
+                    <li><strong>Resultado:</strong> <code>draft</code> - Pendiente de verificación con ejecución real del emulador</li>
+                </ul>
+                <p>
+                    <strong>Nota legal:</strong> La ROM de Pokémon Red es aportada por el usuario para pruebas locales. No se distribuye ni se incluye en el repositorio.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Power_Up_Sequence.html#lcd-control-register">LCD Control Register</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Video_Display.html#vram-video-ram">VRAM (Video RAM)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Monitor basado en tiempo real vs. frames:</strong> Cuando el LCD está apagado, la PPU no genera frames, por lo que un monitor basado en frames nunca mostrará información. Un monitor basado en tiempo real (segundos del reloj del sistema) funciona independientemente del estado de la PPU y permite diagnosticar el estado del emulador incluso cuando la pantalla está apagada.</li>
+                        <li><strong>VRAM checksum como diagnóstico:</strong> El checksum de VRAM (suma de todos los bytes en 0x8000-0x9FFF) es una herramienta útil para diagnosticar si el juego está cargando gráficos. Si el checksum aumenta entre reportes, el juego está copiando datos. Si el checksum es 0 y no cambia, el juego está en un bucle infinito sin hacer nada.</li>
+                        <li><strong>Herramienta de diagnóstico temporal:</strong> Este monitor es una herramienta temporal de diagnóstico que debe ser removida o desactivada cuando se resuelvan los problemas de bloqueo. No es parte de la funcionalidad final del emulador.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Patrones de carga de gráficos:</strong> Aún no he ejecutado el emulador con el monitor activado para ver qué patrones de carga de gráficos aparecen. Los reportes del monitor revelarán si el juego está cargando gráficos correctamente o si hay un problema de DMA o lógica.</li>
+                        <li><strong>Intervalo óptimo:</strong> El intervalo de 1 segundo puede ser demasiado largo o demasiado corto dependiendo del comportamiento del juego. Si el juego carga gráficos muy rápido, podríamos perder información. Si carga muy lento, 1 segundo es suficiente.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego está cargando gráficos en VRAM con el LCD apagado (comportamiento correcto). El monitor de tiempo real mostrará si el VRAM checksum aumenta, confirmando que el juego está copiando datos. Una vez que termine de cargar, el juego debería encender el LCD y mostrar la pantalla.
+                    </p>
+                    <p>
+                        <strong>Suposición del monitor:</strong> Asumimos que mostrar el estado cada 1 segundo es suficiente para identificar el problema sin saturar la consola. Si el problema requiere más frecuencia, se puede ajustar el intervalo.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con Pokémon Red y esperar a que aparezca la pantalla negra</li>
+                    <li>[ ] Esperar 10-20 segundos para ver al menos 10-20 reportes del monitor</li>
+                    <li>[ ] Analizar los reportes para identificar:
+                        <ul>
+                            <li>Si el PC está avanzando o estático</li>
+                            <li>Si el VRAM checksum aumenta (indicando carga de gráficos)</li>
+                            <li>Si el LCDC cambia de 0x00 a 0x80 o 0x91 (indicando arranque del video)</li>
+                        </ul>
+                    </li>
+                    <li>[ ] Si el VRAM checksum aumenta: Esperar a que termine de cargar y verificar si el LCD se enciende</li>
+                    <li>[ ] Si el VRAM checksum es 0 y no cambia: Investigar por qué el juego no está copiando datos (posible fallo de DMA o lógica)</li>
+                    <li>[ ] Una vez resuelto el problema, remover o desactivar el monitor temporal</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -353,6 +353,15 @@ class Viboy:
         """
         Ejecuta el bucle principal del emulador (Game Loop).
         
+        ARQUITECTURA CORREGIDA (Paso 55):
+        - Bucle externo: por cada frame (60 FPS)
+        - Bucle interno: ejecutar todas las instrucciones necesarias para completar un frame
+          (~70,224 T-Cycles = 17,556 M-Cycles)
+        - Fuera del bucle interno: manejar eventos y clock.tick(60)
+        
+        El problema anterior era que clock.tick(60) estaba dentro del bucle de instrucciones,
+        limitando la ejecución a 60 instrucciones por segundo en lugar de 4 millones.
+        
         Este método ejecuta instrucciones continuamente hasta que se interrumpe
         (Ctrl+C) o se produce un error.
         
@@ -367,6 +376,8 @@ class Viboy:
         Raises:
             RuntimeError: Si el sistema no está inicializado correctamente
             NotImplementedError: Si se encuentra un opcode no implementado
+            
+        Fuente: Pan Docs - System Clock, Timing, Frame Rate
         """
         if self._cpu is None:
             raise RuntimeError("Sistema no inicializado. Llama a load_cartridge() primero.")
@@ -381,19 +392,14 @@ class Viboy:
         # Contador de frames para heartbeat (cada 60 frames ≈ 1 segundo)
         frame_count = 0
         
-        # DEBUG: Monitor de arranque agresivo
-        # Contador para rastrear los primeros pasos del bucle principal
-        debug_step_counter = 0
+        # Monitor de Signos Vitales basado en Tiempo Real
+        # Este monitor funciona incluso cuando el LCD está apagado y no hay frames
+        last_realtime_log = time.time()
         
         try:
+            # BUCLE EXTERNO: Por cada frame (60 FPS)
             while True:
-                # DEBUG: Monitor de arranque - imprimir los primeros 20 pasos
-                if debug_step_counter < 20:
-                    pc = self._cpu.registers.get_pc()
-                    sp = self._cpu.registers.get_sp()
-                    print(f"🚀 BOOT STEP {debug_step_counter}: PC={pc:04X} | SP={sp:04X}", flush=True)
-                debug_step_counter += 1
-                # CRÍTICO: Llamar a pygame.event.pump() en cada iteración para evitar
+                # CRÍTICO: Llamar a pygame.event.pump() una vez por frame para evitar
                 # que Windows marque la ventana como "No responde"
                 if self._renderer is not None:
                     try:
@@ -402,32 +408,32 @@ class Viboy:
                     except ImportError:
                         pass
                 
-                # Manejar eventos de Pygame (cierre de ventana y teclado)
+                # Manejar eventos de Pygame (cierre de ventana y teclado) - UNA VEZ POR FRAME
                 if self._renderer is not None:
-                    # Manejar eventos de ventana y teclado
                     should_continue = self._handle_pygame_events()
                     if not should_continue:
                         logger.info("Ventana cerrada por el usuario")
                         break
                 
-                # Ejecutar una instrucción
-                cycles = self.tick()
+                # BUCLE INTERNO: Ejecutar un frame completo de CPU/PPU
+                # Ejecutamos instrucciones hasta que la PPU indique que un frame está listo
+                # Límite de seguridad: máximo 2 frames de ciclos para evitar bucles infinitos
+                max_cycles_per_frame = self.CYCLES_PER_FRAME * 4 * 2  # 2 frames como límite
+                frame_cycles = 0  # T-Cycles acumulados en este frame
+                frame_rendered = False
                 
-                # CRÍTICO: Renderizar periódicamente para mostrar el heartbeat incluso si no hay V-Blank
-                # Esto asegura que el visual heartbeat sea visible cuando el LCD está apagado
-                # o cuando el juego no está generando V-Blanks
-                if self._renderer is not None:
-                    self._cycles_since_render += cycles * 4  # Convertir a T-Cycles
-                    # Renderizar cada ~70,224 T-Cycles (1 frame) para mantener el heartbeat visible
-                    if self._cycles_since_render >= 70_224:
-                        self._renderer.render_frame()
-                        self._cycles_since_render = 0
-                
-                # CRÍTICO: Renderizar cuando la PPU indica que un frame está listo
-                # Esto desacopla el renderizado de las interrupciones, permitiendo que
-                # se dibuje cada frame incluso si IME=False o si el juego usa polling.
-                if self._ppu is not None and self._renderer is not None:
-                    if self._ppu.is_frame_ready():
+                while not frame_rendered and frame_cycles < max_cycles_per_frame:
+                    # Ejecutar una instrucción
+                    cycles = self.tick()
+                    
+                    # Acumular ciclos del frame (convertir M-Cycles a T-Cycles)
+                    frame_cycles += cycles * 4
+                    
+                    # CRÍTICO: Renderizar cuando la PPU indica que un frame está listo
+                    # Esto desacopla el renderizado de las interrupciones, permitiendo que
+                    # se dibuje cada frame incluso si IME=False o si el juego usa polling.
+                    if self._ppu is not None and self._ppu.is_frame_ready():
+                        frame_rendered = True
                         frame_count += 1
                         
                         # Heartbeat: cada 60 frames (≈1 segundo), mostrar estado
@@ -441,22 +447,50 @@ class Viboy:
                             heartbeat_msg = f"💓 Heartbeat (frame {frame_count}): FPS={fps:.2f}, VRAM writes={vram_writes}, VRAM_SUM={vram_sum}"
                             print(heartbeat_msg, flush=True)  # print() para visibilidad garantizada
                             logger.info(heartbeat_msg)
-                        self._renderer.render_frame()
-                        # pygame.display.flip() ya se llama dentro de render_frame()
                         
-                        # Actualizar título de ventana con FPS
-                        if self._clock is not None:
-                            fps = self._clock.get_fps()
-                            try:
-                                import pygame
-                                pygame.display.set_caption(f"Viboy Color - FPS: {fps:.1f}")
-                            except ImportError:
-                                pass
+                        # Renderizar el frame
+                        if self._renderer is not None:
+                            self._renderer.render_frame()
+                            # pygame.display.flip() ya se llama dentro de render_frame()
+                            
+                            # Actualizar título de ventana con FPS
+                            if self._clock is not None:
+                                fps = self._clock.get_fps()
+                                try:
+                                    import pygame
+                                    pygame.display.set_caption(f"Viboy Color - FPS: {fps:.1f}")
+                                except ImportError:
+                                    pass
+                
+                # Si no se renderizó un frame (LCD apagado o problema), renderizar heartbeat periódico
+                if not frame_rendered and self._renderer is not None:
+                    self._cycles_since_render += frame_cycles
+                    # Renderizar cada ~70,224 T-Cycles (1 frame) para mantener el heartbeat visible
+                    if self._cycles_since_render >= 70_224:
+                        self._renderer.render_frame()
+                        self._cycles_since_render = 0
+                
+                # Monitor de Signos Vitales (cada 1.0 segundos reales)
+                # Funciona incluso cuando el LCD está apagado y no hay frames
+                current_time = time.time()
+                if current_time - last_realtime_log > 1.0:
+                    last_realtime_log = current_time
+                    pc = self._cpu.registers.get_pc()
+                    lcdc = self._mmu.read_byte(0xFF40) if self._mmu is not None else 0
+                    ly = self._ppu.get_ly() if self._ppu is not None else 0
+                    vital_msg = f"⏱️ VITAL: PC={pc:04X} | LCDC={lcdc:02X} | LY={ly} | Cycles={self._total_cycles}"
+                    logging.info(vital_msg)
                     
-                    # Control de FPS: limitar a 60 FPS (Game Boy original: ~59.73 FPS)
-                    # tick() espera el tiempo necesario para mantener 60 FPS
-                    if self._clock is not None:
-                        self._clock.tick(60)
+                    # DIAGNÓSTICO DE VRAM: Si LCDC es 00, ¿hay datos en VRAM?
+                    if lcdc & 0x80 == 0:
+                        vram_sum = self._mmu.get_vram_checksum() if self._mmu is not None else 0
+                        logging.info(f"   ↳ LCD OFF (Cargando...) | VRAM Checksum: {vram_sum}")
+                
+                # CRÍTICO: Control de FPS - FUERA del bucle interno de instrucciones
+                # tick() espera el tiempo necesario para mantener 60 FPS
+                # Esto se ejecuta UNA VEZ POR FRAME, no por instrucción
+                if self._clock is not None:
+                    self._clock.tick(60)
         
         except KeyboardInterrupt:
             # Salir limpiamente con Ctrl+C
