@@ -285,12 +285,23 @@ WARNING: 🔥 HACK: Forzando BGP 0x00 -> 0xE4 para visibilidad (el juego intent�
             <!-- 8. Próximos Pasos -->
             <section id="proximos-pasos">
                 <h2>Próximos Pasos</h2>
+                <p>
+                    Con el Modo Rayos X activo, se confirmó que la VRAM está vacía (pantalla blanca).
+                    Esto cambia completamente el enfoque del diagnóstico:
+                </p>
                 <ul>
-                    <li>[ ] Ejecutar Pokémon Red con Modo Rayos X activo y observar qué contenido hay en la VRAM</li>
-                    <li>[ ] Si se ve el logo de Game Freak/Nintendo: verificar timing de interrupciones V-Blank</li>
-                    <li>[ ] Si se ve basura o pantalla vacía: verificar DMA y carga de VRAM</li>
-                    <li>[ ] Una vez identificado el problema, corregirlo y desactivar el Modo Rayos X para volver
-                        al comportamiento real del hardware</li>
+                    <li>[x] Ejecutar Pokémon Red con Modo Rayos X activo y observar qué contenido hay en la VRAM
+                        <strong>→ Resultado: Pantalla blanca (VRAM vacía)</strong></li>
+                    <li>[ ] Verificar si el código del juego está ejecutando las instrucciones que copian datos a VRAM
+                        <ul>
+                            <li>Implementar logging de escrituras a VRAM (0x8000-0x9FFF) para ver si se están escribiendo datos</li>
+                            <li>Verificar si el DMA (Direct Memory Access) está funcionando correctamente</li>
+                            <li>Ejecutar paso a paso para identificar dónde se detiene la inicialización antes de cargar gráficos</li>
+                        </ul>
+                    </li>
+                    <li>[ ] Si el código no se está ejecutando: verificar si hay un bloqueo en la CPU o un error antes de llegar a las instrucciones de carga</li>
+                    <li>[ ] Si el código se está ejecutando pero la VRAM no se llena: verificar la implementación de DMA y copias manuales a VRAM</li>
+                    <li>[ ] Una vez identificado y corregido el problema, desactivar el Modo Rayos X para volver al comportamiento real del hardware</li>
                 </ul>
             </section>
         </main>
