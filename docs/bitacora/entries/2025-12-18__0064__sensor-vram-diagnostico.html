@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sensor de VRAM para Diagnóstico - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Sensor de VRAM para Diagnóstico</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0064
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0063__limpieza-diagnosticos-optimizacion-rendimiento.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó un "Sensor de VRAM" que calcula la suma (checksum) de todos los bytes
+                    en la VRAM (0x8000-0x9FFF) y lo muestra en el heartbeat del emulador. Este diagnóstico
+                    permite determinar si el problema de la pantalla blanca se debe a VRAM vacía (todo ceros)
+                    o a datos gráficos que no se están renderizando correctamente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La VRAM (Video RAM) es la memoria dedicada a almacenar los datos gráficos del Game Boy.
+                    Ocupa el rango de direcciones 0x8000-0x9FFF (8KB). En esta memoria se almacenan:
+                </p>
+                <ul>
+                    <li><strong>Tiles (baldosas):</strong> Datos de píxeles que forman los gráficos (fondos, sprites).</li>
+                    <li><strong>Tile Maps (mapas de tiles):</strong> Índices que indican qué tile dibujar en cada posición.</li>
+                    <li><strong>Attribute Maps (CGB):</strong> Atributos de color y prioridad (solo en Game Boy Color).</li>
+                </ul>
+                <p>
+                    Si la VRAM está completamente vacía (todo ceros), la pantalla será blanca independientemente
+                    de cómo funcione el renderer. Si la VRAM contiene datos pero la pantalla sigue blanca, el
+                    problema está en el renderer (decodificación de tiles, paletas, offsets, capas).
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Memory Map, VRAM Access Restrictions
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió un método público <code>get_vram_checksum()</code> en la clase <code>MMU</code>
+                    que calcula la suma de todos los bytes en el rango 0x8000-0x9FFF. Este valor se muestra
+                    en el heartbeat del emulador cada 60 frames (≈1 segundo).
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>MMU.get_vram_checksum():</strong> Método que suma todos los bytes de VRAM (0x8000-0x9FFF).</li>
+                    <li><strong>Viboy.run():</strong> Modificado para incluir <code>VRAM_SUM</code> en el heartbeat usando <code>print()</code> para garantizar visibilidad.</li>
+                    <li><strong>main.py:</strong> Añadida opción <code>--verbose</code> para activar nivel de logging INFO.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se eligió una suma simple (checksum) en lugar de un hash más complejo porque:
+                </p>
+                <ul>
+                    <li>Es rápido de calcular (no afecta el rendimiento).</li>
+                    <li>Es suficiente para distinguir entre VRAM vacía (suma=0) y VRAM con datos (suma>0).</li>
+                    <li>No requiere dependencias adicionales.</li>
+                </ul>
+                <p>
+                    <strong>CRÍTICO - Visibilidad del Heartbeat:</strong> Inicialmente el heartbeat usaba solo
+                    <code>logger.info()</code>, pero el nivel de logging por defecto está en <code>WARNING</code>,
+                    por lo que los mensajes no se mostraban. Se añadió <code>print()</code> además de
+                    <code>logger.info()</code> para garantizar que el heartbeat siempre sea visible en consola,
+                    independientemente del nivel de logging configurado. Esto es esencial para diagnóstico.
+                </p>
+                <p>
+                    El checksum se muestra en el heartbeat junto con otros indicadores de diagnóstico
+                    (FPS, número de escrituras en VRAM) para facilitar el análisis.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/memory/mmu.py</code> - Añadido método <code>get_vram_checksum()</code></li>
+                    <li><code>src/viboy.py</code> - Modificado heartbeat para mostrar <code>VRAM_SUM</code> usando <code>print()</code> para garantizar visibilidad</li>
+                    <li><code>main.py</code> - Añadida opción <code>--verbose</code> para activar nivel de logging INFO</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este es un cambio de diagnóstico, no una funcionalidad nueva. No se requieren tests
+                    unitarios, pero se debe ejecutar el emulador con una ROM para verificar que el sensor
+                    funciona correctamente.
+                </p>
+                <p>
+                    <strong>Ejecución manual requerida:</strong>
+                </p>
+                <ul>
+                    <li><strong>Comando:</strong> <code>python main.py pkmn.gb</code> (o <code>python main.py pkmn.gb --verbose</code> para más detalle)</li>
+                    <li><strong>Entorno:</strong> Windows 10, Python 3.10+</li>
+                    <li><strong>Criterio de éxito:</strong> El heartbeat debe mostrarse en la consola cada segundo con <code>VRAM_SUM=X</code> donde X es un número entero.</li>
+                    <li><strong>Interpretación:</strong>
+                        <ul>
+                            <li>Si <code>VRAM_SUM=0</code>: La VRAM está vacía. El problema está en la CPU (bucle de copia fallido) o en el MBC (lee ceros del cartucho).</li>
+                            <li>Si <code>VRAM_SUM > 0</code> (ej: 45032): Hay datos gráficos. El problema está en el Renderer (paletas, offsets, capas).</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> El resultado del sensor se mostrará en la consola cuando el emulador
+                    ejecute el heartbeat (cada 60 frames ≈ 1 segundo). El heartbeat usa <code>print()</code>
+                    para garantizar visibilidad incluso si el nivel de logging está en WARNING. El usuario debe
+                    ejecutar el emulador y observar el valor de <code>VRAM_SUM</code> en la consola.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Memory_Map.html">Memory Map</a> - VRAM (0x8000-0x9FFF)</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/VRAM.html">VRAM Access Restrictions</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Diagnóstico binario:</strong> El problema de pantalla blanca puede tener dos causas fundamentales: VRAM vacía o renderer defectuoso. El checksum de VRAM permite distinguir entre ambas.</li>
+                        <li><strong>VRAM como almacén de gráficos:</strong> La VRAM contiene los datos de píxeles (tiles) y los mapas que indican dónde dibujarlos. Si está vacía, no hay nada que renderizar.</li>
+                        <li><strong>Heartbeat como herramienta de diagnóstico:</strong> El heartbeat periódico es ideal para mostrar métricas de diagnóstico sin saturar los logs.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Valor esperado de VRAM_SUM:</strong> No sé qué valor debería tener el checksum cuando un juego ha cargado correctamente sus gráficos. Esto se determinará ejecutando el emulador y observando el valor.</li>
+                        <li><strong>Timing de carga de gráficos:</strong> No sé cuándo exactamente el juego debería haber cargado los gráficos en VRAM. Puede que necesite ejecutarse durante varios segundos antes de que la VRAM se llene.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> Si el emulador corre fluido (sin errores en consola) pero la pantalla es blanca,
+                        el problema es binario: o la VRAM está vacía (CPU/MBC no cargan datos) o el renderer no dibuja correctamente
+                        los datos que sí están en VRAM.
+                    </p>
+                    <p>
+                        El sensor de VRAM permitirá confirmar o refutar esta hipótesis de forma inmediata.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con <code>pkmn.gb</code> y observar el valor de <code>VRAM_SUM</code> en el heartbeat.</li>
+                    <li>[ ] Si <code>VRAM_SUM=0</code>: Investigar por qué la CPU no está cargando datos en VRAM (bucle de copia, MBC, etc.).</li>
+                    <li>[ ] Si <code>VRAM_SUM > 0</code>: Investigar el renderer (decodificación de tiles, paletas, offsets, capas).</li>
+                    <li>[ ] Documentar el valor esperado de <code>VRAM_SUM</code> cuando un juego ha cargado correctamente sus gráficos.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

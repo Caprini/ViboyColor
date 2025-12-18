@@ -295,6 +295,13 @@ class Viboy:
             for _ in range(max_halt_cycles):
                 # Ejecutar un tick de HALT (consume 1 M-Cycle)
                 cycles = self._cpu.step()
+                
+                # CRÍTICO: Protección contra bucle infinito también en HALT
+                if cycles == 0:
+                    pc = self._cpu.registers.get_pc()
+                    print(f"🚨 ALERTA: CPU devolvió 0 ciclos en HALT (PC={pc:04X})!", flush=True)
+                    cycles = 1  # Forzar avance para no colgar
+                
                 total_cycles += cycles
                 
                 # Convertir a T-Cycles y avanzar subsistemas
@@ -316,6 +323,14 @@ class Viboy:
         
         # Ejecutar una instrucción normal
         cycles = self._cpu.step()
+        
+        # CRÍTICO: Protección contra bucle infinito
+        # Si la CPU devuelve 0 ciclos, el contador de tiempo nunca avanza
+        # y el emulador se congela. Forzamos al menos 1 ciclo para evitar deadlock.
+        if cycles == 0:
+            pc = self._cpu.registers.get_pc()
+            print(f"🚨 ALERTA: CPU devolvió 0 ciclos en PC={pc:04X}!", flush=True)
+            cycles = 1  # Forzar avance para no colgar
         
         # Acumular ciclos totales
         self._total_cycles += cycles
@@ -366,8 +381,18 @@ class Viboy:
         # Contador de frames para heartbeat (cada 60 frames ≈ 1 segundo)
         frame_count = 0
         
+        # DEBUG: Monitor de arranque agresivo
+        # Contador para rastrear los primeros pasos del bucle principal
+        debug_step_counter = 0
+        
         try:
             while True:
+                # DEBUG: Monitor de arranque - imprimir los primeros 20 pasos
+                if debug_step_counter < 20:
+                    pc = self._cpu.registers.get_pc()
+                    sp = self._cpu.registers.get_sp()
+                    print(f"🚀 BOOT STEP {debug_step_counter}: PC={pc:04X} | SP={sp:04X}", flush=True)
+                debug_step_counter += 1
                 # CRÍTICO: Llamar a pygame.event.pump() en cada iteración para evitar
                 # que Windows marque la ventana como "No responde"
                 if self._renderer is not None:
@@ -407,10 +432,15 @@ class Viboy:
                         
                         # Heartbeat: cada 60 frames (≈1 segundo), mostrar estado
                         # Incluir información de diagnóstico de VRAM
+                        # CRÍTICO: Usar print() además de logger para asegurar visibilidad
+                        # incluso si el nivel de logging está en WARNING
                         if frame_count % 60 == 0:
                             fps = self._clock.get_fps() if self._clock is not None else 0.0
                             vram_writes = self._mmu.get_vram_write_count() if self._mmu is not None else 0
-                            logger.info(f"💓 Heartbeat (frame {frame_count}): FPS={fps:.2f}, VRAM writes={vram_writes}")
+                            vram_sum = self._mmu.get_vram_checksum() if self._mmu is not None else 0
+                            heartbeat_msg = f"💓 Heartbeat (frame {frame_count}): FPS={fps:.2f}, VRAM writes={vram_writes}, VRAM_SUM={vram_sum}"
+                            print(heartbeat_msg, flush=True)  # print() para visibilidad garantizada
+                            logger.info(heartbeat_msg)
                         self._renderer.render_frame()
                         # pygame.display.flip() ya se llama dentro de render_frame()
                         

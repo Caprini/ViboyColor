@@ -1,5 +1,62 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Sensor de VRAM para Diagnóstico (Step 0064)
+
+### Conceptos Hardware Implementados
+
+**VRAM (Video RAM) como Almacén de Gráficos**: La VRAM ocupa el rango 0x8000-0x9FFF (8KB) y contiene los datos gráficos del Game Boy: tiles (baldosas de píxeles), tile maps (mapas que indican qué tile dibujar) y attribute maps (CGB). Si la VRAM está completamente vacía (todo ceros), la pantalla será blanca independientemente de cómo funcione el renderer. Si la VRAM contiene datos pero la pantalla sigue blanca, el problema está en el renderer (decodificación de tiles, paletas, offsets, capas).
+
+**Diagnóstico Binario**: El problema de pantalla blanca puede tener dos causas fundamentales: VRAM vacía (problema en CPU/MBC) o renderer defectuoso (problema en decodificación/renderizado). Un checksum simple de VRAM permite distinguir entre ambas causas de forma inmediata.
+
+**Fuente**: Pan Docs - Memory Map, VRAM Access Restrictions
+
+#### Tareas Completadas:
+
+1. **MMU (`src/memory/mmu.py`)**:
+   - Añadido método público `get_vram_checksum()` que calcula la suma de todos los bytes en VRAM (0x8000-0x9FFF)
+   - Devuelve 0 si la VRAM está vacía, > 0 si hay datos gráficos
+
+2. **Viboy (`src/viboy.py`)**:
+   - Modificado heartbeat para incluir `VRAM_SUM` junto con FPS y número de escrituras en VRAM
+   - **CRÍTICO**: Añadido `print()` además de `logger.info()` para garantizar visibilidad del heartbeat incluso si el nivel de logging está en WARNING
+
+3. **main.py**:
+   - Añadida opción `--verbose` para activar nivel de logging INFO si se necesita más detalle
+
+#### Archivos Afectados:
+- `src/memory/mmu.py` (modificado) - Añadido método `get_vram_checksum()`
+- `src/viboy.py` (modificado) - Modificado heartbeat para mostrar `VRAM_SUM` usando `print()` para garantizar visibilidad
+- `main.py` (modificado) - Añadida opción `--verbose` para activar nivel de logging INFO
+- `docs/bitacora/entries/2025-12-18__0064__sensor-vram-diagnostico.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0064)
+- `docs/bitacora/entries/2025-12-18__0063__limpieza-diagnosticos-optimizacion-rendimiento.html` (modificado, actualizado enlace "Siguiente")
+- `INFORME_COMPLETO.md` (modificado, añadida entrada 0064)
+
+#### Validación:
+- **Estado**: Draft - Pendiente de ejecución manual para observar valor de `VRAM_SUM`
+- **Entorno**: Windows 10, Python 3.10+
+- **Comando ejecutado**: `python main.py pkmn.gb` (o `python main.py pkmn.gb --verbose`)
+- **Criterio de éxito**: El heartbeat debe mostrarse en la consola cada segundo con `VRAM_SUM=X` donde X es un número entero
+- **Interpretación esperada**:
+  - Si `VRAM_SUM=0`: La VRAM está vacía. El problema está en la CPU (bucle de copia fallido) o en el MBC (lee ceros del cartucho).
+  - Si `VRAM_SUM > 0` (ej: 45032): Hay datos gráficos. El problema está en el Renderer (paletas, offsets, capas).
+
+#### Git Commit Sugerido:
+```bash
+git add src/memory/mmu.py src/viboy.py main.py docs/bitacora/
+git commit -m "feat(diagnostico): añadir sensor de VRAM en heartbeat
+
+- Añadido método get_vram_checksum() en MMU para calcular suma de bytes en VRAM
+- Modificado heartbeat para mostrar VRAM_SUM junto con FPS y escrituras
+- Añadido print() además de logger.info() para garantizar visibilidad del heartbeat
+- Añadida opción --verbose en main.py para activar nivel de logging INFO
+- Permite diagnosticar si pantalla blanca se debe a VRAM vacía o renderer defectuoso
+
+Bitácora: Step 0064"
+```
+
+---
+
 ## 2025-12-18 - Limpieza de Diagnósticos y Optimización de Rendimiento (Step 0063)
 
 ### Conceptos Hardware Implementados

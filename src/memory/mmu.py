@@ -600,4 +600,16 @@ class MMU:
             Número de escrituras en VRAM detectadas desde la inicialización
         """
         return self.vram_write_count
+    
+    def get_vram_checksum(self) -> int:
+        """
+        Calcula la suma (checksum) de todos los bytes en VRAM (0x8000-0x9FFF).
+        
+        Este método es útil para diagnóstico: si la VRAM está vacía (todo ceros),
+        el checksum será 0. Si hay datos gráficos, el checksum será > 0.
+        
+        Returns:
+            Suma de todos los bytes en VRAM (0x8000-0x9FFF)
+        """
+        return sum(self._memory[0x8000:0xA000])
 

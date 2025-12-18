@@ -44,12 +44,20 @@ def main() -> None:
         action="store_true",
         help="Activar modo debug con trazas detalladas de instrucciones",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Activar modo verbose (muestra mensajes INFO, incluyendo heartbeat)",
+    )
     
     args = parser.parse_args()
     
     # Si se especifica --debug, cambiar nivel de logging
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
+    elif args.verbose:
+        # Modo verbose: mostrar INFO (incluye heartbeat)
+        logging.getLogger().setLevel(logging.INFO)
     
     print("Viboy Color - Sistema Iniciado")
     print("=" * 50)
@@ -87,8 +95,12 @@ def main() -> None:
         if args.debug:
             print("   Modo DEBUG activado - Mostrando trazas de instrucciones")
             print("   Presiona Ctrl+C para detener\n")
-        else:
+        elif args.verbose:
+            print("   Modo VERBOSE activado - Mostrando heartbeat y mensajes INFO")
             print("   Presiona Ctrl+C para detener\n")
+        else:
+            print("   Presiona Ctrl+C para detener")
+            print("   (Usa --verbose para ver el heartbeat con VRAM_SUM)\n")
         
         # Ejecutar bucle principal
         viboy.run(debug=args.debug)
