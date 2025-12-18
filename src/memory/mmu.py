@@ -331,17 +331,16 @@ class MMU:
             self._memory[addr] = value
             return
         
-        # Si está en el rango I/O (0xFF00-0xFF7F), registrar log de debug (silenciado por defecto)
-        # CRÍTICO: Cambiado a DEBUG para evitar spam en consola que mata el rendimiento
-        if 0xFF00 <= addr <= 0xFF7F:
-            reg_name = IO_REGISTER_NAMES.get(addr, f"IO_0x{addr:04X}")
-            logger.debug(f"IO WRITE: {reg_name} = 0x{value:02X} (addr: 0x{addr:04X})")
+        # Si está en el rango I/O (0xFF00-0xFF7F), registrar log de debug (comentado para rendimiento)
+        # if 0xFF00 <= addr <= 0xFF7F:
+        #     reg_name = IO_REGISTER_NAMES.get(addr, f"IO_0x{addr:04X}")
+        #     logger.debug(f"IO WRITE: {reg_name} = 0x{value:02X} (addr: 0x{addr:04X})")
         
         # Interceptar escritura al registro LY (0xFF44)
         # LY es de solo lectura, pero algunos juegos intentan escribir en él
         # En hardware real, escribir en LY no tiene efecto (se ignora silenciosamente)
         if addr == IO_LY:
-            logger.debug(f"IO WRITE: LY (solo lectura, ignorado) = 0x{value:02X}")
+            # logger.debug(f"IO WRITE: LY (solo lectura, ignorado) = 0x{value:02X}")
             return  # Ignorar escritura a LY
         
         # HACK TEMPORAL: Interceptar escritura a BGP (0xFF47) para forzar paleta visible
@@ -375,7 +374,7 @@ class MMU:
             # Los bits 0-1 se ignoran porque son de solo lectura
             # En hardware real, escribir en bits 0-1 no tiene efecto
             self._memory[addr] = value & 0xFC  # Solo guardar bits 2-7 (limpiar bits 0-1)
-            logger.debug(f"IO WRITE: STAT = 0x{value:02X} (bits 0-1 ignorados, solo 2-7 guardados)")
+            # logger.debug(f"IO WRITE: STAT = 0x{value:02X} (bits 0-1 ignorados, solo 2-7 guardados)")
             return
         
         # Interceptar escritura al registro P1 (0xFF00) - Joypad Input
@@ -410,15 +409,14 @@ class MMU:
                 self._timer.write_tac(value)
                 return  # No escribir en memoria, el Timer maneja su propio estado
         
-        # CRÍTICO: Trampa de diagnóstico para LCDC (0xFF40)
-        # Monitoriza intentos de encender/apagar la pantalla
-        if addr == IO_LCDC:
-            old_value = self.read_byte(IO_LCDC)
-            logging.critical(f"[TRAP LCDC] INTENTO DE CAMBIO LCDC: {old_value:02X} -> {value:02X}")
+        # CRÍTICO: Trampa de diagnóstico para LCDC (comentada para rendimiento)
+        # if addr == IO_LCDC:
+        #     old_value = self.read_byte(IO_LCDC)
+        #     logging.critical(f"[TRAP LCDC] INTENTO DE CAMBIO LCDC: {old_value:02X} -> {value:02X}")
         
-        # DIAGNÓSTICO: Log cuando se escribe en IE (Interrupt Enable, 0xFFFF)
-        if addr == IO_IE:
-            logging.info(f"SET IE REGISTER: {value:02X} (habilitando interrupciones: V-Blank={bool(value & 0x01)}, STAT={bool(value & 0x02)}, Timer={bool(value & 0x04)})")
+        # DIAGNÓSTICO: Log cuando se escribe en IE (comentado para rendimiento)
+        # if addr == IO_IE:
+        #     logging.info(f"SET IE REGISTER: {value:02X} (habilitando interrupciones: V-Blank={bool(value & 0x01)}, STAT={bool(value & 0x02)}, Timer={bool(value & 0x04)})")
         
         # Interceptar escritura al registro DMA (0xFF46) - DMA Transfer
         # Cuando se escribe un valor XX en 0xFF46, se inicia una transferencia DMA
@@ -431,7 +429,7 @@ class MMU:
             oam_base = 0xFE00  # OAM comienza en 0xFE00
             oam_size = 160  # OAM tiene 160 bytes (40 sprites * 4 bytes)
             
-            logger.debug(f"DMA: Copiando {oam_size} bytes desde 0x{source_base:04X} a 0x{oam_base:04X}")
+            # logger.debug(f"DMA: Copiando {oam_size} bytes desde 0x{source_base:04X} a 0x{oam_base:04X}")
             
             # Copiar 160 bytes desde la dirección fuente a OAM
             # Usamos slice de bytearray para copia rápida
@@ -442,7 +440,7 @@ class MMU:
                 # Escribir en OAM
                 self._memory[oam_base + i] = byte_value
             
-            logger.debug(f"DMA: Transferencia completada (160 bytes copiados)")
+            # logger.debug(f"DMA: Transferencia completada (160 bytes copiados)")
             # Escribir el valor en el registro DMA (se mantiene el valor escrito)
             self._memory[addr] = value
             return
@@ -532,7 +530,7 @@ class MMU:
             ppu: Instancia de PPU
         """
         self._ppu = ppu
-        logger.debug("MMU: PPU conectada para lectura de LY")
+        # logger.debug("MMU: PPU conectada para lectura de LY")
     
     def set_joypad(self, joypad: Joypad) -> None:
         """
@@ -545,7 +543,7 @@ class MMU:
             joypad: Instancia de Joypad
         """
         self._joypad = joypad
-        logger.debug("MMU: Joypad conectado para lectura/escritura de P1")
+        # logger.debug("MMU: Joypad conectado para lectura/escritura de P1")
     
     def set_timer(self, timer: Timer) -> None:
         """
@@ -558,5 +556,5 @@ class MMU:
             timer: Instancia de Timer
         """
         self._timer = timer
-        logger.debug("MMU: Timer conectado para lectura/escritura de DIV")
+        # logger.debug("MMU: Timer conectado para lectura/escritura de DIV")
 

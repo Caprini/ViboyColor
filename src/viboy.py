@@ -100,11 +100,10 @@ class Viboy:
         # Contador de ciclos desde el último render (para heartbeat visual)
         self._cycles_since_render: int = 0
         
-        # Sistema de trazado activado por LCDC=0x80 (Trap Trace)
-        # Se activa cuando se detecta que LCDC se escribe con 0x80
-        self._trace_active: bool = False
-        self._trace_counter: int = 0
-        self._prev_lcdc: int = 0  # Valor anterior de LCDC para detectar cambios
+        # Sistema de trazado desactivado para rendimiento (comentado)
+        # self._trace_active: bool = False
+        # self._trace_counter: int = 0
+        # self._prev_lcdc: int = 0  # Valor anterior de LCDC para detectar cambios
         
         # Control de FPS (sincronización de tiempo)
         # pygame.time.Clock permite limitar la velocidad del bucle a 60 FPS
@@ -352,36 +351,13 @@ class Viboy:
         
         logger.info("Iniciando bucle principal de ejecución...")
         
-        # Heartbeat inicial: mostrar estado al inicio para diagnóstico
-        if self._mmu is not None:
-            pc = self._cpu.registers.get_pc()
-            reg_a = self._cpu.registers.get_a()
-            lcdc = self._mmu.read_byte(0xFF40)
-            bgp = self._mmu.read_byte(0xFF47)
-            logger.info(
-                f"🚀 Inicio: PC=0x{pc:04X} | A=0x{reg_a:02X} (DMG={'✅' if reg_a == 0x01 else '❌'}) | "
-                f"LCDC=0x{lcdc:02X} | BGP=0x{bgp:02X}"
-            )
-        else:
-            pc = self._cpu.registers.get_pc()
-            reg_a = self._cpu.registers.get_a()
-            logger.info(f"🚀 Inicio: PC=0x{pc:04X} | A=0x{reg_a:02X} (DMG={'✅' if reg_a == 0x01 else '❌'})")
-        
         # CRÍTICO: Forzar un render inicial para mostrar el visual heartbeat
         # Esto asegura que la ventana muestre algo incluso si el juego no entra en V-Blank
         if self._renderer is not None:
-            logger.info("🖼️  Forzando render inicial para mostrar visual heartbeat...")
             self._renderer.render_frame()
         
         # Contador de frames para heartbeat (cada 60 frames ≈ 1 segundo)
         frame_count = 0
-        
-        # Inicializar valor previo de LCDC para detección de cambios
-        if self._mmu is not None:
-            self._prev_lcdc = self._mmu.read_byte(0xFF40)
-        
-        # Monitor de estado en tiempo real (cada 5 segundos)
-        last_debug_time = time.time()
         
         try:
             while True:
@@ -394,41 +370,6 @@ class Viboy:
                     except ImportError:
                         pass
                 
-                # Monitor de estado en tiempo real (cada 5 segundos)
-                if time.time() - last_debug_time > 5.0:
-                    last_debug_time = time.time()
-                    pc = self._cpu.registers.get_pc()
-                    sp = self._cpu.registers.get_sp()
-                    ime = self._cpu.ime
-                    if self._mmu is not None:
-                        ie = self._mmu.read_byte(0xFFFF)
-                        if_reg = self._mmu.read_byte(0xFF0F)
-                        lcdc = self._mmu.read_byte(0xFF40)
-                        div = self._mmu.read_byte(0xFF04)
-                    else:
-                        ie = 0
-                        if_reg = 0
-                        lcdc = 0
-                        div = 0
-                    ly = self._ppu.get_ly() if self._ppu is not None else 0
-                    
-                    # Leer los 3 bytes en PC para ver la instrucción actual
-                    if self._mmu is not None:
-                        op = self._mmu.read_byte(pc)
-                        op1 = self._mmu.read_byte(pc + 1)
-                        op2 = self._mmu.read_byte(pc + 2)
-                    else:
-                        op = 0
-                        op1 = 0
-                        op2 = 0
-                    
-                    print(f"\n🔍 ESTADO (LCD={'ON' if lcdc & 0x80 else 'OFF'}):")
-                    print(f"   PC={pc:04X} (Opcode: {op:02X} {op1:02X} {op2:02X})")
-                    print(f"   SP={sp:04X} | IME={ime}")
-                    print(f"   IE={ie:02X} (VBlank={ie&1}, LCD={ie&2}, Timer={ie&4})")
-                    print(f"   IF={if_reg:02X} (VBlank={if_reg&1}, LCD={if_reg&2}, Timer={if_reg&4})")
-                    print(f"   LY={ly} | DIV={div:02X}")
-                
                 # Manejar eventos de Pygame (cierre de ventana y teclado)
                 if self._renderer is not None:
                     # Manejar eventos de ventana y teclado
@@ -437,75 +378,8 @@ class Viboy:
                         logger.info("Ventana cerrada por el usuario")
                         break
                 
-                # Obtener estado antes de ejecutar (para debug y trace)
-                pc_before = self._cpu.registers.get_pc()
-                opcode = self._mmu.read_byte(pc_before) if self._mmu else 0
-                
-                # Detectar cambio de LCDC a 0x80 (LCD ON sin fondo)
-                # Esto activa el sistema de trazado para ver qué ocurre después
-                if self._mmu is not None:
-                    current_lcdc = self._mmu.read_byte(0xFF40)
-                    # Si LCDC cambió de algo distinto a 0x80 a 0x80, activar trace
-                    if current_lcdc == 0x80 and self._prev_lcdc != 0x80 and not self._trace_active:
-                        self._trace_active = True
-                        self._trace_counter = 0
-                        print(f"\n{'='*80}")
-                        print(f"🔍 TRACE ACTIVADO: LCDC cambió a 0x80 (LCD ON sin fondo)")
-                        print(f"   PC actual: 0x{pc_before:04X} | Opcode: 0x{opcode:02X}")
-                        print(f"{'='*80}\n")
-                    self._prev_lcdc = current_lcdc
-                
                 # Ejecutar una instrucción
                 cycles = self.tick()
-                
-                # Sistema de trazado: imprimir información detallada si está activo
-                # Aumentado a 1000 instrucciones para capturar hasta V-Blank (LY=144)
-                # 144 líneas × ~38 instrucciones/línea ≈ 5,472 instrucciones necesarias
-                # Usamos 1000 como compromiso entre información y rendimiento
-                if self._trace_active and self._trace_counter < 1000:
-                    regs = self._cpu.registers
-                    # Leer registros de hardware relevantes
-                    if self._mmu is not None:
-                        if_reg = self._mmu.read_byte(0xFF0F)
-                        ie_reg = self._mmu.read_byte(0xFFFF)
-                        ly = self._ppu.get_ly() if self._ppu is not None else 0
-                        stat = self._mmu.read_byte(0xFF41)
-                    else:
-                        if_reg = 0
-                        ie_reg = 0
-                        ly = 0
-                        stat = 0
-                    
-                    # Formato de salida similar al debug pero con más información
-                    flags_str = ""
-                    if regs.get_flag_z():
-                        flags_str += "Z"
-                    if regs.get_flag_n():
-                        flags_str += "N"
-                    if regs.get_flag_h():
-                        flags_str += "H"
-                    if regs.get_flag_c():
-                        flags_str += "C"
-                    if not flags_str:
-                        flags_str = "-"
-                    
-                    print(
-                        f"TRACE [{self._trace_counter:03}]: "
-                        f"PC=0x{pc_before:04X} | OP=0x{opcode:02X} | "
-                        f"A=0x{regs.get_a():02X} BC=0x{regs.get_bc():04X} DE=0x{regs.get_de():04X} HL=0x{regs.get_hl():04X} | "
-                        f"SP=0x{regs.get_sp():04X} | F={flags_str} | "
-                        f"IF=0x{if_reg:02X} IE=0x{ie_reg:02X} | LY={ly:3d} STAT=0x{stat:02X} | "
-                        f"Cycles={cycles}"
-                    )
-                    
-                    self._trace_counter += 1
-                    
-                    # Desactivar trace después de 1000 instrucciones
-                    if self._trace_counter >= 1000:
-                        self._trace_active = False
-                        print(f"\n{'='*80}")
-                        print(f"🔍 TRACE COMPLETADO: 1000 instrucciones capturadas")
-                        print(f"{'='*80}\n")
                 
                 # CRÍTICO: Renderizar periódicamente para mostrar el heartbeat incluso si no hay V-Blank
                 # Esto asegura que el visual heartbeat sea visible cuando el LCD está apagado
@@ -525,39 +399,10 @@ class Viboy:
                         frame_count += 1
                         
                         # Heartbeat: cada 60 frames (≈1 segundo), mostrar estado
-                        # También mostrar en el primer frame para diagnóstico inmediato
-                        if frame_count % 60 == 0 or frame_count == 1:
-                            pc = self._cpu.registers.get_pc()
+                        # Solo mostrar FPS para verificar rendimiento
+                        if frame_count % 60 == 0:
                             fps = self._clock.get_fps() if self._clock is not None else 0.0
-                            # Monitor de LCDC y BGP para diagnóstico
-                            if self._mmu is not None:
-                                lcdc = self._mmu.read_byte(0xFF40)
-                                bgp = self._mmu.read_byte(0xFF47)
-                                logger.info(
-                                    f"💓 Heartbeat (frame {frame_count}): PC=0x{pc:04X} | FPS={fps:.2f} | "
-                                    f"LCDC=0x{lcdc:02X} | BGP=0x{bgp:02X}"
-                                )
-                            else:
-                                logger.info(f"💓 Heartbeat (frame {frame_count}): PC=0x{pc:04X} | FPS={fps:.2f}")
-                        
-                        # Log del estado de LCDC, IE, IF para debugging (DEBUG para evitar spam)
-                        # CRÍTICO: Cambiado a DEBUG para evitar spam en consola que mata el rendimiento
-                        if self._mmu is not None:
-                            ly = self._ppu.get_ly()
-                            lcdc = self._mmu.read_byte(0xFF40)
-                            ie = self._mmu.read_byte(0xFFFF)
-                            if_reg = self._mmu.read_byte(0xFF0F)
-                            bgp = self._mmu.read_byte(0xFF47)
-                            if lcdc != 0:
-                                logger.debug(
-                                    f"V-Blank: LY={ly}, LCDC=0x{lcdc:02X}, "
-                                    f"BGP=0x{bgp:02X}, IE=0x{ie:02X}, IF=0x{if_reg:02X} - Renderizando"
-                                )
-                            else:
-                                logger.debug(
-                                    f"V-Blank: LY={ly}, LCDC=0x{lcdc:02X} (OFF), "
-                                    f"BGP=0x{bgp:02X}, IE=0x{ie:02X}, IF=0x{if_reg:02X} - Pantalla blanca"
-                                )
+                            logger.info(f"💓 Heartbeat (frame {frame_count}): FPS={fps:.2f}")
                         self._renderer.render_frame()
                         # pygame.display.flip() ya se llama dentro de render_frame()
                         

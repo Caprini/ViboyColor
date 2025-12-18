@@ -12,9 +12,10 @@ from pathlib import Path
 from src.viboy import Viboy
 
 # Configurar logging básico
-# CRITICAL siempre se muestra, incluso si el nivel es INFO
+# WARNING para evitar spam en consola que mata el rendimiento
+# Solo se mostrarán WARNING, ERROR y CRITICAL
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format="%(levelname)s: %(message)s",
     force=True,  # Forzar reconfiguración
 )

@@ -104,7 +104,7 @@ class PPU:
         # Permite desacoplar el renderizado de las interrupciones
         self.frame_ready: bool = False
         
-        logger.debug("PPU inicializada: LY=0, clock=0, mode=2 (OAM Search)")
+        # logger.debug("PPU inicializada: LY=0, clock=0, mode=2 (OAM Search)")
 
     def step(self, cycles: int) -> None:
         """
@@ -192,14 +192,14 @@ class PPU:
                 # del estado de IME o si se procesan interrupciones.
                 self.frame_ready = True
                 
-                # CRÍTICO: Log informativo para diagnóstico (no debug, para que siempre se vea)
-                logger.info(f"🎯 PPU: V-Blank iniciado (LY={self.ly}), IF actualizado a 0x{if_val:02X} (independiente de IME)")
-                logger.debug(f"PPU: V-Blank iniciado (LY={self.ly}), IF actualizado (independiente de IME)")
+                # Log comentado para rendimiento
+                # logger.info(f"🎯 PPU: V-Blank iniciado (LY={self.ly}), IF actualizado a 0x{if_val:02X} (independiente de IME)")
+                # logger.debug(f"PPU: V-Blank iniciado (LY={self.ly}), IF actualizado (independiente de IME)")
             
             # Si pasamos la última línea (153), reiniciar a 0 (nuevo frame)
             if self.ly > 153:
                 self.ly = 0
-                logger.debug(f"PPU: Nuevo frame iniciado (LY={self.ly})")
+                # logger.debug(f"PPU: Nuevo frame iniciado (LY={self.ly})")
         
         # Actualizar el modo después de procesar líneas completas
         # (por si quedaron ciclos residuales en la línea actual)
