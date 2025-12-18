@@ -641,4 +641,23 @@ class MMU:
             Suma de todos los bytes en VRAM (0x8000-0x9FFF)
         """
         return sum(self._memory[0x8000:0xA000])
+    
+    def write_byte_internal(self, addr: int, value: int) -> None:
+        """
+        Escribe un byte directamente en memoria sin pasar por las restricciones
+        de write_byte(). Este método es para uso interno de componentes del sistema
+        (como la PPU) que necesitan actualizar registros de hardware sin restricciones.
+        
+        CRÍTICO: Este método NO debe usarse desde código del juego. Solo para uso
+        interno de componentes del emulador (PPU, Timer, etc.).
+        
+        Args:
+            addr: Dirección de memoria (0x0000 a 0xFFFF)
+            value: Valor a escribir (se enmascara a 8 bits)
+        
+        Fuente: Método interno para permitir actualización de registros por hardware
+        """
+        addr = addr & 0xFFFF
+        value = value & 0xFF
+        self._memory[addr] = value
 

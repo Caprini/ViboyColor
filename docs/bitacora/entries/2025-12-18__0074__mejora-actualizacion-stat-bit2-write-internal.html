@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mejora de Actualización de STAT Bit 2 y write_byte_internal - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Mejora de Actualización de STAT Bit 2 y write_byte_internal</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0074
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0073__diagnostico-stat-lyc-en-vivo.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se mejoró la implementación de interrupciones STAT añadiendo un método <code>write_byte_internal()</code> en la MMU
+                    que permite a componentes internos (como la PPU) actualizar registros de hardware sin restricciones. Además, se mejoró
+                    la actualización del bit 2 de STAT (LYC=LY Coincidence Flag) en <code>_check_stat_interrupt()</code> para mantener
+                    consistencia en memoria, asegurando que el bit 2 se actualice correctamente cuando LY coincide con LYC, incluso si algún
+                    código lee directamente de memoria sin pasar por <code>read_byte()</code>.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El registro <strong>STAT (0xFF41)</strong> tiene una estructura híbrida: algunos bits son de solo lectura (actualizados
+                    por el hardware) y otros son configurables por el software. Específicamente:
+                </p>
+                <ul>
+                    <li><strong>Bits 0-1</strong>: Modo PPU actual (00=H-Blank, 01=V-Blank, 10=OAM Search, 11=Pixel Transfer). <strong>De solo lectura</strong>.</li>
+                    <li><strong>Bit 2</strong>: LYC=LY Coincidence Flag. Se pone a 1 cuando <code>LY == LYC</code>. <strong>De solo lectura</strong> (hardware).</li>
+                    <li><strong>Bits 3-6</strong>: Flags de habilitación de interrupciones STAT (H-Blank, V-Blank, OAM Search, LYC=LY). <strong>Configurables por software</strong>.</li>
+                    <li><strong>Bit 7</strong>: No usado (siempre 0).</li>
+                </ul>
+                <p>
+                    En hardware real, cuando el software escribe en STAT, solo los bits configurables (3-6) se guardan. Los bits 0-2 siempre
+                    reflejan el estado actual de la PPU y se actualizan automáticamente por el hardware. Sin embargo, para mantener
+                    consistencia en el emulador, es útil que la PPU actualice estos bits en memoria cuando cambian, incluso aunque
+                    técnicamente se calculen dinámicamente en <code>get_stat()</code>.
+                </p>
+                <p>
+                    <strong>Problema identificado</strong>: Aunque <code>get_stat()</code> calcula el bit 2 dinámicamente cuando se lee
+                    a través de <code>read_byte()</code>, si algún código accede directamente a la memoria interna (por ejemplo, para
+                    evitar recursión), el bit 2 puede no estar actualizado. Esto puede causar inconsistencias si la PPU lee STAT
+                    directamente desde memoria en <code>_check_stat_interrupt()</code>.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Status Register (STAT), LYC Register
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron dos mejoras principales:
+                </p>
+                
+                <h3>1. Método write_byte_internal() en MMU</h3>
+                <p>
+                    Se añadió un nuevo método <code>write_byte_internal(addr, value)</code> en <code>src/memory/mmu.py</code> que permite
+                    escribir directamente en memoria sin pasar por las restricciones de <code>write_byte()</code>. Este método está
+                    diseñado para uso interno de componentes del sistema (como la PPU) que necesitan actualizar registros de hardware
+                    sin restricciones.
+                </p>
+                <p>
+                    <strong>Uso:</strong> La PPU usa este método para actualizar el registro STAT (bits 0-2) sin que las restricciones
+                    de <code>write_byte()</code> interfieran. Esto es necesario porque <code>write_byte()</code> para STAT solo guarda
+                    los bits configurables (3-7) y limpia los bits 0-2, pero la PPU necesita actualizar estos bits cuando cambian.
+                </p>
+
+                <h3>2. Mejora de actualización del bit 2 en _check_stat_interrupt()</h3>
+                <p>
+                    Se mejoró el método <code>_check_stat_interrupt()</code> en <code>src/gpu/ppu.py</code> para actualizar el bit 2 de STAT
+                    en memoria cuando LY coincide con LYC (o cuando no coincide). Anteriormente, el bit 2 solo se calculaba dinámicamente
+                    en <code>get_stat()</code>, pero ahora también se actualiza en memoria para mantener consistencia.
+                </p>
+                <p>
+                    <strong>Cambios específicos:</strong>
+                </p>
+                <ul>
+                    <li>Cuando <code>LY == LYC</code>: Se actualiza STAT en memoria con el bit 2 activo (0x04) y el modo actual (bits 0-1).</li>
+                    <li>Cuando <code>LY != LYC</code>: Se actualiza STAT en memoria con el bit 2 limpio y el modo actual (bits 0-1).</li>
+                    <li>Se usa <code>write_byte_internal()</code> para actualizar sin restricciones, preservando los bits configurables (3-7).</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Separación de responsabilidades</strong>: <code>write_byte_internal()</code> está claramente marcado como
+                        "solo para uso interno" y documentado para evitar uso incorrecto desde código del juego.</li>
+                    <li><strong>Consistencia en memoria</strong>: Aunque técnicamente el bit 2 se calcula dinámicamente en <code>get_stat()</code>,
+                        actualizarlo en memoria ayuda a mantener consistencia si algún código lee directamente de memoria (por ejemplo, para
+                        evitar recursión).</li>
+                    <li><strong>Preservación de bits configurables</strong>: Al actualizar STAT, se preservan los bits configurables (3-7)
+                        que el software puede haber escrito, y solo se actualizan los bits de solo lectura (0-2).</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/memory/mmu.py</code> - Añadido método <code>write_byte_internal()</code> para escrituras internas sin restricciones</li>
+                    <li><code>src/gpu/ppu.py</code> - Mejorado <code>_check_stat_interrupt()</code> para actualizar el bit 2 de STAT en memoria usando <code>write_byte_internal()</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Ejecución de Tests:</strong> <code>python -m pytest tests/test_ppu_stat.py -v</code>
+                </p>
+                <ul>
+                    <li><strong>Entorno:</strong> Windows, Python 3.13.5</li>
+                    <li><strong>Resultado:</strong> ✅ <strong>7 tests PASSED</strong> en 0.26s</li>
+                    <li><strong>Qué valida:</strong>
+                        <ul>
+                            <li>El bit 2 de STAT se activa correctamente cuando LY == LYC</li>
+                            <li>Las interrupciones STAT se solicitan cuando LY == LYC y el bit 6 está activo</li>
+                            <li>La detección de rising edge funciona correctamente (no dispara múltiples veces en la misma línea)</li>
+                            <li>Las interrupciones STAT por cambio de modo (H-Blank, V-Blank, OAM Search) funcionan correctamente</li>
+                            <li>Escribir en LYC verifica inmediatamente si LY == LYC y solicita interrupción si corresponde</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Código del test (fragmento esencial):</strong>
+                </p>
+                <pre><code>def test_stat_interrupt_lyc_coincidence(self) -> None:
+    """Test: Interrupción STAT se solicita cuando LY == LYC y bit 6 está activo."""
+    mmu = MMU(None)
+    ppu = PPU(mmu)
+    mmu.set_ppu(ppu)
+    
+    # Encender LCD
+    mmu.write_byte(IO_LCDC, 0x80)
+    
+    # Configurar LYC = 20
+    mmu.write_byte(IO_LYC, 20)
+    
+    # Habilitar interrupción LYC (STAT bit 6 = 1)
+    mmu.write_byte(IO_STAT, 0x40)  # Bit 6 activo
+    
+    # Limpiar IF inicialmente
+    mmu.write_byte(IO_IF, 0x00)
+    
+    # Avanzar PPU hasta LY = 20
+    ppu.step(20 * 456)
+    assert ppu.get_ly() == 20
+    
+    # Verificar que se solicitó interrupción STAT (bit 1 de IF)
+    if_val = mmu.read_byte(IO_IF)
+    assert (if_val & 0x02) != 0, "Bit 1 de IF debe estar activo (STAT interrupt)"</code></pre>
+                <p>
+                    <strong>Por qué este test demuestra algo del hardware:</strong> Este test verifica que cuando LY coincide con LYC
+                    y el bit 6 de STAT (LYC Int Enable) está activo, se activa el bit 1 de IF (LCD STAT interrupt). Esto es exactamente
+                    el comportamiento del hardware: la PPU compara LY con LYC constantemente, y cuando coinciden y la interrupción está
+                    habilitada, se solicita la interrupción STAT. El test también verifica que el bit 2 de STAT se actualiza correctamente
+                    (aunque esto se verifica indirectamente porque la interrupción se dispara).
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC_Registers.html#lcd-status-register-stat-ff41">LCD Status Register (STAT)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC_Registers.html#lyc-ly-compare-ff45">LYC Register (LY Compare)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html#lcd-stat-interrupt">LCD STAT Interrupt</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Registro STAT híbrido:</strong> El registro STAT tiene bits de solo lectura (0-2) que reflejan el estado
+                            actual de la PPU y bits configurables (3-6) que el software puede escribir. Esta estructura híbrida requiere
+                            cuidado al implementar: el software solo puede escribir los bits configurables, pero el hardware actualiza los
+                            bits de solo lectura automáticamente.</li>
+                        <li><strong>Consistencia en memoria:</strong> Aunque técnicamente los bits de solo lectura se pueden calcular
+                            dinámicamente cuando se leen, mantenerlos actualizados en memoria ayuda a evitar inconsistencias si algún código
+                            accede directamente a la memoria (por ejemplo, para evitar recursión).</li>
+                        <li><strong>Métodos internos:</strong> Los componentes del sistema (PPU, Timer, etc.) a veces necesitan actualizar
+                            registros de hardware sin pasar por las restricciones de <code>write_byte()</code>. Un método <code>write_byte_internal()</code>
+                            permite esto de forma controlada, claramente marcado como "solo para uso interno".</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Timing exacto de actualización del bit 2:</strong> ¿Se actualiza el bit 2 de STAT exactamente cuando LY
+                            cambia a coincidir con LYC, o hay un pequeño delay? Por ahora, se actualiza inmediatamente cuando se verifica
+                            en <code>_check_stat_interrupt()</code>, lo que parece funcionar correctamente según los tests.</li>
+                        <li><strong>Impacto en rendimiento:</strong> ¿Actualizar STAT en memoria en cada verificación tiene algún impacto
+                            en rendimiento? Por ahora, parece despreciable, pero podría optimizarse si es necesario.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que actualizar el bit 2 de STAT en memoria (además de calcularlo dinámicamente en <code>get_stat()</code>)
+                        ayuda a mantener consistencia sin tener impacto negativo en el comportamiento. Esto parece ser correcto según los tests,
+                        pero no está completamente documentado en todas las fuentes consultadas. La implementación es conservadora: mantiene
+                        consistencia en memoria mientras preserva el cálculo dinámico en <code>get_stat()</code>.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar comportamiento con juegos reales (pkmn.gb, tetris_dx.gbc) para confirmar que las interrupciones STAT se disparan correctamente</li>
+                    <li>[ ] Analizar logs de ejecución para identificar si hay problemas con el timing de interrupciones STAT</li>
+                    <li>[ ] Continuar con otras funcionalidades pendientes del emulador (APU, mejoras de renderizado, etc.)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

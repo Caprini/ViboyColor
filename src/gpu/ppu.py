@@ -285,6 +285,7 @@ class PPU:
         Fuente: Pan Docs - LCD Status Register (STAT), STAT Interrupt
         """
         # Leer el registro STAT directamente de memoria (evita recursión)
+        # Solo leemos los bits configurables (3-7), los bits 0-2 se actualizan dinámicamente
         stat_value = self.mmu._memory[0xFF41] & 0xFF
         
         # Inicializar señal de interrupción
@@ -292,10 +293,19 @@ class PPU:
         
         # Verificar LYC=LY Coincidence (bit 2 y bit 6)
         lyc_match = (self.ly & 0xFF) == (self.lyc & 0xFF)
+        
+        # Actualizar bit 2 de STAT dinámicamente (LYC=LY Coincidence Flag)
+        # Este bit es de solo lectura desde el hardware, pero lo actualizamos aquí
+        # para mantener consistencia. El bit 2 se combina con los bits configurables.
+        # NOTA: Aunque get_stat() calcula el bit 2 dinámicamente, actualizarlo aquí
+        # ayuda a mantener consistencia si algún código lee directamente de memoria.
         if lyc_match:
             # Set bit 2 de STAT (LYC=LY Coincidence Flag)
-            # Este bit es de solo lectura desde el hardware, pero se actualiza aquí
-            # El bit 2 se combina con los bits configurables en get_stat() 
+            # Preservamos los bits configurables (3-7) y actualizamos bits 0-2
+            stat_value = (stat_value & 0xF8) | self.mode | 0x04  # Set bit 2
+            # Actualizar en memoria usando write_byte_internal (sin restricciones)
+            self.mmu.write_byte_internal(0xFF41, stat_value)
+            
             # Si el bit 6 (LYC Int Enable) está activo, solicitar interrupción
             if (stat_value & 0x40) != 0:  # Bit 6 activo
                 signal = True
@@ -307,8 +317,17 @@ class PPU:
                 )
         else:
             # Si LY != LYC, el bit 2 debe estar limpio
-            # (se maneja en get_stat() combinando con el valor de memoria)
-            pass
+            # Preservamos los bits configurables (3-7) y actualizamos bits 0-2
+            stat_value = (stat_value & 0xF8) | self.mode  # Clear bit 2
+            # Actualizar en memoria usando write_byte_internal (sin restricciones)
+            self.mmu.write_byte_internal(0xFF41, stat_value)
+        
+        # Actualizar bits 0-1 (modo PPU) en STAT si no se actualizaron arriba
+        # Esto asegura que el modo siempre esté actualizado en memoria
+        if not lyc_match:
+            # Si no había coincidencia LYC, actualizar solo el modo
+            stat_value = (stat_value & 0xF8) | self.mode
+            self.mmu.write_byte_internal(0xFF41, stat_value)
         
         # Verificar interrupciones por modo PPU
         if self.mode == PPU_MODE_0_HBLANK and (stat_value & 0x08) != 0:  # Bit 3 activo
