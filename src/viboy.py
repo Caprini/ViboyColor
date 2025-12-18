@@ -96,6 +96,15 @@ class Viboy:
         # Estado de V-Blank anterior (para detectar transición)
         self._prev_vblank: bool = False
         
+        # Control de FPS (sincronización de tiempo)
+        # pygame.time.Clock permite limitar la velocidad del bucle a 60 FPS
+        try:
+            import pygame
+            self._clock = pygame.time.Clock()
+        except ImportError:
+            self._clock = None
+            logger.warning("Pygame no disponible. Control de FPS desactivado.")
+        
         # Si se proporciona ROM, cargarla
         if rom_path is not None:
             self.load_cartridge(rom_path)
@@ -297,8 +306,22 @@ class Viboy:
                                 )
                         self._renderer.render_frame()
                         # pygame.display.flip() ya se llama dentro de render_frame()
+                        
+                        # Actualizar título de ventana con FPS
+                        if self._clock is not None:
+                            fps = self._clock.get_fps()
+                            try:
+                                import pygame
+                                pygame.display.set_caption(f"Viboy Color - FPS: {fps:.1f}")
+                            except ImportError:
+                                pass
                     
                     self._prev_vblank = in_vblank
+                    
+                    # Control de FPS: limitar a 60 FPS (Game Boy original: ~59.73 FPS)
+                    # tick() espera el tiempo necesario para mantener 60 FPS
+                    if self._clock is not None:
+                        self._clock.tick(60)
                 
                 # Imprimir traza en modo debug
                 if debug:

@@ -144,6 +144,10 @@ class Renderer:
         self.screen = pygame.display.set_mode((self.window_width, self.window_height))
         pygame.display.set_caption("Viboy Color")
         
+        # Crear framebuffer interno (160x144 píxeles, tamaño nativo de Game Boy)
+        # Este buffer se escribe píxel a píxel y luego se escala a la ventana
+        self.buffer = pygame.Surface((GB_WIDTH, GB_HEIGHT))
+        
         logger.info(f"Renderer inicializado: {self.window_width}x{self.window_height} (scale={scale})")
 
     def render_vram_debug(self) -> None:
@@ -214,8 +218,8 @@ class Renderer:
         # Leer registro BGP (Background Palette)
         bgp = self.mmu.read_byte(IO_BGP) & 0xFF
         
-        # Logging de diagnóstico (INFO para visibilidad)
-        logger.info(
+        # Logging de diagnóstico (DEBUG para no ralentizar)
+        logger.debug(
             f"Render frame: LCDC=0x{lcdc:02X} (bit7={lcdc_bit7}, LCD {'ON' if lcdc_bit7 else 'OFF'}), "
             f"BGP=0x{bgp:02X}"
         )
@@ -225,7 +229,9 @@ class Renderer:
         # NOTA: En modo debug, podríamos renderizar VRAM de todas formas, pero
         # por ahora respetamos el comportamiento del hardware real
         if not lcdc_bit7:
-            self.screen.fill((255, 255, 255))
+            self.buffer.fill((255, 255, 255))
+            scaled_buffer = pygame.transform.scale(self.buffer, (self.window_width, self.window_height))
+            self.screen.blit(scaled_buffer, (0, 0))
             pygame.display.flip()
             logger.info("LCDC: LCD desactivado (bit 7=0), pantalla blanca - 0 tiles dibujados")
             return
@@ -249,7 +255,7 @@ class Renderer:
         #     logger.info("LCDC: Background desactivado (bit 0=0), pantalla blanca - 0 tiles dibujados")
         #     return
         
-        logger.info("HACK EDUCATIVO: Ignorando Bit 0 de LCDC para compatibilidad con juegos CGB (LCDC=0x80)")
+        logger.debug("HACK EDUCATIVO: Ignorando Bit 0 de LCDC para compatibilidad con juegos CGB (LCDC=0x80)")
         
         # Bit 3: Tile Map Area
         # 0 = 0x9800, 1 = 0x9C00
@@ -298,8 +304,12 @@ class Renderer:
         
         logger.debug(f"Scroll: SCX=0x{scx:02X} ({scx}), SCY=0x{scy:02X} ({scy})")
         
-        # Limpiar pantalla con color de fondo (índice 0 de la paleta)
-        self.screen.fill(palette[0])
+        # Limpiar framebuffer con color de fondo (índice 0 de la paleta)
+        self.buffer.fill(palette[0])
+        
+        # Bloquear el framebuffer para escritura rápida de píxeles
+        # PixelArray permite escribir píxeles como si fuera una matriz 2D
+        pixels = pygame.PixelArray(self.buffer)
         
         # DIAGNÓSTICO: Verificar contenido de VRAM y tilemap cuando se renderiza
         # Verificar algunos tiles del tilemap (primeras 16 posiciones = primera fila)
@@ -355,7 +365,7 @@ class Renderer:
                 f"{[f'{b:02X}' for b in tile_bytes]}"
             )
         
-        logger.info(
+        logger.debug(
             f"DIAGNÓSTICO VRAM/Tilemap: "
             f"Tilemap[0:16]={[f'{t:02X}' for t in tilemap_sample[:8]]}... "
             f"(tiles no-0: {len(non_zero_tiles)}/16), "
@@ -426,19 +436,22 @@ class Renderer:
                     color_index = (bit_high << 1) | bit_low
                     color = palette[color_index]
                 
-                # Dibujar el píxel en la posición de pantalla (aplicar escala)
-                scaled_x = screen_x * self.scale
-                scaled_y = screen_y * self.scale
-                pygame.draw.rect(
-                    self.screen,
-                    color,
-                    (scaled_x, scaled_y, self.scale, self.scale)
-                )
+                # Escribir píxel directamente en el framebuffer
+                # PixelArray permite acceso directo como matriz 2D: pixels[x, y] = color
+                pixels[screen_x, screen_y] = color
                 tiles_drawn += 1
+        
+        # Liberar el PixelArray (importante: debe cerrarse antes de usar el buffer)
+        del pixels
+        
+        # Escalar el framebuffer a la ventana y hacer blit
+        # pygame.transform.scale es rápido porque opera sobre una superficie completa
+        scaled_buffer = pygame.transform.scale(self.buffer, (self.window_width, self.window_height))
+        self.screen.blit(scaled_buffer, (0, 0))
         
         # Actualizar la pantalla
         pygame.display.flip()
-        logger.info(
+        logger.debug(
             f"Frame renderizado: {tiles_drawn} píxeles dibujados, "
             f"map_base=0x{map_base:04X}, data_base=0x{data_base:04X}, unsigned={unsigned_addressing}, "
             f"SCX=0x{scx:02X}, SCY=0x{scy:02X}"
