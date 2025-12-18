@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnóstico de STAT/LYC en Vivo - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Diagnóstico de STAT/LYC en Vivo</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0073
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0072__verificacion-tests-stat-interrupts.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se añadió instrumentación de diagnóstico en tiempo real para detectar configuraciones de LYC y STAT,
+                    y para identificar cuándo la PPU detecta señales de interrupción STAT activas. El objetivo es diagnosticar
+                    por qué juegos como Pokémon y Tetris se quedan congelados en el logo: los logs muestran muchas interrupciones
+                    V-Blank (0x0040) pero ninguna interrupción STAT (0x0048), lo que sugiere que el juego espera una interrupción
+                    STAT (LY=LYC) para animar el logo pero no se está disparando.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La Game Boy puede generar interrupciones STAT (LCD Status) cuando se cumplen ciertas condiciones relacionadas
+                    con el estado de la PPU. Una de estas condiciones es la <strong>coincidencia LYC=LY</strong>: cuando el registro
+                    LY (Línea actual) coincide con el registro LYC (LY Compare), se puede generar una interrupción si el bit 6
+                    del registro STAT está activo.
+                </p>
+                <p>
+                    Muchos juegos usan esta característica para animar el logo durante la intro: configuran LYC a un valor específico
+                    (por ejemplo, línea 144 para V-Blank o una línea visible para efectos especiales), habilitan la interrupción
+                    STAT en IE (bit 1) y en STAT (bit 6), y esperan a que se dispare la interrupción para actualizar los gráficos.
+                </p>
+                <p>
+                    Si la interrupción STAT no se dispara, el juego se queda esperando indefinidamente en un bucle, causando que
+                    la pantalla se congele en el logo.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Status Register (STAT), LYC Register, STAT Interrupt
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió instrumentación de diagnóstico en tres puntos clave del sistema:
+                </p>
+                
+                <h3>1. Instrumentación en MMU (escrituras a LYC y STAT)</h3>
+                <p>
+                    En <code>src/memory/mmu.py</code>, se añadieron logs informativos cuando el juego escribe en:
+                </p>
+                <ul>
+                    <li><strong>LYC (0xFF45):</strong> Se registra el valor escrito con el log <code>👁️ LYC SET: {value}</code></li>
+                    <li><strong>STAT (0xFF41):</strong> Se registra el valor escrito y qué bits de interrupción están habilitados:
+                        <ul>
+                            <li>Bit 3: H-Blank Interrupt Enable</li>
+                            <li>Bit 4: V-Blank Interrupt Enable</li>
+                            <li>Bit 5: OAM Search Interrupt Enable</li>
+                            <li>Bit 6: LYC=LY Coincidence Interrupt Enable</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>2. Instrumentación en PPU (detección de señal STAT activa)</h3>
+                <p>
+                    En <code>src/gpu/ppu.py</code>, en el método <code>_check_stat_interrupt()</code>, se añadieron logs cuando
+                    se detecta una señal STAT activa por cualquiera de las condiciones:
+                </p>
+                <ul>
+                    <li><strong>LYC Match:</strong> Cuando LY == LYC y el bit 6 de STAT está activo</li>
+                    <li><strong>H-Blank:</strong> Cuando el modo es Mode 0 y el bit 3 de STAT está activo</li>
+                    <li><strong>V-Blank:</strong> Cuando el modo es Mode 1 y el bit 4 de STAT está activo</li>
+                    <li><strong>OAM Search:</strong> Cuando el modo es Mode 2 y el bit 5 de STAT está activo</li>
+                </ul>
+                <p>
+                    El log incluye información completa: modo PPU, LY actual, LYC configurado, valor de STAT, y qué condición
+                    activó la señal.
+                </p>
+
+                <h3>3. Verificación del Dispatcher de Interrupciones</h3>
+                <p>
+                    Se verificó que el dispatcher de interrupciones en <code>src/cpu/core.py</code> chequea correctamente el bit 1
+                    de IF para la interrupción STAT y salta al vector 0x0048. La implementación es correcta y sigue la prioridad
+                    de interrupciones del hardware (V-Blank tiene prioridad más alta que STAT).
+                </p>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Los logs se añadieron con nivel <code>INFO</code> para que sean visibles durante la ejecución normal del emulador.
+                    Esto permite diagnosticar problemas en tiempo real sin necesidad de activar logging DEBUG, que puede ser muy verboso.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/memory/mmu.py</code> - Añadida instrumentación para escrituras a LYC (0xFF45) y STAT (0xFF41)</li>
+                    <li><code>src/gpu/ppu.py</code> - Añadida instrumentación para detección de señal STAT activa en <code>_check_stat_interrupt()</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Esta es una implementación de <strong>diagnóstico</strong>, no una funcionalidad nueva. La instrumentación
+                    se añadió para ayudar a identificar por qué los juegos se quedan congelados.
+                </p>
+                <p>
+                    <strong>Próximos pasos para verificación:</strong>
+                </p>
+                <ul>
+                    <li>Ejecutar <code>python main.py pkmn.gb</code> o <code>python main.py tetris_dx.gbc</code></li>
+                    <li>Buscar en los logs:
+                        <ul>
+                            <li>Si aparece <code>👁️ LYC SET</code>: El juego está configurando LYC</li>
+                            <li>Si aparece <code>👁️ STAT WRITE</code>: El juego está configurando STAT</li>
+                            <li>Si aparece <code>🚨 STAT SIGNAL ACTIVE</code>: La PPU detecta el evento</li>
+                            <li>Si aparece lo anterior pero NO aparece <code>⚡ INTERRUPT DISPATCHED! Vector: 0048</code>:
+                                El fallo está en el dispatcher de interrupciones (CPU)</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span> - Pendiente de ejecutar y analizar los logs
+                    para identificar el problema exacto.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC_Registers.html#lcd-status-register-stat-ff41">LCD Status Register (STAT)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC_Registers.html#lyc-ly-compare-ff45">LYC Register (LY Compare)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Interrupciones STAT:</strong> La Game Boy puede generar interrupciones cuando se cumplen condiciones
+                            específicas relacionadas con el estado de la PPU (modo, LYC=LY, etc.).</li>
+                        <li><strong>LYC=LY Coincidence:</strong> Cuando LY coincide con LYC, se puede generar una interrupción si el
+                            bit 6 de STAT está activo. Esto es útil para sincronizar actualizaciones gráficas con líneas específicas.</li>
+                        <li><strong>Rising Edge Detection:</strong> Las interrupciones STAT se disparan en "rising edge", es decir,
+                            solo cuando la condición pasa de False a True, no mientras permanece True.</li>
+                        <li><strong>Prioridad de Interrupciones:</strong> V-Blank tiene prioridad más alta que STAT. Si ambas están
+                            pendientes, V-Blank se procesa primero.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Configuración del juego:</strong> ¿El juego está configurando LYC y STAT correctamente?
+                            Los logs nos dirán si el juego escribe en estos registros.</li>
+                        <li><strong>Detección de señal:</strong> ¿La PPU está detectando la coincidencia LY==LYC?
+                            Los logs nos dirán si se activa la señal STAT.</li>
+                        <li><strong>Dispatcher de interrupciones:</strong> ¿El dispatcher está chequeando correctamente el bit 1 de IF?
+                            Ya verificamos el código y parece correcto, pero los logs confirmarán si se dispara la interrupción.</li>
+                        <li><strong>Habilitación en IE:</strong> ¿El juego está habilitando la interrupción STAT en IE (bit 1)?
+                            Si no está habilitada en IE, la interrupción no se procesará aunque IF tenga el bit activo.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego está configurando LYC y STAT correctamente, pero la interrupción
+                        STAT no se está disparando porque:
+                    </p>
+                    <ul>
+                        <li>La PPU no está detectando la coincidencia LY==LYC (problema en <code>_check_stat_interrupt()</code>)</li>
+                        <li>El juego no está habilitando la interrupción STAT en IE (bit 1)</li>
+                        <li>Hay un problema con el rising edge detection que impide que se dispare múltiples veces</li>
+                    </ul>
+                    <p>
+                        Los logs nos dirán exactamente dónde está el problema.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con una ROM (pkmn.gb o tetris_dx.gbc) y analizar los logs</li>
+                    <li>[ ] Identificar si el juego configura LYC y STAT (buscar <code>👁️ LYC SET</code> y <code>👁️ STAT WRITE</code>)</li>
+                    <li>[ ] Identificar si la PPU detecta la señal STAT (buscar <code>🚨 STAT SIGNAL ACTIVE</code>)</li>
+                    <li>[ ] Identificar si se dispara la interrupción STAT (buscar <code>⚡ INTERRUPT DISPATCHED! Vector: 0048</code>)</li>
+                    <li>[ ] Corregir el problema identificado en los logs</li>
+                    <li>[ ] Verificar que el juego ya no se congela y avanza correctamente</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

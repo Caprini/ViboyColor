@@ -295,10 +295,16 @@ class PPU:
         if lyc_match:
             # Set bit 2 de STAT (LYC=LY Coincidence Flag)
             # Este bit es de solo lectura desde el hardware, pero se actualiza aquí
-            # El bit 2 se combina con los bits configurables en get_stat()
+            # El bit 2 se combina con los bits configurables en get_stat() 
             # Si el bit 6 (LYC Int Enable) está activo, solicitar interrupción
             if (stat_value & 0x40) != 0:  # Bit 6 activo
                 signal = True
+                # Instrumentación para diagnóstico: detectar señal STAT activa por LYC
+                logger.info(
+                    f"🚨 STAT SIGNAL ACTIVE! (LYC Match) "
+                    f"Mode={self.mode} LY={self.ly} LYC={self.lyc} "
+                    f"STAT={stat_value:02X} (Bit 6 LYC Int Enable: True)"
+                )
         else:
             # Si LY != LYC, el bit 2 debe estar limpio
             # (se maneja en get_stat() combinando con el valor de memoria)
@@ -307,10 +313,28 @@ class PPU:
         # Verificar interrupciones por modo PPU
         if self.mode == PPU_MODE_0_HBLANK and (stat_value & 0x08) != 0:  # Bit 3 activo
             signal = True
+            # Instrumentación para diagnóstico: detectar señal STAT activa por H-Blank
+            logger.info(
+                f"🚨 STAT SIGNAL ACTIVE! (H-Blank) "
+                f"Mode={self.mode} LY={self.ly} LYC={self.lyc} "
+                f"STAT={stat_value:02X} (Bit 3 H-Blank Int Enable: True)"
+            )
         elif self.mode == PPU_MODE_1_VBLANK and (stat_value & 0x10) != 0:  # Bit 4 activo
             signal = True
+            # Instrumentación para diagnóstico: detectar señal STAT activa por V-Blank
+            logger.info(
+                f"🚨 STAT SIGNAL ACTIVE! (V-Blank) "
+                f"Mode={self.mode} LY={self.ly} LYC={self.lyc} "
+                f"STAT={stat_value:02X} (Bit 4 V-Blank Int Enable: True)"
+            )
         elif self.mode == PPU_MODE_2_OAM_SEARCH and (stat_value & 0x20) != 0:  # Bit 5 activo
             signal = True
+            # Instrumentación para diagnóstico: detectar señal STAT activa por OAM Search
+            logger.info(
+                f"🚨 STAT SIGNAL ACTIVE! (OAM Search) "
+                f"Mode={self.mode} LY={self.ly} LYC={self.lyc} "
+                f"STAT={stat_value:02X} (Bit 5 OAM Int Enable: True)"
+            )
         
         # Disparar interrupción en rising edge (solo si signal es True y antes era False)
         if signal and not self.stat_interrupt_line:
@@ -320,8 +344,8 @@ class PPU:
             if_val |= 0x02  # Set bit 1 (LCD STAT interrupt)
             self.mmu.write_byte(0xFF0F, if_val)
             
-            # Log para diagnóstico (comentado para rendimiento)
-            # logger.debug(f"🎯 PPU: STAT interrupt triggered (LY={self.ly}, LYC={self.lyc}, mode={self.mode}), IF actualizado a 0x{if_val:02X}")
+            # Log para diagnóstico (activado temporalmente para debugging)
+            logger.info(f"🎯 PPU: STAT interrupt triggered (LY={self.ly}, LYC={self.lyc}, mode={self.mode}), IF actualizado a 0x{if_val:02X}")
         
         # Actualizar flag de interrupción STAT
         self.stat_interrupt_line = signal
@@ -383,6 +407,9 @@ class PPU:
         """
         old_lyc = self.lyc
         self.lyc = value & 0xFF
+        
+        # Log para diagnóstico (activado temporalmente para debugging)
+        logger.info(f"📝 PPU: LYC escrito = {self.lyc} (LY actual = {self.ly})")
         
         # Si LYC cambió, verificar interrupciones STAT inmediatamente
         # (el bit 2 de STAT puede cambiar si LY == nuevo LYC)

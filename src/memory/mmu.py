@@ -395,13 +395,22 @@ class MMU:
             # Los bits 0-2 se ignoran porque son de solo lectura
             # En hardware real, escribir en bits 0-2 no tiene efecto
             self._memory[addr] = value & 0xF8  # Solo guardar bits 3-7 (limpiar bits 0-2)
-            # logger.debug(f"IO WRITE: STAT = 0x{value:02X} (bits 0-2 ignorados, solo 3-7 guardados)")
+            # Instrumentación para diagnóstico: detectar configuración de STAT
+            logger.info(
+                f"👁️ STAT WRITE: {value:02X} "
+                f"(Bit 3 H-Blank Int: {(value & 0x08) != 0}, "
+                f"Bit 4 V-Blank Int: {(value & 0x10) != 0}, "
+                f"Bit 5 OAM Int: {(value & 0x20) != 0}, "
+                f"Bit 6 LYC Int Enable: {(value & 0x40) != 0})"
+            )
             return
         
         # Interceptar escritura al registro LYC (0xFF45)
         # LYC es de lectura/escritura y permite configurar el valor de línea
         # con el que se compara LY para generar interrupciones STAT
         if addr == IO_LYC:
+            # Instrumentación para diagnóstico: detectar configuración de LYC
+            logger.info(f"👁️ LYC SET: {value}")
             if self._ppu is not None:
                 self._ppu.set_lyc(value)
             # También guardar en memoria para consistencia (aunque la PPU es la fuente de verdad)
