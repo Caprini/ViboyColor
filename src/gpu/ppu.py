@@ -110,21 +110,38 @@ class PPU:
         y avanza las líneas de escaneo cuando corresponde, actualizando dinámicamente
         el modo PPU (Mode 0, 1, 2 o 3) según el timing de la línea.
         
+        CRÍTICO: La PPU solo avanza cuando el LCD está encendido (LCDC bit 7 = 1).
+        Cuando el LCD está apagado (LCDC bit 7 = 0), la PPU se detiene y LY se
+        mantiene en 0. Esto es crítico porque muchos juegos encienden el LCD y
+        luego esperan V-Blank para configurar los gráficos.
+        
         Comportamiento:
-        1. Acumula ciclos en el clock interno
-        2. Actualiza el modo PPU según el punto en la línea actual (line_cycles)
-        3. Si clock >= 456: Resta 456, incrementa LY, reinicia modo a Mode 2
-        4. Si LY == 144: ¡Entramos en V-Blank! Solicita interrupción (bit 0 en IF)
-        5. Si LY > 153: Reinicia LY a 0 (nuevo frame)
+        1. Verificar si el LCD está encendido (LCDC bit 7)
+        2. Si está apagado, no avanzar (LY se mantiene en 0)
+        3. Si está encendido, acumular ciclos en el clock interno
+        4. Actualizar el modo PPU según el punto en la línea actual (line_cycles)
+        5. Si clock >= 456: Resta 456, incrementa LY, reinicia modo a Mode 2
+        6. Si LY == 144: ¡Entramos en V-Blank! Solicita interrupción (bit 0 en IF)
+        7. Si LY > 153: Reinicia LY a 0 (nuevo frame)
         
         Args:
             cycles: Número de T-Cycles (ciclos de reloj) a procesar
                    NOTA: La CPU devuelve M-Cycles, que deben convertirse a T-Cycles
                    multiplicando por 4 antes de llamar a este método.
         
-        Fuente: Pan Docs - LCD Timing, V-Blank Interrupt, STAT Register
+        Fuente: Pan Docs - LCD Timing, V-Blank Interrupt, STAT Register, LCD Control Register
         """
-        # Acumular ciclos en el clock interno
+        # CRÍTICO: Verificar si el LCD está encendido (LCDC bit 7)
+        # Si el LCD está apagado, la PPU se detiene y LY se mantiene en 0
+        lcdc = self.mmu.read_byte(0xFF40) & 0xFF
+        lcd_enabled = (lcdc & 0x80) != 0
+        
+        if not lcd_enabled:
+            # LCD apagado: PPU detenida, LY se mantiene en 0
+            # No acumulamos ciclos ni avanzamos líneas
+            return
+        
+        # Acumular ciclos en el clock interno (solo si el LCD está encendido)
         self.clock += cycles
         
         # Actualizar el modo PPU según el punto actual en la línea
@@ -163,6 +180,8 @@ class PPU:
                 if_val = self.mmu.read_byte(0xFF0F)
                 if_val |= 0x01  # Set bit 0 (V-Blank interrupt)
                 self.mmu.write_byte(0xFF0F, if_val)
+                # CRÍTICO: Log informativo para diagnóstico (no debug, para que siempre se vea)
+                logger.info(f"🎯 PPU: V-Blank iniciado (LY={self.ly}), IF actualizado a 0x{if_val:02X} (independiente de IME)")
                 logger.debug(f"PPU: V-Blank iniciado (LY={self.ly}), IF actualizado (independiente de IME)")
             
             # Si pasamos la última línea (153), reiniciar a 0 (nuevo frame)

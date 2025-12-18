@@ -102,6 +102,12 @@ class Viboy:
         # Estado de V-Blank anterior (para detectar transición)
         self._prev_vblank: bool = False
         
+        # Sistema de trazado activado por LCDC=0x80 (Trap Trace)
+        # Se activa cuando se detecta que LCDC se escribe con 0x80
+        self._trace_active: bool = False
+        self._trace_counter: int = 0
+        self._prev_lcdc: int = 0  # Valor anterior de LCDC para detectar cambios
+        
         # Control de FPS (sincronización de tiempo)
         # pygame.time.Clock permite limitar la velocidad del bucle a 60 FPS
         try:
@@ -372,6 +378,10 @@ class Viboy:
         # Contador de frames para heartbeat (cada 60 frames ≈ 1 segundo)
         frame_count = 0
         
+        # Inicializar valor previo de LCDC para detección de cambios
+        if self._mmu is not None:
+            self._prev_lcdc = self._mmu.read_byte(0xFF40)
+        
         try:
             while True:
                 # CRÍTICO: Llamar a pygame.event.pump() en cada iteración para evitar
@@ -391,13 +401,75 @@ class Viboy:
                         logger.info("Ventana cerrada por el usuario")
                         break
                 
-                # Obtener estado antes de ejecutar (para debug)
-                if debug:
-                    pc_before = self._cpu.registers.get_pc()
-                    opcode = self._mmu.read_byte(pc_before) if self._mmu else 0
+                # Obtener estado antes de ejecutar (para debug y trace)
+                pc_before = self._cpu.registers.get_pc()
+                opcode = self._mmu.read_byte(pc_before) if self._mmu else 0
+                
+                # Detectar cambio de LCDC a 0x80 (LCD ON sin fondo)
+                # Esto activa el sistema de trazado para ver qué ocurre después
+                if self._mmu is not None:
+                    current_lcdc = self._mmu.read_byte(0xFF40)
+                    # Si LCDC cambió de algo distinto a 0x80 a 0x80, activar trace
+                    if current_lcdc == 0x80 and self._prev_lcdc != 0x80 and not self._trace_active:
+                        self._trace_active = True
+                        self._trace_counter = 0
+                        print(f"\n{'='*80}")
+                        print(f"🔍 TRACE ACTIVADO: LCDC cambió a 0x80 (LCD ON sin fondo)")
+                        print(f"   PC actual: 0x{pc_before:04X} | Opcode: 0x{opcode:02X}")
+                        print(f"{'='*80}\n")
+                    self._prev_lcdc = current_lcdc
                 
                 # Ejecutar una instrucción
                 cycles = self.tick()
+                
+                # Sistema de trazado: imprimir información detallada si está activo
+                # Aumentado a 1000 instrucciones para capturar hasta V-Blank (LY=144)
+                # 144 líneas × ~38 instrucciones/línea ≈ 5,472 instrucciones necesarias
+                # Usamos 1000 como compromiso entre información y rendimiento
+                if self._trace_active and self._trace_counter < 1000:
+                    regs = self._cpu.registers
+                    # Leer registros de hardware relevantes
+                    if self._mmu is not None:
+                        if_reg = self._mmu.read_byte(0xFF0F)
+                        ie_reg = self._mmu.read_byte(0xFFFF)
+                        ly = self._ppu.get_ly() if self._ppu is not None else 0
+                        stat = self._mmu.read_byte(0xFF41)
+                    else:
+                        if_reg = 0
+                        ie_reg = 0
+                        ly = 0
+                        stat = 0
+                    
+                    # Formato de salida similar al debug pero con más información
+                    flags_str = ""
+                    if regs.get_flag_z():
+                        flags_str += "Z"
+                    if regs.get_flag_n():
+                        flags_str += "N"
+                    if regs.get_flag_h():
+                        flags_str += "H"
+                    if regs.get_flag_c():
+                        flags_str += "C"
+                    if not flags_str:
+                        flags_str = "-"
+                    
+                    print(
+                        f"TRACE [{self._trace_counter:03}]: "
+                        f"PC=0x{pc_before:04X} | OP=0x{opcode:02X} | "
+                        f"A=0x{regs.get_a():02X} BC=0x{regs.get_bc():04X} DE=0x{regs.get_de():04X} HL=0x{regs.get_hl():04X} | "
+                        f"SP=0x{regs.get_sp():04X} | F={flags_str} | "
+                        f"IF=0x{if_reg:02X} IE=0x{ie_reg:02X} | LY={ly:3d} STAT=0x{stat:02X} | "
+                        f"Cycles={cycles}"
+                    )
+                    
+                    self._trace_counter += 1
+                    
+                    # Desactivar trace después de 1000 instrucciones
+                    if self._trace_counter >= 1000:
+                        self._trace_active = False
+                        print(f"\n{'='*80}")
+                        print(f"🔍 TRACE COMPLETADO: 1000 instrucciones capturadas")
+                        print(f"{'='*80}\n")
                 
                 # CRÍTICO: Renderizar periódicamente para mostrar el heartbeat incluso si no hay V-Blank
                 # Esto asegura que el visual heartbeat sea visible cuando el LCD está apagado
@@ -470,8 +542,8 @@ class Viboy:
                     if self._clock is not None:
                         self._clock.tick(60)
                 
-                # Imprimir traza en modo debug
-                if debug:
+                # Imprimir traza en modo debug (solo si el trace no está activo para evitar duplicación)
+                if debug and not self._trace_active:
                     regs = self._cpu.registers
                     print(
                         f"PC: 0x{pc_before:04X} | "

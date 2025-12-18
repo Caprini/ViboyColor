@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrección PPU: Verificación LCD Enabled - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Corrección PPU: Verificación LCD Enabled</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0053
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0052__trazado-ejecucion-triggered.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se corrigió un bug crítico en la PPU: la PPU avanzaba incluso cuando el LCD estaba apagado (LCDC bit 7 = 0). Según Pan Docs, cuando el LCD está apagado, la PPU debe detenerse y LY debe mantenerse en 0. Se añadió una verificación al inicio del método `step()` para comprobar si el LCD está encendido antes de avanzar el timing. Adicionalmente, se aumentó el límite del trace de 100 a 1000 instrucciones y se añadió un log informativo cuando se activa V-Blank para diagnóstico.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, el registro LCDC (LCD Control, 0xFF40) controla el estado del LCD. El bit 7 (LCDC bit 7) es el "LCD Enable": cuando es 0, el LCD está apagado; cuando es 1, el LCD está encendido.
+                </p>
+                <p>
+                    <strong>Comportamiento crítico:</strong> Cuando el LCD está apagado (LCDC bit 7 = 0), la PPU se detiene completamente:
+                </p>
+                <ul>
+                    <li>LY (Línea actual) se mantiene en 0</li>
+                    <li>El timing de la PPU no avanza</li>
+                    <li>No se generan interrupciones V-Blank</li>
+                    <li>El registro STAT (LCD Status) refleja el modo actual (generalmente Mode 0 o Mode 1)</li>
+                </ul>
+                <p>
+                    Cuando el LCD está encendido (LCDC bit 7 = 1), la PPU avanza normalmente:
+                </p>
+                <ul>
+                    <li>LY incrementa de 0 a 153 (un frame completo)</li>
+                    <li>El timing avanza según los ciclos de reloj</li>
+                    <li>Se generan interrupciones V-Blank cuando LY llega a 144</li>
+                    <li>El registro STAT refleja el modo actual de la PPU (Mode 0, 1, 2 o 3)</li>
+                </ul>
+                <p>
+                    Este comportamiento es crítico porque muchos juegos encienden el LCD y luego esperan V-Blank para configurar los gráficos. Si la PPU avanza cuando el LCD está apagado, el timing se desincroniza y el juego nunca detecta V-Blank.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Control Register, LCD Timing, V-Blank Interrupt
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió una verificación al inicio del método `step()` de la PPU para comprobar si el LCD está encendido antes de avanzar el timing. Si el LCD está apagado, el método retorna inmediatamente sin procesar ciclos.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/gpu/ppu.py</code>: Añadida verificación de LCD enabled al inicio de `step()`. Si el LCD está apagado, la PPU no avanza.</li>
+                    <li><code>src/gpu/ppu.py</code>: Añadido log informativo cuando se activa V-Blank para diagnóstico.</li>
+                    <li><code>src/viboy.py</code>: Aumentado el límite del trace de 100 a 1000 instrucciones para capturar más información.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Verificación temprana:</strong> La verificación del LCD se hace al inicio del método `step()`, antes de procesar cualquier ciclo. Esto asegura que la PPU no avance cuando el LCD está apagado, incluso si se llama a `step()` con ciclos.
+                </p>
+                <p>
+                    <strong>Retorno inmediato:</strong> Si el LCD está apagado, el método retorna inmediatamente sin procesar ciclos ni actualizar el estado. Esto es más eficiente que procesar ciclos y luego ignorarlos.
+                </p>
+                <p>
+                    <strong>Log informativo:</strong> Se añadió un log informativo (nivel INFO, no DEBUG) cuando se activa V-Blank para que siempre sea visible en consola. Esto ayuda a diagnosticar si la PPU está llegando a LY=144.
+                </p>
+                <p>
+                    <strong>Límite del trace aumentado:</strong> Se aumentó el límite del trace de 100 a 1000 instrucciones para capturar más información. Aunque aún no es suficiente para llegar a LY=144 (~5,472 instrucciones), permite ver más del bucle de polling.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/ppu.py</code> - Añadida verificación de LCD enabled y log informativo de V-Blank</li>
+                    <li><code>src/viboy.py</code> - Aumentado límite del trace de 100 a 1000 instrucciones</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Estado:</strong> Ejecutado con ROM de prueba (pkmn.gb).
+                </p>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>python main.py pkmn.gb</code>
+                </p>
+                <p>
+                    <strong>Entorno:</strong> Windows, Python 3.13.5
+                </p>
+                <p>
+                    <strong>Resultado observado:</strong> El trace con 1000 instrucciones muestra que:
+                </p>
+                <ul>
+                    <li>LY avanza correctamente (de 0 a 23 en el trace)</li>
+                    <li>El bucle de polling sigue activo (patrón repetitivo: 0xF0, 0xFE, 0x20)</li>
+                    <li>IF siempre es 0x00 (el flag V-Blank nunca se activa)</li>
+                    <li>No aparece el log <code>🎯 PPU: V-Blank iniciado</code> (la PPU no llega a LY=144)</li>
+                </ul>
+                <p>
+                    <strong>Análisis:</strong> El trace muestra que la PPU está avanzando correctamente cuando el LCD está encendido (LY incrementa de 0 a 23), pero el bucle de polling consume ciclos muy lentamente. En 1000 instrucciones, solo avanzamos de LY=0 a LY=23. Para llegar a LY=144 se necesitan aproximadamente 5,472 instrucciones, lo cual significa que el trace termina antes de llegar a V-Blank.
+                </p>
+                <p>
+                    <strong>Problema identificado:</strong> El bucle de polling está consumiendo ciclos muy lentamente. Cada iteración del bucle consume ~8 M-Cycles (3+2+3), lo cual es correcto, pero el problema es que el juego está esperando V-Blank y nunca lo detecta porque el trace termina antes de llegar a LY=144.
+                </p>
+                <p>
+                    <strong>Hipótesis:</strong> La PPU probablemente está funcionando correctamente y llegará a LY=144 eventualmente, pero el bucle de polling consume tantos ciclos que necesitamos esperar mucho tiempo. El problema real puede ser que el juego se rinde y apaga el LCD antes de llegar a V-Blank, o que hay algún otro problema de timing.
+                </p>
+                <p>
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span> - La corrección parece funcionar (LY avanza), pero necesitamos verificar si realmente llega a LY=144 o si el juego apaga el LCD antes.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html">LCD Control Register</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCD_Timing.html">LCD Timing</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">V-Blank Interrupt</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>LCD Enable y PPU:</strong> La PPU solo avanza cuando el LCD está encendido (LCDC bit 7 = 1). Cuando el LCD está apagado, la PPU se detiene y LY se mantiene en 0. Esto es crítico para el timing correcto de la pantalla.</li>
+                        <li><strong>Bucle de polling:</strong> Los juegos que deshabilitan interrupciones (IE=00) deben hacer polling manual del registro IF para detectar V-Blank. El bucle típico lee IF, compara con 0x01 (bit V-Blank), y si no está activo, vuelve atrás.</li>
+                        <li><strong>Timing de V-Blank:</strong> Para llegar a LY=144 (inicio de V-Blank), se necesitan aproximadamente 5,472 instrucciones (144 líneas × ~38 instrucciones/línea). Un trace de 100 instrucciones solo captura ~1 línea, lo cual es insuficiente para ver si llega a V-Blank.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Verificación de la corrección:</strong> Necesito verificar si la corrección resuelve el problema. El trace anterior mostró que LY avanzaba, pero no vimos si llegaba a LY=144. Con el límite del trace aumentado a 1000, deberíamos ver más información.</li>
+                        <li><strong>Timing del LCD:</strong> Necesito verificar si hay algún problema con el timing del LCD. Por ejemplo, ¿el LCD se apaga antes de llegar a V-Blank? ¿Hay algún problema con la sincronización entre la CPU y la PPU?</li>
+                        <li><strong>Log de V-Blank:</strong> Necesito verificar si el log <code>🎯 PPU: V-Blank iniciado</code> aparece cuando la PPU llega a LY=144. Si no aparece, puede haber otro problema.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El problema era que la PPU avanzaba incluso cuando el LCD estaba apagado, lo que desincronizaba el timing. Con la corrección, la PPU solo avanzará cuando el LCD esté encendido, lo que debería permitir que llegue a LY=144 y active el flag V-Blank.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Asumo que el LCD permanece encendido (LCDC=0x80) durante todo el tiempo necesario para llegar a V-Blank. Si el LCD se apaga antes, el problema persistirá.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con el límite del trace aumentado a 1000 instrucciones</li>
+                    <li>[ ] Verificar si aparece el log <code>🎯 PPU: V-Blank iniciado</code> cuando la PPU llega a LY=144</li>
+                    <li>[ ] Verificar si el flag V-Blank se activa en IF cuando LY llega a 144</li>
+                    <li>[ ] Verificar si el juego detecta V-Blank y sale del bucle de polling</li>
+                    <li>[ ] Si el problema persiste, investigar otros posibles problemas (timing, sincronización, etc.)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

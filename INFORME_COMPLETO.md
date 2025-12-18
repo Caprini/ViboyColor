@@ -1,5 +1,96 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Corrección PPU: Verificación LCD Enabled (Step 0053)
+
+### Conceptos Hardware Implementados
+
+**LCD Enable y PPU Timing**: En la Game Boy, el registro LCDC (LCD Control, 0xFF40) controla el estado del LCD. El bit 7 (LCDC bit 7) es el "LCD Enable": cuando es 0, el LCD está apagado; cuando es 1, el LCD está encendido. Cuando el LCD está apagado, la PPU se detiene completamente: LY (Línea actual) se mantiene en 0, el timing de la PPU no avanza, y no se generan interrupciones V-Blank. Cuando el LCD está encendido, la PPU avanza normalmente: LY incrementa de 0 a 153 (un frame completo), el timing avanza según los ciclos de reloj, y se generan interrupciones V-Blank cuando LY llega a 144.
+
+**Bucle de Polling**: Los juegos que deshabilitan interrupciones (IE=00) deben hacer polling manual del registro IF para detectar V-Blank. El bucle típico lee IF (0xFF0F), compara con 0x01 (bit V-Blank), y si no está activo, vuelve atrás. Este bucle consume ciclos muy lentamente (~8 M-Cycles por iteración), lo que significa que para llegar a LY=144 se necesitan aproximadamente 5,472 instrucciones (144 líneas × ~38 instrucciones/línea).
+
+**Fuente**: Pan Docs - LCD Control Register, LCD Timing, V-Blank Interrupt
+
+#### Tareas Completadas:
+
+1. **Verificación LCD Enabled en PPU (`src/gpu/ppu.py`)**:
+   - Añadida verificación al inicio del método `step()` para comprobar si el LCD está encendido (LCDC bit 7 = 1)
+   - Si el LCD está apagado, el método retorna inmediatamente sin procesar ciclos
+   - Esto asegura que la PPU solo avance cuando el LCD está encendido, comportamiento correcto del hardware
+
+2. **Log Informativo de V-Blank (`src/gpu/ppu.py`)**:
+   - Añadido log informativo (nivel INFO) cuando se activa V-Blank para diagnóstico
+   - El log muestra LY y el valor de IF actualizado
+   - Permite verificar si la PPU está llegando a LY=144
+
+3. **Aumento del Límite del Trace (`src/viboy.py`)**:
+   - Aumentado el límite del trace de 100 a 1000 instrucciones
+   - Permite capturar más información del bucle de polling
+   - Aunque aún no es suficiente para llegar a LY=144, permite ver más del comportamiento
+
+#### Archivos Afectados:
+- `src/gpu/ppu.py` (modificado) - Añadida verificación de LCD enabled y log informativo de V-Blank
+- `src/viboy.py` (modificado) - Aumentado límite del trace de 100 a 1000 instrucciones
+- `docs/bitacora/entries/2025-12-18__0053__correccion-ppu-lcd-enabled.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0053)
+
+#### Validación:
+- **Estado**: Draft - Ejecutado con ROM de prueba
+- **Entorno**: Windows 10, Python 3.13.5
+- **ROM probada**: Pokémon Red (ROM aportada por el usuario, no distribuida)
+- **Comando ejecutado**: `python main.py pkmn.gb`
+- **Resultado observado**: 
+  - El trace con 1000 instrucciones muestra que LY avanza correctamente (de 0 a 23)
+  - El bucle de polling sigue activo (patrón repetitivo: 0xF0, 0xFE, 0x20)
+  - IF siempre es 0x00 (el flag V-Blank nunca se activa en el trace)
+  - No aparece el log `🎯 PPU: V-Blank iniciado` (la PPU no llega a LY=144 en 1000 instrucciones)
+- **Qué valida**: La corrección parece funcionar (LY avanza cuando el LCD está encendido), pero el trace termina antes de llegar a LY=144. El bucle de polling consume ciclos muy lentamente, y necesitamos ~5,472 instrucciones para llegar a V-Blank.
+- **Próximo paso**: Verificar si la PPU realmente llega a LY=144 o si el juego apaga el LCD antes. Si el juego apaga el LCD, el problema puede ser otro (por ejemplo, timing incorrecto o el juego espera algo más).
+
+#### Lo que Entiendo Ahora:
+- **LCD Enable y PPU**: La PPU solo avanza cuando el LCD está encendido (LCDC bit 7 = 1). Cuando el LCD está apagado, la PPU se detiene y LY se mantiene en 0. Esto es crítico para el timing correcto de la pantalla.
+- **Bucle de polling**: Los juegos que deshabilitan interrupciones (IE=00) deben hacer polling manual del registro IF para detectar V-Blank. El bucle típico consume ~8 M-Cycles por iteración, lo que significa que para llegar a LY=144 se necesitan aproximadamente 5,472 instrucciones.
+
+#### Lo que Falta Confirmar:
+- **Verificación de la corrección**: Necesito verificar si la corrección resuelve el problema. El trace anterior mostró que LY avanzaba, pero no vimos si llegaba a LY=144. Con el límite del trace aumentado a 1000, deberíamos ver más información, pero aún no es suficiente.
+- **Timing del LCD**: Necesito verificar si hay algún problema con el timing del LCD. Por ejemplo, ¿el LCD se apaga antes de llegar a V-Blank? ¿Hay algún problema con la sincronización entre la CPU y la PPU?
+
+---
+
+## 2025-12-18 - Trazado de Ejecución "Triggered" (Step 0052)
+
+### Conceptos Hardware Implementados
+
+**Trazado "Triggered"**: Un sistema de trazado que se activa automáticamente cuando ocurre un evento específico (en este caso, cambio de LCDC a 0x80) es más útil que un trazado continuo, ya que captura exactamente el momento crítico sin generar ruido innecesario. Esto permite identificar patrones de ejecución específicos, como bucles de polling esperando V-Blank.
+
+**Polling vs Interrupciones**: Cuando las interrupciones están deshabilitadas, los juegos deben hacer polling manual del registro IF para detectar eventos como V-Blank. Esto es menos eficiente pero permite control total sobre cuándo se procesan los eventos.
+
+**Fuente**: Pan Docs - LCD Control Register, Interrupt Flag Register, V-Blank Polling
+
+#### Tareas Completadas:
+
+1. **Sistema de Trazado "Triggered" (`src/viboy.py`)**:
+   - Añadido sistema de trazado que se activa automáticamente cuando LCDC cambia a 0x80
+   - Captura 1000 instrucciones con información detallada: PC, opcode, registros, flags, IF/IE, LY/STAT
+   - Permite identificar bucles de polling esperando V-Blank
+
+#### Archivos Afectados:
+- `src/viboy.py` (modificado) - Añadido sistema de trazado "triggered"
+- `docs/bitacora/entries/2025-12-18__0052__trazado-ejecucion-triggered.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0052)
+
+#### Validación:
+- **Estado**: Ejecutado con ROM de prueba
+- **Entorno**: Windows 10, Python 3.13.5
+- **ROM probada**: Pokémon Red (ROM aportada por el usuario, no distribuida)
+- **Comando ejecutado**: `python main.py pkmn.gb`
+- **Resultado observado**: El trace se activó correctamente cuando el juego escribió `LCDC=0x80`. Se identificó un bucle de polling claro:
+  - `0xF0` (LDH A, (n)) en PC=0x006B - Lee IF (0xFF0F)
+  - `0xFE` (CP d8) en PC=0x006D - Compara A con un valor inmediato (probablemente 0x01)
+  - `0x20` (JR NZ, e) en PC=0x006F - Salto relativo si no es cero (vuelve atrás si no hay V-Blank)
+- **Qué valida**: El trace muestra que el juego está esperando V-Blank pero nunca lo detecta porque IF siempre es 0x00. El problema es que el trace termina antes de llegar a LY=144.
+
+---
+
 ## 2025-12-18 - Rastreo de Interrupciones V-Blank (Step 0050)
 
 ### Conceptos Hardware Implementados

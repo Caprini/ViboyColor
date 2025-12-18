@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trazado de Ejecución "Triggered" - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Trazado de Ejecución "Triggered" (Trap Trace)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0052
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0051__diagnostico-bloqueo-interrupciones.html">Anterior</a></li>
+                    <li><a href="2025-12-18__0053__correccion-ppu-lcd-enabled.html">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó un sistema de trazado de ejecución "triggered" (disparado) que se activa automáticamente cuando el juego escribe `LCDC=0x80` (LCD ON sin fondo). El sistema captura las primeras 100 instrucciones ejecutadas después de este evento crítico, mostrando información detallada de cada instrucción: PC, opcode, registros, flags, estado de interrupciones (IF/IE), y estado de la PPU (LY/STAT). Este trazado permitirá identificar si el juego entra en un bucle de polling esperando V-Blank y por qué no sale de ese bucle.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Cuando un juego de Game Boy enciende el LCD escribiendo `LCDC=0x80`, está activando la pantalla pero sin el fondo (bit 0 = 0). Este es un estado transitorio común en la inicialización: el juego enciende el LCD y luego espera a que ocurra V-Blank para configurar el resto de los gráficos (activar fondo, sprites, etc.).
+                </p>
+                <p>
+                    Si el juego tiene las interrupciones deshabilitadas (`IE=00`), no puede usar el mecanismo automático de interrupciones. En su lugar, debe hacer <strong>polling</strong> (preguntar manualmente) leyendo el registro `IF` (0xFF0F) y comprobando el bit 0 (V-Blank). Si el bit está activo, el juego sabe que está en V-Blank y puede continuar. Si no, debe esperar en un bucle.
+                </p>
+                <p>
+                    El problema que estamos investigando es que el juego se queda atascado después de encender el LCD. El trazado nos permitirá ver exactamente qué instrucciones se ejecutan y si hay un bucle de polling que nunca detecta V-Blank, lo cual indicaría que nuestro emulador no está activando correctamente el flag V-Blank en `IF` cuando corresponde.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Control Register, Interrupt Flag Register, V-Blank Polling
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió un sistema de trazado en la clase `Viboy` que se activa automáticamente cuando se detecta un cambio en el registro LCDC de cualquier valor a `0x80`. El sistema captura el estado de la CPU antes de cada instrucción y muestra información detallada en consola.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/viboy.py</code>: Añadidos atributos `_trace_active`, `_trace_counter`, y `_prev_lcdc` para controlar el trazado. La lógica de detección y trazado se implementó en el método `run()`.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Detección de activación:</strong> El trazado se activa cuando LCDC cambia de cualquier valor a `0x80`. Esto captura el momento exacto en que el juego enciende el LCD, que es cuando comienza el problema que estamos investigando.
+                </p>
+                <p>
+                    <strong>Límite de 100 instrucciones:</strong> Se limita el trazado a 100 instrucciones para evitar inundar la consola con información. Este número es suficiente para ver varios ciclos de un bucle de polling típico.
+                </p>
+                <p>
+                    <strong>Información capturada:</strong> El trazado muestra PC, opcode, todos los registros (A, BC, DE, HL, SP), flags (Z, N, H, C), registros de interrupciones (IF, IE), y estado de la PPU (LY, STAT). Esta información es suficiente para entender qué está haciendo el juego y por qué se queda atascado.
+                </p>
+                <p>
+                    <strong>Captura antes del tick:</strong> El PC y opcode se capturan antes de ejecutar la instrucción (`tick()`), para mostrar la instrucción que se va a ejecutar, no la siguiente. Esto es más útil para debugging.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Añadido sistema de trazado "triggered" con detección de cambio de LCDC a 0x80</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Estado:</strong> Ejecutado con ROM de prueba (pkmn.gb).
+                </p>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>python main.py pkmn.gb</code>
+                </p>
+                <p>
+                    <strong>Entorno:</strong> Windows, Python 3.13.5
+                </p>
+                <p>
+                    <strong>Resultado observado:</strong> El trace se activó correctamente cuando el juego escribió `LCDC=0x80`. Se capturaron 100 instrucciones mostrando un bucle de polling claro:
+                </p>
+                <pre><code>TRACE [007]: PC=0x006B | OP=0xF0 | ... | IF=0x00 IE=0x00 | LY=  0 STAT=0x03 | Cycles=3
+TRACE [008]: PC=0x006D | OP=0xFE | ... | IF=0x00 IE=0x00 | LY=  0 STAT=0x03 | Cycles=2
+TRACE [009]: PC=0x006F | OP=0x20 | ... | IF=0x00 IE=0x00 | LY=  0 STAT=0x03 | Cycles=3
+TRACE [010]: PC=0x006B | OP=0xF0 | ... | IF=0x00 IE=0x00 | LY=  0 STAT=0x03 | Cycles=3
+...</code></pre>
+                <p>
+                    <strong>Análisis del bucle:</strong> El patrón identificado es:
+                </p>
+                <ul>
+                    <li><code>0xF0</code> (LDH A, (n)) en PC=0x006B - Lee IF (0xFF0F)</li>
+                    <li><code>0xFE</code> (CP d8) en PC=0x006D - Compara A con un valor inmediato (probablemente 0x01 para el bit V-Blank)</li>
+                    <li><code>0x20</code> (JR NZ, e) en PC=0x006F - Salto relativo si no es cero (vuelve atrás si no hay V-Blank)</li>
+                </ul>
+                <p>
+                    <strong>Problema identificado:</strong> El trace muestra que:
+                </p>
+                <ul>
+                    <li>LY avanza correctamente (0 → 1 → 2), lo que indica que la PPU está funcionando</li>
+                    <li>IF siempre es 0x00, lo que significa que el flag V-Blank nunca se activa</li>
+                    <li>El trace solo captura 100 instrucciones (~1 línea), pero para llegar a LY=144 se necesitan ~5,472 instrucciones</li>
+                    <li>No aparece el log <code>🎯 PPU: V-Blank iniciado</code>, lo que confirma que la PPU no está llegando a LY=144</li>
+                </ul>
+                <p>
+                    <strong>Hipótesis:</strong> El problema es que la PPU no está avanzando lo suficientemente rápido, o hay algún problema con la verificación del LCD. Se implementó una corrección para verificar que el LCD esté encendido antes de avanzar la PPU.
+                </p>
+                <p>
+                    <strong>Modificaciones realizadas:</strong>
+                </p>
+                <ul>
+                    <li>Aumentado el límite del trace de 100 a 1000 instrucciones para capturar más información</li>
+                    <li>Añadida verificación en PPU para que solo avance cuando el LCD esté encendido (LCDC bit 7 = 1)</li>
+                    <li>Añadido log informativo cuando se activa V-Blank para diagnóstico</li>
+                </ul>
+                <p>
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span> - Pendiente de verificar si la corrección resuelve el problema.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html">LCD Control Register</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupt Flag Register (IF)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html#v-blank-polling">V-Blank Polling</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Polling vs Interrupciones:</strong> Cuando las interrupciones están deshabilitadas, los juegos deben hacer polling manual del registro IF para detectar eventos como V-Blank. Esto es menos eficiente pero permite control total sobre cuándo se procesan los eventos.</li>
+                        <li><strong>Estado transitorio LCDC=0x80:</strong> Este valor indica que el LCD está encendido pero el fondo está desactivado. Es un estado común durante la inicialización, donde el juego espera V-Blank para configurar el resto de los gráficos.</li>
+                        <li><strong>Trazado "triggered":</strong> Un sistema de trazado que se activa automáticamente cuando ocurre un evento específico (en este caso, cambio de LCDC a 0x80) es más útil que un trazado continuo, ya que captura exactamente el momento crítico sin generar ruido innecesario.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Patrón de polling:</strong> Necesito verificar si el juego realmente entra en un bucle de polling y qué instrucciones exactas usa. El trazado nos dará esta información.</li>
+                        <li><strong>Activación de IF:</strong> Necesito confirmar si nuestro emulador está activando correctamente el bit 0 de IF cuando la PPU entra en V-Blank. Si no lo hace, el juego nunca detectará V-Blank y se quedará atascado.</li>
+                        <li><strong>Timing de V-Blank:</strong> Necesito verificar si el timing de la PPU es correcto y si V-Blank se activa en el momento adecuado según la especificación del hardware.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego se queda atascado porque entra en un bucle de polling esperando V-Blank, pero nuestro emulador no está activando correctamente el flag V-Blank en IF cuando la PPU entra en modo V-Blank.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Asumo que el juego usa polling porque IE=00 (interrupciones deshabilitadas). Si el trazado muestra un bucle de lectura de IF, esto confirmará la suposición.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con una ROM (pkmn.gb) y capturar el trazado cuando se active</li>
+                    <li>[ ] Analizar el trazado para identificar si hay un bucle de polling</li>
+                    <li>[ ] Si hay un bucle, verificar si el flag V-Blank en IF se activa correctamente</li>
+                    <li>[ ] Si el flag no se activa, revisar la lógica de la PPU para asegurar que activa IF cuando entra en V-Blank</li>
+                    <li>[ ] Verificar el timing de la PPU para asegurar que V-Blank ocurre en el momento correcto</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

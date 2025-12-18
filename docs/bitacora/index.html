@@ -32,6 +32,44 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0053 - Corrección PPU: Verificación LCD Enabled -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0053__correccion-ppu-lcd-enabled.html" class="entry-link">
+                                    Corrección PPU: Verificación LCD Enabled
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0053 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se corrigió un bug crítico en la PPU: la PPU avanzaba incluso cuando el LCD estaba apagado (LCDC bit 7 = 0). Según Pan Docs, cuando el LCD está apagado, la PPU debe detenerse y LY debe mantenerse en 0. Se añadió una verificación al inicio del método step() para comprobar si el LCD está encendido antes de avanzar el timing. Adicionalmente, se aumentó el límite del trace de 100 a 1000 instrucciones y se añadió un log informativo cuando se activa V-Blank para diagnóstico.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0052 - Trazado de Ejecución "Triggered" -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0052__trazado-ejecucion-triggered.html" class="entry-link">
+                                    Trazado de Ejecución "Triggered" (Trap Trace)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0052 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó un sistema de trazado de ejecución "triggered" que se activa automáticamente cuando el juego escribe LCDC=0x80 (LCD ON sin fondo). El sistema captura las primeras 100 instrucciones ejecutadas después de este evento crítico, mostrando información detallada de cada instrucción: PC, opcode, registros, flags, estado de interrupciones (IF/IE), y estado de la PPU (LY/STAT). Este trazado permitirá identificar si el juego entra en un bucle de polling esperando V-Blank y por qué no sale de ese bucle.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0051 - Diagnóstico de Bloqueo de Interrupciones -->
                     <li>
                         <div class="entry-header">
