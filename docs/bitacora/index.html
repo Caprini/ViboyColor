@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0044 - Timer Completo: TIMA, TMA y TAC -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0044__timer-completo-tima-tma-tac.html" class="entry-link">
+                                    Timer Completo: TIMA, TMA y TAC
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0044 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se completó la implementación del subsistema Timer añadiendo los registros TIMA (Timer Counter, 0xFF05), TMA (Timer Modulo, 0xFF06) y TAC (Timer Control, 0xFF07). El Timer ahora puede generar interrupciones cuando TIMA hace overflow (pasa de 255 a 0), recargándose automáticamente con el valor de TMA. Esta funcionalidad es crítica para muchos juegos que usan el Timer durante la inicialización para generar semillas aleatorias o esperar intervalos de tiempo específicos. Se crearon 21 tests completos que validan todas las frecuencias, el overflow, la recarga con TMA y la solicitud de interrupciones. Todos los tests pasan correctamente.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0043 - V-Blank Polling: IF Independiente de IME -->
                     <li>
                         <div class="entry-header">

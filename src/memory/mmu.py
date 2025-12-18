@@ -255,6 +255,27 @@ class MMU:
                 # Si no hay Timer conectado, devolver 0 (comportamiento por defecto)
                 return 0
         
+        # Interceptar lectura del registro TIMA (0xFF05) - Timer Counter
+        if addr == IO_TIMA:
+            if self._timer is not None:
+                return self._timer.read_tima() & 0xFF
+            else:
+                return 0
+        
+        # Interceptar lectura del registro TMA (0xFF06) - Timer Modulo
+        if addr == IO_TMA:
+            if self._timer is not None:
+                return self._timer.read_tma() & 0xFF
+            else:
+                return 0
+        
+        # Interceptar lectura del registro TAC (0xFF07) - Timer Control
+        if addr == IO_TAC:
+            if self._timer is not None:
+                return self._timer.read_tac() & 0xFF
+            else:
+                return 0
+        
         # Para otras regiones, leer de la memoria interna
         return self._memory[addr] & 0xFF
 
@@ -320,6 +341,24 @@ class MMU:
         if addr == IO_DIV:
             if self._timer is not None:
                 self._timer.write_div(value)
+                return  # No escribir en memoria, el Timer maneja su propio estado
+        
+        # Interceptar escritura al registro TIMA (0xFF05) - Timer Counter
+        if addr == IO_TIMA:
+            if self._timer is not None:
+                self._timer.write_tima(value)
+                return  # No escribir en memoria, el Timer maneja su propio estado
+        
+        # Interceptar escritura al registro TMA (0xFF06) - Timer Modulo
+        if addr == IO_TMA:
+            if self._timer is not None:
+                self._timer.write_tma(value)
+                return  # No escribir en memoria, el Timer maneja su propio estado
+        
+        # Interceptar escritura al registro TAC (0xFF07) - Timer Control
+        if addr == IO_TAC:
+            if self._timer is not None:
+                self._timer.write_tac(value)
                 return  # No escribir en memoria, el Timer maneja su propio estado
         
         # Interceptar escritura al registro DMA (0xFF46) - DMA Transfer

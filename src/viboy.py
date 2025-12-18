@@ -116,8 +116,10 @@ class Viboy:
             self._mmu = MMU(None)
             # Inicializar Timer
             self._timer = Timer()
-            # Conectar Timer a MMU para lectura/escritura de DIV
+            # Conectar Timer a MMU para lectura/escritura de DIV/TIMA/TMA/TAC
             self._mmu.set_timer(self._timer)
+            # Conectar MMU al Timer para solicitar interrupciones
+            self._timer.set_mmu(self._mmu)
             # Inicializar Joypad con la MMU
             self._joypad = Joypad(self._mmu)
             # Conectar Joypad a MMU para lectura/escritura de P1
@@ -158,8 +160,10 @@ class Viboy:
         
         # Inicializar Timer
         self._timer = Timer()
-        # Conectar Timer a MMU para lectura/escritura de DIV
+        # Conectar Timer a MMU para lectura/escritura de DIV/TIMA/TMA/TAC
         self._mmu.set_timer(self._timer)
+        # Conectar MMU al Timer para solicitar interrupciones
+        self._timer.set_mmu(self._mmu)
         
         # Inicializar Joypad con la MMU
         self._joypad = Joypad(self._mmu)

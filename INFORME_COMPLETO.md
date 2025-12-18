@@ -1,5 +1,102 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Timer Completo: TIMA, TMA y TAC (Step 0044)
+
+### Conceptos Hardware Implementados
+
+**Timer de la Game Boy**: El Timer es un sistema de temporización que incluye cuatro registros: DIV (contador continuo a 16384 Hz, ya implementado), TIMA (Timer Counter, contador configurable de 8 bits), TMA (Timer Modulo, valor de recarga), y TAC (Timer Control, activa/desactiva y selecciona frecuencia). TAC controla el Timer mediante el bit 2 (Enable) y los bits 1-0 (frecuencia: 00=4096Hz, 01=262144Hz, 10=65536Hz, 11=16384Hz). Cuando TIMA hace overflow (pasa de 255 a 0), ocurren dos cosas simultáneamente: (1) TIMA se recarga automáticamente con el valor de TMA, y (2) se activa el bit 2 del registro IF (Interrupt Flag, 0xFF0F), solicitando una interrupción Timer. La interrupción será procesada por la CPU si IME está activo y el bit 2 de IE también está activo. El vector de interrupción Timer es 0x0050.
+
+**Uso del Timer en Juegos**: Muchos juegos usan el Timer durante la inicialización para generar semillas aleatorias (RNG) basadas en el tiempo transcurrido, esperar intervalos de tiempo específicos antes de continuar, o sincronizar eventos con el tiempo del sistema. Si el Timer no está implementado correctamente, los juegos pueden quedarse en bucles infinitos esperando que TIMA haga overflow, causando el síntoma de "pantalla blanca eterna" o congelamiento durante la inicialización.
+
+**Fuente**: Pan Docs - Timer and Divider Registers, Interrupts
+
+#### Tareas Completadas:
+
+1. **Implementación Completa del Timer (`src/io/timer.py`)**:
+   - Añadidos registros internos: `_tima` (Timer Counter), `_tma` (Timer Modulo), `_tac` (Timer Control).
+   - Añadido acumulador `_tima_accumulator` para manejar fracciones de ciclo y múltiples incrementos en una sola llamada a `tick()`.
+   - Añadida referencia a MMU para solicitar interrupciones cuando TIMA hace overflow.
+   - Método `tick()` extendido para procesar TIMA según la frecuencia configurada en TAC.
+   - Métodos `read_tima()`, `write_tima()`, `read_tma()`, `write_tma()`, `read_tac()`, `write_tac()`.
+   - Método `_get_tima_threshold()` para determinar el umbral de T-Cycles según la frecuencia (1024, 16, 64, 256 T-Cycles).
+   - Método `_request_timer_interrupt()` para activar el bit 2 de IF cuando TIMA hace overflow.
+   - Método `set_mmu()` para conectar la MMU al Timer (evitar dependencia circular).
+
+2. **Integración en MMU (`src/memory/mmu.py`)**:
+   - Interceptadas lecturas de TIMA (0xFF05), TMA (0xFF06) y TAC (0xFF07) en `read_byte()`.
+   - Interceptadas escrituras en TIMA, TMA y TAC en `write_byte()`.
+   - Las operaciones se delegan al Timer, similar a como se hace con DIV.
+
+3. **Conexión en Viboy (`src/viboy.py`)**:
+   - Añadida conexión de MMU al Timer mediante `timer.set_mmu(mmu)` en ambos puntos de inicialización.
+   - Esto permite que el Timer solicite interrupciones cuando TIMA hace overflow.
+
+4. **Tests Completos (`tests/test_io_timer_full.py`)**:
+   - **Nuevo archivo** con 21 tests que validan todas las funcionalidades del Timer:
+     - Tests para TIMA: inicialización, lectura/escritura, incremento en las 4 frecuencias (4096Hz, 262144Hz, 65536Hz, 16384Hz), overflow, recarga con TMA, múltiples overflows.
+     - Tests para TMA: inicialización, lectura/escritura.
+     - Tests para TAC: inicialización, lectura/escritura, enable/disable.
+     - Tests para interrupciones: overflow genera interrupción (bit 2 de IF), múltiples interrupciones.
+     - Tests de integración con MMU: lectura/escritura a través de MMU, ciclo completo de Timer.
+
+#### Archivos Afectados:
+- `src/io/timer.py` (modificado) - Implementación completa de TIMA, TMA y TAC con lógica de overflow e interrupciones
+- `src/memory/mmu.py` (modificado) - Interceptación de lecturas/escrituras de TIMA, TMA y TAC
+- `src/viboy.py` (modificado) - Conexión de MMU al Timer para solicitar interrupciones
+- `tests/test_io_timer_full.py` (nuevo) - Suite completa de 21 tests para validar todas las funcionalidades
+- `docs/bitacora/entries/2025-12-18__0044__timer-completo-tima-tma-tac.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0044)
+- `docs/bitacora/entries/2025-12-18__0043__vblank-polling-if-independiente-ime.html` (modificado, actualizado link "Siguiente")
+
+#### Tests y Verificación:
+
+**Ejecución de Tests del Timer Completo**: `python -m pytest tests/test_io_timer_full.py -v`
+- **Entorno**: Windows 10, Python 3.13.5
+- **Resultado**: ✅ **21 tests PASSED** en 0.08s
+- **Qué valida**:
+  - Inicialización correcta de TIMA, TMA y TAC
+  - Lectura/escritura de todos los registros
+  - Incremento de TIMA en las 4 frecuencias configuradas (4096Hz → 1024 T-Cycles, 262144Hz → 16 T-Cycles, 65536Hz → 64 T-Cycles, 16384Hz → 256 T-Cycles)
+  - Overflow de TIMA y recarga automática con TMA
+  - Solicitud de interrupción Timer (bit 2 de IF) cuando TIMA hace overflow
+  - Integración completa con MMU para lectura/escritura a través de direcciones de memoria
+  - Múltiples overflows y reactivación del Timer
+
+**Ejecución de Tests Existentes del Timer (DIV)**: `python -m pytest tests/test_io_timer.py -v`
+- **Resultado**: ✅ **10 tests PASSED** en 0.06s
+- **Validación**: Todos los tests de DIV siguen funcionando correctamente, confirmando que no se rompió funcionalidad previa
+
+**Código del test (ejemplo: overflow e interrupción)**:
+```python
+def test_tima_overflow_interrupt(self) -> None:
+    """Test: Verificar que se solicita interrupción cuando TIMA hace overflow"""
+    mmu = MMU(None)
+    timer = Timer()
+    timer.set_mmu(mmu)
+    
+    # Configurar Timer
+    timer.write_tma(0x42)
+    timer.write_tac(0x04)  # Enable=1, Freq=00 (4096Hz)
+    timer.write_tima(0xFF)
+    
+    # Verificar que IF bit 2 está desactivado inicialmente
+    if_val = mmu.read_byte(IO_IF)
+    assert (if_val & 0x04) == 0
+    
+    # Avanzar hasta overflow
+    timer.tick(1024)
+    
+    # Verificar que IF bit 2 se activó
+    if_val = mmu.read_byte(IO_IF)
+    assert (if_val & 0x04) != 0
+```
+
+Este test demuestra que cuando TIMA hace overflow (pasa de 0xFF a 0), el hardware automáticamente activa el bit 2 del registro IF, solicitando una interrupción Timer. La CPU procesará esta interrupción si IME está activo y el bit 2 de IE también está activo.
+
+**Hipótesis sobre el Problema de "Pantalla Blanca"**: El Timer completo debería resolver el problema de congelamiento durante la inicialización si el juego está esperando que TIMA haga overflow. Muchos juegos usan el Timer para generar semillas aleatorias o esperar intervalos de tiempo específicos. Si el juego configura el Timer (TAC) y espera a que TIMA se desborde, y nosotros no habíamos implementado esa lógica, el juego se quedaría esperando para siempre. Con esta implementación, el Timer debería funcionar correctamente y permitir que los juegos salgan de los bucles de espera.
+
+---
+
 ## 2025-12-18 - V-Blank Polling: IF Independiente de IME
 
 ### Conceptos Hardware Implementados

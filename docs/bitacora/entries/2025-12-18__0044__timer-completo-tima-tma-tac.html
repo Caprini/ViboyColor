@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timer Completo: TIMA, TMA y TAC - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Timer Completo: TIMA, TMA y TAC</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0044
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0043__vblank-polling-if-independiente-ime.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se completó la implementación del subsistema Timer de la Game Boy añadiendo los registros
+                    <strong>TIMA (Timer Counter, 0xFF05)</strong>, <strong>TMA (Timer Modulo, 0xFF06)</strong> y
+                    <strong>TAC (Timer Control, 0xFF07)</strong>. El Timer ahora puede generar interrupciones cuando
+                    TIMA hace overflow (pasa de 255 a 0), recargándose automáticamente con el valor de TMA. Esta
+                    funcionalidad es crítica para muchos juegos que usan el Timer durante la inicialización para
+                    generar semillas aleatorias o esperar intervalos de tiempo específicos. Se crearon 21 tests
+                    completos que validan todas las frecuencias, el overflow, la recarga con TMA y la solicitud
+                    de interrupciones. Todos los tests pasan correctamente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El Timer de la Game Boy es un sistema de temporización que incluye cuatro registros:
+                </p>
+                <ul>
+                    <li><strong>DIV (0xFF04)</strong>: Contador continuo que incrementa a 16384 Hz (ya implementado en paso 0037).</li>
+                    <li><strong>TIMA (0xFF05)</strong>: Contador de 8 bits que incrementa a una frecuencia configurable.</li>
+                    <li><strong>TMA (0xFF06)</strong>: Valor de recarga cuando TIMA hace overflow.</li>
+                    <li><strong>TAC (0xFF07)</strong>: Registro de control que activa/desactiva el Timer y selecciona la frecuencia.</li>
+                </ul>
+                <p>
+                    <strong>TAC (Timer Control)</strong> tiene la siguiente estructura:
+                </p>
+                <ul>
+                    <li><strong>Bit 2</strong>: Enable (1 = Timer activo, 0 = Timer apagado).</li>
+                    <li><strong>Bits 1-0</strong>: Frecuencia de incremento de TIMA:
+                        <ul>
+                            <li><strong>00</strong>: 4096 Hz → 1024 T-Cycles por incremento</li>
+                            <li><strong>01</strong>: 262144 Hz → 16 T-Cycles por incremento</li>
+                            <li><strong>10</strong>: 65536 Hz → 64 T-Cycles por incremento</li>
+                            <li><strong>11</strong>: 16384 Hz → 256 T-Cycles por incremento</li>
+                        </ul>
+                    </li>
+                    <li><strong>Bits 3-7</strong>: Siempre son 1 (no se pueden escribir).</li>
+                </ul>
+                <p>
+                    <strong>Overflow de TIMA</strong>: Cuando TIMA pasa de 255 (0xFF) a 0, ocurren dos cosas simultáneamente:
+                </p>
+                <ol>
+                    <li>TIMA se recarga automáticamente con el valor de TMA.</li>
+                    <li>Se activa el bit 2 del registro IF (Interrupt Flag, 0xFF0F), solicitando una interrupción Timer.</li>
+                </ol>
+                <p>
+                    La interrupción Timer será procesada por la CPU si IME (Interrupt Master Enable) está activo y el bit 2
+                    de IE (Interrupt Enable, 0xFFFF) también está activo. El vector de interrupción Timer es 0x0050.
+                </p>
+                <p>
+                    <strong>Uso en juegos</strong>: Muchos juegos usan el Timer durante la inicialización para:
+                </p>
+                <ul>
+                    <li>Generar semillas aleatorias (RNG) basadas en el tiempo transcurrido.</li>
+                    <li>Esperar intervalos de tiempo específicos antes de continuar.</li>
+                    <li>Sincronizar eventos con el tiempo del sistema.</li>
+                </ul>
+                <p>
+                    Si el Timer no está implementado correctamente, los juegos pueden quedarse en bucles infinitos esperando
+                    que TIMA haga overflow, causando el síntoma de "pantalla blanca eterna" o congelamiento durante la inicialización.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - Timer and Divider Registers
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se extendió la clase <code>Timer</code> en <code>src/io/timer.py</code> para implementar TIMA, TMA y TAC.
+                    La implementación incluye:
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>Timer (src/io/timer.py)</strong>:
+                        <ul>
+                            <li>Añadidos registros internos: <code>_tima</code>, <code>_tma</code>, <code>_tac</code>.</li>
+                            <li>Añadido acumulador <code>_tima_accumulator</code> para manejar fracciones de ciclo.</li>
+                            <li>Añadida referencia a MMU para solicitar interrupciones.</li>
+                            <li>Método <code>tick()</code> extendido para procesar TIMA según la frecuencia configurada.</li>
+                            <li>Métodos <code>read_tima()</code>, <code>write_tima()</code>, <code>read_tma()</code>, <code>write_tma()</code>, <code>read_tac()</code>, <code>write_tac()</code>.</li>
+                            <li>Método <code>_get_tima_threshold()</code> para determinar el umbral de T-Cycles según la frecuencia.</li>
+                            <li>Método <code>_request_timer_interrupt()</code> para activar el bit 2 de IF.</li>
+                            <li>Método <code>set_mmu()</code> para conectar la MMU al Timer.</li>
+                        </ul>
+                    </li>
+                    <li><strong>MMU (src/memory/mmu.py)</strong>:
+                        <ul>
+                            <li>Interceptadas lecturas de TIMA (0xFF05), TMA (0xFF06) y TAC (0xFF07) en <code>read_byte()</code>.</li>
+                            <li>Interceptadas escrituras en TIMA, TMA y TAC en <code>write_byte()</code>.</li>
+                            <li>Las operaciones se delegan al Timer, similar a como se hace con DIV.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Viboy (src/viboy.py)</strong>:
+                        <ul>
+                            <li>Añadida conexión de MMU al Timer mediante <code>timer.set_mmu(mmu)</code> en ambos puntos de inicialización.</li>
+                            <li>Esto permite que el Timer solicite interrupciones cuando TIMA hace overflow.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Tests (tests/test_io_timer_full.py)</strong>:
+                        <ul>
+                            <li>Creado archivo completo con 21 tests que validan todas las funcionalidades del Timer.</li>
+                            <li>Tests para TIMA: inicialización, lectura/escritura, incremento en todas las frecuencias, overflow, recarga con TMA.</li>
+                            <li>Tests para TMA: inicialización, lectura/escritura.</li>
+                            <li>Tests para TAC: inicialización, lectura/escritura, enable/disable.</li>
+                            <li>Tests para interrupciones: overflow genera interrupción, múltiples interrupciones.</li>
+                            <li>Tests de integración con MMU: lectura/escritura a través de MMU, ciclo completo.</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Acumulador de TIMA</strong>: Se usa un acumulador interno (<code>_tima_accumulator</code>) para manejar
+                    fracciones de ciclo. Cuando se acumulan suficientes T-Cycles para un incremento, se resta el umbral y se incrementa TIMA.
+                    Esto permite manejar correctamente múltiples incrementos en una sola llamada a <code>tick()</code>.
+                </p>
+                <p>
+                    <strong>Detección de overflow</strong>: Se verifica overflow ANTES de incrementar TIMA. Si TIMA es 0xFF, el siguiente
+                    incremento causará overflow, por lo que se recarga con TMA y se solicita la interrupción. Esto evita tener que verificar
+                    después del incremento y manejar el caso especial de 0xFF -> 0.
+                </p>
+                <p>
+                    <strong>Bits no utilizados de TAC</strong>: Los bits 3-7 de TAC siempre se leen como 1, aunque solo los bits 0-2 son
+                    significativos. Esto se implementa en <code>read_tac()</code> retornando <code>(tac & 0x07) | 0xF8</code>.
+                </p>
+                <p>
+                    <strong>Referencia circular MMU-Timer</strong>: Se evita dependencia circular usando el patrón de "setter" después de
+                    la inicialización. Primero se crea el Timer, luego se conecta a la MMU con <code>mmu.set_timer(timer)</code>, y finalmente
+                    se conecta la MMU al Timer con <code>timer.set_mmu(mmu)</code>. Esto permite que el Timer solicite interrupciones sin
+                    crear dependencias circulares en los constructores.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/io/timer.py</code> - Implementación completa de TIMA, TMA y TAC con lógica de overflow e interrupciones</li>
+                    <li><code>src/memory/mmu.py</code> - Interceptación de lecturas/escrituras de TIMA, TMA y TAC</li>
+                    <li><code>src/viboy.py</code> - Conexión de MMU al Timer para solicitar interrupciones</li>
+                    <li><code>tests/test_io_timer_full.py</code> - Suite completa de 21 tests para validar todas las funcionalidades</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron los tests completos del Timer para validar la implementación:
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado</strong>: <code>pytest tests/test_io_timer_full.py -v</code></li>
+                    <li><strong>Entorno</strong>: Windows, Python 3.13.5</li>
+                    <li><strong>Resultado</strong>: <strong>21 tests PASSED</strong> en 0.08s</li>
+                    <li><strong>Qué valida</strong>:
+                        <ul>
+                            <li>Inicialización correcta de TIMA, TMA y TAC</li>
+                            <li>Lectura/escritura de todos los registros</li>
+                            <li>Incremento de TIMA en las 4 frecuencias configuradas (4096Hz, 262144Hz, 65536Hz, 16384Hz)</li>
+                            <li>Overflow de TIMA y recarga automática con TMA</li>
+                            <li>Solicitud de interrupción Timer (bit 2 de IF) cuando TIMA hace overflow</li>
+                            <li>Integración completa con MMU para lectura/escritura a través de direcciones de memoria</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Código del test (ejemplo: overflow e interrupción)</strong>:
+                </p>
+                <pre><code>def test_tima_overflow_interrupt(self) -> None:
+    """Test: Verificar que se solicita interrupción cuando TIMA hace overflow"""
+    mmu = MMU(None)
+    timer = Timer()
+    timer.set_mmu(mmu)
+    
+    # Configurar Timer
+    timer.write_tma(0x42)
+    timer.write_tac(0x04)  # Enable=1, Freq=00 (4096Hz)
+    timer.write_tima(0xFF)
+    
+    # Verificar que IF bit 2 está desactivado inicialmente
+    if_val = mmu.read_byte(IO_IF)
+    assert (if_val & 0x04) == 0
+    
+    # Avanzar hasta overflow
+    timer.tick(1024)
+    
+    # Verificar que IF bit 2 se activó
+    if_val = mmu.read_byte(IO_IF)
+    assert (if_val & 0x04) != 0</code></pre>
+                <p>
+                    Este test demuestra que cuando TIMA hace overflow (pasa de 0xFF a 0), el hardware automáticamente
+                    activa el bit 2 del registro IF, solicitando una interrupción Timer. La CPU procesará esta interrupción
+                    si IME está activo y el bit 2 de IE también está activo.
+                </p>
+                <p>
+                    También se ejecutaron los tests existentes del Timer (DIV) para verificar que no se rompió funcionalidad previa:
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado</strong>: <code>pytest tests/test_io_timer.py -v</code></li>
+                    <li><strong>Resultado</strong>: <strong>10 tests PASSED</strong> en 0.06s</li>
+                    <li><strong>Validación</strong>: Todos los tests de DIV siguen funcionando correctamente</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Timer_and_Divider_Registers.html">Timer and Divider Registers</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts</a> (para el vector de interrupción Timer, 0x0050)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Timer como sistema de temporización</strong>: El Timer de la Game Boy es un sistema complejo que incluye
+                            un contador continuo (DIV) y un contador configurable (TIMA) que puede generar interrupciones. Ambos funcionan
+                            independientemente pero comparten el mismo reloj base del sistema (4.194304 MHz).</li>
+                        <li><strong>Overflow y recarga</strong>: Cuando TIMA hace overflow, el hardware automáticamente recarga TIMA con TMA
+                            y solicita una interrupción. Esto es un comportamiento atómico del hardware: ambas cosas ocurren simultáneamente.</li>
+                        <li><strong>Frecuencias del Timer</strong>: Las 4 frecuencias disponibles (4096Hz, 262144Hz, 65536Hz, 16384Hz) se calculan
+                            dividiendo la frecuencia del sistema (4.194304 MHz) por el umbral de T-Cycles. Esto permite que los juegos seleccionen
+                            la velocidad de incremento de TIMA según sus necesidades.</li>
+                        <li><strong>Importancia para juegos</strong>: Muchos juegos dependen del Timer durante la inicialización. Si el Timer no
+                            está implementado, los juegos pueden quedarse en bucles infinitos esperando que TIMA haga overflow, causando
+                            congelamiento o pantalla blanca.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Timing exacto del overflow</strong>: Según la documentación, escribir en TIMA durante el ciclo en que hace
+                            overflow puede tener comportamiento especial. Por ahora, implementamos escritura directa, pero esto podría necesitar
+                            refinamiento si encontramos juegos que dependen de este comportamiento específico.</li>
+                        <li><strong>Comportamiento al desactivar/reactivar TAC</strong>: Cuando se desactiva el Timer (bit 2 de TAC pasa de 1 a 0),
+                            el acumulador de TIMA se mantiene. Si se reactiva, TIMA continúa desde donde estaba. Esto está implementado, pero
+                            no está completamente verificado con ROMs reales.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Acumulador de TIMA</strong>: Usamos un acumulador interno para manejar fracciones de ciclo. Esto permite que
+                        múltiples incrementos ocurran en una sola llamada a <code>tick()</code> si se pasan muchos T-Cycles. Esta implementación
+                        es razonable y debería comportarse igual que el hardware real, pero no está completamente verificada con documentación
+                        técnica específica sobre el comportamiento interno del acumulador.
+                    </p>
+                    <p>
+                        <strong>Bits no utilizados de TAC</strong>: Los bits 3-7 de TAC siempre se leen como 1. Esto está documentado en Pan Docs,
+                        pero la implementación asume que esto es un comportamiento del hardware y no un efecto secundario de la lectura. Si encontramos
+                        juegos que dependen de este comportamiento, lo validaremos con tests adicionales.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Probar el emulador con ROMs reales (ej. Tetris DX) para verificar que el Timer resuelve el problema de congelamiento durante la inicialización</li>
+                    <li>[ ] Si el Timer funciona correctamente, el juego debería salir del bucle de espera y encender la pantalla (LCDC != 0)</li>
+                    <li>[ ] Verificar que las interrupciones Timer se procesan correctamente cuando IME está activo</li>
+                    <li>[ ] Si hay problemas de timing, investigar el comportamiento exacto del overflow y la escritura en TIMA durante el overflow</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
