@@ -226,14 +226,17 @@ class Viboy:
         - A = 0x11: Game Boy Color (CGB)
         - A = 0xFF: Game Boy Pocket / Super Game Boy
         
-        Los juegos Dual Mode (CGB/DMG) leen el registro A al inicio para detectar
-        el tipo de hardware y ajustar su comportamiento. Si detectan CGB (A=0x11),
-        intentan usar características avanzadas (VRAM Banks, paletas CGB) que aún
-        no están implementadas, resultando en pantalla negra.
+        VERSIÓN 0.0.1: Usamos valores CGB para compatibilidad máxima.
+        Los juegos Dual Mode (CGB/DMG) detectan CGB y pueden usar características
+        avanzadas (VRAM Banks, paletas CGB) que ahora están implementadas.
         
-        Por ahora, forzamos A=0x01 para ejecutar en modo DMG (compatible con nuestro
-        emulador actual). Más adelante, cuando implementemos características CGB,
-        podremos cambiar esto a 0x11.
+        Valores exactos de Boot ROM CGB (según documentación):
+        - AF = 0x1180 (A=0x11, F=0x80: Z flag activo)
+        - BC = 0x0000
+        - DE = 0xFF56
+        - HL = 0x000D
+        - SP = 0xFFFE
+        - PC = 0x0100
         
         Fuente: Pan Docs - Boot ROM, Post-Boot State, Game Boy Color detection
         """
@@ -246,20 +249,35 @@ class Viboy:
         # SP inicializado a 0xFFFE (top de la pila)
         self._cpu.registers.set_sp(0xFFFE)
         
-        # CRÍTICO: Forzar modo DMG (Game Boy Clásica)
-        # A = 0x01 indica que es una Game Boy Clásica, no Color
-        # Esto hace que los juegos Dual Mode usen el código compatible con DMG
-        self._cpu.registers.set_a(0x01)
+        # VERSIÓN 0.0.1: Valores CGB exactos para compatibilidad máxima
+        # AF = 0x1180 (A=0x11 indica CGB, F=0x80 con Z flag activo)
+        self._cpu.registers.set_a(0x11)
+        self._cpu.registers.set_f(0x80)  # Z flag activo
+        
+        # BC = 0x0000
+        self._cpu.registers.set_b(0x00)
+        self._cpu.registers.set_c(0x00)
+        
+        # DE = 0xFF56
+        self._cpu.registers.set_d(0xFF)
+        self._cpu.registers.set_e(0x56)
+        
+        # HL = 0x000D
+        self._cpu.registers.set_h(0x00)
+        self._cpu.registers.set_l(0x0D)
         
         # Verificar que se estableció correctamente
         reg_a = self._cpu.registers.get_a()
-        if reg_a != 0x01:
-            logger.error(f"⚠️ ERROR: Registro A no se estableció correctamente. Esperado: 0x01, Obtenido: 0x{reg_a:02X}")
+        if reg_a != 0x11:
+            logger.error(f"⚠️ ERROR: Registro A no se estableció correctamente. Esperado: 0x11, Obtenido: 0x{reg_a:02X}")
         else:
             logger.info(
-                f"✅ Post-Boot State: PC=0x{self._cpu.registers.get_pc():04X}, "
+                f"✅ Post-Boot State (CGB): PC=0x{self._cpu.registers.get_pc():04X}, "
                 f"SP=0x{self._cpu.registers.get_sp():04X}, "
-                f"A=0x{reg_a:02X} (DMG mode forzado)"
+                f"A=0x{reg_a:02X} (CGB mode), "
+                f"BC=0x{self._cpu.registers.get_bc():04X}, "
+                f"DE=0x{self._cpu.registers.get_de():04X}, "
+                f"HL=0x{self._cpu.registers.get_hl():04X}"
             )
 
     def _execute_cpu_only(self) -> int:
@@ -392,16 +410,17 @@ class Viboy:
         """
         Ejecuta el bucle principal del emulador (Game Loop).
         
-        OPTIMIZACIÓN CON BATCHING Y FRAME SKIP (Paso 82):
-        - Batching: Agrupa múltiples instrucciones CPU antes de actualizar PPU/Timer
-        - Frame Skip: Renderiza solo 1 de cada 3 frames (la lógica corre a 60Hz)
-        - Reduce llamadas a función de ~4M por segundo a ~40K por segundo
+        VERSIÓN 0.0.1: ARQUITECTURA DE PRECISIÓN CICLO A CICLO
+        - Eliminado batching: cada instrucción actualiza PPU/Timer inmediatamente
+        - Sincronización perfecta: CPU, Timer y PPU avanzan juntos
+        - Input polling más frecuente: cada vez que hay frame listo
+        - Optimización: Tile Caching mantiene 60 FPS a pesar de más llamadas
         
         ARQUITECTURA:
-        - Bucle externo: por cada frame (60 FPS)
-        - Bucle interno de batching: ejecuta bloques de instrucciones (456 T-Cycles ≈ 1 scanline)
-        - Actualización de periféricos: una vez por bloque (no por instrucción)
-        - Renderizado: solo cada N frames (frame skip)
+        - Bucle principal: ejecuta instrucciones una a una
+        - Cada instrucción: CPU.step() -> actualiza PPU/Timer con ciclos exactos
+        - Renderizado: cuando PPU indica frame listo
+        - Sincronización: pygame.Clock limita a 60 FPS
         
         Este método ejecuta instrucciones continuamente hasta que se interrumpe
         (Ctrl+C) o se produce un error.
@@ -420,89 +439,54 @@ class Viboy:
         
         # Configuración de rendimiento
         TARGET_FPS = 60
-        CYCLES_PER_FRAME = 70224  # T-Cycles por frame
         
-        # OPTIMIZACIÓN: Batching - agrupar instrucciones antes de actualizar periféricos
-        # 128 T-Cycles = ~32 M-Cycles (balance entre rendimiento y precisión)
-        # Aumentado de 64 a 128 para dar más aire a la CPU lógica con Tile Caching
-        BATCH_SIZE_T_CYCLES = 128  # Balance precisión/rendimiento (optimizado para Tile Caching)
-        BATCH_SIZE_M_CYCLES = BATCH_SIZE_T_CYCLES // 4  # ~32 M-Cycles
-        
-        # OPTIMIZACIÓN: Frame Skip - renderizar 1 de cada (SKIP_FRAMES + 1) frames
-        # La lógica del juego corre a 60Hz, solo nos saltamos el dibujo visual
-        # 0 = sin saltar frames (renderizado suave a 60 FPS)
-        SKIP_FRAMES = 0  # Sin frame skip para máxima suavidad visual
-        
-        # Contador de frames para frame skip y título
+        # Contador de frames para título
         frame_count = 0
         
         try:
-            # BUCLE PRINCIPAL: Por cada frame (60 FPS)
+            # BUCLE PRINCIPAL: Precisión ciclo a ciclo
             while True:
-                # 1. Gestionar Input (CRÍTICO: Hacerlo al inicio del frame)
+                # 1. Gestionar Input (cada vez que hay frame listo o periódicamente)
+                # Polling más frecuente para reducir input lag
                 if self._renderer is not None:
                     should_continue = self._handle_pygame_events()
                     if not should_continue:
                         break
                 
-                # 2. Ejecutar Lógica de Frame con Batching
-                frame_cycles = 0
-                while frame_cycles < CYCLES_PER_FRAME:
-                    # Calcular cuántos ciclos quedan en este frame
-                    remaining_cycles_t = CYCLES_PER_FRAME - frame_cycles
-                    remaining_cycles_m = remaining_cycles_t // 4
-                    
-                    # Tamaño del batch: mínimo entre el tamaño estándar y los ciclos restantes
-                    current_batch_size_m = min(BATCH_SIZE_M_CYCLES, remaining_cycles_m)
-                    
-                    # BUCLE DE BATCHING: Ejecutar múltiples instrucciones antes de actualizar periféricos
-                    batch_cycles_m = 0
-                    while batch_cycles_m < current_batch_size_m:
-                        # Ejecutar instrucción CPU (sin actualizar PPU/Timer todavía)
-                        cycles = self._execute_cpu_only()
-                        batch_cycles_m += cycles
-                        
-                        # Si la CPU se despertó de HALT, seguir ejecutando normalmente
-                    
-                    # Convertir M-Cycles del batch a T-Cycles
-                    batch_cycles_t = batch_cycles_m * 4
-                    
-                    # ACTUALIZAR PERIFÉRICOS UNA SOLA VEZ POR BATCH (no por instrucción)
-                    if self._ppu is not None:
-                        self._ppu.step(batch_cycles_t)
-                    if self._timer is not None:
-                        self._timer.tick(batch_cycles_t)
-                    
-                    frame_cycles += batch_cycles_t
+                # 2. Ejecutar una instrucción con sincronización perfecta
+                # Usar tick() que actualiza PPU/Timer inmediatamente
+                cycles = self.tick()
                 
-                # 3. Renderizado con Frame Skip
-                # Solo renderizar si es el frame correcto (0, 3, 6, 9, ...)
-                if frame_count % (SKIP_FRAMES + 1) == 0:
-                    if self._ppu is not None and self._ppu.is_frame_ready():
-                        if self._renderer is not None:
-                            self._renderer.render_frame()
-                            try:
-                                import pygame
-                                pygame.display.flip()
-                            except ImportError:
-                                pass
+                # CRÍTICO: Protección contra deadlock
+                if cycles == 0:
+                    cycles = 4  # Forzar avance mínimo
                 
-                # 4. Sincronización (Solo una vez por frame)
-                if self._clock is not None:
-                    self._clock.tick(TARGET_FPS)
-                
-                # 5. Título con FPS (Solo cada 60 frames para no frenar)
-                frame_count += 1
-                if frame_count % 60 == 0 and self._clock is not None:
-                    try:
-                        import pygame
-                        fps = self._clock.get_fps()
-                        pygame.display.set_caption(f"Viboy Color - FPS: {fps:.1f} (Skip={SKIP_FRAMES})")
-                    except ImportError:
-                        pass
+                # 3. Renderizado cuando el frame está listo
+                if self._ppu is not None and self._ppu.is_frame_ready():
+                    if self._renderer is not None:
+                        self._renderer.render_frame()
+                        try:
+                            import pygame
+                            pygame.display.flip()
+                        except ImportError:
+                            pass
+                    
+                    # 4. Sincronización (solo cuando renderizamos)
+                    if self._clock is not None:
+                        self._clock.tick(TARGET_FPS)
+                    
+                    # 5. Título con FPS (cada 60 frames para no frenar)
+                    frame_count += 1
+                    if frame_count % 60 == 0 and self._clock is not None:
+                        try:
+                            import pygame
+                            fps = self._clock.get_fps()
+                            pygame.display.set_caption(f"Viboy Color v0.0.1 - FPS: {fps:.1f}")
+                        except ImportError:
+                            pass
         
         except KeyboardInterrupt:
-            # Salir limpiamente con Ctrl+C (solo en excepciones críticas)
+            # Salir limpiamente con Ctrl+C
             pass
         
         except NotImplementedError as e:

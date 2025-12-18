@@ -97,6 +97,14 @@ IO_NR52 = 0xFF26  # Sound On/Off
 # Registros de Joypad
 IO_P1 = 0xFF00    # Joypad Input - Estado de botones y direcciones
 
+# Registros CGB (Game Boy Color) - Soporte básico
+IO_KEY1 = 0xFF4D  # Speed Switch - Control de velocidad doble (CGB)
+IO_VBK = 0xFF4F   # VRAM Bank - Selección de banco VRAM (CGB, bit 0)
+IO_BCPS = 0xFF68  # Background Color Palette Specification - Índice y autoincremento (CGB)
+IO_BCPD = 0xFF69  # Background Color Palette Data - Datos de paleta de fondo (CGB)
+IO_OCPS = 0xFF6A  # Object Color Palette Specification - Índice y autoincremento (CGB)
+IO_OCPD = 0xFF6B  # Object Color Palette Data - Datos de paleta de sprites (CGB)
+
 # Mapeo de direcciones a nombres de registros (para logging)
 IO_REGISTER_NAMES: dict[int, str] = {
     IO_LCDC: "LCDC",
@@ -155,7 +163,10 @@ class MMU:
     
     # Optimización de rendimiento: __slots__ reduce overhead de acceso a atributos
     __slots__ = [
-        '_memory', '_cartridge', '_ppu', '_joypad', '_timer', 'vram_write_count', '_renderer'
+        '_memory', '_cartridge', '_ppu', '_joypad', '_timer', 'vram_write_count', '_renderer',
+        '_vram_bank', '_vram_banks', '_bg_palette_index', '_bg_palette_autoinc',
+        '_obj_palette_index', '_obj_palette_autoinc', '_bg_palette_data', '_obj_palette_data',
+        '_key1_speed_switch'
     ]
 
     # Tamaño total del espacio de direcciones (16 bits = 65536 bytes)
@@ -187,6 +198,38 @@ class MMU:
         # - Bits 6-7 (Color 3): 11 = Negro (3)
         # Esta es la configuración estándar que deja la Boot ROM
         self._memory[IO_BGP] = 0xE4
+        
+        # CGB: VRAM Banking (0xFF4F)
+        # La Game Boy Color tiene 2 bancos de VRAM (8KB cada uno)
+        # Bit 0 de 0xFF4F selecciona el banco (0 o 1)
+        # Fuente: Pan Docs - CGB Registers, VRAM Banking
+        self._vram_bank: int = 0  # Banco actual (0 o 1)
+        self._vram_banks: list[bytearray] = [
+            bytearray(0x2000),  # Banco 0: 8KB
+            bytearray(0x2000),  # Banco 1: 8KB
+        ]
+        # Inicializar banco 0 con la memoria principal (para compatibilidad DMG)
+        # El banco 0 se mapea directamente a _memory[0x8000:0xA000]
+        
+        # CGB: Paletas de Color (0xFF68-0xFF6B)
+        # Background Palette: 8 paletas de 4 colores cada una (32 bytes total)
+        # Object Palette: 8 paletas de 4 colores cada una (32 bytes total)
+        # Cada color es de 15 bits (RGB555: 5 bits por componente)
+        # Fuente: Pan Docs - CGB Registers, Color Palettes
+        self._bg_palette_index: int = 0  # Índice actual en paleta de fondo
+        self._bg_palette_autoinc: bool = False  # Auto-incremento (bit 7 de BCPS)
+        self._bg_palette_data: bytearray = bytearray(64)  # 8 paletas * 4 colores * 2 bytes
+        
+        self._obj_palette_index: int = 0  # Índice actual en paleta de sprites
+        self._obj_palette_autoinc: bool = False  # Auto-incremento (bit 7 de OCPS)
+        self._obj_palette_data: bytearray = bytearray(64)  # 8 paletas * 4 colores * 2 bytes
+        
+        # CGB: Speed Switch (0xFF4D)
+        # Permite cambiar entre velocidad normal (1x) y doble (2x)
+        # Bit 7: Preparado para cambio (read-only)
+        # Bit 0: Velocidad actual (0=normal, 1=doble)
+        # Fuente: Pan Docs - CGB Registers, Speed Switch
+        self._key1_speed_switch: int = 0  # Por defecto, velocidad normal
         
         # Referencia al cartucho (si está insertado)
         self._cartridge: Cartridge | None = cartridge
@@ -283,11 +326,63 @@ class MMU:
                 if self._timer is not None:
                     return self._timer.read_tac() & 0xFF
                 return 0
+            # CGB: Registros CGB
+            if addr == IO_VBK:
+                # Bit 0: Banco VRAM seleccionado (0 o 1)
+                # Bits 1-7: Siempre 0 (read-only)
+                return self._vram_bank & 0x01
+            if addr == IO_KEY1:
+                # Bit 7: Preparado para cambio (read-only, siempre 0 por ahora)
+                # Bit 0: Velocidad actual (0=normal, 1=doble)
+                # Bits 1-6: Siempre 0
+                return self._key1_speed_switch & 0x01
+            if addr == IO_BCPS:
+                # Bit 0-5: Índice de paleta (0-63)
+                # Bit 6: No usado
+                # Bit 7: Auto-incremento
+                result = self._bg_palette_index & 0x3F
+                if self._bg_palette_autoinc:
+                    result |= 0x80
+                return result & 0xFF
+            if addr == IO_BCPD:
+                # Leer byte de datos de paleta de fondo
+                idx = self._bg_palette_index & 0x3F
+                value = self._bg_palette_data[idx] & 0xFF
+                # Auto-incremento si está activado
+                if self._bg_palette_autoinc:
+                    self._bg_palette_index = (self._bg_palette_index + 1) & 0x3F
+                return value
+            if addr == IO_OCPS:
+                # Bit 0-5: Índice de paleta (0-63)
+                # Bit 6: No usado
+                # Bit 7: Auto-incremento
+                result = self._obj_palette_index & 0x3F
+                if self._obj_palette_autoinc:
+                    result |= 0x80
+                return result & 0xFF
+            if addr == IO_OCPD:
+                # Leer byte de datos de paleta de sprites
+                idx = self._obj_palette_index & 0x3F
+                value = self._obj_palette_data[idx] & 0xFF
+                # Auto-incremento si está activado
+                if self._obj_palette_autoinc:
+                    self._obj_palette_index = (self._obj_palette_index + 1) & 0x3F
+                return value
             # HRAM o otros (0xFF80-0xFFFF excepto I/O)
             return self._memory[addr] & 0xFF
         
         # VRAM/OAM (0x8000-0xFEFF) - menos frecuente, al final
-        # Para estas regiones, leer directamente de memoria interna
+        # CGB: Si está en VRAM (0x8000-0x9FFF), usar el banco seleccionado
+        if 0x8000 <= addr <= 0x9FFF:
+            vram_offset = addr - 0x8000
+            if self._vram_bank == 0:
+                # Banco 0: leer de memoria principal (compatibilidad DMG)
+                return self._memory[addr] & 0xFF
+            else:
+                # Banco 1: leer del banco secundario
+                return self._vram_banks[1][vram_offset] & 0xFF
+        
+        # Para otras regiones (OAM, etc.), leer directamente de memoria interna
         return self._memory[addr] & 0xFF
 
     def write_byte(self, addr: int, value: int) -> None:
@@ -441,6 +536,55 @@ class MMU:
                 self._timer.write_tac(value)
                 return  # No escribir en memoria, el Timer maneja su propio estado
         
+        # CGB: Interceptar escritura a registros CGB
+        if addr == IO_VBK:
+            # Bit 0: Seleccionar banco VRAM (0 o 1)
+            # Bits 1-7: Ignorados (solo bit 0 es válido)
+            self._vram_bank = value & 0x01
+            # No escribir en memoria, el estado se guarda en _vram_bank
+            return
+        if addr == IO_KEY1:
+            # Bit 0: Velocidad deseada (0=normal, 1=doble)
+            # El cambio real requiere una secuencia especial (no implementada aún)
+            # Por ahora, solo guardamos el valor
+            self._key1_speed_switch = value & 0x01
+            # No escribir en memoria, el estado se guarda en _key1_speed_switch
+            return
+        if addr == IO_BCPS:
+            # Bit 0-5: Índice de paleta (0-63)
+            # Bit 6: No usado
+            # Bit 7: Auto-incremento
+            self._bg_palette_index = value & 0x3F
+            self._bg_palette_autoinc = (value & 0x80) != 0
+            # No escribir en memoria, el estado se guarda en variables internas
+            return
+        if addr == IO_BCPD:
+            # Escribir byte de datos de paleta de fondo
+            idx = self._bg_palette_index & 0x3F
+            self._bg_palette_data[idx] = value & 0xFF
+            # Auto-incremento si está activado
+            if self._bg_palette_autoinc:
+                self._bg_palette_index = (self._bg_palette_index + 1) & 0x3F
+            # No escribir en memoria, los datos se guardan en _bg_palette_data
+            return
+        if addr == IO_OCPS:
+            # Bit 0-5: Índice de paleta (0-63)
+            # Bit 6: No usado
+            # Bit 7: Auto-incremento
+            self._obj_palette_index = value & 0x3F
+            self._obj_palette_autoinc = (value & 0x80) != 0
+            # No escribir en memoria, el estado se guarda en variables internas
+            return
+        if addr == IO_OCPD:
+            # Escribir byte de datos de paleta de sprites
+            idx = self._obj_palette_index & 0x3F
+            self._obj_palette_data[idx] = value & 0xFF
+            # Auto-incremento si está activado
+            if self._obj_palette_autoinc:
+                self._obj_palette_index = (self._obj_palette_index + 1) & 0x3F
+            # No escribir en memoria, los datos se guardan en _obj_palette_data
+            return
+        
         # CRÍTICO: Trampa de diagnóstico para LCDC (comentada para rendimiento)
         # if addr == IO_LCDC:
         #     old_value = self.read_byte(IO_LCDC)
@@ -509,15 +653,30 @@ class MMU:
         #         print(f"💾 VRAM WRITE: (se han detectado más de 10 escrituras, ocultando el resto)", flush=True)
         #         logger.info(f"💾 VRAM WRITE: (se han detectado más de 10 escrituras, ocultando el resto)")
         
-        # OPTIMIZACIÓN: Marcar tile como "dirty" si se escribe en VRAM (Tile Caching)
-        # Solo los tiles en 0x8000-0x97FF (384 tiles) se cachean
-        # Si se escribe en este rango, calcular el índice del tile y marcarlo como dirty
-        if 0x8000 <= addr <= 0x97FF:
-            # Calcular índice del tile (0-383)
-            # Cada tile ocupa 16 bytes, así que: tile_index = (addr - 0x8000) // 16
-            tile_index = (addr - 0x8000) // 16
-            if self._renderer is not None:
-                self._renderer.mark_tile_dirty(tile_index)
+        # CGB: Si está en VRAM (0x8000-0x9FFF), escribir en el banco seleccionado
+        if 0x8000 <= addr <= 0x9FFF:
+            vram_offset = addr - 0x8000
+            if self._vram_bank == 0:
+                # Banco 0: escribir en memoria principal (compatibilidad DMG)
+                self._memory[addr] = value
+            else:
+                # Banco 1: escribir en el banco secundario
+                self._vram_banks[1][vram_offset] = value & 0xFF
+                # También actualizar memoria principal para compatibilidad (opcional)
+                # self._memory[addr] = value
+            
+            # OPTIMIZACIÓN: Marcar tile como "dirty" si se escribe en VRAM (Tile Caching)
+            # Solo los tiles en 0x8000-0x97FF (384 tiles) se cachean
+            # Si se escribe en este rango, calcular el índice del tile y marcarlo como dirty
+            if 0x8000 <= addr <= 0x97FF:
+                # Calcular índice del tile (0-383)
+                # Cada tile ocupa 16 bytes, así que: tile_index = (addr - 0x8000) // 16
+                tile_index = (addr - 0x8000) // 16
+                if self._renderer is not None:
+                    self._renderer.mark_tile_dirty(tile_index)
+            
+            # Ya escribimos en VRAM, no continuar
+            return
         
         # Escribimos el byte en la memoria
         # NOTA: No hay restricción de escritura en VRAM basada en modo PPU.

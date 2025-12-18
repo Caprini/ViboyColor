@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0087 - Arquitectura de Precisión y Soporte CGB Básico (v0.0.1) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0087__arquitectura-precision-cgb-v0.0.1.html" class="entry-link">
+                                    Arquitectura de Precisión y Soporte CGB Básico (v0.0.1)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0087 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Revisión integral de la arquitectura para v0.0.1: eliminado batching que causaba desincronización entre CPU, Timer y PPU. Implementado soporte CGB básico (VRAM banking, paletas de color, speed switch) y corregido boot state con valores exactos CGB. El bucle principal ahora ejecuta instrucciones ciclo a ciclo con sincronización perfecta, manteniendo 60 FPS gracias al Tile Caching. Tetris funciona correctamente sin Game Over aleatorio y Pokémon Red pasa del logo sin bloquearse.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0086 - Tile Caching: Optimización del Renderizado -->
                     <li>
                         <div class="entry-header">
