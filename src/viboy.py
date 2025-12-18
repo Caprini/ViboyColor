@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -379,6 +380,9 @@ class Viboy:
         if self._mmu is not None:
             self._prev_lcdc = self._mmu.read_byte(0xFF40)
         
+        # Monitor de estado en tiempo real (cada 5 segundos)
+        last_debug_time = time.time()
+        
         try:
             while True:
                 # CRÍTICO: Llamar a pygame.event.pump() en cada iteración para evitar
@@ -389,6 +393,41 @@ class Viboy:
                         pygame.event.pump()
                     except ImportError:
                         pass
+                
+                # Monitor de estado en tiempo real (cada 5 segundos)
+                if time.time() - last_debug_time > 5.0:
+                    last_debug_time = time.time()
+                    pc = self._cpu.registers.get_pc()
+                    sp = self._cpu.registers.get_sp()
+                    ime = self._cpu.ime
+                    if self._mmu is not None:
+                        ie = self._mmu.read_byte(0xFFFF)
+                        if_reg = self._mmu.read_byte(0xFF0F)
+                        lcdc = self._mmu.read_byte(0xFF40)
+                        div = self._mmu.read_byte(0xFF04)
+                    else:
+                        ie = 0
+                        if_reg = 0
+                        lcdc = 0
+                        div = 0
+                    ly = self._ppu.get_ly() if self._ppu is not None else 0
+                    
+                    # Leer los 3 bytes en PC para ver la instrucción actual
+                    if self._mmu is not None:
+                        op = self._mmu.read_byte(pc)
+                        op1 = self._mmu.read_byte(pc + 1)
+                        op2 = self._mmu.read_byte(pc + 2)
+                    else:
+                        op = 0
+                        op1 = 0
+                        op2 = 0
+                    
+                    print(f"\n🔍 ESTADO (LCD={'ON' if lcdc & 0x80 else 'OFF'}):")
+                    print(f"   PC={pc:04X} (Opcode: {op:02X} {op1:02X} {op2:02X})")
+                    print(f"   SP={sp:04X} | IME={ime}")
+                    print(f"   IE={ie:02X} (VBlank={ie&1}, LCD={ie&2}, Timer={ie&4})")
+                    print(f"   IF={if_reg:02X} (VBlank={if_reg&1}, LCD={if_reg&2}, Timer={if_reg&4})")
+                    print(f"   LY={ly} | DIV={div:02X}")
                 
                 # Manejar eventos de Pygame (cierre de ventana y teclado)
                 if self._renderer is not None:

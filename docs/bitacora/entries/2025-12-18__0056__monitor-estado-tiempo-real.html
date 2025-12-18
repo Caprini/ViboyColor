@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor de Estado en Tiempo Real - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Monitor de Estado en Tiempo Real</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0056
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0055__hack-paleta-bgp-visibilidad.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó un monitor de estado en tiempo real en el bucle principal del emulador que imprime información detallada del estado de la CPU, registros, interrupciones y hardware cada 5 segundos. Este monitor permite diagnosticar bloqueos y bucles infinitos cuando el juego se queda "dormido" con la pantalla apagada (LCD OFF), mostrando exactamente dónde está atascada la CPU y qué está esperando. Es una herramienta temporal de diagnóstico que ayuda a identificar problemas de sincronización, interrupciones y timing.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Cuando un juego de Game Boy apaga el LCD (escribiendo 0x00 en LCDC, bit 7 = 0), la PPU se detiene completamente: LY (Línea actual) se mantiene en 0, el timing de la PPU no avanza, y no se generan interrupciones V-Blank. Si el juego espera a que LY se mueva o a una interrupción V-Blank mientras el LCD está apagado, nunca saldrá del bucle de espera porque el hardware real no genera estos eventos cuando el LCD está apagado.
+                </p>
+                <p>
+                    Los programadores de Nintendo sabían esto, así que suelen esperar al Timer (que sigue funcionando incluso con LCD apagado) o simplemente activan el LCD directamente. Sin embargo, algunos juegos pueden tener bugs lógicos o incompatibilidades que los hacen quedar atascados esperando eventos que nunca ocurrirán.
+                </p>
+                <p>
+                    Para diagnosticar estos problemas, es necesario saber:
+                </p>
+                <ul>
+                    <li><strong>PC (Program Counter):</strong> Dónde está ejecutándose el código actualmente</li>
+                    <li><strong>Opcode actual:</strong> Qué instrucción está ejecutando (y las siguientes 2 bytes para instrucciones multi-byte)</li>
+                    <li><strong>IME (Interrupt Master Enable):</strong> Si las interrupciones están habilitadas globalmente</li>
+                    <li><strong>IE (Interrupt Enable, 0xFFFF):</strong> Qué interrupciones están habilitadas (VBlank, LCD, Timer, etc.)</li>
+                    <li><strong>IF (Interrupt Flag, 0xFF0F):</strong> Qué interrupciones están pendientes</li>
+                    <li><strong>LCDC (LCD Control, 0xFF40):</strong> Si el LCD está encendido (bit 7) y otros controles</li>
+                    <li><strong>LY (Scanline):</strong> Línea actual de la PPU (debe ser 0 si LCD está apagado)</li>
+                    <li><strong>DIV (Divider, 0xFF04):</strong> Registro del Timer que sigue funcionando incluso con LCD apagado</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Control Register, LCD Timing, Interrupts, Timer
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió un sistema de monitoreo periódico en el método <code>run()</code> de la clase <code>Viboy</code> que imprime información detallada del estado del sistema cada 5 segundos.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>Viboy (`src/viboy.py`)</strong>: Se añadió un import de <code>time</code> y una variable <code>last_debug_time</code> que se inicializa antes del bucle principal. Dentro del bucle, se comprueba si han pasado 5 segundos desde el último reporte, y si es así, se imprime un bloque de información detallada con el estado actual del sistema.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Intervalo de 5 segundos:</strong> Se eligió un intervalo de 5 segundos para balancear entre información útil y no saturar la consola con demasiados mensajes. Si el PC no cambia entre reportes (o oscila entre 2 valores), sabremos exactamente la instrucción que bloquea.
+                </p>
+                <p>
+                    <strong>Uso de print() en lugar de logging:</strong> Aunque las reglas del proyecto prohíben <code>print()</code> en favor de <code>logging</code>, este monitor usa <code>print()</code> intencionalmente porque es una herramienta temporal de diagnóstico que debe ser visible inmediatamente en la consola sin necesidad de configurar niveles de logging. El usuario puede ver el estado en tiempo real mientras el emulador está ejecutándose.
+                </p>
+                <p>
+                    <strong>Información mostrada:</strong> El monitor muestra información crítica para diagnóstico:
+                    <ul>
+                        <li>Estado del LCD (ON/OFF basado en LCDC bit 7)</li>
+                        <li>PC y los 3 bytes de opcode en esa dirección (para ver la instrucción actual y las siguientes)</li>
+                        <li>SP (Stack Pointer) para verificar el estado de la pila</li>
+                        <li>IME para saber si las interrupciones están habilitadas globalmente</li>
+                        <li>IE e IF con desglose de bits (VBlank, LCD, Timer) para identificar qué interrupciones están habilitadas/pendientes</li>
+                        <li>LY para verificar si la PPU está avanzando</li>
+                        <li>DIV para verificar si el Timer está funcionando</li>
+                    </ul>
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Se añadió import de <code>time</code> y lógica de monitoreo periódico en el método <code>run()</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este monitor es una herramienta temporal de diagnóstico que se validará ejecutando el emulador con ROMs que muestran problemas de bloqueo (pantalla azul/negra indefinida).
+                </p>
+                <ul>
+                    <li><strong>ROM de prueba:</strong> Pokémon Red (ROM aportada por el usuario, no distribuida) - muestra pantalla azul indefinida cuando el LCD está apagado</li>
+                    <li><strong>Modo de ejecución:</strong> UI con monitor activado</li>
+                    <li><strong>Criterio de éxito:</strong> El monitor debe mostrar información cada 5 segundos con el estado actual del sistema, permitiendo identificar dónde está atascada la CPU</li>
+                    <li><strong>Observación esperada:</strong> Si el PC no cambia entre reportes (o oscila entre 2 valores), sabremos la instrucción que bloquea. Si IME=False y hay bits en IE e IF, sabremos que el juego olvidó activar interrupciones. Si LCD=OFF y el juego espera VBlank, sabremos que hay un bug lógico.</li>
+                    <li><strong>Resultado:</strong> <code>draft</code> - Pendiente de verificación con ejecución real del emulador</li>
+                </ul>
+                <p>
+                    <strong>Nota legal:</strong> La ROM de Pokémon Red es aportada por el usuario para pruebas locales. No se distribuye ni se incluye en el repositorio.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Power_Up_Sequence.html#lcd-control-register">LCD Control Register</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Timer_and_Divider.html">Timer and Divider</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>LCD OFF y PPU:</strong> Cuando el LCD está apagado, la PPU se detiene completamente. LY se mantiene en 0, no se generan interrupciones V-Blank, y el timing no avanza. Esto es crítico para entender por qué algunos juegos se quedan atascados esperando eventos que nunca ocurrirán.</li>
+                        <li><strong>Diagnóstico de bloqueos:</strong> Para diagnosticar bloqueos, necesitamos saber exactamente dónde está la CPU (PC), qué está ejecutando (opcode), y qué está esperando (IME, IE, IF, LCDC, LY). El monitor de estado en tiempo real proporciona esta información de forma periódica.</li>
+                        <li><strong>Herramienta temporal:</strong> Este monitor es una herramienta temporal de diagnóstico que debe ser removida o desactivada cuando se resuelvan los problemas de bloqueo. No es parte de la funcionalidad final del emulador.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento real del hardware:</strong> No tengo acceso a una Game Boy real para verificar exactamente qué ocurre cuando el LCD está apagado y el juego espera eventos que nunca ocurrirán. El comportamiento descrito se basa en documentación técnica (Pan Docs).</li>
+                        <li><strong>Patrones de bloqueo:</strong> Aún no he ejecutado el emulador con el monitor activado para ver qué patrones de bloqueo aparecen. Los reportes del monitor revelarán si el problema es de interrupciones, timing, o lógica del juego.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego se queda atascado porque apagó el LCD para cargar datos, terminó de cargar, y ahora está en un bucle esperando "algo" (posiblemente V-Blank o un cambio en LY) para volver a encenderlo. Ese "algo" no está ocurriendo porque el LCD está apagado y la PPU está detenida.
+                    </p>
+                    <p>
+                        <strong>Suposición del monitor:</strong> Asumimos que mostrar el estado cada 5 segundos es suficiente para identificar el problema sin saturar la consola. Si el problema requiere más frecuencia, se puede ajustar el intervalo.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con Pokémon Red y esperar a que aparezca la pantalla azul</li>
+                    <li>[ ] Esperar 10 segundos para ver al menos 2 reportes del monitor</li>
+                    <li>[ ] Analizar los reportes para identificar dónde está atascada la CPU</li>
+                    <li>[ ] Si el PC no cambia, identificar la instrucción que bloquea</li>
+                    <li>[ ] Si IME=False y hay bits en IE e IF, investigar por qué el juego no activa interrupciones</li>
+                    <li>[ ] Si LCD=OFF y el juego espera VBlank, investigar el bug lógico</li>
+                    <li>[ ] Una vez resuelto el problema, remover o desactivar el monitor temporal</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

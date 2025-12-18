@@ -1,5 +1,57 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Monitor de Estado en Tiempo Real (Step 0056)
+
+### Conceptos Hardware Implementados
+
+**Monitor de Estado y Diagnóstico de Bloqueos**: Cuando un juego de Game Boy apaga el LCD (escribiendo 0x00 en LCDC, bit 7 = 0), la PPU se detiene completamente: LY (Línea actual) se mantiene en 0, el timing de la PPU no avanza, y no se generan interrupciones V-Blank. Si el juego espera a que LY se mueva o a una interrupción V-Blank mientras el LCD está apagado, nunca saldrá del bucle de espera porque el hardware real no genera estos eventos cuando el LCD está apagado. Los programadores de Nintendo sabían esto, así que suelen esperar al Timer (que sigue funcionando incluso con LCD apagado) o simplemente activan el LCD directamente. Sin embargo, algunos juegos pueden tener bugs lógicos o incompatibilidades que los hacen quedar atascados esperando eventos que nunca ocurrirán.
+
+Para diagnosticar estos problemas, es necesario conocer el estado completo del sistema: PC (Program Counter), opcode actual, IME (Interrupt Master Enable), IE (Interrupt Enable), IF (Interrupt Flag), LCDC (LCD Control), LY (Scanline), y DIV (Divider del Timer).
+
+**Fuente**: Pan Docs - LCD Control Register, LCD Timing, Interrupts, Timer
+
+#### Tareas Completadas:
+
+1. **Monitor de Estado en Tiempo Real (`src/viboy.py`)**:
+   - Se añadió un import de `time` y una variable `last_debug_time` que se inicializa antes del bucle principal
+   - Dentro del bucle, se comprueba si han pasado 5 segundos desde el último reporte
+   - Si es así, se imprime un bloque de información detallada con el estado actual del sistema:
+     - Estado del LCD (ON/OFF basado en LCDC bit 7)
+     - PC y los 3 bytes de opcode en esa dirección (para ver la instrucción actual y las siguientes)
+     - SP (Stack Pointer) para verificar el estado de la pila
+     - IME para saber si las interrupciones están habilitadas globalmente
+     - IE e IF con desglose de bits (VBlank, LCD, Timer) para identificar qué interrupciones están habilitadas/pendientes
+     - LY para verificar si la PPU está avanzando
+     - DIV para verificar si el Timer está funcionando
+
+#### Archivos Afectados:
+- `src/viboy.py` (modificado) - Se añadió import de `time` y lógica de monitoreo periódico en el método `run()`
+- `docs/bitacora/entries/2025-12-18__0056__monitor-estado-tiempo-real.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0056)
+
+#### Validación:
+- **Estado**: Draft - Herramienta temporal de diagnóstico pendiente de verificación
+- **Entorno**: Windows 10, Python 3.13.5
+- **ROM de prueba**: Pokémon Red (ROM aportada por el usuario, no distribuida) - muestra pantalla azul indefinida cuando el LCD está apagado
+- **Comando ejecutado**: `python main.py pkmn.gb` (pendiente de ejecución)
+- **Resultado esperado**: 
+  - El monitor debe mostrar información cada 5 segundos con el estado actual del sistema
+  - Si el PC no cambia entre reportes (o oscila entre 2 valores), sabremos la instrucción que bloquea
+  - Si IME=False y hay bits en IE e IF, sabremos que el juego olvidó activar interrupciones
+  - Si LCD=OFF y el juego espera VBlank, sabremos que hay un bug lógico
+- **Qué valida**: Esta herramienta permite diagnosticar bloqueos y bucles infinitos cuando el juego se queda "dormido" con la pantalla apagada, mostrando exactamente dónde está atascada la CPU y qué está esperando
+- **Próximo paso**: Ejecutar el emulador con el monitor activado y analizar los reportes para identificar el problema
+
+#### Lo que Entiendo Ahora:
+- **LCD OFF y PPU**: Cuando el LCD está apagado, la PPU se detiene completamente. LY se mantiene en 0, no se generan interrupciones V-Blank, y el timing no avanza. Esto es crítico para entender por qué algunos juegos se quedan atascados esperando eventos que nunca ocurrirán.
+- **Diagnóstico de bloqueos**: Para diagnosticar bloqueos, necesitamos saber exactamente dónde está la CPU (PC), qué está ejecutando (opcode), y qué está esperando (IME, IE, IF, LCDC, LY). El monitor de estado en tiempo real proporciona esta información de forma periódica.
+
+#### Lo que Falta Confirmar:
+- **Comportamiento real del hardware**: No tengo acceso a una Game Boy real para verificar exactamente qué ocurre cuando el LCD está apagado y el juego espera eventos que nunca ocurrirán. El comportamiento descrito se basa en documentación técnica (Pan Docs).
+- **Patrones de bloqueo**: Aún no he ejecutado el emulador con el monitor activado para ver qué patrones de bloqueo aparecen. Los reportes del monitor revelarán si el problema es de interrupciones, timing, o lógica del juego.
+
+---
+
 ## 2025-12-18 - Corrección PPU: Verificación LCD Enabled (Step 0053)
 
 ### Conceptos Hardware Implementados
