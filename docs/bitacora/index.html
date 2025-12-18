@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0086 - Tile Caching: Optimización del Renderizado -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0086__tile-caching-optimizacion-renderizado.html" class="entry-link">
+                                    Tile Caching: Optimización del Renderizado
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0086 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó Tile Caching en el renderer para optimizar drásticamente el rendimiento. En lugar de decodificar 23.040 píxeles píxel a píxel en cada frame, ahora se cachean los 384 tiles únicos de VRAM como superficies pygame y se renderizan usando blits rápidos. Esto reduce el trabajo de ~1.3 millones de operaciones por segundo a ~360 blits por frame, permitiendo alcanzar 60 FPS estables sin frame skip.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0085 - Calibración de Precisión: Ajuste Fino del Bucle Principal -->
                     <li>
                         <div class="entry-header">

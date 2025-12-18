@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuración del Icono de Aplicación - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Configuración del Icono de Aplicación</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0081
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0080__optimizacion-final-silence-mode-loop-fix.html">Anterior</a></li>
+                    <li><a href="2025-12-18__0083__optimizacion-batching-frame-skip.html">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se configuró el icono personalizado de la aplicación Viboy Color en lugar del icono por defecto de Python.
+                    El icono se carga desde el archivo <code>viboycolor-icon.png</code> ubicado en la raíz del proyecto y se establece
+                    en la ventana de Pygame usando <code>pygame.display.set_icon()</code>. La implementación utiliza rutas portables
+                    con <code>pathlib.Path</code> para garantizar compatibilidad entre Windows, Linux y macOS.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Aunque el icono de aplicación no es parte del hardware de la Game Boy original, es un aspecto importante
+                    de la experiencia de usuario en el emulador. El icono aparece en la barra de tareas, en el título de la ventana
+                    (en algunos sistemas operativos) y ayuda a identificar visualmente la aplicación.
+                </p>
+                <p>
+                    Pygame permite establecer un icono personalizado para la ventana mediante la función
+                    <code>pygame.display.set_icon()</code>, que acepta una superficie de Pygame cargada desde una imagen.
+                    El icono debe establecerse después de inicializar Pygame pero puede hacerse antes o después de crear la ventana.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó el método <code>__init__</code> de la clase <code>Renderer</code> en <code>src/gpu/renderer.py</code>
+                    para cargar y establecer el icono personalizado.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code>: Se añadió la importación de <code>Path</code> de <code>pathlib</code> y la lógica para cargar el icono.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Ruta portable:</strong> Se utiliza <code>Path(__file__).parent.parent.parent</code> para construir la ruta al icono de forma relativa al módulo, garantizando portabilidad entre sistemas operativos.</li>
+                    <li><strong>Manejo de errores:</strong> Se verifica que el archivo exista antes de intentar cargarlo, y se capturan excepciones durante la carga para evitar que un icono faltante o corrupto rompa la inicialización del renderer.</li>
+                    <li><strong>Logging:</strong> Se registra un mensaje informativo cuando el icono se carga correctamente, y un warning si no se encuentra o hay un error al cargarlo.</li>
+                </ul>
+
+                <h3>Código implementado</h3>
+                <pre><code># Cargar y establecer el icono de la aplicación
+# El icono está en la raíz del proyecto
+icon_path = Path(__file__).parent.parent.parent / "viboycolor-icon.png"
+if icon_path.exists():
+    try:
+        icon_surface = pygame.image.load(str(icon_path))
+        pygame.display.set_icon(icon_surface)
+        logger.info(f"Icono de aplicación cargado: {icon_path}")
+    except Exception as e:
+        logger.warning(f"No se pudo cargar el icono {icon_path}: {e}")
+else:
+    logger.warning(f"Icono no encontrado: {icon_path}")</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Añadida importación de <code>Path</code> y lógica para cargar y establecer el icono de la aplicación.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizó mediante ejecución manual de la aplicación:
+                </p>
+                <ul>
+                    <li><strong>Verificación visual:</strong> Se ejecutó el emulador y se comprobó que el icono personalizado aparece en la barra de tareas de Windows en lugar del icono por defecto de Python.</li>
+                    <li><strong>Ruta portable:</strong> La implementación utiliza <code>pathlib.Path</code> para construir la ruta de forma portable, garantizando que funcione en Windows, Linux y macOS.</li>
+                    <li><strong>Manejo de errores:</strong> Se verificó que si el archivo del icono no existe, la aplicación continúa funcionando normalmente con un warning en los logs.</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> <span class="tag tag-verified">Verified</span> - El icono se carga correctamente y aparece en la barra de tareas.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Documentación de Pygame: <code>pygame.display.set_icon()</code> - <a href="https://www.pygame.org/docs/ref/display.html#pygame.display.set_icon">https://www.pygame.org/docs/ref/display.html#pygame.display.set_icon</a></li>
+                    <li>Documentación de Python: <code>pathlib.Path</code> - <a href="https://docs.python.org/3/library/pathlib.html">https://docs.python.org/3/library/pathlib.html</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Iconos en Pygame:</strong> Pygame permite establecer un icono personalizado para la ventana usando <code>pygame.display.set_icon()</code>, que acepta una superficie cargada desde una imagen.</li>
+                        <li><strong>Rutas portables:</strong> El uso de <code>pathlib.Path</code> permite construir rutas relativas de forma portable, evitando problemas con separadores de directorio entre sistemas operativos.</li>
+                        <li><strong>Manejo de errores:</strong> Es importante verificar la existencia de archivos y capturar excepciones al cargar recursos externos para evitar que errores menores rompan la inicialización de componentes críticos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>No hay aspectos pendientes de confirmar en esta implementación. El comportamiento es directo y está bien documentado en la API de Pygame.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        No hay suposiciones en esta implementación. El comportamiento de <code>pygame.display.set_icon()</code>
+                        está documentado oficialmente y la implementación sigue las mejores prácticas de Python para manejo de rutas.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Continuar con mejoras de rendimiento y funcionalidad del emulador</li>
+                    <li>[ ] Implementar características adicionales según necesidades del proyecto</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

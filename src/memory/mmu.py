@@ -155,7 +155,7 @@ class MMU:
     
     # Optimización de rendimiento: __slots__ reduce overhead de acceso a atributos
     __slots__ = [
-        '_memory', '_cartridge', '_ppu', '_joypad', '_timer', 'vram_write_count'
+        '_memory', '_cartridge', '_ppu', '_joypad', '_timer', 'vram_write_count', '_renderer'
     ]
 
     # Tamaño total del espacio de direcciones (16 bits = 65536 bytes)
@@ -203,6 +203,11 @@ class MMU:
         # Referencia al Timer (se establece después para evitar dependencia circular)
         # El Timer necesita la MMU para leer/escribir DIV
         self._timer = None  # type: ignore
+        
+        # Referencia al Renderer (se establece después para evitar dependencia circular)
+        # El Renderer necesita la MMU para acceder a VRAM, y la MMU necesita el Renderer
+        # para marcar tiles como "dirty" cuando se escribe en VRAM (Tile Caching)
+        self._renderer = None  # type: ignore
         
         # Contador temporal para diagnóstico de escrituras en VRAM
         # Se usa para limitar el logging a las primeras 10 escrituras
@@ -504,6 +509,16 @@ class MMU:
         #         print(f"💾 VRAM WRITE: (se han detectado más de 10 escrituras, ocultando el resto)", flush=True)
         #         logger.info(f"💾 VRAM WRITE: (se han detectado más de 10 escrituras, ocultando el resto)")
         
+        # OPTIMIZACIÓN: Marcar tile como "dirty" si se escribe en VRAM (Tile Caching)
+        # Solo los tiles en 0x8000-0x97FF (384 tiles) se cachean
+        # Si se escribe en este rango, calcular el índice del tile y marcarlo como dirty
+        if 0x8000 <= addr <= 0x97FF:
+            # Calcular índice del tile (0-383)
+            # Cada tile ocupa 16 bytes, así que: tile_index = (addr - 0x8000) // 16
+            tile_index = (addr - 0x8000) // 16
+            if self._renderer is not None:
+                self._renderer.mark_tile_dirty(tile_index)
+        
         # Escribimos el byte en la memoria
         # NOTA: No hay restricción de escritura en VRAM basada en modo PPU.
         # En hardware real, escribir en VRAM durante Mode 3 puede causar artefactos,
@@ -621,6 +636,21 @@ class MMU:
         """
         self._timer = timer
         # logger.debug("MMU: Timer conectado para lectura/escritura de DIV")
+    
+    def set_renderer(self, renderer) -> None:  # type: ignore
+        """
+        Establece la referencia al Renderer para permitir marcado de tiles como "dirty".
+        
+        Este método se llama después de crear tanto la MMU como el Renderer para evitar
+        dependencias circulares en el constructor. Cuando se escribe en VRAM (0x8000-0x97FF),
+        la MMU marca el tile correspondiente como "dirty" para que el Renderer lo actualice
+        en la caché (Tile Caching).
+        
+        Args:
+            renderer: Instancia de Renderer
+        """
+        self._renderer = renderer
+        # logger.debug("MMU: Renderer conectado para Tile Caching")
     
     def get_vram_write_count(self) -> int:
         """

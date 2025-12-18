@@ -138,6 +138,8 @@ class Viboy:
             if Renderer is not None:
                 try:
                     self._renderer = Renderer(self._mmu, scale=3)
+                    # Conectar Renderer a MMU para Tile Caching (marcado de tiles dirty)
+                    self._mmu.set_renderer(self._renderer)
                 except ImportError:
                     logger.warning("Pygame no disponible. El renderer no se inicializará.")
                     self._renderer = None
@@ -190,6 +192,8 @@ class Viboy:
         if Renderer is not None:
             try:
                 self._renderer = Renderer(self._mmu, scale=3)
+                # Conectar Renderer a MMU para Tile Caching (marcado de tiles dirty)
+                self._mmu.set_renderer(self._renderer)
             except ImportError:
                 logger.warning("Pygame no disponible. El renderer no se inicializará.")
                 self._renderer = None
@@ -419,10 +423,10 @@ class Viboy:
         CYCLES_PER_FRAME = 70224  # T-Cycles por frame
         
         # OPTIMIZACIÓN: Batching - agrupar instrucciones antes de actualizar periféricos
-        # 64 T-Cycles = ~16 M-Cycles (balance entre rendimiento y precisión)
-        # Reducido de 456 para mejorar sincronización con Timer e Interrupciones
-        BATCH_SIZE_T_CYCLES = 64  # Balance precisión/rendimiento
-        BATCH_SIZE_M_CYCLES = BATCH_SIZE_T_CYCLES // 4  # ~16 M-Cycles
+        # 128 T-Cycles = ~32 M-Cycles (balance entre rendimiento y precisión)
+        # Aumentado de 64 a 128 para dar más aire a la CPU lógica con Tile Caching
+        BATCH_SIZE_T_CYCLES = 128  # Balance precisión/rendimiento (optimizado para Tile Caching)
+        BATCH_SIZE_M_CYCLES = BATCH_SIZE_T_CYCLES // 4  # ~32 M-Cycles
         
         # OPTIMIZACIÓN: Frame Skip - renderizar 1 de cada (SKIP_FRAMES + 1) frames
         # La lógica del juego corre a 60Hz, solo nos saltamos el dibujo visual

@@ -145,6 +145,19 @@ class Renderer:
         self.screen = pygame.display.set_mode((self.window_width, self.window_height))
         pygame.display.set_caption("Viboy Color")
         
+        # OPTIMIZACIÓN: Tile Caching
+        # La Game Boy tiene 384 tiles únicos en VRAM (0x8000-0x97FF = 6KB = 384 tiles * 16 bytes)
+        # En lugar de decodificar cada tile píxel a píxel en cada frame, los cacheamos
+        # como superficies pygame de 8x8 y solo los actualizamos cuando cambian.
+        # Esto reduce el trabajo de ~23k píxeles a ~360 blits (mucho más rápido).
+        # Fuente: Pan Docs - VRAM Tile Data
+        self.tile_cache: dict[int, pygame.Surface] = {}  # tile_id -> Surface(8x8)
+        self.tile_dirty = [True] * 384  # Flags para tiles 0-383 (0x8000-0x97FF)
+        
+        # Buffer grande para el tilemap completo (256x256 píxeles = 32x32 tiles)
+        # Dibujamos el mapa completo aquí y luego recortamos la ventana visible (160x144)
+        self.bg_buffer = pygame.Surface((256, 256))
+        
         # Cargar y establecer el icono de la aplicación
         # El icono está en la raíz del proyecto
         icon_path = Path(__file__).parent.parent.parent / "viboycolor-icon-no-bg.png"
@@ -163,6 +176,171 @@ class Renderer:
         self.buffer = pygame.Surface((GB_WIDTH, GB_HEIGHT))
         
         logger.info(f"Renderer inicializado: {self.window_width}x{self.window_height} (scale={scale})")
+        
+        # Mostrar pantalla de carga
+        self._show_loading_screen()
+
+    def _show_loading_screen(self, duration: float = 3.5) -> None:
+        """
+        Muestra una pantalla de carga con el icono de la aplicación y texto animado.
+        
+        Args:
+            duration: Duración de la pantalla de carga en segundos (por defecto 3.5)
+        """
+        # Cargar el icono para la pantalla de carga
+        icon_path = Path(__file__).parent.parent.parent / "viboycolor-icon.png"
+        icon_surface = None
+        if icon_path.exists():
+            try:
+                icon_surface = pygame.image.load(str(icon_path))
+                # Escalar el icono si es necesario (ajustar tamaño según la ventana)
+                # Mantener proporción pero limitar tamaño máximo
+                max_icon_size = min(self.window_width, self.window_height) // 3
+                if icon_surface.get_width() > max_icon_size or icon_surface.get_height() > max_icon_size:
+                    # Calcular escala manteniendo proporción
+                    scale_factor = max_icon_size / max(icon_surface.get_width(), icon_surface.get_height())
+                    new_width = int(icon_surface.get_width() * scale_factor)
+                    new_height = int(icon_surface.get_height() * scale_factor)
+                    icon_surface = pygame.transform.scale(icon_surface, (new_width, new_height))
+            except Exception as e:
+                logger.warning(f"No se pudo cargar el icono para la pantalla de carga: {e}")
+        
+        # Inicializar fuente retro (usar fuente monospace del sistema)
+        try:
+            # Intentar usar una fuente retro/monospace
+            font_size = 24 * self.scale // 3  # Escalar según el factor de escala
+            font = pygame.font.Font(pygame.font.get_default_font(), font_size)
+            # Si no hay fuente por defecto, usar SysFont monospace
+            if font is None:
+                font = pygame.font.SysFont("courier", font_size, bold=True)
+        except Exception:
+            # Fallback a fuente del sistema
+            font = pygame.font.SysFont("courier", 24, bold=True)
+        
+        # Color del texto (blanco o color claro)
+        text_color = (255, 255, 255)
+        
+        # Inicializar reloj para controlar FPS y tiempo
+        clock = pygame.time.Clock()
+        start_time = pygame.time.get_ticks()
+        
+        # Bucle de animación
+        dot_count = 0
+        last_dot_time = 0
+        dot_interval = 300  # Cambiar puntos cada 300ms
+        
+        running = True
+        while running:
+            current_time = pygame.time.get_ticks()
+            elapsed = (current_time - start_time) / 1000.0  # Convertir a segundos
+            
+            # Salir si ha pasado el tiempo
+            if elapsed >= duration:
+                break
+            
+            # Manejar eventos (permitir cerrar durante la carga)
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                    break
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        running = False
+                        break
+            
+            # Actualizar animación de puntos
+            if current_time - last_dot_time >= dot_interval:
+                dot_count = (dot_count + 1) % 3  # 0, 1, 2 (1, 2, 3 puntos)
+                last_dot_time = current_time
+            
+            # Construir texto con puntos animados (siempre mostrar al menos 1 punto)
+            dots = "." * (dot_count + 1)  # 1, 2, o 3 puntos
+            loading_text = f"Loading{dots}"
+            
+            # Limpiar pantalla (fondo negro)
+            self.screen.fill((0, 0, 0))
+            
+            # Dibujar icono centrado
+            if icon_surface is not None:
+                icon_x = (self.window_width - icon_surface.get_width()) // 2
+                icon_y = (self.window_height - icon_surface.get_height()) // 2 - 30
+                self.screen.blit(icon_surface, (icon_x, icon_y))
+            
+            # Renderizar texto "Loading..."
+            text_surface = font.render(loading_text, True, text_color)
+            text_x = (self.window_width - text_surface.get_width()) // 2
+            text_y = self.window_height // 2 + 50
+            self.screen.blit(text_surface, (text_x, text_y))
+            
+            # Actualizar pantalla
+            pygame.display.flip()
+            
+            # Controlar FPS (60 FPS para animación suave)
+            clock.tick(60)
+        
+        # Limpiar pantalla al finalizar
+        self.screen.fill((0, 0, 0))
+        pygame.display.flip()
+    
+    def mark_tile_dirty(self, tile_index: int) -> None:
+        """
+        Marca un tile como "dirty" (sucio) para que se actualice en la caché.
+        
+        Este método se llama desde la MMU cuando se escribe en VRAM (0x8000-0x97FF).
+        Solo los tiles en este rango se cachean (384 tiles = 6KB).
+        
+        Args:
+            tile_index: Índice del tile (0-383) correspondiente a VRAM 0x8000-0x97FF
+        """
+        if 0 <= tile_index < 384:
+            self.tile_dirty[tile_index] = True
+    
+    def update_tile_cache(self, palette: list[tuple[int, int, int]]) -> None:
+        """
+        Actualiza la caché de tiles marcados como "dirty".
+        
+        Decodifica los tiles sucios desde VRAM y los guarda como superficies pygame
+        de 8x8 píxeles. Esto permite usar blits rápidos en lugar de decodificar
+        píxel a píxel en cada frame.
+        
+        Args:
+            palette: Paleta de 4 colores RGB para decodificar los tiles
+        """
+        # Recorrer todos los tiles (0-383)
+        for tile_index in range(384):
+            if not self.tile_dirty[tile_index]:
+                continue  # Tile no ha cambiado, saltar
+            
+            # Calcular dirección base del tile en VRAM
+            # Tiles 0-383 están en 0x8000-0x97FF (6KB)
+            tile_addr = VRAM_START + (tile_index * BYTES_PER_TILE)
+            
+            # Crear superficie de 8x8 píxeles para este tile
+            tile_surface = pygame.Surface((TILE_SIZE, TILE_SIZE))
+            
+            # Decodificar el tile línea por línea
+            for line in range(TILE_SIZE):
+                # Cada línea ocupa 2 bytes
+                byte1_addr = tile_addr + (line * 2)
+                byte2_addr = tile_addr + (line * 2) + 1
+                
+                # Leer bytes de VRAM
+                byte1 = self.mmu.read_byte(byte1_addr) & 0xFF
+                byte2 = self.mmu.read_byte(byte2_addr) & 0xFF
+                
+                # Decodificar la línea de 8 píxeles
+                pixels = decode_tile_line(byte1, byte2)
+                
+                # Dibujar cada píxel en la superficie
+                for pixel_x, color_index in enumerate(pixels):
+                    color = palette[color_index]
+                    tile_surface.set_at((pixel_x, line), color)
+            
+            # Guardar en caché
+            self.tile_cache[tile_index] = tile_surface
+            
+            # Marcar como limpio
+            self.tile_dirty[tile_index] = False
 
     def render_vram_debug(self) -> None:
         """
@@ -337,149 +515,160 @@ class Renderer:
         
         # Logs de window desactivados para mejorar rendimiento
         
+        # OPTIMIZACIÓN: Actualizar caché de tiles antes de renderizar
+        # Solo decodifica tiles que han cambiado desde el último frame
+        self.update_tile_cache(palette)
+        
         # Limpiar framebuffer con color de fondo (índice 0 de la paleta)
         self.buffer.fill(palette[0])
         
-        # Logs de diagnóstico desactivados para mejorar rendimiento
+        # OPTIMIZACIÓN: Dibujar tilemap completo (256x256) en bg_buffer usando blits
+        # Esto es mucho más rápido que decodificar píxel a píxel
+        self.bg_buffer.fill(palette[0])
         
-        # Visual heartbeat eliminado para mejorar rendimiento
-        
-        # Diagnóstico de VRAM desactivado para mejorar rendimiento
-        # (comentado - solo activar si es necesario para debugging)
-        
-        # Contador de tiles dibujados
-        tiles_drawn = 0
-        
-        # Bloquear el framebuffer para escritura rápida de píxeles
-        # PixelArray permite escribir píxeles como si fuera una matriz 2D
-        # Usar context manager para asegurar cierre correcto antes de blit
-        with pygame.PixelArray(self.buffer) as pixels:
-            # Renderizar píxeles de la pantalla (160x144 píxeles)
-            # Para cada píxel de pantalla, calcular qué píxel del tilemap corresponde
-            # aplicando el scroll: map_pixel = (screen_pixel + scroll) % 256
-            # La Window se dibuja encima del fondo, así que verificamos primero si el píxel
-            # está dentro de la región de Window
-            for screen_y in range(GB_HEIGHT):  # 0-143 (144 líneas)
-                for screen_x in range(GB_WIDTH):  # 0-159 (160 columnas)
-                    # Verificar si el píxel está dentro de la región de Window
-                    # Window está habilitada si LCDC bit 5 = 1
-                    # El píxel está dentro si: screen_y >= wy y screen_x + 7 >= wx
-                    # (WX tiene un offset histórico de 7 píxeles)
-                    is_in_window = False
-                    if lcdc_bit5 and screen_y >= wy and (screen_x + 7) >= wx:
-                        is_in_window = True
+        # Renderizar el tilemap completo (32x32 tiles = 256x256 píxeles)
+        for tile_map_y in range(32):
+            for tile_map_x in range(32):
+                # Leer Tile ID del tilemap
+                map_addr = map_base + (tile_map_y * 32) + tile_map_x
+                tile_id = self.mmu.read_byte(map_addr) & 0xFF
+                
+                # Calcular índice del tile en la caché según el modo de direccionamiento
+                if unsigned_addressing:
+                    # Modo unsigned: tile_id es 0-255, pero solo cacheamos 0-383 (0x8000-0x97FF)
+                    if tile_id < 384:
+                        cached_tile_id = tile_id
+                    else:
+                        # Tile fuera del rango cacheado, decodificar directamente
+                        cached_tile_id = None
+                        tile_addr = data_base + (tile_id * BYTES_PER_TILE)
+                else:
+                    # Modo signed: tile_id es -128 a 127, donde 0 está en 0x9000
+                    if tile_id >= 128:
+                        signed_id = tile_id - 256
+                    else:
+                        signed_id = tile_id
+                    tile_addr = 0x9000 + (signed_id * BYTES_PER_TILE)
+                    # Convertir dirección a índice de caché (0x8000-0x97FF)
+                    if VRAM_START <= tile_addr <= 0x97FF:
+                        cached_tile_id = (tile_addr - VRAM_START) // BYTES_PER_TILE
+                    else:
+                        cached_tile_id = None
+                
+                # Calcular posición del tile en el buffer (8x8 píxeles)
+                tile_x = tile_map_x * TILE_SIZE
+                tile_y = tile_map_y * TILE_SIZE
+                
+                # Dibujar tile usando caché o decodificar directamente
+                if cached_tile_id is not None and cached_tile_id in self.tile_cache:
+                    # Blit rápido desde caché
+                    self.bg_buffer.blit(self.tile_cache[cached_tile_id], (tile_x, tile_y))
+                else:
+                    # Tile fuera de caché, decodificar directamente (raro, pero posible)
+                    if unsigned_addressing:
+                        tile_addr = data_base + (tile_id * BYTES_PER_TILE)
+                    else:
+                        if tile_id >= 128:
+                            signed_id = tile_id - 256
+                        else:
+                            signed_id = tile_id
+                        tile_addr = 0x9000 + (signed_id * BYTES_PER_TILE)
                     
-                    if is_in_window:
-                        # Renderizar píxel de Window
-                        # Calcular coordenadas relativas a la Window
-                        # win_x = screen_x - (wx - 7)
-                        # win_y = screen_y - wy
-                        win_x = screen_x - (wx - 7)
-                        win_y = screen_y - wy
-                        
-                        # Convertir coordenadas de píxel a coordenadas de tile en el tilemap de Window
-                        tile_map_x = win_x // TILE_SIZE  # 0-31 (32 tiles de ancho)
-                        tile_map_y = win_y // TILE_SIZE  # 0-31 (32 tiles de alto)
-                        
-                        # Calcular posición del píxel dentro del tile (0-7)
-                        pixel_in_tile_x = win_x % TILE_SIZE
-                        pixel_in_tile_y = win_y % TILE_SIZE
-                        
-                        # Leer Tile ID del tilemap de Window
-                        window_map_addr = window_map_base + (tile_map_y * 32) + tile_map_x
-                        tile_id = self.mmu.read_byte(window_map_addr) & 0xFF
-                        
-                        # Calcular dirección del tile en VRAM según el modo de direccionamiento
-                        # La Window usa el mismo modo de direccionamiento que el fondo (bit 4 de LCDC)
+                    if VRAM_START <= tile_addr <= VRAM_END:
+                        # Decodificar tile directamente (fallback)
+                        for line in range(TILE_SIZE):
+                            byte1_addr = tile_addr + (line * 2)
+                            byte2_addr = tile_addr + (line * 2) + 1
+                            byte1 = self.mmu.read_byte(byte1_addr) & 0xFF
+                            byte2 = self.mmu.read_byte(byte2_addr) & 0xFF
+                            pixels = decode_tile_line(byte1, byte2)
+                            for pixel_x, color_index in enumerate(pixels):
+                                color = palette[color_index]
+                                self.bg_buffer.set_at((tile_x + pixel_x, tile_y + line), color)
+        
+        # Recortar la ventana visible (160x144) del tilemap completo aplicando scroll
+        # Usar blit con área de recorte para máxima velocidad
+        scroll_rect = pygame.Rect(scx, scy, GB_WIDTH, GB_HEIGHT)
+        self.buffer.blit(self.bg_buffer, (0, 0), scroll_rect)
+        
+        # Renderizar Window encima del fondo (si está habilitada)
+        if lcdc_bit5:
+            # Renderizar Window tile por tile usando blits
+            # La Window se dibuja desde (wx-7, wy) en pantalla
+            win_screen_x = wx - 7
+            win_screen_y = wy
+            
+            # Calcular cuántos tiles de Window necesitamos dibujar
+            # La Window puede extenderse más allá de la pantalla, así que limitamos
+            win_tiles_x = min(32, (GB_WIDTH - max(0, win_screen_x) + TILE_SIZE - 1) // TILE_SIZE)
+            win_tiles_y = min(32, (GB_HEIGHT - max(0, win_screen_y) + TILE_SIZE - 1) // TILE_SIZE)
+            
+            for tile_map_y in range(win_tiles_y):
+                for tile_map_x in range(win_tiles_x):
+                    # Leer Tile ID del tilemap de Window
+                    window_map_addr = window_map_base + (tile_map_y * 32) + tile_map_x
+                    tile_id = self.mmu.read_byte(window_map_addr) & 0xFF
+                    
+                    # Calcular posición en pantalla
+                    tile_screen_x = win_screen_x + (tile_map_x * TILE_SIZE)
+                    tile_screen_y = win_screen_y + (tile_map_y * TILE_SIZE)
+                    
+                    # Verificar si el tile está visible en pantalla
+                    if tile_screen_x < -TILE_SIZE or tile_screen_x >= GB_WIDTH:
+                        continue
+                    if tile_screen_y < -TILE_SIZE or tile_screen_y >= GB_HEIGHT:
+                        continue
+                    
+                    # Calcular índice del tile en la caché
+                    if unsigned_addressing:
+                        if tile_id < 384:
+                            cached_tile_id = tile_id
+                        else:
+                            cached_tile_id = None
+                            tile_addr = data_base + (tile_id * BYTES_PER_TILE)
+                    else:
+                        if tile_id >= 128:
+                            signed_id = tile_id - 256
+                        else:
+                            signed_id = tile_id
+                        tile_addr = 0x9000 + (signed_id * BYTES_PER_TILE)
+                        if VRAM_START <= tile_addr <= 0x97FF:
+                            cached_tile_id = (tile_addr - VRAM_START) // BYTES_PER_TILE
+                        else:
+                            cached_tile_id = None
+                    
+                    # Dibujar tile usando caché o decodificar directamente
+                    if cached_tile_id is not None and cached_tile_id in self.tile_cache:
+                        # Blit rápido desde caché
+                        self.buffer.blit(self.tile_cache[cached_tile_id], (tile_screen_x, tile_screen_y))
+                    else:
+                        # Tile fuera de caché, decodificar directamente
                         if unsigned_addressing:
                             tile_addr = data_base + (tile_id * BYTES_PER_TILE)
                         else:
-                            # Modo signed
                             if tile_id >= 128:
                                 signed_id = tile_id - 256
                             else:
                                 signed_id = tile_id
                             tile_addr = 0x9000 + (signed_id * BYTES_PER_TILE)
                         
-                        # Asegurar que la dirección esté en VRAM
-                        if tile_addr < VRAM_START or tile_addr > VRAM_END:
-                            color = palette[0]
-                        else:
-                            # Leer el píxel específico del tile
-                            tile_line_addr = tile_addr + (pixel_in_tile_y * 2)
-                            byte1 = self.mmu.read_byte(tile_line_addr) & 0xFF
-                            byte2 = self.mmu.read_byte(tile_line_addr + 1) & 0xFF
-                            
-                            # Decodificar el píxel
-                            bit_pos = 7 - pixel_in_tile_x
-                            bit_low = (byte1 >> bit_pos) & 0x01
-                            bit_high = (byte2 >> bit_pos) & 0x01
-                            color_index = (bit_high << 1) | bit_low
-                            color = palette[color_index]
-                        
-                        # Escribir píxel de Window
-                        pixels[screen_x, screen_y] = color
-                        tiles_drawn += 1
-                    else:
-                        # Renderizar píxel de Background (fondo)
-                        # Calcular posición en el tilemap aplicando scroll
-                        # Wrap-around a 256 píxeles (tamaño del tilemap)
-                        map_x = (screen_x + scx) & 0xFF  # Wrap-around a 256 píxeles
-                        map_y = (screen_y + scy) & 0xFF  # Wrap-around a 256 píxeles
-                        
-                        # Convertir coordenadas de píxel a coordenadas de tile
-                        # Cada tile es de 8x8 píxeles
-                        tile_map_x = map_x // TILE_SIZE  # 0-31 (32 tiles de ancho)
-                        tile_map_y = map_y // TILE_SIZE  # 0-31 (32 tiles de alto)
-                        
-                        # Calcular posición del píxel dentro del tile (0-7)
-                        pixel_in_tile_x = map_x % TILE_SIZE
-                        pixel_in_tile_y = map_y % TILE_SIZE
-                        
-                        # Leer Tile ID del tilemap
-                        # El tilemap es de 32x32 bytes, cada byte es un Tile ID
-                        map_addr = map_base + (tile_map_y * 32) + tile_map_x
-                        tile_id = self.mmu.read_byte(map_addr) & 0xFF
-                        
-                        # Calcular dirección del tile en VRAM según el modo de direccionamiento
-                        signed_id: int | None = None
-                        if unsigned_addressing:
-                            # Modo unsigned: tile_id es 0-255, dirección = data_base + (tile_id * 16)
-                            tile_addr = data_base + (tile_id * BYTES_PER_TILE)
-                        else:
-                            # Modo signed: tile_id es -128 a 127, donde 0 está en 0x9000
-                            # Convertir a signed: si tile_id >= 128, es negativo
-                            if tile_id >= 128:
-                                signed_id = tile_id - 256  # Convertir a signed (-128 a -1)
-                            else:
-                                signed_id = tile_id  # 0 a 127
-                            # Tile ID 0 está en 0x9000, así que: 0x9000 + (signed_id * 16)
-                            tile_addr = 0x9000 + (signed_id * BYTES_PER_TILE)
-                        
-                        # Asegurar que la dirección esté en VRAM (0x8000-0x9FFF)
-                        if tile_addr < VRAM_START or tile_addr > VRAM_END:
-                            # Si está fuera de VRAM, dibujar píxel con color de fondo (índice 0)
-                            color = palette[0]
-                        else:
-                            # Leer el píxel específico del tile
-                            # Cada línea del tile ocupa 2 bytes
-                            tile_line_addr = tile_addr + (pixel_in_tile_y * 2)
-                            byte1 = self.mmu.read_byte(tile_line_addr) & 0xFF
-                            byte2 = self.mmu.read_byte(tile_line_addr + 1) & 0xFF
-                            
-                            # Decodificar el píxel específico de la línea
-                            # El píxel está en la posición pixel_in_tile_x (0-7, de izquierda a derecha)
-                            # Necesitamos el bit (7 - pixel_in_tile_x) de cada byte
-                            bit_pos = 7 - pixel_in_tile_x
-                            bit_low = (byte1 >> bit_pos) & 0x01
-                            bit_high = (byte2 >> bit_pos) & 0x01
-                            color_index = (bit_high << 1) | bit_low
-                            color = palette[color_index]
-                        
-                        # Escribir píxel directamente en el framebuffer
-                        # PixelArray permite acceso directo como matriz 2D: pixels[x, y] = color
-                        pixels[screen_x, screen_y] = color
-                        tiles_drawn += 1
+                        if VRAM_START <= tile_addr <= VRAM_END:
+                            # Decodificar tile directamente (fallback)
+                            for line in range(TILE_SIZE):
+                                byte1_addr = tile_addr + (line * 2)
+                                byte2_addr = tile_addr + (line * 2) + 1
+                                byte1 = self.mmu.read_byte(byte1_addr) & 0xFF
+                                byte2 = self.mmu.read_byte(byte2_addr) & 0xFF
+                                pixels = decode_tile_line(byte1, byte2)
+                                for pixel_x, color_index in enumerate(pixels):
+                                    color = palette[color_index]
+                                    final_x = tile_screen_x + pixel_x
+                                    final_y = tile_screen_y + line
+                                    if 0 <= final_x < GB_WIDTH and 0 <= final_y < GB_HEIGHT:
+                                        self.buffer.set_at((final_x, final_y), color)
+        
+        # Contador de tiles dibujados (mantenido para compatibilidad, pero ya no es crítico)
+        tiles_drawn = 0
         
         # Escalar el framebuffer a la ventana y hacer blit
         # pygame.transform.scale es rápido porque opera sobre una superficie completa
