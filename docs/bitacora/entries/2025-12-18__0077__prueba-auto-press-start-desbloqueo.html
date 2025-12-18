@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prueba: Auto-Press de Start para Desbloqueo - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Prueba: Auto-Press de Start para Desbloqueo</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0077
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0076__diagnostico-timer-tac-interrupciones.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se añadió una prueba experimental de pulsación automática del botón Start después de 2 segundos de ejecución para intentar desbloquear el juego que está congelado en el logo de Game Freak. La hipótesis es que muchos juegos se quedan esperando en pantallas de logo hasta que el usuario pulsa un botón, y si el emulador no simula esta entrada, el juego se queda bloqueado.
+                </p>
+                <p>
+                    Esta es una prueba de diagnóstico, no una implementación final. Si funciona, confirmará que el problema es la falta de input del usuario. Si no funciona, indicará que hay un bug más profundo en la CPU o en el manejo de interrupciones.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Muchos juegos de Game Boy muestran el logo de la empresa desarrolladora o del fabricante y se quedan esperando hasta que el usuario pulsa un botón (generalmente Start o A) o hasta que pasa un tiempo determinado (gestionado por V-Blanks).
+                </p>
+                <p>
+                    El Joypad de la Game Boy funciona con lógica Active Low: cuando un botón se pulsa, su bit correspondiente en el registro P1 (0xFF00) se pone a 0. Cuando se detecta esta transición (de soltado a pulsado), se solicita una interrupción Joypad (Bit 4 de IF, 0xFF0F) con vector 0x0060.
+                </p>
+                <p>
+                    Si el juego está esperando una pulsación de botón para avanzar, pero el usuario nunca pulsa nada (o el emulador no simula esta entrada), el juego se queda bloqueado en un bucle de espera.
+                </p>
+                <p>
+                    <strong>Hipótesis de diagnóstico:</strong> Si el juego está en un bucle esperando input del Joypad, simular una pulsación de Start después de 2 segundos debería desbloquear el juego y permitir que avance. Si no funciona, el problema está en otro lugar (CPU, interrupciones, etc.).
+                </p>
+                <p>
+                    <em>Fuente: Pan Docs - Joypad Input</em>
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió lógica en el método <code>run()</code> de <code>src/viboy.py</code> para simular una pulsación automática del botón Start después de 2 segundos de ejecución, y soltarlo 0.2 segundos después.
+                </p>
+                
+                <h3>Cambios realizados</h3>
+                <p>
+                    Se añadieron dos variables al inicio del bucle principal:
+                </p>
+                <ul>
+                    <li><code>start_time</code>: Tiempo de inicio de la ejecución (usando <code>time.time()</code>)</li>
+                    <li><code>auto_start_pressed</code>: Flag para rastrear si ya se presionó Start (evitar múltiples pulsaciones)</li>
+                </ul>
+                <p>
+                    Dentro del bucle principal, se añadió la siguiente lógica:
+                </p>
+                <pre><code># PRUEBA: Auto-press de Start después de 2 segundos
+current_time = time.time()
+if not auto_start_pressed and current_time - start_time > 2.0:
+    logger.info("🤖 AUTO-PRESS: Pulsando START para desbloquear...")
+    if self._joypad is not None:
+        self._joypad.press("start")
+    auto_start_pressed = True
+if auto_start_pressed and current_time - start_time > 2.2:
+    if self._joypad is not None:
+        self._joypad.release("start")</code></pre>
+                <p>
+                    Esto hace que:
+                </p>
+                <ul>
+                    <li>A los 2 segundos: Se presiona Start automáticamente y se muestra un mensaje en el log.</li>
+                    <li>A los 2.2 segundos: Se suelta Start.</li>
+                    <li>La pulsación solo ocurre una vez (controlada por <code>auto_start_pressed</code>).</li>
+                </ul>
+                <p>
+                    El método <code>press()</code> del Joypad ya maneja correctamente:
+                </p>
+                <ul>
+                    <li>Detectar la transición de soltado a pulsado.</li>
+                    <li>Solicitar la interrupción Joypad (Bit 4 de IF) cuando se pulsa un botón.</li>
+                    <li>Logging de la acción.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Añadida lógica de auto-press de Start después de 2 segundos en el método <code>run()</code></li>
+                    <li><code>docs/bitacora/entries/2025-12-18__0077__prueba-auto-press-start-desbloqueo.html</code> - Nueva entrada de bitácora</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con la nueva entrada</li>
+                    <li><code>docs/bitacora/entries/2025-12-18__0076__diagnostico-timer-tac-interrupciones.html</code> - Actualizado enlace "Siguiente"</li>
+                    <li><code>INFORME_COMPLETO.md</code> - Añadida entrada del paso 0077</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Esta es una prueba de diagnóstico experimental. La verificación se realizará ejecutando el juego y observando si avanza después de la pulsación automática de Start.
+                </p>
+                <ul>
+                    <li><strong>Comando de ejecución:</strong> <code>python main.py pkmn.gb</code></li>
+                    <li><strong>Entorno:</strong> Windows / Python 3.10+</li>
+                    <li><strong>Qué buscar en los logs:</strong>
+                        <ul>
+                            <li><code>🤖 AUTO-PRESS: Pulsando START para desbloquear...</code>: Confirma que la pulsación automática se ejecutó.</li>
+                            <li><code>Joypad: Interrupción solicitada por 'start'</code>: Confirma que se solicitó la interrupción Joypad.</li>
+                            <li>Si el juego avanza después de 2 segundos: La prueba es exitosa, el problema era la falta de input del usuario.</li>
+                            <li>Si el juego sigue congelado: El problema está en otro lugar (CPU, interrupciones, etc.).</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Estado:</strong> Pendiente de ejecución y observación.
+                </p>
+                <p>
+                    <strong>Nota:</strong> Esta es una prueba de diagnóstico, no una solución final. Si funciona, se puede considerar implementar una opción de configuración para permitir/desactivar este comportamiento, o simplemente documentar que el usuario debe pulsar Start manualmente.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Joypad_Input.html">Joypad Input</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Pantallas de Logo:</strong> Muchos juegos se quedan en pantallas de logo esperando input del usuario o un tiempo determinado antes de avanzar al menú principal.</li>
+                        <li><strong>Interrupción Joypad:</strong> Cuando un botón se pulsa, se solicita una interrupción Joypad (Bit 4 de IF) con vector 0x0060. Si el juego está esperando esta interrupción, no avanzará hasta que ocurra.</li>
+                        <li><strong>Diagnóstico sistemático:</strong> Al simular una pulsación de Start automáticamente, podemos determinar si el problema es la falta de input del usuario o un bug más profundo en la CPU/interrupciones.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿El juego está esperando input del Joypad?</strong> Necesitamos ejecutar el juego y ver si avanza después de la pulsación automática de Start.</li>
+                        <li><strong>¿La interrupción Joypad se dispara correctamente?</strong> Necesitamos verificar que el log muestra la interrupción solicitada.</li>
+                        <li><strong>¿Hay un bug en el manejo de interrupciones Joypad?</strong> Si la pulsación no desbloquea el juego, puede haber un problema en cómo se maneja la interrupción.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego se congela porque está esperando una pulsación de botón que nunca llega. Simular una pulsación de Start debería desbloquear el juego.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> La implementación del Joypad y la interrupción Joypad son correctas. Si la pulsación automática no funciona, el problema está en otro lugar (bucle infinito en CPU, bug en el manejo de interrupciones, etc.).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar <code>python main.py pkmn.gb</code> y observar si el juego avanza después de 2 segundos</li>
+                    <li>[ ] Verificar que aparece el mensaje <code>🤖 AUTO-PRESS: Pulsando START para desbloquear...</code> en los logs</li>
+                    <li>[ ] Si funciona: Confirmar que el problema era la falta de input del usuario. Considerar implementar una opción de configuración o documentar el comportamiento esperado.</li>
+                    <li>[ ] Si no funciona: Continuar el diagnóstico en otras direcciones (CPU, interrupciones, etc.). El problema no es la falta de input del usuario.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

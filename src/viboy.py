@@ -392,9 +392,27 @@ class Viboy:
         # Contador de frames para heartbeat (cada 300 frames ≈ 5 segundos)
         frame_count = 0
         
+        # Heartbeat de tiempo real (cada segundo) para diagnóstico OAM
+        last_heartbeat_time = time.time()
+        
+        # PRUEBA: Auto-press de Start para desbloquear logo
+        start_time = time.time()
+        auto_start_pressed = False
+        
         try:
             # BUCLE EXTERNO: Por cada frame (60 FPS)
             while True:
+                # PRUEBA: Auto-press de Start después de 2 segundos
+                current_time = time.time()
+                if not auto_start_pressed and current_time - start_time > 2.0:
+                    logger.info("🤖 AUTO-PRESS: Pulsando START para desbloquear...")
+                    if self._joypad is not None:
+                        self._joypad.press("start")
+                    auto_start_pressed = True
+                if auto_start_pressed and current_time - start_time > 2.2:
+                    if self._joypad is not None:
+                        self._joypad.release("start")
+                
                 # CRÍTICO: Llamar a pygame.event.pump() una vez por frame para evitar
                 # que Windows marque la ventana como "No responde"
                 if self._renderer is not None:
@@ -438,6 +456,24 @@ class Viboy:
                             fps = self._clock.get_fps() if self._clock is not None else 0.0
                             heartbeat_msg = f"💓 Heartbeat (frame {frame_count}): FPS={fps:.2f}"
                             logger.info(heartbeat_msg)
+                        
+                        # Heartbeat de tiempo real (cada segundo) para diagnóstico OAM
+                        current_time = time.time()
+                        if current_time - last_heartbeat_time >= 1.0:
+                            last_heartbeat_time = current_time
+                            # OAM Checksum (primeros 16 bytes = 4 sprites)
+                            if self._mmu is not None:
+                                oam_sample = [self._mmu.read_byte(0xFE00 + i) for i in range(16)]
+                                # Calcular checksum simple (suma de los primeros 16 bytes)
+                                oam_checksum = sum(oam_sample)
+                                # Detectar si hay sprites no-vacíos (Y != 0 y Y != 0xFF típicamente)
+                                non_zero_count = sum(1 for b in oam_sample if b != 0)
+                                logger.info(
+                                    f"👾 OAM SAMPLE: Checksum={oam_checksum} | "
+                                    f"Non-zero bytes={non_zero_count}/16 | "
+                                    f"First sprite: Y={oam_sample[0]}, X={oam_sample[1]}, "
+                                    f"Tile={oam_sample[2]}, Flags=0x{oam_sample[3]:02X}"
+                                )
                         
                         # Renderizar el frame
                         if self._renderer is not None:

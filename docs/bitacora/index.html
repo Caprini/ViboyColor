@@ -32,6 +32,44 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0077 - Diagnóstico DMA y OAM: La Estrella Perdida -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0077__diagnostico-dma-oam-estrella-perdida.html" class="entry-link">
+                                    Diagnóstico DMA y OAM: La Estrella Perdida
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0077 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                        </div>
+                        <p class="entry-summary">
+                            El emulador muestra el logo "GAME FREAK" estático en Pokémon Red, pero falta la animación de la estrella fugaz (Sprite). Se añadió instrumentación de diagnóstico para monitorear el DMA (que copia datos de sprites a OAM) y un heartbeat que muestra el estado de la OAM cada segundo. El objetivo es determinar si el problema está en la transferencia DMA, en la OAM corrupta/vacía, o en el renderizado de sprites.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0076 - Diagnóstico del Timer: TAC e Interrupciones -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-18__0076__diagnostico-timer-tac-interrupciones.html" class="entry-link">
+                                    Diagnóstico del Timer: TAC e Interrupciones
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-18 | 
+                            <strong>Step ID:</strong> 0076 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se añadió instrumentación de diagnóstico para monitorear el uso del Timer (TAC) y detectar si el juego está intentando usar la interrupción del Timer (vector 0x0050). El objetivo es determinar si el congelamiento en el logo de Pokémon se debe a que el Timer no está disparando interrupciones cuando debería, lo que bloquearía el RNG y la lógica del juego.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0075 - Diagnóstico STAT Profundo: Monitoreo de Escrituras -->
                     <li>
                         <div class="entry-header">

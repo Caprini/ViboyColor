@@ -1,5 +1,101 @@
 # Bitácora del Proyecto Viboy Color
 
+## 2025-12-18 - Diagnóstico DMA y OAM: La Estrella Perdida (Step 0077) 🔍 DRAFT
+
+### Conceptos Hardware Implementados
+
+**DMA (Direct Memory Access) y OAM (Object Attribute Memory)**: La Game Boy usa DMA para transferir datos de sprites desde cualquier región de memoria (ROM, RAM, VRAM) a la OAM, que es una región especial de 160 bytes (0xFE00-0xFE9F) que almacena los atributos de hasta 40 sprites. Cada sprite ocupa 4 bytes: Y (posición vertical), X (posición horizontal), Tile (índice del tile en VRAM), y Flags (atributos como prioridad, flip, paleta).
+
+**Registro DMA (0xFF46)**: Para iniciar una transferencia DMA, el juego escribe un valor `XX` en 0xFF46. Esto copia inmediatamente 160 bytes desde la dirección `XX00` hasta `0xFE00` (OAM). La transferencia es bloqueante y tarda aproximadamente 160 ciclos de máquina.
+
+**Problema de la Estrella Perdida**: En la intro de Pokémon Red, una estrella fugaz (Sprite) debe bajar y transformar el texto "GAME FREAK". Si la estrella no aparece, la animación no empieza y el juego no pasa a la siguiente pantalla. Si el DMA no funciona correctamente, los sprites no se copian a OAM y no aparecen en pantalla.
+
+**Fuente**: Pan Docs - DMA Transfer, OAM (Object Attribute Memory)
+
+#### Tareas Completadas:
+
+1. **src/memory/mmu.py**:
+   - Añadido logging detallado del DMA cuando se escribe en 0xFF46
+   - El log muestra: `💾 DMA START: Fuente=0xXXXX (Valor[0]=0xXX) -> Dest=0xFE00 (160 bytes)`
+   - Después de la transferencia, muestra: `💾 DMA COMPLETE: OAM[0:4] = [...] (primer sprite: Y=..., X=..., Tile=..., Flags=...)`
+   - Permite detectar si el DMA se ejecuta, qué datos copia, y si los datos llegan correctamente a OAM
+
+2. **src/viboy.py**:
+   - Añadido heartbeat de tiempo real (cada segundo) que muestra el estado de la OAM
+   - El log muestra: `👾 OAM SAMPLE: Checksum=XXX | Non-zero bytes=X/16 | First sprite: Y=..., X=..., Tile=..., Flags=0xXX`
+   - Permite detectar si OAM está vacía (checksum=0), si tiene datos válidos, o si los sprites están fuera de pantalla
+
+#### Archivos Afectados:
+- `src/memory/mmu.py` (modificado) - Añadido logging detallado del DMA con validación de fuente y muestra de OAM
+- `src/viboy.py` (modificado) - Añadido heartbeat de tiempo real que muestra el estado de la OAM cada segundo
+- `docs/bitacora/entries/2025-12-18__0077__diagnostico-dma-oam-estrella-perdida.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, actualizada entrada 0077)
+- `docs/bitacora/entries/2025-12-18__0076__diagnostico-timer-tac-interrupciones.html` (modificado, actualizado enlace "Siguiente")
+
+#### Validación:
+- **Estado**: 🔍 Draft - Pendiente de ejecución y análisis de logs
+- **ROM**: Pokémon Red (ROM aportada por el usuario, no distribuida)
+- **Comando de ejecución**: `python main.py pkmn.gb`
+- **Entorno**: Windows / Python 3.10+
+- **Qué buscar en los logs**:
+  - `💾 DMA START`: ¿El juego intenta lanzar DMA? Si no aparece, el problema está en la lógica/CPU
+  - `💾 DMA COMPLETE`: ¿Los datos se copian correctamente a OAM? Si OAM sigue vacía después, el DMA está roto
+  - `👾 OAM SAMPLE`: ¿OAM tiene datos? Si checksum=0, OAM está vacía y los sprites no existen
+- **Escenarios esperados**:
+  1. Si NO aparece "DMA START": El juego no intenta lanzar DMA. Problema de CPU/lógica.
+  2. Si aparece "DMA START" pero "OAM SAMPLE" muestra checksum=0: El DMA se ejecuta pero no copia datos. Problema en la implementación del DMA.
+  3. Si "OAM SAMPLE" muestra datos válidos pero no se dibujan: El problema está en el renderizador de sprites (prioridad, paleta, modo 8x16, etc.).
+  4. Si "OAM SAMPLE" muestra datos válidos y se dibujan: El problema está resuelto, continuar con la siguiente animación.
+- **Próximos pasos**: Ejecutar el juego, analizar los logs de DMA y OAM para determinar dónde está el problema (DMA, OAM, o renderizado).
+
+## 2025-12-18 - Diagnóstico del Timer: TAC e Interrupciones (Step 0076) 🔍 DRAFT
+
+### Conceptos Hardware Implementados
+
+**Timer y RNG (Generador de Números Aleatorios)**: El Timer de la Game Boy es crítico para muchos juegos porque genera números aleatorios. El Timer incrementa continuamente, y los juegos lo usan como semilla para generar números aleatorios. Si el Timer no funciona, el RNG se congela y el juego puede quedarse bloqueado esperando un valor que nunca llega.
+
+**Interrupción del Timer (Vector 0x0050)**: Cuando TIMA (Timer Counter) hace overflow (pasa de 0xFF a 0x00), se recarga con TMA (Timer Modulo) y se solicita una interrupción Timer (Bit 2 de IF, 0xFF0F), que tiene el vector 0x0050. Esta interrupción es crítica para la lógica de muchos juegos.
+
+**Registro TAC (Timer Control, 0xFF07)**: Controla si el Timer está activo y su frecuencia:
+- Bit 2: Enable (1=Timer activo, 0=Timer apagado)
+- Bits 1-0: Frecuencia (00=4096Hz, 01=262144Hz, 10=65536Hz, 11=16384Hz)
+
+**Fuente**: Pan Docs - Timer and Divider Registers, Interrupts
+
+#### Tareas Completadas:
+
+1. **src/memory/mmu.py**:
+   - Añadido logging de TAC UPDATE cuando el juego escribe en 0xFF07
+   - El log muestra: `⏰ TAC UPDATE: XX (Enable=True/False, Clock=Y (Freq))`
+   - Permite detectar si el juego activa el Timer y qué frecuencia selecciona
+   - **Fix**: Se corrigió un error de sintaxis inicial donde se intentaba usar `clock_names.get()` directamente dentro del f-string. La solución fue extraer el valor a una variable `clock_name` antes de usarlo.
+
+2. **src/cpu/core.py**:
+   - Añadido logging específico cuando se dispara la interrupción del Timer (vector 0x0050)
+   - El log muestra: `⚡ TIMER INTERRUPT DISPATCHED! (TIMA Overflow)`
+   - Permite detectar si la interrupción del Timer se está disparando correctamente
+
+#### Archivos Afectados:
+- `src/memory/mmu.py` (modificado) - Añadido logging de TAC UPDATE con fix de sintaxis
+- `src/cpu/core.py` (modificado) - Añadido logging específico de interrupción del Timer
+- `docs/bitacora/entries/2025-12-18__0076__diagnostico-timer-tac-interrupciones.html` (nuevo)
+- `docs/bitacora/index.html` (modificado, añadida entrada 0076)
+- `docs/bitacora/entries/2025-12-18__0075__diagnostico-stat-profundo-monitoreo-escrituras.html` (modificado, actualizado enlace "Siguiente")
+
+#### Validación:
+- **Estado**: 🔍 Draft - Pendiente de ejecución y análisis de logs
+- **ROM**: Pokémon Red (ROM aportada por el usuario, no distribuida)
+- **Comando de ejecución**: `python main.py pkmn.gb`
+- **Entorno**: Windows / Python 3.10+
+- **Qué buscar en los logs**:
+  - `⏰ TAC UPDATE`: ¿El juego activa el Timer? (Enable=True)
+  - `⚡ TIMER INTERRUPT DISPATCHED!`: ¿Se dispara la interrupción del Timer?
+- **Escenarios esperados**:
+  1. Si vemos TAC UPDATE con Enable=True pero NO vemos TIMER INTERRUPT: El Timer está roto. El juego lo pide, pero nuestra implementación no genera la señal. Solución: Revisar la lógica de `tick()` en `timer.py`.
+  2. Si vemos TIMER INTERRUPT: El Timer funciona. El problema está en otro lugar (¿Joypad bloqueado? ¿Bug de CPU oscuro?).
+  3. Si NO vemos TAC UPDATE con Enable=True: El juego no está usando el Timer. El problema está en otro lugar.
+- **Próximos pasos**: Ejecutar el juego, analizar los logs y determinar si el Timer está funcionando o si hay un bug en la implementación.
+
 ## 2025-12-18 - Diagnóstico STAT Profundo: Monitoreo de Escrituras (Step 0075) 🔍 DRAFT
 
 ### Conceptos Hardware Implementados

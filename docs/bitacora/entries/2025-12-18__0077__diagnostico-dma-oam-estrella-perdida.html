@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnóstico DMA y OAM: La Estrella Perdida - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Diagnóstico DMA y OAM: La Estrella Perdida</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0077
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0076__diagnostico-timer-tac-interrupciones.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El emulador muestra el logo "GAME FREAK" estático en Pokémon Red, pero falta la animación de la estrella fugaz (Sprite) que debe bajar y transformar el texto. Si la estrella no aparece, la animación no empieza y el juego no pasa a la siguiente pantalla.
+                </p>
+                <p>
+                    Se añadió instrumentación de diagnóstico para monitorear el DMA (Direct Memory Access) que copia datos de sprites a la OAM (Object Attribute Memory) y un heartbeat que muestra el estado de la OAM cada segundo. El objetivo es determinar si el problema está en la transferencia DMA, en la OAM corrupta/vacía, o en el renderizado de sprites.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La Game Boy usa <strong>DMA (Direct Memory Access)</strong> para transferir datos de sprites desde cualquier región de memoria (ROM, RAM, VRAM) a la <strong>OAM (Object Attribute Memory)</strong>, que es una región especial de 160 bytes (0xFE00-0xFE9F) que almacena los atributos de hasta 40 sprites.
+                </p>
+                <p>
+                    Cada sprite ocupa 4 bytes en OAM:
+                </p>
+                <ul>
+                    <li><strong>Byte 0 (Y)</strong>: Posición Y del sprite (0-255, pero típicamente 0-159)</li>
+                    <li><strong>Byte 1 (X)</strong>: Posición X del sprite (0-255, pero típicamente 0-167)</li>
+                    <li><strong>Byte 2 (Tile)</strong>: Índice del tile en VRAM (0-255)</li>
+                    <li><strong>Byte 3 (Flags)</strong>: Atributos (prioridad, flip X/Y, paleta, etc.)</li>
+                </ul>
+                <p>
+                    Para iniciar una transferencia DMA, el juego escribe un valor <code>XX</code> en el registro <code>0xFF46</code>. Esto copia inmediatamente 160 bytes desde la dirección <code>XX00</code> hasta <code>0xFE00</code> (OAM). La transferencia es bloqueante y tarda aproximadamente 160 ciclos de máquina.
+                </p>
+                <p>
+                    Si el DMA no funciona correctamente, los sprites no se copian a OAM y no aparecen en pantalla. Si la OAM está vacía (todo ceros), el renderizador no tiene datos de sprites para dibujar.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - DMA Transfer, OAM (Object Attribute Memory)
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió logging detallado del DMA en <code>src/memory/mmu.py</code> y un heartbeat de diagnóstico de OAM en <code>src/viboy.py</code>.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>src/memory/mmu.py</strong>: Añadido logging detallado del DMA que muestra la dirección fuente, el primer byte de la fuente, y una muestra de los primeros 4 bytes de OAM después de la transferencia.</li>
+                    <li><strong>src/viboy.py</strong>: Añadido heartbeat de tiempo real (cada segundo) que muestra el estado de la OAM: checksum, número de bytes no-cero, y atributos del primer sprite.</li>
+                </ul>
+
+                <h3>Logging de DMA</h3>
+                <p>
+                    Cuando se escribe en el registro DMA (0xFF46), el sistema ahora registra:
+                </p>
+                <ul>
+                    <li>Dirección fuente (XX00) y el primer byte de la fuente (para verificar que hay datos)</li>
+                    <li>Dirección destino (0xFE00, inicio de OAM)</li>
+                    <li>Después de la transferencia, muestra los primeros 4 bytes de OAM decodificados como atributos de sprite (Y, X, Tile, Flags)</li>
+                </ul>
+                <p>
+                    Esto permite detectar si:
+                </p>
+                <ul>
+                    <li>El juego intenta lanzar DMA pero la fuente está vacía (primer byte = 0x00 o 0xFF)</li>
+                    <li>El DMA se ejecuta pero los datos no llegan a OAM (OAM sigue vacía después de DMA)</li>
+                    <li>El DMA funciona correctamente pero los datos son incorrectos (atributos de sprite inválidos)</li>
+                </ul>
+
+                <h3>Heartbeat de OAM</h3>
+                <p>
+                    Cada segundo, el sistema muestra:
+                </p>
+                <ul>
+                    <li><strong>Checksum</strong>: Suma de los primeros 16 bytes de OAM (4 sprites). Si es 0, OAM está vacía.</li>
+                    <li><strong>Non-zero bytes</strong>: Número de bytes no-cero en los primeros 16 bytes. Si es 0, no hay sprites.</li>
+                    <li><strong>Primer sprite</strong>: Atributos decodificados del primer sprite (Y, X, Tile, Flags)</li>
+                </ul>
+                <p>
+                    Esto permite detectar si:
+                </p>
+                <ul>
+                    <li>OAM está vacía (checksum = 0, non-zero = 0) → DMA no funciona o no se ejecuta</li>
+                    <li>OAM tiene datos pero el sprite está fuera de pantalla (Y > 159 o X > 167) → problema de coordenadas</li>
+                    <li>OAM tiene datos válidos → problema en el renderizador de sprites</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/memory/mmu.py</code> - Añadido logging detallado del DMA con validación de fuente y muestra de OAM después de transferencia</li>
+                    <li><code>src/viboy.py</code> - Añadido heartbeat de tiempo real (cada segundo) que muestra el estado de la OAM</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Esta es una modificación de diagnóstico, no una implementación funcional nueva. No se añadieron tests unitarios, pero se validará mediante ejecución de ROMs.
+                </p>
+                <p>
+                    <strong>Próxima validación:</strong> Ejecutar <code>python main.py pkmn.gb</code> y observar los logs para determinar:
+                </p>
+                <ul>
+                    <li>Si aparece el mensaje "💾 DMA START" → El juego intenta lanzar DMA</li>
+                    <li>Si "OAM SAMPLE" muestra checksum > 0 → Los sprites están en OAM</li>
+                    <li>Si "OAM SAMPLE" muestra checksum = 0 → OAM está vacía, DMA no funciona</li>
+                    <li>Si no aparece "DMA START" → El juego no intenta lanzar DMA (problema de lógica/CPU)</li>
+                </ul>
+                <p>
+                    <strong>Estado:</strong> Pendiente de ejecución y análisis de logs.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/OAM.html">OAM (Object Attribute Memory)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/DMA_Transfer.html">DMA Transfer</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>DMA Transfer:</strong> El registro 0xFF46 permite copiar 160 bytes desde cualquier dirección XX00 a OAM (0xFE00). La transferencia es inmediata y bloqueante.</li>
+                        <li><strong>OAM Structure:</strong> Cada sprite ocupa 4 bytes: Y, X, Tile, Flags. OAM puede almacenar hasta 40 sprites (160 bytes total).</li>
+                        <li><strong>Diagnóstico:</strong> Si OAM está vacía, los sprites no se dibujan. Si DMA no se ejecuta, OAM permanece vacía.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Timing del DMA:</strong> ¿El DMA debe bloquear el acceso a OAM durante la transferencia? Actualmente no implementamos restricciones de acceso.</li>
+                        <li><strong>Fuente del DMA:</strong> ¿Desde qué región de memoria copia Pokémon Red los sprites? (probablemente WRAM o HRAM)</li>
+                        <li><strong>Renderizado de Sprites:</strong> Si OAM tiene datos válidos pero no se dibujan, el problema está en el renderizador (prioridad, paleta, modo 8x16, etc.)</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El DMA no está copiando los datos correctamente, o el juego no está intentando lanzar DMA. Si OAM está vacía, la estrella no existe y no se puede dibujar.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Asumimos que el DMA se ejecuta inmediatamente cuando se escribe en 0xFF46, sin restricciones de timing. En hardware real, el DMA puede tener restricciones de acceso durante ciertos modos de PPU, pero por ahora no las implementamos.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar <code>python main.py pkmn.gb</code> y analizar los logs de DMA y OAM</li>
+                    <li>[ ] Si DMA no aparece: investigar por qué el juego no intenta lanzar DMA (problema de CPU/lógica)</li>
+                    <li>[ ] Si DMA aparece pero OAM está vacía: investigar por qué la transferencia no funciona</li>
+                    <li>[ ] Si OAM tiene datos pero no se dibujan: investigar el renderizador de sprites (prioridad, paleta, modo 8x16)</li>
+                    <li>[ ] Si OAM tiene datos válidos y se dibujan: el problema está resuelto, continuar con la siguiente animación</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

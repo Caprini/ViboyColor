@@ -449,6 +449,15 @@ class MMU:
         
         # Interceptar escritura al registro TAC (0xFF07) - Timer Control
         if addr == IO_TAC:
+            # Instrumentación para diagnóstico: detectar configuración del Timer
+            timer_enable = (value & 0x04) != 0
+            clock_select = value & 0x03
+            clock_names = {0: "4096Hz", 1: "262144Hz", 2: "65536Hz", 3: "16384Hz"}
+            clock_name = clock_names.get(clock_select, "Unknown")
+            logger.info(
+                f"⏰ TAC UPDATE: {value:02X} (Enable={timer_enable}, Clock={clock_select} "
+                f"({clock_name}))"
+            )
             if self._timer is not None:
                 self._timer.write_tac(value)
                 return  # No escribir en memoria, el Timer maneja su propio estado
@@ -473,7 +482,15 @@ class MMU:
             oam_base = 0xFE00  # OAM comienza en 0xFE00
             oam_size = 160  # OAM tiene 160 bytes (40 sprites * 4 bytes)
             
-            # logger.debug(f"DMA: Copiando {oam_size} bytes desde 0x{source_base:04X} a 0x{oam_base:04X}")
+            # DIAGNÓSTICO: Validación de fuente antes de copiar
+            # Leer el primer byte de la dirección fuente para verificar que hay datos
+            first_byte = self.read_byte(source_base)
+            
+            # Logging detallado del DMA (INFO para visibilidad)
+            logger.info(
+                f"💾 DMA START: Fuente=0x{source_base:04X} (Valor[0]=0x{first_byte:02X}) -> "
+                f"Dest=0x{oam_base:04X} (160 bytes)"
+            )
             
             # Copiar 160 bytes desde la dirección fuente a OAM
             # Usamos slice de bytearray para copia rápida
@@ -484,7 +501,13 @@ class MMU:
                 # Escribir en OAM
                 self._memory[oam_base + i] = byte_value
             
-            # logger.debug(f"DMA: Transferencia completada (160 bytes copiados)")
+            # DIAGNÓSTICO: Verificar que se copió correctamente (muestra primeros 4 bytes de OAM)
+            oam_sample = [self._memory[oam_base + i] for i in range(4)]
+            logger.info(
+                f"💾 DMA COMPLETE: OAM[0:4] = {[f'0x{b:02X}' for b in oam_sample]} "
+                f"(primer sprite: Y={oam_sample[0]}, X={oam_sample[1]}, Tile={oam_sample[2]}, Flags={oam_sample[3]:02X})"
+            )
+            
             # Escribir el valor en el registro DMA (se mantiene el valor escrito)
             self._memory[addr] = value
             return

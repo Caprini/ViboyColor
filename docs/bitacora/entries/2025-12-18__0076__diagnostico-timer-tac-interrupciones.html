@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnóstico del Timer: TAC e Interrupciones - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Diagnóstico del Timer: TAC e Interrupciones</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-18
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0076
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0075__diagnostico-stat-profundo-monitoreo-escrituras.html">Anterior</a></li>
+                    <li><a href="2025-12-18__0077__diagnostico-dma-oam-estrella-perdida.html">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se añadió instrumentación de diagnóstico para monitorear el uso del Timer (TAC) y detectar si el juego está intentando usar la interrupción del Timer (vector 0x0050). El objetivo es determinar si el congelamiento en el logo de Pokémon se debe a que el Timer no está disparando interrupciones cuando debería, lo que bloquearía el RNG (Generador de Números Aleatorios) y la lógica del juego.
+                </p>
+                <p>
+                    Se instrumentó el registro TAC (0xFF07) para detectar cuando el juego activa el Timer, y se añadió logging específico cuando se dispara la interrupción del Timer (vector 0x0050) en el despachador de interrupciones de la CPU.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El Timer de la Game Boy es un sistema de temporización crítico que muchos juegos utilizan para:
+                </p>
+                <ul>
+                    <li><strong>RNG (Generador de Números Aleatorios):</strong> El Timer incrementa continuamente, y los juegos lo usan como semilla para generar números aleatorios. Si el Timer no funciona, el RNG se congela.</li>
+                    <li><strong>Música y Sonido:</strong> El Timer puede usarse para sincronizar la reproducción de música y efectos de sonido.</li>
+                    <li><strong>Lógica del Juego:</strong> Muchos juegos dependen del Timer para avanzar animaciones, eventos temporales, etc.</li>
+                </ul>
+                <p>
+                    El Timer tiene varios registros:
+                </p>
+                <ul>
+                    <li><strong>DIV (0xFF04):</strong> Divider Register - Contador que incrementa continuamente a 16384 Hz.</li>
+                    <li><strong>TIMA (0xFF05):</strong> Timer Counter - Contador configurable que puede generar interrupciones.</li>
+                    <li><strong>TMA (0xFF06):</strong> Timer Modulo - Valor de recarga cuando TIMA desborda.</li>
+                    <li><strong>TAC (0xFF07):</strong> Timer Control - Controla si TIMA está activo y su frecuencia.</li>
+                </ul>
+                <p>
+                    Cuando TIMA hace overflow (pasa de 0xFF a 0x00), se recarga con TMA y se solicita una interrupción Timer (Bit 2 de IF, 0xFF0F), que tiene el vector 0x0050.
+                </p>
+                <p>
+                    <strong>Hipótesis del diagnóstico:</strong> Si el juego activa el Timer (escribe en TAC con bit 2 = 1) pero nunca vemos la interrupción del Timer dispararse, entonces hay un bug en la implementación del Timer. Si vemos la interrupción dispararse, entonces el Timer funciona y el problema está en otro lugar.
+                </p>
+                <p>
+                    <em>Fuente: Pan Docs - Timer and Divider Registers</em>
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió instrumentación en dos puntos clave:
+                </p>
+                
+                <h3>1. Logging de TAC en MMU</h3>
+                <p>
+                    En <code>src/memory/mmu.py</code>, se añadió logging cuando el juego escribe en el registro TAC (0xFF07):
+                </p>
+                <pre><code># Interceptar escritura al registro TAC (0xFF07) - Timer Control
+if addr == IO_TAC:
+    # Instrumentación para diagnóstico: detectar configuración del Timer
+    timer_enable = (value & 0x04) != 0
+    clock_select = value & 0x03
+    clock_names = {0: "4096Hz", 1: "262144Hz", 2: "65536Hz", 3: "16384Hz"}
+    clock_name = clock_names.get(clock_select, "Unknown")
+    logger.info(
+        f"⏰ TAC UPDATE: {value:02X} (Enable={timer_enable}, Clock={clock_select} "
+        f"({clock_name}))"
+    )</code></pre>
+                <p>
+                    <strong>Nota:</strong> Se corrigió un error de sintaxis inicial donde se intentaba usar <code>clock_names.get()</code> directamente dentro del f-string. La solución fue extraer el valor a una variable <code>clock_name</code> antes de usarlo en el f-string.
+                </p>
+                <p>
+                    Esto permite detectar:
+                </p>
+                <ul>
+                    <li>Si el juego activa el Timer (bit 2 = 1)</li>
+                    <li>Qué frecuencia selecciona (bits 1-0)</li>
+                    <li>Cuándo se configura el Timer</li>
+                </ul>
+
+                <h3>2. Logging de Interrupción del Timer en CPU</h3>
+                <p>
+                    En <code>src/cpu/core.py</code>, se añadió logging específico cuando se dispara la interrupción del Timer (vector 0x0050):
+                </p>
+                <pre><code># DIAGNÓSTICO ESPECÍFICO: Log cuando se dispara la interrupción del Timer
+if interrupt_vector == 0x0050:
+    logger.info(f"⚡ TIMER INTERRUPT DISPATCHED! (TIMA Overflow)")</code></pre>
+                <p>
+                    Esto permite detectar si la interrupción del Timer se está disparando correctamente cuando TIMA hace overflow.
+                </p>
+
+                <h3>3. Verificación de la Lógica del Timer</h3>
+                <p>
+                    Se revisó <code>src/io/timer.py</code> para verificar que la lógica de overflow está correcta. La implementación actual:
+                </p>
+                <ul>
+                    <li>Incrementa TIMA cuando se alcanza el umbral según la frecuencia configurada.</li>
+                    <li>Detecta overflow cuando TIMA pasa de 0xFF a 0x00.</li>
+                    <li>Recarga TIMA con TMA cuando hay overflow.</li>
+                    <li>Solicita la interrupción Timer (Bit 2 de IF) cuando hay overflow.</li>
+                </ul>
+                <p>
+                    La lógica parece correcta según la documentación. El diagnóstico permitirá confirmar si el Timer está funcionando o si hay un bug sutil.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/memory/mmu.py</code> - Añadido logging de TAC UPDATE cuando se escribe en 0xFF07 (con fix de sintaxis: extracción de variable para evitar error en f-string)</li>
+                    <li><code>src/cpu/core.py</code> - Añadido logging específico cuando se dispara la interrupción del Timer (vector 0x0050)</li>
+                    <li><code>docs/bitacora/entries/2025-12-18__0076__diagnostico-timer-tac-interrupciones.html</code> - Nueva entrada de bitácora</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con la nueva entrada</li>
+                    <li><code>docs/bitacora/entries/2025-12-18__0075__diagnostico-stat-profundo-monitoreo-escrituras.html</code> - Actualizado enlace "Siguiente"</li>
+                    <li><code>INFORME_COMPLETO.md</code> - Añadida entrada del paso 0076</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este paso es de diagnóstico, no de implementación funcional. La verificación se realizará ejecutando el juego y analizando los logs:
+                </p>
+                <ul>
+                    <li><strong>Comando de ejecución:</strong> <code>python main.py pkmn.gb</code></li>
+                    <li><strong>Entorno:</strong> Windows / Python 3.10+</li>
+                    <li><strong>Fix aplicado:</strong> Se corrigió un error de sintaxis en el logging de TAC donde se intentaba usar <code>clock_names.get()</code> directamente dentro del f-string. Se extrajo el valor a una variable antes de usarlo.</li>
+                    <li><strong>Qué buscar en los logs:</strong>
+                        <ul>
+                            <li><code>⏰ TAC UPDATE</code>: ¿El juego activa el Timer? (Enable=True)</li>
+                            <li><code>⚡ TIMER INTERRUPT DISPATCHED!</code>: ¿Se dispara la interrupción del Timer?</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Escenarios esperados:</strong>
+                </p>
+                <ol>
+                    <li><strong>Si vemos TAC UPDATE con Enable=True pero NO vemos TIMER INTERRUPT:</strong>
+                        <ul>
+                            <li>El Timer está roto. El juego lo pide, pero nuestra implementación no genera la señal.</li>
+                            <li>Solución: Revisar la lógica de <code>tick()</code> en <code>timer.py</code>.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Si vemos TIMER INTERRUPT:</strong>
+                        <ul>
+                            <li>El Timer funciona. El problema está en otro lugar (¿Joypad bloqueado? ¿Bug de CPU oscuro?).</li>
+                        </ul>
+                    </li>
+                    <li><strong>Si NO vemos TAC UPDATE con Enable=True:</strong>
+                        <ul>
+                            <li>El juego no está usando el Timer. El problema está en otro lugar.</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Estado:</strong> Pendiente de ejecución y análisis de logs.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Timer_and_Divider.html">Timer and Divider Registers</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Timer y RNG:</strong> Muchos juegos dependen del Timer para generar números aleatorios. Si el Timer no funciona, el RNG se congela y el juego puede quedarse bloqueado esperando un valor que nunca llega.</li>
+                        <li><strong>Interrupción del Timer:</strong> Cuando TIMA hace overflow, se solicita una interrupción (Bit 2 de IF) con vector 0x0050. Esta interrupción es crítica para la lógica de muchos juegos.</li>
+                        <li><strong>Diagnóstico sistemático:</strong> Al instrumentar TAC y la interrupción del Timer, podemos determinar si el problema es que el Timer no funciona o si está en otro lugar.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿El juego activa el Timer?</strong> Necesitamos ejecutar el juego y ver si aparece <code>⏰ TAC UPDATE</code> con Enable=True.</li>
+                        <li><strong>¿Se dispara la interrupción del Timer?</strong> Necesitamos ver si aparece <code>⚡ TIMER INTERRUPT DISPATCHED!</code> en los logs.</li>
+                        <li><strong>¿Hay un bug en la lógica del Timer?</strong> Si el juego activa el Timer pero no vemos interrupciones, hay un bug en nuestra implementación.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego se congela porque el Timer no está disparando interrupciones cuando debería, bloqueando el RNG y la lógica del juego.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> La implementación del Timer en <code>timer.py</code> es correcta, pero puede haber un bug sutil que impide que las interrupciones se disparen. El diagnóstico permitirá confirmar o descartar esta hipótesis.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar <code>python main.py pkmn.gb</code> y analizar los logs</li>
+                    <li>[ ] Buscar <code>⏰ TAC UPDATE</code> para ver si el juego activa el Timer</li>
+                    <li>[ ] Buscar <code>⚡ TIMER INTERRUPT DISPATCHED!</code> para ver si se dispara la interrupción</li>
+                    <li>[ ] Si el Timer está roto: Revisar y corregir la lógica de <code>tick()</code> en <code>timer.py</code></li>
+                    <li>[ ] Si el Timer funciona: Continuar el diagnóstico en otra dirección (Joypad, CPU, etc.)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
