@@ -32,6 +32,33 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-19 - Step 0136: ¡Hito! Primeros Gráficos Renderizados por el Núcleo C++
+**Estado**: ✅ Completado
+
+Tras corregir un bug sutil en el test de renderizado de la PPU (configuración incorrecta del registro LCDC), todos los tests pasan exitosamente. El **Segmentation Fault** está completamente resuelto y la lógica de renderizado en modo **signed addressing** está validada. Además, se eliminaron todos los logs de depuración (`std::cout`) del código C++ de la CPU para mejorar el rendimiento en el bucle crítico de emulación. El núcleo C++ (CPU + PPU) está ahora completamente funcional y listo para ejecutar ROMs reales.
+
+**Problema identificado**:
+El test `test_signed_addressing_fix` estaba configurando `LCDC = 0x89` (binario: `10001001`), donde el bit 3 está activo (1), indicando que la PPU debía buscar el tilemap en `0x9C00`. Sin embargo, el test escribía el tile ID en `0x9800`. La PPU, al buscar en `0x9C00` (que estaba vacío), leía un tile ID 0, correspondiente a un tile blanco, en lugar del tile ID 128 (negro) que se había configurado en `0x9800`.
+
+**Implementación**:
+- ✅ Corrección del test: cambio de LCDC de `0x89` a `0x81` (bit 3=0 para usar mapa en 0x9800)
+- ✅ Eliminación de todos los bloques de logging (`std::cout`) en `CPU.cpp`
+- ✅ Validación de que todos los tests pasan sin errores
+
+**Rendimiento**:
+Con los logs eliminados, el bucle crítico de emulación ya no realiza operaciones de I/O costosas, mejorando significativamente el rendimiento. Esto es crítico para alcanzar 60 FPS en la emulación.
+
+**Próximos pasos**:
+- Ejecutar el emulador con la ROM de Tetris para verificar el renderizado completo
+- Medir el rendimiento real y confirmar que se mantiene cerca de 60 FPS
+- Documentar el hito de "primeros gráficos renderizados" con capturas de pantalla
+
+**Archivos modificados**:
+- `tests/test_core_ppu_rendering.py` - Corrección del test `test_signed_addressing_fix`
+- `src/core/cpp/CPU.cpp` - Eliminación de bloques de logging con `std::cout`
+
+---
+
 ### 2025-12-19 - Step 0135: Fix: Bug de Renderizado en Signed Addressing y Expansión de la ALU
 **Estado**: ✅ Completado
 

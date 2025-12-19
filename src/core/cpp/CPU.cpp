@@ -1274,15 +1274,11 @@ int CPU::step() {
                     // Condición verdadera: saltar
                     int8_t offset = static_cast<int8_t>(offset_raw);
                     uint16_t new_pc = (regs_->pc + offset) & 0xFFFF;
-                    std::cout << "    [JR NZ] Saltando (Z=0) con offset " << static_cast<int>(offset)
-                              << " -> nuevo PC: 0x" << std::hex << std::setw(4) << std::setfill('0') 
-                              << new_pc << std::endl;
                     regs_->pc = new_pc;
                     cycles_ += 3;  // JR NZ consume 3 M-Cycles si salta
                     return 3;
                 } else {
                     // Condición falsa: no saltar, continuar ejecución normal
-                    std::cout << "    [JR NZ] No salta (Z=1)" << std::endl;
                     cycles_ += 2;  // JR NZ consume 2 M-Cycles si no salta
                     return 2;
                 }
@@ -1322,9 +1318,6 @@ int CPU::step() {
             {
                 uint16_t target = fetch_word();  // Lee dirección destino
                 uint16_t return_addr = regs_->pc;  // PC actual es la dirección de retorno
-                std::cout << "    [CALL] Saltando a 0x" << std::hex << std::setw(4) << std::setfill('0') 
-                          << target << " (retorno: 0x" << std::setw(4) << std::setfill('0') 
-                          << return_addr << ")" << std::endl;
                 push_word(return_addr);  // Guardar dirección de retorno en la pila
                 regs_->pc = target;  // Saltar a la subrutina
                 cycles_ += 6;  // CALL nn consume 6 M-Cycles
@@ -1338,8 +1331,6 @@ int CPU::step() {
             // Fuente: Pan Docs - RET: 4 M-Cycles
             {
                 uint16_t return_addr = pop_word();
-                std::cout << "    [RET] Retornando a 0x" << std::hex << std::setw(4) << std::setfill('0') 
-                          << return_addr << std::endl;
                 regs_->pc = return_addr;
                 cycles_ += 4;  // RET consume 4 M-Cycles
                 return 4;
