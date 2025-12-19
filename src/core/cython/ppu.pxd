@@ -7,7 +7,7 @@ Este archivo .pxd declara la interfaz de la clase PPU para que Cython
 pueda generar el código de enlace correcto.
 """
 
-from libc.stdint cimport uint8_t, uint16_t
+from libc.stdint cimport uint8_t, uint16_t, uint32_t
 from libcpp cimport bool
 
 # Forward declaration de MMU (ya está definida en mmu.pxd)
@@ -43,4 +43,5 @@ cdef extern from "PPU.hpp":
         uint8_t get_lyc()
         void set_lyc(uint8_t value)
         bool is_frame_ready()
+        uint32_t* get_framebuffer_ptr()
 

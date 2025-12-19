@@ -2,6 +2,7 @@
 #define PPU_HPP
 
 #include <cstdint>
+#include <vector>
 
 // Forward declaration (evitar includes circulares)
 class MMU;
@@ -53,6 +54,34 @@ public:
     static constexpr uint16_t IO_STAT = 0xFF41;  // LCD Status
     static constexpr uint16_t IO_LYC = 0xFF45;   // LY Compare
     static constexpr uint16_t IO_IF = 0xFF0F;    // Interrupt Flag
+    static constexpr uint16_t IO_SCY = 0xFF42;   // Scroll Y
+    static constexpr uint16_t IO_SCX = 0xFF43;   // Scroll X
+    static constexpr uint16_t IO_BGP = 0xFF47;   // Background Palette
+    static constexpr uint16_t IO_WY = 0xFF4A;    // Window Y
+    static constexpr uint16_t IO_WX = 0xFF4B;    // Window X
+    
+    /**
+     * Direcciones de memoria VRAM
+     */
+    static constexpr uint16_t VRAM_START = 0x8000;    // Inicio de VRAM
+    static constexpr uint16_t VRAM_END = 0x9FFF;      // Fin de VRAM (8KB)
+    static constexpr uint16_t TILEMAP_0 = 0x9800;     // Tilemap 0 (32x32 tiles)
+    static constexpr uint16_t TILEMAP_1 = 0x9C00;     // Tilemap 1 (32x32 tiles)
+    static constexpr uint16_t TILE_DATA_0 = 0x8000;   // Tile Data 0 (unsigned addressing)
+    static constexpr uint16_t TILE_DATA_1 = 0x8800;   // Tile Data 1 (signed addressing, tile 0 en 0x9000)
+    
+    /**
+     * Dimensiones de pantalla
+     */
+    static constexpr uint16_t SCREEN_WIDTH = 160;     // Ancho en píxeles
+    static constexpr uint16_t SCREEN_HEIGHT = 144;    // Alto en píxeles
+    static constexpr uint16_t FRAMEBUFFER_SIZE = SCREEN_WIDTH * SCREEN_HEIGHT;  // 23040 píxeles
+    
+    /**
+     * Constantes de tiles
+     */
+    static constexpr uint8_t TILE_SIZE = 8;           // Tamaño de tile en píxeles (8x8)
+    static constexpr uint16_t TILES_PER_LINE = 20;    // Tiles visibles por línea (160/8)
     
     /**
      * Constructor: Inicializa la PPU con un puntero a la MMU.
@@ -122,6 +151,16 @@ public:
      * @return true si hay un frame listo para renderizar, false en caso contrario
      */
     bool is_frame_ready();
+    
+    /**
+     * Obtiene un puntero al framebuffer para acceso directo desde Cython.
+     * 
+     * El framebuffer es un array de uint32_t con formato ARGB (Alpha, Red, Green, Blue).
+     * Tamaño: 160 * 144 = 23040 píxeles.
+     * 
+     * @return Puntero al primer elemento del framebuffer
+     */
+    uint32_t* get_framebuffer_ptr();
 
 private:
     /**
@@ -166,6 +205,12 @@ private:
     bool stat_interrupt_line_;
     
     /**
+     * Flag para evitar renderizar múltiples veces la misma línea.
+     * Se resetea cuando LY cambia.
+     */
+    bool scanline_rendered_;
+    
+    /**
      * Actualiza el modo PPU actual según el punto en la línea (line_cycles) y LY.
      */
     void update_mode();
@@ -180,6 +225,59 @@ private:
      * 4. Mode 2 (OAM Search) si el bit 5 de STAT está activo
      */
     void check_stat_interrupt();
+    
+    /**
+     * Framebuffer: Array de píxeles en formato ARGB32 (32 bits por píxel).
+     * Tamaño: 160 * 144 = 23040 píxeles.
+     * Formato: 0xAARRGGBB (Alpha, Red, Green, Blue).
+     */
+    std::vector<uint32_t> framebuffer_;
+    
+    /**
+     * Renderiza la línea de escaneo actual (scanline rendering).
+     * 
+     * Este método se llama cuando la PPU entra en H-Blank (Mode 0) después
+     * de completar el Mode 3 (Pixel Transfer). Renderiza Background y Window
+     * para la línea LY actual.
+     * 
+     * Fuente: Pan Docs - LCD Timing, Background, Window
+     */
+    void render_scanline();
+    
+    /**
+     * Renderiza la capa de Background para la línea actual.
+     * 
+     * Lee los registros SCX, SCY, LCDC y BGP para determinar qué tiles
+     * dibujar y cómo aplicar scroll y paleta.
+     * 
+     * Fuente: Pan Docs - Background, Scroll Registers
+     */
+    void render_bg();
+    
+    /**
+     * Renderiza la capa de Window para la línea actual.
+     * 
+     * La Window es una capa opaca que se dibuja encima del Background
+     * pero debajo de los Sprites. Lee los registros WX, WY y LCDC.
+     * 
+     * Fuente: Pan Docs - Window
+     */
+    void render_window();
+    
+    /**
+     * Decodifica una línea de un tile (8 píxeles) desde VRAM.
+     * 
+     * Los tiles están almacenados en formato 2bpp:
+     * - 2 bytes por línea (16 bytes por tile total)
+     * - Byte 1: Bits bajos de cada píxel
+     * - Byte 2: Bits altos de cada píxel
+     * - Color = (bit_alto << 1) | bit_bajo (valores 0-3)
+     * 
+     * @param tile_addr Dirección base del tile en VRAM
+     * @param line Línea dentro del tile (0-7)
+     * @return Array de 8 valores de color (0-3)
+     */
+    void decode_tile_line(uint16_t tile_addr, uint8_t line, uint8_t* output);
 };
 
 #endif // PPU_HPP

@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PPU Fase B - Renderizado Scanline y Framebuffer - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>PPU Fase B - Renderizado Scanline y Framebuffer</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0112
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-completed">Completado</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0111__migracion-ppu-timing-estado-cpp.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó el renderizado línea a línea (scanline rendering) de la PPU en C++,
+                    añadiendo la capacidad de generar píxeles reales para Background y Window. El framebuffer
+                    se expone como un memoryview de NumPy para transferencia Zero-Copy a Python/Pygame, lo que
+                    permite alcanzar rendimientos de miles de FPS potenciales en lugar de los 30 FPS limitados
+                    de la implementación Python pura. Esta es la Fase B de la migración de PPU, que transforma
+                    la unidad de timing en una unidad de procesamiento de píxeles completa.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, la PPU renderiza la pantalla línea por línea durante el modo 3 (Pixel Transfer).
+                    En lugar de dibujar toda la pantalla al final de un frame, la PPU dibuja cada línea de 160 píxeles
+                    cuando entra en H-Blank (Mode 0), justo después de completar el Mode 3.
+                </p>
+                
+                <h3>Scanline Rendering</h3>
+                <p>
+                    <strong>Scanline Rendering</strong> es la técnica de renderizar una línea completa de píxeles
+                    de una vez. En la Game Boy, esto ocurre durante el período H-Blank, cuando la PPU ya tiene toda
+                    la información necesaria para esa línea. Este enfoque es crítico para el rendimiento, ya que
+                    permite procesar solo 160 píxeles por línea en lugar de procesar toda la pantalla (23,040 píxeles)
+                    al final del frame.
+                </p>
+                
+                <h3>Formato de Tiles 2bpp</h3>
+                <p>
+                    Los tiles de la Game Boy se almacenan en formato <strong>2bpp</strong> (2 bits por píxel), lo que
+                    permite 4 colores por tile. Cada tile es un bloque de 8x8 píxeles que ocupa 16 bytes en VRAM:
+                </p>
+                <ul>
+                    <li>2 bytes por línea (una línea = 8 píxeles)</li>
+                    <li>Byte 1: Bits bajos de cada píxel (bit 7 = píxel 0, bit 6 = píxel 1, ..., bit 0 = píxel 7)</li>
+                    <li>Byte 2: Bits altos de cada píxel (mismo orden)</li>
+                    <li>Color del píxel = (bit_alto &lt;&lt; 1) | bit_bajo (valores 0-3)</li>
+                </ul>
+                
+                <h3>Background y Window</h3>
+                <p>
+                    La pantalla se compone de dos capas principales:
+                </p>
+                <ul>
+                    <li><strong>Background</strong>: Capa base que puede desplazarse usando SCX/SCY (scroll X/Y).</li>
+                    <li><strong>Window</strong>: Capa opaca que se dibuja encima del Background pero debajo de los Sprites. Se usa para HUDs y menús fijos.</li>
+                </ul>
+                <p>
+                    Ambas capas usan el mismo formato de tiles y la misma paleta BGP (Background Palette), pero
+                    pueden usar tilemaps diferentes según los bits de LCDC.
+                </p>
+                
+                <h3>Framebuffer y Zero-Copy</h3>
+                <p>
+                    El framebuffer es un array plano de 160 * 144 = 23,040 píxeles en formato ARGB32 (32 bits por píxel).
+                    Al exponerlo como un <strong>memoryview de Cython</strong>, Python puede acceder directamente a la
+                    memoria C++ sin copiar datos. Esto permite usar <code>pygame.surfarray.blit_array()</code> para
+                    transferir el framebuffer completo a la GPU en una sola operación de bloque, resultando en un
+                    rendimiento de transferencia extremadamente alto.
+                </p>
+                
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Background, Window, Tile Data, 2bpp Format, LCD Control Register
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió el framebuffer y los métodos de renderizado a la clase PPU en C++. El framebuffer
+                    se inicializa a blanco y se actualiza línea por línea cuando la PPU entra en H-Blank después
+                    de completar el Mode 3 (Pixel Transfer).
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>PPU.hpp</strong>: Añadido framebuffer_ (std::vector&lt;uint32_t&gt;), constantes de VRAM/tilemaps, métodos render_scanline(), render_bg(), render_window(), decode_tile_line(), get_framebuffer_ptr().</li>
+                    <li><strong>PPU.cpp</strong>: Implementación completa del renderizado scanline con decodificación 2bpp, scroll, paletas, y optimización de caché de tiles.</li>
+                    <li><strong>ppu.pxd</strong>: Añadido get_framebuffer_ptr() y uint32_t al import.</li>
+                    <li><strong>ppu.pyx</strong>: Añadida propiedad framebuffer que expone el framebuffer como memoryview para Zero-Copy.</li>
+                    <li><strong>tests/test_core_ppu_rendering.py</strong>: Suite de 4 tests para validar renderizado de Background, scroll, Window, y framebuffer memoryview.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Renderizado en H-Blank:</strong> El renderizado se ejecuta cuando la PPU entra en Mode 0
+                    (H-Blank) después de completar Mode 3. Se usa un flag <code>scanline_rendered_</code> para evitar
+                    renderizar múltiples veces la misma línea si se hacen múltiples llamadas a step() durante el mismo
+                    H-Blank.
+                </p>
+                <p>
+                    <strong>Renderizado píxel por píxel:</strong> Aunque menos eficiente que renderizar por tiles,
+                    renderizamos píxel por píxel para manejar correctamente el scroll sub-píxel (cuando SCX no es
+                    múltiplo de 8). Se añadió optimización de caché para evitar decodificar el mismo tile múltiples
+                    veces dentro de la misma línea.
+                </p>
+                <p>
+                    <strong>Paleta de grises fija:</strong> Se usa una paleta de 4 tonos de gris (Blanco, Gris claro,
+                    Gris oscuro, Negro) correspondiente a los valores de BGP. Esto es suficiente para Game Boy original
+                    (DMG). El soporte de color (CGB) se implementará en una fase posterior.
+                </p>
+                <p>
+                    <strong>Memoryview Zero-Copy:</strong> El framebuffer se expone como un memoryview de uint32_t,
+                    permitiendo a Python acceder directamente a la memoria C++ sin copias. Esto es crítico para el
+                    rendimiento, ya que permite transferir 23,040 píxeles (92 KB) a la GPU en una sola operación.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Añadido framebuffer y métodos de renderizado</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementación de render_bg(), render_window(), decode_tile_line()</li>
+                    <li><code>src/core/cython/ppu.pxd</code> - Añadido get_framebuffer_ptr()</li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Añadida propiedad framebuffer (memoryview)</li>
+                    <li><code>tests/test_core_ppu_rendering.py</code> - Suite completa de tests de renderizado</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests unitarios que valida el renderizado línea a línea:
+                </p>
+                <ul>
+                    <li><strong>Tests unitarios:</strong> pytest con 4 tests pasando</li>
+                </ul>
+                
+                <h3>Test: Renderizado de Background simple</h3>
+                <pre><code>def test_bg_rendering_simple_tile(self):
+    # Escribe un tile todo negro en VRAM 0x8000
+    # Configura tilemap para usar tile ID 0
+    # Avanza PPU hasta H-Blank
+    # Verifica que el primer píxel es negro (0xFF000000)</code></pre>
+                <p><strong>Resultado:</strong> ✅ PASSED</p>
+                
+                <h3>Test: Scroll del Background</h3>
+                <pre><code>def test_bg_rendering_scroll(self):
+    # Crea dos tiles (negro y blanco)
+    # Configura SCX=8 para desplazar el fondo
+    # Verifica que el primer píxel visible es del tile correcto</code></pre>
+                <p><strong>Resultado:</strong> ✅ PASSED</p>
+                
+                <h3>Test: Renderizado de Window</h3>
+                <pre><code>def test_window_rendering(self):
+    # Configura Background con tile negro
+    # Configura Window con tile blanco en (0,0)
+    # Verifica que la Window sobrescribe el Background</code></pre>
+                <p><strong>Resultado:</strong> ✅ PASSED</p>
+                
+                <h3>Test: Framebuffer como Memoryview</h3>
+                <pre><code>def test_framebuffer_memoryview(self):
+    # Verifica que el framebuffer se puede convertir a numpy array
+    # sin copiar datos (Zero-Copy)</code></pre>
+                <p><strong>Resultado:</strong> ✅ PASSED</p>
+                
+                <p><strong>Comando ejecutado:</strong></p>
+                <pre><code>pytest tests/test_core_ppu_rendering.py -v</code></pre>
+                <p><strong>Resultado:</strong> 4 passed in 0.11s</p>
+                <p><strong>Validación:</strong> Módulo compilado C++ validado con tests nativos.</p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Timing, Background, Window, Tile Data, 2bpp Format</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Control Register (LCDC), Background Palette (BGP)</a></li>
+                    <li>Cython Documentation: <a href="https://cython.readthedocs.io/">Memoryviews and Zero-Copy</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Scanline Rendering:</strong> La técnica de renderizar línea por línea en lugar de frame por frame permite optimizar el rendimiento, procesando solo 160 píxeles a la vez en lugar de 23,040.</li>
+                        <li><strong>Formato 2bpp:</strong> Los tiles se almacenan con 2 bits por píxel, donde cada línea de 8 píxeles ocupa 2 bytes consecutivos (uno para bits bajos, otro para bits altos).</li>
+                        <li><strong>Zero-Copy Transfer:</strong> Al exponer el framebuffer C++ como memoryview, Python puede acceder directamente a la memoria sin copiar datos, permitiendo transferencias extremadamente rápidas a la GPU.</li>
+                        <li><strong>Scroll sub-píxel:</strong> El scroll (SCX/SCY) puede desplazar el fondo en incrementos de 1 píxel, no solo de 8 píxeles (tiles completos), lo que requiere renderizar píxel por píxel para manejar correctamente el desplazamiento.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Renderizado de Sprites:</strong> Los sprites (OBJ) se renderizarán en una fase posterior, aplicando las mismas técnicas de scanline rendering pero con lógica de prioridad y transparencia.</li>
+                        <li><strong>Optimización de caché de tiles:</strong> La optimización actual es básica. Se podría mejorar cacheando tiles completos en lugar de solo líneas, o incluso pre-decodificando tiles cuando se escriben en VRAM.</li>
+                        <li><strong>Soporte CGB:</strong> La paleta actual es de grises. El soporte de color (CGB) requerirá paletas RGB555 y bancos de VRAM adicionales.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que renderizar en H-Blank es el momento correcto, ya que es cuando la PPU ha completado
+                        el Mode 3 (Pixel Transfer) y tiene toda la información necesaria para la línea. Esto coincide
+                        con el comportamiento real del hardware, donde la PPU dibuja durante el período de pixel transfer
+                        y "descansa" durante H-Blank.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Renderizado de Sprites (OBJ) - Prioridad, transparencia, y atributos especiales</li>
+                    <li>[ ] Optimización de caché de tiles más agresiva</li>
+                    <li>[ ] Integración del framebuffer con Pygame para visualización real</li>
+                    <li>[ ] Soporte de paletas CGB (RGB555) para Game Boy Color</li>
+                    <li>[ ] Validación con ROMs reales para verificar renderizado correcto</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

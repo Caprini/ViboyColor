@@ -85,7 +85,9 @@ En cada interacción que toque código, sigue estos pasos estrictamente:
 4.  **TDD Híbrido**:
     - Los tests siguen en Python (`pytest`). Python llama a C++.
     - El test verifica el resultado.
-5.  **Bitácora**: Generar la entrada HTML correspondiente en `docs/bitacora/entries/` siguiendo las reglas de la Sección 7.
+5.  **Bitácora y Web**:
+    - Generar la entrada HTML correspondiente en `docs/bitacora/entries/`.
+    - **ACTUALIZAR SIEMPRE** el archivo `docs/bitacora/index.html` con la nueva entrada.
 6.  **Control de Versiones (CRÍTICO)**:
     - AL FINAL de cada respuesta, proporciona los comandos exactos para:
     - `git add .`
@@ -109,6 +111,10 @@ Mantenemos y mejoramos el sistema estricto de la v0.0.1.
 - Usar plantilla `_entry_template.html`.
 - **Rutas Relativas**: Asegurar que CSS e imágenes cargan offline.
 
+**Mantenimiento del Índice (OBLIGATORIO):**
+- **CADA VEZ** que generes una nueva entrada HTML, debes generar también el código o diff para actualizar `docs/bitacora/index.html`.
+- La nueva entrada debe insertarse al **principio** de la lista (orden cronológico inverso).
+
 **Integración Académica del Prompt:**
 - Si el usuario aporta teoría o enlaces en el prompt, incorpóralos explícitamente en la sección "Concepto de Hardware". Explica el *porqué*, no solo el *qué*.
 
@@ -122,9 +128,10 @@ En la sección "Tests y Verificación" del HTML generado, debes incluir:
 **Salida del Asistente:**
 Al final de cada respuesta con código, genera:
 1.  Bloque para `INFORME_FASE_2.md`.
-2.  Archivo HTML completo para la bitácora (con la evidencia de tests detallada).
-3.  Confirmación de que los tests pasan.
-4.  **Comandos GIT + PUSH**.
+2.  Archivo HTML completo para la bitácora.
+3.  **Código actualizado para `docs/bitacora/index.html`**.
+4.  Confirmación de que los tests pasan.
+5.  **Comandos GIT + PUSH**.
 
 ---
 

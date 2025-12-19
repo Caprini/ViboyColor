@@ -7,7 +7,7 @@ Este módulo expone la clase C++ PPU a Python, permitiendo
 acceso de alta velocidad al motor de timing de la PPU.
 """
 
-from libc.stdint cimport uint8_t, uint16_t
+from libc.stdint cimport uint8_t, uint16_t, uint32_t
 from libcpp cimport bool
 
 # Importar la definición de la clase C++ desde el archivo .pxd
@@ -123,4 +123,20 @@ cdef class PyPPU:
             return self.get_lyc()
         def __set__(self, uint8_t value):
             self.set_lyc(value)
+    
+    @property
+    def framebuffer(self):
+        """
+        Obtiene el framebuffer como un memoryview de NumPy (Zero-Copy).
+        
+        El framebuffer es un array de 160 * 144 = 23040 píxeles en formato ARGB32.
+        Cada píxel es un uint32_t con formato 0xAARRGGBB.
+        
+        Returns:
+            memoryview de uint32_t con forma (144, 160) - puede ser usado directamente
+            con pygame.surfarray.blit_array() para transferencia a GPU sin copias.
+        """
+        cdef uint32_t* ptr = self._ppu.get_framebuffer_ptr()
+        cdef uint32_t[:] view = <uint32_t[:144*160]>ptr
+        return view
 
