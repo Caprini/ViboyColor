@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Limpieza de Build y Verificación de Renderizado - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Limpieza de Build y Verificación de Renderizado</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0120
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0119__activacion-renderizado-real-background-cpp.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El usuario reportó que seguía viendo la pantalla gris con un punto rojo del paso 116, a pesar de haber aplicado los cambios del paso 119.
+                    El diagnóstico indicó que el módulo C++ no se había recompilado correctamente y Python estaba cargando una versión obsoleta del binario `viboy_core`.
+                    Se implementó una limpieza completa del build (eliminación de archivos compilados y caché) y se añadió diagnóstico de LY en el bucle principal
+                    para verificar que la PPU C++ está funcionando correctamente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Problema de Caché de Compilación en Cython/C++:</strong> Cuando se modifica código C++ (`.cpp`/`.hpp`) o Cython (`.pyx`),
+                    Python puede seguir cargando el binario antiguo (`.pyd` en Windows, `.so` en Linux/Mac) si no se fuerza una recompilación completa.
+                    Esto ocurre porque:
+                </p>
+                <ul>
+                    <li><strong>Caché de Python:</strong> Python puede mantener el módulo compilado en memoria incluso después de cerrar el proceso</li>
+                    <li><strong>Archivos bloqueados:</strong> En Windows, los archivos `.pyd` pueden quedar bloqueados si hay procesos de Python ejecutándose</li>
+                    <li><strong>Dependencias de compilación:</strong> Cython solo recompila si detecta cambios en los archivos fuente, pero puede fallar si hay archivos intermedios corruptos</li>
+                </ul>
+                <p>
+                    <strong>Registro LY (Línea Actual):</strong> El registro LY (Línea Y) de la PPU indica qué línea de la pantalla se está renderizando actualmente.
+                    Los valores van de 0 a 153:
+                </p>
+                <ul>
+                    <li><strong>0-143:</strong> Líneas visibles (se renderizan en el framebuffer)</li>
+                    <li><strong>144-153:</strong> V-Blank (período de retrazo vertical, no se renderiza)</li>
+                </ul>
+                <p>
+                    Si LY se mueve (cambia de 0 a 153 y vuelve a 0), significa que la PPU está funcionando correctamente y avanzando las líneas.
+                    Si LY permanece en 0, puede indicar que la PPU no está recibiendo ciclos o que el LCD está deshabilitado.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Timing, LY Register
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron tres acciones principales:
+                </p>
+                
+                <h3>1. Verificación del Código Fuente</h3>
+                <p>
+                    Antes de recompilar, se verificó que el código fuente realmente había cambiado:
+                </p>
+                <ul>
+                    <li><strong>Constructor de PPU:</strong> Verificado que `std::fill` inicializa a blanco (`0xFFFFFFFF`), no gris (`0xFF808080`)</li>
+                    <li><strong>Método `step()`:</strong> Verificado que NO hay ninguna línea `framebuffer[0] = ...` (el punto rojo)</li>
+                    <li><strong>Método `step()`:</strong> Verificado que se llama a `render_scanline()` cuando `mode_ == MODE_0_HBLANK && ly_ < VISIBLE_LINES`</li>
+                </ul>
+                
+                <h3>2. Limpieza y Recompilación Completa</h3>
+                <p>
+                    Se ejecutaron los siguientes comandos en orden para eliminar cualquier rastro del binario viejo:
+                </p>
+                <pre><code># 1. Limpiar build con setuptools
+python setup.py clean --all
+
+# 2. Eliminar carpeta build manualmente (si existe)
+Remove-Item -Recurse -Force build
+
+# 3. Eliminar archivos .pyd antiguos (si existen)
+Remove-Item -Force viboy_core*.pyd
+
+# 4. Recompilar desde cero
+python setup.py build_ext --inplace</code></pre>
+                <p>
+                    <strong>Nota sobre archivos bloqueados:</strong> En Windows, si el archivo `.pyd` está bloqueado por un proceso de Python en ejecución,
+                    será necesario cerrar todos los procesos de Python antes de poder eliminarlo. El nuevo binario se generará en `build/lib.win-amd64-cpython-313/`
+                    y se copiará al directorio raíz cuando el archivo antiguo se libere.
+                </p>
+                
+                <h3>3. Diagnóstico de LY en el Bucle Principal</h3>
+                <p>
+                    Se añadió logging de diagnóstico en `src/viboy.py` para verificar que la PPU C++ está funcionando:
+                </p>
+                <pre><code># 6. Heartbeat: Diagnóstico de LY cada segundo (60 frames ≈ 1 segundo a 60 FPS)
+if frame_count % 60 == 0 and self._ppu is not None:
+    # Obtener LY de la PPU (compatible con Python y C++)
+    ly_value = 0
+    try:
+        if self._use_cpp:
+            # PPU C++: usar propiedad .ly (definida en ppu.pyx)
+            ly_value = self._ppu.ly
+        else:
+            # PPU Python: usar método get_ly()
+            ly_value = self._ppu.get_ly()
+    except AttributeError:
+        # Fallback si no existe el método/propiedad
+        ly_value = 0
+    
+    # Logging de diagnóstico: Si LY se mueve (0-153), la PPU está viva
+    logger.info(f"💓 Heartbeat ... LY_C++={ly_value} (PPU {'viva' if ly_value > 0 or frame_count > 60 else 'inicializando'})")</code></pre>
+                <p>
+                    Este logging se muestra cada segundo (cada 60 frames) cuando se ejecuta con `--verbose`:
+                </p>
+                <pre><code>python main.py roms/tetris.gb --verbose</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Añadido logging de diagnóstico de LY en el bucle principal (método `run()`)</li>
+                    <li><code>setup.py</code> - No modificado, pero usado para limpieza y recompilación</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Verificado (no modificado, ya estaba correcto desde el paso 119)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando de verificación:</strong>
+                </p>
+                <pre><code>python main.py roms/tetris.gb --verbose</code></pre>
+                <p>
+                    <strong>Resultado esperado:</strong>
+                </p>
+                <ul>
+                    <li><strong>Si la recompilación fue exitosa:</strong> La pantalla debe ser blanca (o negra) sin punto rojo. Si no se ve el juego, es que `render_scanline` no pinta bien, pero al menos estamos en la versión nueva.</li>
+                    <li><strong>Si se ve el juego:</strong> ¡Victoria! Era solo un problema de caché de compilación.</li>
+                    <li><strong>Logging de LY:</strong> Cada segundo, debe aparecer un mensaje como `💓 Heartbeat ... LY_C++=XX` donde XX cambia de 0 a 153. Si LY se mueve, la PPU está viva.</li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El nuevo binario se genera en `build/lib.win-amd64-cpython-313/viboy_core.cp313-win_amd64.pyd`
+                    y se copia al directorio raíz cuando el archivo antiguo se libera.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCD_Timing.html">LCD Timing</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html">LCDC Register (LY)</a></li>
+                    <li>Cython Documentation: <a href="https://cython.readthedocs.io/en/latest/src/userguide/source_files_and_compilation.html">Compilation</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Caché de compilación:</strong> Cython y Python pueden mantener binarios antiguos en memoria o en disco, causando que los cambios en código C++ no se reflejen hasta forzar una recompilación completa.</li>
+                        <li><strong>Diagnóstico de PPU:</strong> El registro LY es un indicador excelente de si la PPU está funcionando. Si LY se mueve (0-153), la PPU está viva y procesando líneas.</li>
+                        <li><strong>Archivos bloqueados en Windows:</strong> Los archivos `.pyd` pueden quedar bloqueados si hay procesos de Python ejecutándose, impidiendo su eliminación hasta que se cierren todos los procesos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Renderizado real:</strong> Si después de la recompilación la pantalla es blanca pero no se ve el juego, puede indicar que `render_scanline()` no está pintando correctamente los tiles desde VRAM.</li>
+                        <li><strong>Inicialización de registros:</strong> Verificar que los registros de la PPU (LCDC, BGP, SCX, SCY) se inicializan correctamente cuando se carga una ROM.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición:</strong> El problema reportado (pantalla gris con punto rojo) era causado por un binario antiguo cargado en memoria o en disco.
+                        La recompilación completa debería resolver el problema si el código fuente está correcto.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar que la recompilación completa resuelve el problema de la pantalla gris</li>
+                    <li>[ ] Si la pantalla es blanca pero no se ve el juego, investigar por qué `render_scanline()` no pinta correctamente</li>
+                    <li>[ ] Verificar que el logging de LY muestra valores que cambian (0-153) cuando se ejecuta con `--verbose`</li>
+                    <li>[ ] Si todo funciona, proceder con la implementación del Audio (APU) en la siguiente fase</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

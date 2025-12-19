@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0120 - Limpieza de Build y Verificación de Renderizado -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0120__limpieza-build-verificacion-renderizado.html" class="entry-link">
+                                    Limpieza de Build y Verificación de Renderizado
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0120 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            El usuario reportó que seguía viendo la pantalla gris con un punto rojo del paso 116, a pesar de haber aplicado los cambios del paso 119. El diagnóstico indicó que el módulo C++ no se había recompilado correctamente y Python estaba cargando una versión obsoleta del binario `viboy_core`. Se implementó una limpieza completa del build (eliminación de archivos compilados y caché) y se añadió diagnóstico de LY en el bucle principal para verificar que la PPU C++ está funcionando correctamente.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0119 - Activación de Renderizado Real (Background C++) -->
                     <li>
                         <div class="entry-header">

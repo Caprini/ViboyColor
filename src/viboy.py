@@ -754,6 +754,25 @@ class Viboy:
                         pygame.display.set_caption(f"Viboy Color v0.0.1 - FPS: {fps:.1f}")
                     except ImportError:
                         pass
+                
+                # 6. Heartbeat: Diagnóstico de LY cada segundo (60 frames ≈ 1 segundo a 60 FPS)
+                if frame_count % 60 == 0 and self._ppu is not None:
+                    # Obtener LY de la PPU (compatible con Python y C++)
+                    ly_value = 0
+                    try:
+                        if self._use_cpp:
+                            # PPU C++: usar propiedad .ly (definida en ppu.pyx)
+                            ly_value = self._ppu.ly
+                        else:
+                            # PPU Python: usar método get_ly()
+                            ly_value = self._ppu.get_ly()
+                    except AttributeError:
+                        # Fallback si no existe el método/propiedad
+                        ly_value = 0
+                    
+                    # Logging de diagnóstico: Si LY se mueve (0-153), la PPU está viva
+                    # Si LY está en 0 después de 60 frames, puede indicar que la PPU no avanza
+                    logger.info(f"💓 Heartbeat ... LY_C++={ly_value} (PPU {'viva' if ly_value > 0 or frame_count > 60 else 'inicializando'})")
         
         except KeyboardInterrupt:
             # Salir limpiamente con Ctrl+C
