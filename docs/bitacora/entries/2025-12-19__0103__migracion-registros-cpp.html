@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Migración de Registros a C++ - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Migración de Registros a C++ (CoreRegisters)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0103
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-complete">Completo</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0102__migracion-mmu-cpp.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se ha completado la migración de los registros de la CPU de Python a C++,
+                    creando la clase <code>CoreRegisters</code> que proporciona acceso ultrarrápido
+                    a los registros de 8 y 16 bits. Esta implementación es crítica para el rendimiento,
+                    ya que los registros se acceden miles de veces por segundo durante la emulación.
+                    Con acceso directo a memoria en lugar de llamadas a métodos Python, el bucle
+                    principal de la CPU será significativamente más rápido.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La CPU LR35902 de la Game Boy utiliza una arquitectura de registros híbrida basada
+                    en el Z80/8080. Los registros están organizados en:
+                </p>
+                <ul>
+                    <li><strong>Registros de 8 bits:</strong> A, B, C, D, E, H, L, F</li>
+                    <li><strong>Registros de 16 bits:</strong> PC (Program Counter), SP (Stack Pointer)</li>
+                    <li><strong>Pares virtuales de 16 bits:</strong> AF, BC, DE, HL (combinaciones de registros de 8 bits)</li>
+                </ul>
+                <p>
+                    El registro F (Flags) tiene una peculiaridad hardware importante: los 4 bits bajos
+                    siempre son 0 en el hardware real. Solo los bits 7, 6, 5, 4 son válidos y representan
+                    las flags Z (Zero), N (Subtract), H (Half Carry) y C (Carry) respectivamente.
+                </p>
+                <p>
+                    Para emular esto eficientemente, implementamos getters/setters para los pares de 16 bits
+                    que manipulan los bits correctamente usando operaciones bitwise. Por ejemplo, el par AF
+                    tiene A en el byte alto y F en el byte bajo, pero al leer/escribir F, siempre aplicamos
+                    la máscara <code>0xF0</code> para simular el comportamiento del hardware.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Game Boy CPU Manual, sección de registros.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó la clase <code>CoreRegisters</code> en C++ con los siguientes principios
+                    de diseño para máximo rendimiento:
+                </p>
+                <ul>
+                    <li><strong>Estructura de datos simple:</strong> Los registros son miembros públicos para
+                        acceso directo sin overhead de métodos. Esto permite que el compilador optimice
+                        el acceso a memoria.</li>
+                    <li><strong>Métodos inline:</strong> Los métodos para pares virtuales (get_af, set_af, etc.)
+                        y helpers de flags están marcados como <code>inline</code> para que el compilador
+                        los expanda en el lugar de llamada, eliminando el overhead de llamadas a función.</li>
+                    <li><strong>Cache-friendly:</strong> Todos los registros están contiguos en memoria,
+                        aprovechando la localidad espacial de la caché del procesador.</li>
+                </ul>
+
+                <h3>Componentes creados</h3>
+                <ul>
+                    <li><code>src/core/cpp/Registers.hpp</code> - Declaración de la clase CoreRegisters
+                        con todos los registros, métodos inline para pares virtuales y helpers de flags.</li>
+                    <li><code>src/core/cpp/Registers.cpp</code> - Implementación del constructor que
+                        inicializa todos los registros a cero.</li>
+                    <li><code>src/core/cython/registers.pxd</code> - Definición Cython de la clase C++
+                        para el sistema de enlace.</li>
+                    <li><code>src/core/cython/registers.pyx</code> - Wrapper Cython <code>PyRegisters</code>
+                        que expone propiedades Python para acceso intuitivo a los registros.</li>
+                    <li><code>tests/test_core_registers.py</code> - Suite completa de tests (14 tests)
+                        que validan todos los aspectos de los registros.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>1. Miembros públicos vs privados:</strong> Decidimos usar miembros públicos
+                    para los registros individuales (a, b, c, etc.) porque el acceso directo es más rápido
+                    que los getters/setters, y estos datos no necesitan validación adicional. Los métodos
+                    inline solo se usan para pares virtuales y flags, donde hay lógica adicional.</p>
+                <p>
+                    <strong>2. Wrap-around en Cython:</strong> El wrapper Cython acepta valores <code>int</code>
+                    de Python y aplica el wrap-around antes de convertir a tipos C (<code>uint8_t</code>, <code>uint16_t</code>).
+                    Esto permite que los tests escriban valores como <code>256</code> o <code>0x10000</code> y
+                    el sistema los maneje correctamente.</p>
+                <p>
+                    <strong>3. Propiedades Python:</strong> En lugar de métodos get/set explícitos, usamos
+                    propiedades de Python (<code>@property</code>) para que el código Python pueda acceder
+                    a los registros como atributos (ej: <code>reg.a = 0x12</code> en lugar de <code>reg.set_a(0x12)</code>).</p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/Registers.hpp</code> - Clase CoreRegisters (nuevo)</li>
+                    <li><code>src/core/cpp/Registers.cpp</code> - Implementación del constructor (nuevo)</li>
+                    <li><code>src/core/cython/registers.pxd</code> - Definición Cython (nuevo)</li>
+                    <li><code>src/core/cython/registers.pyx</code> - Wrapper Cython PyRegisters (nuevo)</li>
+                    <li><code>src/core/cython/native_core.pyx</code> - Actualizado para incluir registers.pyx</li>
+                    <li><code>setup.py</code> - Añadido Registers.cpp a las fuentes de compilación</li>
+                    <li><code>tests/test_core_registers.py</code> - Suite completa de tests (nuevo)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests que valida todos los aspectos de los registros:
+                </p>
+                <ul>
+                    <li><strong>Tests unitarios:</strong> 14 tests que cubren:
+                        <ul>
+                            <li>Registros de 8 bits y wrap-around</li>
+                            <li>Pares virtuales de 16 bits (AF, BC, DE, HL)</li>
+                            <li>Máscara de bits bajos en registro F</li>
+                            <li>Flags individuales (Z, N, H, C)</li>
+                            <li>Program Counter y Stack Pointer</li>
+                            <li>Inicialización por defecto</li>
+                        </ul>
+                    </li>
+                    <li><strong>Compilación:</strong> ✅ Exitosa sin errores (warnings menores de Cython esperados)</li>
+                    <li><strong>Validación de módulo compilado C++:</strong> ✅ Todos los tests pasan (14/14)</li>
+                    <li><strong>Tiempo de ejecución:</strong> ~0.05s (extremadamente rápido)</li>
+                </ul>
+                <p>
+                    <strong>Comando de ejecución:</strong> <code>python -m pytest tests/test_core_registers.py -v</code>
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Game Boy CPU Manual</a> - Sección de registros y flags</li>
+                    <li>Implementación basada en especificaciones del hardware LR35902</li>
+                </ul>
+                <p>
+                    <em>Nota: La implementación sigue el patrón establecido en la versión Python,
+                    pero optimizada para C++ con acceso directo a memoria y métodos inline.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Endianness y pares virtuales:</strong> En una arquitectura Little-Endian como la Game Boy,
+                            el par AF tiene A en el byte alto y F en el byte bajo. Esto significa que al hacer
+                            <code>(a << 8) | f</code> obtenemos el valor correcto del par de 16 bits.</li>
+                        <li><strong>Optimización de acceso a memoria:</strong> Tener todos los registros contiguos en memoria
+                            (en un struct) permite que el procesador los cargue en la caché juntos, reduciendo
+                            los misses de caché y mejorando el rendimiento.</li>
+                        <li><strong>Inline functions:</strong> Los métodos marcados como <code>inline</code> son expandidos
+                            por el compilador en el lugar de llamada, eliminando el overhead de llamadas a función.
+                            Esto es crítico para funciones pequeñas que se llaman miles de veces por segundo.</li>
+                        <li><strong>Gestión de tipos en Cython:</strong> Para manejar wrap-around correctamente, necesitamos
+                            aceptar valores <code>int</code> de Python, aplicar la máscara, y luego hacer cast explícito
+                            a tipos C (<code>uint8_t</code>, <code>uint16_t</code>).</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento real en bucle de CPU:</strong> Aunque teóricamente el acceso directo
+                            a memoria debería ser más rápido, necesitaremos medir el rendimiento real cuando
+                            integremos esto en el bucle principal de la CPU.</li>
+                        <li><strong>Comportamiento de flags en operaciones complejas:</strong> Cuando implementemos
+                            las instrucciones de la CPU, verificaremos que los flags se establezcan correctamente
+                            según las especificaciones del hardware.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que el compilador C++ optimizará adecuadamente los métodos inline y el acceso
+                        a miembros públicos. Si hay problemas de rendimiento, podríamos considerar usar <code>union</code>
+                        para los pares virtuales, pero esto complicaría el código y probablemente no sea necesario.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Migrar CPU a C++ usando CoreRegisters y CoreMMU</li>
+                    <li>[ ] Implementar ciclo de instrucción (Fetch-Decode-Execute) en C++</li>
+                    <li>[ ] Integrar CoreRegisters con el bucle principal de emulación</li>
+                    <li>[ ] Medir rendimiento comparado con la versión Python</li>
+                    <li>[ ] Implementar instrucciones críticas de la CPU en C++</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -104,3 +104,51 @@ de alta velocidad a la memoria del Game Boy.
 - Implementar mapeo de regiones de memoria (ROM, VRAM, etc.)
 - Añadir métodos `read_word()` / `write_word()` (16 bits, Little-Endian)
 
+---
+
+### 2025-12-19 - Step 0103: Migración de Registros a C++ (CoreRegisters)
+**Estado**: ✅ Completado
+
+Se ha completado la migración de los registros de la CPU de Python a C++, creando la clase
+<code>CoreRegisters</code> que proporciona acceso ultrarrápido a los registros de 8 y 16 bits.
+Esta implementación es crítica para el rendimiento, ya que los registros se acceden miles de
+veces por segundo durante la emulación.
+
+**Implementación**:
+- ✅ Clase C++ `CoreRegisters` creada (`Registers.hpp` / `Registers.cpp`)
+  - Registros de 8 bits: a, b, c, d, e, h, l, f (miembros públicos para acceso directo)
+  - Registros de 16 bits: pc, sp
+  - Métodos inline para pares virtuales (get_af, set_af, get_bc, set_bc, etc.)
+  - Helpers inline para flags (get_flag_z, set_flag_z, etc.)
+  - Máscara automática para registro F (bits bajos siempre 0)
+- ✅ Wrapper Cython `PyRegisters` creado (`registers.pxd` / `registers.pyx`)
+  - Propiedades Python para acceso intuitivo (reg.a = 0x12 en lugar de reg.set_a(0x12))
+  - Wrap-around automático en setters (acepta valores int de Python, aplica máscara)
+  - Gestión automática de memoria (RAII)
+- ✅ Integración en sistema de compilación
+  - `Registers.cpp` añadido a `setup.py`
+  - `registers.pyx` incluido en `native_core.pyx`
+- ✅ Suite completa de tests (`test_core_registers.py`)
+  - 14 tests que validan todos los aspectos de los registros
+  - Todos los tests pasan (14/14 ✅)
+
+**Archivos creados/modificados**:
+- `src/core/cpp/Registers.hpp` / `Registers.cpp` - Clase C++ de registros
+- `src/core/cython/registers.pxd` / `registers.pyx` - Wrapper Cython
+- `src/core/cython/native_core.pyx` - Actualizado para incluir registers.pyx
+- `setup.py` - Añadido Registers.cpp a fuentes
+- `tests/test_core_registers.py` - Suite de tests (14 tests)
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0103__migracion-registros-cpp.html`
+
+**Resultados de verificación**:
+- ✅ Compilación exitosa (sin errores, warnings menores de Cython esperados)
+- ✅ Módulo `viboy_core` actualizado con `PyRegisters`
+- ✅ Todos los tests pasan: `14/14 passed in 0.05s`
+- ✅ Acceso directo a memoria (cache-friendly, sin overhead de Python)
+
+**Próximos pasos**:
+- Migrar CPU a C++ usando CoreRegisters y CoreMMU
+- Implementar ciclo de instrucción (Fetch-Decode-Execute) en C++
+- Integrar CoreRegisters con el bucle principal de emulación
+

@@ -25,7 +25,8 @@ extensions = [
         sources=[
             str(cython_dir / "native_core.pyx"),
             str(cpp_dir / "NativeCore.cpp"),
-            str(cpp_dir / "MMU.cpp"),  # Añadir MMU.cpp
+            str(cpp_dir / "MMU.cpp"),
+            str(cpp_dir / "Registers.cpp"),  # Añadir Registers.cpp
         ],
         include_dirs=[
             str(cpp_dir.absolute()),
