@@ -34,8 +34,6 @@ cdef class PyPPU:
         Args:
             mmu_wrapper: Instancia de PyMMU (debe tener un atributo _mmu válido)
         """
-        print("[PyPPU __cinit__] Creando instancia de PPU en C++...")
-        
         # CRÍTICO: Verificar que mmu_wrapper y su puntero interno sean válidos
         if mmu_wrapper is None:
             raise ValueError("PyPPU: mmu_wrapper no puede ser None")
@@ -58,12 +56,9 @@ cdef class PyPPU:
         # Comprobación de seguridad: Asegurarse de que la creación fue exitosa
         if self._ppu == NULL:
             raise MemoryError("Falló la asignación de memoria para la PPU en C++.")
-        
-        print("[PyPPU __cinit__] Instancia de PPU en C++ creada exitosamente.")
     
     def __dealloc__(self):
         """Destructor: libera la memoria C++."""
-        print("[PyPPU __dealloc__] Liberando instancia de PPU en C++...")
         if self._ppu != NULL:
             del self._ppu
             self._ppu = NULL  # Buena práctica para evitar punteros colgantes
@@ -80,12 +75,9 @@ cdef class PyPPU:
         """
         # CRÍTICO: Verificar que el puntero C++ no sea nulo antes de usarlo
         if self._ppu == NULL:
-            print("[CYTHON CRITICAL] ¡El puntero PPU C++ (_ppu) es NULO! La creación falló en __cinit__.")
             return
         
-        print("[PyPPU::step] Llamando a PPU::step() desde Cython...")
         self._ppu.step(cpu_cycles)
-        print("[PyPPU::step] PPU::step() retornó a Cython exitosamente")
     
     def get_ly(self):
         """
@@ -197,19 +189,12 @@ cdef class PyPPU:
             # Retornar None si el puntero es NULL
             return None
         
-        print("[PyPPU::get_framebuffer] Llamando a get_framebuffer_ptr()...")
-        
         cdef uint8_t* ptr = self._ppu.get_framebuffer_ptr()
         
         if ptr == NULL:
-            print("[PyPPU::get_framebuffer CRITICAL] get_framebuffer_ptr() retornó NULL!")
             return None
         
-        print("[PyPPU::get_framebuffer] Puntero obtenido, creando memoryview...")
-        
         cdef unsigned char[:] view = <unsigned char[:144*160]>ptr
-        
-        print("[PyPPU::get_framebuffer] Memoryview creado, retornando...")
         
         return view
     
@@ -223,10 +208,15 @@ cdef class PyPPU:
         """
         return self.get_framebuffer()
     
-    # Método para obtener el puntero C++ como entero (para evitar problemas de conversión)
+    # Método para obtener el puntero C++ como entero (DEPRECADO: usar get_cpp_ptr() en su lugar)
     def get_cpp_ptr_as_int(self):
         """Obtiene el puntero C++ interno como entero (para uso en otros módulos Cython)."""
         if self._ppu == NULL:
             return 0
         return <long>self._ppu
+    
+    # Método para obtener el puntero C++ directamente (forma segura)
+    cdef ppu.PPU* get_cpp_ptr(self):
+        """Obtiene el puntero C++ interno directamente (para uso en otros módulos Cython)."""
+        return self._ppu
 

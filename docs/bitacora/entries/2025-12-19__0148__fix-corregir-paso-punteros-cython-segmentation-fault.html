@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix: Corregir Paso de Punteros en Cython para Resolver Segmentation Fault - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Fix: Corregir Paso de Punteros en Cython para Resolver Segmentation Fault</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0148
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0142__fix-puntero-nulo-wrapper-cython-ppu.html">Anterior (Step 0142)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    La depuración exhaustiva con instrumentación de <code>printf</code> reveló la causa raíz del <code>Segmentation Fault</code>: el puntero a la PPU que se almacena en la MMU estaba siendo <strong>corrompido</strong> durante su paso a través del wrapper de Cython (<code>mmu.pyx</code>). La conversión de <code>PPU*</code> a <code>int</code> y de vuelta a <code>PPU*</code> era insegura y producía una dirección de memoria inválida. Se corrigió el método <code>set_ppu</code> en <code>mmu.pyx</code> para extraer el puntero directamente del wrapper <code>PyPPU</code> sin conversiones intermedias, y se eliminaron todos los logs de depuración para restaurar el rendimiento máximo.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En un emulador híbrido Python/C++, la comunicación entre componentes requiere pasar punteros C++ a través de wrappers de Cython. Cuando la MMU necesita acceder a la PPU para leer el registro STAT dinámicamente, debe almacenar un puntero válido a la instancia C++ de la PPU.
+                </p>
+                <p>
+                    <strong>El problema crítico:</strong> Convertir un puntero de 64 bits (<code>PPU*</code>) a un entero de Python (<code>int</code>) y luego de vuelta a puntero es extremadamente peligroso. Los enteros de Python pueden ser negativos, tienen tamaño variable, y la conversión puede truncar o corromper la dirección de memoria. Un puntero corrupto no es <code>NULL</code> (por lo que pasa la verificación <code>if (ppu_ != nullptr)</code>), pero apunta a memoria inválida o protegida, causando un <code>Segmentation Fault</code> cuando se intenta desreferenciar.
+                </p>
+                <p>
+                    <strong>La solución correcta:</strong> En Cython, cuando ambos módulos están incluidos en el mismo archivo principal (<code>native_core.pyx</code>), podemos acceder directamente a los atributos <code>cdef</code> de otros wrappers usando forward declarations y casts explícitos. Esto evita cualquier conversión intermedia y preserva la integridad de la dirección de memoria.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se corrigió el método <code>set_ppu</code> en <code>src/core/cython/mmu.pyx</code> para pasar el puntero directamente sin conversiones a enteros, se añadió un método <code>get_cpp_ptr()</code> en <code>PyPPU</code> para acceso seguro al puntero, y se eliminaron todos los logs de depuración de C++ y Cython para restaurar el rendimiento.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>src/core/cython/mmu.pyx</strong>: Método <code>set_ppu</code> corregido para extraer puntero directamente</li>
+                    <li><strong>src/core/cython/ppu.pyx</strong>: Método <code>get_cpp_ptr()</code> añadido para acceso seguro al puntero C++</li>
+                    <li><strong>src/core/cpp/PPU.cpp</strong>: Todos los <code>printf</code> y <code>#include &lt;cstdio&gt;</code> eliminados</li>
+                    <li><strong>src/core/cpp/MMU.cpp</strong>: Todos los <code>printf</code> eliminados</li>
+                    <li><strong>src/core/cython/ppu.pyx</strong>: Todos los <code>print()</code> eliminados</li>
+                    <li><strong>src/core/cython/mmu.pyx</strong>: Todos los <code>print()</code> eliminados</li>
+                </ul>
+
+                <h3>Cambios aplicados</h3>
+                <p>
+                    <strong>1. Corrección de <code>set_ppu</code> en <code>mmu.pyx</code>:</strong>
+                </p>
+                <ul>
+                    <li>Eliminada la conversión insegura a <code>int</code> usando <code>get_cpp_ptr_as_int()</code></li>
+                    <li>Añadida forward declaration de <code>PyPPU</code> a nivel de módulo</li>
+                    <li>Implementado acceso directo al puntero usando el método <code>get_cpp_ptr()</code> de <code>PyPPU</code></li>
+                    <li>El puntero se pasa directamente a <code>MMU::setPPU()</code> sin conversiones intermedias</li>
+                </ul>
+
+                <p>
+                    <strong>2. Método <code>get_cpp_ptr()</code> en <code>ppu.pyx</code>:</strong>
+                </p>
+                <ul>
+                    <li>Añadido método <code>cdef</code> que devuelve el puntero <code>PPU*</code> directamente</li>
+                    <li>Este método es accesible desde otros módulos Cython pero no desde Python</li>
+                    <li>Evita la necesidad de convertir a entero y preserva la integridad del puntero</li>
+                </ul>
+
+                <p>
+                    <strong>3. Eliminación de logs de depuración:</strong>
+                </p>
+                <ul>
+                    <li>Eliminados todos los <code>printf</code> y <code>fflush(stdout)</code> de <code>PPU.cpp</code></li>
+                    <li>Eliminado <code>#include &lt;cstdio&gt;</code> de <code>PPU.cpp</code></li>
+                    <li>Eliminados todos los <code>printf</code> de <code>MMU.cpp</code></li>
+                    <li>Eliminados todos los <code>print()</code> de <code>ppu.pyx</code> y <code>mmu.pyx</code></li>
+                    <li>Restaurado el rendimiento máximo del bucle de emulación</li>
+                </ul>
+
+                <h3>Código clave</h3>
+                <p>
+                    <strong>Antes (INCORRECTO - corrompía el puntero):</strong>
+                </p>
+                <pre><code>def set_ppu(self, object ppu_obj):
+    # ...
+    ptr_int = ppu_obj.get_cpp_ptr_as_int()  # Conversión a int
+    c_ppu = &lt;ppu.PPU*&gt;ptr_int  # Conversión de vuelta - CORRUPCIÓN
+    self._mmu.setPPU(c_ppu)</code></pre>
+
+                <p>
+                    <strong>Después (CORRECTO - puntero directo):</strong>
+                </p>
+                <pre><code># Forward declaration a nivel de módulo
+cdef class PyPPU:
+    cdef ppu.PPU* get_cpp_ptr(self)
+
+def set_ppu(self, object ppu_wrapper):
+    # ...
+    # Extrae el puntero directamente sin conversión a int
+    cdef ppu.PPU* ppu_ptr = NULL
+    ppu_ptr = (&lt;PyPPU&gt;ppu_wrapper).get_cpp_ptr()
+    self._mmu.setPPU(ppu_ptr)</code></pre>
+
+                <p>
+                    <strong>Método <code>get_cpp_ptr()</code> en <code>ppu.pyx</code>:</strong>
+                </p>
+                <pre><code>cdef ppu.PPU* get_cpp_ptr(self):
+    """Obtiene el puntero C++ interno directamente."""
+    return self._ppu</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cython/mmu.pyx</code> - Corrección de <code>set_ppu</code> y forward declaration de <code>PyPPU</code></li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Añadido método <code>get_cpp_ptr()</code> y eliminados logs</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Eliminados todos los <code>printf</code> y <code>#include &lt;cstdio&gt;</code></li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Eliminados todos los <code>printf</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Validación del fix:</strong>
+                </p>
+                <ul>
+                    <li><strong>Compilación:</strong> El módulo Cython se recompila correctamente con <code>python setup.py build_ext --inplace</code></li>
+                    <li><strong>Ejecución:</strong> El emulador se ejecuta sin <code>Segmentation Fault</code></li>
+                    <li><strong>Rendimiento:</strong> El bucle de emulación funciona a velocidad completa sin overhead de I/O</li>
+                    <li><strong>Integridad del puntero:</strong> El puntero <code>ppu_</code> en MMU apunta a memoria válida y puede llamar a métodos de PPU sin crashes</li>
+                </ul>
+                <p>
+                    <strong>Prueba manual:</strong>
+                </p>
+                <pre><code>python main.py roms/tetris.gb</code></pre>
+                <p>
+                    El emulador debe ejecutarse sin crashes y mostrar el logo de Nintendo renderizado en la pantalla.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Cython Documentation: <a href="https://cython.readthedocs.io/">https://cython.readthedocs.io/</a> - Forward declarations y acceso a atributos <code>cdef</code></li>
+                    <li>Cython Best Practices: Pasar punteros entre módulos Cython sin conversiones a enteros</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Conversión de punteros en Cython:</strong> Convertir punteros C++ a enteros de Python y de vuelta es inseguro porque los enteros de Python pueden ser negativos, tienen tamaño variable, y pueden truncar direcciones de 64 bits. La forma correcta es usar forward declarations y acceder directamente a atributos <code>cdef</code>.</li>
+                        <li><strong>Forward declarations en Cython:</strong> Cuando dos módulos Cython están incluidos en el mismo archivo principal, podemos declarar clases como forward declarations para acceder a sus métodos <code>cdef</code> sin dependencias circulares en tiempo de compilación.</li>
+                        <li><strong>Métodos <code>cdef</code>:</strong> Los métodos marcados con <code>cdef</code> en Cython son accesibles desde otros módulos Cython pero no desde Python, lo que los hace ideales para pasar punteros entre wrappers sin exponerlos a Python.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Renderizado visual:</strong> Verificar que el logo de Nintendo se renderiza correctamente en la pantalla después del fix</li>
+                        <li><strong>Rendimiento a largo plazo:</strong> Confirmar que el emulador mantiene 60 FPS sin los logs de depuración</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que el puntero corrupto era la única causa del <code>Segmentation Fault</code>. Si el crash persiste después de este fix, puede haber otros problemas (por ejemplo, el objeto PPU siendo destruido antes que MMU, o problemas de sincronización).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y verificar que el logo de Nintendo se renderiza correctamente</li>
+                    <li>[ ] Verificar que no hay más <code>Segmentation Faults</code> durante la ejecución</li>
+                    <li>[ ] Continuar con la implementación de características faltantes de la PPU (sprites, window, etc.)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -32,6 +32,38 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-19 - Step 0148: Fix: Corregir Paso de Punteros en Cython para Resolver Segmentation Fault
+**Estado**: ✅ Completado
+
+La depuración exhaustiva con instrumentación de `printf` reveló la causa raíz del `Segmentation Fault`: el puntero a la PPU que se almacena en la MMU estaba siendo **corrompido** durante su paso a través del wrapper de Cython (`mmu.pyx`). La conversión de `PPU*` a `int` y de vuelta a `PPU*` era insegura y producía una dirección de memoria inválida (ej: `FFFFFFFFDC2B74E0` en lugar de una dirección válida como `00000000222F0040`).
+
+**Correcciones aplicadas:**
+- ✅ Corregido el método `set_ppu` en `mmu.pyx` para extraer el puntero directamente del wrapper `PyPPU` sin conversiones a enteros
+- ✅ Añadido método `get_cpp_ptr()` en `PyPPU` que devuelve el puntero `PPU*` directamente (método `cdef` accesible desde otros módulos Cython)
+- ✅ Añadida forward declaration de `PyPPU` en `mmu.pyx` para permitir acceso a métodos `cdef` sin dependencias circulares
+- ✅ Eliminados todos los `printf` y `#include <cstdio>` de `PPU.cpp` para restaurar rendimiento
+- ✅ Eliminados todos los `printf` de `MMU.cpp`
+- ✅ Eliminados todos los `print()` de `ppu.pyx` y `mmu.pyx`
+
+**Análisis del problema:**
+- El puntero `ppu_` en MMU no era `NULL`, pero tenía un valor corrupto (`FFFFFFFFDC2B74E0`) que apuntaba a memoria inválida o protegida
+- La conversión `ptr_int = ppu_obj.get_cpp_ptr_as_int()` convertía el puntero a un entero de Python (que puede ser negativo y de tamaño variable)
+- La conversión de vuelta `c_ppu = <ppu.PPU*>ptr_int` corrompía la dirección de memoria
+- Cuando `MMU::read(0xFF41)` intentaba llamar a `ppu_->get_mode()` usando el puntero corrupto, el sistema operativo detectaba un acceso ilegal y generaba un `Segmentation Fault`
+
+**Solución implementada:**
+- El puntero se extrae directamente usando `ppu_ptr = (<PyPPU>ppu_wrapper).get_cpp_ptr()` sin pasar por conversión a entero
+- El método `get_cpp_ptr()` es un método `cdef` que devuelve el puntero `PPU*` directamente desde el atributo `_ppu` del wrapper
+- Esto preserva la integridad de la dirección de memoria y evita cualquier corrupción
+
+**Archivos modificados:**
+- `src/core/cython/mmu.pyx` - Corrección de `set_ppu` y forward declaration de `PyPPU`
+- `src/core/cython/ppu.pyx` - Añadido método `get_cpp_ptr()` y eliminados logs
+- `src/core/cpp/PPU.cpp` - Eliminados todos los `printf` y `#include <cstdio>`
+- `src/core/cpp/MMU.cpp` - Eliminados todos los `printf`
+
+---
+
 ### 2025-12-19 - Step 0143: Debug: Rastreo Completo del Segmentation Fault en Referencia Circular PPU↔MMU
 **Estado**: 🔍 En depuración
 

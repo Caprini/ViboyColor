@@ -16,7 +16,10 @@ cimport ppu
 
 # NOTA: PyPPU se define en ppu.pyx, pero como native_core.pyx incluye ambos módulos,
 # PyPPU estará disponible en tiempo de ejecución. Para evitar dependencia circular,
-# usamos una función helper que accede al atributo _ppu directamente.
+# declaramos PyPPU como forward declaration aquí.
+cdef class PyPPU:
+    """Forward declaration de PyPPU para uso en set_ppu()."""
+    cdef ppu.PPU* get_cpp_ptr(self)
 
 cdef class PyMMU:
     """
@@ -147,36 +150,34 @@ cdef class PyMMU:
         self.write(addr, lsb)
         self.write((addr + 1) & 0xFFFF, msb)
     
-    def set_ppu(self, object ppu_obj):
+    def set_ppu(self, object ppu_wrapper):
         """
-        Establece el puntero a la PPU para permitir lectura dinámica del registro STAT.
+        Conecta la PPU a la MMU.
         
-        El registro STAT (0xFF41) tiene bits de solo lectura (0-2) que son actualizados
-        dinámicamente por la PPU. Para leer el valor correcto, la MMU necesita llamar
-        a PPU::get_stat() cuando se lee 0xFF41.
+        Esta es la forma correcta y segura de pasar punteros entre objetos envueltos.
+        El puntero PPU* se extrae directamente del wrapper PyPPU sin conversiones
+        intermedias a enteros, evitando la corrupción de la dirección de memoria.
         
         Args:
-            ppu_obj: Instancia de PyPPU (debe tener un método get_cpp_ptr_as_int())
+            ppu_wrapper: Instancia de PyPPU
         """
-        print("[PyMMU::set_ppu] Llamado con ppu_obj:", ppu_obj)
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        if ppu_wrapper is None:
+            raise ValueError("Se intentó conectar una PPU nula a la MMU.")
+
+        # --- CORRECCIÓN CRÍTICA ---
+        # Extrae el puntero PPU* directamente del objeto wrapper PyPPU
+        # usando el método get_cpp_ptr() que devuelve el puntero directamente
+        # sin pasar por conversión a int (que corrompía la dirección de memoria)
+        # PyPPU está declarado como forward declaration a nivel de módulo
+        cdef ppu.PPU* ppu_ptr = NULL
         
-        # Usar object en lugar de PyPPU para evitar dependencia circular en tiempo de compilación
-        # En tiempo de ejecución, ppu_obj será una instancia de PyPPU
-        cdef ppu.PPU* c_ppu = NULL
-        cdef long ptr_int
-        if ppu_obj is not None:
-            # Llamar al método get_cpp_ptr_as_int() que devuelve el puntero como entero
-            # Luego convertimos el entero de vuelta a puntero C++
-            ptr_int = ppu_obj.get_cpp_ptr_as_int()
-            print(f"[PyMMU::set_ppu] ptr_int obtenido: {ptr_int} (0x{ptr_int:X})")
-            c_ppu = <ppu.PPU*>ptr_int
-            print(f"[PyMMU::set_ppu] c_ppu convertido: {<long>c_ppu} (0x{<long>c_ppu:X})")
-        else:
-            print("[PyMMU::set_ppu] ppu_obj es None, configurando c_ppu a NULL")
-        
-        print("[PyMMU::set_ppu] Llamando a _mmu.setPPU()...")
-        self._mmu.setPPU(c_ppu)
-        print("[PyMMU::set_ppu] setPPU() completado")
+        # Hacer el cast a PyPPU y llamar al método get_cpp_ptr()
+        ppu_ptr = (<PyPPU>ppu_wrapper).get_cpp_ptr()
+
+        # Llama al método C++ con el puntero C++ correcto
+        self._mmu.setPPU(ppu_ptr)
     
     # NOTA: El miembro _mmu es accesible desde otros módulos Cython
     # que incluyan este archivo (como cpu.pyx)

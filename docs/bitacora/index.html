@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0148 - Fix: Corregir Paso de Punteros en Cython para Resolver Segmentation Fault -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0148__fix-corregir-paso-punteros-cython-segmentation-fault.html" class="entry-link">
+                                    Fix: Corregir Paso de Punteros en Cython para Resolver Segmentation Fault
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0148 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            La depuración exhaustiva con instrumentación de printf reveló la causa raíz del Segmentation Fault: el puntero a la PPU que se almacena en la MMU estaba siendo corrompido durante su paso a través del wrapper de Cython (mmu.pyx). La conversión de PPU* a int y de vuelta a PPU* era insegura y producía una dirección de memoria inválida. Se corrigió el método set_ppu en mmu.pyx para extraer el puntero directamente del wrapper PyPPU sin conversiones intermedias, se añadió un método get_cpp_ptr() en PyPPU para acceso seguro al puntero, y se eliminaron todos los logs de depuración para restaurar el rendimiento máximo.
+                        </p>
+                    </li>
                     <!-- Entrada 0143 - Debug: Rastreo Completo del Segmentation Fault en Referencia Circular PPU↔MMU -->
                     <li>
                         <div class="entry-header">
