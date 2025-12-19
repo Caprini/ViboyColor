@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPU Nativa: Implementación de I/O Básico (LDH) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>CPU Nativa: Implementación de I/O Básico (LDH)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0134
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0133__cpu-nativa-implementacion-inc-dec-bucles-inicializacion.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementaron las instrucciones de I/O de memoria alta <strong>LDH (n), A</strong> (0xE0) y 
+                    <strong>LDH A, (n)</strong> (0xF0) en la CPU nativa (C++). Estas instrucciones son críticas 
+                    para la comunicación entre la CPU y los registros de hardware (PPU, Timer, etc.). El diagnóstico 
+                    reveló que el opcode 0xE0 era el siguiente eslabón perdido que causaba el Segmentation Fault 
+                    cuando el emulador intentaba ejecutar ROMs reales.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La Game Boy tiene un espacio de memoria mapeado de 64KB (0x0000-0xFFFF). El rango 
+                    <strong>0xFF00-0xFFFF</strong> está reservado para los registros de hardware (I/O). Estos 
+                    registros controlan componentes críticos como:
+                </p>
+                <ul>
+                    <li><strong>0xFF40 (LCDC)</strong>: Control de la PPU (LCD habilitado, sprites, background, etc.)</li>
+                    <li><strong>0xFF41 (STAT)</strong>: Estado de la PPU (modo actual, interrupciones, etc.)</li>
+                    <li><strong>0xFF47 (BGP)</strong>: Paleta de colores del background</li>
+                    <li><strong>0xFF00 (JOYP)</strong>: Estado del joypad</li>
+                    <li><strong>0xFF04-0xFF07</strong>: Registros del Timer</li>
+                </ul>
+                <p>
+                    La instrucción <strong>LDH</strong> (Load High) es una optimización del hardware que permite 
+                    acceder a estos registros de forma más eficiente que una instrucción LD estándar. LDH calcula 
+                    la dirección como <code>0xFF00 + n</code>, donde <code>n</code> es un byte inmediato (0-255). 
+                    Esto permite acceder a cualquier registro en el rango 0xFF00-0xFFFF con solo 3 M-Cycles, 
+                    en lugar de los 4 M-Cycles que requeriría una instrucción LD indirecta.
+                </p>
+                <p>
+                    <strong>¿Por qué es crítico?</strong> Cuando un juego inicia, lo primero que hace es configurar 
+                    estos registros de hardware. Sin LDH, la CPU no puede escribir en LCDC, BGP, o cualquier otro 
+                    registro de I/O, lo que impide que la PPU se inicialice correctamente y causa que el emulador 
+                    crashee al intentar ejecutar instrucciones inválidas.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - CPU Instruction Set, sección "LDH (n), A" y "LDH A, (n)"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadieron dos casos al switch principal de <code>CPU::step()</code> para manejar los opcodes 
+                    0xE0 y 0xF0. La implementación es directa: lee el offset inmediato, calcula la dirección 
+                    <code>0xFF00 + offset</code>, y realiza la operación de lectura o escritura correspondiente.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>src/core/cpp/CPU.cpp</strong>: Añadidos casos 0xE0 y 0xF0 en el switch principal</li>
+                    <li><strong>tests/test_core_cpu_io.py</strong>: Suite completa de tests para LDH (nuevo archivo)</li>
+                </ul>
+
+                <h3>Código Implementado</h3>
+                <p>
+                    Implementación de <code>LDH (n), A</code> (0xE0):
+                </p>
+                <pre><code>case 0xE0:  // LDH (n), A
+{
+    uint8_t offset = fetch_byte();
+    uint16_t addr = 0xFF00 + static_cast&lt;uint16_t&gt;(offset);
+    mmu_-&gt;write(addr, regs_-&gt;a);
+    cycles_ += 3;
+    return 3;
+}</code></pre>
+                <p>
+                    Implementación de <code>LDH A, (n)</code> (0xF0):
+                </p>
+                <pre><code>case 0xF0:  // LDH A, (n)
+{
+    uint8_t offset = fetch_byte();
+    uint16_t addr = 0xFF00 + static_cast&lt;uint16_t&gt;(offset);
+    regs_-&gt;a = mmu_-&gt;read(addr);
+    cycles_ += 3;
+    return 3;
+}</code></pre>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Timing:</strong> Ambas instrucciones consumen 3 M-Cycles según Pan Docs. Esto es consistente 
+                    con el hecho de que requieren leer un byte inmediato (1 M-Cycle) y realizar una operación de 
+                    memoria (2 M-Cycles adicionales).
+                </p>
+                <p>
+                    <strong>Cast explícito:</strong> Se usa <code>static_cast&lt;uint16_t&gt;(offset)</code> para evitar 
+                    warnings del compilador y hacer explícita la promoción de tipos. El offset es un uint8_t (0-255), 
+                    pero la suma con 0xFF00 requiere un uint16_t.
+                </p>
+                <p>
+                    <strong>No hay validación de rango:</strong> No se valida que la dirección resultante esté en el 
+                    rango 0xFF00-0xFFFF porque matemáticamente siempre lo estará (0xFF00 + 0x00 = 0xFF00, 
+                    0xFF00 + 0xFF = 0xFFFF). La MMU es responsable de manejar accesos inválidos de forma segura.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadidos casos 0xE0 y 0xF0 en el switch principal (líneas ~906-930)</li>
+                    <li><code>tests/test_core_cpu_io.py</code> - Suite completa de tests para LDH (nuevo archivo, 5 tests)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests unitarios en <code>test_core_cpu_io.py</code> que valida:
+                </p>
+                <ul>
+                    <li><strong>test_ldh_write</strong>: Verifica que LDH (n), A escribe correctamente en 0xFF00 + n</li>
+                    <li><strong>test_ldh_read</strong>: Verifica que LDH A, (n) lee correctamente de 0xFF00 + n</li>
+                    <li><strong>test_ldh_write_lcdc</strong>: Caso específico para escribir en LCDC (0xFF40)</li>
+                    <li><strong>test_ldh_read_stat</strong>: Caso específico para leer de STAT (0xFF41)</li>
+                    <li><strong>test_ldh_offset_wraparound</strong>: Verifica que offsets grandes (0xFF) funcionan correctamente</li>
+                </ul>
+                <p>
+                    <strong>Comando ejecutado:</strong>
+                </p>
+                <pre><code>pytest tests/test_core_cpu_io.py -v</code></pre>
+                <p>
+                    <strong>Resultado esperado:</strong> 5 tests pasando
+                </p>
+                <p>
+                    <strong>Código del Test (ejemplo):</strong>
+                </p>
+                <pre><code>def test_ldh_write(self):
+    """Test: LDH (n), A (0xE0) escribe A en 0xFF00 + n."""
+    mmu = PyMMU()
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    
+    regs.pc = 0x8000
+    regs.a = 0xAB
+    mmu.write(0x8000, 0xE0)  # Opcode LDH (n), A
+    mmu.write(0x8001, 0x40)  # offset 'n' (para 0xFF40 - LCDC)
+    
+    cycles = cpu.step()
+    
+    assert mmu.read(0xFF40) == 0xAB
+    assert regs.pc == 0x8002
+    assert cycles == 3</code></pre>
+                <p>
+                    <strong>Validación Nativa:</strong> Todos los tests validan el módulo compilado C++ a través 
+                    del wrapper Cython. No hay código Python intermedio; la CPU nativa ejecuta directamente las 
+                    instrucciones LDH.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs</strong>: CPU Instruction Set, sección "LDH (n), A" y "LDH A, (n)" - Timing: 3 M-Cycles</li>
+                    <li><strong>Pan Docs</strong>: Memory Map, sección "I/O Registers" (0xFF00-0xFFFF)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>LDH es una optimización del hardware:</strong> Permite acceder a registros de I/O 
+                        con menos ciclos que una instrucción LD indirecta estándar. Esto es crítico porque los juegos 
+                        acceden constantemente a estos registros durante la ejecución.</li>
+                        <li><strong>El rango 0xFF00-0xFFFF es mapeado a hardware:</strong> Cada dirección en este 
+                        rango corresponde a un registro específico del hardware. La CPU no puede simplemente "escribir 
+                        en memoria" aquí; cada escritura tiene efectos secundarios en el hardware emulado.</li>
+                        <li><strong>La inicialización del juego depende de LDH:</strong> Sin esta instrucción, los 
+                        juegos no pueden configurar la PPU, el Timer, o cualquier otro componente de hardware, lo que 
+                        causa que el emulador crashee inmediatamente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento de registros de solo lectura:</strong> Algunos registros de I/O son 
+                        de solo lectura (ej: STAT tiene bits de solo lectura). La MMU debería manejar esto, pero 
+                        necesitamos verificar que los juegos no intenten escribir en estos registros de forma incorrecta.</li>
+                        <li><strong>Efectos secundarios de escritura:</strong> Algunos registros tienen efectos 
+                        secundarios cuando se escriben (ej: escribir en DIV resetea el contador). Esto se implementará 
+                        cuando migremos el Timer a C++.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición:</strong> Asumimos que la MMU maneja correctamente los accesos a registros 
+                        de I/O. En la implementación actual, la MMU simplemente lee/escribe en memoria, pero en el 
+                        futuro necesitaremos implementar mapeo específico para cada registro de hardware (ej: cuando se 
+                        escribe en DIV, resetear el contador).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con una ROM real (ej: Tetris) y verificar que avanza más allá del opcode 0xE0</li>
+                    <li>[ ] Identificar el siguiente opcode no implementado que cause el siguiente crash</li>
+                    <li>[ ] Implementar más instrucciones de I/O si es necesario (ej: LD (C), A y LD A, (C))</li>
+                    <li>[ ] Verificar que la PPU puede recibir configuraciones correctamente a través de LDH</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

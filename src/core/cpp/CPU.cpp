@@ -915,6 +915,35 @@ int CPU::step() {
                 return 1;
             }
 
+        // ========== I/O de Memoria Alta (LDH) ==========
+        // LDH es una instrucción optimizada para acceder a los registros de hardware
+        // en el rango 0xFF00-0xFFFF. Es equivalente a LD pero más rápida (3 M-Cycles vs 4).
+        // Fuente: Pan Docs - LDH (n), A y LDH A, (n): 3 M-Cycles
+        
+        case 0xE0:  // LDH (n), A (Load A to High Memory I/O)
+            // Escribe el valor del registro A en la dirección 0xFF00 + n
+            // Donde 'n' es el siguiente byte leído de memoria
+            // Esta instrucción se usa para configurar registros de hardware (LCDC, BGP, etc.)
+            {
+                uint8_t offset = fetch_byte();
+                uint16_t addr = 0xFF00 + static_cast<uint16_t>(offset);
+                mmu_->write(addr, regs_->a);
+                cycles_ += 3;  // LDH (n), A consume 3 M-Cycles
+                return 3;
+            }
+
+        case 0xF0:  // LDH A, (n) (Load from High Memory I/O to A)
+            // Lee el valor de la dirección 0xFF00 + n y lo carga en el registro A
+            // Donde 'n' es el siguiente byte leído de memoria
+            // Esta instrucción se usa para leer registros de hardware (STAT, etc.)
+            {
+                uint8_t offset = fetch_byte();
+                uint16_t addr = 0xFF00 + static_cast<uint16_t>(offset);
+                regs_->a = mmu_->read(addr);
+                cycles_ += 3;  // LDH A, (n) consume 3 M-Cycles
+                return 3;
+            }
+
         case 0xCB:  // CB Prefix (Extended Instructions)
             // Prefijo para instrucciones extendidas (256 instrucciones adicionales)
             // El siguiente byte se interpreta con una tabla diferente

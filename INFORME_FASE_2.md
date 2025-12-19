@@ -32,6 +32,30 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-19 - Step 0134: CPU Nativa: Implementación de I/O Básico (LDH)
+**Estado**: ✅ Completado
+
+Se implementaron las instrucciones de I/O de memoria alta **LDH (n), A** (0xE0) y **LDH A, (n)** (0xF0) en la CPU nativa (C++). Estas instrucciones son críticas para la comunicación entre la CPU y los registros de hardware (PPU, Timer, etc.). El diagnóstico reveló que el opcode 0xE0 era el siguiente eslabón perdido que causaba el Segmentation Fault cuando el emulador intentaba ejecutar ROMs reales.
+
+**Problema identificado**:
+El opcode `0xE0` (LDH (n), A) no estaba implementado. Los juegos ejecutan bucles de inicialización que configuran los registros de hardware (LCDC, BGP, STAT, etc.) usando LDH. Sin esta instrucción, la CPU no puede escribir en estos registros, impidiendo que la PPU y otros componentes se inicialicen correctamente, lo que causa que el emulador crashee al intentar ejecutar instrucciones inválidas.
+
+**Implementación**:
+- ✅ Opcode 0xE0 (LDH (n), A): Escribe el valor de A en la dirección 0xFF00 + n
+- ✅ Opcode 0xF0 (LDH A, (n)): Lee el valor de la dirección 0xFF00 + n y lo carga en A
+- ✅ Timing correcto: 3 M-Cycles para ambas instrucciones (según Pan Docs)
+- ✅ Suite completa de tests unitarios (`test_core_cpu_io.py`)
+
+**Archivos creados/modificados**:
+- `src/core/cpp/CPU.cpp` - Añadidos casos 0xE0 y 0xF0 en el switch principal
+- `tests/test_core_cpu_io.py` - Suite completa de tests (nuevo archivo, 5 tests)
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0134__cpu-nativa-implementacion-io-basico-ldh.html`
+
+**Fuentes**: Pan Docs - CPU Instruction Set, sección "LDH (n), A" y "LDH A, (n)": 3 M-Cycles
+
+---
+
 ### 2025-12-19 - Step 0133: CPU Nativa: Implementación de INC/DEC y Arreglo del Bucle de Inicialización
 **Estado**: ✅ Completado
 
