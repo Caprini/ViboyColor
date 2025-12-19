@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 1203 - Fix de Compatibilidad API MMU y Numpy -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__1203__fix-compatibilidad-api-mmu-numpy.html" class="entry-link">
+                                    Fix de Compatibilidad API MMU y Numpy
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 1203 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Al ejecutar el emulador con el núcleo C++ migrado, aparecieron dos errores críticos: (1) falta de numpy para el framebuffer Zero-Copy, y (2) incompatibilidad de API porque el wrapper PyMMU expone métodos `read()`/`write()` pero el código Python espera `read_byte()`/`write_byte()`. Se implementaron métodos de compatibilidad (aliases) en el wrapper PyMMU, incluyendo `read_word()` y `write_word()` con correcta implementación Little-Endian, manteniendo retrocompatibilidad con el código Python existente.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0115 - Fix de Inicialización PPU C++ y Debug Visual -->
                     <li>
                         <div class="entry-header">
