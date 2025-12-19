@@ -91,6 +91,28 @@ def main() -> None:
                 logging.error("Error: Se requiere especificar una ROM")
         sys.exit(1)
     
+    # Verificar dependencias críticas antes de continuar
+    try:
+        import pygame
+        pygame_available = True
+    except ImportError:
+        pygame_available = False
+        error_msg = "❌ ERROR: Pygame no está instalado.\n\nInstala con: pip install pygame-ce"
+        if has_console:
+            print(f"\n{error_msg}")
+        else:
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    error_msg,
+                    "Viboy Color - Error",
+                    0x10  # MB_ICONERROR
+                )
+            except Exception:
+                logging.error(error_msg)
+        sys.exit(1)
+    
     # Inicializar sistema Viboy
     try:
         viboy = Viboy(args.rom)
@@ -137,6 +159,9 @@ def main() -> None:
         error_msg = f"Error al cargar ROM: {e}"
         if has_console:
             print(f"\n❌ {error_msg}")
+            if args.debug or args.verbose:
+                import traceback
+                traceback.print_exc()
         else:
             # En modo windowed, mostrar diálogo de error
             try:
@@ -154,6 +179,9 @@ def main() -> None:
         error_msg = f"Error de ejecución: {e}"
         if has_console:
             print(f"\n❌ {error_msg}")
+            if args.debug or args.verbose:
+                import traceback
+                traceback.print_exc()
         else:
             # En modo windowed, mostrar diálogo de error
             try:
@@ -166,6 +194,31 @@ def main() -> None:
                 )
             except Exception:
                 logging.error(error_msg)
+        sys.exit(1)
+    except Exception as e:
+        # Capturar TODAS las demás excepciones (ImportError, AttributeError, etc.)
+        error_msg = f"Error inesperado: {e}"
+        if has_console:
+            print(f"\n❌ {error_msg}")
+            print("\nTraceback completo:")
+            import traceback
+            traceback.print_exc()
+            print("\n💡 Sugerencias:")
+            print("   - Ejecuta con --verbose para más información")
+            print("   - Ejecuta con --debug para trazas detalladas")
+            print("   - Verifica que todas las dependencias estén instaladas: pip install -r requirements.txt")
+        else:
+            # En modo windowed, mostrar diálogo de error
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    f"{error_msg}\n\nRevisa la consola para más detalles.",
+                    "Viboy Color - Error",
+                    0x10  # MB_ICONERROR
+                )
+            except Exception:
+                logging.error(error_msg, exc_info=True)
         sys.exit(1)
 
 

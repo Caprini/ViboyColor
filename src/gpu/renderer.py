@@ -424,7 +424,12 @@ class Renderer:
                 # Obtener framebuffer como memoryview (Zero-Copy)
                 # El framebuffer es ahora uint8_t con índices de color (0-3) en formato 1D
                 # Organización: píxel (y, x) está en índice [y * 160 + x]
-                frame_indices = self.cpp_ppu.framebuffer  # 1D array de 23040 elementos
+                frame_indices = self.cpp_ppu.get_framebuffer()  # 1D array de 23040 elementos
+                
+                # CRÍTICO: Verificar que el framebuffer sea válido
+                if frame_indices is None:
+                    logger.error("[Renderer] Framebuffer es None - PPU puede no estar inicializada")
+                    return
                 
                 # DIAGNÓSTICO TEMPORAL: Verificar que el framebuffer se lee correctamente
                 static_frame_count = getattr(self, '_frame_count', 0)

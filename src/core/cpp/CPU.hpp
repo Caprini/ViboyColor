@@ -252,6 +252,44 @@ private:
      */
     inline void alu_xor(uint8_t value);
 
+    /**
+     * Incrementa un valor de 8 bits y actualiza flags.
+     * 
+     * IMPORTANTE: El flag C NO se modifica (preservado).
+     * Esta es una peculiaridad del hardware de la Game Boy.
+     * 
+     * Flags actualizados:
+     * - Z: 1 si resultado == 0, 0 en caso contrario
+     * - N: 0 (siempre, es incremento)
+     * - H: 1 si hay half-carry (bit 3 -> 4), 0 en caso contrario
+     * - C: NO afectado (mantiene valor anterior)
+     * 
+     * @param value Valor a incrementar
+     * @return Resultado incrementado
+     * 
+     * Fuente: Pan Docs - INC r: "C flag is not affected"
+     */
+    uint8_t alu_inc(uint8_t value);
+
+    /**
+     * Decrementa un valor de 8 bits y actualiza flags.
+     * 
+     * IMPORTANTE: El flag C NO se modifica (preservado).
+     * Esta es una peculiaridad del hardware de la Game Boy.
+     * 
+     * Flags actualizados:
+     * - Z: 1 si resultado == 0, 0 en caso contrario
+     * - N: 1 (siempre, es decremento)
+     * - H: 1 si hay half-borrow (bit 4 -> 3), 0 en caso contrario
+     * - C: NO afectado (mantiene valor anterior)
+     * 
+     * @param value Valor a decrementar
+     * @return Resultado decrementado
+     * 
+     * Fuente: Pan Docs - DEC r: "C flag is not affected"
+     */
+    uint8_t alu_dec(uint8_t value);
+
     // ========== Helpers de Load (Transferencia de Datos) ==========
     
     /**

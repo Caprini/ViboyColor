@@ -747,12 +747,17 @@ class Viboy:
                     if self._ppu is not None:
                         # Actualizar PPU con exactamente 456 ciclos (una línea completa)
                         # Los ciclos sobrantes (si los hay) se procesarán en la siguiente línea
-                        if self._use_cpp:
-                            # PPU C++: usar método step directamente
-                            self._ppu.step(CYCLES_PER_LINE)
-                        else:
-                            # PPU Python: usar método step
-                            self._ppu.step(CYCLES_PER_LINE)
+                        try:
+                            if self._use_cpp:
+                                # PPU C++: usar método step directamente
+                                self._ppu.step(CYCLES_PER_LINE)
+                            else:
+                                # PPU Python: usar método step
+                                self._ppu.step(CYCLES_PER_LINE)
+                        except Exception as e:
+                            logger.error(f"Error crítico en PPU.step(): {e}", exc_info=True)
+                            # Si hay un error crítico, detener la ejecución
+                            raise
                     
                     # DIAGNÓSTICO: Verificar ciclos ejecutados en el scanline
                     # Si line_cycles es 0, hay un problema en la CPU C++

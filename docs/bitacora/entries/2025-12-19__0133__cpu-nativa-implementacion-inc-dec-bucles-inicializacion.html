@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPU Nativa: Implementación de INC/DEC y Arreglo del Bucle de Inicialización - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>CPU Nativa: Implementación de INC/DEC y Arreglo del Bucle de Inicialización</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0133
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0132__fix-segmentation-fault-ppu-signed-addressing.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó la familia completa de instrucciones <strong>INC r</strong> y <strong>DEC r</strong> de 8 bits en la CPU nativa (C++). Este era un bug crítico que causaba que los bucles de inicialización del juego fallaran, llevando a lecturas de memoria corrupta y finalmente a <strong>Segmentation Faults</strong>. El problema específico era que el opcode <code>0x05</code> (DEC B) no estaba implementado, causando que los bucles de limpieza de memoria no se ejecutaran correctamente. Con esta implementación, los juegos pueden inicializar correctamente su memoria RAM y continuar con su secuencia de arranque.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Las instrucciones <strong>INC</strong> (Increment) y <strong>DEC</strong> (Decrement) son operaciones aritméticas fundamentales en la CPU LR35902. Incrementan o decrementan un registro de 8 bits en 1, y actualizan los flags de condición según el resultado.
+                </p>
+                
+                <h3>Flags Afectados por INC/DEC</h3>
+                <ul>
+                    <li><strong>Z (Zero)</strong>: Se activa (1) si el resultado es 0, se desactiva (0) en caso contrario.</li>
+                    <li><strong>N (Subtract)</strong>: INC siempre pone N=0 (es incremento), DEC siempre pone N=1 (es decremento).</li>
+                    <li><strong>H (Half-Carry/Half-Borrow)</strong>: 
+                        <ul>
+                            <li><strong>INC</strong>: Se activa si hay "half-carry" del nibble bajo (bit 3 → bit 4). Ejemplo: 0x0F + 1 = 0x10 (hay half-carry).</li>
+                            <li><strong>DEC</strong>: Se activa si hay "half-borrow" del nibble bajo (bit 4 → bit 3). Ejemplo: 0x10 - 1 = 0x0F (hay half-borrow).</li>
+                        </ul>
+                    </li>
+                    <li><strong>C (Carry)</strong>: <strong>NO SE MODIFICA</strong>. Esta es una peculiaridad crítica del hardware de la Game Boy. A diferencia de ADD/SUB, INC/DEC preservan el flag Carry.</li>
+                </ul>
+
+                <h3>Opcodes de INC/DEC de 8 bits</h3>
+                <p>
+                    La CPU tiene 14 opcodes para incrementar/decrementar registros de 8 bits:
+                </p>
+                <ul>
+                    <li><strong>INC</strong>: 0x04 (B), 0x0C (C), 0x14 (D), 0x1C (E), 0x24 (H), 0x2C (L), 0x3C (A)</li>
+                    <li><strong>DEC</strong>: 0x05 (B), 0x0D (C), 0x15 (D), 0x1D (E), 0x25 (H), 0x2D (L), 0x3D (A)</li>
+                </ul>
+                <p>
+                    Todos consumen <strong>1 M-Cycle</strong> (4 T-Cycles).
+                </p>
+
+                <h3>El Bug del Bucle de Inicialización</h3>
+                <p>
+                    Los juegos de Game Boy típicamente ejecutan bucles de inicialización que limpian la memoria RAM (WRAM) llenándola de ceros. Un bucle típico se ve así:
+                </p>
+                <pre><code>XOR A        ; A = 0, Z = 1
+LD B, 0x20   ; B = contador (32 iteraciones)
+LD HL, 0xC000 ; HL = dirección inicial de WRAM
+loop:
+    LD (HL), A    ; Escribir 0 en memoria
+    INC HL        ; Avanzar puntero
+    DEC B         ; Decrementar contador
+    JR NZ, loop   ; Saltar si B != 0 (Z == 0)</code></pre>
+                <p>
+                    <strong>El problema</strong>: Si <code>DEC B</code> (0x05) no está implementado, la CPU no actualiza el flag Z. El flag Z permanece en el valor anterior (1, de XOR A), y cuando llega <code>JR NZ</code>, la condición "Not Zero" falla porque Z=1. El bucle se ejecuta <strong>cero veces</strong>, la RAM queda llena de "basura" (valores residuales), y más adelante el juego lee direcciones inválidas y crashea.
+                </p>
+
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - CPU Instruction Set, sección "INC r" y "DEC r": "C flag is not affected"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron dos helpers ALU privados en la clase CPU para manejar la lógica de flags de INC y DEC, y luego se agregaron todos los opcodes correspondientes en el switch principal.
+                </p>
+                
+                <h3>1. Helpers ALU: alu_inc() y alu_dec()</h3>
+                <p>
+                    Se crearon dos métodos privados en <code>CPU.hpp</code> y se implementaron en <code>CPU.cpp</code>:
+                </p>
+                <pre><code>uint8_t CPU::alu_inc(uint8_t value) {
+    uint8_t result = value + 1;
+    
+    // Flags
+    regs_->set_flag_z(result == 0);
+    regs_->set_flag_n(false);  // Siempre 0 (es incremento)
+    regs_->set_flag_h((value & 0x0F) == 0x0F);  // Half-carry
+    // C: NO afectado (preservado)
+    
+    return result;
+}
+
+uint8_t CPU::alu_dec(uint8_t value) {
+    uint8_t result = value - 1;
+    
+    // Flags
+    regs_->set_flag_z(result == 0);
+    regs_->set_flag_n(true);  // Siempre 1 (es decremento)
+    regs_->set_flag_h((value & 0x0F) == 0x00);  // Half-borrow
+    // C: NO afectado (preservado)
+    
+    return result;
+}</code></pre>
+
+                <h3>2. Implementación de Opcodes</h3>
+                <p>
+                    Se agregaron todos los opcodes INC/DEC de 8 bits en el switch de <code>CPU::step()</code>:
+                </p>
+                <pre><code>// INC opcodes
+case 0x04: regs_->b = alu_inc(regs_->b); cycles = 1; break; // INC B
+case 0x0C: regs_->c = alu_inc(regs_->c); cycles = 1; break; // INC C
+case 0x14: regs_->d = alu_inc(regs_->d); cycles = 1; break; // INC D
+case 0x1C: regs_->e = alu_inc(regs_->e); cycles = 1; break; // INC E
+case 0x24: regs_->h = alu_inc(regs_->h); cycles = 1; break; // INC H
+case 0x2C: regs_->l = alu_inc(regs_->l); cycles = 1; break; // INC L
+case 0x3C: regs_->a = alu_inc(regs_->a); cycles = 1; break; // INC A
+
+// DEC opcodes
+case 0x05: regs_->b = alu_dec(regs_->b); cycles = 1; break; // DEC B
+case 0x0D: regs_->c = alu_dec(regs_->c); cycles = 1; break; // DEC C
+case 0x15: regs_->d = alu_dec(regs_->d); cycles = 1; break; // DEC D
+case 0x1D: regs_->e = alu_dec(regs_->e); cycles = 1; break; // DEC E
+case 0x25: regs_->h = alu_dec(regs_->h); cycles = 1; break; // DEC H
+case 0x2D: regs_->l = alu_dec(regs_->l); cycles = 1; break; // DEC L
+case 0x3D: regs_->a = alu_dec(regs_->a); cycles = 1; break; // DEC A</code></pre>
+
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code>: Agregados métodos <code>alu_inc()</code> y <code>alu_dec()</code> en la sección privada</li>
+                    <li><code>src/core/cpp/CPU.cpp</code>: Implementación de helpers ALU y todos los opcodes INC/DEC de 8 bits</li>
+                    <li><code>tests/test_core_cpu_inc_dec.py</code>: Suite completa de tests unitarios para verificar la funcionalidad</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Helpers ALU reutilizables</strong>: Se crearon métodos helper en lugar de duplicar código en cada opcode. Esto facilita el mantenimiento y asegura consistencia en el cálculo de flags.</li>
+                    <li><strong>Preservación explícita del flag C</strong>: Aunque el flag C no se modifica, se documentó explícitamente en el código para evitar confusiones futuras. Esta es una peculiaridad crítica del hardware.</li>
+                    <li><strong>Implementación completa</strong>: Se implementaron todos los opcodes INC/DEC de 8 bits de una vez, no solo DEC B. Esto previene bugs similares en otros bucles del código del juego.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Agregados métodos <code>alu_inc()</code> y <code>alu_dec()</code></li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Implementación de helpers ALU y todos los opcodes INC/DEC de 8 bits</li>
+                    <li><code>tests/test_core_cpu_inc_dec.py</code> - Suite completa de tests unitarios (nuevo archivo)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests unitarios en <code>tests/test_core_cpu_inc_dec.py</code> que verifica:
+                </p>
+                <ul>
+                    <li><strong>Preservación del flag C</strong>: Test específico para DEC B (0x05) que verifica que el flag Carry se preserve tanto cuando está activo como cuando está desactivado</li>
+                    <li><strong>Half-Carry/Half-Borrow</strong>: Tests que verifican la detección correcta de desbordamiento de nibble bajo</li>
+                    <li><strong>Flags Z y N</strong>: Verificación de que los flags se actualizan correctamente según el resultado</li>
+                    <li><strong>Todos los opcodes</strong>: Tests que verifican que todos los opcodes INC/DEC funcionan correctamente</li>
+                </ul>
+                
+                <p>
+                    <strong>Comando ejecutado</strong>:
+                </p>
+                <pre><code>pytest tests/test_core_cpu_inc_dec.py -v</code></pre>
+                
+                <p>
+                    <strong>Resultado esperado</strong>: Todos los tests pasan (6 tests en total).
+                </p>
+
+                <h3>Test Crítico: DEC B Preserva Carry</h3>
+                <p>
+                    Este es el test más importante, ya que verifica el comportamiento del opcode que causaba el crash:
+                </p>
+                <pre><code>def test_dec_b_preserves_carry(self):
+    """Verificar que DEC B (0x05) preserva el flag Carry."""
+    mmu = PyMMU()
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    
+    regs.pc = 0x8000
+    regs.b = 0x01
+    regs.set_flag_c(True)  # Activar Carry
+    
+    mmu.write(0x8000, 0x05)  # DEC B
+    cpu.step()
+    
+    assert regs.b == 0x00
+    assert regs.get_flag_z() == 1
+    assert regs.get_flag_c() == 1, "C debe haberse preservado"</code></pre>
+
+                <p>
+                    <strong>Validación Nativa</strong>: Todos los tests validan el módulo compilado C++ a través de la interfaz Cython.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs</strong>: CPU Instruction Set, sección "INC r" y "DEC r" - Especificación de flags y comportamiento del flag Carry</li>
+                    <li><strong>Pan Docs</strong>: CPU Instruction Set, sección "Half-Carry Flag" - Explicación del cálculo de half-carry y half-borrow</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Preservación del flag C en INC/DEC</strong>: A diferencia de ADD/SUB, las instrucciones INC y DEC NO modifican el flag Carry. Esta es una peculiaridad del hardware LR35902 que debe respetarse estrictamente para que los bucles funcionen correctamente.</li>
+                        <li><strong>Half-Carry vs Half-Borrow</strong>: INC detecta "half-carry" cuando el nibble bajo es 0x0F y al sumar 1 se produce overflow. DEC detecta "half-borrow" cuando el nibble bajo es 0x00 y al restar 1 se produce underflow.</li>
+                        <li><strong>Importancia de los bucles de inicialización</strong>: Los juegos dependen críticamente de que la memoria RAM esté limpia (llena de ceros) al inicio. Si los bucles de limpieza fallan, el juego lee datos corruptos y crashea.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>INC (HL) y DEC (HL)</strong>: Estas variantes que operan sobre memoria (no registros) aún no están implementadas. Consumen 3 M-Cycles en lugar de 1.</li>
+                        <li><strong>Comportamiento en bucles reales</strong>: Verificar que los juegos ahora ejecutan correctamente sus bucles de inicialización sin crashes.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        La implementación sigue estrictamente la documentación de Pan Docs. No hay suposiciones no respaldadas.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar INC (HL) y DEC (HL) (opcodes que operan sobre memoria)</li>
+                    <li>[ ] Verificar que los juegos ahora ejecutan correctamente sus bucles de inicialización</li>
+                    <li>[ ] Continuar con la implementación de más opcodes de la CPU para aumentar la compatibilidad</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -32,6 +32,32 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-19 - Step 0133: CPU Nativa: Implementación de INC/DEC y Arreglo del Bucle de Inicialización
+**Estado**: ✅ Completado
+
+Se implementó la familia completa de instrucciones **INC r** y **DEC r** de 8 bits en la CPU nativa (C++). Este era un bug crítico que causaba que los bucles de inicialización del juego fallaran, llevando a lecturas de memoria corrupta y finalmente a Segmentation Faults.
+
+**Problema identificado**:
+El opcode `0x05` (DEC B) no estaba implementado. Los juegos ejecutan bucles de limpieza de memoria que dependen de DEC para actualizar el flag Z. Sin esta instrucción, los bucles no se ejecutaban, la RAM quedaba llena de "basura", y el juego crasheaba al leer direcciones inválidas.
+
+**Implementación**:
+- ✅ Helpers ALU: `alu_inc()` y `alu_dec()` creados en `CPU.hpp`/`CPU.cpp`
+- ✅ Todos los opcodes INC/DEC de 8 bits implementados (14 opcodes totales)
+- ✅ Preservación correcta del flag C (QUIRK crítico del hardware)
+- ✅ Cálculo correcto de half-carry y half-borrow
+- ✅ Suite completa de tests unitarios (`test_core_cpu_inc_dec.py`)
+
+**Archivos creados/modificados**:
+- `src/core/cpp/CPU.hpp` - Agregados métodos `alu_inc()` y `alu_dec()`
+- `src/core/cpp/CPU.cpp` - Implementación de helpers ALU y todos los opcodes INC/DEC
+- `tests/test_core_cpu_inc_dec.py` - Suite completa de tests (nuevo archivo)
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0133__cpu-nativa-implementacion-inc-dec-bucles-inicializacion.html`
+
+**Fuentes**: Pan Docs - CPU Instruction Set, sección "INC r" y "DEC r": "C flag is not affected"
+
+---
+
 ### 2025-12-19 - Step 0132: Fix: Segmentation Fault en PPU - Signed Addressing
 **Estado**: ✅ Completado
 

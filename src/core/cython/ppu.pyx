@@ -33,6 +33,11 @@ cdef class PyPPU:
         Args:
             mmu: Instancia de PyMMU (debe tener un atributo _mmu válido)
         """
+        # CRÍTICO: Verificar que mmu y su puntero interno sean válidos
+        if mmu is None:
+            raise ValueError("PyPPU: mmu no puede ser None")
+        if mmu._mmu == NULL:
+            raise ValueError("PyPPU: mmu._mmu es NULL - MMU no inicializada correctamente")
         self._ppu = new ppu.PPU(mmu._mmu)
     
     def __dealloc__(self):
@@ -50,6 +55,8 @@ cdef class PyPPU:
         Args:
             cpu_cycles: Número de T-Cycles (ciclos de reloj) a procesar
         """
+        if self._ppu == NULL:
+            return
         self._ppu.step(cpu_cycles)
     
     def get_ly(self):
@@ -59,6 +66,8 @@ cdef class PyPPU:
         Returns:
             Valor de LY (0-153)
         """
+        if self._ppu == NULL:
+            return 0
         return self._ppu.get_ly()
     
     def get_mode(self):
@@ -72,6 +81,8 @@ cdef class PyPPU:
             - 2: OAM Search (CPU bloqueada de OAM)
             - 3: Pixel Transfer (CPU bloqueada de VRAM y OAM)
         """
+        if self._ppu == NULL:
+            return 0
         return self._ppu.get_mode()
     
     def get_lyc(self):
@@ -81,6 +92,8 @@ cdef class PyPPU:
         Returns:
             Valor de LYC (0-255)
         """
+        if self._ppu == NULL:
+            return 0
         return self._ppu.get_lyc()
     
     def set_lyc(self, uint8_t value):
@@ -93,6 +106,8 @@ cdef class PyPPU:
         Args:
             value: Valor a escribir en LYC (se enmascara a 8 bits)
         """
+        if self._ppu == NULL:
+            return
         self._ppu.set_lyc(value)
     
     def get_frame_ready_and_reset(self):
@@ -106,28 +121,37 @@ cdef class PyPPU:
         Returns:
             True si hay un frame listo para renderizar, False en caso contrario
         """
+        if self._ppu == NULL:
+            return False
         return self._ppu.get_frame_ready_and_reset()
     
     # Propiedades para acceso directo (más Pythonic)
     property ly:
         """Propiedad para obtener LY."""
         def __get__(self):
+            if self._ppu == NULL:
+                return 0
             return self.get_ly()
     
     property mode:
         """Propiedad para obtener el modo PPU."""
         def __get__(self):
+            if self._ppu == NULL:
+                return 0
             return self.get_mode()
     
     property lyc:
         """Propiedad para obtener/establecer LYC."""
         def __get__(self):
+            if self._ppu == NULL:
+                return 0
             return self.get_lyc()
         def __set__(self, uint8_t value):
+            if self._ppu == NULL:
+                return
             self.set_lyc(value)
     
-    @property
-    def framebuffer(self):
+    def get_framebuffer(self):
         """
         Obtiene el framebuffer como un memoryview de índices de color (Zero-Copy).
         
@@ -141,6 +165,9 @@ cdef class PyPPU:
             memoryview de uint8_t 1D con 23040 elementos - Zero-Copy directo a memoria C++.
             Python puede leer estos índices usando [y * 160 + x] y aplicar la paleta sin copiar los datos.
         """
+        if self._ppu == NULL:
+            # Retornar None si el puntero es NULL
+            return None
         cdef uint8_t* ptr = self._ppu.get_framebuffer_ptr()
         cdef unsigned char[:] view = <unsigned char[:144*160]>ptr
         return view
@@ -148,5 +175,7 @@ cdef class PyPPU:
     # Método para obtener el puntero C++ como entero (para evitar problemas de conversión)
     def get_cpp_ptr_as_int(self):
         """Obtiene el puntero C++ interno como entero (para uso en otros módulos Cython)."""
+        if self._ppu == NULL:
+            return 0
         return <long>self._ppu
 

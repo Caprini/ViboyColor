@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Balance de la Fase 2 (v0.0.2) - Estado Actual - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Balance de la Fase 2 (v0.0.2) - Estado Actual</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0131
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0130__diagnostico-segmentation-fault-trazas-nativas.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este paso documenta un balance completo del estado actual de la Fase 2 (v0.0.2), 
+                    justo cuando estamos en medio de la "niebla de guerra" del debugging. El balance 
+                    muestra el progreso realizado en la migración del núcleo a C++/Cython y las tareas 
+                    pendientes para completar la fase, incluyendo la implementación de Audio (APU).
+                </p>
+                <p>
+                    El objetivo es recordar lo mucho que hemos avanzado y lo cerca que estamos del 
+                    siguiente gran hito, especialmente cuando enfrentamos desafíos técnicos como el 
+                    <code>Segmentation Fault</code> actual que estamos depurando.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La Fase 2 (v0.0.2) tiene como objetivo transformar la prueba de concepto (v0.0.1) 
+                    en un motor de emulación robusto y veloz mediante la migración del núcleo crítico 
+                    a C++/Cython. Esta arquitectura híbrida permite que Python maneje la orquestación 
+                    y la UI, mientras que C++ ejecuta la emulación ciclo a ciclo con rendimiento nativo.
+                </p>
+                <p>
+                    El objetivo de rendimiento es sincronización perfecta a 60 FPS, lo que requiere 
+                    <strong>Zero-Cost Abstractions</strong> en el bucle principal. Cada ciclo de 
+                    instrucción debe ejecutarse en nanosegundos, no microsegundos, para mantener 
+                    la sincronización precisa con el hardware real del Game Boy.
+                </p>
+                <p>
+                    La arquitectura híbrida funciona mediante inyección de dependencias: los objetos 
+                    se crean en Python y se pasan como punteros a C++ para su manipulación. Esto 
+                    permite mantener la flexibilidad de Python para tests y UI, mientras se obtiene 
+                    el rendimiento de C++ para el núcleo crítico.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Progreso Realizado</h2>
+                
+                <h3>1. Migración del Núcleo a C++/Cython</h3>
+                
+                <h4>Infraestructura de Compilación Híbrida</h4>
+                <p><strong>Estado: [100% COMPLETADO]</strong></p>
+                <p>
+                    Tenemos un pipeline de build robusto que compila C++ y lo expone a Python. 
+                    Hemos superado los problemas de entorno (<code>setuptools</code>, <code>Cython</code>, 
+                    <code>NumPy</code>). El sistema de compilación está completamente funcional y validado.
+                </p>
+
+                <h4>MMU (Memory Management Unit)</h4>
+                <p><strong>Estado: [100% COMPLETADO]</strong></p>
+                <p>
+                    Toda la gestión de memoria (<code>read</code>, <code>write</code>, <code>load_rom</code>) 
+                    ahora ocurre en <code>CoreMMU</code> (C++), proporcionando acceso a memoria a velocidad 
+                    nativa. El acceso es O(1) directo, eliminando el overhead de Python.
+                </p>
+
+                <h4>Registros de la CPU</h4>
+                <p><strong>Estado: [100% COMPLETADO]</strong></p>
+                <p>
+                    Todos los registros de 8 y 16 bits (<code>A</code>, <code>F</code>, <code>BC</code>, 
+                    <code>DE</code>, <code>HL</code>, <code>PC</code>, <code>SP</code>) viven en 
+                    <code>CoreRegisters</code> (C++). El acceso es directo y ultrarrápido, cache-friendly 
+                    y sin overhead de Python.
+                </p>
+
+                <h4>CPU (Núcleo y Opcodes)</h4>
+                <p><strong>Estado: [~30% COMPLETADO]</strong></p>
+                <ul>
+                    <li>
+                        <strong>Ciclo Fetch-Decode-Execute</strong>: El esqueleto principal de la CPU 
+                        (<code>step()</code>) ya se ejecuta en C++.
+                    </li>
+                    <li>
+                        <strong>Sistema de Interrupciones</strong>: El <code>handle_interrupts()</code>, 
+                        <code>DI</code>, <code>EI</code> y <code>HALT</code> están implementados en C++.
+                    </li>
+                    <li>
+                        <strong>Opcodes Básicos</strong>: Ya hemos migrado un conjunto crucial de opcodes:
+                        <ul>
+                            <li><code>NOP</code> (No Operación)</li>
+                            <li>Cargas inmediatas (<code>LD r, d8</code>)</li>
+                            <li>Escrituras indirectas (<code>LDI (HL), A</code>, <code>LDD (HL), A</code>)</li>
+                            <li>Saltos y Control de Flujo (<code>JP nn</code>, <code>JR e</code>, <code>JR NZ, e</code>)</li>
+                            <li>ALU básica (<code>ADD</code>, <code>SUB</code>, <code>XOR</code>, <code>INC A</code>, <code>DEC A</code>)</li>
+                            <li>Stack y Subrutinas (<code>PUSH BC</code>, <code>POP BC</code>, <code>CALL nn</code>, <code>RET</code>)</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h4>PPU (Picture Processing Unit)</h4>
+                <p><strong>Estado: [~50% COMPLETADO]</strong></p>
+                <ul>
+                    <li>
+                        <strong>Fase A (Timing y Estado)</strong>: El motor de timing (<code>LY</code>), 
+                        la máquina de estados (Modos 0-3) y el registro <code>STAT</code> ya funcionan en C++.
+                    </li>
+                    <li>
+                        <strong>Fase B/C (Framebuffer y Renderizado)</strong>: La PPU ya genera un 
+                        <code>framebuffer</code> en C++, lo pasa a Python sin copias (<code>memoryview</code>), 
+                        y la lógica para renderizar el <em>Background</em> desde la VRAM está implementada.
+                    </li>
+                </ul>
+
+                <h3>2. Mejoras de Arquitectura</h3>
+                
+                <h4>Arquitectura Híbrida Python/C++</h4>
+                <p><strong>Estado: [100% ESTABLECIDA]</strong></p>
+                <p>
+                    El patrón de "Python orquesta, C++ ejecuta" está funcionando. Los objetos se crean 
+                    en Python y se pasan como punteros a C++ para su manipulación. La comunicación 
+                    bidireccional funciona correctamente mediante wrappers de Cython.
+                </p>
+
+                <h4>Tests Híbridos (TDD)</h4>
+                <p><strong>Estado: [100% FUNCIONAL]</strong></p>
+                <p>
+                    Nuestro sistema de tests en <code>pytest</code> es capaz de instanciar y probar 
+                    el código C++ a través de los wrappers de Cython, lo que nos da una red de seguridad 
+                    robusta. Todos los tests validan funcionalidad nativa compilada.
+                </p>
+            </section>
+
+            <!-- 4. Tareas Pendientes -->
+            <section id="tareas-pendientes">
+                <h2>Tareas Pendientes para Completar la Fase 2</h2>
+                
+                <h3>1. Migración del Núcleo a C++/Cython (Tareas Restantes)</h3>
+                
+                <h4>CPU (Completar Opcodes) - [TAREA ACTUAL]</h4>
+                <p>
+                    El <code>Segmentation Fault</code> que estamos depurando es parte del proceso de 
+                    completar los opcodes de la CPU. Tareas pendientes:
+                </p>
+                <ul>
+                    <li><code>[ ]</code> Implementar <code>CALL</code> y <code>RET</code> (condicionales y no condicionales).</li>
+                    <li><code>[ ]</code> Implementar <code>PUSH</code> y <code>POP</code> para todos los pares de registros (<code>DE</code>, <code>HL</code>, <code>AF</code>).</li>
+                    <li><code>[ ]</code> Implementar el bloque ALU completo (<code>0x80-BF</code>), incluyendo <code>ADC</code>, <code>SBC</code>, <code>AND</code>, <code>OR</code>, <code>CP</code>.</li>
+                    <li><code>[ ]</code> Implementar el bloque de transferencias completo (<code>0x40-7F</code>).</li>
+                    <li><code>[ ]</code> <strong>El gran desafío: el prefijo <code>CB</code> completo en C++.</strong></li>
+                </ul>
+
+                <h4>PPU (Completar Renderizado)</h4>
+                <ul>
+                    <li><code>[ ]</code> Renderizado de <strong>Sprites (OBJ)</strong> en C++.</li>
+                    <li><code>[ ]</code> Renderizado de la <strong>Window</strong> en C++.</li>
+                    <li><code>[ ]</code> Implementar prioridades y mezcla de píxeles entre Background, Window y Sprites.</li>
+                </ul>
+
+                <h4>Timer</h4>
+                <ul>
+                    <li><code>[ ]</code> Migración completa del Timer (<code>DIV</code>, <code>TIMA</code>, <code>TMA</code>, <code>TAC</code>) a C++.</li>
+                </ul>
+
+                <h4>Cartucho/MBC</h4>
+                <ul>
+                    <li><code>[ ]</code> Migración del <code>Cartridge</code> y la lógica <code>MBC1</code> a C++.</li>
+                </ul>
+
+                <h3>2. Implementación de Audio (APU)</h3>
+                <p>
+                    <strong>Esto es el segundo gran pilar de la Fase 2. Aún no lo hemos empezado.</strong>
+                </p>
+                <ul>
+                    <li><code>[ ]</code> Implementación del <strong>Canal 1</strong> (Onda Cuadrada con Sweep y Envelope).</li>
+                    <li><code>[ ]</code> Implementación del <strong>Canal 2</strong> (Onda Cuadrada simple).</li>
+                    <li><code>[ ]</code> Implementación del <strong>Canal 3</strong> (Onda de Wavetable desde RAM).</li>
+                    <li><code>[ ]</code> Implementación del <strong>Canal 4</strong> (Generador de Ruido Blanco).</li>
+                    <li><code>[ ]</code> Implementación del <strong>Mezclador de audio</strong> y un <strong>Ring Buffer</strong> para evitar cortes de sonido.</li>
+                    <li><code>[ ]</code> Integración con <code>pygame.mixer</code> para la salida de audio.</li>
+                </ul>
+
+                <h3>3. Mejoras de Arquitectura</h3>
+                <ul>
+                    <li>
+                        <code>[ ]</code> <strong>Bucle Principal 100% Nativo (Optimización Final)</strong>: Considerar mover 
+                        el bucle de 70,224 ciclos a C++, de modo que Python solo llame a una función 
+                        <code>core.run_frame()</code> una vez por fotograma.
+                    </li>
+                    <li>
+                        <code>[ ]</code> <strong>Sincronización de Audio/Video</strong>: Asegurar que el audio y el video 
+                        no se desfasen.
+                    </li>
+                    <li>
+                        <code>[ ]</code> <strong>Implementación del Joypad</strong> en el núcleo nativo para reducir la 
+                        latencia de entrada.
+                    </li>
+                </ul>
+            </section>
+
+            <!-- 5. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <p>
+                    Este paso es documental y no modifica código. Sin embargo, referencia todos los 
+                    componentes creados durante la Fase 2:
+                </p>
+                <ul>
+                    <li><code>src/core/cpp/</code> - Todos los archivos C++ del núcleo</li>
+                    <li><code>src/core/cython/</code> - Todos los wrappers Cython</li>
+                    <li><code>setup.py</code> - Sistema de compilación híbrido</li>
+                    <li><code>tests/test_core_*.py</code> - Suite completa de tests híbridos</li>
+                    <li><code>docs/bitacora/entries/</code> - Todas las entradas de la Fase 2</li>
+                </ul>
+            </section>
+
+            <!-- 6. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este paso es documental y no requiere tests nuevos. Sin embargo, el balance 
+                    confirma que todos los componentes migrados tienen tests que pasan:
+                </p>
+                <ul>
+                    <li>
+                        <strong>Tests de MMU</strong>: <code>test_core_mmu.py</code> - 7 tests pasando ✅
+                    </li>
+                    <li>
+                        <strong>Tests de Registros</strong>: <code>test_core_registers.py</code> - 14 tests pasando ✅
+                    </li>
+                    <li>
+                        <strong>Tests de CPU</strong>: Múltiples suites (<code>test_core_cpu.py</code>, 
+                        <code>test_core_cpu_alu.py</code>, <code>test_core_cpu_interrupts.py</code>, etc.) 
+                        - Todos pasando ✅
+                    </li>
+                    <li>
+                        <strong>Tests de PPU</strong>: <code>test_core_ppu_timing.py</code>, 
+                        <code>test_core_ppu_modes.py</code> - Todos pasando ✅
+                    </li>
+                </ul>
+                <p>
+                    <strong>Validación Nativa</strong>: Todos los tests validan módulos compilados C++ 
+                    a través de wrappers Cython, confirmando que la arquitectura híbrida funciona 
+                    correctamente.
+                </p>
+            </section>
+
+            <!-- 7. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">https://gbdev.io/pandocs/</a></li>
+                    <li>GBEDG (Game Boy Emulation Development Guide): Referencias técnicas de hardware</li>
+                    <li>Documentación técnica de LR35902 (CPU del Game Boy)</li>
+                </ul>
+                <p>
+                    <em>Nota: Este balance se basa en el progreso documentado en las entradas anteriores 
+                    de la bitácora y el estado actual del código fuente.</em>
+                </p>
+            </section>
+
+            <!-- 8. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li>
+                            <strong>Arquitectura Híbrida</strong>: El patrón de "Python orquesta, C++ ejecuta" 
+                            funciona correctamente mediante inyección de dependencias y wrappers de Cython. 
+                            La comunicación bidireccional está establecida y validada.
+                        </li>
+                        <li>
+                            <strong>Rendimiento</strong>: La migración a C++ proporciona acceso directo a 
+                            memoria y operaciones a nivel de bits que se compilan a instrucciones de máquina 
+                            nativas, eliminando el overhead de Python en el bucle crítico.
+                        </li>
+                        <li>
+                            <strong>Progreso Incremental</strong>: La migración se ha realizado de forma 
+                            incremental, validando cada componente con tests antes de continuar. Esto 
+                            proporciona una red de seguridad robusta.
+                        </li>
+                        <li>
+                            <strong>Debugging como Proceso</strong>: El <code>Segmentation Fault</code> 
+                            actual no es un paso atrás, es la señal de que la CPU está viva y corriendo lo 
+                            suficientemente lejos como para encontrar los límites de lo que hemos construido.
+                        </li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>
+                            <strong>Opcodes Restantes</strong>: Necesitamos completar el conjunto de 
+                            opcodes de la CPU, especialmente el prefijo <code>CB</code> que es el más 
+                            complejo. El debugging actual nos ayudará a identificar qué opcodes faltan.
+                        </li>
+                        <li>
+                            <strong>Audio (APU)</strong>: Aún no hemos empezado la implementación de 
+                            audio. Será el siguiente gran desafío después de completar la CPU.
+                        </li>
+                        <li>
+                            <strong>Optimización Final</strong>: El bucle principal aún está parcialmente 
+                            en Python. La optimización final sería mover todo el bucle de 70,224 ciclos 
+                            a C++.
+                        </li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Estamos en medio de la "niebla de guerra" del debugging. El <code>Segmentation Fault</code> 
+                        actual es parte del proceso normal de desarrollo: la CPU está ejecutando código lo 
+                        suficientemente complejo como para encontrar límites. Esto es una señal positiva de 
+                        progreso, no un retroceso.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 9. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>
+                        <code>[ ]</code> <strong>Resolver el Segmentation Fault actual</strong>: Analizar los logs 
+                        de la consola con las trazas de <code>std::cout</code> para identificar el opcode o 
+                        la operación que causa el crash.
+                    </li>
+                    <li>
+                        <code>[ ]</code> <strong>Completar opcodes de CPU</strong>: Implementar los opcodes faltantes 
+                        identificados durante el debugging, especialmente <code>CALL</code>/<code>RET</code> condicionales 
+                        y el prefijo <code>CB</code>.
+                    </li>
+                    <li>
+                        <code>[ ]</code> <strong>Completar renderizado de PPU</strong>: Implementar Sprites y Window 
+                        en C++ para tener renderizado completo.
+                    </li>
+                    <li>
+                        <code>[ ]</code> <strong>Migrar Timer y Cartucho</strong>: Completar la migración de los 
+                        componentes restantes a C++.
+                    </li>
+                    <li>
+                        <code>[ ]</code> <strong>Iniciar implementación de Audio (APU)</strong>: Comenzar con el 
+                        Canal 1 (Onda Cuadrada con Sweep y Envelope) como prueba de concepto.
+                    </li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

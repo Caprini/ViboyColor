@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0133 - CPU Nativa: Implementación de INC/DEC y Arreglo del Bucle de Inicialización -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0133__cpu-nativa-implementacion-inc-dec-bucles-inicializacion.html" class="entry-link">
+                                    CPU Nativa: Implementación de INC/DEC y Arreglo del Bucle de Inicialización
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0133 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó la familia completa de instrucciones INC r y DEC r de 8 bits en la CPU nativa (C++). Este era un bug crítico que causaba que los bucles de inicialización del juego fallaran, llevando a lecturas de memoria corrupta y finalmente a Segmentation Faults. El problema específico era que el opcode 0x05 (DEC B) no estaba implementado, causando que los bucles de limpieza de memoria no se ejecutaran correctamente. Con esta implementación, los juegos pueden inicializar correctamente su memoria RAM y continuar con su secuencia de arranque.
+                        </p>
+                    </li>
                     <!-- Entrada 0132 - Fix: Segmentation Fault en PPU - Signed Addressing -->
                     <li>
                         <div class="entry-header">

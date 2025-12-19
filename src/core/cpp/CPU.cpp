@@ -152,6 +152,50 @@ void CPU::alu_xor(uint8_t value) {
     regs_->set_flag_c(false);
 }
 
+uint8_t CPU::alu_inc(uint8_t value) {
+    // INC: incrementa el valor en 1
+    uint8_t result = value + 1;
+    
+    // Calcular flags
+    // Z: resultado == 0
+    regs_->set_flag_z(result == 0);
+    
+    // N: siempre 0 (es incremento)
+    regs_->set_flag_n(false);
+    
+    // H: half-carry (bit 3 -> 4)
+    // Ocurre cuando el nibble bajo es 0x0F y al sumar 1 se produce overflow
+    // Ejemplo: 0x0F + 1 = 0x10 (hay half-carry)
+    regs_->set_flag_h((value & 0x0F) == 0x0F);
+    
+    // C: NO afectado (preservado) - QUIRK del hardware
+    // No modificamos el flag C
+    
+    return result;
+}
+
+uint8_t CPU::alu_dec(uint8_t value) {
+    // DEC: decrementa el valor en 1
+    uint8_t result = value - 1;
+    
+    // Calcular flags
+    // Z: resultado == 0
+    regs_->set_flag_z(result == 0);
+    
+    // N: siempre 1 (es decremento)
+    regs_->set_flag_n(true);
+    
+    // H: half-borrow (bit 4 -> 3)
+    // Ocurre cuando el nibble bajo es 0x00 y al restar 1 se produce underflow
+    // Ejemplo: 0x10 - 1 = 0x0F (hay half-borrow)
+    regs_->set_flag_h((value & 0x0F) == 0x00);
+    
+    // C: NO afectado (preservado) - QUIRK del hardware
+    // No modificamos el flag C
+    
+    return result;
+}
+
 // ========== Implementación de Helpers de Load ==========
 
 uint8_t* CPU::get_register_ptr(uint8_t reg_code) {
@@ -587,41 +631,104 @@ int CPU::step() {
                 return 2;
             }
 
-        case 0x3C:  // INC A (Increment A)
-            // Incrementa A en 1
+        // ========== Aritmética 8-bit (INC/DEC r) ==========
+        // IMPORTANTE: INC y DEC NO modifican el flag C (preservado)
+        
+        case 0x04:  // INC B
             {
-                uint8_t old_a = regs_->a;
-                regs_->a = old_a + 1;
-                
-                // Flags para INC:
-                // Z: resultado == 0
-                regs_->set_flag_z(regs_->a == 0);
-                // N: siempre 0
-                regs_->set_flag_n(false);
-                // H: half-carry (bit 3 -> 4)
-                regs_->set_flag_h((old_a & 0x0F) == 0x0F);
-                // C: no afectado (mantiene valor anterior)
-                
-                cycles_ += 1;  // INC A consume 1 M-Cycle
+                regs_->b = alu_inc(regs_->b);
+                cycles_ += 1;
+                return 1;
+            }
+        
+        case 0x0C:  // INC C
+            {
+                regs_->c = alu_inc(regs_->c);
+                cycles_ += 1;
+                return 1;
+            }
+        
+        case 0x14:  // INC D
+            {
+                regs_->d = alu_inc(regs_->d);
+                cycles_ += 1;
+                return 1;
+            }
+        
+        case 0x1C:  // INC E
+            {
+                regs_->e = alu_inc(regs_->e);
+                cycles_ += 1;
+                return 1;
+            }
+        
+        case 0x24:  // INC H
+            {
+                regs_->h = alu_inc(regs_->h);
+                cycles_ += 1;
+                return 1;
+            }
+        
+        case 0x2C:  // INC L
+            {
+                regs_->l = alu_inc(regs_->l);
+                cycles_ += 1;
+                return 1;
+            }
+        
+        case 0x3C:  // INC A
+            {
+                regs_->a = alu_inc(regs_->a);
+                cycles_ += 1;
                 return 1;
             }
 
-        case 0x3D:  // DEC A (Decrement A)
-            // Decrementa A en 1
+        case 0x05:  // DEC B
             {
-                uint8_t old_a = regs_->a;
-                regs_->a = old_a - 1;
-                
-                // Flags para DEC:
-                // Z: resultado == 0
-                regs_->set_flag_z(regs_->a == 0);
-                // N: siempre 1
-                regs_->set_flag_n(true);
-                // H: half-borrow (bit 4 -> 3)
-                regs_->set_flag_h((old_a & 0x0F) == 0x00);
-                // C: no afectado (mantiene valor anterior)
-                
-                cycles_ += 1;  // DEC A consume 1 M-Cycle
+                regs_->b = alu_dec(regs_->b);
+                cycles_ += 1;
+                return 1;
+            }
+        
+        case 0x0D:  // DEC C
+            {
+                regs_->c = alu_dec(regs_->c);
+                cycles_ += 1;
+                return 1;
+            }
+        
+        case 0x15:  // DEC D
+            {
+                regs_->d = alu_dec(regs_->d);
+                cycles_ += 1;
+                return 1;
+            }
+        
+        case 0x1D:  // DEC E
+            {
+                regs_->e = alu_dec(regs_->e);
+                cycles_ += 1;
+                return 1;
+            }
+        
+        case 0x25:  // DEC H
+            {
+                regs_->h = alu_dec(regs_->h);
+                cycles_ += 1;
+                return 1;
+            }
+        
+        case 0x2D:  // DEC L
+            {
+                regs_->l = alu_dec(regs_->l);
+                cycles_ += 1;
+                return 1;
+            }
+        
+        case 0x3D:  // DEC A
+            {
+                regs_->a = alu_dec(regs_->a);
+                cycles_ += 1;
                 return 1;
             }
 
