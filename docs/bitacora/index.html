@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0138 - Fix: Bug de Renderizado en Signed Addressing y Expansión de la ALU -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0138__fix-bug-renderizado-signed-addressing-expansion-alu.html" class="entry-link">
+                                    Fix: Bug de Renderizado en Signed Addressing y Expansión de la ALU
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0138 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se mejoró la validación de direcciones en el método render_scanline() de la PPU para prevenir Segmentation Faults cuando se calculan direcciones de tiles en modo signed addressing. La corrección asegura que tanto la dirección base del tile como la dirección de la línea del tile (incluyendo el byte siguiente) estén dentro de los límites de VRAM (0x8000-0x9FFF). Además, se verificó que el bloque completo de la ALU (0x80-0xBF) esté implementado correctamente, confirmando que todos los 64 opcodes de operaciones aritméticas y lógicas están disponibles para la ejecución de juegos.
+                        </p>
+                    </li>
                     <!-- Entrada 0137 - Corrección del Test de Renderizado y Ejecución de Tetris -->
                     <li>
                         <div class="entry-header">

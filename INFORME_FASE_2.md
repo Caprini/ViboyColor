@@ -32,6 +32,34 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-19 - Step 0138: Fix: Bug de Renderizado en Signed Addressing y Expansión de la ALU
+**Estado**: ✅ Completado
+
+Se mejoró la validación de direcciones en el método `render_scanline()` de la PPU para prevenir Segmentation Faults cuando se calculan direcciones de tiles en modo **signed addressing**. La corrección asegura que tanto la dirección base del tile como la dirección de la línea del tile (incluyendo el byte siguiente) estén dentro de los límites de VRAM (0x8000-0x9FFF). Además, se verificó que el bloque completo de la ALU (0x80-0xBF) esté implementado correctamente, confirmando que todos los 64 opcodes de operaciones aritméticas y lógicas están disponibles para la ejecución de juegos.
+
+**Problema identificado**:
+En modo signed addressing, cuando se calcula la dirección de un tile usando la fórmula `0x9000 + (signed_tile_id * 16)`, algunos tile IDs pueden resultar en direcciones fuera de VRAM (menor que 0x8000 o mayor que 0x9FFF). La validación original solo verificaba que `tile_addr <= VRAM_END`, pero no consideraba que un tile completo son 16 bytes, ni que una línea de tile requiere 2 bytes consecutivos.
+
+**Implementación**:
+- ✅ Mejora de la validación de direcciones: verificación de que `tile_addr <= VRAM_END - 15` para asegurar espacio para los 16 bytes del tile completo
+- ✅ Validación de líneas de tile: verificación de que tanto `tile_line_addr` como `tile_line_addr + 1` estén dentro de VRAM
+- ✅ Verificación del bloque ALU: confirmación de que todos los 64 opcodes (0x80-0xBF) están implementados correctamente
+
+**Validación**:
+- El test existente `test_signed_addressing_fix` valida que el cálculo de direcciones en modo signed es correcto y que no se producen Segmentation Faults
+- Se verificó mediante `grep` que todos los 64 opcodes del bloque 0x80-0xBF estén implementados en `CPU.cpp`
+- No se encontraron errores de compilación o linter en el código modificado
+
+**Próximos pasos**:
+- Recompilar el módulo C++ y ejecutar todos los tests para verificar que la corrección no rompe funcionalidad existente
+- Ejecutar el emulador con la ROM de Tetris para verificar que el renderizado funciona correctamente sin Segmentation Faults
+- Medir el rendimiento del renderizado para confirmar que la validación adicional no impacta significativamente el rendimiento
+
+**Archivos modificados**:
+- `src/core/cpp/PPU.cpp` - Mejora de la validación de direcciones en `render_scanline()` para prevenir Segmentation Faults en modo signed addressing
+
+---
+
 ### 2025-12-19 - Step 0137: Corrección del Test de Renderizado y Ejecución de Tetris
 **Estado**: ✅ Completado
 

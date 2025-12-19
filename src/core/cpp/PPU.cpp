@@ -316,8 +316,11 @@ void PPU::render_scanline() {
         
         // CRÍTICO: Validar que la dirección del tile esté dentro de VRAM (0x8000-0x9FFF)
         // Esto previene Segmentation Faults por accesos fuera de límites
-        if (tile_addr < VRAM_START || tile_addr > VRAM_END) {
+        // En modo signed, tile_addr puede ser < 0x8000 si signed_tile_id es muy negativo
+        // En modo unsigned, tile_addr puede ser > 0x9FFF si tile_id es muy grande
+        if (tile_addr < VRAM_START || tile_addr > (VRAM_END - 15)) {
             // Si la dirección está fuera de VRAM, usar color 0 (transparente)
+            // Restamos 15 porque un tile completo son 16 bytes (0-15)
             framebuffer_[line_start_index + x] = 0;
             continue;
         }
@@ -325,7 +328,8 @@ void PPU::render_scanline() {
         // Validar que la dirección de la línea del tile también esté dentro de VRAM
         // Cada línea del tile ocupa 2 bytes, así que necesitamos verificar tile_line_addr y tile_line_addr+1
         uint16_t tile_line_addr = tile_addr + tile_y_offset * 2;
-        if (tile_line_addr < VRAM_START || tile_line_addr > VRAM_END || 
+        // Verificar que tanto tile_line_addr como tile_line_addr+1 estén dentro de VRAM
+        if (tile_line_addr < VRAM_START || tile_line_addr > (VRAM_END - 1) || 
             (tile_line_addr + 1) < VRAM_START || (tile_line_addr + 1) > VRAM_END) {
             // Si la línea del tile está fuera de VRAM, usar color 0 (transparente)
             framebuffer_[line_start_index + x] = 0;
