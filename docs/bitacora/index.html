@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0119 - Activación de Renderizado Real (Background C++) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0119__activacion-renderizado-real-background-cpp.html" class="entry-link">
+                                    Activación de Renderizado Real (Background C++)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0119 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            El enlace de video C++ → Python funciona correctamente (se confirmó con la pantalla gris y el punto rojo a 60 FPS). Se eliminó el código de diagnóstico (pantalla gris y píxel rojo) del constructor de la PPU C++ y se activó el renderizado real del Background. El framebuffer ahora se inicializa a blanco (0xFFFFFFFF) y el método `render_scanline()` renderiza los tiles del juego real desde VRAM cuando la PPU entra en H-Blank (Mode 0).
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0117 - Fix: Renderizado Zero-Copy nativo con Pygame y Forzado DMG en C++ -->
                     <li>
                         <div class="entry-header">

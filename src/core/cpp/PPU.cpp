@@ -10,7 +10,7 @@ PPU::PPU(MMU* mmu)
     , lyc_(0)
     , stat_interrupt_line_(false)
     , scanline_rendered_(false)
-    , framebuffer_(FRAMEBUFFER_SIZE, 0xFF808080)  // Inicializar a gris (0x80, 0x80, 0x80) para diagnóstico
+    , framebuffer_(FRAMEBUFFER_SIZE, 0xFFFFFFFF)  // Inicializar a blanco (0xFF, 0xFF, 0xFF) - color por defecto
 {
     // CRÍTICO: Inicializar registros de la PPU con valores seguros
     // Si estos registros están en 0, la pantalla estará negra/blanca
@@ -35,11 +35,6 @@ PPU::PPU(MMU* mmu)
         mmu_->write(IO_OBP0, 0xE4);
         mmu_->write(IO_OBP1, 0xE4);
     }
-    
-    // DIAGNÓSTICO: Pintar un píxel ROJO en la esquina superior izquierda (posición 0)
-    // Esto nos permitirá verificar que el enlace C++ -> Python funciona
-    // Color: 0xFFFF0000 = ARGB (Alpha=FF, Red=FF, Green=00, Blue=00) = Rojo sólido
-    framebuffer_[0] = 0xFFFF0000;
 }
 
 PPU::~PPU() {

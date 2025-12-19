@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Activación de Renderizado Real (Background C++) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Activación de Renderizado Real (Background C++)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0119
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0117__fix-renderizado-video-cpp-modo-dmg.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El enlace de video C++ → Python funciona correctamente (se confirmó con la pantalla gris y el punto rojo a 60 FPS).
+                    Se eliminó el código de diagnóstico (pantalla gris y píxel rojo) del constructor de la PPU C++ y se activó el
+                    renderizado real del Background. El framebuffer ahora se inicializa a blanco (0xFFFFFFFF) y el método `render_scanline()`
+                    renderiza los tiles del juego real desde VRAM cuando la PPU entra en H-Blank (Mode 0).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Renderizado Scanline en Game Boy:</strong> La PPU renderiza la pantalla línea por línea (scanline rendering).
+                    Cada línea visible (0-143) pasa por 4 modos:
+                </p>
+                <ul>
+                    <li><strong>Mode 2 (OAM Search):</strong> 0-79 ciclos - La PPU busca sprites que intersectan con la línea actual</li>
+                    <li><strong>Mode 3 (Pixel Transfer):</strong> 80-251 ciclos - La PPU transfiere datos de tiles desde VRAM</li>
+                    <li><strong>Mode 0 (H-Blank):</strong> 252-455 ciclos - La PPU renderiza la línea completa en el framebuffer</li>
+                    <li><strong>Mode 1 (V-Blank):</strong> Líneas 144-153 - Período de retrazo vertical, no se renderiza</li>
+                </ul>
+                <p>
+                    <strong>Renderizado de Background:</strong> Durante el H-Blank (Mode 0), la PPU lee el tilemap desde VRAM (0x9800-0x9BFF o 0x9C00-0x9FFF),
+                    decodifica los tiles desde Tile Data (0x8000-0x8FFF o 0x8800-0x97FF), aplica el scroll (SCX/SCY) y la paleta BGP,
+                    y escribe los 160 píxeles de la línea actual en el framebuffer.
+                </p>
+                <p>
+                    <strong>Inicialización del Framebuffer:</strong> El framebuffer debe inicializarse a un color por defecto (blanco)
+                    antes de que la PPU comience a renderizar. Si se deja sin inicializar o se inicializa a un color de diagnóstico (gris),
+                    los juegos mostrarán colores incorrectos o pantallas de prueba en lugar del contenido real.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Timing, Background, Tile Data, 2bpp Format
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se realizaron los siguientes cambios en `src/core/cpp/PPU.cpp`:
+                </p>
+                
+                <h3>1. Limpieza del Código de Diagnóstico</h3>
+                <p>
+                    Se eliminó el código de diagnóstico que pintaba la pantalla de gris y un píxel rojo:
+                </p>
+                <ul>
+                    <li><strong>Constructor:</strong> Cambió la inicialización del framebuffer de gris (`0xFF808080`) a blanco (`0xFFFFFFFF`)</li>
+                    <li><strong>Constructor:</strong> Eliminó la línea que pintaba el píxel rojo de diagnóstico (`framebuffer_[0] = 0xFFFF0000`)</li>
+                </ul>
+                
+                <h3>2. Verificación de Lógica de Renderizado</h3>
+                <p>
+                    Se verificó que la lógica de renderizado funciona correctamente:
+                </p>
+                <ul>
+                    <li><strong>Método `step()`:</strong> Llama a `render_scanline()` cuando la PPU entra en Mode 0 (H-Blank) y la línea es visible (LY < 144)</li>
+                    <li><strong>Método `render_scanline()`:</strong> Renderiza Background, Window y Sprites en el orden correcto</li>
+                    <li><strong>Método `render_bg()`:</strong> Lee VRAM, aplica scroll (SCX/SCY), decodifica tiles 2bpp y aplica paleta BGP</li>
+                </ul>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Constructor: Inicialización del framebuffer a blanco, eliminación de código de diagnóstico</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Color de inicialización:</strong> Se eligió blanco (0xFFFFFFFF) como color por defecto porque es el color 0 de la paleta BGP
+                    estándar (0xE4), que corresponde a "transparente" o "blanco" en la mayoría de juegos. Si un tile no se renderiza correctamente,
+                    aparecerá blanco en lugar de gris, lo que facilita la depuración.
+                </p>
+                <p>
+                    <strong>Sin cambios en la lógica de renderizado:</strong> La lógica de renderizado ya estaba implementada correctamente en pasos anteriores.
+                    Solo se necesitaba eliminar el código de diagnóstico para activar el renderizado real.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Limpieza de código de diagnóstico, inicialización del framebuffer a blanco</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron los tests de renderizado para asegurar que la limpieza del código de diagnóstico no rompió la funcionalidad:
+                </p>
+                <pre><code>$ python -m pytest tests/test_core_ppu_rendering.py -v
+
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.2, pluggy-1.6.0
+collected 4 items
+
+tests/test_core_ppu_rendering.py::TestCorePPURendering::test_bg_rendering_simple_tile PASSED [ 25%]
+tests/test_core_ppu_rendering.py::TestCorePPURendering::test_bg_rendering_scroll PASSED [ 50%]
+tests/test_core_ppu_rendering.py::TestCorePPURendering::test_window_rendering PASSED [ 75%]
+tests/test_core_ppu_rendering.py::TestCorePPURendering::test_framebuffer_memoryview PASSED [100%]
+
+============================== 4 passed in 0.12s ==============================</code></pre>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Todos los tests pasaron, confirmando que:
+                </p>
+                <ul>
+                    <li>El renderizado de Background funciona correctamente</li>
+                    <li>El scroll (SCX/SCY) se aplica correctamente</li>
+                    <li>La Window se renderiza encima del Background</li>
+                    <li>El framebuffer se expone correctamente como memoryview (Zero-Copy)</li>
+                </ul>
+                <p>
+                    <strong>Test clave:</strong> `test_bg_rendering_simple_tile` verifica que un tile negro se renderiza correctamente
+                    en el framebuffer cuando se configura en VRAM y tilemap. Este test confirma que el renderizado real funciona.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCD.html">LCD Timing, Background, Tile Data</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Tile_Data.html">2bpp Format, Tile Decoding</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Renderizado Scanline:</strong> La PPU renderiza línea por línea durante el H-Blank (Mode 0), no frame por frame. Esto es crítico para la sincronización con la CPU.</li>
+                        <li><strong>Inicialización del Framebuffer:</strong> El framebuffer debe inicializarse a un color por defecto (blanco) antes de que la PPU comience a renderizar. Los colores de diagnóstico (gris, rojo) deben eliminarse antes de activar el renderizado real.</li>
+                        <li><strong>Orden de Renderizado:</strong> Background → Window → Sprites. Este orden determina qué capa se dibuja encima de otra.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Renderizado de Sprites:</strong> Los sprites se renderizan pero la lógica de prioridad puede necesitar ajustes. Verificar con juegos reales.</li>
+                        <li><strong>Window:</strong> La Window puede tener problemas de timing o posicionamiento en algunos juegos. Verificar con Tetris y otros juegos.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Color de inicialización:</strong> Se asume que blanco (0xFFFFFFFF) es un color seguro para inicializar el framebuffer.
+                        Si un juego muestra colores incorrectos, puede ser necesario inicializar a otro color o verificar la paleta BGP.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Probar con ROMs reales (Tetris, Mario) para verificar que el renderizado funciona correctamente</li>
+                    <li>[ ] Verificar que los sprites se renderizan correctamente (prioridad, transparencia, flip)</li>
+                    <li>[ ] Optimizar el renderizado si es necesario (cacheo de tiles, optimización de bucles)</li>
+                    <li>[ ] Implementar soporte para Game Boy Color (paletas CGB, VRAM Banks)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
