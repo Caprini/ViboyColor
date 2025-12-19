@@ -21,6 +21,15 @@ uint8_t CPU::fetch_byte() {
     return value;
 }
 
+uint16_t CPU::fetch_word() {
+    // Lee primero el byte bajo (LSB) en formato Little-Endian
+    uint8_t low = fetch_byte();
+    // Lee luego el byte alto (MSB)
+    uint8_t high = fetch_byte();
+    // Combina: (high << 8) | low
+    return (static_cast<uint16_t>(high) << 8) | static_cast<uint16_t>(low);
+}
+
 // ========== Implementación de Helpers ALU ==========
 
 void CPU::alu_add(uint8_t value) {
@@ -191,6 +200,55 @@ int CPU::step() {
                 alu_xor(regs_->a);  // XOR A con A mismo
                 cycles_ += 1;  // XOR A consume 1 M-Cycle
                 return 1;
+            }
+
+        // ========== Control de Flujo (Jumps) ==========
+        // Agrupamos los saltos juntos para ayudar a la predicción de ramas del host
+
+        case 0xC3:  // JP nn (Jump Absolute)
+            // Salto absoluto incondicional a dirección de 16 bits
+            // Lee dirección en formato Little-Endian y la asigna a PC
+            // Fuente: Pan Docs - JP nn: 4 M-Cycles
+            {
+                uint16_t target = fetch_word();
+                regs_->pc = target;
+                cycles_ += 4;  // JP nn consume 4 M-Cycles
+                return 4;
+            }
+
+        case 0x18:  // JR e (Jump Relative)
+            // Salto relativo incondicional
+            // Lee un byte con signo (int8_t) y lo suma a PC
+            // El offset se suma al PC DESPUÉS de leer toda la instrucción
+            // Fuente: Pan Docs - JR e: 3 M-Cycles
+            {
+                uint8_t offset_raw = fetch_byte();
+                // Cast a int8_t: C++ maneja automáticamente el complemento a dos
+                int8_t offset = static_cast<int8_t>(offset_raw);
+                // Sumar offset a PC (el PC ya avanzó 2 posiciones: opcode + offset)
+                regs_->pc = (regs_->pc + offset) & 0xFFFF;
+                cycles_ += 3;  // JR e consume 3 M-Cycles
+                return 3;
+            }
+
+        case 0x20:  // JR NZ, e (Jump Relative if Not Zero)
+            // Salto relativo condicional: salta si el flag Z está desactivado (Z=0)
+            // SIEMPRE lee el offset (para avanzar PC), pero solo salta si la condición es verdadera
+            // Fuente: Pan Docs - JR NZ, e: 3 M-Cycles si salta, 2 M-Cycles si no salta
+            {
+                uint8_t offset_raw = fetch_byte();
+                
+                if (!regs_->get_flag_z()) {
+                    // Condición verdadera: saltar
+                    int8_t offset = static_cast<int8_t>(offset_raw);
+                    regs_->pc = (regs_->pc + offset) & 0xFFFF;
+                    cycles_ += 3;  // JR NZ consume 3 M-Cycles si salta
+                    return 3;
+                } else {
+                    // Condición falsa: no saltar, continuar ejecución normal
+                    cycles_ += 2;  // JR NZ consume 2 M-Cycles si no salta
+                    return 2;
+                }
             }
 
         default:

@@ -66,6 +66,19 @@ private:
      */
     uint8_t fetch_byte();
 
+    /**
+     * Lee una palabra (16 bits) de memoria en la dirección PC en formato Little-Endian.
+     * 
+     * Lee primero el byte bajo (LSB) y luego el byte alto (MSB), y los combina.
+     * PC se incrementa 2 veces.
+     * 
+     * Helper interno para instrucciones que requieren direcciones de 16 bits
+     * (ej: JP nn, CALL nn).
+     * 
+     * @return Palabra de 16 bits leída de memoria (Little-Endian)
+     */
+    uint16_t fetch_word();
+
     // ========== Helpers de ALU (Arithmetic Logic Unit) ==========
     // Todos los métodos son inline para máximo rendimiento en el bucle crítico
     

@@ -257,3 +257,55 @@ opcodes: INC A, DEC A, ADD A d8, SUB d8 y XOR A.
 - Implementar operaciones lógicas restantes (OR, CP)
 - Implementar operaciones de 16 bits (ADD HL, rr, INC rr, DEC rr)
 
+---
+
+### 2025-12-19 - Step 0106: Implementación de Control de Flujo y Saltos en C++
+**Estado**: ✅ Completado
+
+Se implementó el control de flujo básico de la CPU en C++, añadiendo instrucciones de salto absoluto
+(JP nn) y relativo (JR e, JR NZ e). Esta implementación rompe la linealidad de ejecución, permitiendo
+bucles y decisiones condicionales. La CPU ahora es prácticamente Turing Completa.
+
+**Implementación**:
+- ✅ Helper `fetch_word()` añadido a `CPU.hpp` / `CPU.cpp`:
+  - Lee una palabra de 16 bits en formato Little-Endian (LSB primero, luego MSB)
+  - Reutiliza `fetch_byte()` para mantener consistencia y manejo de wrap-around
+- ✅ 3 nuevos opcodes implementados:
+  - `0xC3`: JP nn (Jump Absolute) - Salto absoluto a dirección de 16 bits - 4 M-Cycles
+  - `0x18`: JR e (Jump Relative) - Salto relativo incondicional - 3 M-Cycles
+  - `0x20`: JR NZ, e (Jump Relative if Not Zero) - Salto relativo condicional - 3 M-Cycles si salta, 2 si no
+- ✅ Suite completa de tests (`test_core_cpu_jumps.py`):
+  - 8 tests que validan saltos absolutos, relativos positivos/negativos y condicionales
+  - Todos los tests pasan (8/8 ✅)
+
+**Archivos creados/modificados**:
+- `src/core/cpp/CPU.hpp` - Añadida declaración de `fetch_word()`
+- `src/core/cpp/CPU.cpp` - Implementación de `fetch_word()` y 3 opcodes de salto
+- `tests/test_core_cpu_jumps.py` - Suite de 8 tests para validar saltos nativos
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0106__implementacion-control-flujo-saltos-cpp.html`
+
+**Resultados de verificación**:
+- ✅ Compilación exitosa (sin errores)
+- ✅ Todos los tests pasan: `8/8 passed in 0.05s`
+- ✅ Manejo correcto de enteros con signo en C++ (cast `uint8_t` a `int8_t`)
+- ✅ Saltos relativos negativos funcionan correctamente (verificación crítica)
+
+**Conceptos clave**:
+- **Complemento a Dos Nativo en C++**: El cast de `uint8_t` a `int8_t` es una operación a nivel de bits
+  que el compilador maneja automáticamente. Esto simplifica enormemente el código comparado con Python,
+  donde teníamos que simular el complemento a dos con fórmulas matemáticas. Un simple
+  <code>pc += (int8_t)offset;</code> reemplaza la lógica condicional de Python.
+- **Little-Endian**: La Game Boy almacena valores de 16 bits en formato Little-Endian (LSB primero).
+  El helper `fetch_word()` lee correctamente estos valores para direcciones de salto absoluto.
+- **Timing Condicional**: Las instrucciones de salto condicional siempre leen el offset (para mantener
+  el comportamiento del hardware), pero solo ejecutan el salto si la condición es verdadera. Esto causa
+  diferentes tiempos de ejecución (3 vs 2 M-Cycles), que es crítico para la sincronización precisa.
+- **Branch Prediction**: Agrupamos los opcodes de salto juntos en el switch para ayudar a la predicción
+  de ramas del procesador host, una optimización menor pero importante en bucles de emulación.
+
+**Próximos pasos**:
+- Implementar más saltos condicionales (JR Z, JR C, JR NC)
+- Implementar CALL y RET para subrutinas (control de flujo avanzado)
+- Continuar expandiendo el conjunto de instrucciones básicas de la CPU
+

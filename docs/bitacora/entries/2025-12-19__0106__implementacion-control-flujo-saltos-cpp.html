@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementación de Control de Flujo y Saltos en C++ - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Implementación de Control de Flujo y Saltos en C++</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0106
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-completed">Completado</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0105__implementacion-alu-flags-cpp.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó el control de flujo básico de la CPU en C++, añadiendo instrucciones
+                    de salto absoluto (JP nn) y relativo (JR e, JR NZ e). Esta implementación rompe
+                    la linealidad de ejecución, permitiendo bucles y decisiones condicionales. La CPU
+                    ahora es prácticamente Turing Completa. Se aprovechó el manejo nativo de enteros
+                    con signo de C++ para simplificar los saltos relativos, eliminando la complejidad
+                    de simular complemento a dos que existía en Python. Todos los tests pasan (8/8).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El control de flujo es esencial para cualquier CPU: sin saltos (jumps), la ejecución
+                    solo podría ser lineal, sin posibilidad de bucles, condicionales o subrutinas. La CPU
+                    LR35902 implementa dos tipos principales de saltos:
+                </p>
+                <ul>
+                    <li><strong>Saltos Absolutos (JP nn)</strong>: El opcode lee una dirección de 16 bits
+                        (Little-Endian) y establece el PC directamente a esa dirección. Consume 4 M-Cycles.</li>
+                    <li><strong>Saltos Relativos (JR e)</strong>: El opcode lee un byte con signo (-128 a +127)
+                        y lo suma al PC actual. El offset es relativo a la posición DESPUÉS de leer el offset.
+                        Consume 3 M-Cycles si se toma el salto, 2 si no (en versiones condicionales).</li>
+                </ul>
+                <p>
+                    <strong>Optimización C++ vs Python</strong>: Como se mencionó en el prompt, en Python
+                    tuvimos que hacer fórmulas matemáticas para simular el complemento a dos (ej: si el byte
+                    es >= 128, restar 256). En C++, el cast de <code>uint8_t</code> a <code>int8_t</code>
+                    es nativo del procesador: el compilador simplemente interpreta el mismo patrón de bits
+                    como un número con signo, generando la instrucción de ensamblador correcta automáticamente.
+                    Esto hace el código más limpio y eficiente: <code>pc += (int8_t)offset;</code> frente a
+                    la lógica condicional de Python.
+                </p>
+                <p>
+                    <strong>Branch Prediction</strong>: Aunque estamos emulando, organizar los casos de salto
+                    juntos en el switch puede ayudar a la predicción de ramas del procesador host, mejorando
+                    el rendimiento del switch statement.
+                </p>
+                <p>
+                    <strong>Timing Condicional</strong>: Las versiones condicionales de JR (como JR NZ, e)
+                    siempre leen el offset (para avanzar PC), pero solo ejecutan el salto si la condición
+                    es verdadera. Esto causa que consuman diferentes ciclos: 3 M-Cycles si saltan, 2 si no.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió el helper <code>fetch_word()</code> para leer direcciones de 16 bits en formato
+                    Little-Endian (lee LSB primero, luego MSB, y los combina). Se implementaron 3 opcodes
+                    nuevos: JP nn (0xC3), JR e (0x18) y JR NZ, e (0x20).
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>CPU.hpp</strong>: Añadida declaración de <code>fetch_word()</code> helper.</li>
+                    <li><strong>CPU.cpp</strong>: 
+                        <ul>
+                            <li>Implementación de <code>fetch_word()</code> (lee 2 bytes Little-Endian).</li>
+                            <li>Implementación de JP nn (0xC3) - salto absoluto de 4 M-Cycles.</li>
+                            <li>Implementación de JR e (0x18) - salto relativo incondicional de 3 M-Cycles.</li>
+                            <li>Implementación de JR NZ, e (0x20) - salto relativo condicional (3 ciclos si salta, 2 si no).</li>
+                        </ul>
+                    </li>
+                    <li><strong>tests/test_core_cpu_jumps.py</strong>: Suite completa de 8 tests que validan:
+                        <ul>
+                            <li>Saltos absolutos (JP nn) con direcciones normales y wrap-around.</li>
+                            <li>Saltos relativos positivos y negativos.</li>
+                            <li>Saltos condicionales con condición verdadera y falsa.</li>
+                            <li>Verificación crítica del manejo de negativos en C++.</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>fetch_word() reutiliza fetch_byte()</strong>: Para mantener consistencia y
+                        aprovechar el manejo de wrap-around de PC que ya existe en <code>fetch_byte()</code>.
+                        Esto también simplifica el código y reduce duplicación.</li>
+                    <li><strong>Cast explícito a int8_t</strong>: Aunque el compilador podría inferirlo, usar
+                        <code>static_cast&lt;int8_t&gt;(offset_raw)</code> hace explícita la intención y mejora
+                        la legibilidad del código.</li>
+                    <li><strong>Agrupación de saltos en switch</strong>: Los opcodes de salto se agrupan juntos
+                        en el switch (después de las operaciones ALU) para ayudar a la predicción de ramas del
+                        procesador host. Esto es una optimización menor pero importante en bucles de emulación.</li>
+                    <li><strong>JR NZ siempre lee offset</strong>: Aunque no se tome el salto, siempre leemos
+                        el offset para avanzar PC correctamente. Esto es crítico para la emulación correcta del
+                        timing y comportamiento del hardware.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Añadida declaración de <code>fetch_word()</code></li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Implementación de <code>fetch_word()</code> y 3 opcodes de salto</li>
+                    <li><code>tests/test_core_cpu_jumps.py</code> - Suite completa de tests (8 tests)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de 8 tests en <code>test_core_cpu_jumps.py</code>:
+                </p>
+                <ul>
+                    <li><strong>TestJumpAbsolute (2 tests)</strong>:
+                        <ul>
+                            <li><code>test_jp_absolute()</code>: Verifica salto absoluto a dirección específica (0xC000).</li>
+                            <li><code>test_jp_absolute_wraparound()</code>: Verifica salto a dirección máxima (0xFFFF).</li>
+                        </ul>
+                    </li>
+                    <li><strong>TestJumpRelative (3 tests)</strong>:
+                        <ul>
+                            <li><code>test_jr_relative_positive()</code>: Verifica salto relativo positivo (+5).</li>
+                            <li><code>test_jr_relative_negative()</code>: <strong>CRÍTICO</strong> - Verifica manejo de offset negativo (-2) en C++.</li>
+                            <li><code>test_jr_relative_loop()</code>: Simula un bucle con salto relativo negativo (-3).</li>
+                        </ul>
+                    </li>
+                    <li><strong>TestJumpRelativeConditional (3 tests)</strong>:
+                        <ul>
+                            <li><code>test_jr_nz_condition_true()</code>: Verifica que salta cuando Z=0 (condición verdadera, 3 ciclos).</li>
+                            <li><code>test_jr_nz_condition_false()</code>: Verifica que NO salta cuando Z=1 (condición falsa, 2 ciclos).</li>
+                            <li><code>test_jr_nz_negative_when_condition_true()</code>: Verifica saltos negativos con condición verdadera.</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Resultados de validación</strong>:
+                </p>
+                <pre><code>tests/test_core_cpu_jumps.py::TestJumpAbsolute::test_jp_absolute PASSED
+tests/test_core_cpu_jumps.py::TestJumpAbsolute::test_jp_absolute_wraparound PASSED
+tests/test_core_cpu_jumps.py::TestJumpRelative::test_jr_relative_positive PASSED
+tests/test_core_cpu_jumps.py::TestJumpRelative::test_jr_relative_negative PASSED
+tests/test_core_cpu_jumps.py::TestJumpRelative::test_jr_relative_loop PASSED
+tests/test_core_cpu_jumps.py::TestJumpRelativeConditional::test_jr_nz_condition_true PASSED
+tests/test_core_cpu_jumps.py::TestJumpRelativeConditional::test_jr_nz_condition_false PASSED
+tests/test_core_cpu_jumps.py::TestJumpRelativeConditional::test_jr_nz_negative_when_condition_true PASSED
+
+============================== 8 passed in 0.05s ==============================</code></pre>
+                <p>
+                    Todos los tests pasan correctamente, incluyendo el caso crítico de manejo de números
+                    negativos en C++. La CPU ahora puede ejecutar bucles y tomar decisiones condicionales.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#jp-nn">JP nn (Jump Absolute)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#jr-e">JR e (Jump Relative)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#jr-cc-e">JR cc, e (Jump Relative Conditional)</a></li>
+                    <li>Documentación técnica de C++17: Manejo de enteros con signo y cast implícito/explicito.</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Complemento a Dos Nativo</strong>: En C++, el cast de <code>uint8_t</code> a <code>int8_t</code>
+                            es una operación a nivel de bits: el mismo patrón de bits se interpreta de forma diferente. Esto
+                            es mucho más eficiente que simularlo en Python con operaciones aritméticas.</li>
+                        <li><strong>Little-Endian</strong>: La Game Boy almacena valores de 16 bits en memoria en formato
+                            Little-Endian (LSB primero). Esto es crítico para leer direcciones correctamente.</li>
+                        <li><strong>Timing Condicional</strong>: Las instrucciones de salto condicional siempre leen el offset
+                            (para mantener el comportamiento del hardware), pero solo ejecutan el salto si la condición es
+                            verdadera. Esto causa diferentes tiempos de ejecución (3 vs 2 M-Cycles).</li>
+                        <li><strong>PC relativo a lectura completa</strong>: En saltos relativos, el offset se suma al PC
+                            DESPUÉS de leer toda la instrucción (opcode + offset). Esto es importante para calcular correctamente
+                            la dirección de destino.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Otros saltos condicionales</strong>: Existen más variantes condicionales (JR Z, JR C, JR NC)
+                            que deberían seguir el mismo patrón. Pendiente implementar en pasos futuros.</li>
+                        <li><strong>CALL y RET</strong>: Para subrutinas, necesitaremos CALL (salto absoluto que guarda dirección
+                            de retorno en stack) y RET (retorna desde subrutina). Pendiente para control de flujo avanzado.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el comportamiento del hardware real es exactamente como se documenta en Pan Docs:
+                        los saltos relativos siempre leen el offset (incluso si no se toma el salto), y el timing
+                        es exactamente 3 M-Cycles si se salta, 2 si no. Esto se verifica mediante tests exhaustivos.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar más saltos condicionales (JR Z, JR C, JR NC)</li>
+                    <li>[ ] Implementar CALL y RET para subrutinas</li>
+                    <li>[ ] Implementar más instrucciones de carga/almacenamiento (LD)</li>
+                    <li>[ ] Continuar expandiendo el conjunto de instrucciones básicas de la CPU</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
