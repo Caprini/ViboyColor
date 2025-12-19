@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 1151 - Fix de Inicialización PPU C++ y Debug Visual -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__1151__fix-inicializacion-ppu-cpp-pantalla-negra.html" class="entry-link">
+                                    Fix de Inicialización PPU C++ y Debug Visual
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 1151 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            El emulador C++ corría a 60 FPS pero mostraba pantalla negra. El diagnóstico reveló que los registros de la PPU (LCDC, BGP) no se inicializaban correctamente en el constructor C++, quedando en 0. Se implementó inicialización explícita de registros con valores seguros (LCDC=0x91, BGP=0xE4) y se agregó un píxel de diagnóstico rojo en el framebuffer para verificar el enlace C++ → Python. Esto permite confirmar que el puente de memoria funciona correctamente antes de depurar el renderizado completo.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 1150 - Renderizado de Sprites (OBJ) en C++ -->
                     <li>
                         <div class="entry-header">

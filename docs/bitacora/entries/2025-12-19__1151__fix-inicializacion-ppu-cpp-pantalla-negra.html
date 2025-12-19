@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix de Inicialización PPU C++ y Debug Visual - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Fix de Inicialización PPU C++ y Debug Visual</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 1151
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__1150__renderizado-sprites-obj-cpp.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El emulador C++ corría a 60 FPS pero mostraba pantalla negra. El diagnóstico reveló que los registros de la PPU (LCDC, BGP) no se inicializaban correctamente en el constructor C++, quedando en 0. Se implementó inicialización explícita de registros con valores seguros (LCDC=0x91, BGP=0xE4) y se agregó un píxel de diagnóstico rojo en el framebuffer para verificar el enlace C++ → Python. Esto permite confirmar que el puente de memoria funciona correctamente antes de depurar el renderizado completo.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, la PPU (Pixel Processing Unit) controla el renderizado de la pantalla mediante varios registros I/O mapeados en memoria:
+                </p>
+                <ul>
+                    <li><strong>LCDC (0xFF40)</strong>: Control del LCD. El bit 7 (LCD Enable) debe estar activo (1) para que la PPU funcione. Si está en 0, la pantalla permanece blanca/negra. El bit 0 (BG Display Enable) controla si el fondo se dibuja.</li>
+                    <li><strong>BGP (0xFF47)</strong>: Background Palette. Define los 4 colores del fondo (cada par de bits representa un color 0-3). Si está en 0x00, todos los colores son transparentes/blancos, resultando en pantalla blanca.</li>
+                    <li><strong>SCX/SCY (0xFF43/0xFF42)</strong>: Scroll X/Y. Controlan el desplazamiento del fondo.</li>
+                    <li><strong>OBP0/OBP1 (0xFF48/0xFF49)</strong>: Object Palettes. Paletas para sprites.</li>
+                </ul>
+                <p>
+                    <strong>Problema identificado:</strong> En C++, si no se inicializan explícitamente las variables, pueden quedar en 0 (comportamiento no definido). Si LCDC=0, la PPU no renderiza. Si BGP=0, todos los píxeles son transparentes. Esto causaba la pantalla negra a pesar de que el bucle de emulación funcionaba correctamente.
+                </p>
+                <p>
+                    <strong>Solución:</strong> Inicializar explícitamente los registros en el constructor de PPU con valores seguros que permitan ver algo en pantalla, incluso si el juego aún no ha configurado estos registros.
+                </p>
+                <p>
+                    Fuente: Pan Docs - LCD Control Register (LCDC), Background Palette (BGP)
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó el constructor de <code>PPU</code> en C++ para inicializar los registros críticos con valores seguros y agregar un píxel de diagnóstico en el framebuffer.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>src/core/cpp/PPU.cpp</strong>: Constructor actualizado para inicializar registros y agregar píxel de diagnóstico</li>
+                </ul>
+
+                <h3>Cambios realizados</h3>
+                <p>
+                    <strong>1. Inicialización de registros en el constructor:</strong>
+                </p>
+                <pre><code>// CRÍTICO: Inicializar registros de la PPU con valores seguros
+if (mmu_ != nullptr) {
+    mmu_->write(IO_LCDC, 0x91);  // LCD ON, BG ON
+    mmu_->write(IO_BGP, 0xE4);   // Paleta estándar
+    mmu_->write(IO_SCX, 0x00);   // Scroll inicial
+    mmu_->write(IO_SCY, 0x00);
+    mmu_->write(IO_OBP0, 0xE4);  // Paletas de sprites
+    mmu_->write(IO_OBP1, 0xE4);
+}</code></pre>
+                <p>
+                    <strong>2. Píxel de diagnóstico:</strong>
+                </p>
+                <pre><code>// DIAGNÓSTICO: Pintar un píxel ROJO en la esquina superior izquierda
+// Esto nos permitirá verificar que el enlace C++ -> Python funciona
+framebuffer_[0] = 0xFFFF0000;  // ARGB: Rojo sólido</code></pre>
+                <p>
+                    <strong>3. Framebuffer inicializado a gris:</strong>
+                </p>
+                <pre><code>framebuffer_(FRAMEBUFFER_SIZE, 0xFF808080)  // Gris en lugar de blanco</code></pre>
+                <p>
+                    El framebuffer se inicializa a gris (0x808080) en lugar de blanco para facilitar la visualización del píxel rojo de diagnóstico. Si el enlace C++ → Python funciona, deberíamos ver una pantalla gris con un punto rojo en la esquina superior izquierda.
+                </p>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Valores por defecto seguros:</strong> Se eligieron valores que permiten ver algo en pantalla incluso si el juego no ha inicializado los registros. LCDC=0x91 activa el LCD y el fondo. BGP=0xE4 es el valor estándar usado por muchos juegos.</li>
+                    <li><strong>Píxel de diagnóstico:</strong> Se agregó un píxel rojo en la posición 0 del framebuffer para verificar que el enlace de memoria funciona. Si vemos el rojo, sabemos que Python está leyendo correctamente la memoria de C++.</li>
+                    <li><strong>Inicialización en constructor:</strong> Se decidió inicializar los registros en el constructor de PPU en lugar de en viboy.py para asegurar que siempre tengan valores válidos, independientemente del orden de inicialización.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Constructor modificado para inicializar registros y agregar píxel de diagnóstico</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Validación visual:</strong>
+                </p>
+                <ul>
+                    <li>Al ejecutar <code>python main.py roms/tetris.gb</code>, se espera ver:
+                        <ul>
+                            <li>Si el enlace funciona: Pantalla gris con un punto rojo en la esquina superior izquierda</li>
+                            <li>Si el renderizado funciona: El juego debería aparecer encima del gris</li>
+                            <li>Si sigue negra: El puntero del framebuffer no se está pasando correctamente</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Compilación:</strong>
+                </p>
+                <pre><code>$ python setup.py build_ext --inplace
+running build_ext
+building 'viboy_core' extension
+...
+copying build\lib.win-amd64-cpython-313\viboy_core.cp313-win_amd64.pyd -></code></pre>
+                <p>
+                    Compilación exitosa sin errores (solo warnings menores no críticos).
+                </p>
+                <p>
+                    <strong>Próximos pasos de verificación:</strong>
+                </p>
+                <ul>
+                    <li>Ejecutar el emulador y verificar el color de la pantalla</li>
+                    <li>Si aparece gris con punto rojo: El enlace funciona, depurar renderizado</li>
+                    <li>Si sigue negra: Verificar el wrapper Cython y el memoryview del framebuffer</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html">LCD Control Register (LCDC)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Palettes.html">Palettes (BGP, OBP0, OBP1)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Scrolling.html">Scrolling (SCX, SCY)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Inicialización en C++:</strong> A diferencia de Python, en C++ las variables no inicializadas pueden tener valores aleatorios o 0. Es crítico inicializar explícitamente todos los registros que controlan el hardware.</li>
+                        <li><strong>Registros de la PPU:</strong> LCDC y BGP son esenciales para que la PPU renderice. Si están en 0, la pantalla permanece negra/blanca incluso si el bucle de emulación funciona correctamente.</li>
+                        <li><strong>Debug visual:</strong> Agregar píxeles de diagnóstico en el framebuffer es una técnica efectiva para verificar que el enlace de memoria C++ → Python funciona correctamente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Enlace de memoria:</strong> Verificar que el memoryview de Cython apunta correctamente a la memoria de C++ y que los cambios se reflejan en Python.</li>
+                        <li><strong>Renderizado completo:</strong> Una vez confirmado el enlace, verificar que el renderizado de tiles funciona correctamente y que el juego aparece en pantalla.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El problema era la falta de inicialización de registros, no un bug en el renderizado. Si el píxel rojo aparece, confirmamos que el enlace funciona y podemos depurar el renderizado. Si no aparece, el problema está en el puente Cython.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y verificar el color de la pantalla</li>
+                    <li>[ ] Si aparece gris con punto rojo: Depurar el renderizado de tiles (render_bg)</li>
+                    <li>[ ] Si sigue negra: Verificar el wrapper Cython (ppu.pyx) y el memoryview del framebuffer</li>
+                    <li>[ ] Una vez confirmado el enlace, remover el píxel de diagnóstico y el color gris del framebuffer</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

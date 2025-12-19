@@ -10,9 +10,36 @@ PPU::PPU(MMU* mmu)
     , lyc_(0)
     , stat_interrupt_line_(false)
     , scanline_rendered_(false)
-    , framebuffer_(FRAMEBUFFER_SIZE, 0xFFFFFFFF)  // Inicializar a blanco
+    , framebuffer_(FRAMEBUFFER_SIZE, 0xFF808080)  // Inicializar a gris (0x80, 0x80, 0x80) para diagnóstico
 {
-    // Inicialización completa en lista de inicialización
+    // CRÍTICO: Inicializar registros de la PPU con valores seguros
+    // Si estos registros están en 0, la pantalla estará negra/blanca
+    // 
+    // LCDC (0xFF40): Control del LCD
+    // Bit 7: LCD Enable (1 = ON)
+    // Bit 0: BG Display Enable (1 = ON)
+    // Valor 0x91 = 10010001 = LCD ON, BG ON, Tile Data 0x8000, Tile Map 0x9800
+    if (mmu_ != nullptr) {
+        mmu_->write(IO_LCDC, 0x91);
+        
+        // BGP (0xFF47): Background Palette
+        // Valor 0xE4 = 11100100 = Color 0=3 (Negro), 1=2 (Gris oscuro), 2=1 (Gris claro), 3=0 (Blanco)
+        // Este es el valor estándar que usan muchos juegos
+        mmu_->write(IO_BGP, 0xE4);
+        
+        // SCX/SCY: Scroll inicial a 0
+        mmu_->write(IO_SCX, 0x00);
+        mmu_->write(IO_SCY, 0x00);
+        
+        // OBP0/OBP1: Paletas de sprites (mismo valor que BGP por defecto)
+        mmu_->write(IO_OBP0, 0xE4);
+        mmu_->write(IO_OBP1, 0xE4);
+    }
+    
+    // DIAGNÓSTICO: Pintar un píxel ROJO en la esquina superior izquierda (posición 0)
+    // Esto nos permitirá verificar que el enlace C++ -> Python funciona
+    // Color: 0xFFFF0000 = ARGB (Alpha=FF, Red=FF, Green=00, Blue=00) = Rojo sólido
+    framebuffer_[0] = 0xFFFF0000;
 }
 
 PPU::~PPU() {
