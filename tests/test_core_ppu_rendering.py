@@ -281,10 +281,15 @@ class TestCorePPURendering:
         first_pixel = framebuffer[0]
         assert first_pixel == 3, f"Primer píxel debe ser color 3 (negro), es {first_pixel}"
         
-        # Verificar que todos los píxeles de la primera línea son color 3
-        for x in range(160):
+        # Verificar que los primeros 8 píxeles (el primer tile) son color 3 (negro)
+        # Solo configuramos el primer tile en el tilemap, el resto está en 0 (blanco)
+        for x in range(8):
             pixel = framebuffer[x]
-            assert pixel == 3, f"Píxel {x} debe ser color 3 (negro), es {pixel}"
+            assert pixel == 3, f"Píxel {x} del primer tile debe ser color 3 (negro), es {pixel}"
+        
+        # Verificación extra: El píxel 8 (inicio del segundo tile) debe ser blanco (color 0)
+        # porque no configuramos el tile en la posición 0x9801 del tilemap
+        assert framebuffer[8] == 0, f"El segundo tile debe ser blanco (color 0) por defecto, es {framebuffer[8]}"
         
         # Test adicional: Verificar tile ID 0 en modo signed (debe estar en 0x9000)
         # Limpiar tilemap

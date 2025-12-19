@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0137 - Corrección del Test de Renderizado y Ejecución de Tetris -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0137__correccion-test-renderizado-ejecucion-tetris.html" class="entry-link">
+                                    Corrección del Test de Renderizado y Ejecución de Tetris
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0137 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se corrigió un bug sutil en el test test_signed_addressing_fix que estaba verificando incorrectamente todos los 160 píxeles de la primera línea cuando solo se había configurado el primer tile (8 píxeles). El test ahora verifica únicamente los primeros 8 píxeles del primer tile y confirma que el segundo tile es blanco por defecto. Con esta corrección, el test pasa exitosamente, confirmando que la PPU C++ renderiza correctamente. Además, se ejecutó el emulador con la ROM de Tetris para verificar el renderizado completo del pipeline.
+                        </p>
+                    </li>
                     <!-- Entrada 0136 - ¡Hito! Primeros Gráficos Renderizados por el Núcleo C++ -->
                     <li>
                         <div class="entry-header">
