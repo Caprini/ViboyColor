@@ -8,6 +8,7 @@ pueda generar el código de enlace correcto.
 """
 
 from libc.stdint cimport uint8_t, uint16_t, uint32_t
+from libcpp cimport bool
 
 # Forward declarations (necesarios para punteros)
 cdef extern from "MMU.hpp":

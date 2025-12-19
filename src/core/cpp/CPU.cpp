@@ -152,6 +152,144 @@ void CPU::alu_xor(uint8_t value) {
     regs_->set_flag_c(false);
 }
 
+// ========== Implementación de Helpers de Load ==========
+
+uint8_t* CPU::get_register_ptr(uint8_t reg_code) {
+    // Mapeo de códigos de registro a punteros
+    // Códigos: 0=B, 1=C, 2=D, 3=E, 4=H, 5=L, 6=(HL), 7=A
+    switch (reg_code) {
+        case 0: return &regs_->b;
+        case 1: return &regs_->c;
+        case 2: return &regs_->d;
+        case 3: return &regs_->e;
+        case 4: return &regs_->h;
+        case 5: return &regs_->l;
+        case 6: return nullptr;  // (HL) requiere acceso a memoria
+        case 7: return &regs_->a;
+        default: return nullptr;
+    }
+}
+
+uint8_t CPU::read_register_or_mem(uint8_t reg_code) {
+    if (reg_code == 6) {
+        // (HL): leer de memoria en dirección HL
+        uint16_t addr = regs_->get_hl();
+        return mmu_->read(addr);
+    } else {
+        // Leer de registro
+        uint8_t* reg_ptr = get_register_ptr(reg_code);
+        return (reg_ptr != nullptr) ? *reg_ptr : 0;
+    }
+}
+
+void CPU::write_register_or_mem(uint8_t reg_code, uint8_t value) {
+    if (reg_code == 6) {
+        // (HL): escribir en memoria en dirección HL
+        uint16_t addr = regs_->get_hl();
+        mmu_->write(addr, value);
+    } else {
+        // Escribir en registro
+        uint8_t* reg_ptr = get_register_ptr(reg_code);
+        if (reg_ptr != nullptr) {
+            *reg_ptr = value;
+        }
+    }
+}
+
+void CPU::ld_r_r(uint8_t dest_code, uint8_t src_code) {
+    // LD r, r': copiar valor de origen a destino
+    // Esta función maneja todo el bloque 0x40-0x7F
+    uint8_t value = read_register_or_mem(src_code);
+    write_register_or_mem(dest_code, value);
+}
+
+// ========== Implementación de Helpers de Aritmética 16-bit ==========
+
+void CPU::inc_16bit(uint8_t reg_pair) {
+    // INC rr: incrementa el par de registros
+    // IMPORTANTE: NO afecta flags
+    switch (reg_pair) {
+        case 0: {  // BC
+            uint16_t bc = regs_->get_bc();
+            bc = (bc + 1) & 0xFFFF;  // Wrap-around en 16 bits
+            regs_->set_bc(bc);
+            break;
+        }
+        case 1: {  // DE
+            uint16_t de = regs_->get_de();
+            de = (de + 1) & 0xFFFF;
+            regs_->set_de(de);
+            break;
+        }
+        case 2: {  // HL
+            uint16_t hl = regs_->get_hl();
+            hl = (hl + 1) & 0xFFFF;
+            regs_->set_hl(hl);
+            break;
+        }
+        case 3: {  // SP
+            regs_->sp = (regs_->sp + 1) & 0xFFFF;
+            break;
+        }
+    }
+}
+
+void CPU::dec_16bit(uint8_t reg_pair) {
+    // DEC rr: decrementa el par de registros
+    // IMPORTANTE: NO afecta flags
+    switch (reg_pair) {
+        case 0: {  // BC
+            uint16_t bc = regs_->get_bc();
+            bc = (bc - 1) & 0xFFFF;  // Wrap-around en 16 bits
+            regs_->set_bc(bc);
+            break;
+        }
+        case 1: {  // DE
+            uint16_t de = regs_->get_de();
+            de = (de - 1) & 0xFFFF;
+            regs_->set_de(de);
+            break;
+        }
+        case 2: {  // HL
+            uint16_t hl = regs_->get_hl();
+            hl = (hl - 1) & 0xFFFF;
+            regs_->set_hl(hl);
+            break;
+        }
+        case 3: {  // SP
+            regs_->sp = (regs_->sp - 1) & 0xFFFF;
+            break;
+        }
+    }
+}
+
+void CPU::add_hl(uint16_t value) {
+    // ADD HL, rr: suma un valor de 16 bits a HL
+    // Flags: Z no afectado, N=0, H y C se calculan
+    uint16_t hl_old = regs_->get_hl();
+    uint32_t result = static_cast<uint32_t>(hl_old) + static_cast<uint32_t>(value);
+    
+    // Actualizar HL (truncar a 16 bits)
+    uint16_t hl_new = static_cast<uint16_t>(result);
+    regs_->set_hl(hl_new);
+    
+    // Calcular flags
+    // N: siempre 0 (es suma)
+    regs_->set_flag_n(false);
+    
+    // H: half-carry en bit 11 (bit 3 del byte alto)
+    // Fórmula: ((hl_old & 0xFFF) + (value & 0xFFF)) > 0xFFF
+    uint16_t hl_low = hl_old & 0x0FFF;
+    uint16_t value_low = value & 0x0FFF;
+    bool half_carry = (hl_low + value_low) > 0x0FFF;
+    regs_->set_flag_h(half_carry);
+    
+    // C: carry completo (overflow 16 bits)
+    regs_->set_flag_c(result > 0xFFFF);
+    
+    // Z: NO afectado (mantiene valor anterior)
+}
+
 int CPU::step() {
     // ========== FASE 1: Manejo de Interrupciones (ANTES de cada instrucción) ==========
     // El chequeo de interrupciones ocurre antes de ejecutar la instrucción
@@ -192,12 +330,223 @@ int CPU::step() {
             cycles_ += 1;
             return 1;
 
+        // ========== Loads 8-bit (LD r, r' y LD r, n) ==========
+        // Bloque 0x40-0x7F: LD r, r'
+        // Estructura del opcode: 01DDDSSS
+        // DDD (bits 3-5): destino, SSS (bits 0-2): origen
+        // 0x76 es HALT (ya implementado), el resto son LD
+        
+        case 0x40: case 0x41: case 0x42: case 0x43: case 0x44: case 0x45: case 0x47:  // LD B, r
+        case 0x48: case 0x49: case 0x4A: case 0x4B: case 0x4C: case 0x4D: case 0x4F:  // LD C, r
+        case 0x50: case 0x51: case 0x52: case 0x53: case 0x54: case 0x55: case 0x57:  // LD D, r
+        case 0x58: case 0x59: case 0x5A: case 0x5B: case 0x5C: case 0x5D: case 0x5F:  // LD E, r
+        case 0x60: case 0x61: case 0x62: case 0x63: case 0x64: case 0x65: case 0x67:  // LD H, r
+        case 0x68: case 0x69: case 0x6A: case 0x6B: case 0x6C: case 0x6D: case 0x6F:  // LD L, r
+        case 0x70: case 0x71: case 0x72: case 0x73: case 0x74: case 0x75: case 0x77:  // LD (HL), r
+        case 0x78: case 0x79: case 0x7A: case 0x7B: case 0x7C: case 0x7D: case 0x7E: case 0x7F:  // LD A, r (0x7E = LD A, (HL))
+            {
+                // Extraer códigos de destino y origen del opcode
+                uint8_t dest_code = (opcode >> 3) & 0x07;  // Bits 3-5
+                uint8_t src_code = opcode & 0x07;          // Bits 0-2
+                
+                // Ejecutar LD r, r'
+                ld_r_r(dest_code, src_code);
+                
+                // Timing: LD r, r consume 1 M-Cycle
+                // LD (HL), r consume 2 M-Cycles (destino es memoria)
+                // LD r, (HL) consume 2 M-Cycles (origen es memoria)
+                int cycles = (dest_code == 6 || src_code == 6) ? 2 : 1;  // (HL) es código 6
+                cycles_ += cycles;
+                return cycles;
+            }
+
+        // LD r, n (Load register with immediate 8-bit value)
+        case 0x06:  // LD B, d8
+            {
+                uint8_t value = fetch_byte();
+                regs_->b = value;
+                cycles_ += 2;  // LD B, d8 consume 2 M-Cycles
+                return 2;
+            }
+        
+        case 0x0E:  // LD C, d8
+            {
+                uint8_t value = fetch_byte();
+                regs_->c = value;
+                cycles_ += 2;
+                return 2;
+            }
+        
+        case 0x16:  // LD D, d8
+            {
+                uint8_t value = fetch_byte();
+                regs_->d = value;
+                cycles_ += 2;
+                return 2;
+            }
+        
+        case 0x1E:  // LD E, d8
+            {
+                uint8_t value = fetch_byte();
+                regs_->e = value;
+                cycles_ += 2;
+                return 2;
+            }
+        
+        case 0x26:  // LD H, d8
+            {
+                uint8_t value = fetch_byte();
+                regs_->h = value;
+                cycles_ += 2;
+                return 2;
+            }
+        
+        case 0x2E:  // LD L, d8
+            {
+                uint8_t value = fetch_byte();
+                regs_->l = value;
+                cycles_ += 2;
+                return 2;
+            }
+
         case 0x3E:  // LD A, d8 (Load A with immediate 8-bit value)
             // Lee el siguiente byte (d8) y lo guarda en el registro A
             {
                 uint8_t value = fetch_byte();
                 regs_->a = value;
                 cycles_ += 2;  // LD A, d8 consume 2 M-Cycles
+                return 2;
+            }
+
+        // LD (HL), n (Load memory at HL with immediate 8-bit value)
+        case 0x36:  // LD (HL), d8
+            {
+                uint8_t value = fetch_byte();
+                uint16_t addr = regs_->get_hl();
+                mmu_->write(addr, value);
+                cycles_ += 3;  // LD (HL), d8 consume 3 M-Cycles
+                return 3;
+            }
+
+        // ========== Loads 16-bit (LD rr, nn) ==========
+        case 0x01:  // LD BC, d16
+            {
+                uint16_t value = fetch_word();
+                regs_->set_bc(value);
+                cycles_ += 3;  // LD BC, d16 consume 3 M-Cycles
+                return 3;
+            }
+        
+        case 0x11:  // LD DE, d16
+            {
+                uint16_t value = fetch_word();
+                regs_->set_de(value);
+                cycles_ += 3;
+                return 3;
+            }
+        
+        case 0x21:  // LD HL, d16
+            {
+                uint16_t value = fetch_word();
+                regs_->set_hl(value);
+                cycles_ += 3;
+                return 3;
+            }
+        
+        case 0x31:  // LD SP, d16
+            {
+                uint16_t value = fetch_word();
+                regs_->sp = value;
+                cycles_ += 3;
+                return 3;
+            }
+
+        // ========== Aritmética 16-bit (INC/DEC rr) ==========
+        case 0x03:  // INC BC
+            {
+                inc_16bit(0);  // 0 = BC
+                cycles_ += 2;  // INC BC consume 2 M-Cycles
+                return 2;
+            }
+        
+        case 0x0B:  // DEC BC
+            {
+                dec_16bit(0);  // 0 = BC
+                cycles_ += 2;
+                return 2;
+            }
+        
+        case 0x13:  // INC DE
+            {
+                inc_16bit(1);  // 1 = DE
+                cycles_ += 2;
+                return 2;
+            }
+        
+        case 0x1B:  // DEC DE
+            {
+                dec_16bit(1);  // 1 = DE
+                cycles_ += 2;
+                return 2;
+            }
+        
+        case 0x23:  // INC HL
+            {
+                inc_16bit(2);  // 2 = HL
+                cycles_ += 2;
+                return 2;
+            }
+        
+        case 0x2B:  // DEC HL
+            {
+                dec_16bit(2);  // 2 = HL
+                cycles_ += 2;
+                return 2;
+            }
+        
+        case 0x33:  // INC SP
+            {
+                inc_16bit(3);  // 3 = SP
+                cycles_ += 2;
+                return 2;
+            }
+        
+        case 0x3B:  // DEC SP
+            {
+                dec_16bit(3);  // 3 = SP
+                cycles_ += 2;
+                return 2;
+            }
+
+        // ========== ADD HL, rr ==========
+        case 0x09:  // ADD HL, BC
+            {
+                uint16_t bc = regs_->get_bc();
+                add_hl(bc);
+                cycles_ += 2;  // ADD HL, BC consume 2 M-Cycles
+                return 2;
+            }
+        
+        case 0x19:  // ADD HL, DE
+            {
+                uint16_t de = regs_->get_de();
+                add_hl(de);
+                cycles_ += 2;
+                return 2;
+            }
+        
+        case 0x29:  // ADD HL, HL
+            {
+                uint16_t hl = regs_->get_hl();
+                add_hl(hl);
+                cycles_ += 2;
+                return 2;
+            }
+        
+        case 0x39:  // ADD HL, SP
+            {
+                add_hl(regs_->sp);
+                cycles_ += 2;
                 return 2;
             }
 

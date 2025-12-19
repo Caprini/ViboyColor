@@ -223,6 +223,93 @@ private:
      */
     inline void alu_xor(uint8_t value);
 
+    // ========== Helpers de Load (Transferencia de Datos) ==========
+    
+    /**
+     * Obtiene un puntero a un registro de 8 bits según el código de registro.
+     * 
+     * Códigos de registro (bits 0-2 del opcode):
+     * - 0: B
+     * - 1: C
+     * - 2: D
+     * - 3: E
+     * - 4: H
+     * - 5: L
+     * - 6: (HL) - retorna nullptr (requiere acceso a memoria)
+     * - 7: A
+     * 
+     * @param reg_code Código de registro (0-7)
+     * @return Puntero al registro, o nullptr si es (HL)
+     */
+    inline uint8_t* get_register_ptr(uint8_t reg_code);
+    
+    /**
+     * Lee el valor de un registro o memoria según el código.
+     * 
+     * Si reg_code == 6, lee de memoria en dirección HL.
+     * En caso contrario, lee del registro correspondiente.
+     * 
+     * @param reg_code Código de registro (0-7)
+     * @return Valor leído (8 bits)
+     */
+    inline uint8_t read_register_or_mem(uint8_t reg_code);
+    
+    /**
+     * Escribe un valor en un registro o memoria según el código.
+     * 
+     * Si reg_code == 6, escribe en memoria en dirección HL.
+     * En caso contrario, escribe en el registro correspondiente.
+     * 
+     * @param reg_code Código de registro (0-7)
+     * @param value Valor a escribir (8 bits)
+     */
+    inline void write_register_or_mem(uint8_t reg_code, uint8_t value);
+    
+    /**
+     * Copia un valor de un registro/memoria a otro (LD r, r').
+     * 
+     * Esta función maneja el bloque completo 0x40-0x7F de instrucciones LD.
+     * 
+     * @param dest_code Código de registro destino (bits 3-5 del opcode)
+     * @param src_code Código de registro origen (bits 0-2 del opcode)
+     */
+    inline void ld_r_r(uint8_t dest_code, uint8_t src_code);
+
+    // ========== Helpers de Aritmética 16-bit ==========
+    
+    /**
+     * Incrementa un par de registros de 16 bits.
+     * 
+     * IMPORTANTE: INC rr NO afecta flags en la Game Boy.
+     * Solo incrementa el valor del par.
+     * 
+     * @param reg_pair Código del par (0=BC, 1=DE, 2=HL, 3=SP)
+     */
+    inline void inc_16bit(uint8_t reg_pair);
+    
+    /**
+     * Decrementa un par de registros de 16 bits.
+     * 
+     * IMPORTANTE: DEC rr NO afecta flags en la Game Boy.
+     * Solo decrementa el valor del par.
+     * 
+     * @param reg_pair Código del par (0=BC, 1=DE, 2=HL, 3=SP)
+     */
+    inline void dec_16bit(uint8_t reg_pair);
+    
+    /**
+     * Suma un valor de 16 bits a HL y actualiza flags.
+     * 
+     * Flags actualizados:
+     * - Z: NO afectado (mantiene valor anterior)
+     * - N: 0 (siempre, es suma)
+     * - H: 1 si hay half-carry en bit 11 (bit 3 del byte alto)
+     * - C: 1 si hay carry (overflow 16 bits)
+     * 
+     * @param value Valor de 16 bits a sumar a HL
+     */
+    inline void add_hl(uint16_t value);
+
     // Punteros a componentes (inyección de dependencias)
     MMU* mmu_;              // Puntero a MMU (no poseído)
     CoreRegisters* regs_;   // Puntero a Registros (no poseído)
