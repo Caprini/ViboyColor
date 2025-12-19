@@ -30,6 +30,19 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+# Importar componentes C++ (core nativo)
+try:
+    from viboy_core import PyCPU, PyMMU, PyPPU, PyRegisters
+    CPP_CORE_AVAILABLE = True
+except ImportError:
+    # Fallback a componentes Python si C++ no está compilado
+    PyCPU = None  # type: ignore
+    PyMMU = None  # type: ignore
+    PyPPU = None  # type: ignore
+    PyRegisters = None  # type: ignore
+    CPP_CORE_AVAILABLE = False
+    logger.warning("viboy_core no disponible. Usando componentes Python (más lentos).")
+
 from .cpu.core import CPU
 from .cpu.registers import Registers
 from .gpu.ppu import PPU
@@ -71,7 +84,7 @@ class Viboy:
     # 4.194.304 / 59.7 ≈ 70.224 ciclos por frame
     CYCLES_PER_FRAME = 70_224
 
-    def __init__(self, rom_path: str | Path | None = None) -> None:
+    def __init__(self, rom_path: str | Path | None = None, use_cpp_core: bool = True) -> None:
         """
         Inicializa el sistema Viboy.
         
@@ -80,16 +93,21 @@ class Viboy:
         
         Args:
             rom_path: Ruta opcional al archivo ROM (.gb o .gbc)
+            use_cpp_core: Si es True, usa componentes C++ (más rápido). Si False o no disponible, usa Python.
             
         Raises:
             FileNotFoundError: Si el archivo ROM no existe
             IOError: Si hay un error al leer el archivo ROM
         """
+        # Determinar si usar core C++ o Python
+        self._use_cpp = use_cpp_core and CPP_CORE_AVAILABLE
+        
         # Inicializar componentes
         self._cartridge: Cartridge | None = None
-        self._mmu: MMU | None = None
-        self._cpu: CPU | None = None
-        self._ppu: PPU | None = None
+        self._mmu: MMU | PyMMU | None = None
+        self._cpu: CPU | PyCPU | None = None
+        self._ppu: PPU | PyPPU | None = None
+        self._regs: Registers | PyRegisters | None = None
         self._renderer: Renderer | None = None
         self._joypad: Joypad | None = None
         self._timer: Timer | None = None
@@ -119,35 +137,47 @@ class Viboy:
             self.load_cartridge(rom_path)
         else:
             # Inicializar sin cartucho (modo de prueba)
-            self._mmu = MMU(None)
-            # Inicializar Timer
-            self._timer = Timer()
-            # Conectar Timer a MMU para lectura/escritura de DIV/TIMA/TMA/TAC
-            self._mmu.set_timer(self._timer)
-            # Conectar MMU al Timer para solicitar interrupciones
-            self._timer.set_mmu(self._mmu)
-            # Inicializar Joypad con la MMU
-            self._joypad = Joypad(self._mmu)
-            # Conectar Joypad a MMU para lectura/escritura de P1
-            self._mmu.set_joypad(self._joypad)
-            self._cpu = CPU(self._mmu)
-            self._ppu = PPU(self._mmu)
-            # Conectar PPU a MMU para que pueda leer LY
-            self._mmu.set_ppu(self._ppu)
+            if self._use_cpp:
+                # Usar componentes C++
+                self._regs = PyRegisters()
+                self._mmu = PyMMU()
+                self._cpu = PyCPU(self._mmu, self._regs)
+                self._ppu = PyPPU(self._mmu)
+            else:
+                # Usar componentes Python (fallback)
+                self._mmu = MMU(None)
+                # Inicializar Timer
+                self._timer = Timer()
+                # Conectar Timer a MMU para lectura/escritura de DIV/TIMA/TMA/TAC
+                self._mmu.set_timer(self._timer)
+                # Conectar MMU al Timer para solicitar interrupciones
+                self._timer.set_mmu(self._mmu)
+                # Inicializar Joypad con la MMU
+                self._joypad = Joypad(self._mmu)
+                # Conectar Joypad a MMU para lectura/escritura de P1
+                self._mmu.set_joypad(self._joypad)
+                self._cpu = CPU(self._mmu)
+                self._ppu = PPU(self._mmu)
+                # Conectar PPU a MMU para que pueda leer LY
+                self._mmu.set_ppu(self._ppu)
+            
             # Inicializar Renderer si está disponible
             if Renderer is not None:
                 try:
+                    # Renderer necesita acceso a MMU (puede ser Python o C++)
                     self._renderer = Renderer(self._mmu, scale=3)
-                    # Conectar Renderer a MMU para Tile Caching (marcado de tiles dirty)
-                    self._mmu.set_renderer(self._renderer)
+                    # Conectar Renderer a MMU solo si es MMU Python (tile caching)
+                    if not self._use_cpp and isinstance(self._mmu, MMU):
+                        self._mmu.set_renderer(self._renderer)
                 except ImportError:
                     logger.warning("Pygame no disponible. El renderer no se inicializará.")
                     self._renderer = None
             else:
                 self._renderer = None
+            
             self._initialize_post_boot_state()
         
-        logger.info("Sistema Viboy inicializado")
+        logger.info(f"Sistema Viboy inicializado ({'C++ Core' if self._use_cpp else 'Python Core'})")
 
     def load_cartridge(self, rom_path: str | Path) -> None:
         """
@@ -163,37 +193,53 @@ class Viboy:
         # Cargar cartucho
         self._cartridge = Cartridge(rom_path)
         
-        # Inicializar MMU con el cartucho
-        self._mmu = MMU(self._cartridge)
+        # Obtener datos de la ROM como bytes
+        rom_data = bytes(self._cartridge._rom_data)
         
-        # Inicializar Timer
-        self._timer = Timer()
-        # Conectar Timer a MMU para lectura/escritura de DIV/TIMA/TMA/TAC
-        self._mmu.set_timer(self._timer)
-        # Conectar MMU al Timer para solicitar interrupciones
-        self._timer.set_mmu(self._mmu)
-        
-        # Inicializar Joypad con la MMU
-        self._joypad = Joypad(self._mmu)
-        
-        # Conectar Joypad a MMU para lectura/escritura de P1
-        self._mmu.set_joypad(self._joypad)
-        
-        # Inicializar CPU con la MMU
-        self._cpu = CPU(self._mmu)
-        
-        # Inicializar PPU con la MMU
-        self._ppu = PPU(self._mmu)
-        
-        # Conectar PPU a MMU para que pueda leer LY (evitar dependencia circular)
-        self._mmu.set_ppu(self._ppu)
+        if self._use_cpp:
+            # Usar componentes C++
+            self._regs = PyRegisters()
+            self._mmu = PyMMU()
+            # Cargar ROM en MMU C++
+            self._mmu.load_rom_py(rom_data)
+            # Inicializar CPU y PPU con componentes C++
+            self._cpu = PyCPU(self._mmu, self._regs)
+            self._ppu = PyPPU(self._mmu)
+        else:
+            # Usar componentes Python (fallback)
+            self._mmu = MMU(self._cartridge)
+            
+            # Inicializar Timer
+            self._timer = Timer()
+            # Conectar Timer a MMU para lectura/escritura de DIV/TIMA/TMA/TAC
+            self._mmu.set_timer(self._timer)
+            # Conectar MMU al Timer para solicitar interrupciones
+            self._timer.set_mmu(self._mmu)
+            
+            # Inicializar Joypad con la MMU
+            self._joypad = Joypad(self._mmu)
+            
+            # Conectar Joypad a MMU para lectura/escritura de P1
+            self._mmu.set_joypad(self._joypad)
+            
+            # Inicializar CPU con la MMU
+            self._cpu = CPU(self._mmu)
+            
+            # Inicializar PPU con la MMU
+            self._ppu = PPU(self._mmu)
+            
+            # Conectar PPU a MMU para que pueda leer LY (evitar dependencia circular)
+            self._mmu.set_ppu(self._ppu)
         
         # Inicializar Renderer si está disponible
         if Renderer is not None:
             try:
-                self._renderer = Renderer(self._mmu, scale=3)
-                # Conectar Renderer a MMU para Tile Caching (marcado de tiles dirty)
-                self._mmu.set_renderer(self._renderer)
+                # Pasar PPU C++ al renderer si está disponible
+                ppu_for_renderer = self._ppu if self._use_cpp else None
+                self._renderer = Renderer(self._mmu, scale=3, use_cpp_ppu=self._use_cpp, ppu=ppu_for_renderer)
+                # Conectar Renderer a MMU solo si es MMU Python (tile caching)
+                if not self._use_cpp and isinstance(self._mmu, MMU):
+                    self._mmu.set_renderer(self._renderer)
             except ImportError:
                 logger.warning("Pygame no disponible. El renderer no se inicializará.")
                 self._renderer = None
@@ -209,7 +255,8 @@ class Viboy:
             f"Cartucho cargado: {header_info['title']} | "
             f"Tipo: {header_info['cartridge_type']} | "
             f"ROM: {header_info['rom_size']}KB | "
-            f"RAM: {header_info['ram_size']}KB"
+            f"RAM: {header_info['ram_size']}KB | "
+            f"Core: {'C++' if self._use_cpp else 'Python'}"
         )
 
     def _initialize_post_boot_state(self) -> None:
@@ -240,45 +287,85 @@ class Viboy:
         
         Fuente: Pan Docs - Boot ROM, Post-Boot State, Game Boy Color detection
         """
-        if self._cpu is None:
+        if self._cpu is None or self._regs is None:
             return
         
-        # PC inicializado a 0x0100 (inicio del código del cartucho)
-        self._cpu.registers.set_pc(0x0100)
-        
-        # SP inicializado a 0xFFFE (top de la pila)
-        self._cpu.registers.set_sp(0xFFFE)
-        
-        # VERSIÓN 0.0.1: Valores CGB exactos para compatibilidad máxima
-        # AF = 0x1180 (A=0x11 indica CGB, F=0x80 con Z flag activo)
-        self._cpu.registers.set_a(0x11)
-        self._cpu.registers.set_f(0x80)  # Z flag activo
-        
-        # BC = 0x0000
-        self._cpu.registers.set_b(0x00)
-        self._cpu.registers.set_c(0x00)
-        
-        # DE = 0xFF56
-        self._cpu.registers.set_d(0xFF)
-        self._cpu.registers.set_e(0x56)
-        
-        # HL = 0x000D
-        self._cpu.registers.set_h(0x00)
-        self._cpu.registers.set_l(0x0D)
-        
-        # Verificar que se estableció correctamente
-        reg_a = self._cpu.registers.get_a()
-        if reg_a != 0x11:
-            logger.error(f"⚠️ ERROR: Registro A no se estableció correctamente. Esperado: 0x11, Obtenido: 0x{reg_a:02X}")
+        if self._use_cpp:
+            # Usar PyRegisters directamente
+            # PC inicializado a 0x0100 (inicio del código del cartucho)
+            self._regs.pc = 0x0100
+            
+            # SP inicializado a 0xFFFE (top de la pila)
+            self._regs.sp = 0xFFFE
+            
+            # VERSIÓN 0.0.1: Valores CGB exactos para compatibilidad máxima
+            # AF = 0x1180 (A=0x11 indica CGB, F=0x80 con Z flag activo)
+            self._regs.a = 0x11
+            self._regs.f = 0x80  # Z flag activo
+            
+            # BC = 0x0000
+            self._regs.b = 0x00
+            self._regs.c = 0x00
+            
+            # DE = 0xFF56
+            self._regs.d = 0xFF
+            self._regs.e = 0x56
+            
+            # HL = 0x000D
+            self._regs.h = 0x00
+            self._regs.l = 0x0D
+            
+            # Verificar que se estableció correctamente
+            reg_a = self._regs.a
+            if reg_a != 0x11:
+                logger.error(f"⚠️ ERROR: Registro A no se estableció correctamente. Esperado: 0x11, Obtenido: 0x{reg_a:02X}")
+            else:
+                logger.info(
+                    f"✅ Post-Boot State (CGB): PC=0x{self._regs.pc:04X}, "
+                    f"SP=0x{self._regs.sp:04X}, "
+                    f"A=0x{reg_a:02X} (CGB mode), "
+                    f"BC=0x{self._regs.bc:04X}, "
+                    f"DE=0x{self._regs.de:04X}, "
+                    f"HL=0x{self._regs.hl:04X}"
+                )
         else:
-            logger.info(
-                f"✅ Post-Boot State (CGB): PC=0x{self._cpu.registers.get_pc():04X}, "
-                f"SP=0x{self._cpu.registers.get_sp():04X}, "
-                f"A=0x{reg_a:02X} (CGB mode), "
-                f"BC=0x{self._cpu.registers.get_bc():04X}, "
-                f"DE=0x{self._cpu.registers.get_de():04X}, "
-                f"HL=0x{self._cpu.registers.get_hl():04X}"
-            )
+            # Usar componentes Python (fallback)
+            # PC inicializado a 0x0100 (inicio del código del cartucho)
+            self._cpu.registers.set_pc(0x0100)
+            
+            # SP inicializado a 0xFFFE (top de la pila)
+            self._cpu.registers.set_sp(0xFFFE)
+            
+            # VERSIÓN 0.0.1: Valores CGB exactos para compatibilidad máxima
+            # AF = 0x1180 (A=0x11 indica CGB, F=0x80 con Z flag activo)
+            self._cpu.registers.set_a(0x11)
+            self._cpu.registers.set_f(0x80)  # Z flag activo
+            
+            # BC = 0x0000
+            self._cpu.registers.set_b(0x00)
+            self._cpu.registers.set_c(0x00)
+            
+            # DE = 0xFF56
+            self._cpu.registers.set_d(0xFF)
+            self._cpu.registers.set_e(0x56)
+            
+            # HL = 0x000D
+            self._cpu.registers.set_h(0x00)
+            self._cpu.registers.set_l(0x0D)
+            
+            # Verificar que se estableció correctamente
+            reg_a = self._cpu.registers.get_a()
+            if reg_a != 0x11:
+                logger.error(f"⚠️ ERROR: Registro A no se estableció correctamente. Esperado: 0x11, Obtenido: 0x{reg_a:02X}")
+            else:
+                logger.info(
+                    f"✅ Post-Boot State (CGB): PC=0x{self._cpu.registers.get_pc():04X}, "
+                    f"SP=0x{self._cpu.registers.get_sp():04X}, "
+                    f"A=0x{reg_a:02X} (CGB mode), "
+                    f"BC=0x{self._cpu.registers.get_bc():04X}, "
+                    f"DE=0x{self._cpu.registers.get_de():04X}, "
+                    f"HL=0x{self._cpu.registers.get_hl():04X}"
+                )
 
     def _execute_cpu_only(self) -> int:
         """
@@ -297,25 +384,47 @@ class Viboy:
         if self._cpu is None:
             raise RuntimeError("Sistema no inicializado. Llama a load_cartridge() primero.")
         
-        # Si la CPU está en HALT, ejecutar un paso normal (el batching manejará múltiples ciclos)
-        if self._cpu.halted:
+        if self._use_cpp:
+            # CPU C++: verificar HALT y ejecutar
+            if self._cpu.get_halted():
+                cycles = self._cpu.step()
+                if cycles == 0:
+                    cycles = 4  # Protección contra bucle infinito
+                self._total_cycles += cycles
+                return cycles
+            
+            # Ejecutar una instrucción normal
             cycles = self._cpu.step()
+            
+            # CRÍTICO: Protección contra bucle infinito
             if cycles == 0:
-                cycles = 4  # Protección contra bucle infinito
+                cycles = 4  # Forzar avance para no colgar
+            
+            # Acumular ciclos totales
             self._total_cycles += cycles
+            
             return cycles
-        
-        # Ejecutar una instrucción normal
-        cycles = self._cpu.step()
-        
-        # CRÍTICO: Protección contra bucle infinito
-        if cycles == 0:
-            cycles = 4  # Forzar avance para no colgar
-        
-        # Acumular ciclos totales
-        self._total_cycles += cycles
-        
-        return cycles
+        else:
+            # CPU Python: comportamiento original
+            # Si la CPU está en HALT, ejecutar un paso normal (el batching manejará múltiples ciclos)
+            if self._cpu.halted:
+                cycles = self._cpu.step()
+                if cycles == 0:
+                    cycles = 4  # Protección contra bucle infinito
+                self._total_cycles += cycles
+                return cycles
+            
+            # Ejecutar una instrucción normal
+            cycles = self._cpu.step()
+            
+            # CRÍTICO: Protección contra bucle infinito
+            if cycles == 0:
+                cycles = 4  # Forzar avance para no colgar
+            
+            # Acumular ciclos totales
+            self._total_cycles += cycles
+            
+            return cycles
     
     def _execute_cpu_timer_only(self) -> int:
         """
@@ -335,31 +444,56 @@ class Viboy:
         if self._cpu is None:
             raise RuntimeError("Sistema no inicializado. Llama a load_cartridge() primero.")
         
-        # Si la CPU está en HALT, ejecutar un paso normal
-        if self._cpu.halted:
-            cycles = self._cpu.step()
-            if cycles == 0:
-                cycles = 4  # Protección contra bucle infinito
-            self._total_cycles += cycles
+        if self._use_cpp:
+            # CPU C++: verificar HALT y ejecutar
+            if self._cpu.get_halted():
+                cycles = self._cpu.step()
+                if cycles == 0:
+                    cycles = 4  # Protección contra bucle infinito
+                self._total_cycles += cycles
+            else:
+                # Ejecutar una instrucción normal
+                cycles = self._cpu.step()
+                
+                # CRÍTICO: Protección contra bucle infinito
+                if cycles == 0:
+                    cycles = 4  # Forzar avance para no colgar
+                
+                # Acumular ciclos totales
+                self._total_cycles += cycles
+            
+            # NOTA: Timer aún no está en C++, así que no lo actualizamos
+            # TODO: Implementar Timer C++ o mantener compatibilidad con Python
+            # Por ahora, solo devolvemos los T-Cycles
+            t_cycles = cycles * 4
+            return t_cycles
         else:
-            # Ejecutar una instrucción normal
-            cycles = self._cpu.step()
+            # CPU Python: comportamiento original
+            # Si la CPU está en HALT, ejecutar un paso normal
+            if self._cpu.halted:
+                cycles = self._cpu.step()
+                if cycles == 0:
+                    cycles = 4  # Protección contra bucle infinito
+                self._total_cycles += cycles
+            else:
+                # Ejecutar una instrucción normal
+                cycles = self._cpu.step()
+                
+                # CRÍTICO: Protección contra bucle infinito
+                if cycles == 0:
+                    cycles = 4  # Forzar avance para no colgar
+                
+                # Acumular ciclos totales
+                self._total_cycles += cycles
             
-            # CRÍTICO: Protección contra bucle infinito
-            if cycles == 0:
-                cycles = 4  # Forzar avance para no colgar
+            # Convertir M-Cycles a T-Cycles y actualizar Timer
+            # CRÍTICO: El Timer debe actualizarse cada instrucción para mantener
+            # la precisión del RNG (usado por juegos como Tetris)
+            t_cycles = cycles * 4
+            if self._timer is not None:
+                self._timer.tick(t_cycles)
             
-            # Acumular ciclos totales
-            self._total_cycles += cycles
-        
-        # Convertir M-Cycles a T-Cycles y actualizar Timer
-        # CRÍTICO: El Timer debe actualizarse cada instrucción para mantener
-        # la precisión del RNG (usado por juegos como Tetris)
-        t_cycles = cycles * 4
-        if self._timer is not None:
-            self._timer.tick(t_cycles)
-        
-        return t_cycles
+            return t_cycles
     
     def tick(self) -> int:
         """
@@ -386,69 +520,112 @@ class Viboy:
         if self._cpu is None:
             raise RuntimeError("Sistema no inicializado. Llama a load_cartridge() primero.")
         
-        # Si la CPU está en HALT, simular el paso del tiempo de forma más agresiva
-        # para que la PPU y el Timer puedan avanzar y generar interrupciones.
-        # En hardware real, el reloj sigue funcionando durante HALT.
-        if self._cpu.halted:
-            # Avanzar ciclos hasta que ocurra algo (interrupción o cambio de estado)
-            # Usamos un límite de seguridad para evitar bucles infinitos
-            max_halt_cycles = 114  # 114 M-Cycles = 456 T-Cycles = 1 línea de PPU
-            total_cycles = 0
+        if self._use_cpp:
+            # CPU C++: verificar HALT y ejecutar
+            if self._cpu.get_halted():
+                # Avanzar ciclos hasta que ocurra algo (interrupción o cambio de estado)
+                # Usamos un límite de seguridad para evitar bucles infinitos
+                max_halt_cycles = 114  # 114 M-Cycles = 456 T-Cycles = 1 línea de PPU
+                total_cycles = 0
+                
+                for _ in range(max_halt_cycles):
+                    # Ejecutar un tick de HALT (consume 1 M-Cycle)
+                    cycles = self._cpu.step()
+                    
+                    # CRÍTICO: Protección contra bucle infinito también en HALT
+                    if cycles == 0:
+                        cycles = 4  # Forzar avance para no colgar
+                    
+                    total_cycles += cycles
+                    
+                    # Convertir a T-Cycles y avanzar subsistemas
+                    t_cycles = cycles * 4
+                    if self._ppu is not None:
+                        self._ppu.step(t_cycles)
+                    # Timer aún no está en C++, omitir por ahora
+                    
+                    # Si la CPU se despertó (ya no está en HALT), salir
+                    if not self._cpu.get_halted():
+                        break
+                
+                self._total_cycles += total_cycles
+                return total_cycles
             
-            for _ in range(max_halt_cycles):
-                # Ejecutar un tick de HALT (consume 1 M-Cycle)
-                cycles = self._cpu.step()
-                
-                # CRÍTICO: Protección contra bucle infinito también en HALT
-                if cycles == 0:
-                    # Silenciado para rendimiento: solo forzar avance
-                    cycles = 4  # Forzar avance para no colgar
-                
-                total_cycles += cycles
-                
-                # Convertir a T-Cycles y avanzar subsistemas
-                t_cycles = cycles * 4
-                if self._ppu is not None:
-                    self._ppu.step(t_cycles)
-                if self._timer is not None:
-                    self._timer.tick(t_cycles)
-                
-                # Si la CPU se despertó (ya no está en HALT), salir
-                if not self._cpu.halted:
-                    break
-                
-                # Si hay interrupciones pendientes, la CPU debería despertarse
-                # en el siguiente handle_interrupts(), así que continuamos
+            # Ejecutar una instrucción normal
+            cycles = self._cpu.step()
             
-            self._total_cycles += total_cycles
-            return total_cycles
-        
-        # Ejecutar una instrucción normal
-        cycles = self._cpu.step()
-        
-        # CRÍTICO: Protección contra bucle infinito
-        # Si la CPU devuelve 0 ciclos, el contador de tiempo nunca avanza
-        # y el emulador se congela. Forzamos al menos 4 ciclos para evitar deadlock.
-        if cycles == 0:
-            # Silenciado para rendimiento: solo forzar avance
-            cycles = 4  # Forzar avance para no colgar
-        
-        # Acumular ciclos totales
-        self._total_cycles += cycles
-        
-        # Avanzar la PPU (motor de timing)
-        # La CPU devuelve M-Cycles, pero la PPU necesita T-Cycles
-        # Conversión: 1 M-Cycle = 4 T-Cycles
-        t_cycles = cycles * 4
-        if self._ppu is not None:
-            self._ppu.step(t_cycles)
-        
-        # Avanzar el Timer
-        # El Timer también necesita T-Cycles
-        if self._timer is not None:
-            self._timer.tick(t_cycles)
-        
-        return cycles
+            # CRÍTICO: Protección contra bucle infinito
+            if cycles == 0:
+                cycles = 4  # Forzar avance para no colgar
+            
+            # Acumular ciclos totales
+            self._total_cycles += cycles
+            
+            # Avanzar la PPU (motor de timing)
+            # La CPU devuelve M-Cycles, pero la PPU necesita T-Cycles
+            # Conversión: 1 M-Cycle = 4 T-Cycles
+            t_cycles = cycles * 4
+            if self._ppu is not None:
+                self._ppu.step(t_cycles)
+            
+            # Timer aún no está en C++, omitir por ahora
+            
+            return cycles
+        else:
+            # CPU Python: comportamiento original
+            # Si la CPU está en HALT, simular el paso del tiempo de forma más agresiva
+            # para que la PPU y el Timer puedan avanzar y generar interrupciones.
+            # En hardware real, el reloj sigue funcionando durante HALT.
+            if self._cpu.halted:
+                # Avanzar ciclos hasta que ocurra algo (interrupción o cambio de estado)
+                # Usamos un límite de seguridad para evitar bucles infinitos
+                max_halt_cycles = 114  # 114 M-Cycles = 456 T-Cycles = 1 línea de PPU
+                total_cycles = 0
+                
+                for _ in range(max_halt_cycles):
+                    # Ejecutar un tick de HALT (consume 1 M-Cycle)
+                    cycles = self._cpu.step()
+                    
+                    # CRÍTICO: Protección contra bucle infinito también en HALT
+                    if cycles == 0:
+                        cycles = 4  # Forzar avance para no colgar
+                    
+                    total_cycles += cycles
+                    
+                    # Convertir a T-Cycles y avanzar subsistemas
+                    t_cycles = cycles * 4
+                    if self._ppu is not None:
+                        self._ppu.step(t_cycles)
+                    if self._timer is not None:
+                        self._timer.tick(t_cycles)
+                    
+                    # Si la CPU se despertó (ya no está en HALT), salir
+                    if not self._cpu.halted:
+                        break
+                
+                self._total_cycles += total_cycles
+                return total_cycles
+            
+            # Ejecutar una instrucción normal
+            cycles = self._cpu.step()
+            
+            # CRÍTICO: Protección contra bucle infinito
+            if cycles == 0:
+                cycles = 4  # Forzar avance para no colgar
+            
+            # Acumular ciclos totales
+            self._total_cycles += cycles
+            
+            # Avanzar la PPU (motor de timing)
+            t_cycles = cycles * 4
+            if self._ppu is not None:
+                self._ppu.step(t_cycles)
+            
+            # Avanzar el Timer
+            if self._timer is not None:
+                self._timer.tick(t_cycles)
+            
+            return cycles
 
     def run(self, debug: bool = False) -> None:
         """
@@ -528,21 +705,34 @@ class Viboy:
                     if self._ppu is not None:
                         # Actualizar PPU con exactamente 456 ciclos (una línea completa)
                         # Los ciclos sobrantes (si los hay) se procesarán en la siguiente línea
-                        self._ppu.step(CYCLES_PER_LINE)
+                        if self._use_cpp:
+                            # PPU C++: usar método step directamente
+                            self._ppu.step(CYCLES_PER_LINE)
+                        else:
+                            # PPU Python: usar método step
+                            self._ppu.step(CYCLES_PER_LINE)
                     
                     # Acumular ciclos del frame (usamos CYCLES_PER_LINE para mantener
                     # sincronización exacta, aunque line_cycles pueda ser ligeramente mayor)
                     frame_cycles += CYCLES_PER_LINE
                 
                 # 3. Renderizado si es V-Blank
-                if self._ppu is not None and self._ppu.is_frame_ready():
-                    if self._renderer is not None:
-                        self._renderer.render_frame()
-                        try:
-                            import pygame
-                            pygame.display.flip()
-                        except ImportError:
-                            pass
+                if self._ppu is not None:
+                    # Verificar si hay frame listo (método diferente según core)
+                    frame_ready = False
+                    if self._use_cpp:
+                        frame_ready = self._ppu.is_frame_ready()
+                    else:
+                        frame_ready = self._ppu.is_frame_ready()
+                    
+                    if frame_ready:
+                        if self._renderer is not None:
+                            self._renderer.render_frame()
+                            try:
+                                import pygame
+                                pygame.display.flip()
+                            except ImportError:
+                                pass
                 
                 # 4. Sincronización FPS
                 if self._clock is not None:

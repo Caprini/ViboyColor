@@ -115,13 +115,15 @@ class Renderer:
     el contenido de la VRAM decodificando tiles en formato 2bpp.
     """
     
-    def __init__(self, mmu: MMU, scale: int = 3) -> None:
+    def __init__(self, mmu: MMU, scale: int = 3, use_cpp_ppu: bool = False, ppu = None) -> None:
         """
         Inicializa el renderer con Pygame.
         
         Args:
-            mmu: Instancia de MMU para acceder a VRAM
+            mmu: Instancia de MMU para acceder a VRAM (puede ser Python o C++)
             scale: Factor de escala para la ventana (p.ej. 3 = 480x432)
+            use_cpp_ppu: Si es True, usa el framebuffer de PPU C++ (más rápido)
+            ppu: Instancia de PyPPU (solo necesario si use_cpp_ppu=True)
             
         Raises:
             ImportError: Si pygame no está instalado
@@ -133,6 +135,8 @@ class Renderer:
         
         self.mmu = mmu
         self.scale = scale
+        self.use_cpp_ppu = use_cpp_ppu
+        self.cpp_ppu = ppu
         
         # Dimensiones de la ventana (GB_WIDTH x GB_HEIGHT escalado)
         self.window_width = GB_WIDTH * scale
@@ -394,6 +398,9 @@ class Renderer:
         """
         Renderiza un frame completo del Background (fondo) y Window (ventana) de la Game Boy.
         
+        Si use_cpp_ppu=True, usa el framebuffer de C++ directamente (Zero-Copy).
+        Si use_cpp_ppu=False, calcula tiles desde VRAM (método Python original).
+        
         Este método implementa el renderizado básico del Background y Window según la configuración
         del registro LCDC (LCD Control, 0xFF40):
         - Bit 7: LCD Enable (si es 0, pantalla blanca)
@@ -411,6 +418,54 @@ class Renderer:
         
         Fuente: Pan Docs - LCD Control Register, Background Tile Map, Window
         """
+        # OPTIMIZACIÓN: Si usamos PPU C++, hacer blit directo del framebuffer
+        if self.use_cpp_ppu and self.cpp_ppu is not None:
+            try:
+                # Obtener framebuffer como memoryview (Zero-Copy)
+                framebuffer = self.cpp_ppu.framebuffer
+                
+                # El framebuffer es uint32_t en formato ARGB32 (0xAARRGGBB)
+                # Necesitamos convertirlo a una superficie pygame
+                # Usar numpy para reshape y luego convertir a superficie
+                import numpy as np
+                
+                # Reshape a (144, 160) - altura x ancho
+                # El framebuffer es un array plano de 144*160 = 23040 elementos
+                fb_array = np.frombuffer(framebuffer, dtype=np.uint32).reshape((144, 160))
+                
+                # Convertir ARGB32 a RGBA para pygame
+                # ARGB32: 0xAARRGGBB -> RGBA: (R, G, B, A)
+                # Extraer componentes usando operaciones vectorizadas
+                r = (fb_array >> 16) & 0xFF
+                g = (fb_array >> 8) & 0xFF
+                b = fb_array & 0xFF
+                a = (fb_array >> 24) & 0xFF
+                
+                # Crear array RGBA (144, 160, 4)
+                rgba_array = np.stack([r, g, b, a], axis=2).astype(np.uint8)
+                
+                # Crear superficie pygame desde el array
+                # pygame.surfarray.make_surface espera (width, height, 3) o (width, height, 4)
+                # y el array debe estar en formato (width, height) no (height, width)
+                # Necesitamos transponer: (144, 160, 4) -> (160, 144, 4)
+                rgba_array = rgba_array.swapaxes(0, 1)
+                
+                # Crear superficie (pygame espera formato (width, height, channels))
+                surface = pygame.surfarray.make_surface(rgba_array)
+                
+                # Escalar y hacer blit
+                scaled_surface = pygame.transform.scale(surface, (self.window_width, self.window_height))
+                self.screen.blit(scaled_surface, (0, 0))
+                
+                # Actualizar pantalla
+                pygame.display.flip()
+                return
+            except Exception as e:
+                # Fallback a método Python si hay error
+                logger.warning(f"Error al usar framebuffer C++: {e}. Usando método Python.")
+                self.use_cpp_ppu = False
+        
+        # Método Python original (calcular tiles desde VRAM)
         # Leer registro LCDC
         lcdc = self.mmu.read_byte(IO_LCDC) & 0xFF
         lcdc_bit7 = (lcdc & 0x80) != 0

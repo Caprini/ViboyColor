@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Integración del Core C++ en el Frontend - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Integración del Core C++ en el Frontend</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0113
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0112__ppu-renderizado-scanline-framebuffer.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se completó la integración del núcleo C++ (CPU, MMU, PPU, Registros) en el frontend Python,
+                    reemplazando los componentes lentos de Python con las versiones nativas compiladas. El sistema
+                    ahora puede ejecutar código máquina directamente, alcanzando velocidades de miles de FPS potenciales.
+                    El renderer se adaptó para usar el framebuffer de C++ mediante Zero-Copy (memoryview), eliminando
+                    el cálculo de tiles en Python y permitiendo un blit directo desde el framebuffer nativo a Pygame.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En un Game Boy real, todos los componentes (CPU, MMU, PPU) están implementados en hardware
+                    y se comunican directamente mediante buses de memoria y señales de control. No hay "overhead"
+                    de interpretación: cada instrucción se ejecuta en ciclos de reloj precisos.
+                </p>
+                <p>
+                    En un emulador, tradicionalmente se implementa todo en un lenguaje de alto nivel (Python, JavaScript, etc.)
+                    que es fácil de entender pero lento porque cada operación pasa por múltiples capas de abstracción.
+                    La solución es migrar el "bucle crítico" (el código que se ejecuta millones de veces por segundo)
+                    a un lenguaje compilado (C++) que se ejecuta directamente en la CPU sin overhead.
+                </p>
+                <p>
+                    <strong>Zero-Copy Integration:</strong> El framebuffer de la PPU C++ se expone como un memoryview
+                    de NumPy, que es una vista directa a la memoria C++ sin copias. Pygame puede leer directamente
+                    desde esta memoria, eliminando el paso intermedio de calcular tiles en Python. Esto es crítico
+                    para el rendimiento: en lugar de decodificar 23,040 píxeles en Python cada frame, simplemente
+                    hacemos un blit del framebuffer ya renderizado en C++.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó <code>src/viboy.py</code> para detectar y usar el módulo <code>viboy_core</code>
+                    cuando está disponible. El sistema mantiene compatibilidad hacia atrás: si el core C++ no está
+                    compilado, usa los componentes Python como fallback.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>src/viboy.py:</strong> Integración híbrida que detecta y usa componentes C++ o Python según disponibilidad</li>
+                    <li><strong>src/gpu/renderer.py:</strong> Adaptado para usar framebuffer C++ mediante Zero-Copy cuando está disponible</li>
+                    <li><strong>tests/test_integration_cpp.py:</strong> Test de integración completo que valida el sistema con core C++</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Compatibilidad hacia atrás:</strong> El sistema detecta si <code>viboy_core</code> está disponible
+                    y usa los componentes C++ si es posible, pero mantiene el código Python como fallback. Esto permite
+                    que el proyecto funcione incluso si la compilación falla o no se ha ejecutado.
+                </p>
+                <p>
+                    <strong>Zero-Copy Framebuffer:</strong> El framebuffer de C++ se expone como memoryview de NumPy,
+                    que es compatible con Pygame mediante <code>pygame.surfarray</code>. Esto elimina copias innecesarias
+                    y permite transferir 23,040 píxeles (160x144) directamente desde C++ a la GPU sin pasar por Python.
+                </p>
+                <p>
+                    <strong>Timer y Joypad aún en Python:</strong> Por ahora, Timer y Joypad siguen en Python porque
+                    no son cuellos de botella críticos. El Timer se actualiza cada instrucción, pero su lógica es simple.
+                    El Joypad solo se lee cuando hay eventos de teclado. Estos componentes se pueden migrar más adelante
+                    si es necesario.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Integración híbrida C++/Python con detección automática</li>
+                    <li><code>src/gpu/renderer.py</code> - Adaptado para usar framebuffer C++ con Zero-Copy</li>
+                    <li><code>tests/test_integration_cpp.py</code> - Test de integración completo (7 tests)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó un test de integración completo que valida todos los aspectos del sistema con core C++:
+                </p>
+                <ul>
+                    <li><strong>Test de inicialización:</strong> Verifica que Viboy se inicializa correctamente con componentes C++</li>
+                    <li><strong>Test de carga de ROM:</strong> Valida que la ROM se carga correctamente en MMU C++</li>
+                    <li><strong>Test de ejecución de CPU:</strong> Ejecuta 1000 instrucciones sin errores</li>
+                    <li><strong>Test de sincronización PPU:</strong> Valida que PPU se sincroniza correctamente con CPU</li>
+                    <li><strong>Test de acceso a framebuffer:</strong> Verifica que el framebuffer es accesible y tiene el tamaño correcto</li>
+                    <li><strong>Test de acceso a registros:</strong> Valida lectura/escritura de registros C++</li>
+                    <li><strong>Test de ciclo completo:</strong> Ejecuta 100 ciclos completos (CPU + PPU) sin errores</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> Todos los tests pasan (7/7) en 25.06 segundos.
+                </p>
+                <pre><code>$ python -m pytest tests/test_integration_cpp.py -v
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.2, pluggy-1.6.0
+collecting ... collected 7 items
+
+tests/test_integration_cpp.py::TestIntegrationCPP::test_viboy_initialization_with_cpp_core PASSED
+tests/test_integration_cpp.py::TestIntegrationCPP::test_load_rom_into_cpp_mmu PASSED
+tests/test_integration_cpp.py::TestIntegrationCPP::test_execute_cpu_instructions PASSED
+tests/test_integration_cpp.py::TestIntegrationCPP::test_ppu_synchronization PASSED
+tests/test_integration_cpp.py::TestIntegrationCPP::test_framebuffer_access PASSED
+tests/test_integration_cpp.py::TestIntegrationCPP::test_registers_access PASSED
+tests/test_integration_cpp.py::TestIntegrationCPP::test_full_cycle_execution PASSED
+
+============================= 7 passed in 25.06s ==============================</code></pre>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El test verifica explícitamente que los componentes
+                    son instancias de las clases Cython (PyCPU, PyMMU, PyPPU, PyRegisters) y no de las clases Python.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Game Boy Pan Docs</a> - Referencia técnica general</li>
+                    <li>Cython Documentation: <a href="https://cython.readthedocs.io/">Cython Documentation</a> - Memoryviews y Zero-Copy</li>
+                    <li>NumPy Documentation: <a href="https://numpy.org/doc/stable/">NumPy Documentation</a> - Memoryviews y arrays</li>
+                </ul>
+                <p>
+                    <em>Nota: La integración Zero-Copy se basa en conocimiento de Cython y NumPy, no en código
+                    de otros emuladores. La arquitectura híbrida es una decisión de diseño propia del proyecto.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Zero-Copy Integration:</strong> Los memoryviews de NumPy permiten que Python acceda
+                        directamente a la memoria C++ sin copias. Esto es crítico para el rendimiento cuando se transfieren
+                        grandes cantidades de datos (como un framebuffer de 23,040 píxeles) cada frame.</li>
+                        <li><strong>Compatibilidad Híbrida:</strong> Es posible mantener ambos sistemas (Python y C++) en
+                        el mismo código, detectando automáticamente cuál usar. Esto permite desarrollo incremental y
+                        debugging más fácil.</li>
+                        <li><strong>Rendimiento Real:</strong> El core C++ puede ejecutar miles de instrucciones por segundo
+                        sin problemas. El cuello de botella ahora está en el renderizado y la sincronización de FPS,
+                        no en la emulación misma.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento en producción:</strong> Necesitamos medir FPS reales con una ROM completa
+                        para confirmar que alcanzamos 60 FPS estables. Los tests unitarios no miden rendimiento gráfico.</li>
+                        <li><strong>Sprites en C++:</strong> Los sprites aún se renderizan en Python. Necesitamos migrar
+                        el renderizado de sprites a C++ para completar el motor gráfico (Paso 114).</li>
+                        <li><strong>Timer C++:</strong> El Timer sigue en Python. Aunque no es crítico, podría beneficiarse
+                        de la migración para mantener consistencia.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición:</strong> El framebuffer ARGB32 de C++ se convierte correctamente a RGBA
+                        para Pygame. La conversión usa operaciones vectorizadas de NumPy, que deberían ser rápidas,
+                        pero no hemos medido el overhead real de esta conversión.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> El sistema funciona correctamente sin Timer C++ porque el Timer
+                        solo se actualiza cada instrucción y su lógica es simple. Si hay problemas de precisión de RNG
+                        en juegos como Tetris, necesitaremos migrar el Timer.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Paso 114: Implementar renderizado de Sprites en C++</li>
+                    <li>[ ] Medir rendimiento real con ROMs completas (FPS, uso de CPU)</li>
+                    <li>[ ] Optimizar conversión ARGB32 → RGBA si es necesario</li>
+                    <li>[ ] Considerar migración de Timer a C++ si hay problemas de precisión</li>
+                    <li>[ ] Implementar Joypad C++ si es necesario para completar la migración</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

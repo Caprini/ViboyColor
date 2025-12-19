@@ -113,7 +113,16 @@ Mantenemos y mejoramos el sistema estricto de la v0.0.1.
 
 **Mantenimiento del Índice (OBLIGATORIO):**
 - **CADA VEZ** que generes una nueva entrada HTML, debes generar también el código o diff para actualizar `docs/bitacora/index.html`.
-- La nueva entrada debe insertarse al **principio** de la lista (orden cronológico inverso).
+- La nueva entrada debe insertarse al **principio** de la lista (`<ul class="entries-list">`) manteniendo este formato exacto:
+  ```html
+  <li class="entry-item">
+      <span class="meta">YYYY-MM-DD</span>
+      <span class="tag">NNNN</span> <!-- ID de 4 dígitos -->
+      <a href="entries/YYYY-MM-DD__NNNN__slug.html" class="title">Título de la Entrada</a>
+      <p class="summary">Resumen breve...</p>
+      <span class="status-badge status-verified">VERIFIED</span> <!-- O status-draft -->
+  </li>
+  ```
 
 **Integración Académica del Prompt:**
 - Si el usuario aporta teoría o enlaces en el prompt, incorpóralos explícitamente en la sección "Concepto de Hardware". Explica el *porqué*, no solo el *qué*.
@@ -129,7 +138,7 @@ En la sección "Tests y Verificación" del HTML generado, debes incluir:
 Al final de cada respuesta con código, genera:
 1.  Bloque para `INFORME_FASE_2.md`.
 2.  Archivo HTML completo para la bitácora.
-3.  **Código actualizado para `docs/bitacora/index.html`**.
+3.  **Código actualizado para `docs/bitacora/index.html`** (o diff claro).
 4.  Confirmación de que los tests pasan.
 5.  **Comandos GIT + PUSH**.
 
