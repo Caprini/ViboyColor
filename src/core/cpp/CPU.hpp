@@ -56,6 +56,20 @@ public:
      */
     uint32_t get_cycles() const;
 
+    /**
+     * Obtiene el estado de IME (Interrupt Master Enable).
+     * 
+     * @return true si las interrupciones están habilitadas, false en caso contrario
+     */
+    bool get_ime() const;
+
+    /**
+     * Obtiene el estado de HALT.
+     * 
+     * @return true si la CPU está en estado HALT, false en caso contrario
+     */
+    bool get_halted() const;
+
 private:
     /**
      * Lee un byte de memoria en la dirección PC e incrementa PC.
@@ -124,6 +138,36 @@ private:
      */
     inline uint16_t pop_word();
 
+    /**
+     * Maneja las interrupciones pendientes según la prioridad del hardware.
+     * 
+     * Este método se ejecuta ANTES de cada instrucción. Verifica si hay
+     * interrupciones pendientes y las procesa si IME está activado.
+     * 
+     * Flujo de interrupción:
+     * 1. Lee IE (0xFFFF) e IF (0xFF0F)
+     * 2. Si CPU está en HALT y hay interrupción pendiente, despierta (halted = false)
+     * 3. Si IME está activo y hay bits activos en IE & IF:
+     *    - Desactiva IME
+     *    - Encuentra el bit de menor peso (prioridad)
+     *    - Limpia el bit en IF
+     *    - Guarda PC en la pila
+     *    - Salta al vector de interrupción
+     *    - Retorna 5 M-Cycles
+     * 
+     * Vectores de Interrupción (prioridad de mayor a menor):
+     * - Bit 0: V-Blank -> 0x0040
+     * - Bit 1: LCD STAT -> 0x0048
+     * - Bit 2: Timer -> 0x0050
+     * - Bit 3: Serial -> 0x0058
+     * - Bit 4: Joypad -> 0x0060
+     * 
+     * @return Número de M-Cycles consumidos (5 si se procesó una interrupción, 0 si no)
+     * 
+     * Fuente: Pan Docs - Interrupts, HALT behavior
+     */
+    uint8_t handle_interrupts();
+
     // ========== Helpers de ALU (Arithmetic Logic Unit) ==========
     // Todos los métodos son inline para máximo rendimiento en el bucle crítico
     
@@ -185,6 +229,11 @@ private:
 
     // Contador de ciclos acumulados
     uint32_t cycles_;
+
+    // ========== Estado de Interrupciones ==========
+    bool ime_;              // Interrupt Master Enable (habilitación global de interrupciones)
+    bool halted_;           // Estado HALT (CPU dormida)
+    bool ime_scheduled_;    // Flag para retraso de EI (se activa después de la siguiente instrucción)
 };
 
 #endif // CPU_HPP

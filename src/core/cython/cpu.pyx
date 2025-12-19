@@ -8,6 +8,7 @@ ejecutar el ciclo de instrucción en código nativo de alta velocidad.
 """
 
 from libc.stdint cimport uint8_t, uint16_t, uint32_t
+from libcpp cimport bool
 
 # Importar las definiciones C++
 cimport cpu
@@ -65,4 +66,30 @@ cdef class PyCPU:
             Total de M-Cycles ejecutados desde la creación
         """
         return self._cpu.get_cycles()
+    
+    def get_ime(self):
+        """
+        Obtiene el estado de IME (Interrupt Master Enable).
+        
+        Returns:
+            1 si las interrupciones están habilitadas, 0 en caso contrario
+        """
+        cdef bool ime_val = self._cpu.get_ime()
+        if ime_val:
+            return 1
+        else:
+            return 0
+    
+    def get_halted(self):
+        """
+        Obtiene el estado de HALT.
+        
+        Returns:
+            1 si la CPU está en estado HALT, 0 en caso contrario
+        """
+        cdef bool halted_val = self._cpu.get_halted()
+        if halted_val:
+            return 1
+        else:
+            return 0
 

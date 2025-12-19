@@ -28,4 +28,10 @@ cdef extern from "CPU.hpp":
         
         # Obtiene el contador de ciclos acumulados
         uint32_t get_cycles()
+        
+        # Obtiene el estado de IME (Interrupt Master Enable)
+        bool get_ime()
+        
+        # Obtiene el estado de HALT
+        bool get_halted()
 

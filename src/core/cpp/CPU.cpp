@@ -3,9 +3,10 @@
 #include "Registers.hpp"
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
-    : mmu_(mmu), regs_(registers), cycles_(0) {
+    : mmu_(mmu), regs_(registers), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
     // Validación básica (en producción, podríamos usar assert)
     // Por ahora, confiamos en que Python pasa punteros válidos
+    // IME inicia en false por seguridad (el juego lo activará si lo necesita)
 }
 
 CPU::~CPU() {
@@ -152,6 +153,35 @@ void CPU::alu_xor(uint8_t value) {
 }
 
 int CPU::step() {
+    // ========== FASE 1: Manejo de Interrupciones (ANTES de cada instrucción) ==========
+    // El chequeo de interrupciones ocurre antes de ejecutar la instrucción
+    // Esto es crítico para la precisión del timing
+    int interrupt_cycles = handle_interrupts();
+    cycles_ += interrupt_cycles;
+    
+    // Si se procesó una interrupción, retornar los ciclos consumidos
+    // (la instrucción actual no se ejecuta, la interrupción ya cambió PC)
+    if (interrupt_cycles > 0) {
+        return interrupt_cycles;
+    }
+    
+    // ========== FASE 2: Gestión de HALT ==========
+    // Si la CPU está en HALT, no ejecutar instrucciones
+    // Solo consumir 1 M-Cycle y retornar
+    if (halted_) {
+        cycles_ += 1;
+        return 1;
+    }
+    
+    // ========== FASE 3: Gestión de EI retrasado ==========
+    // EI (Enable Interrupts) tiene un retraso de 1 instrucción
+    // Si ime_scheduled_ es true, activar IME después de procesar esta instrucción
+    if (ime_scheduled_) {
+        ime_ = true;
+        ime_scheduled_ = false;
+    }
+    
+    // ========== FASE 4: Fetch-Decode-Execute ==========
     // Fetch: Leer opcode de memoria
     uint8_t opcode = fetch_byte();
 
@@ -337,6 +367,43 @@ int CPU::step() {
                 return 4;
             }
 
+        // ========== Control de Interrupciones ==========
+        
+        case 0xF3:  // DI (Disable Interrupts)
+            // Desactiva IME inmediatamente
+            // Esta instrucción se usa típicamente al inicio de rutinas críticas
+            // Fuente: Pan Docs - DI: 1 M-Cycle
+            {
+                ime_ = false;
+                ime_scheduled_ = false;  // Cancelar cualquier EI pendiente
+                cycles_ += 1;  // DI consume 1 M-Cycle
+                return 1;
+            }
+
+        case 0xFB:  // EI (Enable Interrupts)
+            // Habilita IME con retraso de 1 instrucción
+            // El retraso es un comportamiento del hardware real: IME se activa
+            // DESPUÉS de ejecutar la siguiente instrucción
+            // Esto permite que la instrucción siguiente a EI se ejecute sin interrupciones
+            // Fuente: Pan Docs - EI: 1 M-Cycle
+            {
+                ime_scheduled_ = true;  // Activar IME después de la siguiente instrucción
+                cycles_ += 1;  // EI consume 1 M-Cycle
+                return 1;
+            }
+
+        case 0x76:  // HALT
+            // Pone la CPU en estado de bajo consumo
+            // La CPU deja de ejecutar instrucciones hasta que:
+            // - Ocurre una interrupción (si IME está activo)
+            // - O se despierta manualmente (si hay interrupción pendiente sin IME)
+            // Fuente: Pan Docs - HALT: 1 M-Cycle
+            {
+                halted_ = true;
+                cycles_ += 1;  // HALT consume 1 M-Cycle
+                return 1;
+            }
+
         default:
             // Opcode no implementado
             // En producción, esto debería lanzar una excepción o loggear
@@ -348,5 +415,80 @@ int CPU::step() {
 
 uint32_t CPU::get_cycles() const {
     return cycles_;
+}
+
+bool CPU::get_ime() const {
+    return ime_;
+}
+
+bool CPU::get_halted() const {
+    return halted_;
+}
+
+uint8_t CPU::handle_interrupts() {
+    // Direcciones de registros de interrupciones
+    constexpr uint16_t ADDR_IF = 0xFF0F;  // Interrupt Flag
+    constexpr uint16_t ADDR_IE = 0xFFFF;  // Interrupt Enable
+    
+    // Leer registros de interrupciones
+    uint8_t if_reg = mmu_->read(ADDR_IF);
+    uint8_t ie_reg = mmu_->read(ADDR_IE);
+    
+    // Máscara para los 5 bits válidos (bits 0-4)
+    constexpr uint8_t INTERRUPT_MASK = 0x1F;
+    if_reg &= INTERRUPT_MASK;
+    ie_reg &= INTERRUPT_MASK;
+    
+    // Calcular interrupciones pendientes (bits activos en ambos registros)
+    uint8_t pending = ie_reg & if_reg;
+    
+    // Despertar de HALT si hay interrupción pendiente (incluso sin IME)
+    if (halted_ && pending != 0) {
+        halted_ = false;
+    }
+    
+    // Si IME está activo y hay interrupciones pendientes, procesar la de mayor prioridad
+    if (ime_ && pending != 0) {
+        // Desactivar IME inmediatamente (evita interrupciones anidadas)
+        ime_ = false;
+        
+        // Encontrar el bit de menor peso (mayor prioridad)
+        // V-Blank (bit 0) tiene la prioridad más alta
+        uint8_t interrupt_bit = 0;
+        uint16_t vector = 0x0040;  // Vector base de V-Blank
+        
+        if (pending & 0x01) {
+            interrupt_bit = 0x01;
+            vector = 0x0040;  // V-Blank
+        } else if (pending & 0x02) {
+            interrupt_bit = 0x02;
+            vector = 0x0048;  // LCD STAT
+        } else if (pending & 0x04) {
+            interrupt_bit = 0x04;
+            vector = 0x0050;  // Timer
+        } else if (pending & 0x08) {
+            interrupt_bit = 0x08;
+            vector = 0x0058;  // Serial
+        } else if (pending & 0x10) {
+            interrupt_bit = 0x10;
+            vector = 0x0060;  // Joypad
+        }
+        
+        // Limpiar el bit en IF (acknowledgement)
+        uint8_t new_if = if_reg & ~interrupt_bit;
+        mmu_->write(ADDR_IF, new_if);
+        
+        // Guardar PC en la pila (dirección de retorno)
+        push_word(regs_->pc);
+        
+        // Saltar al vector de interrupción
+        regs_->pc = vector;
+        
+        // Retornar 5 M-Cycles consumidos por el procesamiento de interrupción
+        return 5;
+    }
+    
+    // No hay interrupciones que procesar
+    return 0;
 }
 
