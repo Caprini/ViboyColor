@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug: Instrumentación Detallada de render_scanline - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug: Instrumentación Detallada de render_scanline</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0139
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0138__fix-bug-renderizado-signed-addressing-expansion-alu.html">Anterior (0138)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se añadió instrumentación de depuración detallada al método <code>render_scanline()</code> de la PPU en C++ para identificar el origen exacto del <code>Segmentation Fault</code> que ocurre al ejecutar el emulador con la ROM de Tetris. A pesar de que el test unitario para el modo "signed addressing" pasa correctamente, la ejecución real sigue crasheando, lo que indica que existe otro caso de uso no cubierto por el test que provoca un acceso a memoria inválido.
+                </p>
+                <p>
+                    La instrumentación añade logs usando <code>printf</code> para capturar los valores críticos (línea de escaneo, scroll, direcciones de tilemap, tile IDs, direcciones calculadas) justo antes de intentar leer la memoria de los tiles. Estos logs nos permitirán identificar exactamente qué valores causan el crash.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, la PPU renderiza cada línea de escaneo (scanline) accediendo a dos áreas principales de memoria: el <strong>Tilemap</strong> (en 0x9800-0x9BFF o 0x9C00-0x9FFF) y la <strong>Tile Data</strong> (en 0x8000-0x97FF). El proceso de renderizado para cada píxel de la línea implica:
+                </p>
+                <ol>
+                    <li>Calcular la posición en el tilemap usando scroll (SCX, SCY)</li>
+                    <li>Leer el Tile ID desde el tilemap</li>
+                    <li>Calcular la dirección del tile en VRAM según el modo de direccionamiento (signed/unsigned)</li>
+                    <li>Leer los datos del tile (2 bytes por línea)</li>
+                    <li>Decodificar el píxel y escribir en el framebuffer</li>
+                </ol>
+                <p>
+                    Si cualquiera de estas direcciones calculadas está fuera del rango válido de VRAM (0x8000-0x9FFF), el acceso a memoria puede causar un <code>Segmentation Fault</code>. Aunque añadimos validaciones en el Step 0138, el crash sugiere que hay algún caso específico que no está siendo capturado por estas validaciones o que ocurre antes de llegar a ellas.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Background, Tile Data, Tile Maps
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió instrumentación de depuración usando <code>printf</code> (en lugar de <code>std::cout</code>) porque es más seguro para depurar crashes, ya que no depende de buffers que pueden no vaciarse antes de un crash.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code>: Añadidos logs detallados en <code>render_scanline()</code></li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Variable estática para control de impresión:</strong> Se usa una variable estática global <code>debug_printed</code> para imprimir logs solo una vez (durante la primera línea de escaneo) y evitar inundar la consola.</li>
+                    <li><strong>Logs selectivos:</strong> Se imprimen los primeros 20 píxeles de la primera línea para capturar información relevante sin saturar la salida.</li>
+                    <li><strong>Logs de advertencia:</strong> Se añadieron logs especiales cuando se detectan direcciones fuera de rango, ya que estos son casos sospechosos que podrían causar el crash.</li>
+                    <li><strong>printf en lugar de std::cout:</strong> <code>printf</code> es más directo y seguro para depuración de crashes, ya que escribe directamente al stream sin buffers intermedios.</li>
+                </ul>
+
+                <h3>Código añadido</h3>
+                <pre><code>// Al principio del archivo
+#include &lt;cstdio&gt;
+
+// Variable estática para controlar la impresión
+static bool debug_printed = false;
+
+// En render_scanline(), al inicio
+if (!debug_printed) {
+    printf("[PPU DEBUG] render_scanline(ly=%d) | scx=%d, scy=%d | tile_map_base=0x%04X | signed_addressing=%d\n",
+           ly_, scx, scy, tile_map_base, signed_addressing ? 1 : 0);
+}
+
+// Dentro del bucle de renderizado, para los primeros 20 píxeles
+if (!debug_printed && x &lt; 20) {
+    printf("  [PIXEL x=%d] map_x=%d, map_y=%d | tile_map_addr=0x%04X, tile_id=%d, tile_addr=0x%04X\n",
+           x, map_x, map_y, tile_map_addr, tile_id, tile_addr);
+}
+
+// Al final del método
+debug_printed = true;</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Añadidos logs de depuración en <code>render_scanline()</code> para capturar valores críticos antes de acceder a memoria</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Estado actual:</strong> Esta es una entrada de depuración. El código se ha modificado para añadir instrumentación, pero aún no se ha recompilado ni ejecutado.
+                </p>
+                <p>
+                    <strong>Plan de verificación:</strong>
+                </p>
+                <ol>
+                    <li><strong>Recompilación:</strong> Ejecutar <code>.\rebuild_cpp.ps1</code> para recompilar el módulo C++ con los nuevos logs</li>
+                    <li><strong>Ejecución con ROM:</strong> Ejecutar <code>python main.py roms/tetris.gb</code> y capturar la salida de los logs antes del crash</li>
+                    <li><strong>Análisis:</strong> Analizar la última línea impresa antes del <code>Segmentation Fault</code> para identificar los valores exactos que causan el problema</li>
+                </ol>
+                <p>
+                    <strong>Resultado esperado:</strong> Los logs deberían mostrar los valores de <code>ly</code>, <code>scx</code>, <code>scy</code>, <code>tile_map_addr</code>, <code>tile_id</code>, y <code>tile_addr</code> para los primeros píxeles. La última línea impresa antes del crash indicará qué valores están causando el acceso a memoria inválido.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Background and Window</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Data</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Maps</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Depuración de crashes:</strong> Cuando un programa crashea con un Segmentation Fault, la instrumentación con logs es una herramienta esencial para identificar el punto exacto donde ocurre el problema. Los logs deben capturar los valores de las variables críticas justo antes de la operación que causa el crash.</li>
+                        <li><strong>printf vs std::cout:</strong> Para depuración de crashes, <code>printf</code> es preferible porque escribe directamente al stream sin buffers intermedios que pueden no vaciarse antes del crash.</li>
+                        <li><strong>Validación de direcciones:</strong> Aunque añadimos validaciones en el Step 0138, el crash persiste, lo que sugiere que hay un caso específico no cubierto o que el crash ocurre en un lugar diferente al esperado.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Valores exactos del crash:</strong> Necesitamos ejecutar el emulador con la instrumentación para ver los valores exactos que causan el Segmentation Fault.</li>
+                        <li><strong>Ubicación del crash:</strong> Aunque sospechamos que ocurre en <code>render_scanline()</code>, los logs nos confirmarán si es así o si ocurre en otro lugar (por ejemplo, en la MMU al leer).</li>
+                        <li><strong>Casos no cubiertos:</strong> Una vez tengamos los valores del crash, podremos identificar qué casos específicos no están siendo manejados correctamente por nuestras validaciones.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El crash ocurre durante el renderizado de una línea específica cuando se intenta acceder a una dirección de VRAM fuera de los límites válidos (0x8000-0x9FFF). Los logs nos permitirán confirmar esta hipótesis y ver exactamente qué valores causan el problema.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> El test unitario pasa porque crea una situación ideal y predecible, mientras que la ROM real usa combinaciones de valores (tile IDs, scroll, etc.) que exponen bugs en casos límite que no están cubiertos por el test.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con los nuevos logs: <code>.\rebuild_cpp.ps1</code></li>
+                    <li>[ ] Ejecutar el emulador con Tetris: <code>python main.py roms/tetris.gb</code></li>
+                    <li>[ ] Capturar y analizar la salida de los logs antes del crash</li>
+                    <li>[ ] Identificar los valores exactos que causan el Segmentation Fault</li>
+                    <li>[ ] Corregir el bug identificado en el siguiente step (0140)</li>
+                    <li>[ ] Eliminar los logs de depuración una vez resuelto el problema (para mejorar el rendimiento)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

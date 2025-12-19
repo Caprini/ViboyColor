@@ -32,6 +32,33 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-19 - Step 0139: Debug: Instrumentación Detallada de render_scanline
+**Estado**: 🔍 En depuración
+
+Se añadió instrumentación de depuración detallada al método `render_scanline()` de la PPU en C++ para identificar el origen exacto del `Segmentation Fault` que ocurre al ejecutar el emulador con la ROM de Tetris. A pesar de que el test unitario para el modo "signed addressing" pasa correctamente, la ejecución real sigue crasheando, lo que indica que existe otro caso de uso no cubierto por el test que provoca un acceso a memoria inválido.
+
+**Problema identificado**:
+El test unitario pasa porque crea una situación ideal y predecible, mientras que la ROM real usa combinaciones de valores (tile IDs, scroll, etc.) que exponen bugs en casos límite que no están cubiertos por el test. Necesitamos instrumentación para capturar los valores exactos que causan el crash.
+
+**Implementación**:
+- ✅ Añadido `#include <cstdio>` para usar `printf` en lugar de `std::cout` (más seguro para depuración de crashes)
+- ✅ Variable estática `debug_printed` para controlar la impresión de logs (solo una vez, durante la primera línea de escaneo)
+- ✅ Logs detallados al inicio de `render_scanline()` con valores de `ly`, `scx`, `scy`, `tile_map_base`, y `signed_addressing`
+- ✅ Logs para los primeros 20 píxeles mostrando `map_x`, `map_y`, `tile_map_addr`, `tile_id`, y `tile_addr`
+- ✅ Logs de advertencia cuando se detectan direcciones fuera de rango (casos sospechosos)
+
+**Próximos pasos**:
+- Recompilar el módulo C++ con los nuevos logs: `.\rebuild_cpp.ps1`
+- Ejecutar el emulador con Tetris: `python main.py roms/tetris.gb`
+- Capturar y analizar la salida de los logs antes del crash
+- Identificar los valores exactos que causan el Segmentation Fault
+- Corregir el bug identificado en el siguiente step (0140)
+
+**Archivos modificados**:
+- `src/core/cpp/PPU.cpp` - Añadidos logs de depuración en `render_scanline()` para capturar valores críticos antes de acceder a memoria
+
+---
+
 ### 2025-12-19 - Step 0138: Fix: Bug de Renderizado en Signed Addressing y Expansión de la ALU
 **Estado**: ✅ Completado
 

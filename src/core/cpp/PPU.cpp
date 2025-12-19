@@ -1,5 +1,9 @@
 #include "PPU.hpp"
 #include "MMU.hpp"
+#include <cstdio>
+
+// Variable estática para controlar la impresión de logs (solo una vez)
+static bool debug_printed = false;
 
 PPU::PPU(MMU* mmu) 
     : mmu_(mmu)
@@ -282,6 +286,12 @@ void PPU::render_scanline() {
     uint16_t tile_data_base = (lcdc & 0x10) ? 0x8000 : 0x8800;
     bool signed_addressing = !(lcdc & 0x10);
     
+    // SOLO IMPRIMIMOS UNA VEZ PARA NO INUNDAR LA CONSOLA
+    if (!debug_printed) {
+        printf("[PPU DEBUG] render_scanline(ly=%d) | scx=%d, scy=%d | tile_map_base=0x%04X | signed_addressing=%d\n",
+               ly_, scx, scy, tile_map_base, signed_addressing ? 1 : 0);
+    }
+    
     // Índice base en el framebuffer para esta línea
     int line_start_index = static_cast<int>(ly_) * SCREEN_WIDTH;
     
@@ -314,11 +324,22 @@ void PPU::render_scanline() {
             tile_addr = tile_data_base + (tile_id * 16);
         }
         
+        // AÑADE ESTE BLOQUE DE LOGGING DETALLADO (solo primeros 20 píxeles)
+        if (!debug_printed && x < 20) {
+            printf("  [PIXEL x=%d] map_x=%d, map_y=%d | tile_map_addr=0x%04X, tile_id=%d, tile_addr=0x%04X\n",
+                   x, map_x, map_y, tile_map_addr, tile_id, tile_addr);
+        }
+        
         // CRÍTICO: Validar que la dirección del tile esté dentro de VRAM (0x8000-0x9FFF)
         // Esto previene Segmentation Faults por accesos fuera de límites
         // En modo signed, tile_addr puede ser < 0x8000 si signed_tile_id es muy negativo
         // En modo unsigned, tile_addr puede ser > 0x9FFF si tile_id es muy grande
         if (tile_addr < VRAM_START || tile_addr > (VRAM_END - 15)) {
+            // LOGGING: Dirección fuera de rango (caso sospechoso)
+            if (!debug_printed) {
+                printf("  [WARNING x=%d] tile_addr=0x%04X fuera de VRAM! tile_id=%d, signed_addressing=%d\n",
+                       x, tile_addr, tile_id, signed_addressing ? 1 : 0);
+            }
             // Si la dirección está fuera de VRAM, usar color 0 (transparente)
             // Restamos 15 porque un tile completo son 16 bytes (0-15)
             framebuffer_[line_start_index + x] = 0;
@@ -331,6 +352,11 @@ void PPU::render_scanline() {
         // Verificar que tanto tile_line_addr como tile_line_addr+1 estén dentro de VRAM
         if (tile_line_addr < VRAM_START || tile_line_addr > (VRAM_END - 1) || 
             (tile_line_addr + 1) < VRAM_START || (tile_line_addr + 1) > VRAM_END) {
+            // LOGGING: Línea del tile fuera de rango (caso sospechoso)
+            if (!debug_printed) {
+                printf("  [WARNING x=%d] tile_line_addr=0x%04X fuera de VRAM! tile_addr=0x%04X, tile_y_offset=%d\n",
+                       x, tile_line_addr, tile_addr, tile_y_offset);
+            }
             // Si la línea del tile está fuera de VRAM, usar color 0 (transparente)
             framebuffer_[line_start_index + x] = 0;
             continue;
@@ -349,6 +375,9 @@ void PPU::render_scanline() {
         // Escribir índice de color en el framebuffer
         framebuffer_[line_start_index + x] = color_index;
     }
+    
+    // MARCAMOS LA BANDERA PARA QUE NO SE REPITA
+    debug_printed = true;
 }
 
 void PPU::render_bg() {

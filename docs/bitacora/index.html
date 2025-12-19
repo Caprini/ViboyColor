@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0139 - Debug: Instrumentación Detallada de render_scanline -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0139__debug-instrumentacion-detallada-render-scanline.html" class="entry-link">
+                                    Debug: Instrumentación Detallada de render_scanline
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0139 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se añadió instrumentación de depuración detallada al método render_scanline() de la PPU en C++ para identificar el origen exacto del Segmentation Fault que ocurre al ejecutar el emulador con la ROM de Tetris. A pesar de que el test unitario para el modo "signed addressing" pasa correctamente, la ejecución real sigue crasheando, lo que indica que existe otro caso de uso no cubierto por el test que provoca un acceso a memoria inválido. La instrumentación añade logs usando printf para capturar los valores críticos (línea de escaneo, scroll, direcciones de tilemap, tile IDs, direcciones calculadas) justo antes de intentar leer la memoria de los tiles.
+                        </p>
+                    </li>
                     <!-- Entrada 0138 - Fix: Bug de Renderizado en Signed Addressing y Expansión de la ALU -->
                     <li>
                         <div class="entry-header">
