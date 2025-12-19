@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inicio de Fase 2 (v0.0.2) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Inicio de Fase 2 (v0.0.2)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0100
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-18__0096__fix-ejecutable-windowed-mode.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se inicia oficialmente la Fase 2 (v0.0.2) del proyecto Viboy Color. Esta fase se enfoca en la migración
+                    del núcleo de emulación a C++/Cython para alcanzar precisión de timing necesaria para jugabilidad completa,
+                    y en la implementación del subsistema de Audio (APU). Se realizó limpieza del espacio de trabajo, archivando
+                    la documentación de v0.0.1 y eliminando artefactos de release que no son necesarios en desarrollo activo.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La Fase 2 aborda dos desafíos fundamentales de la emulación de Game Boy:
+                </p>
+                <ol>
+                    <li>
+                        <strong>Precisión de Timing</strong>: El hardware original funciona a 4.19 MHz con sincronización
+                        ciclo a ciclo precisa. La implementación en Python puro introduce latencia que rompe la lógica de
+                        juegos sensibles al timing. La migración a C++/Cython permite ejecutar el núcleo a velocidad nativa
+                        mientras mantiene la interfaz Python para frontend y tests.
+                    </li>
+                    <li>
+                        <strong>Audio Processing Unit (APU)</strong>: El Game Boy incluye un subsistema de audio con 4 canales:
+                        dos canales de onda cuadrada (con sweep y envelope), un canal de onda arbitraria (Wave RAM), y un
+                        canal de ruido (LFSR). La APU genera audio a la frecuencia del hardware pero debe ser muestreado y
+                        mezclado para salida a 44100Hz o 48000Hz en el sistema host.
+                    </li>
+                </ol>
+                <p>
+                    <strong>Arquitectura Híbrida</strong>: La Fase 2 implementa una arquitectura donde Python maneja la
+                    orquestación (UI, input, carga de archivos) mientras C++ maneja la emulación ciclo a ciclo. Cython actúa
+                    como puente, permitiendo llamadas eficientes desde Python a código C++ compilado.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se realizó una limpieza estructural del repositorio para preparar el entorno de desarrollo de la Fase 2:
+                </p>
+                
+                <h3>Archivado de Documentación v0.0.1</h3>
+                <ul>
+                    <li>
+                        <strong>Creada carpeta `docs/archive/`</strong>: Para almacenar documentación de versiones cerradas.
+                    </li>
+                    <li>
+                        <strong>Movido `INFORME_COMPLETO.md`</strong>: Archivado como `docs/archive/INFORME_v0.0.1_FINAL.md`
+                        para preservar el historial completo de la Fase 1.
+                    </li>
+                    <li>
+                        <strong>Inicializado `INFORME_FASE_2.md`</strong>: Nuevo documento de bitácora con objetivos claros
+                        de la Fase 2: migración a C++/Cython y implementación de APU.
+                    </li>
+                </ul>
+
+                <h3>Limpieza de Artefactos de Release</h3>
+                <p>
+                    Se eliminaron de la rama de desarrollo (pero preservados en el tag v0.0.1) los siguientes artefactos
+                    que no son necesarios durante el desarrollo activo:
+                </p>
+                <ul>
+                    <li><code>release/</code>: Binarios compilados de v0.0.1 (Windows, Linux, macOS)</li>
+                    <li><code>installers/</code>: Scripts de instalación (Inno Setup, Debian, py2app)</li>
+                    <li><code>tools/build_release.py</code>: Script de construcción de la v0.0.1</li>
+                </ul>
+                <p>
+                    <strong>Nota</strong>: Las carpetas <code>build/</code> y <code>dist/</code> no estaban en git (probablemente
+                    en .gitignore), lo cual es correcto ya que son artefactos temporales de PyInstaller.
+                </p>
+
+                <h3>Actualización de Documentación</h3>
+                <ul>
+                    <li>
+                        <strong>README.md</strong>: Actualizado para reflejar el estado "v0.0.2-dev (Work in Progress)" y
+                        el roadmap de la Fase 2 con tareas específicas de migración a C++/Cython e implementación de APU.
+                    </li>
+                    <li>
+                        <strong>Bitácora</strong>: Creada primera entrada (0100) documentando el inicio de la Fase 2.
+                    </li>
+                </ul>
+
+                <h3>Decisiones de Diseño</h3>
+                <p>
+                    <strong>Limpieza Segura</strong>: Todos los artefactos eliminados están preservados en el tag `v0.0.1`,
+                    por lo que pueden ser recuperados en cualquier momento con `git checkout v0.0.1`. Esto permite mantener
+                    la rama de desarrollo limpia sin perder el trabajo de la versión anterior.
+                </p>
+                <p>
+                    <strong>Separación de Fases</strong>: La documentación de v0.0.1 está archivada pero accesible, permitiendo
+                    consultar decisiones técnicas anteriores mientras se desarrolla la nueva arquitectura.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>docs/archive/INFORME_v0.0.1_FINAL.md</code> - Documentación archivada de v0.0.1 (movido desde raíz)</li>
+                    <li><code>INFORME_FASE_2.md</code> - Inicializado con objetivos y estructura de la Fase 2</li>
+                    <li><code>README.md</code> - Actualizado con estado v0.0.2-dev y roadmap</li>
+                    <li><code>docs/bitacora/entries/2025-12-19__0100__inicio-fase-2.html</code> - Nueva entrada de bitácora</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con nueva entrada (pendiente)</li>
+                    <li><code>release/</code> - Eliminado de git (preservado en tag v0.0.1)</li>
+                    <li><code>installers/</code> - Eliminado de git (preservado en tag v0.0.1)</li>
+                    <li><code>tools/build_release.py</code> - Eliminado de git (preservado en tag v0.0.1)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Esta entrada es de naturaleza administrativa y no requiere tests funcionales. Sin embargo, se verificó:
+                </p>
+                <ul>
+                    <li>
+                        <strong>Git</strong>: Confirmado que los archivos eliminados están preservados en el tag v0.0.1
+                        mediante verificación del historial de git.
+                    </li>
+                    <li>
+                        <strong>Estructura de archivos</strong>: Verificada la creación de `docs/archive/` y el movimiento
+                        correcto de `INFORME_COMPLETO.md`.
+                    </li>
+                    <li>
+                        <strong>Documentación</strong>: Verificada la actualización de `README.md` y `INFORME_FASE_2.md`
+                        con información correcta de la Fase 2.
+                    </li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Git Documentation: Tagging y branching strategies</li>
+                    <li>Proyecto Viboy Color: `.cursorrules` - Especificación de arquitectura híbrida Python/C++</li>
+                    <li>Pan Docs: Referencia para implementación futura de APU (Fase 2)</li>
+                </ul>
+                <p>
+                    <em>Nota: Esta entrada es principalmente administrativa. Las fuentes técnicas para la migración a C++/Cython
+                    y la implementación de APU se consultarán en entradas futuras.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li>
+                            <strong>Gestión de Ciclo de Vida</strong>: La separación de fases mediante tags de git permite
+                            mantener un historial limpio mientras se preserva el trabajo anterior. Los artefactos de release
+                            no son necesarios en desarrollo activo pero deben estar disponibles en la versión finalizada.
+                        </li>
+                        <li>
+                            <strong>Arquitectura Híbrida</strong>: La migración a C++/Cython requiere una arquitectura cuidadosa
+                            donde Python mantiene el control de alto nivel (UI, eventos) mientras C++ maneja el bucle crítico
+                            de emulación. Cython es el puente que permite esta integración eficiente.
+                        </li>
+                        <li>
+                            <strong>Preparación del Entorno</strong>: Un espacio de trabajo limpio es esencial para enfocarse
+                            en el desarrollo nuevo sin distracciones de artefactos de versiones anteriores.
+                        </li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>
+                            <strong>Estructura de C++/Cython</strong>: Cómo organizar los archivos `.pyx`, `.pxd`, `.cpp` y `.hpp`
+                            para mantener una arquitectura clara y escalable.
+                        </li>
+                        <li>
+                            <strong>Gestión de Memoria</strong>: Cómo manejar la transferencia de datos entre Python y C++ sin
+                            copias innecesarias, especialmente para buffers de video y audio.
+                        </li>
+                        <li>
+                            <strong>Compilación y Build</strong>: Cómo configurar `setup.py` para compilar extensiones Cython
+                            de manera cross-platform (Windows, Linux, macOS).
+                        </li>
+                        <li>
+                            <strong>APU</strong>: Los detalles específicos de implementación de cada canal de audio y la
+                            sincronización con el bucle principal de emulación.
+                        </li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Rendimiento</strong>: Asumo que la migración a C++/Cython resolverá los problemas de timing
+                        observados en v0.0.1, pero esto debe ser validado mediante pruebas con juegos sensibles al timing
+                        (Tetris, Pokémon) una vez completada la migración.
+                    </p>
+                    <p>
+                        <strong>Compatibilidad</strong>: Asumo que la arquitectura híbrida mantendrá la portabilidad del
+                        proyecto (Windows, Linux, macOS) mediante compilación condicional en `setup.py`, pero esto debe ser
+                        verificado en cada plataforma.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Configurar infraestructura de compilación Cython (`setup.py`, estructura de directorios)</li>
+                    <li>[ ] Crear estructura base de módulos C++/Cython (CPU, MMU, PPU)</li>
+                    <li>[ ] Migrar CPU (LR35902) a C++ con wrapper Cython</li>
+                    <li>[ ] Migrar MMU a código compilado</li>
+                    <li>[ ] Migrar PPU a código compilado</li>
+                    <li>[ ] Implementar APU (Canal 1: Onda cuadrada con Sweep)</li>
+                    <li>[ ] Implementar APU (Canal 2: Onda cuadrada)</li>
+                    <li>[ ] Implementar APU (Canal 3: Wave RAM)</li>
+                    <li>[ ] Implementar APU (Canal 4: Ruido LFSR)</li>
+                    <li>[ ] Integración de audio con bucle principal</li>
+                    <li>[ ] Validación con juegos sensibles al timing</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

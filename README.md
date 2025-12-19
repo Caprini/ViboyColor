@@ -10,13 +10,11 @@ Un emulador de Game Boy Color escrito en Python, desarrollado desde cero mediant
 
 **Viboy Color** es un emulador del sistema Game Boy Color desarrollado completamente desde cero en Python mediante **"Vibe Coding"** (Programación asistida por IA sin conocimientos previos profundos de la arquitectura Game Boy). Este proyecto tiene como objetivo principal ser una herramienta educativa que permita comprender la arquitectura del hardware original mediante implementación clean-room (sin copiar código de otros emuladores).
 
-### ⚠️ Estado Actual: Proof of Concept (PoC) Académica v0.0.1
+### ⚠️ Estado Actual: v0.0.2-dev (Work in Progress)
 
-Este proyecto ha alcanzado el estado de **Prueba de Concepto (PoC) Académica** exitosa. El emulador funciona a nivel técnico: carga ROMs, ejecuta instrucciones de CPU, gestiona memoria, dibuja gráficos y muestra juegos en pantalla. Sin embargo, **la jugabilidad no es viable** debido a problemas de sincronización fina y latencia inherentes a la implementación actual en Python puro.
+**Fase 1 (v0.0.1) - CERRADA**: El proyecto alcanzó el estado de **Prueba de Concepto (PoC) Académica** exitosa. El emulador funciona a nivel técnico: carga ROMs, ejecuta instrucciones de CPU, gestiona memoria, dibuja gráficos y muestra juegos en pantalla. Sin embargo, la jugabilidad no es viable debido a problemas de sincronización fina y latencia inherentes a la implementación en Python puro.
 
-**Limitación Conocida**: La sincronización ciclo a ciclo en Python puro impide una jugabilidad fluida en hardware estándar. Se requiere migración a C++/Cython para alcanzar precisión de timing necesaria para juegos sensibles al timing (como Tetris o Pokémon).
-
-**Logro Académico**: Este proyecto ha sido un éxito como herramienta de aprendizaje de arquitectura de computadores, cumpliendo el objetivo de "aprender cómo funciona la máquina" mediante implementación práctica desde cero.
+**Fase 2 (v0.0.2) - EN DESARROLLO**: Migración del núcleo a C++/Cython y implementación de Audio (APU). El objetivo es alcanzar precisión de timing necesaria para jugabilidad completa mediante código compilado, manteniendo la interfaz Python para frontend y tests.
 
 ### Principios del Proyecto
 
@@ -163,9 +161,9 @@ Consulta `INFORME_COMPLETO.md` para la bitácora técnica completa con todos los
 
 ## 🔄 Estado del Proyecto
 
-**Versión actual**: v0.0.1 (Proof of Concept Académica) - **CERRADA**
+**Versión actual**: v0.0.2-dev (Work in Progress)
 
-### ✅ Fase 1 (v0.0.1) - Completada
+### ✅ Fase 1 (v0.0.1) - Completada y Cerrada
 
 **Logros Técnicos:**
 - ✅ CPU LR35902 completa con todos los opcodes
@@ -186,18 +184,27 @@ Consulta `INFORME_COMPLETO.md` para la bitácora técnica completa con todos los
 **Conclusión Académica:**
 Este proyecto ha sido un éxito como herramienta de aprendizaje de arquitectura de computadores. El objetivo de "aprender cómo funciona la máquina" se ha cumplido mediante implementación práctica desde cero. La arquitectura de "bucle por scanline" en un lenguaje interpretado introduce latencia de input y desincronización de timer que rompe la lógica de juegos sensibles al timing.
 
-### 🚀 Roadmap v0.0.2 (Próxima Fase)
+**Documentación archivada**: `docs/archive/INFORME_v0.0.1_FINAL.md`
 
-**Objetivo**: Migración del núcleo a lenguaje de bajo nivel o compilado para alcanzar precisión de timing necesaria para jugabilidad completa.
+### 🚀 Fase 2 (v0.0.2) - En Progreso
+
+**Objetivo**: Migración del núcleo a C++/Cython y Audio (APU).
 
 **Tareas Principales:**
 - [ ] Reescritura del núcleo en C++/Cython
-- [ ] Migración de CPU, MMU, PPU y Timer a código compilado
+  - [ ] CPU (LR35902) en C++ con wrapper Cython
+  - [ ] MMU en código compilado
+  - [ ] PPU en código compilado
+- [ ] Implementación de Audio (APU)
+  - [ ] Canal 1 & 2: Onda cuadrada con Sweep y Envelope
+  - [ ] Canal 3: Onda arbitraria (Wave RAM)
+  - [ ] Canal 4: Ruido blanco (LFSR)
+  - [ ] Mezcla y salida a 44100Hz/48000Hz
 - [ ] Mantener interfaz Python para frontend y tests
 - [ ] Optimización de sincronización ciclo a ciclo
 - [ ] Validación con juegos sensibles al timing (Tetris, Pokémon)
 
-**Nota**: Los componentes pendientes (APU, MBCs adicionales, etc.) se implementarán en v0.0.2 con la nueva arquitectura.
+**Bitácora de desarrollo**: `INFORME_FASE_2.md`
 
 ## 🤝 Contribuir
 
