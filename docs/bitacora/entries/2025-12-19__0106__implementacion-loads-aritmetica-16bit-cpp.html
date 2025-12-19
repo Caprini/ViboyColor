@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementación de Loads y Aritmética 16-bit en C++ - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Implementación de Loads y Aritmética 16-bit en C++</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0106
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-completed">Completado</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0105__implementacion-alu-flags-cpp.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementaron las operaciones de transferencia de datos (Loads) y aritmética de 16 bits
+                    en C++, cubriendo aproximadamente el 40% del set de instrucciones de la Game Boy. Se añadieron
+                    helpers genéricos para manejar el bloque completo 0x40-0x7F de LD r, r', así como operaciones
+                    de carga inmediata (8 y 16 bits) y aritmética de pares de registros. Se implementaron 64+
+                    nuevos opcodes con una arquitectura optimizada que usa punteros a registros y funciones helper
+                    inline para máximo rendimiento. Todos los 16 tests pasan correctamente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La mayoría de instrucciones de una CPU son operaciones de movimiento de datos (Loads).
+                    En la Game Boy, el bloque de opcodes 0x40-0x7F forma una matriz perfecta donde:
+                </p>
+                <ul>
+                    <li><strong>Bits 3-5</strong>: Código del registro destino (0=B, 1=C, 2=D, 3=E, 4=H, 5=L, 6=(HL), 7=A)</li>
+                    <li><strong>Bits 0-2</strong>: Código del registro origen (misma codificación)</li>
+                    <li><strong>Excepción</strong>: 0x76 es HALT, no LD</li>
+                </ul>
+                <p>
+                    Esta estructura permite implementar 63 instrucciones LD con una sola función helper genérica,
+                    en lugar de escribir 63 casos individuales. En C++, podemos usar punteros a los registros
+                    (<code>uint8_t*</code>) para crear funciones genéricas como <code>ld_r_r(uint8_t* dest, uint8_t* src)</code>.
+                </p>
+                <p>
+                    <strong>Aritmética 16-bit</strong>: La Game Boy tiene una peculiaridad importante:
+                </p>
+                <ul>
+                    <li><strong>INC/DEC rr</strong>: NO afectan flags (solo incrementan/decrementan el par)</li>
+                    <li><strong>ADD HL, rr</strong>: SÍ afecta flags, pero solo H y C (NO Z). El half-carry se calcula
+                        en el bit 11 (bit 3 del byte alto), no en el bit 3 como en operaciones de 8 bits.</li>
+                </ul>
+                <p>
+                    Esta diferencia es crítica para la precisión de la emulación. El half-carry en 16 bits detecta
+                    desbordamiento del nibble bajo del byte alto: <code>((hl & 0xFFF) + (value & 0xFFF)) > 0xFFF</code>.
+                </p>
+                <p>
+                    <strong>Optimización C++</strong>: Usar funciones helper inline con punteros a registros permite
+                    que el compilador optimice el código eliminando indirecciones innecesarias y generando código
+                    de máquina altamente eficiente. El bloque completo 0x40-0x7F se compila a un solo switch con
+                    lógica genérica, reduciendo el tamaño del código y mejorando la predicción de ramas.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron helpers genéricos para manejar el bloque completo de instrucciones LD y
+                    operaciones de aritmética 16-bit. La arquitectura usa punteros a registros y funciones helper
+                    inline para máximo rendimiento.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>CPU.hpp</strong>: Añadidas declaraciones de helpers de Load y aritmética 16-bit:
+                        <ul>
+                            <li><code>get_register_ptr()</code>: Obtiene puntero a registro según código</li>
+                            <li><code>read_register_or_mem()</code>: Lee de registro o memoria (HL)</li>
+                            <li><code>write_register_or_mem()</code>: Escribe en registro o memoria (HL)</li>
+                            <li><code>ld_r_r()</code>: Copia valor entre registros/memoria</li>
+                            <li><code>inc_16bit()</code> / <code>dec_16bit()</code>: Incremento/decremento de pares</li>
+                            <li><code>add_hl()</code>: Suma de 16 bits a HL con cálculo de flags</li>
+                        </ul>
+                    </li>
+                    <li><strong>CPU.cpp</strong>: Implementación de helpers y 64+ nuevos opcodes:
+                        <ul>
+                            <li>Bloque 0x40-0x7F: LD r, r' (63 instrucciones, excepto 0x76 HALT)</li>
+                            <li>LD r, n: 0x06, 0x0E, 0x16, 0x1E, 0x26, 0x2E, 0x3E (7 instrucciones)</li>
+                            <li>LD (HL), n: 0x36 (1 instrucción)</li>
+                            <li>LD rr, nn: 0x01, 0x11, 0x21, 0x31 (4 instrucciones)</li>
+                            <li>INC/DEC rr: 0x03, 0x0B, 0x13, 0x1B, 0x23, 0x2B, 0x33, 0x3B (8 instrucciones)</li>
+                            <li>ADD HL, rr: 0x09, 0x19, 0x29, 0x39 (4 instrucciones)</li>
+                        </ul>
+                    </li>
+                    <li><strong>cpu.pxd</strong>: Corregido import de <code>bool</code> para compatibilidad con Cython</li>
+                    <li><strong>tests/test_core_cpu_loads.py</strong>: Suite completa de 16 tests para validar todas las operaciones</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Punteros a registros</strong>: En lugar de usar un switch gigante con 64 casos,
+                        se usa una función helper que mapea códigos de registro a punteros. Esto reduce
+                        el tamaño del código y mejora la mantenibilidad.</li>
+                    <li><strong>Manejo de (HL)</strong>: El código 6 representa acceso a memoria en dirección HL.
+                        Las funciones <code>read_register_or_mem()</code> y <code>write_register_or_mem()</code>
+                        manejan este caso especial, simplificando la lógica de LD.</li>
+                    <li><strong>Timing preciso</strong>: Las instrucciones que acceden a memoria (destino u origen = (HL))
+                        consumen 2 M-Cycles en lugar de 1. La lógica de cálculo de ciclos verifica ambos códigos.</li>
+                    <li><strong>Flags en ADD HL</strong>: Se implementó el cálculo correcto de half-carry en bit 11
+                        y carry completo en 16 bits, respetando que Z no se afecta.</li>
+                    <li><strong>INC/DEC rr sin flags</strong>: Estos opcodes no afectan flags, lo cual es crítico
+                        para la precisión de la emulación (muchos juegos dependen de este comportamiento).</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Añadidas declaraciones de helpers de Load y aritmética 16-bit</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Implementación de helpers y 64+ nuevos opcodes</li>
+                    <li><code>src/core/cython/cpu.pxd</code> - Corregido import de bool para compatibilidad</li>
+                    <li><code>tests/test_core_cpu_loads.py</code> - Suite completa de 16 tests</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de 16 tests que validan todas las operaciones implementadas:
+                </p>
+                <ul>
+                    <li><strong>TestLD_8bit_Register</strong> (5 tests): Verifica LD r, r', LD (HL), r y LD r, (HL)</li>
+                    <li><strong>TestLD_8bit_Immediate</strong> (2 tests): Verifica LD r, n y LD (HL), n</li>
+                    <li><strong>TestLD_16bit</strong> (2 tests): Verifica LD rr, nn para BC y HL</li>
+                    <li><strong>TestINC_DEC_16bit</strong> (3 tests): Verifica INC/DEC rr y que NO afectan flags</li>
+                    <li><strong>TestADD_HL</strong> (4 tests): Verifica ADD HL, rr con diferentes casos de carry</li>
+                </ul>
+                <p>
+                    <strong>Resultado</strong>: Todos los 16 tests pasan correctamente. La validación incluye:
+                </p>
+                <ul>
+                    <li>Verificación de valores correctos en registros y memoria</li>
+                    <li>Verificación de timing (M-Cycles consumidos)</li>
+                    <li>Verificación de flags (especialmente que INC/DEC rr NO afectan flags)</li>
+                    <li>Verificación de half-carry y carry en operaciones de 16 bits</li>
+                    <li>Verificación de wrap-around en 16 bits</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">CPU Instruction Set</a> - Estructura de opcodes LD y aritmética 16-bit</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Registers_and_Flags.html">CPU Registers and Flags</a> - Comportamiento de flags en operaciones 16-bit</li>
+                    <li>GBEDG: <a href="https://gbdev.io/gb-opcodes/optables/">Opcodes Table</a> - Timing y comportamiento de cada instrucción</li>
+                </ul>
+                <p>
+                    <em>Nota: La implementación sigue estrictamente la documentación técnica, sin consultar código fuente de otros emuladores.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Matriz de opcodes</strong>: El bloque 0x40-0x7F forma una matriz perfecta que permite
+                            implementar 63 instrucciones con una sola función helper genérica, reduciendo significativamente
+                            el tamaño del código y mejorando la mantenibilidad.</li>
+                        <li><strong>Punteros a miembros</strong>: En C++, podemos usar punteros a los registros para crear
+                            funciones genéricas que trabajan con cualquier registro, eliminando la necesidad de código repetitivo.</li>
+                        <li><strong>Half-carry en 16 bits</strong>: El half-carry en operaciones de 16 bits se calcula en el
+                            bit 11 (bit 3 del byte alto), no en el bit 3 como en operaciones de 8 bits. Esto es crítico para
+                            la precisión de la emulación.</li>
+                        <li><strong>INC/DEC rr sin flags</strong>: Estas instrucciones NO afectan flags, lo cual es un comportamiento
+                            específico del hardware de la Game Boy que muchos juegos dependen.</li>
+                        <li><strong>Timing de memoria</strong>: Las instrucciones que acceden a memoria (destino u origen = (HL))
+                            consumen 2 M-Cycles en lugar de 1, reflejando el costo adicional de acceso a memoria.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Prefijo CB</strong>: Las operaciones de rotación y bits (prefijo CB) aún no están implementadas.
+                            Estas son críticas para muchas operaciones de manipulación de bits.</li>
+                        <li><strong>Operaciones restantes</strong>: Aún faltan operaciones como ADC, SBC, CP, y otras operaciones
+                            aritméticas y lógicas que son comunes en el set de instrucciones.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        La implementación asume que el comportamiento de flags en ADD HL, rr es correcto según Pan Docs.
+                        El cálculo de half-carry en bit 11 se basa en la documentación técnica, pero debería validarse
+                        con tests más exhaustivos o ROMs de test permitidas si están disponibles.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar operaciones aritméticas restantes (ADC, SBC, CP)</li>
+                    <li>[ ] Implementar operaciones lógicas restantes (OR, CPL, SCF, CCF)</li>
+                    <li>[ ] Implementar prefijo CB (rotaciones y operaciones de bits)</li>
+                    <li>[ ] Implementar operaciones de stack restantes (PUSH/POP para otros pares)</li>
+                    <li>[ ] Validar con ROMs de test permitidas si están disponibles</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
