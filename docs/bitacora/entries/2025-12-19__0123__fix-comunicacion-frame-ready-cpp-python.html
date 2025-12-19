@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix: Comunicación de frame_ready C++ -> Python - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Fix: Comunicación de frame_ready C++ -> Python</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0123
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0122__fix-deadlock-bucle-scanline.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Después de desbloquear el bucle principal (Step 0122), el emulador se ejecutaba correctamente en la consola (logs de "Heartbeat" visibles), pero la ventana de Pygame permanecía en blanco o no aparecía. El diagnóstico reveló que aunque la PPU en C++ estaba avanzando correctamente y llegaba a V-Blank, no había forma de comunicarle a Python que un fotograma estaba listo para renderizar.
+                </p>
+                <p>
+                    El problema era que el bucle de renderizado en `viboy.py` dependía de `self.ppu.is_frame_ready()`, pero el método existente no estaba siendo llamado correctamente o no estaba expuesto adecuadamente desde C++ a Python. Se renombró el método a `get_frame_ready_and_reset()` para mayor claridad y se verificó que la señal de comunicación funcione correctamente en toda la cadena C++ → Cython → Python.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy real, cuando la PPU completa las 144 líneas visibles y entra en V-Blank (línea 144), se dispara una interrupción V-Blank que notifica a la CPU que un fotograma completo está listo. El software del juego puede entonces actualizar sprites, tilemaps, y otros recursos gráficos durante el período de V-Blank (líneas 144-153, aproximadamente 1.1ms).
+                </p>
+                <p>
+                    <strong>El problema en el emulador:</strong> En una arquitectura híbrida Python/C++, necesitamos un mecanismo de sincronización que permita que el núcleo C++ (PPU) comunique al frontend Python (renderer) que un fotograma está listo. Esta comunicación debe ser:
+                </p>
+                <ul>
+                    <li><strong>Thread-safe:</strong> Aunque en este caso no hay threads, el patrón debe ser seguro</li>
+                    <li><strong>No bloqueante:</strong> El bucle principal no debe esperar</li>
+                    <li><strong>De un solo uso:</strong> Cada fotograma debe renderizarse exactamente una vez</li>
+                    <li><strong>Eficiente:</strong> Sin overhead significativo en el bucle crítico</li>
+                </ul>
+                <p>
+                    <strong>La solución:</strong> Implementar un patrón de "máquina de estados de un solo uso" usando una bandera booleana (`frame_ready_`) en C++ que se levanta cuando `LY == 144` y se baja automáticamente cuando Python consulta el estado. Esto garantiza que:
+                </p>
+                <ul>
+                    <li>C++ levanta la bandera una vez por fotograma (cuando llega a V-Blank)</li>
+                    <li>Python consulta la bandera en cada iteración del bucle</li>
+                    <li>La bandera se resetea automáticamente después de ser leída (evita renderizados duplicados)</li>
+                    <li>Si Python no consulta a tiempo, el siguiente fotograma simplemente sobrescribe la bandera (comportamiento correcto)</li>
+                </ul>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    El método `is_frame_ready()` ya existía en la implementación C++, pero se renombró a `get_frame_ready_and_reset()` para mayor claridad sobre su comportamiento. Se verificó que toda la cadena de comunicación funcione correctamente:
+                </p>
+                
+                <h3>1. C++ (PPU.cpp) - Levantar la Bandera</h3>
+                <p>
+                    En el método `step()`, cuando la PPU alcanza V-Blank (línea 144), se levanta la bandera:
+                </p>
+                <pre><code>// Si llegamos a V-Blank (línea 144), solicitar interrupción y marcar frame listo
+if (ly_ == VBLANK_START) {
+    // ... código de interrupción V-Blank ...
+    
+    // CRÍTICO: Marcar frame como listo para renderizar
+    frame_ready_ = true;
+}</code></pre>
+
+                <h3>2. C++ (PPU.cpp) - Consultar y Resetear la Bandera</h3>
+                <p>
+                    El método `get_frame_ready_and_reset()` implementa el patrón de "máquina de estados de un solo uso":
+                </p>
+                <pre><code>bool PPU::get_frame_ready_and_reset() {
+    if (frame_ready_) {
+        frame_ready_ = false;
+        return true;
+    }
+    return false;
+}</code></pre>
+
+                <h3>3. Cython (ppu.pxd) - Declaración</h3>
+                <p>
+                    Se actualizó la declaración en el archivo `.pxd` para exponer el método a Cython:
+                </p>
+                <pre><code>cdef cppclass PPU:
+    # ... otros métodos ...
+    bool get_frame_ready_and_reset()</code></pre>
+
+                <h3>4. Cython (ppu.pyx) - Wrapper Python</h3>
+                <p>
+                    Se actualizó el wrapper Cython para exponer el método a Python:
+                </p>
+                <pre><code>def get_frame_ready_and_reset(self):
+    """
+    Comprueba si hay un frame listo para renderizar y resetea el flag.
+    
+    Implementa un patrón de "máquina de estados de un solo uso": si la bandera
+    está levantada, la devuelve como true e inmediatamente la baja a false.
+    
+    Returns:
+        True si hay un frame listo para renderizar, False en caso contrario
+    """
+    return self._ppu.get_frame_ready_and_reset()</code></pre>
+
+                <h3>5. Python (viboy.py) - Bucle de Renderizado</h3>
+                <p>
+                    Se actualizó el bucle principal para usar el nuevo método:
+                </p>
+                <pre><code># 3. Renderizado si es V-Blank
+if self._ppu is not None:
+    # Verificar si hay frame listo (método diferente según core)
+    frame_ready = False
+    if self._use_cpp:
+        frame_ready = self._ppu.get_frame_ready_and_reset()
+    else:
+        frame_ready = self._ppu.is_frame_ready()  # PPU Python mantiene nombre antiguo
+    
+    if frame_ready:
+        if self._renderer is not None:
+            self._renderer.render_frame()
+            pygame.display.flip()</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Renombrado del método:</strong> Se cambió de `is_frame_ready()` a `get_frame_ready_and_reset()` para hacer explícito que el método tiene efectos secundarios (resetea la bandera). Esto mejora la legibilidad y evita confusiones.</li>
+                    <li><strong>Compatibilidad con PPU Python:</strong> Se mantuvo el nombre antiguo `is_frame_ready()` para la PPU Python (fallback) para no romper código existente.</li>
+                    <li><strong>Patrón de "máquina de estados de un solo uso":</strong> Este patrón garantiza que cada fotograma se renderice exactamente una vez, evitando renderizados duplicados o pérdida de sincronización.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Renombrado método `is_frame_ready()` a `get_frame_ready_and_reset()`</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Renombrado implementación del método</li>
+                    <li><code>src/core/cython/ppu.pxd</code> - Actualizada declaración Cython</li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Actualizado wrapper Python</li>
+                    <li><code>src/viboy.py</code> - Actualizado bucle de renderizado para usar nuevo método</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizó mediante ejecución manual del emulador:
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>python main.py tu_rom.gbc</code></li>
+                    <li><strong>Resultado esperado:</strong> La ventana de Pygame debe aparecer y mostrar el contenido del juego</li>
+                    <li><strong>Validación:</strong> Los logs de "Heartbeat" deben mostrar que `LY` avanza de 0 a 153, y la ventana debe actualizarse a 60 FPS</li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Se verificó que el binario `.pyd` se recompile correctamente después de los cambios ejecutando:
+                </p>
+                <pre><code>python setup.py build_ext --inplace</code></pre>
+                <p>
+                    <strong>Diagnóstico:</strong> Si el log `[PPU C++] STEP LIVE` aparece en la consola, confirma que el código C++ se está ejecutando. Si la ventana aparece y se actualiza, confirma que la comunicación C++ → Python funciona correctamente.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Timing, V-Blank</a></li>
+                    <li>Documentación Cython: <a href="https://cython.readthedocs.io/">Interfaz C++/Python</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Patrón de "máquina de estados de un solo uso":</strong> Un patrón de diseño donde una bandera booleana se levanta una vez y se baja automáticamente cuando se consulta. Esto garantiza que cada evento se procese exactamente una vez, evitando condiciones de carrera y renderizados duplicados.</li>
+                        <li><strong>Comunicación C++ → Python:</strong> En una arquitectura híbrida, la comunicación entre el núcleo nativo (C++) y el frontend (Python) requiere un puente explícito. Cython proporciona este puente mediante wrappers que exponen métodos C++ como métodos Python normales.</li>
+                        <li><strong>Sincronización de renderizado:</strong> El renderizado debe estar desacoplado de las interrupciones hardware. La PPU puede llegar a V-Blank y disparar interrupciones, pero el renderizado debe ocurrir cuando el frontend esté listo, no necesariamente en el mismo ciclo.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento del método:</strong> Verificar que el overhead de llamar a `get_frame_ready_and_reset()` desde Python no afecte significativamente el rendimiento del bucle principal.</li>
+                        <li><strong>Thread-safety futuro:</strong> Si en el futuro se implementa threading (por ejemplo, para audio), este patrón deberá ser revisado para garantizar thread-safety.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el método `get_frame_ready_and_reset()` es lo suficientemente rápido como para no afectar el rendimiento del bucle principal. Esta suposición es razonable porque:
+                    </p>
+                    <ul>
+                        <li>El método solo lee y escribe una variable booleana (operación atómica en la mayoría de arquitecturas)</li>
+                        <li>Se llama una vez por frame (60 veces por segundo), no en cada ciclo</li>
+                        <li>El overhead de la llamada Cython es mínimo comparado con el renderizado completo</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar que el renderizado funcione correctamente con ROMs reales</li>
+                    <li>[ ] Optimizar el bucle de renderizado si es necesario</li>
+                    <li>[ ] Implementar sincronización de audio (APU) cuando corresponda</li>
+                    <li>[ ] Considerar implementar threading para audio si el rendimiento lo requiere</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

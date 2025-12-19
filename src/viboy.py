@@ -764,9 +764,9 @@ class Viboy:
                     # Verificar si hay frame listo (método diferente según core)
                     frame_ready = False
                     if self._use_cpp:
-                        frame_ready = self._ppu.is_frame_ready()
+                        frame_ready = self._ppu.get_frame_ready_and_reset()
                     else:
-                        frame_ready = self._ppu.is_frame_ready()
+                        frame_ready = self._ppu.is_frame_ready()  # PPU Python mantiene nombre antiguo
                     
                     if frame_ready:
                         if self._renderer is not None:

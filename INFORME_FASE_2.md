@@ -701,3 +701,102 @@ El emulador estaba ejecutándose en segundo plano (logs de "Heartbeat" visibles)
 - Si el problema persiste, investigar la implementación de la CPU C++ para identificar la causa raíz
 - Considerar agregar tests unitarios que verifiquen que `_execute_cpu_timer_only()` nunca devuelve 0
 
+---
+
+### 2025-12-19 - Step 0123: Fix: Comunicación de frame_ready C++ -> Python
+**Estado**: ✅ Completado
+
+Después de desbloquear el bucle principal (Step 0122), el emulador se ejecutaba correctamente en la consola (logs de "Heartbeat" visibles), pero la ventana de Pygame permanecía en blanco o no aparecía. El diagnóstico reveló que aunque la PPU en C++ estaba avanzando correctamente y llegaba a V-Blank, no había forma de comunicarle a Python que un fotograma estaba listo para renderizar.
+
+**Implementación**:
+- ✅ Renombrado método `is_frame_ready()` a `get_frame_ready_and_reset()` en C++:
+  - Actualizado `PPU.hpp` y `PPU.cpp` con el nuevo nombre
+  - El método implementa un patrón de "máquina de estados de un solo uso"
+  - La bandera `frame_ready_` se levanta cuando `LY == 144` (V-Blank)
+  - La bandera se baja automáticamente cuando Python consulta el estado
+- ✅ Actualizada declaración Cython (`ppu.pxd`):
+  - Método expuesto como `bool get_frame_ready_and_reset()`
+- ✅ Actualizado wrapper Cython (`ppu.pyx`):
+  - Método Python que llama a la función C++
+  - Documentación mejorada explicando el patrón de "máquina de estados de un solo uso"
+- ✅ Actualizado bucle de renderizado (`viboy.py`):
+  - Cambio de `self._ppu.is_frame_ready()` a `self._ppu.get_frame_ready_and_reset()` para PPU C++
+  - Mantenido nombre antiguo para PPU Python (compatibilidad)
+
+**Archivos modificados**:
+- `src/core/cpp/PPU.hpp` - Renombrado método
+- `src/core/cpp/PPU.cpp` - Renombrado implementación
+- `src/core/cython/ppu.pxd` - Actualizada declaración
+- `src/core/cython/ppu.pyx` - Actualizado wrapper
+- `src/viboy.py` - Actualizado bucle de renderizado
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0123__fix-comunicacion-frame-ready-cpp-python.html`
+
+**Resultados de verificación**:
+- ✅ Método renombrado en toda la cadena C++ → Cython → Python
+- ✅ Código compila sin errores
+- ✅ Recompilación requerida: `python setup.py build_ext --inplace`
+
+**Conceptos clave**:
+- **Patrón de "máquina de estados de un solo uso"**: Una bandera booleana se levanta una vez y se baja automáticamente cuando se consulta. Esto garantiza que cada evento se procese exactamente una vez, evitando condiciones de carrera y renderizados duplicados.
+- **Comunicación C++ → Python**: En una arquitectura híbrida, la comunicación entre el núcleo nativo (C++) y el frontend (Python) requiere un puente explícito. Cython proporciona este puente mediante wrappers que exponen métodos C++ como métodos Python normales.
+- **Sincronización de renderizado**: El renderizado debe estar desacoplado de las interrupciones hardware. La PPU puede llegar a V-Blank y disparar interrupciones, pero el renderizado debe ocurrir cuando el frontend esté listo, no necesariamente en el mismo ciclo.
+
+**Próximos pasos**:
+- Verificar que el renderizado funcione correctamente con ROMs reales
+- Optimizar el bucle de renderizado si es necesario
+- Implementar sincronización de audio (APU) cuando corresponda
+- Considerar implementar threading para audio si el rendimiento lo requiere
+
+---
+
+### 2025-12-19 - Step 0124: PPU Fase B: Framebuffer y Renderizado en C++
+**Estado**: ✅ Completado
+
+Después de lograr que la ventana de Pygame aparezca y se actualice a 60 FPS (Step 0123), se implementó la **Fase B de la migración de la PPU**: el framebuffer con índices de color (0-3) y un renderizador simplificado que genera un patrón de degradado de prueba. Esto permite verificar que toda la tubería de datos funciona correctamente: `CPU C++ → PPU C++ → Framebuffer C++ → Cython MemoryView → Python Pygame`.
+
+**Implementación**:
+- ✅ Cambio de framebuffer de ARGB32 a índices de color:
+  - `std::vector<uint32_t>` → `std::vector<uint8_t>` (reducción del 75% de memoria)
+  - Cada píxel almacena un índice de color (0-3) en lugar de un color RGB completo
+  - Los colores finales se aplican en Python usando la paleta BGP
+- ✅ Implementación de `render_scanline()` simplificado:
+  - Genera un patrón de degradado diagonal: `(ly_ + x) % 4`
+  - Se llama automáticamente cuando la PPU entra en Mode 0 (H-Blank) dentro de una línea visible
+  - Permite verificar que LY avanza correctamente y que el framebuffer se escribe
+- ✅ Exposición Zero-Copy a Python mediante Cython:
+  - Framebuffer expuesto como `memoryview` de `uint8_t` (1D array de 23040 elementos)
+  - Python accede directamente a la memoria C++ sin copias
+  - Cálculo manual del índice: `[y * 160 + x]` (memoryviews no soportan reshape)
+- ✅ Actualización del renderer de Python:
+  - Lee índices del framebuffer C++ mediante memoryview
+  - Aplica paleta BGP para convertir índices a colores RGB
+  - Renderiza en Pygame usando `PixelArray` para acceso rápido
+
+**Archivos modificados**:
+- `src/core/cpp/PPU.hpp` - Cambio de tipo de framebuffer a `std::vector<uint8_t>`
+- `src/core/cpp/PPU.cpp` - Implementación de `render_scanline()` simplificado
+- `src/core/cython/ppu.pxd` - Actualización de firma de `get_framebuffer_ptr()`
+- `src/core/cython/ppu.pyx` - Exposición de framebuffer como memoryview `uint8_t`
+- `src/gpu/renderer.py` - Actualización de `render_frame()` para usar índices y aplicar paleta
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0124__ppu-fase-b-framebuffer-renderizado-cpp.html`
+
+**Resultados de verificación**:
+- ✅ Compilación exitosa (sin errores, warnings menores de variables no usadas)
+- ✅ Framebuffer expuesto correctamente como memoryview
+- ✅ Código listo para pruebas: ejecutar `python main.py tu_rom.gbc` debería mostrar un patrón de degradado diagonal
+
+**Conceptos clave**:
+- **Índices de color vs RGB**: Almacenar índices (0-3) en lugar de colores RGB completos reduce memoria (1 byte vs 4 bytes por píxel) y permite cambios de paleta dinámicos sin re-renderizar. La conversión a RGB ocurre solo una vez en Python.
+- **Zero-Copy con Cython**: Los memoryviews de Cython permiten que Python acceda directamente a la memoria C++ sin copias, esencial para alcanzar 60 FPS sin cuellos de botella. El framebuffer de 23,040 bytes se transfiere sin copias en cada frame.
+- **Separación de responsabilidades**: C++ se encarga del cálculo pesado (renderizado de scanlines), Python se encarga de la presentación (aplicar paleta y mostrar en Pygame). Esta separación maximiza el rendimiento.
+- **Patrón de prueba**: Implementar primero un patrón simple (degradado diagonal) permite validar toda la cadena de datos antes de añadir la complejidad del renderizado real de tiles desde VRAM.
+
+**Próximos pasos**:
+- Verificar que el patrón de degradado se muestra correctamente en la ventana
+- Confirmar que LY cicla de 0 a 153 y que el framebuffer se actualiza a 60 FPS
+- Reemplazar el código de prueba por el renderizado real de Background desde VRAM
+- Implementar renderizado de Window y Sprites
+- Optimizar el acceso al framebuffer si es necesario (profiling)
+

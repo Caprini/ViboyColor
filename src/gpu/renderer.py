@@ -422,39 +422,55 @@ class Renderer:
         if self.use_cpp_ppu and self.cpp_ppu is not None:
             try:
                 # Obtener framebuffer como memoryview (Zero-Copy)
-                framebuffer = self.cpp_ppu.framebuffer
+                # El framebuffer es ahora uint8_t con índices de color (0-3) en formato 1D
+                # Organización: píxel (y, x) está en índice [y * 160 + x]
+                frame_indices = self.cpp_ppu.framebuffer  # 1D array de 23040 elementos
                 
-                # El framebuffer es uint32_t en formato ARGB32 (0xAARRGGBB)
-                # Pygame espera RGBA, así que necesitamos convertir ARGB -> RGBA
-                # Conversión: ARGB (0xAARRGGBB) -> RGBA (0xRRGGBBAA)
-                # Esto requiere reordenar los bytes: A R G B -> R G B A
+                # DIAGNÓSTICO TEMPORAL: Verificar que el framebuffer se lee correctamente
+                static_frame_count = getattr(self, '_frame_count', 0)
+                self._frame_count = static_frame_count + 1
+                if static_frame_count < 3 or static_frame_count % 60 == 0:
+                    # Verificar primeros píxeles
+                    sample_indices = [frame_indices[0], frame_indices[1], frame_indices[2], 
+                                     frame_indices[160], frame_indices[161], frame_indices[162]]
+                    logger.info(f"[Renderer] Frame #{static_frame_count}: framebuffer leído, "
+                              f"muestra índices: {sample_indices}, len={len(frame_indices)}")
                 
-                # Crear un bytearray para la conversión (160*144*4 = 92160 bytes)
-                rgba_buffer = bytearray(160 * 144 * 4)
+                # Leer paleta BGP (Background Palette) desde MMU
+                bgp = self.mmu.read_byte(IO_BGP) & 0xFF
                 
-                # Convertir cada píxel de ARGB a RGBA
-                for i in range(160 * 144):
-                    argb = framebuffer[i]
-                    # Extraer componentes ARGB
-                    a = (argb >> 24) & 0xFF
-                    r = (argb >> 16) & 0xFF
-                    g = (argb >> 8) & 0xFF
-                    b = argb & 0xFF
-                    # Reordenar a RGBA
-                    rgba_buffer[i * 4 + 0] = r
-                    rgba_buffer[i * 4 + 1] = g
-                    rgba_buffer[i * 4 + 2] = b
-                    rgba_buffer[i * 4 + 3] = a
+                # DIAGNÓSTICO: Verificar valor de BGP
+                if static_frame_count < 3:
+                    logger.info(f"[Renderer] BGP = 0x{bgp:02X}")
                 
-                # Crear superficie desde el buffer RGBA (Zero-Copy después de la conversión)
-                surface = pygame.image.frombuffer(
-                    rgba_buffer, 
-                    (160, 144), 
-                    "RGBA"
-                )
+                # Decodificar paleta BGP (cada par de bits representa un color 0-3)
+                # Formato: bits 0-1 = color 0, bits 2-3 = color 1, bits 4-5 = color 2, bits 6-7 = color 3
+                palette = [
+                    PALETTE_GREYSCALE[(bgp >> 0) & 0x03],
+                    PALETTE_GREYSCALE[(bgp >> 2) & 0x03],
+                    PALETTE_GREYSCALE[(bgp >> 4) & 0x03],
+                    PALETTE_GREYSCALE[(bgp >> 6) & 0x03],
+                ]
                 
-                # Escalar y hacer blit
-                scaled_surface = pygame.transform.scale(surface, (self.window_width, self.window_height))
+                # Crear superficie de Pygame para el frame (160x144)
+                frame_surface = pygame.Surface((GB_WIDTH, GB_HEIGHT))
+                
+                # Aplicar paleta: convertir índices de color a píxeles RGB
+                # Usar PixelArray para acceso rápido a píxeles
+                with pygame.PixelArray(frame_surface) as pixels:
+                    for y in range(GB_HEIGHT):
+                        for x in range(GB_WIDTH):
+                            # Calcular índice 1D: píxel (y, x) está en [y * 160 + x]
+                            idx = y * GB_WIDTH + x
+                            # Obtener índice de color del framebuffer C++
+                            color_index = frame_indices[idx] & 0x03  # Asegurar rango 0-3
+                            # Obtener color RGB de la paleta
+                            rgb_color = palette[color_index]
+                            # Escribir píxel en la superficie
+                            pixels[x, y] = rgb_color
+                
+                # Escalar y hacer blit a la pantalla
+                scaled_surface = pygame.transform.scale(frame_surface, (self.window_width, self.window_height))
                 self.screen.blit(scaled_surface, (0, 0))
                 
                 # Actualizar pantalla
@@ -462,7 +478,7 @@ class Renderer:
                 return
             except Exception as e:
                 # Fallback a método Python si hay error
-                logger.error(f"Error crítico renderizando frame C++: {e}")
+                logger.error(f"Error crítico renderizando frame C++: {e}", exc_info=True)
                 # Fallback a pantalla roja para indicar error grave
                 self.screen.fill((255, 0, 0))
                 pygame.display.flip()

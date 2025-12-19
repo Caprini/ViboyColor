@@ -32,6 +32,44 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0124 - PPU Fase B: Framebuffer y Renderizado en C++ -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0124__ppu-fase-b-framebuffer-renderizado-cpp.html" class="entry-link">
+                                    PPU Fase B: Framebuffer y Renderizado en C++
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0124 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Después de lograr que la ventana de Pygame aparezca y se actualice a 60 FPS (Step 0123), se implementó la Fase B de la migración de la PPU: el framebuffer con índices de color (0-3) y un renderizador simplificado que genera un patrón de degradado de prueba. Esto permite verificar que toda la tubería de datos funciona correctamente: CPU C++ → PPU C++ → Framebuffer C++ → Cython MemoryView → Python Pygame. El framebuffer usa índices de color en lugar de RGB para reducir memoria (1 byte vs 4 bytes por píxel) y permitir cambios de paleta dinámicos sin re-renderizar.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0123 - Fix: Comunicación de frame_ready C++ -> Python -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0123__fix-comunicacion-frame-ready-cpp-python.html" class="entry-link">
+                                    Fix: Comunicación de frame_ready C++ -> Python
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0123 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Después de desbloquear el bucle principal (Step 0122), el emulador se ejecutaba correctamente en la consola (logs de "Heartbeat" visibles), pero la ventana de Pygame permanecía en blanco o no aparecía. El diagnóstico reveló que aunque la PPU en C++ estaba avanzando correctamente y llegaba a V-Blank, no había forma de comunicarle a Python que un fotograma estaba listo para renderizar. Se renombró el método `is_frame_ready()` a `get_frame_ready_and_reset()` para mayor claridad y se verificó que la señal de comunicación funcione correctamente en toda la cadena C++ → Cython → Python.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0122 - Fix: Desbloqueo del Bucle Principal (Deadlock de Ciclos) -->
                     <li>
                         <div class="entry-header">

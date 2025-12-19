@@ -95,16 +95,18 @@ cdef class PyPPU:
         """
         self._ppu.set_lyc(value)
     
-    def is_frame_ready(self):
+    def get_frame_ready_and_reset(self):
         """
         Comprueba si hay un frame listo para renderizar y resetea el flag.
         
         Este método permite desacoplar el renderizado de las interrupciones.
+        Implementa un patrón de "máquina de estados de un solo uso": si la bandera
+        está levantada, la devuelve como true e inmediatamente la baja a false.
         
         Returns:
             True si hay un frame listo para renderizar, False en caso contrario
         """
-        return self._ppu.is_frame_ready()
+        return self._ppu.get_frame_ready_and_reset()
     
     # Propiedades para acceso directo (más Pythonic)
     property ly:
@@ -127,16 +129,19 @@ cdef class PyPPU:
     @property
     def framebuffer(self):
         """
-        Obtiene el framebuffer como un memoryview de NumPy (Zero-Copy).
+        Obtiene el framebuffer como un memoryview de índices de color (Zero-Copy).
         
-        El framebuffer es un array de 160 * 144 = 23040 píxeles en formato ARGB32.
-        Cada píxel es un uint32_t con formato 0xAARRGGBB.
+        El framebuffer es un array de 160 * 144 = 23040 píxeles con índices de color (0-3).
+        Cada píxel es un uint8_t que representa un índice en la paleta BGP.
+        Los colores finales se aplican en Python usando la paleta del registro BGP (0xFF47).
+        
+        El framebuffer está organizado en filas: píxel (y, x) está en índice [y * 160 + x].
         
         Returns:
-            memoryview de uint32_t con forma (144, 160) - puede ser usado directamente
-            con pygame.surfarray.blit_array() para transferencia a GPU sin copias.
+            memoryview de uint8_t 1D con 23040 elementos - Zero-Copy directo a memoria C++.
+            Python puede leer estos índices usando [y * 160 + x] y aplicar la paleta sin copiar los datos.
         """
-        cdef uint32_t* ptr = self._ppu.get_framebuffer_ptr()
-        cdef uint32_t[:] view = <uint32_t[:144*160]>ptr
+        cdef uint8_t* ptr = self._ppu.get_framebuffer_ptr()
+        cdef unsigned char[:] view = <unsigned char[:144*160]>ptr
         return view
 

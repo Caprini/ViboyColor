@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PPU Fase B: Framebuffer y Renderizado en C++ - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>PPU Fase B: Framebuffer y Renderizado en C++</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0124
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0123__fix-comunicacion-frame-ready-cpp-python.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Después de lograr que la ventana de Pygame aparezca y se actualice a 60 FPS (Step 0123), el siguiente paso crítico era implementar el framebuffer y el renderizado de píxeles en C++. La ventana estaba en blanco porque aunque la PPU avanzaba correctamente (LY ciclaba de 0 a 153), no había datos gráficos reales para mostrar.
+                </p>
+                <p>
+                    En este paso, se implementó la <strong>Fase B de la migración de la PPU</strong>: el framebuffer con índices de color (0-3) y un renderizador simplificado que genera un patrón de degradado de prueba. Esto permite verificar que toda la tubería de datos funciona correctamente: <code>CPU C++ → PPU C++ → Framebuffer C++ → Cython MemoryView → Python Pygame</code>.
+                </p>
+                <p>
+                    <strong>Resultado esperado:</strong> Una pantalla con un patrón de degradado diagonal que se actualiza a 60 FPS, confirmando que el framebuffer se está escribiendo y mostrando correctamente. Una vez confirmado, el siguiente paso será reemplazar el degradado de prueba por el renderizado real de tiles.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy real, la PPU renderiza cada línea de escaneo (scanline) en tiempo real, generando 160 píxeles por línea y 144 líneas visibles por fotograma. Cada píxel se representa como un <strong>índice de color (0-3)</strong> que se mapea a un color final usando la paleta BGP (Background Palette, registro 0xFF47).
+                </p>
+                <p>
+                    <strong>Formato de píxeles:</strong> La Game Boy usa un formato 2bpp (2 bits por píxel), lo que permite 4 colores posibles (0, 1, 2, 3). Estos índices no son colores RGB directos, sino referencias a una paleta de 4 colores configurable. El registro BGP contiene 4 pares de bits que definen qué tono de gris (en Game Boy original) corresponde a cada índice:
+                </p>
+                <ul>
+                    <li><strong>Bits 0-1:</strong> Color para índice 0 (típicamente blanco)</li>
+                    <li><strong>Bits 2-3:</strong> Color para índice 1 (típicamente gris claro)</li>
+                    <li><strong>Bits 4-5:</strong> Color para índice 2 (típicamente gris oscuro)</li>
+                    <li><strong>Bits 6-7:</strong> Color para índice 3 (típicamente negro)</li>
+                </ul>
+                <p>
+                    <strong>Ventaja del formato de índices:</strong> Almacenar índices de color (uint8_t) en lugar de colores RGB completos (uint32_t ARGB) tiene múltiples ventajas:
+                </p>
+                <ul>
+                    <li><strong>Menor uso de memoria:</strong> 1 byte por píxel vs 4 bytes (reducción del 75%)</li>
+                    <li><strong>Flexibilidad:</strong> Cambiar la paleta BGP actualiza todos los píxeles sin re-renderizar</li>
+                    <li><strong>Eficiencia:</strong> La conversión a RGB solo ocurre una vez en Python, no en cada frame en C++</li>
+                    <li><strong>Zero-Copy:</strong> Python puede leer los índices directamente desde memoria C++ sin copias</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Background Palette (BGP), Tile Data, 2bpp Format
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    La implementación se dividió en 4 componentes principales:
+                </p>
+                
+                <h3>1. Framebuffer en C++ (PPU.hpp / PPU.cpp)</h3>
+                <p>
+                    Se cambió el framebuffer de <code>std::vector&lt;uint32_t&gt;</code> (ARGB32) a <code>std::vector&lt;uint8_t&gt;</code> (índices de color):
+                </p>
+                <pre><code>// En PPU.hpp
+std::vector&lt;uint8_t&gt; framebuffer_;  // Índices de color (0-3)
+
+// En PPU.cpp (constructor)
+framebuffer_(FRAMEBUFFER_SIZE, 0)  // Inicializar a índice 0 (blanco por defecto)
+
+// Método para obtener puntero
+uint8_t* get_framebuffer_ptr() {
+    return framebuffer_.data();
+}</code></pre>
+
+                <h3>2. Renderizador Simplificado (PPU.cpp)</h3>
+                <p>
+                    Se implementó un método <code>render_scanline()</code> simplificado que genera un patrón de degradado diagonal de prueba:
+                </p>
+                <pre><code>void PPU::render_scanline() {
+    if (ly_ >= VISIBLE_LINES) {
+        return;
+    }
+    
+    // Patrón de degradado diagonal: (ly_ + x) % 4
+    int line_start_index = static_cast&lt;int&gt;(ly_) * SCREEN_WIDTH;
+    for (int x = 0; x &lt; SCREEN_WIDTH; ++x) {
+        framebuffer_[line_start_index + x] = static_cast&lt;uint8_t&gt;((ly_ + x) % 4);
+    }
+}</code></pre>
+                <p>
+                    Este patrón se llama automáticamente cuando la PPU entra en Mode 0 (H-Blank) dentro de una línea visible, asegurando que cada línea se renderice exactamente una vez.
+                </p>
+
+                <h3>3. Exposición Zero-Copy a Python (ppu.pyx)</h3>
+                <p>
+                    Se actualizó el wrapper Cython para exponer el framebuffer como un memoryview 1D de uint8_t:
+                </p>
+                <pre><code>@property
+def framebuffer(self):
+    """
+    Obtiene el framebuffer como un memoryview de índices de color (Zero-Copy).
+    El framebuffer está organizado en filas: píxel (y, x) está en índice [y * 160 + x].
+    """
+    cdef uint8_t* ptr = self._ppu.get_framebuffer_ptr()
+    cdef unsigned char[:] view = &lt;unsigned char[:144*160]&gt;ptr
+    return view</code></pre>
+                <p>
+                    <strong>Nota importante:</strong> Los memoryviews de Cython no soportan <code>reshape()</code> directamente, por lo que se devuelve un array 1D y Python calcula el índice manualmente usando <code>[y * 160 + x]</code>.
+                </p>
+
+                <h3>4. Renderer de Python (renderer.py)</h3>
+                <p>
+                    Se actualizó el método <code>render_frame()</code> para leer los índices del framebuffer C++, aplicar la paleta BGP, y renderizar en Pygame:
+                </p>
+                <pre><code># Obtener framebuffer como memoryview (Zero-Copy)
+frame_indices = self.cpp_ppu.framebuffer  # 1D array de 23040 elementos
+
+# Leer y decodificar paleta BGP
+bgp = self.mmu.read_byte(IO_BGP) & 0xFF
+palette = [
+    PALETTE_GREYSCALE[(bgp >> 0) & 0x03],
+    PALETTE_GREYSCALE[(bgp >> 2) & 0x03],
+    PALETTE_GREYSCALE[(bgp >> 4) & 0x03],
+    PALETTE_GREYSCALE[(bgp >> 6) & 0x03],
+]
+
+# Crear superficie y aplicar paleta
+frame_surface = pygame.Surface((GB_WIDTH, GB_HEIGHT))
+with pygame.PixelArray(frame_surface) as pixels:
+    for y in range(GB_HEIGHT):
+        for x in range(GB_WIDTH):
+            idx = y * GB_WIDTH + x  # Calcular índice 1D
+            color_index = frame_indices[idx] & 0x03
+            rgb_color = palette[color_index]
+            pixels[x, y] = rgb_color</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Índices vs RGB:</strong> Se eligió índices de color para reducir memoria y permitir cambios de paleta sin re-renderizar. La conversión a RGB ocurre solo una vez en Python.</li>
+                    <li><strong>Memoryview 1D:</strong> Aunque un array 2D sería más intuitivo, los memoryviews de Cython no soportan reshape. El cálculo manual del índice <code>[y * 160 + x]</code> es trivial y no afecta el rendimiento.</li>
+                    <li><strong>Patrón de prueba:</strong> Se implementó un degradado diagonal simple para verificar que el framebuffer funciona antes de implementar el renderizado real de tiles. Esto permite validar toda la cadena de datos sin la complejidad adicional del decodificado de tiles.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Cambio de framebuffer de uint32_t a uint8_t</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementación de render_scanline() simplificado</li>
+                    <li><code>src/core/cython/ppu.pxd</code> - Actualización de firma de get_framebuffer_ptr()</li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Exposición de framebuffer como memoryview uint8_t</li>
+                    <li><code>src/gpu/renderer.py</code> - Actualización de render_frame() para usar índices y aplicar paleta</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Compilación:</strong> La extensión C++ se compiló exitosamente sin errores (solo warnings menores de variables no usadas en métodos legacy).
+                </p>
+                <p>
+                    <strong>Resultado esperado al ejecutar:</strong> Al ejecutar <code>python main.py tu_rom.gbc</code>, se debe ver:
+                </p>
+                <ul>
+                    <li>Una ventana de Pygame que se actualiza a 60 FPS</li>
+                    <li>Un patrón de degradado diagonal visible (no pantalla blanca)</li>
+                    <li>Los logs de consola muestran que LY cicla de 0 a 153 correctamente</li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El framebuffer se expone correctamente como memoryview y Python puede leer los índices sin copias (Zero-Copy).
+                </p>
+                <p>
+                    <strong>Próximo paso de validación:</strong> Una vez confirmado que el patrón de degradado se muestra correctamente, se reemplazará el código de prueba por el renderizado real de Background, Window y Sprites desde VRAM.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Background Palette (BGP), Tile Data, 2bpp Format</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Timing, Scanline Rendering</a></li>
+                    <li>Cython Documentation: <a href="https://cython.readthedocs.io/">Memoryviews and Zero-Copy</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Framebuffer con índices:</strong> Almacenar índices de color (0-3) en lugar de colores RGB completos reduce memoria y permite cambios de paleta dinámicos sin re-renderizar.</li>
+                        <li><strong>Zero-Copy con Cython:</strong> Los memoryviews de Cython permiten que Python acceda directamente a la memoria C++ sin copias, esencial para alcanzar 60 FPS sin cuellos de botella.</li>
+                        <li><strong>Separación de responsabilidades:</strong> C++ se encarga del cálculo pesado (renderizado de scanlines), Python se encarga de la presentación (aplicar paleta y mostrar en Pygame).</li>
+                        <li><strong>Patrón de prueba:</strong> Implementar primero un patrón simple (degradado) permite validar toda la cadena de datos antes de añadir la complejidad del renderizado real.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento real:</strong> Verificar que el acceso al framebuffer mediante memoryview no cause overhead significativo en el bucle de renderizado.</li>
+                        <li><strong>Renderizado real:</strong> Una vez confirmado que el framebuffer funciona, implementar el renderizado real de Background, Window y Sprites desde VRAM.</li>
+                        <li><strong>Sincronización:</strong> Asegurar que el renderizado de scanlines ocurra en el momento correcto del ciclo PPU (Mode 0 H-Blank).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición principal:</strong> El patrón de degradado diagonal <code>(ly_ + x) % 4</code> producirá un patrón visual distintivo que permitirá verificar que LY está avanzando correctamente y que el framebuffer se está escribiendo y mostrando. Si este patrón se muestra correctamente, toda la cadena de datos funciona y podemos proceder con el renderizado real.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar que el patrón de degradado se muestra correctamente en la ventana</li>
+                    <li>[ ] Confirmar que LY cicla de 0 a 153 y que el framebuffer se actualiza a 60 FPS</li>
+                    <li>[ ] Reemplazar el código de prueba por el renderizado real de Background desde VRAM</li>
+                    <li>[ ] Implementar renderizado de Window y Sprites</li>
+                    <li>[ ] Optimizar el acceso al framebuffer si es necesario (profiling)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

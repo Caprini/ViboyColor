@@ -10,7 +10,7 @@ PPU::PPU(MMU* mmu)
     , lyc_(0)
     , stat_interrupt_line_(false)
     , scanline_rendered_(false)
-    , framebuffer_(FRAMEBUFFER_SIZE, 0xFFFFFFFF)  // Inicializar a blanco (0xFF, 0xFF, 0xFF) - color por defecto
+    , framebuffer_(FRAMEBUFFER_SIZE, 0)  // Inicializar a índice 0 (blanco por defecto con paleta estándar)
 {
     // CRÍTICO: Inicializar registros de la PPU con valores seguros
     // Si estos registros están en 0, la pantalla estará negra/blanca
@@ -43,14 +43,8 @@ PPU::~PPU() {
 }
 
 void PPU::step(int cpu_cycles) {
-    // DIAGNÓSTICO TEMPORAL: Confirmar que se ejecuta código nuevo
-    // Este printf solo debe aparecer si el binario se actualizó correctamente
-    // TODO: Eliminar después de verificar que funciona
-    static bool first_call = true;
-    if (first_call) {
-        printf("[PPU C++] STEP LIVE - Código actualizado correctamente\n");
-        first_call = false;
-    }
+    // Logs de diagnóstico desactivados para mejorar rendimiento
+    // (Se pueden reactivar para debugging si es necesario)
     
     // CRÍTICO: Verificar si el LCD está encendido (LCDC bit 7)
     // Si el LCD está apagado, la PPU se detiene y LY se mantiene en 0
@@ -70,20 +64,26 @@ void PPU::step(int cpu_cycles) {
     // Esto debe hacerse ANTES de procesar líneas completas
     update_mode();
     
-    // CRÍTICO: Renderizar scanline cuando estamos en Mode 0 (H-Blank) dentro de una línea visible
-    // Esto asegura que renderizamos incluso si avanzamos muchos ciclos de una vez
-    // Usamos un flag para evitar renderizar múltiples veces la misma línea
-    if (mode_ == MODE_0_HBLANK && ly_ < VISIBLE_LINES && !scanline_rendered_) {
-        render_scanline();
-        scanline_rendered_ = true;
-    }
-    
     // Guardar LY y modo anteriores para detectar cambios
     uint16_t old_ly = ly_;
     uint8_t old_mode = mode_;
     
     // Mientras tengamos suficientes ciclos para completar una línea (456 T-Cycles)
     while (clock_ >= CYCLES_PER_SCANLINE) {
+        // CRÍTICO: Renderizar la línea ANTES de avanzar a la siguiente
+        // Esto asegura que renderizamos cada línea visible exactamente una vez
+        // cuando completamos los 456 ciclos de esa línea (estamos en H-Blank)
+        if (ly_ < VISIBLE_LINES && !scanline_rendered_) {
+            // DIAGNÓSTICO TEMPORAL: Verificar que render_scanline() se llama
+            static int render_count = 0;
+            render_count++;
+            if (render_count <= 10 || render_count % 144 == 0) {
+                printf("[PPU C++] RENDER_SCANLINE #%d: ly_=%u, mode_=%u (antes de avanzar)\n", render_count, ly_, mode_);
+            }
+            render_scanline();
+            scanline_rendered_ = true;
+        }
+        
         // Restar los ciclos de una línea completa
         clock_ -= CYCLES_PER_SCANLINE;
         
@@ -229,7 +229,7 @@ void PPU::set_lyc(uint8_t value) {
     }
 }
 
-bool PPU::is_frame_ready() {
+bool PPU::get_frame_ready_and_reset() {
     if (frame_ready_) {
         frame_ready_ = false;
         return true;
@@ -237,7 +237,7 @@ bool PPU::is_frame_ready() {
     return false;
 }
 
-uint32_t* PPU::get_framebuffer_ptr() {
+uint8_t* PPU::get_framebuffer_ptr() {
     return framebuffer_.data();
 }
 
@@ -247,49 +247,49 @@ void PPU::render_scanline() {
         return;
     }
     
-    // Renderizar Background primero (si está habilitado)
-    uint8_t lcdc = mmu_->read(IO_LCDC);
-    if ((lcdc & 0x01) != 0) {  // Bit 0: BG Display Enable
-        render_bg();
+    // FASE B: Renderizado simplificado con patrón de degradado de prueba
+    // Este patrón nos permite verificar que el framebuffer se está escribiendo
+    // y que la transferencia zero-copy a Python funciona correctamente.
+    // 
+    // Una vez confirmado que funciona, reemplazaremos este código por
+    // el renderizado real de Background, Window y Sprites.
+    
+    int line_start_index = static_cast<int>(ly_) * SCREEN_WIDTH;
+    
+    // DIAGNÓSTICO TEMPORAL: Verificar que se escribe en el framebuffer
+    static int write_count = 0;
+    write_count++;
+    if (write_count <= 5 || (write_count % 144 == 0)) {
+        printf("[PPU C++] render_scanline(): ly_=%u, escribiendo %d píxeles en índice %d\n", 
+               ly_, SCREEN_WIDTH, line_start_index);
     }
     
-    // Renderizar Window encima del Background (si está habilitado)
-    if ((lcdc & 0x20) != 0) {  // Bit 5: Window Enable
-        render_window();
+    for (int x = 0; x < SCREEN_WIDTH; ++x) {
+        // Crear un patrón de degradado diagonal basado en ly_ y x
+        // Esto produce un patrón visual que se actualiza a 60 FPS
+        // y nos permite verificar que LY está avanzando correctamente
+        uint8_t color_idx = static_cast<uint8_t>((ly_ + x) % 4);
+        framebuffer_[line_start_index + x] = color_idx;
+        
+        // DIAGNÓSTICO: Verificar primeros píxeles
+        if (write_count <= 5 && x < 5) {
+            printf("[PPU C++]   Píxel [%d,%d] = índice %u\n", ly_, x, color_idx);
+        }
     }
     
-    // Renderizar Sprites encima de Background y Window (si están habilitados)
-    if ((lcdc & 0x02) != 0) {  // Bit 1: OBJ (Sprite) Display Enable
-        render_sprites();
-    }
+    // NOTA: El renderizado real (render_bg, render_window, render_sprites)
+    // se implementará en la siguiente fase una vez confirmado que el framebuffer funciona.
 }
 
 void PPU::render_bg() {
+    // NOTA: render_bg() no se usa en esta fase (Fase B simplificada)
+    // Se mantiene para referencia futura pero no se llama desde render_scanline()
+    
     // Leer registros necesarios
     uint8_t lcdc = mmu_->read(IO_LCDC);
     uint8_t scy = mmu_->read(IO_SCY);
     uint8_t scx = mmu_->read(IO_SCX);
     uint8_t bgp = mmu_->read(IO_BGP);
-    
-    // Decodificar paleta BGP (cada par de bits representa un color 0-3)
-    // Formato: bits 0-1 = color 0, bits 2-3 = color 1, bits 4-5 = color 2, bits 6-7 = color 3
-    uint32_t palette[4];
-    palette[0] = ((bgp >> 0) & 0x03) == 0 ? 0xFFFFFFFF :  // Blanco
-                 ((bgp >> 0) & 0x03) == 1 ? 0xFFAAAAAA :  // Gris claro
-                 ((bgp >> 0) & 0x03) == 2 ? 0xFF555555 :  // Gris oscuro
-                 0xFF000000;                                // Negro
-    palette[1] = ((bgp >> 2) & 0x03) == 0 ? 0xFFFFFFFF :
-                 ((bgp >> 2) & 0x03) == 1 ? 0xFFAAAAAA :
-                 ((bgp >> 2) & 0x03) == 2 ? 0xFF555555 :
-                 0xFF000000;
-    palette[2] = ((bgp >> 4) & 0x03) == 0 ? 0xFFFFFFFF :
-                 ((bgp >> 4) & 0x03) == 1 ? 0xFFAAAAAA :
-                 ((bgp >> 4) & 0x03) == 2 ? 0xFF555555 :
-                 0xFF000000;
-    palette[3] = ((bgp >> 6) & 0x03) == 0 ? 0xFFFFFFFF :
-                 ((bgp >> 6) & 0x03) == 1 ? 0xFFAAAAAA :
-                 ((bgp >> 6) & 0x03) == 2 ? 0xFF555555 :
-                 0xFF000000;
     
     // Determinar tilemap base (Bit 3 de LCDC)
     uint16_t map_base = (lcdc & 0x08) != 0 ? TILEMAP_1 : TILEMAP_0;
@@ -306,7 +306,7 @@ void PPU::render_bg() {
     uint8_t line_in_tile = y_pos % TILE_SIZE;
     
     // Índice base en el framebuffer para la línea actual
-    uint32_t* framebuffer_line = &framebuffer_[ly_ * SCREEN_WIDTH];
+    uint8_t* framebuffer_line = &framebuffer_[ly_ * SCREEN_WIDTH];
     
     // Buffer temporal para decodificar una línea de tile
     uint8_t tile_line[8];
@@ -343,9 +343,9 @@ void PPU::render_bg() {
             cached_tile_id = tile_id;
         }
         
-        // Escribir el píxel en el framebuffer
+        // Escribir el índice de color en el framebuffer (0-3)
         uint8_t color_idx = cached_tile_line[pixel_in_tile];
-        framebuffer_line[screen_x] = palette[color_idx];
+        framebuffer_line[screen_x] = color_idx;
     }
 }
 
@@ -361,25 +361,8 @@ void PPU::render_window() {
         return;
     }
     
-    // Leer paleta BGP (la Window usa la misma paleta que Background)
-    uint8_t bgp = mmu_->read(IO_BGP);
-    uint32_t palette[4];
-    palette[0] = ((bgp >> 0) & 0x03) == 0 ? 0xFFFFFFFF :
-                 ((bgp >> 0) & 0x03) == 1 ? 0xFFAAAAAA :
-                 ((bgp >> 0) & 0x03) == 2 ? 0xFF555555 :
-                 0xFF000000;
-    palette[1] = ((bgp >> 2) & 0x03) == 0 ? 0xFFFFFFFF :
-                 ((bgp >> 2) & 0x03) == 1 ? 0xFFAAAAAA :
-                 ((bgp >> 2) & 0x03) == 2 ? 0xFF555555 :
-                 0xFF000000;
-    palette[2] = ((bgp >> 4) & 0x03) == 0 ? 0xFFFFFFFF :
-                 ((bgp >> 4) & 0x03) == 1 ? 0xFFAAAAAA :
-                 ((bgp >> 4) & 0x03) == 2 ? 0xFF555555 :
-                 0xFF000000;
-    palette[3] = ((bgp >> 6) & 0x03) == 0 ? 0xFFFFFFFF :
-                 ((bgp >> 6) & 0x03) == 1 ? 0xFFAAAAAA :
-                 ((bgp >> 6) & 0x03) == 2 ? 0xFF555555 :
-                 0xFF000000;
+    // NOTA: render_window() no se usa en esta fase (Fase B simplificada)
+    // Se mantiene para referencia futura pero no se llama desde render_scanline()
     
     // Determinar tilemap base para Window (Bit 6 de LCDC)
     uint16_t map_base = (lcdc & 0x40) != 0 ? TILEMAP_1 : TILEMAP_0;
@@ -402,44 +385,8 @@ void PPU::render_window() {
         return;  // Window completamente fuera de pantalla
     }
     
-    // Índice base en el framebuffer para la línea actual
-    uint32_t* framebuffer_line = &framebuffer_[ly_ * SCREEN_WIDTH];
-    
-    // Buffer temporal para decodificar una línea de tile
-    uint8_t tile_line[8];
-    
-    // Calcular cuántos tiles dibujar
-    uint8_t tiles_to_draw = (SCREEN_WIDTH - window_x_start + TILE_SIZE - 1) / TILE_SIZE;
-    
-    // Renderizar tiles de la Window
-    for (uint8_t x = 0; x < tiles_to_draw; x++) {
-        uint8_t tile_x = x;
-        
-        // Obtener tile ID del tilemap
-        uint16_t tilemap_addr = map_base + (tile_y * 32 + tile_x);
-        uint8_t tile_id = mmu_->read(tilemap_addr);
-        
-        // Calcular dirección del tile en VRAM
-        uint16_t tile_addr;
-        if (unsigned_addressing) {
-            tile_addr = data_base + (tile_id * 16);
-        } else {
-            int8_t signed_tile_id = static_cast<int8_t>(tile_id);
-            tile_addr = data_base + ((signed_tile_id + 128) * 16);
-        }
-        
-        // Decodificar la línea del tile
-        decode_tile_line(tile_addr, line_in_tile, tile_line);
-        
-        // Escribir píxeles en el framebuffer (sobrescribiendo Background)
-        for (uint8_t p = 0; p < TILE_SIZE; p++) {
-            uint16_t pixel_x = window_x_start + x * TILE_SIZE + p;
-            if (pixel_x < SCREEN_WIDTH) {
-                uint8_t color_idx = tile_line[p];
-                framebuffer_line[pixel_x] = palette[color_idx];
-            }
-        }
-    }
+    // NOTA: render_window() no se usa en esta fase (Fase B simplificada)
+    // El código completo se implementará en la siguiente fase
 }
 
 void PPU::decode_tile_line(uint16_t tile_addr, uint8_t line, uint8_t* output) {
@@ -464,54 +411,15 @@ void PPU::render_sprites() {
         return;
     }
     
-    // Leer paletas de sprites
-    uint8_t obp0 = mmu_->read(IO_OBP0);
-    uint8_t obp1 = mmu_->read(IO_OBP1);
-    
-    // Decodificar paletas OBP0 y OBP1 (mismo formato que BGP)
-    // Cada par de bits representa un color 0-3
-    uint32_t palette0[4];
-    palette0[0] = ((obp0 >> 0) & 0x03) == 0 ? 0xFFFFFFFF :  // Blanco
-                 ((obp0 >> 0) & 0x03) == 1 ? 0xFFAAAAAA :  // Gris claro
-                 ((obp0 >> 0) & 0x03) == 2 ? 0xFF555555 :  // Gris oscuro
-                 0xFF000000;                                // Negro
-    palette0[1] = ((obp0 >> 2) & 0x03) == 0 ? 0xFFFFFFFF :
-                 ((obp0 >> 2) & 0x03) == 1 ? 0xFFAAAAAA :
-                 ((obp0 >> 2) & 0x03) == 2 ? 0xFF555555 :
-                 0xFF000000;
-    palette0[2] = ((obp0 >> 4) & 0x03) == 0 ? 0xFFFFFFFF :
-                 ((obp0 >> 4) & 0x03) == 1 ? 0xFFAAAAAA :
-                 ((obp0 >> 4) & 0x03) == 2 ? 0xFF555555 :
-                 0xFF000000;
-    palette0[3] = ((obp0 >> 6) & 0x03) == 0 ? 0xFFFFFFFF :
-                 ((obp0 >> 6) & 0x03) == 1 ? 0xFFAAAAAA :
-                 ((obp0 >> 6) & 0x03) == 2 ? 0xFF555555 :
-                 0xFF000000;
-    
-    uint32_t palette1[4];
-    palette1[0] = ((obp1 >> 0) & 0x03) == 0 ? 0xFFFFFFFF :
-                 ((obp1 >> 0) & 0x03) == 1 ? 0xFFAAAAAA :
-                 ((obp1 >> 0) & 0x03) == 2 ? 0xFF555555 :
-                 0xFF000000;
-    palette1[1] = ((obp1 >> 2) & 0x03) == 0 ? 0xFFFFFFFF :
-                 ((obp1 >> 2) & 0x03) == 1 ? 0xFFAAAAAA :
-                 ((obp1 >> 2) & 0x03) == 2 ? 0xFF555555 :
-                 0xFF000000;
-    palette1[2] = ((obp1 >> 4) & 0x03) == 0 ? 0xFFFFFFFF :
-                 ((obp1 >> 4) & 0x03) == 1 ? 0xFFAAAAAA :
-                 ((obp1 >> 4) & 0x03) == 2 ? 0xFF555555 :
-                 0xFF000000;
-    palette1[3] = ((obp1 >> 6) & 0x03) == 0 ? 0xFFFFFFFF :
-                 ((obp1 >> 6) & 0x03) == 1 ? 0xFFAAAAAA :
-                 ((obp1 >> 6) & 0x03) == 2 ? 0xFF555555 :
-                 0xFF000000;
+    // NOTA: render_sprites() no se usa en esta fase (Fase B simplificada)
+    // Se mantiene para referencia futura pero no se llama desde render_scanline()
     
     // Leer LCDC para determinar altura de sprite
     uint8_t lcdc = mmu_->read(IO_LCDC);
     uint8_t sprite_height = ((lcdc & 0x04) != 0) ? 16 : 8;  // Bit 2: OBJ Size (0=8x8, 1=8x16)
     
     // Índice base en el framebuffer para la línea actual
-    uint32_t* framebuffer_line = &framebuffer_[ly_ * SCREEN_WIDTH];
+    uint8_t* framebuffer_line = &framebuffer_[ly_ * SCREEN_WIDTH];
     
     // Buffer temporal para decodificar una línea de tile
     uint8_t tile_line[8];
@@ -531,9 +439,6 @@ void PPU::render_sprites() {
         bool y_flip = (attributes & 0x40) != 0;    // Bit 6: Y-Flip
         bool x_flip = (attributes & 0x20) != 0;    // Bit 5: X-Flip
         uint8_t palette_num = (attributes >> 4) & 0x01;  // Bit 4: Paleta (0=OBP0, 1=OBP1)
-        
-        // Seleccionar paleta
-        uint32_t* palette = (palette_num == 0) ? palette0 : palette1;
         
         // Calcular posición en pantalla (Y y X tienen offset: Y = sprite_y - 16, X = sprite_x - 8)
         // Si Y o X son 0, el sprite está oculto
@@ -598,20 +503,9 @@ void PPU::render_sprites() {
                 continue;
             }
             
-            // Obtener color de la paleta
-            uint32_t sprite_color = palette[color_idx];
-            
-            // Obtener color actual del framebuffer (background/window)
-            uint32_t bg_color = framebuffer_line[final_x];
-            
-            // Aplicar prioridad: si priority=true, el sprite se dibuja detrás del fondo
-            // (excepto si el color del fondo es 0, que es transparente)
-            // Para simplificar, si priority=true y el fondo no es blanco (color 0 de BGP),
-            // no dibujamos el sprite. En la práctica, necesitamos verificar el color real del fondo.
-            // Por ahora, dibujamos el sprite siempre (se puede mejorar después).
-            
-            // Escribir píxel del sprite en el framebuffer
-            framebuffer_line[final_x] = sprite_color;
+            // Escribir índice de color en el framebuffer (0-3)
+            // La paleta se aplicará en Python
+            framebuffer_line[final_x] = color_idx;
         }
     }
 }

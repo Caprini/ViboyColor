@@ -42,6 +42,6 @@ cdef extern from "PPU.hpp":
         uint8_t get_mode()
         uint8_t get_lyc()
         void set_lyc(uint8_t value)
-        bool is_frame_ready()
-        uint32_t* get_framebuffer_ptr()
+        bool get_frame_ready_and_reset()
+        uint8_t* get_framebuffer_ptr()
 

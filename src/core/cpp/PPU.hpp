@@ -157,20 +157,22 @@ public:
      * Comprueba si hay un frame listo para renderizar y resetea el flag.
      * 
      * Este método permite desacoplar el renderizado de las interrupciones.
+     * Implementa un patrón de "máquina de estados de un solo uso": si la bandera
+     * está levantada, la devuelve como true e inmediatamente la baja a false.
      * 
      * @return true si hay un frame listo para renderizar, false en caso contrario
      */
-    bool is_frame_ready();
+    bool get_frame_ready_and_reset();
     
     /**
      * Obtiene un puntero al framebuffer para acceso directo desde Cython.
      * 
-     * El framebuffer es un array de uint32_t con formato ARGB (Alpha, Red, Green, Blue).
+     * El framebuffer es un array de uint8_t con índices de color (0-3).
      * Tamaño: 160 * 144 = 23040 píxeles.
      * 
      * @return Puntero al primer elemento del framebuffer
      */
-    uint32_t* get_framebuffer_ptr();
+    uint8_t* get_framebuffer_ptr();
 
 private:
     /**
@@ -237,11 +239,12 @@ private:
     void check_stat_interrupt();
     
     /**
-     * Framebuffer: Array de píxeles en formato ARGB32 (32 bits por píxel).
+     * Framebuffer: Array de índices de color (8 bits por píxel).
      * Tamaño: 160 * 144 = 23040 píxeles.
-     * Formato: 0xAARRGGBB (Alpha, Red, Green, Blue).
+     * Formato: Índices de color 0-3 (4 colores posibles por paleta).
+     * Los colores finales se aplican en Python usando la paleta BGP.
      */
-    std::vector<uint32_t> framebuffer_;
+    std::vector<uint8_t> framebuffer_;
     
     /**
      * Renderiza la línea de escaneo actual (scanline rendering).
