@@ -11,7 +11,7 @@
 ### 1. Migración del Núcleo a C++/Cython
 - [ ] Reescritura de CPU (LR35902) en C++ con wrapper Cython
 - [x] Migración de MMU a código compilado
-- [ ] Migración de PPU a código compilado
+- [x] Migración de PPU a código compilado (Fase A: Timing y Estado)
 - [ ] Optimización de sincronización ciclo a ciclo
 - [ ] Mantener interfaz Python para frontend y tests
 
@@ -556,4 +556,61 @@ CALL nn (0xCD) y RET (0xC9). La implementación respeta el crecimiento hacia aba
 - Implementar CALL/RET condicionales (CALL NZ, CALL Z, RET NZ, RET Z, etc.)
 - Implementar más opcodes de carga y almacenamiento (LD)
 - Continuar migrando más opcodes de la CPU a C++
+
+---
+
+### 2025-12-19 - Step 0111: Migración de PPU (Timing y Estado) a C++
+**Estado**: ✅ Completado
+
+Se migró la lógica de timing y estado de la PPU (Pixel Processing Unit) a C++, implementando
+el motor de estados que gestiona los modos PPU (0-3), el registro LY, las interrupciones
+V-Blank y STAT. Esta es la Fase A de la migración de PPU, enfocada en el timing preciso sin
+renderizado de píxeles (que será la Fase B).
+
+**Implementación**:
+- ✅ Clase C++ `PPU` creada (`PPU.hpp` / `PPU.cpp`):
+  - Motor de timing que gestiona LY y modos PPU
+  - Gestión de interrupciones V-Blank (bit 0 de IF) y STAT (bit 1 de IF)
+  - Soporte para LYC (LY Compare) y rising edge detection para interrupciones STAT
+  - Verificación de LCD enabled (LCDC bit 7) para detener PPU cuando está apagada
+- ✅ Wrapper Cython `PyPPU` creado (`ppu.pxd` / `ppu.pyx`):
+  - Expone métodos para step(), get_ly(), get_mode(), get_lyc(), set_lyc()
+  - Propiedades Pythonic (ly, mode, lyc) para acceso directo
+  - Integración con PyMMU mediante inyección de dependencias
+- ✅ Integración en sistema de compilación:
+  - `PPU.cpp` añadido a `setup.py`
+  - `ppu.pyx` incluido en `native_core.pyx`
+- ✅ Suite completa de tests (`test_core_ppu_timing.py`):
+  - 8 tests que validan incremento de LY, V-Blank, wrap-around, modos PPU, interrupciones STAT y LCD disabled
+  - Todos los tests pasan (8/8 ✅)
+
+**Archivos creados/modificados**:
+- `src/core/cpp/PPU.hpp` / `PPU.cpp` - Clase C++ de PPU
+- `src/core/cython/ppu.pxd` / `ppu.pyx` - Wrapper Cython
+- `src/core/cython/native_core.pyx` - Actualizado para incluir ppu.pyx
+- `setup.py` - Añadido PPU.cpp a fuentes
+- `tests/test_core_ppu_timing.py` - Suite de tests (8 tests)
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0111__migracion-ppu-timing-estado-cpp.html`
+
+**Resultados de verificación**:
+- ✅ Compilación exitosa (sin errores, warnings menores de Cython)
+- ✅ Módulo `viboy_core` actualizado con `PyPPU`
+- ✅ Todos los tests pasan: `8/8 passed in 0.04s`
+- ✅ Timing preciso validado (456 T-Cycles por línea, 154 líneas por frame)
+
+**Conceptos clave**:
+- **Timing crítico**: La PPU debe ser extremadamente precisa porque los juegos dependen de la sincronización
+  para actualizar gráficos durante V-Blank. Un error de un ciclo puede causar glitches visuales.
+- **Overflow sutil**: Inicialmente `clock_` era `uint16_t`, causando overflow cuando se procesaban múltiples
+  líneas a la vez (144 * 456 = 65,664 > 65,535). Cambiado a `uint32_t` para evitar este problema.
+- **Inyección de dependencias**: La PPU recibe un puntero a MMU, no posee la MMU. Esto permite compartir
+  la misma instancia de MMU con otros componentes.
+- **Rising Edge Detection**: Las interrupciones STAT se disparan solo cuando la condición pasa de False
+  a True, previniendo múltiples interrupciones en la misma línea.
+
+**Próximos pasos**:
+- Fase B: Implementar renderizado de píxeles en C++ (generación de framebuffer)
+- Integración con bucle principal: Conectar PPU nativa con CPU nativa
+- Sincronización MMU: Resolver sincronización entre MMU Python y MMU C++
 

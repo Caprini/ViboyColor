@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Migración de PPU (Timing y Estado) a C++ - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Migración de PPU (Timing y Estado) a C++</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0111
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-completed">Completado</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0110__implementacion-prefijo-cb-cpp.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se migró la lógica de timing y estado de la PPU (Pixel Processing Unit) a C++,
+                    implementando el motor de estados que gestiona los modos PPU (0-3), el registro LY,
+                    las interrupciones V-Blank y STAT. Esta es la Fase A de la migración de PPU, enfocada
+                    en el timing preciso sin renderizado de píxeles (que será la Fase B). La implementación
+                    mantiene toda la lógica de sincronización crítica de la v0.0.1 pero ahora ejecuta en
+                    código nativo para evitar el cuello de botella del cambio de contexto Python-C++.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La PPU (Pixel Processing Unit) de la Game Boy es responsable de generar la señal de video
+                    y mantener la sincronización de la pantalla. En esta primera fase, nos enfocamos únicamente
+                    en el <strong>motor de timing</strong>, que es crítico para la sincronización precisa de
+                    la emulación a 60 FPS.
+                </p>
+                
+                <h3>Timing de Scanlines</h3>
+                <p>
+                    La pantalla de la Game Boy tiene 144 líneas visibles (0-143) seguidas de 10 líneas de
+                    V-Blank (144-153), para un total de 154 líneas por frame. Cada línea de escaneo tarda
+                    exactamente <strong>456 T-Cycles</strong> (ciclos de reloj), lo que da un total de
+                    <strong>70,224 T-Cycles por frame</strong> (~59.7 FPS).
+                </p>
+                
+                <h3>Modos PPU</h3>
+                <p>
+                    Cada línea visible (0-143) se divide en 3 modos que representan diferentes fases del
+                    proceso de renderizado:
+                </p>
+                <ul>
+                    <li><strong>Mode 2 (OAM Search)</strong>: 0-79 ciclos. La PPU busca sprites en OAM (Object Attribute Memory). La CPU está bloqueada de OAM durante este período.</li>
+                    <li><strong>Mode 3 (Pixel Transfer)</strong>: 80-251 ciclos (172 ciclos). La PPU dibuja píxeles leyendo VRAM. La CPU está bloqueada de VRAM y OAM.</li>
+                    <li><strong>Mode 0 (H-Blank)</strong>: 252-455 ciclos (204 ciclos). Descanso horizontal. La CPU puede acceder libremente a VRAM.</li>
+                    <li><strong>Mode 1 (V-Blank)</strong>: Líneas 144-153 completas. Descanso vertical. La CPU puede acceder libremente a VRAM durante todo el V-Blank.</li>
+                </ul>
+                
+                <h3>Registros Críticos</h3>
+                <ul>
+                    <li><strong>LY (0xFF44)</strong>: Línea actual (0-153). Solo lectura desde software.</li>
+                    <li><strong>LYC (0xFF45)</strong>: Comparador de línea. Cuando LY == LYC, se activa el bit 2 de STAT.</li>
+                    <li><strong>STAT (0xFF41)</strong>: Estado del LCD. Bits 0-1 = modo actual, bit 2 = LYC match, bits 3-6 = enables de interrupciones.</li>
+                    <li><strong>LCDC (0xFF40)</strong>: Control del LCD. Bit 7 = LCD enabled (si está apagado, la PPU se detiene y LY=0).</li>
+                    <li><strong>IF (0xFF0F)</strong>: Flags de interrupción. Bit 0 = V-Blank, bit 1 = STAT.</li>
+                </ul>
+                
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Timing, V-Blank, STAT Register, LCD Control Register
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se creó la clase <code>PPU</code> en C++ que replica toda la lógica de timing de la
+                    implementación Python, pero ejecutándose en código nativo. La PPU utiliza inyección de
+                    dependencias (recibe un puntero a MMU) para acceder a los registros I/O y solicitar
+                    interrupciones.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>PPU.hpp</strong>: Declaración de la clase PPU con constantes de timing y métodos públicos/privados.</li>
+                    <li><strong>PPU.cpp</strong>: Implementación completa del motor de timing, gestión de modos e interrupciones.</li>
+                    <li><strong>ppu.pxd</strong>: Definiciones Cython para la clase C++.</li>
+                    <li><strong>ppu.pyx</strong>: Wrapper Python que expone PyPPU con propiedades y métodos.</li>
+                    <li><strong>native_core.pyx</strong>: Incluye ppu.pyx para hacer PyPPU disponible desde viboy_core.</li>
+                    <li><strong>setup.py</strong>: Añadido PPU.cpp a la lista de fuentes de compilación.</li>
+                    <li><strong>tests/test_core_ppu_timing.py</strong>: Suite completa de 8 tests para validar la implementación nativa.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Inyección de dependencias</strong>: La PPU recibe un puntero a MMU en el constructor.
+                        No posee la MMU, solo la usa, evitando problemas de ownership y permitiendo que la MMU
+                        Python existente pueda ser compartida con otros componentes.</li>
+                    
+                    <li><strong>Tipo de ciclos</strong>: El método <code>step()</code> recibe <code>int</code> en lugar de
+                        tipos pequeños (<code>uint8_t</code>, <code>uint16_t</code>) para evitar overflow. Los tests
+                        avanzan miles de ciclos de una vez para simular frames completos.</li>
+                    
+                    <li><strong>Clock interno como uint32_t</strong>: El contador interno <code>clock_</code> es
+                        <code>uint32_t</code> para poder acumular hasta ~70K ciclos por frame sin overflow. Inicialmente
+                        era <code>uint16_t</code>, causando bugs sutiles cuando se procesaban múltiples líneas a la vez.</li>
+                    
+                    <li><strong>Gestión de STAT</strong>: La PPU lee y escribe directamente en STAT usando <code>mmu_->read/write()</code>.
+                        En la versión Python había métodos especiales (<code>write_byte_internal</code>) para evitar recursión,
+                        pero en C++ la MMU es simple y no tiene esa complejidad.</li>
+                    
+                    <li><strong>Rising Edge Detection</strong>: Las interrupciones STAT se disparan solo en "rising edge" (cuando
+                        la condición pasa de False a True), controlado por el flag <code>stat_interrupt_line_</code>. Esto
+                        previene múltiples interrupciones en la misma línea.</li>
+                </ul>
+
+                <h3>Detalles técnicos críticos</h3>
+                <ul>
+                    <li><strong>LCD Enabled Check</strong>: Si el bit 7 de LCDC es 0, la PPU se detiene completamente:
+                        no acumula ciclos ni avanza líneas. LY se mantiene en 0.</li>
+                    
+                    <li><strong>Wrap-around de frame</strong>: Cuando LY > 153, se reinicia a 0 y comienza un nuevo frame.</li>
+                    
+                    <li><strong>V-Blank interrupt</strong>: Se activa cuando LY == 144, escribiendo el bit 0 de IF.
+                        Esto ocurre SIEMPRE, independientemente del estado de IME (permite polling manual).</li>
+                    
+                    <li><strong>STAT interrupt</strong>: Se activa según 4 condiciones (LYC match, Mode 0/1/2 enable),
+                        escribiendo el bit 1 de IF. Solo se dispara en rising edge.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Declaración de clase PPU</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementación de motor de timing</li>
+                    <li><code>src/core/cython/ppu.pxd</code> - Definiciones Cython</li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Wrapper Python</li>
+                    <li><code>src/core/cython/native_core.pyx</code> - Incluye ppu.pyx</li>
+                    <li><code>setup.py</code> - Añadido PPU.cpp a compilación</li>
+                    <li><code>tests/test_core_ppu_timing.py</code> - Suite de tests (8 tests, todos pasando)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests que valida todos los aspectos críticos del timing:
+                </p>
+                <ul>
+                    <li><strong>test_ly_increment</strong>: Verifica que LY se incrementa correctamente después de 456 T-Cycles.</li>
+                    <li><strong>test_ly_increment_partial</strong>: Verifica que LY no cambia con menos de 456 ciclos.</li>
+                    <li><strong>test_vblank_trigger</strong>: Valida que la interrupción V-Blank se activa cuando LY == 144.</li>
+                    <li><strong>test_frame_wrap</strong>: Verifica que LY se reinicia a 0 después de la línea 153.</li>
+                    <li><strong>test_ppu_modes</strong>: Valida que los modos PPU se actualizan correctamente según el timing.</li>
+                    <li><strong>test_lyc_match_stat_interrupt</strong>: Verifica interrupciones STAT cuando LY == LYC.</li>
+                    <li><strong>test_lcd_disabled</strong>: Valida que la PPU se detiene cuando el LCD está deshabilitado.</li>
+                    <li><strong>test_multiple_frames</strong>: Verifica procesamiento de múltiples frames completos.</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> ✅ Todos los 8 tests pasan correctamente después de corregir el overflow
+                    de <code>clock_</code> (cambiado de <code>uint16_t</code> a <code>uint32_t</code>).
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html">LCDC (LCD Control Register)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/STAT.html">STAT (LCD Status Register)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCD_Timing.html">LCD Timing</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts (V-Blank, STAT)</a></li>
+                    <li>Implementación Python existente: <code>src/gpu/ppu.py</code> (referencia para lógica de negocio)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Timing preciso es crítico</strong>: El motor de timing de la PPU debe ser extremadamente
+                            preciso porque los juegos dependen de la sincronización para actualizar gráficos durante V-Blank.
+                            Un error de un ciclo puede causar glitches visuales o fallos de sincronización.</li>
+                        
+                        <li><strong>Overflow sutil</strong>: El uso de tipos pequeños (<code>uint16_t</code>) puede causar bugs
+                            sutiles cuando se procesan muchos ciclos a la vez. Cambiar a <code>uint32_t</code> para el clock
+                            interno resolvió un problema donde LY se reseteaba incorrectamente después de procesar frames completos.</li>
+                        
+                        <li><strong>Separación de responsabilidades</strong>: La PPU C++ solo gestiona timing y estado. El renderizado
+                            de píxeles vendrá en la Fase B. Esta separación permite validar el timing antes de añadir complejidad.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento real</strong>: Aunque el código ahora es nativo, aún no hemos medido el impacto
+                            real en FPS cuando la PPU se integre con la CPU nativa. La siguiente fase será conectar PPU y CPU
+                            en el bucle principal.</li>
+                        
+                        <li><strong>Compatibilidad con MMU Python</strong>: La PPU C++ usa MMU C++ directamente. Cuando integremos
+                            con el sistema completo, necesitaremos asegurar que ambas MMUs (Python y C++) estén sincronizadas,
+                            o migrar completamente a MMU C++.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que la lógica de timing migrada desde Python es correcta, ya que fue validada extensivamente
+                        en la v0.0.1. Los tests confirmaron que el comportamiento es idéntico. La única diferencia es que ahora
+                        ejecuta en código nativo, eliminando el overhead de Python pero manteniendo la misma lógica.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] <strong>Fase B: Renderizado de Píxeles</strong> - Implementar el motor de renderizado en C++ que
+                        genera el framebuffer píxel a píxel. Esto incluirá decodificación de tiles, renderizado de fondo,
+                        ventana y sprites.</li>
+                    <li>[ ] <strong>Integración con bucle principal</strong> - Conectar PPU nativa con CPU nativa en el bucle
+                        de emulación principal para medir el impacto real en rendimiento.</li>
+                    <li>[ ] <strong>Sincronización MMU</strong> - Resolver cómo sincronizar MMU Python con MMU C++ cuando
+                        ambos componentes necesiten acceso a memoria, o decidir migrar completamente a MMU C++.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

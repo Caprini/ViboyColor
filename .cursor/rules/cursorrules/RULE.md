@@ -85,7 +85,7 @@ En cada interacción que toque código, sigue estos pasos estrictamente:
 4.  **TDD Híbrido**:
     - Los tests siguen en Python (`pytest`). Python llama a C++.
     - El test verifica el resultado.
-5.  **Bitácora**: Generar la entrada HTML correspondiente en `docs/bitacora/entries/`.
+5.  **Bitácora**: Generar la entrada HTML correspondiente en `docs/bitacora/entries/` siguiendo las reglas de la Sección 7.
 6.  **Control de Versiones (CRÍTICO)**:
     - AL FINAL de cada respuesta, proporciona los comandos exactos para:
     - `git add .`
@@ -101,26 +101,28 @@ En cada interacción que toque código, sigue estos pasos estrictamente:
 
 ---
 
-## 7) BITÁCORA WEB (HTML) — CONTINUIDAD
-Mantenemos el sistema estricto de la v0.0.1.
+## 7) BITÁCORA WEB (HTML) — CRÍTICO
+Mantenemos y mejoramos el sistema estricto de la v0.0.1.
 
 **Estructura:**
 - `docs/bitacora/entries/YYYY-MM-DD__NNNN__slug.html`
 - Usar plantilla `_entry_template.html`.
 - **Rutas Relativas**: Asegurar que CSS e imágenes cargan offline.
 
-**Integración Académica del Prompt (CRÍTICO):**
-- **Fuente de Verdad**: Si el usuario proporciona información teórica, enlaces a Pan Docs, explicaciones de hardware o diagramas en el prompt, **DEBES** incorporar esa información explícitamente en la sección `<section id="concepto">` del HTML.
-- **Enriquecimiento**: No te limites a describir el código generado; usa la información del prompt para explicar el *porqué* arquitectónico (ej: "Como se mencionó en el prompt, el bit 2 de STAT es de solo lectura porque...").
+**Integración Académica del Prompt:**
+- Si el usuario aporta teoría o enlaces en el prompt, incorpóralos explícitamente en la sección "Concepto de Hardware". Explica el *porqué*, no solo el *qué*.
 
-**Evidencia de Tests (Actualizada para C++):**
-- Cuando pruebes código nativo, indica: "Validación de módulo compilado C++".
-- Si hay errores de compilación o segfaults, documéntalos como parte del aprendizaje.
+**Evidencia de Tests (OBLIGATORIO EN EL HTML):**
+En la sección "Tests y Verificación" del HTML generado, debes incluir:
+1.  **Comando ejecutado**: (ej: `pytest tests/test_core_cpu.py`).
+2.  **Resultado**: (ej: `6 passed in 0.05s`).
+3.  **Código del Test**: Incluye un bloque `<pre><code>` con el **fragmento clave** del test unitario que valida la funcionalidad nueva.
+4.  **Validación Nativa**: Indica explícitamente "Validación de módulo compilado C++".
 
 **Salida del Asistente:**
 Al final de cada respuesta con código, genera:
 1.  Bloque para `INFORME_FASE_2.md`.
-2.  Archivo HTML completo para la bitácora (integrando la info académica del prompt).
+2.  Archivo HTML completo para la bitácora (con la evidencia de tests detallada).
 3.  Confirmación de que los tests pasan.
 4.  **Comandos GIT + PUSH**.
 
