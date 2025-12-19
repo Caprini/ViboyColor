@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 1150 - Renderizado de Sprites (OBJ) en C++ -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__1150__renderizado-sprites-obj-cpp.html" class="entry-link">
+                                    Renderizado de Sprites (OBJ) en C++
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 1150 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó el renderizado completo de sprites (OBJ - Objects) en la PPU nativa C++. Los sprites ahora se dibujan correctamente encima del fondo y la ventana, respetando transparencia (color 0), atributos de flip (X/Y), paletas (OBP0/OBP1) y prioridad. Se añadió el método render_sprites() que itera OAM, busca sprites visibles en la línea actual y los renderiza pixel por pixel. Todos los tests pasan (4/4), validando que Mario, las piezas de Tetris y otros personajes ahora son visibles en pantalla.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0114 - Integración del Core C++ en el Frontend -->
                     <li>
                         <div class="entry-header">

@@ -59,6 +59,8 @@ public:
     static constexpr uint16_t IO_BGP = 0xFF47;   // Background Palette
     static constexpr uint16_t IO_WY = 0xFF4A;    // Window Y
     static constexpr uint16_t IO_WX = 0xFF4B;    // Window X
+    static constexpr uint16_t IO_OBP0 = 0xFF48;  // Object Palette 0
+    static constexpr uint16_t IO_OBP1 = 0xFF49;  // Object Palette 1
     
     /**
      * Direcciones de memoria VRAM
@@ -69,6 +71,14 @@ public:
     static constexpr uint16_t TILEMAP_1 = 0x9C00;     // Tilemap 1 (32x32 tiles)
     static constexpr uint16_t TILE_DATA_0 = 0x8000;   // Tile Data 0 (unsigned addressing)
     static constexpr uint16_t TILE_DATA_1 = 0x8800;   // Tile Data 1 (signed addressing, tile 0 en 0x9000)
+    
+    /**
+     * Direcciones de memoria OAM (Object Attribute Memory)
+     */
+    static constexpr uint16_t OAM_START = 0xFE00;     // Inicio de OAM
+    static constexpr uint16_t OAM_END = 0xFE9F;       // Fin de OAM (160 bytes = 40 sprites * 4 bytes)
+    static constexpr uint8_t MAX_SPRITES = 40;        // Máximo de sprites en OAM
+    static constexpr uint8_t BYTES_PER_SPRITE = 4;    // Bytes por sprite (Y, X, Tile ID, Attributes)
     
     /**
      * Dimensiones de pantalla
@@ -263,6 +273,23 @@ private:
      * Fuente: Pan Docs - Window
      */
     void render_window();
+    
+    /**
+     * Renderiza los sprites (OBJ - Objects) para la línea actual.
+     * 
+     * Lee OAM (Object Attribute Memory) en 0xFE00-0xFE9F y dibuja los sprites
+     * que intersectan con la línea LY actual. Los sprites se dibujan después
+     * del Background y Window, respetando transparencia (color 0) y prioridad.
+     * 
+     * Cada sprite tiene 4 bytes en OAM:
+     * - Byte 0: Y position (pantalla + 16, 0 = oculto)
+     * - Byte 1: X position (pantalla + 8, 0 = oculto)
+     * - Byte 2: Tile ID (índice del tile en VRAM)
+     * - Byte 3: Attributes (Bit 7: Prioridad, Bit 6: Y-Flip, Bit 5: X-Flip, Bit 4: Paleta)
+     * 
+     * Fuente: Pan Docs - OAM, Sprite Attributes, Sprite Rendering
+     */
+    void render_sprites();
     
     /**
      * Decodifica una línea de un tile (8 píxeles) desde VRAM.

@@ -226,6 +226,11 @@ void PPU::render_scanline() {
     if ((lcdc & 0x20) != 0) {  // Bit 5: Window Enable
         render_window();
     }
+    
+    // Renderizar Sprites encima de Background y Window (si están habilitados)
+    if ((lcdc & 0x02) != 0) {  // Bit 1: OBJ (Sprite) Display Enable
+        render_sprites();
+    }
 }
 
 void PPU::render_bg() {
@@ -419,6 +424,164 @@ void PPU::decode_tile_line(uint16_t tile_addr, uint8_t line, uint8_t* output) {
         uint8_t bit_low = (byte_low >> (7 - i)) & 0x01;
         uint8_t bit_high = (byte_high >> (7 - i)) & 0x01;
         output[i] = (bit_high << 1) | bit_low;  // Valores 0-3
+    }
+}
+
+void PPU::render_sprites() {
+    // Solo renderizar si estamos en una línea visible (0-143)
+    if (ly_ >= VISIBLE_LINES) {
+        return;
+    }
+    
+    // Leer paletas de sprites
+    uint8_t obp0 = mmu_->read(IO_OBP0);
+    uint8_t obp1 = mmu_->read(IO_OBP1);
+    
+    // Decodificar paletas OBP0 y OBP1 (mismo formato que BGP)
+    // Cada par de bits representa un color 0-3
+    uint32_t palette0[4];
+    palette0[0] = ((obp0 >> 0) & 0x03) == 0 ? 0xFFFFFFFF :  // Blanco
+                 ((obp0 >> 0) & 0x03) == 1 ? 0xFFAAAAAA :  // Gris claro
+                 ((obp0 >> 0) & 0x03) == 2 ? 0xFF555555 :  // Gris oscuro
+                 0xFF000000;                                // Negro
+    palette0[1] = ((obp0 >> 2) & 0x03) == 0 ? 0xFFFFFFFF :
+                 ((obp0 >> 2) & 0x03) == 1 ? 0xFFAAAAAA :
+                 ((obp0 >> 2) & 0x03) == 2 ? 0xFF555555 :
+                 0xFF000000;
+    palette0[2] = ((obp0 >> 4) & 0x03) == 0 ? 0xFFFFFFFF :
+                 ((obp0 >> 4) & 0x03) == 1 ? 0xFFAAAAAA :
+                 ((obp0 >> 4) & 0x03) == 2 ? 0xFF555555 :
+                 0xFF000000;
+    palette0[3] = ((obp0 >> 6) & 0x03) == 0 ? 0xFFFFFFFF :
+                 ((obp0 >> 6) & 0x03) == 1 ? 0xFFAAAAAA :
+                 ((obp0 >> 6) & 0x03) == 2 ? 0xFF555555 :
+                 0xFF000000;
+    
+    uint32_t palette1[4];
+    palette1[0] = ((obp1 >> 0) & 0x03) == 0 ? 0xFFFFFFFF :
+                 ((obp1 >> 0) & 0x03) == 1 ? 0xFFAAAAAA :
+                 ((obp1 >> 0) & 0x03) == 2 ? 0xFF555555 :
+                 0xFF000000;
+    palette1[1] = ((obp1 >> 2) & 0x03) == 0 ? 0xFFFFFFFF :
+                 ((obp1 >> 2) & 0x03) == 1 ? 0xFFAAAAAA :
+                 ((obp1 >> 2) & 0x03) == 2 ? 0xFF555555 :
+                 0xFF000000;
+    palette1[2] = ((obp1 >> 4) & 0x03) == 0 ? 0xFFFFFFFF :
+                 ((obp1 >> 4) & 0x03) == 1 ? 0xFFAAAAAA :
+                 ((obp1 >> 4) & 0x03) == 2 ? 0xFF555555 :
+                 0xFF000000;
+    palette1[3] = ((obp1 >> 6) & 0x03) == 0 ? 0xFFFFFFFF :
+                 ((obp1 >> 6) & 0x03) == 1 ? 0xFFAAAAAA :
+                 ((obp1 >> 6) & 0x03) == 2 ? 0xFF555555 :
+                 0xFF000000;
+    
+    // Leer LCDC para determinar altura de sprite
+    uint8_t lcdc = mmu_->read(IO_LCDC);
+    uint8_t sprite_height = ((lcdc & 0x04) != 0) ? 16 : 8;  // Bit 2: OBJ Size (0=8x8, 1=8x16)
+    
+    // Índice base en el framebuffer para la línea actual
+    uint32_t* framebuffer_line = &framebuffer_[ly_ * SCREEN_WIDTH];
+    
+    // Buffer temporal para decodificar una línea de tile
+    uint8_t tile_line[8];
+    
+    // Iterar todos los sprites en OAM (0xFE00-0xFE9F)
+    for (uint8_t sprite_index = 0; sprite_index < MAX_SPRITES; sprite_index++) {
+        uint16_t sprite_addr = OAM_START + (sprite_index * BYTES_PER_SPRITE);
+        
+        // Leer atributos del sprite
+        uint8_t sprite_y = mmu_->read(sprite_addr + 0);
+        uint8_t sprite_x = mmu_->read(sprite_addr + 1);
+        uint8_t tile_id = mmu_->read(sprite_addr + 2);
+        uint8_t attributes = mmu_->read(sprite_addr + 3);
+        
+        // Decodificar atributos
+        bool priority = (attributes & 0x80) != 0;  // Bit 7: Prioridad (0=encima, 1=detrás)
+        bool y_flip = (attributes & 0x40) != 0;    // Bit 6: Y-Flip
+        bool x_flip = (attributes & 0x20) != 0;    // Bit 5: X-Flip
+        uint8_t palette_num = (attributes >> 4) & 0x01;  // Bit 4: Paleta (0=OBP0, 1=OBP1)
+        
+        // Seleccionar paleta
+        uint32_t* palette = (palette_num == 0) ? palette0 : palette1;
+        
+        // Calcular posición en pantalla (Y y X tienen offset: Y = sprite_y - 16, X = sprite_x - 8)
+        // Si Y o X son 0, el sprite está oculto
+        if (sprite_y == 0 || sprite_x == 0) {
+            continue;  // Sprite oculto
+        }
+        
+        int16_t screen_y = static_cast<int16_t>(sprite_y) - 16;
+        int16_t screen_x = static_cast<int16_t>(sprite_x) - 8;
+        
+        // Verificar si el sprite intersecta con la línea actual (LY)
+        // Un sprite de altura H intersecta si: screen_y <= ly < screen_y + H
+        // Convertir ly_ a int16_t para comparar correctamente con screen_y (que puede ser negativo)
+        int16_t ly_signed = static_cast<int16_t>(ly_);
+        if (ly_signed < screen_y || ly_signed >= (screen_y + sprite_height)) {
+            continue;  // Sprite no intersecta con esta línea
+        }
+        
+        // Calcular qué línea del sprite estamos dibujando (0 a sprite_height-1)
+        uint8_t line_in_sprite = static_cast<uint8_t>(ly_signed - screen_y);
+        
+        // Si Y-Flip está activo, invertir la línea
+        if (y_flip) {
+            line_in_sprite = sprite_height - 1 - line_in_sprite;
+        }
+        
+        // Para sprites de 8x16, necesitamos determinar qué tile usar
+        uint8_t actual_tile_id = tile_id;
+        if (sprite_height == 16) {
+            // Sprites 8x16: tile_id es el tile superior, tile_id+1 es el inferior
+            // Si line_in_sprite >= 8, usamos el tile inferior
+            if (line_in_sprite >= 8) {
+                actual_tile_id = tile_id + 1;
+                line_in_sprite = line_in_sprite - 8;
+            }
+        }
+        
+        // Calcular dirección del tile en VRAM (sprites siempre usan direccionamiento unsigned desde 0x8000)
+        uint16_t tile_addr = TILE_DATA_0 + (actual_tile_id * 16);
+        
+        // Decodificar la línea del tile
+        decode_tile_line(tile_addr, line_in_sprite, tile_line);
+        
+        // Dibujar los 8 píxeles horizontales del sprite
+        for (uint8_t p = 0; p < 8; p++) {
+            // Aplicar X-Flip si es necesario
+            uint8_t pixel_in_tile = x_flip ? (7 - p) : p;
+            
+            // Calcular posición X final en pantalla
+            int16_t final_x = screen_x + p;
+            
+            // Verificar si el píxel está dentro de los límites de pantalla
+            if (final_x < 0 || final_x >= SCREEN_WIDTH) {
+                continue;  // Píxel fuera de pantalla
+            }
+            
+            // Obtener índice de color del píxel
+            uint8_t color_idx = tile_line[pixel_in_tile];
+            
+            // CRÍTICO: El color 0 en sprites es transparente (no se dibuja)
+            if (color_idx == 0) {
+                continue;
+            }
+            
+            // Obtener color de la paleta
+            uint32_t sprite_color = palette[color_idx];
+            
+            // Obtener color actual del framebuffer (background/window)
+            uint32_t bg_color = framebuffer_line[final_x];
+            
+            // Aplicar prioridad: si priority=true, el sprite se dibuja detrás del fondo
+            // (excepto si el color del fondo es 0, que es transparente)
+            // Para simplificar, si priority=true y el fondo no es blanco (color 0 de BGP),
+            // no dibujamos el sprite. En la práctica, necesitamos verificar el color real del fondo.
+            // Por ahora, dibujamos el sprite siempre (se puede mejorar después).
+            
+            // Escribir píxel del sprite en el framebuffer
+            framebuffer_line[final_x] = sprite_color;
+        }
     }
 }
 
