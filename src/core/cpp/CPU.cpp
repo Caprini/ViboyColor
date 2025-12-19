@@ -443,19 +443,7 @@ int CPU::step() {
     
     // ========== FASE 4: Fetch-Decode-Execute ==========
     // Fetch: Leer opcode de memoria
-    uint16_t current_pc = regs_->pc;  // Guardar PC actual para el log (antes de fetch_byte)
     uint8_t opcode = fetch_byte();
-
-    // --- INICIO DEL BLOQUE DE LOGGING (TEMPORAL PARA DEPURACIÓN) ---
-    std::cout << "[CPU C++] PC: 0x" << std::hex << std::setw(4) << std::setfill('0') << current_pc
-              << " | Opcode: 0x" << std::setw(2) << std::setfill('0') << static_cast<int>(opcode)
-              << " | AF: 0x" << std::setw(4) << std::setfill('0') << regs_->get_af()
-              << " | BC: 0x" << std::setw(4) << std::setfill('0') << regs_->get_bc()
-              << " | DE: 0x" << std::setw(4) << std::setfill('0') << regs_->get_de()
-              << " | HL: 0x" << std::setw(4) << std::setfill('0') << regs_->get_hl()
-              << " | SP: 0x" << std::setw(4) << std::setfill('0') << regs_->sp
-              << std::endl;
-    // --- FIN DEL BLOQUE DE LOGGING ---
 
     // Decode/Execute: Switch optimizado por el compilador
     switch (opcode) {
@@ -1254,7 +1242,6 @@ int CPU::step() {
             // Fuente: Pan Docs - JP nn: 4 M-Cycles
             {
                 uint16_t target = fetch_word();
-                std::cout << "    [JP] Saltando a 0x" << std::hex << std::setw(4) << std::setfill('0') << target << std::endl;
                 regs_->pc = target;
                 cycles_ += 4;  // JP nn consume 4 M-Cycles
                 return 4;
@@ -1269,14 +1256,8 @@ int CPU::step() {
                 uint8_t offset_raw = fetch_byte();
                 // Cast a int8_t: C++ maneja automáticamente el complemento a dos
                 int8_t offset = static_cast<int8_t>(offset_raw);
-                std::cout << "    [JR] Saltando con offset " << static_cast<int>(offset) 
-                          << " (raw: 0x" << std::hex << std::setw(2) << std::setfill('0') 
-                          << static_cast<int>(offset_raw) << std::dec << ")" << std::endl;
                 // Sumar offset a PC (el PC ya avanzó 2 posiciones: opcode + offset)
                 uint16_t new_pc = (regs_->pc + offset) & 0xFFFF;
-                std::cout << "    [JR] PC actual: 0x" << std::hex << std::setw(4) << std::setfill('0') 
-                          << regs_->pc << " -> nuevo PC: 0x" << std::setw(4) << std::setfill('0') 
-                          << new_pc << std::endl;
                 regs_->pc = new_pc;
                 cycles_ += 3;  // JR e consume 3 M-Cycles
                 return 3;

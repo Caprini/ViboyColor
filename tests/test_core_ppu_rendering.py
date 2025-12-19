@@ -236,8 +236,9 @@ class TestCorePPURendering:
         
         # Habilitar LCD (bit 7=1) y Background (bit 0=1)
         # IMPORTANTE: bit 4=0 activa signed addressing
-        # LCDC = 0x89 = 10001001 (bit 7=1, bit 4=0, bit 0=1)
-        mmu.write(0xFF40, 0x89)
+        # IMPORTANTE: bit 3=0 usa tilemap en 0x9800 (no 0x9C00)
+        # LCDC = 0x81 = 10000001 (bit 7=1, bit 4=0, bit 3=0, bit 0=1)
+        mmu.write(0xFF40, 0x81)
         
         # Configurar paleta BGP
         mmu.write(0xFF47, 0xE4)  # BGP: 0->blanco, 1->gris claro, 2->gris oscuro, 3->negro
