@@ -69,4 +69,7 @@ cdef class PyMMU:
         
         # Llamar al método C++
         self._mmu.load_rom(data_ptr, data_size)
+    
+    # NOTA: El miembro _mmu es accesible desde otros módulos Cython
+    # que incluyan este archivo (como cpu.pyx)
 

@@ -220,4 +220,7 @@ cdef class PyRegisters:
     def flag_c(self, bool value):
         """Establece el flag Carry (C)."""
         self._regs.set_flag_c(value)
+    
+    # NOTA: El miembro _regs es accesible desde otros módulos Cython
+    # que incluyan este archivo (como cpu.pyx)
 

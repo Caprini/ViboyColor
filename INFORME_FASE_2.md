@@ -152,3 +152,55 @@ veces por segundo durante la emulación.
 - Implementar ciclo de instrucción (Fetch-Decode-Execute) en C++
 - Integrar CoreRegisters con el bucle principal de emulación
 
+---
+
+### 2025-12-19 - Step 0104: Migración del Esqueleto de CPU a C++ (CoreCPU)
+**Estado**: ✅ Completado
+
+Se ha completado la migración del esqueleto básico de la CPU a C++, estableciendo el patrón
+de **inyección de dependencias** en código nativo. La CPU ahora ejecuta el ciclo Fetch-Decode-Execute
+en C++ puro, accediendo a MMU y Registros mediante punteros directos.
+
+**Implementación**:
+- ✅ Clase C++ `CPU` creada (`CPU.hpp` / `CPU.cpp`)
+  - Punteros a MMU y CoreRegisters (inyección de dependencias)
+  - Método `step()` que ejecuta un ciclo Fetch-Decode-Execute
+  - Helper `fetch_byte()` para leer opcodes de memoria
+  - Switch optimizado por compilador para decodificación
+  - Implementados 2 opcodes de prueba: NOP (0x00) y LD A, d8 (0x3E)
+- ✅ Wrapper Cython `PyCPU` creado (`cpu.pxd` / `cpu.pyx`)
+  - Constructor recibe `PyMMU` y `PyRegisters`
+  - Extrae punteros C++ subyacentes para inyección
+  - Expone `step()` y `get_cycles()` a Python
+- ✅ Integración en sistema de compilación
+  - `CPU.cpp` añadido a `setup.py`
+  - `cpu.pyx` incluido en `native_core.pyx`
+- ✅ Suite completa de tests (`test_core_cpu.py`)
+  - 6 tests que validan funcionalidad básica e inyección de dependencias
+  - Todos los tests pasan (6/6 ✅)
+
+**Archivos creados/modificados**:
+- `src/core/cpp/CPU.hpp` / `CPU.cpp` - Clase C++ de CPU
+- `src/core/cython/cpu.pxd` / `cpu.pyx` - Wrapper Cython
+- `src/core/cython/native_core.pyx` - Incluido cpu.pyx
+- `src/core/cython/mmu.pyx` - Comentario sobre acceso a miembros privados
+- `src/core/cython/registers.pyx` - Comentario sobre acceso a miembros privados
+- `setup.py` - Añadido CPU.cpp a fuentes
+- `tests/test_core_cpu.py` - Suite de tests (6 tests)
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0104__migracion-cpu-esqueleto-cpp.html`
+
+**Resultados de verificación**:
+- ✅ Compilación exitosa (warnings menores de Cython esperados)
+- ✅ Módulo `viboy_core` actualizado con `PyCPU`
+- ✅ Todos los tests pasan: `6/6 passed in 0.06s`
+- ✅ Patrón de inyección de dependencias validado
+- ✅ Ciclo Fetch-Decode-Execute funcionando en código nativo
+
+**Próximos pasos**:
+- Migrar más opcodes básicos (LD, ADD, SUB, etc.)
+- Implementar manejo de interrupciones (IME, HALT)
+- Añadir profiling para medir rendimiento real vs Python
+- Migrar opcodes CB (prefijo 0xCB)
+- Integrar CPU nativa con el bucle principal de emulación
+

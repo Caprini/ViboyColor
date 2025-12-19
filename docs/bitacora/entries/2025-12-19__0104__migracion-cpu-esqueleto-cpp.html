@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Migración del Esqueleto de CPU a C++ - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Migración del Esqueleto de CPU a C++ (CoreCPU)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0104
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-completed">✅ Completado</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0103__migracion-registros-cpp.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se ha completado la migración del esqueleto básico de la CPU a C++, estableciendo
+                    el patrón de <strong>inyección de dependencias</strong> en código nativo. La CPU
+                    ahora ejecuta el ciclo Fetch-Decode-Execute en C++ puro, accediendo a MMU y
+                    Registros mediante punteros directos. Se implementaron dos opcodes de prueba
+                    (NOP y LD A, d8) para validar el patrón arquitectónico antes de migrar el resto
+                    de instrucciones.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La CPU LR35902 de la Game Boy ejecuta instrucciones en un ciclo continuo llamado
+                    <strong>Fetch-Decode-Execute</strong>:
+                </p>
+                <ol>
+                    <li><strong>Fetch</strong>: Lee el byte apuntado por PC (Program Counter) de memoria</li>
+                    <li><strong>Increment</strong>: Avanza PC al siguiente byte</li>
+                    <li><strong>Decode/Execute</strong>: Identifica el opcode y ejecuta la operación correspondiente</li>
+                </ol>
+                <p>
+                    Cada instrucción consume un número específico de <strong>M-Cycles</strong> (Machine Cycles).
+                    Un M-Cycle corresponde típicamente a una operación de memoria. Por ejemplo:
+                </p>
+                <ul>
+                    <li><code>NOP</code> (0x00): 1 M-Cycle (no hace nada, solo consume tiempo)</li>
+                    <li><code>LD A, d8</code> (0x3E): 2 M-Cycles (lee opcode + lee valor inmediato)</li>
+                </ul>
+                <p>
+                    La CPU <strong>no posee</strong> la MMU ni los Registros; solo mantiene referencias
+                    (punteros) a ellos. Esto permite que múltiples componentes compartan el mismo estado,
+                    siguiendo el patrón de <strong>inyección de dependencias</strong>.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - CPU Instruction Set
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se creó la clase C++ <code>CPU</code> que implementa el ciclo de instrucción básico.
+                    La arquitectura utiliza punteros a MMU y CoreRegisters (no los posee), siguiendo
+                    el principio de inyección de dependencias. Esto permite que Python sea el dueño
+                    de la memoria, mientras que C++ opera a máxima velocidad con punteros directos.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>CPU.hpp / CPU.cpp</strong>: Clase C++ que implementa el ciclo Fetch-Decode-Execute
+                        <ul>
+                            <li>Miembros: punteros a MMU y CoreRegisters, contador de ciclos</li>
+                            <li>Método <code>step()</code>: Ejecuta un ciclo de instrucción</li>
+                            <li>Helper <code>fetch_byte()</code>: Lee byte de memoria e incrementa PC</li>
+                            <li>Switch optimizado por compilador para decodificación de opcodes</li>
+                        </ul>
+                    </li>
+                    <li><strong>cpu.pxd / cpu.pyx</strong>: Wrapper Cython que expone CPU a Python
+                        <ul>
+                            <li>Clase <code>PyCPU</code>: Wrapper Python para CPU</li>
+                            <li>Constructor recibe <code>PyMMU</code> y <code>PyRegisters</code></li>
+                            <li>Extrae punteros C++ subyacentes para inyección de dependencias</li>
+                        </ul>
+                    </li>
+                    <li><strong>setup.py</strong>: Añadido CPU.cpp a las fuentes de compilación</li>
+                    <li><strong>native_core.pyx</strong>: Incluido cpu.pyx en el módulo principal</li>
+                    <li><strong>test_core_cpu.py</strong>: Suite completa de tests de integración (6 tests)</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>1. Inyección de Dependencias en C++</strong>: La CPU recibe punteros a MMU y
+                    Registros en lugar de poseerlos. Esto permite que Python gestione el ciclo de vida
+                    de los objetos, mientras que C++ opera con punteros directos (máximo rendimiento).
+                </p>
+                <p>
+                    <strong>2. Switch Statement para Decodificación</strong>: Se usa un <code>switch</code>
+                    en lugar de una tabla de funciones. El compilador puede optimizar esto en una tabla
+                    de saltos (jump table), proporcionando O(1) decodificación de opcodes.
+                </p>
+                <p>
+                    <strong>3. Opcodes Mínimos para Validación</strong>: Solo se implementaron 2 opcodes
+                    (NOP y LD A, d8) para validar el patrón arquitectónico. El resto de opcodes se
+                    migrarán en pasos posteriores.
+                </p>
+                <p>
+                    <strong>4. Manejo de Errores</strong>: Los opcodes desconocidos retornan 0 (error)
+                    en lugar de lanzar excepciones. Esto evita overhead en el bucle crítico de emulación.
+                </p>
+                <p>
+                    <strong>5. Acceso a Miembros Privados en Cython</strong>: Como <code>mmu.pyx</code> y
+                    <code>registers.pyx</code> están incluidos en <code>native_core.pyx</code>, podemos
+                    acceder directamente a los miembros privados <code>_mmu</code> y <code>_regs</code> desde
+                    <code>cpu.pyx</code> (mismo módulo compilado).
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Declaración de la clase CPU en C++</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Implementación del ciclo de instrucción</li>
+                    <li><code>src/core/cython/cpu.pxd</code> - Definición Cython de la clase C++</li>
+                    <li><code>src/core/cython/cpu.pyx</code> - Wrapper Python para CPU</li>
+                    <li><code>src/core/cython/native_core.pyx</code> - Incluido cpu.pyx</li>
+                    <li><code>src/core/cython/mmu.pyx</code> - Comentario sobre acceso a miembros privados</li>
+                    <li><code>src/core/cython/registers.pyx</code> - Comentario sobre acceso a miembros privados</li>
+                    <li><code>setup.py</code> - Añadido CPU.cpp a fuentes</li>
+                    <li><code>tests/test_core_cpu.py</code> - Suite de tests de integración (6 tests)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests de integración que valida:
+                </p>
+                <ul>
+                    <li><strong>Inicialización</strong>: La CPU se crea correctamente con MMU y Registros</li>
+                    <li><strong>NOP (0x00)</strong>: Consume 1 M-Cycle, incrementa PC correctamente</li>
+                    <li><strong>LD A, d8 (0x3E)</strong>: Lee valor inmediato, lo guarda en A, consume 2 M-Cycles</li>
+                    <li><strong>Múltiples ejecuciones</strong>: Secuencia de instrucciones funciona correctamente</li>
+                    <li><strong>Opcodes desconocidos</strong>: Retornan 0 (error) sin crashear</li>
+                    <li><strong>Inyección de dependencias</strong>: Múltiples CPUs pueden compartir MMU y Registros</li>
+                </ul>
+                <p>
+                    <strong>Resultados de ejecución</strong>:
+                </p>
+                <pre><code>============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.2
+collected 6 items
+
+tests/test_core_cpu.py::TestCoreCPU::test_cpu_initialization PASSED      [ 16%]
+tests/test_core_cpu.py::TestCoreCPU::test_nop_instruction PASSED         [ 33%]
+tests/test_core_cpu.py::TestCoreCPU::test_ld_a_d8_instruction PASSED     [ 50%]
+tests/test_core_cpu.py::TestCoreCPU::test_ld_a_d8_multiple_executions PASSED [ 66%]
+tests/test_core_cpu.py::TestCoreCPU::test_unknown_opcode_returns_zero PASSED [ 83%]
+tests/test_core_cpu.py::TestCoreCPU::test_cpu_with_shared_mmu_and_registers PASSED [100%]
+
+============================== 6 passed in 0.06s =============================</code></pre>
+                <p>
+                    <strong>✅ Todos los tests pasan (6/6)</strong>
+                </p>
+                <p>
+                    <strong>Compilación</strong>: Exitosa con Visual Studio 2022 (MSVC 14.44.35207).
+                    Warnings menores de Cython esperados (no afectan funcionalidad).
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs</strong>: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">CPU Instruction Set</a> - Especificación de opcodes y ciclos de máquina</li>
+                    <li><strong>Arquitectura LR35902</strong>: Conocimiento general del ciclo Fetch-Decode-Execute</li>
+                    <li><strong>Cython Documentation</strong>: Acceso a miembros privados en módulos incluidos</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Inyección de Dependencias en C++</strong>: Python crea los objetos (dueño de memoria),
+                            C++ recibe punteros para operar a máxima velocidad. Esto evita el overhead de pasar
+                            objetos Python en cada ciclo de instrucción.</li>
+                        <li><strong>Ciclo Fetch-Decode-Execute</strong>: El ciclo básico de la CPU es Fetch (leer opcode),
+                            Decode (identificar instrucción), Execute (ejecutar operación). Cada paso consume ciclos
+                            de máquina específicos.</li>
+                        <li><strong>Switch Statement Optimizado</strong>: El compilador C++ puede convertir un switch
+                            con casos consecutivos en una tabla de saltos (jump table), proporcionando O(1) decodificación.</li>
+                        <li><strong>Acceso a Miembros Privados en Cython</strong>: Cuando módulos Cython están incluidos
+                            en el mismo archivo principal (native_core.pyx), pueden acceder a miembros privados entre sí
+                            porque se compilan en el mismo módulo.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento Real</strong>: Aún no se ha medido el impacto de rendimiento comparado
+                            con la implementación Python. Se necesitará profiling para validar la mejora.</li>
+                        <li><strong>Migración Completa de Opcodes</strong>: Solo 2 opcodes están implementados. El resto
+                            (256 opcodes + 256 opcodes CB) necesitan migración gradual.</li>
+                        <li><strong>Manejo de Interrupciones</strong>: El esqueleto actual no maneja interrupciones. Se
+                            necesitará añadir lógica de IME (Interrupt Master Enable) y manejo de interrupciones.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición sobre rendimiento</strong>: Asumimos que el switch statement será optimizado
+                        por el compilador en una jump table. Esto debería validarse con profiling y análisis de código
+                        generado.
+                    </p>
+                    <p>
+                        <strong>Suposición sobre acceso a miembros privados</strong>: Asumimos que el acceso directo a
+                        <code>_mmu</code> y <code>_regs</code> desde <code>cpu.pyx</code> es seguro porque están en el
+                        mismo módulo compilado. Esto se validó con la compilación exitosa y tests pasando.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Migrar más opcodes básicos (LD, ADD, SUB, etc.)</li>
+                    <li>[ ] Implementar manejo de interrupciones (IME, HALT)</li>
+                    <li>[ ] Añadir profiling para medir rendimiento real vs Python</li>
+                    <li>[ ] Migrar opcodes CB (prefijo 0xCB)</li>
+                    <li>[ ] Integrar CPU nativa con el bucle principal de emulación</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
