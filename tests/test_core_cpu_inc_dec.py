@@ -53,8 +53,8 @@ class TestCoreCPUIncDec:
         cpu.step()
         
         # Activar flag Carry
-        regs.set_flag_c(True)
-        assert regs.get_flag_c() == 1, "Flag C debe estar activo"
+        regs.flag_c = True
+        assert regs.flag_c == True, "Flag C debe estar activo"
         
         # Ejecutar DEC B (0x05)
         mmu.write(0x8002, 0x05)  # DEC B
@@ -62,9 +62,9 @@ class TestCoreCPUIncDec:
         
         # Verificar resultado
         assert regs.b == 0x00, f"B debe ser 0x00, es 0x{regs.b:02X}"
-        assert regs.get_flag_z() == 1, "Z debe estar activo (resultado == 0)"
-        assert regs.get_flag_n() == 1, "N debe estar activo (es decremento)"
-        assert regs.get_flag_c() == 1, "C debe haberse preservado como 1 (QUIRK del hardware)"
+        assert regs.flag_z == True, "Z debe estar activo (resultado == 0)"
+        assert regs.flag_n == True, "N debe estar activo (es decremento)"
+        assert regs.flag_c == True, "C debe haberse preservado como True (QUIRK del hardware)"
         
         # Segundo test: DEC B con Carry=0
         regs.pc = 0x8000
@@ -73,8 +73,8 @@ class TestCoreCPUIncDec:
         cpu.step()
         
         # Desactivar flag Carry
-        regs.set_flag_c(False)
-        assert regs.get_flag_c() == 0, "Flag C debe estar desactivado"
+        regs.flag_c = False
+        assert regs.flag_c == False, "Flag C debe estar desactivado"
         
         # Ejecutar DEC B (0x05)
         mmu.write(0x8002, 0x05)  # DEC B
@@ -82,10 +82,10 @@ class TestCoreCPUIncDec:
         
         # Verificar resultado
         assert regs.b == 0x0F, f"B debe ser 0x0F, es 0x{regs.b:02X}"
-        assert regs.get_flag_z() == 0, "Z debe estar desactivado (resultado != 0)"
-        assert regs.get_flag_n() == 1, "N debe estar activo (es decremento)"
-        assert regs.get_flag_h() == 1, "H debe estar activo (half-borrow: 0x10 -> 0x0F)"
-        assert regs.get_flag_c() == 0, "C debe haberse preservado como 0 (QUIRK del hardware)"
+        assert regs.flag_z == False, "Z debe estar desactivado (resultado != 0)"
+        assert regs.flag_n == True, "N debe estar activo (es decremento)"
+        assert regs.flag_h == True, "H debe estar activo (half-borrow: 0x10 -> 0x0F)"
+        assert regs.flag_c == False, "C debe haberse preservado como False (QUIRK del hardware)"
 
     def test_inc_a_preserves_carry(self):
         """
@@ -108,7 +108,7 @@ class TestCoreCPUIncDec:
         cpu.step()
         
         # Activar flag Carry
-        regs.set_flag_c(True)
+        regs.flag_c = True
         
         # Ejecutar INC A (0x3C)
         mmu.write(0x8002, 0x3C)  # INC A
@@ -116,10 +116,10 @@ class TestCoreCPUIncDec:
         
         # Verificar resultado
         assert regs.a == 0x00, f"A debe ser 0x00, es 0x{regs.a:02X}"
-        assert regs.get_flag_z() == 1, "Z debe estar activo (resultado == 0)"
-        assert regs.get_flag_n() == 0, "N debe estar desactivado (es incremento)"
-        assert regs.get_flag_h() == 1, "H debe estar activo (half-carry: 0x0F -> 0x10 en nibble bajo)"
-        assert regs.get_flag_c() == 1, "C debe haberse preservado como 1 (QUIRK del hardware)"
+        assert regs.flag_z == True, "Z debe estar activo (resultado == 0)"
+        assert regs.flag_n == False, "N debe estar desactivado (es incremento)"
+        assert regs.flag_h == True, "H debe estar activo (half-carry: 0x0F -> 0x10 en nibble bajo)"
+        assert regs.flag_c == True, "C debe haberse preservado como True (QUIRK del hardware)"
 
     def test_inc_half_carry(self):
         """
@@ -147,9 +147,9 @@ class TestCoreCPUIncDec:
         
         # Verificar resultado
         assert regs.b == 0x10, f"B debe ser 0x10, es 0x{regs.b:02X}"
-        assert regs.get_flag_z() == 0, "Z debe estar desactivado (resultado != 0)"
-        assert regs.get_flag_n() == 0, "N debe estar desactivado (es incremento)"
-        assert regs.get_flag_h() == 1, "H debe estar activo (half-carry: 0x0F -> 0x10)"
+        assert regs.flag_z == False, "Z debe estar desactivado (resultado != 0)"
+        assert regs.flag_n == False, "N debe estar desactivado (es incremento)"
+        assert regs.flag_h == True, "H debe estar activo (half-carry: 0x0F -> 0x10)"
 
     def test_dec_half_borrow(self):
         """
@@ -177,9 +177,9 @@ class TestCoreCPUIncDec:
         
         # Verificar resultado
         assert regs.c == 0x0F, f"C debe ser 0x0F, es 0x{regs.c:02X}"
-        assert regs.get_flag_z() == 0, "Z debe estar desactivado (resultado != 0)"
-        assert regs.get_flag_n() == 1, "N debe estar activo (es decremento)"
-        assert regs.get_flag_h() == 1, "H debe estar activo (half-borrow: 0x10 -> 0x0F)"
+        assert regs.flag_z == False, "Z debe estar desactivado (resultado != 0)"
+        assert regs.flag_n == True, "N debe estar activo (es decremento)"
+        assert regs.flag_h == True, "H debe estar activo (half-borrow: 0x10 -> 0x0F)"
 
     def test_inc_all_registers(self):
         """
@@ -218,7 +218,7 @@ class TestCoreCPUIncDec:
         mmu.write(0x8000, 0x14)  # INC D
         cpu.step()
         assert regs.d == 0x00, "INC D debe hacer wrap-around (0xFF -> 0x00)"
-        assert regs.get_flag_z() == 1, "Z debe estar activo después de wrap-around"
+        assert regs.flag_z == True, "Z debe estar activo después de wrap-around"
         
         # Test INC E (0x1C)
         regs.pc = 0x8000
@@ -278,7 +278,7 @@ class TestCoreCPUIncDec:
         mmu.write(0x8000, 0x0D)  # DEC C
         cpu.step()
         assert regs.c == 0x00, "DEC C debe hacer wrap-around (0x01 -> 0x00)"
-        assert regs.get_flag_z() == 1, "Z debe estar activo después de llegar a 0"
+        assert regs.flag_z == True, "Z debe estar activo después de llegar a 0"
         
         # Test DEC D (0x15)
         regs.pc = 0x8000
@@ -314,5 +314,5 @@ class TestCoreCPUIncDec:
         mmu.write(0x8000, 0x3D)  # DEC A
         cpu.step()
         assert regs.a == 0x00, "DEC A debe hacer wrap-around (0x01 -> 0x00)"
-        assert regs.get_flag_z() == 1, "Z debe estar activo después de llegar a 0"
+        assert regs.flag_z == True, "Z debe estar activo después de llegar a 0"
 
