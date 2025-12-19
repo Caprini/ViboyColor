@@ -4,6 +4,274 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 
+## 🌐 Official Website / Web Oficial
+
+**[viboycolor.fabini.one](https://viboycolor.fabini.one)**
+
+---
+
+## Language / Idioma
+
+**[ 🇬🇧 English ](#viboy-color---english) | [ 🇪🇸 Español ](#viboy-color---español)**
+
+---
+
+# Viboy Color - English
+
+A Game Boy Color emulator written in Python, developed from scratch through **"Vibe Coding"** (AI-assisted programming without deep prior knowledge of GB architecture) with an educational and clean-room approach.
+
+## 🎯 Description
+
+**Viboy Color** is a Game Boy Color system emulator developed completely from scratch in Python through **"Vibe Coding"** (AI-assisted programming without deep prior knowledge of the Game Boy architecture). This project's main goal is to be an educational tool that allows understanding the original hardware architecture through clean-room implementation (without copying code from other emulators).
+
+### ⚠️ Current Status: v0.0.2-dev (Work in Progress)
+
+**Phase 1 (v0.0.1) - CLOSED**: The project reached a successful **Academic Proof of Concept (PoC)** status. The emulator works at a technical level: loads ROMs, executes CPU instructions, manages memory, renders graphics and displays games on screen. However, gameplay is not viable due to fine synchronization issues and latency inherent to pure Python implementation.
+
+**Phase 2 (v0.0.2) - IN DEVELOPMENT**: Core migration to C++/Cython and Audio (APU) implementation. The goal is to achieve the timing precision necessary for complete gameplay through compiled code, maintaining the Python interface for frontend and tests.
+
+### Project Principles
+
+- ✅ **Clean-Room Implementation**: All code is developed exclusively from official technical documentation
+- ✅ **Educational Approach**: Each component includes detailed documentation explaining the underlying hardware
+- ✅ **Total Portability**: Compatible with Windows, Linux and macOS
+- ✅ **Modern Python**: Uses Python 3.10+ with strict typing and best practices
+- ✅ **Test-Driven Development**: Complete suite of unit tests to validate each component
+
+## ✨ Implemented Features (v0.0.1)
+
+### CPU (LR35902) - ✅ Complete
+- ✅ **Complete registers**: Implementation of all 8 and 16-bit registers (A, B, C, D, E, H, L, F, PC, SP)
+- ✅ **Virtual pairs**: Support for 16-bit pairs (AF, BC, DE, HL)
+- ✅ **Flag system**: Complete flag management (Z, N, H, C) with hardware peculiarities
+- ✅ **Fetch-Decode-Execute cycle**: Implementation of the fundamental instruction cycle
+- ✅ **Complete ALU**: Arithmetic Logic Unit with correct flag handling, especially Half-Carry
+- ✅ **Complete opcodes**: Implementation of all opcodes in the LR35902 instruction set (including CB prefix)
+- ✅ **Dispatch table**: Scalable system for opcode handling with match/case
+
+### MMU (Memory Management Unit) - ✅ Functional
+- ✅ **Complete address space**: Management of 16-bit space (0x0000-0xFFFF)
+- ✅ **Little-Endian operations**: Read/write of 16-bit words with correct endianness
+- ✅ **Wrap-around**: Correct handling of address and value overflows
+- ✅ **Automatic masking**: Protection against out-of-range values
+- ✅ **Region mapping**: ROM, VRAM, OAM, I/O, HRAM, Cartridges (MBC1)
+
+### PPU (Picture Processing Unit) - ✅ Functional
+- ✅ **Background rendering**: Complete tilemap with scroll (SCX/SCY)
+- ✅ **Window rendering**: Independent window layer
+- ✅ **Sprite rendering**: Up to 40 sprites with priority and attributes
+- ✅ **PPU modes**: Implementation of modes 0-3 (H-Blank, V-Blank, OAM Search, Pixel Transfer)
+- ✅ **STAT register**: Management of PPU mode-based interrupts
+- ✅ **Optimizations**: Tile cache, scanline-based rendering
+
+### Timer - ✅ Complete
+- ✅ **DIV, TIMA, TMA, TAC registers**: Complete Timer subsystem implementation
+- ✅ **Configurable frequencies**: 4096 Hz, 262144 Hz, 65536 Hz, 16384 Hz
+- ✅ **Timer interrupts**: Correct interrupt generation on overflow
+
+### Interrupts - ✅ Functional
+- ✅ **Interrupt system**: VBlank, LCD STAT, Timer, Serial, Joypad
+- ✅ **IF/IE registers**: Management of interrupt flags and masks
+- ✅ **Correct timing**: 1 instruction delay for EI (Enable Interrupts)
+
+### Cartridges - ✅ MBC1 Implemented
+- ✅ **ROM loading**: Support for ROMs up to 2MB
+- ✅ **MBC1**: Complete implementation of Memory Bank Controller type 1
+- ✅ **Bank Switching**: Dynamic ROM/RAM bank switching
+
+### Tests and Quality
+- ✅ **Complete test suite**: Hundreds of passing unit tests
+- ✅ **Complete coverage** of implemented components
+- ✅ **Deterministic tests** without OS dependencies
+
+### Documentation
+- ✅ **Static web log**: 90+ detailed educational entries in `docs/bitacora/`
+- ✅ **Complete report**: Complete technical log in `INFORME_COMPLETO.md`
+- ✅ **Educational docstrings**: Each component includes hardware explanations
+
+## 📋 Requirements
+
+- **Python 3.10 or higher** (required for match/case and other modern features)
+- **pip** (Python package manager)
+
+## 🚀 Installation
+
+1. **Clone the repository**:
+```bash
+git clone https://github.com/Caprini/ViboyColor.git
+cd ViboyColor
+```
+
+2. **Create a virtual environment** (recommended):
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. **Install dependencies**:
+```bash
+pip install -r requirements.txt
+```
+
+4. **Run tests** to verify installation:
+```bash
+pytest tests/ -v
+```
+
+5. **Run the emulator** (currently in development):
+```bash
+python main.py
+```
+
+## 📁 Project Structure
+
+```
+ViboyColor/
+├── src/
+│   ├── cpu/              # LR35902 processor logic
+│   │   ├── core.py       # Instruction cycle and opcodes
+│   │   └── registers.py  # Registers and flags
+│   ├── memory/           # Memory management
+│   │   └── mmu.py        # Memory Management Unit
+│   └── gpu/              # Graphics rendering (pending)
+├── tests/                # Unit tests
+│   ├── test_registers.py # Register tests
+│   ├── test_mmu.py       # MMU tests
+│   ├── test_cpu_core.py  # Instruction cycle tests
+│   └── test_alu.py       # ALU and flag tests
+├── docs/
+│   └── bitacora/         # Static web log
+│       ├── index.html    # Entry index
+│       ├── entries/      # Individual entries
+│       └── assets/       # CSS styles
+├── main.py               # Main entry point
+├── requirements.txt      # Project dependencies
+├── INFORME_COMPLETO.md   # Complete technical log
+└── README.md             # This file
+```
+
+## 🧪 Running Tests
+
+To run all tests:
+```bash
+pytest tests/ -v
+```
+
+To run tests with coverage:
+```bash
+pytest tests/ --cov=src --cov-report=html
+```
+
+## 📚 Documentation
+
+### Web Log
+The static web log contains detailed educational documentation of each development step:
+- Open `docs/bitacora/index.html` in your browser
+- Works completely offline (no external dependencies)
+- Includes hardware explanations, implementation and validation
+
+### Technical Report
+See `INFORME_COMPLETO.md` for the complete technical log with all implementation details.
+
+## 🔄 Project Status
+
+**Current version**: v0.0.2-dev (Work in Progress)
+
+### ✅ Phase 1 (v0.0.1) - Completed and Closed
+
+**Technical Achievements:**
+- ✅ Complete LR35902 CPU with all opcodes
+- ✅ Functional MMU with complete memory mapping
+- ✅ Functional PPU with Background, Window and Sprite rendering
+- ✅ Complete Timer with all frequencies
+- ✅ Functional interrupt system
+- ✅ Cartridge loading (MBC1)
+- ✅ Complete suite of unit tests
+- ✅ Web log with 90+ educational entries
+
+**Functional Status:**
+- ✅ The emulator boots and loads ROMs
+- ✅ Executes CPU instructions correctly
+- ✅ Displays graphics on screen
+- ⚠️ **Known limitation**: Cycle-by-cycle synchronization in pure Python prevents smooth gameplay
+
+**Academic Conclusion:**
+This project has been a success as a computer architecture learning tool. The goal of "learning how the machine works" has been achieved through practical implementation from scratch. The "scanline loop" architecture in an interpreted language introduces input latency and timer desynchronization that breaks the logic of timing-sensitive games.
+
+**Archived documentation**: `docs/archive/INFORME_v0.0.1_FINAL.md`
+
+### 🚀 Phase 2 (v0.0.2) - In Progress
+
+**Goal**: Core migration to C++/Cython and Audio (APU).
+
+**Main Tasks:**
+- [ ] Core rewrite in C++/Cython
+  - [ ] CPU (LR35902) in C++ with Cython wrapper
+  - [ ] MMU in compiled code
+  - [ ] PPU in compiled code
+- [ ] Audio (APU) implementation
+  - [ ] Channel 1 & 2: Square wave with Sweep and Envelope
+  - [ ] Channel 3: Arbitrary wave (Wave RAM)
+  - [ ] Channel 4: White noise (LFSR)
+  - [ ] Mixing and output at 44100Hz/48000Hz
+- [ ] Maintain Python interface for frontend and tests
+- [ ] Cycle-by-cycle synchronization optimization
+- [ ] Validation with timing-sensitive games (Tetris, Pokémon)
+
+**Development log**: `INFORME_FASE_2.md`
+
+## 🤝 Contributing
+
+This is an educational and open source project. Contributions are welcome, but must follow the project principles:
+
+1. **Clean-Room**: Do not copy code from other emulators
+2. **Documentation**: Include educational hardware explanations
+3. **Tests**: Add unit tests for new features
+4. **Portability**: Ensure Windows/Linux/macOS compatibility
+
+## 📝 License
+
+This project is educational and open source, distributed under the **MIT** license.
+
+See the [LICENSE](LICENSE) file for details about terms of use, distribution and code modification.
+
+**MIT License Summary:**
+- ✅ Allows commercial and private use
+- ✅ Allows modification and distribution
+- ✅ Requires maintaining copyright notice
+- ✅ No warranties (software "as is")
+
+## 🙏 Acknowledgments
+
+This project is developed exclusively based on:
+- Official technical documentation (Pan Docs, hardware manuals)
+- Redistributable test ROMs with open license
+- Observation of hardware behavior
+
+**No code from other emulators is used** (mGBA, Gambatte, SameBoy, etc.) to maintain the project's clean-room integrity.
+
+## 📧 Contact
+
+For questions or suggestions about the project, open an issue in the GitHub repository.
+
+---
+
+## 📖 Methodology: Vibe Coding
+
+This project was developed through **"Vibe Coding"** (AI-assisted programming without deep prior knowledge of the Game Boy architecture). Each development step was documented in the web log (`docs/bitacora/`), reflecting the learning process and technical decisions made.
+
+**Applied principles:**
+- Clean-room implementation based solely on technical documentation
+- Educational documentation of each component
+- Unit tests to validate implementations
+- Transparency about limitations and design decisions
+
+**Note**: This project is an Academic Proof of Concept (PoC). The emulator works technically but gameplay is not viable due to synchronization limitations in pure Python. Version v0.0.2 will migrate the core to a compiled language to achieve the necessary timing precision.
+
+---
+
+# Viboy Color - Español
+
 Un emulador de Game Boy Color escrito en Python, desarrollado desde cero mediante **"Vibe Coding"** (Programación asistida por IA sin conocimientos previos profundos de la arquitectura GB) con un enfoque educativo y clean-room.
 
 ## 🎯 Descripción
@@ -253,4 +521,3 @@ Este proyecto fue desarrollado mediante **"Vibe Coding"** (Programación asistid
 - Transparencia sobre limitaciones y decisiones de diseño
 
 **Nota**: Este proyecto es una Prueba de Concepto (PoC) Académica. El emulador funciona técnicamente pero la jugabilidad no es viable debido a limitaciones de sincronización en Python puro. La versión v0.0.2 migrará el núcleo a un lenguaje compilado para alcanzar precisión de timing necesaria.
-
