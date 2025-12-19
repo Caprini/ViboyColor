@@ -136,6 +136,7 @@ public:
      */
     uint8_t get_mode() const;
     
+    
     /**
      * Obtiene el valor actual del registro LYC (LY Compare).
      * 

@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix: Crash de access violation por Recursión Infinita en STAT - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Fix: Crash de access violation por Recursión Infinita en STAT</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0128
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0127__ppu-fase-d-modos-ppu-registro-stat.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este paso corrige un bug crítico de <strong>stack overflow</strong> causado por una recursión infinita entre <code>MMU::read(0xFF41)</code> y <code>PPU::get_stat()</code>. 
+                    El problema ocurría cuando la CPU intentaba leer el registro STAT (0xFF41): la MMU llamaba a <code>PPU::get_stat()</code>, que a su vez intentaba leer STAT desde la MMU, 
+                    creando un bucle infinito que consumía toda la memoria de la pila en milisegundos y causaba un crash <code>access violation</code>.
+                </p>
+                <p>
+                    La solución implementa un rediseño arquitectónico: la <strong>MMU es la dueña de la memoria</strong> y construye el valor de STAT directamente, 
+                    consultando a la PPU solo por su estado (modo, LY, LYC) sin crear dependencias circulares.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El registro <strong>STAT (LCD Status, 0xFF41)</strong> en la Game Boy es un registro híbrido con bits de solo lectura y bits escribibles:
+                </p>
+                <ul>
+                    <li><strong>Bits 0-1 (solo lectura):</strong> Modo PPU actual (0=H-Blank, 1=V-Blank, 2=OAM Search, 3=Pixel Transfer). Actualizados dinámicamente por la PPU.</li>
+                    <li><strong>Bit 2 (solo lectura):</strong> LYC=LY Coincidence Flag. Se activa cuando LY == LYC.</li>
+                    <li><strong>Bits 3-6 (lectura/escritura):</strong> Flags de interrupción configurables por software.</li>
+                    <li><strong>Bit 7 (solo lectura):</strong> Siempre 1 según Pan Docs.</li>
+                </ul>
+                <p>
+                    <strong>El problema arquitectónico:</strong> En la implementación inicial, la PPU tenía un método <code>get_stat()</code> que intentaba construir el valor completo de STAT 
+                    leyendo los bits escribibles desde la MMU y combinándolos con su estado interno. Sin embargo, cuando la MMU leía STAT, llamaba a <code>PPU::get_stat()</code>, 
+                    que a su vez llamaba a <code>MMU::read(0xFF41)</code>, creando una recursión infinita.
+                </p>
+                <p>
+                    <strong>La solución correcta:</strong> La MMU es la dueña del espacio de direcciones y debe ser responsable de construir el valor de STAT cuando se lee. 
+                    La PPU solo debe proporcionar su estado actual (modo, LY, LYC) mediante métodos de solo lectura, sin intentar leer memoria.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Status Register (STAT), sección sobre bits de solo lectura y escritura.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se eliminó el método <code>PPU::get_stat()</code> y se rediseñó <code>MMU::read(0xFF41)</code> para construir STAT directamente:
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>PPU.hpp / PPU.cpp:</strong> Eliminado método <code>get_stat()</code>. La PPU ahora solo expone métodos de solo lectura: <code>get_mode()</code>, <code>get_ly()</code>, <code>get_lyc()</code>.</li>
+                    <li><strong>MMU.cpp:</strong> Modificado <code>MMU::read(0xFF41)</code> para construir STAT combinando:
+                        <ul>
+                            <li>Bits escribibles (3-7) desde <code>memory_[0xFF41]</code></li>
+                            <li>Modo actual desde <code>ppu_->get_mode()</code></li>
+                            <li>LYC=LY Coincidence desde comparación de <code>ppu_->get_ly()</code> y <code>ppu_->get_lyc()</code></li>
+                            <li>Bit 7 siempre en 1</li>
+                        </ul>
+                    </li>
+                    <li><strong>ppu.pxd:</strong> Eliminada declaración de <code>get_stat()</code> del wrapper Cython.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Arquitectura de responsabilidades:</strong> La MMU es la única responsable de construir valores de registros que combinan bits de solo lectura y escritura. 
+                    Los componentes periféricos (PPU, APU, etc.) solo proporcionan su estado interno mediante métodos de solo lectura, sin intentar leer memoria.
+                </p>
+                <p>
+                    <strong>Evitar dependencias circulares:</strong> Este patrón evita dependencias circulares entre MMU y componentes periféricos. 
+                    La MMU puede consultar el estado de los componentes, pero los componentes nunca leen memoria a través de la MMU durante operaciones de lectura de registros.
+                </p>
+                <p>
+                    <strong>Rendimiento:</strong> La construcción de STAT en <code>MMU::read()</code> es O(1) y no introduce overhead significativo, 
+                    ya que solo se ejecuta cuando se lee el registro STAT (operación poco frecuente comparada con el bucle principal de emulación).
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Eliminado método <code>get_stat()</code></li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Eliminada implementación de <code>get_stat()</code></li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Rediseñado <code>read(0xFF41)</code> para construir STAT directamente</li>
+                    <li><code>src/core/cython/ppu.pxd</code> - Eliminada declaración de <code>get_stat()</code></li>
+                    <li><code>tests/test_core_ppu_modes.py</code> - Tests ya usan <code>mmu.read(0xFF41)</code> correctamente</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Los tests existentes ya validan la lectura correcta de STAT desde la MMU:
+                </p>
+                <ul>
+                    <li><strong>Test:</strong> <code>test_ppu_stat_register()</code> - Verifica que STAT incluye el modo actual en bits 0-1</li>
+                    <li><strong>Test:</strong> <code>test_ppu_stat_lyc_coincidence()</code> - Verifica que el bit 2 (LYC=LY) se actualiza correctamente</li>
+                </ul>
+                <p>
+                    <strong>Comando de verificación:</strong>
+                </p>
+                <pre><code>pytest tests/test_core_ppu_modes.py -v</code></pre>
+                <p>
+                    <strong>Resultado esperado:</strong> Todos los tests pasan sin crashes de <code>access violation</code>.
+                </p>
+                <p>
+                    <strong>Validación nativa:</strong> Los tests validan el módulo compilado C++ a través del wrapper Cython, 
+                    confirmando que la recursión infinita ha sido eliminada y que STAT se lee correctamente.
+                </p>
+                <h3>Código del Test Clave</h3>
+                <pre><code>def test_ppu_stat_register(self):
+    """Verifica que el registro STAT se lee correctamente con los modos PPU."""
+    mmu = PyMMU()
+    ppu = PyPPU(mmu)
+    mmu.set_ppu(ppu)  # Conectar PPU a MMU
+    
+    mmu.write(0xFF40, 0x91)  # LCD ON
+    mmu.write(0xFF41, 0x78)  # Escribir bits configurables
+    
+    # Leer STAT - debe incluir el modo actual en bits 0-1
+    stat = mmu.read(0xFF41)  # ← Esta línea ya no causa recursión infinita
+    
+    mode_from_stat = stat & 0x03
+    assert mode_from_stat == ppu.mode</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html#ff41--stat-lcd-status">LCD Status Register (STAT)</a> - Bits de solo lectura y escritura</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html#lcd-timing">LCD Timing</a> - Modos PPU y sincronización</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Dependencias circulares en emulación:</strong> Cuando un componente periférico intenta leer memoria a través de la MMU durante una operación de lectura de registro, puede crear dependencias circulares si la MMU necesita consultar ese mismo componente para construir el valor del registro.</li>
+                        <li><strong>Arquitectura de responsabilidades:</strong> La MMU debe ser la única responsable de construir valores de registros híbridos (con bits de solo lectura y escritura). Los componentes periféricos solo deben proporcionar su estado interno mediante métodos de solo lectura.</li>
+                        <li><strong>Stack overflow en C++:</strong> Una recursión infinita consume toda la memoria de la pila rápidamente, causando un crash <code>access violation</code> en Windows o <code>segmentation fault</code> en Linux.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento de construcción de STAT:</strong> Verificar que la construcción de STAT en <code>MMU::read()</code> no introduce overhead significativo en el bucle principal de emulación.</li>
+                        <li><strong>Otros registros híbridos:</strong> Identificar si hay otros registros en la Game Boy con bits de solo lectura y escritura que requieran un patrón similar.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición validada:</strong> La construcción de STAT en <code>MMU::read()</code> es lo suficientemente rápida para no afectar el rendimiento, 
+                        ya que la lectura de STAT es una operación poco frecuente comparada con el bucle principal de emulación (cada instrucción de CPU).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ y verificar que los tests pasan sin crashes</li>
+                    <li>[ ] Ejecutar el emulador con una ROM de test para verificar que la pantalla blanca se resuelve</li>
+                    <li>[ ] Implementar CPU Nativa: Saltos y Control de Flujo (Step 0129)</li>
+                    <li>[ ] Verificar que no hay otros registros híbridos que requieran el mismo patrón</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

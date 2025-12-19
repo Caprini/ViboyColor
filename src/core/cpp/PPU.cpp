@@ -208,6 +208,7 @@ uint8_t PPU::get_mode() const {
     return mode_;
 }
 
+
 uint8_t PPU::get_lyc() const {
     return lyc_;
 }

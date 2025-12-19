@@ -12,6 +12,11 @@ from libcpp cimport bool
 
 # Importar la definición de la clase C++ desde el archivo .pxd
 cimport mmu
+cimport ppu
+
+# NOTA: PyPPU se define en ppu.pyx, pero como native_core.pyx incluye ambos módulos,
+# PyPPU estará disponible en tiempo de ejecución. Para evitar dependencia circular,
+# usamos una función helper que accede al atributo _ppu directamente.
 
 cdef class PyMMU:
     """
@@ -141,6 +146,28 @@ cdef class PyMMU:
         # Escribir en orden Little-Endian
         self.write(addr, lsb)
         self.write((addr + 1) & 0xFFFF, msb)
+    
+    def set_ppu(self, object ppu_obj):
+        """
+        Establece el puntero a la PPU para permitir lectura dinámica del registro STAT.
+        
+        El registro STAT (0xFF41) tiene bits de solo lectura (0-2) que son actualizados
+        dinámicamente por la PPU. Para leer el valor correcto, la MMU necesita llamar
+        a PPU::get_stat() cuando se lee 0xFF41.
+        
+        Args:
+            ppu_obj: Instancia de PyPPU (debe tener un método get_cpp_ptr_as_int())
+        """
+        # Usar object en lugar de PyPPU para evitar dependencia circular en tiempo de compilación
+        # En tiempo de ejecución, ppu_obj será una instancia de PyPPU
+        cdef ppu.PPU* c_ppu = NULL
+        cdef long ptr_int
+        if ppu_obj is not None:
+            # Llamar al método get_cpp_ptr_as_int() que devuelve el puntero como entero
+            # Luego convertimos el entero de vuelta a puntero C++
+            ptr_int = ppu_obj.get_cpp_ptr_as_int()
+            c_ppu = <ppu.PPU*>ptr_int
+        self._mmu.setPPU(c_ppu)
     
     # NOTA: El miembro _mmu es accesible desde otros módulos Cython
     # que incluyan este archivo (como cpu.pyx)

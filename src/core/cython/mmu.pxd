@@ -9,10 +9,16 @@ pueda generar el código de enlace correcto.
 
 from libc.stdint cimport uint8_t, uint16_t
 
+# Forward declaration de PPU (evitar dependencia circular)
+cdef extern from "PPU.hpp":
+    cdef cppclass PPU:
+        pass
+
 cdef extern from "MMU.hpp":
     cdef cppclass MMU:
         MMU() except +
         uint8_t read(uint16_t addr)
         void write(uint16_t addr, uint8_t value)
         void load_rom(const uint8_t* data, size_t size)
+        void setPPU(PPU* ppu)
 

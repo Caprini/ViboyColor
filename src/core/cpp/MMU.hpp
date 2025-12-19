@@ -4,6 +4,9 @@
 #include <cstdint>
 #include <vector>
 
+// Forward declaration para evitar dependencia circular
+class PPU;
+
 /**
  * MMU (Memory Management Unit) - Unidad de Gestión de Memoria
  * 
@@ -48,6 +51,17 @@ public:
      * @param size Tamaño de los datos en bytes
      */
     void load_rom(const uint8_t* data, size_t size);
+    
+    /**
+     * Establece el puntero a la PPU para permitir lectura dinámica del registro STAT.
+     * 
+     * El registro STAT (0xFF41) tiene bits de solo lectura (0-2) que son actualizados
+     * dinámicamente por la PPU. Para leer el valor correcto, la MMU necesita llamar
+     * a PPU::get_stat() cuando se lee 0xFF41.
+     * 
+     * @param ppu Puntero a la instancia de PPU (puede ser nullptr)
+     */
+    void setPPU(PPU* ppu);
 
 private:
     /**
@@ -60,6 +74,14 @@ private:
      * Tamaño total del espacio de direcciones (16 bits = 65536 bytes)
      */
     static constexpr size_t MEMORY_SIZE = 0x10000;
+    
+    /**
+     * Puntero a la PPU para lectura dinámica del registro STAT (0xFF41).
+     * 
+     * Este puntero se establece mediante setPPU() y se usa cuando se lee
+     * el registro STAT para obtener el valor actualizado de los bits de solo lectura.
+     */
+    PPU* ppu_;
 };
 
 #endif // MMU_HPP

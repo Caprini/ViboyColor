@@ -32,6 +32,42 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0128 - Fix: Crash de access violation por Recursión Infinita en STAT -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0128__fix-crash-access-violation-recursion-infinita-stat.html" class="entry-link">
+                                    Fix: Crash de access violation por Recursión Infinita en STAT
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0128 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección de un bug crítico de stack overflow causado por una recursión infinita entre MMU::read(0xFF41) y PPU::get_stat(). El problema ocurría cuando la CPU intentaba leer el registro STAT: la MMU llamaba a PPU::get_stat(), que a su vez intentaba leer STAT desde la MMU, creando un bucle infinito que consumía toda la memoria de la pila y causaba un crash access violation. La solución implementa un rediseño arquitectónico: la MMU es la dueña de la memoria y construye el valor de STAT directamente, consultando a la PPU solo por su estado (modo, LY, LYC) sin crear dependencias circulares.
+                        </p>
+                    </li>
+                    <!-- Entrada 0127 - PPU Fase D: Modos PPU y Registro STAT en C++ -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0127__ppu-fase-d-modos-ppu-registro-stat.html" class="entry-link">
+                                    PPU Fase D: Modos PPU y Registro STAT en C++
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0127 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Después de la Fase C, el emulador mostraba una pantalla blanca a 60 FPS, lo que indicaba que el motor de renderizado funcionaba pero la CPU estaba atascada esperando que la PPU reporte un modo seguro. Este paso implementa la máquina de estados de la PPU (Modos 0-3) y el registro STAT (0xFF41) que permite a la CPU leer el estado actual de la PPU. La implementación resuelve una dependencia circular entre MMU y PPU mediante inyección de dependencias, permitiendo que la MMU llame a PPU::get_stat() cuando se lee el registro STAT. Este es el paso que debería desbloquear los gráficos: cuando la CPU lea un valor de STAT que cambia dinámicamente, saldrá de su bucle de espera y procederá a copiar los datos de tiles a VRAM.
+                        </p>
+                    </li>
                     <!-- Entrada 0126 - PPU Fase C: Renderizado Real de Tiles desde VRAM -->
                     <li>
                         <div class="entry-header">

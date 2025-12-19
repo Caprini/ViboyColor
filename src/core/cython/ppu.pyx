@@ -144,4 +144,9 @@ cdef class PyPPU:
         cdef uint8_t* ptr = self._ppu.get_framebuffer_ptr()
         cdef unsigned char[:] view = <unsigned char[:144*160]>ptr
         return view
+    
+    # Método para obtener el puntero C++ como entero (para evitar problemas de conversión)
+    def get_cpp_ptr_as_int(self):
+        """Obtiene el puntero C++ interno como entero (para uso en otros módulos Cython)."""
+        return <long>self._ppu
 

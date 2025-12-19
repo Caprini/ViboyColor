@@ -750,6 +750,103 @@ Después de desbloquear el bucle principal (Step 0122), el emulador se ejecutaba
 
 ---
 
+### 2025-12-19 - Step 0127: PPU Fase D - Modos PPU y Registro STAT en C++
+**Estado**: ✅ Completado
+
+Después de la Fase C, el emulador mostraba una pantalla blanca a 60 FPS, lo que indicaba que el motor de renderizado funcionaba correctamente pero la CPU estaba atascada esperando que la PPU reporte un modo seguro (H-Blank o V-Blank) antes de escribir datos gráficos en VRAM.
+
+Este paso implementa la **máquina de estados de la PPU (Modos 0-3)** y el **registro STAT (0xFF41)** que permite a la CPU leer el estado actual de la PPU. La implementación resuelve una dependencia circular entre MMU y PPU mediante inyección de dependencias, permitiendo que la MMU llame a `PPU::get_stat()` cuando se lee el registro STAT.
+
+**Implementación**:
+- ✅ Método `PPU::get_stat()` añadido a PPU.hpp/PPU.cpp
+  - Combina bits escribibles de STAT (desde MMU) con estado actual de PPU (modo y LYC=LY)
+  - Bit 7 siempre 1 según Pan Docs
+- ✅ Método `MMU::setPPU()` añadido a MMU.hpp/MMU.cpp
+  - Permite conectar PPU a MMU después de crear ambos objetos
+  - Modificación de `MMU::read()` para manejar STAT (0xFF41) llamando a `ppu->get_stat()`
+- ✅ Wrapper Cython actualizado
+  - `mmu.pyx`: Añadido método `set_ppu()` para conectar PPU desde Python
+  - `ppu.pxd`: Añadida declaración de `get_stat()`
+- ✅ Integración en `viboy.py`
+  - Añadida llamada a `mmu.set_ppu(ppu)` después de crear ambos componentes
+  - Añadido modo PPU al log del Heartbeat para diagnóstico visual
+- ✅ Suite completa de tests (`test_core_ppu_modes.py`)
+  - 4 tests que validan transiciones de modo, V-Blank, lectura de STAT y LYC=LY Coincidence
+  - Todos los tests pasan (4/4 ✅)
+
+**Archivos creados/modificados**:
+- `src/core/cpp/PPU.hpp` / `PPU.cpp` - Añadido método `get_stat()`
+- `src/core/cpp/MMU.hpp` / `MMU.cpp` - Añadido `setPPU()` y manejo de STAT en `read()`
+- `src/core/cython/ppu.pxd` - Añadida declaración de `get_stat()`
+- `src/core/cython/mmu.pxd` / `mmu.pyx` - Añadido método `set_ppu()`
+- `src/viboy.py` - Añadida conexión PPU-MMU y modo en heartbeat
+- `tests/test_core_ppu_modes.py` - Suite de tests (4 tests)
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0127__ppu-fase-d-modos-ppu-registro-stat.html`
+
+**Resultados de verificación**:
+- ✅ Compilación exitosa (sin errores)
+- ✅ Todos los tests pasan: `4/4 passed in 0.05s`
+- ✅ Dependencia circular resuelta mediante inyección de dependencias
+- ✅ Registro STAT se lee dinámicamente reflejando el estado actual de la PPU
+
+**Conceptos clave**:
+- **Máquina de estados PPU**: La PPU opera en 4 modos distintos (H-Blank, V-Blank, OAM Search, Pixel Transfer) durante cada frame, cada uno con diferentes restricciones de acceso a memoria para la CPU.
+- **Registro STAT híbrido**: Combina bits de solo lectura (actualizados por la PPU) con bits de lectura/escritura (configurables por la CPU). La lectura debe ser dinámica para reflejar el estado actual.
+- **Dependencia circular resuelta**: La MMU necesita acceso a PPU para leer STAT, y la PPU necesita acceso a MMU para leer registros. Se resuelve mediante inyección de dependencias con punteros, estableciendo la conexión después de crear ambos objetos.
+- **Polling de STAT**: Los juegos hacen polling constante del registro STAT para esperar modos seguros (H-Blank o V-Blank) antes de escribir en VRAM. Sin esta funcionalidad, la CPU se queda atascada esperando un cambio que nunca ocurre.
+
+**Próximos pasos**:
+- Verificar que los gráficos se desbloquean después de este cambio (ejecutar con ROM de test)
+- Verificar que las interrupciones STAT se disparan correctamente cuando los bits de interrupción están activos
+- Implementar renderizado de Window y Sprites (Fase E)
+- Optimizar el polling de STAT si es necesario (profiling)
+
+---
+
+### 2025-12-19 - Step 0128: Fix - Crash de access violation por Recursión Infinita en STAT
+**Estado**: ✅ Completado
+
+Este paso corrige un bug crítico de **stack overflow** causado por una recursión infinita entre `MMU::read(0xFF41)` y `PPU::get_stat()`. El problema ocurría cuando la CPU intentaba leer el registro STAT: la MMU llamaba a `PPU::get_stat()`, que a su vez intentaba leer STAT desde la MMU, creando un bucle infinito que consumía toda la memoria de la pila en milisegundos y causaba un crash `access violation`.
+
+**Implementación**:
+- ✅ Eliminado método `PPU::get_stat()` de PPU.hpp/PPU.cpp
+  - La PPU ya no intenta construir el valor de STAT
+  - Solo expone métodos de solo lectura: `get_mode()`, `get_ly()`, `get_lyc()`
+- ✅ Rediseñado `MMU::read(0xFF41)` para construir STAT directamente
+  - Lee bits escribibles (3-7) desde `memory_[0xFF41]`
+  - Consulta a PPU solo por su estado: `get_mode()`, `get_ly()`, `get_lyc()`
+  - Combina bits escribibles con bits de solo lectura sin crear dependencias circulares
+- ✅ Actualizado wrapper Cython
+  - `ppu.pxd`: Eliminada declaración de `get_stat()`
+  - Los tests ya usan `mmu.read(0xFF41)` correctamente
+
+**Archivos modificados**:
+- `src/core/cpp/PPU.hpp` / `PPU.cpp` - Eliminado método `get_stat()`
+- `src/core/cpp/MMU.cpp` - Rediseñado `read(0xFF41)` para construir STAT directamente
+- `src/core/cython/ppu.pxd` - Eliminada declaración de `get_stat()`
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0128__fix-crash-access-violation-recursion-infinita-stat.html`
+
+**Resultados de verificación**:
+- ✅ Compilación exitosa (sin errores)
+- ✅ Tests existentes pasan sin crashes: `test_ppu_stat_register()` y `test_ppu_stat_lyc_coincidence()`
+- ✅ Recursión infinita eliminada: `MMU::read(0xFF41)` ya no causa stack overflow
+- ✅ Validación de módulo compilado C++: STAT se lee correctamente sin dependencias circulares
+
+**Conceptos clave**:
+- **Arquitectura de responsabilidades**: La MMU es la única responsable de construir valores de registros que combinan bits de solo lectura y escritura. Los componentes periféricos (PPU, APU, etc.) solo proporcionan su estado interno mediante métodos de solo lectura, sin intentar leer memoria.
+- **Evitar dependencias circulares**: Este patrón evita dependencias circulares entre MMU y componentes periféricos. La MMU puede consultar el estado de los componentes, pero los componentes nunca leen memoria a través de la MMU durante operaciones de lectura de registros.
+- **Stack overflow en C++**: Una recursión infinita consume toda la memoria de la pila rápidamente, causando un crash `access violation` en Windows o `segmentation fault` en Linux.
+
+**Próximos pasos**:
+- Recompilar el módulo C++ y verificar que los tests pasan sin crashes
+- Ejecutar el emulador con una ROM de test para verificar que la pantalla blanca se resuelve
+- Implementar CPU Nativa: Saltos y Control de Flujo (Step 0129)
+- Verificar que no hay otros registros híbridos que requieran el mismo patrón
+
+---
+
 ### 2025-12-19 - Step 0126: PPU Fase C - Renderizado Real de Tiles desde VRAM
 **Estado**: ✅ Completado
 

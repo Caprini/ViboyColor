@@ -143,6 +143,8 @@ class Viboy:
                 self._mmu = PyMMU()
                 self._cpu = PyCPU(self._mmu, self._regs)
                 self._ppu = PyPPU(self._mmu)
+                # CRÍTICO: Conectar PPU a MMU para lectura dinámica del registro STAT (0xFF41)
+                self._mmu.set_ppu(self._ppu)
             else:
                 # Usar componentes Python (fallback)
                 self._mmu = MMU(None)
@@ -205,6 +207,8 @@ class Viboy:
             # Inicializar CPU y PPU con componentes C++
             self._cpu = PyCPU(self._mmu, self._regs)
             self._ppu = PyPPU(self._mmu)
+            # CRÍTICO: Conectar PPU a MMU para lectura dinámica del registro STAT (0xFF41)
+            self._mmu.set_ppu(self._ppu)
         else:
             # Usar componentes Python (fallback)
             self._mmu = MMU(self._cartridge)
@@ -821,8 +825,20 @@ class Viboy:
                         except Exception:
                             pass
                     
+                    # Obtener modo PPU para diagnóstico
+                    mode_value = 0
+                    try:
+                        if self._use_cpp:
+                            # PPU C++: usar propiedad .mode (definida en ppu.pyx)
+                            mode_value = self._ppu.mode
+                        else:
+                            # PPU Python: usar método get_mode()
+                            mode_value = self._ppu.get_mode()
+                    except AttributeError:
+                        pass
+                    
                     logger.info(
-                        f"💓 Heartbeat ... LY={ly_value} | LCDC=0x{lcdc_value:02X} "
+                        f"💓 Heartbeat ... LY={ly_value} | Mode={mode_value} | LCDC=0x{lcdc_value:02X} "
                         f"(LCD {'ON' if (lcdc_value & 0x80) != 0 else 'OFF'}) "
                         f"| PPU {'viva' if ly_value > 0 or frame_count > 60 else 'inicializando'}"
                     )
