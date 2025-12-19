@@ -88,6 +88,7 @@ En cada interacción que toque código, sigue estos pasos estrictamente:
 5.  **Bitácora y Web**:
     - Generar la entrada HTML correspondiente en `docs/bitacora/entries/`.
     - **ACTUALIZAR SIEMPRE** el archivo `docs/bitacora/index.html` con la nueva entrada.
+    - **ACTUALIZAR SIEMPRE** el archivo `INFORME_FASE_2.md` con la nueva entrada del Step correspondiente.
 6.  **Control de Versiones (CRÍTICO)**:
     - AL FINAL de cada respuesta, proporciona los comandos exactos para:
     - `git add .`
