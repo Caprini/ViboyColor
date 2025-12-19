@@ -719,6 +719,11 @@ class Viboy:
                             # PPU Python: usar método step
                             self._ppu.step(CYCLES_PER_LINE)
                     
+                    # DIAGNÓSTICO: Verificar ciclos ejecutados en el scanline
+                    # Si line_cycles es 0, hay un problema en la CPU C++
+                    if line_cycles == 0:
+                        logger.warning(f"⚠️ ADVERTENCIA: line_cycles=0 en scanline. CPU puede estar detenida.")
+                    
                     # Acumular ciclos del frame (usamos CYCLES_PER_LINE para mantener
                     # sincronización exacta, aunque line_cycles pueda ser ligeramente mayor)
                     frame_cycles += CYCLES_PER_LINE
@@ -772,7 +777,24 @@ class Viboy:
                     
                     # Logging de diagnóstico: Si LY se mueve (0-153), la PPU está viva
                     # Si LY está en 0 después de 60 frames, puede indicar que la PPU no avanza
-                    logger.info(f"💓 Heartbeat ... LY_C++={ly_value} (PPU {'viva' if ly_value > 0 or frame_count > 60 else 'inicializando'})")
+                    # Añadir LCDC para diagnosticar si el LCD está encendido
+                    lcdc_value = 0
+                    if self._mmu is not None:
+                        try:
+                            if self._use_cpp:
+                                # MMU C++: usar método read directamente
+                                lcdc_value = self._mmu.read(0xFF40)
+                            else:
+                                # MMU Python: usar método read
+                                lcdc_value = self._mmu.read(0xFF40)
+                        except Exception:
+                            pass
+                    
+                    logger.info(
+                        f"💓 Heartbeat ... LY={ly_value} | LCDC=0x{lcdc_value:02X} "
+                        f"(LCD {'ON' if (lcdc_value & 0x80) != 0 else 'OFF'}) "
+                        f"| PPU {'viva' if ly_value > 0 or frame_count > 60 else 'inicializando'}"
+                    )
         
         except KeyboardInterrupt:
             # Salir limpiamente con Ctrl+C

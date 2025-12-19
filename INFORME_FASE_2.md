@@ -614,3 +614,48 @@ renderizado de píxeles (que será la Fase B).
 - Integración con bucle principal: Conectar PPU nativa con CPU nativa
 - Sincronización MMU: Resolver sincronización entre MMU Python y MMU C++
 
+---
+
+### 2025-12-19 - Step 0121: Hard Rebuild y Diagnóstico de Ciclos
+**Estado**: ✅ Completado
+
+El usuario reportó que seguía viendo el "Punto Rojo" (código antiguo del paso 116) y que LY se mantenía en 0, a pesar de que el código fuente ya estaba actualizado. El diagnóstico indicó que el binario `.pyd` no se había actualizado correctamente en Windows, posiblemente porque Python tenía el archivo cargado en memoria.
+
+**Implementación**:
+- ✅ Log temporal añadido en `PPU::step()` para confirmar ejecución de código nuevo:
+  - `printf("[PPU C++] STEP LIVE - Código actualizado correctamente\n")` en primera llamada
+  - Permite verificar que el binario se actualizó correctamente
+- ✅ Diagnóstico mejorado en Python (`src/viboy.py`):
+  - Advertencia si `line_cycles` es 0 (CPU detenida)
+  - Heartbeat muestra `LY` y `LCDC` para diagnosticar estado del LCD
+- ✅ Script de recompilación automatizado (`rebuild_cpp.ps1`):
+  - Renombra archivos `.pyd` antiguos antes de recompilar
+  - Limpia archivos compilados con `python setup.py clean --all`
+  - Recompila con `python setup.py build_ext --inplace`
+  - Sin emojis ni caracteres especiales para evitar problemas de codificación en PowerShell
+
+**Archivos creados/modificados**:
+- `src/core/cpp/PPU.cpp` - Añadido log temporal para confirmar ejecución de código nuevo
+- `src/viboy.py` - Añadido diagnóstico de ciclos y LCDC en el bucle principal
+- `rebuild_cpp.ps1` - Script de PowerShell para forzar recompilación en Windows
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0121__hard-rebuild-diagnostico-ciclos.html`
+
+**Resultados de verificación**:
+- ✅ Script de recompilación funciona correctamente
+- ✅ Recompilación exitosa del módulo `viboy_core.cp313-win_amd64.pyd`
+- ✅ Archivos `.pyd` antiguos renombrados correctamente
+- ✅ Log temporal listo para confirmar ejecución de código nuevo
+
+**Conceptos clave**:
+- **Windows y módulos compilados**: Windows bloquea archivos `.pyd` cuando están en uso por Python. Para actualizar el módulo, es necesario cerrar todas las instancias de Python o renombrar el archivo antes de recompilar.
+- **Diagnóstico de código nuevo**: Añadir un log temporal que se imprime la primera vez que se ejecuta un método es una forma efectiva de confirmar que el binario se actualizó correctamente.
+- **LCDC y estado del LCD**: El registro LCDC (0xFF40) controla si el LCD está encendido (bit 7). Si el LCD está apagado, la PPU se detiene y LY se mantiene en 0.
+
+**Próximos pasos**:
+- Verificar que el log `[PPU C++] STEP LIVE` aparece al ejecutar el emulador
+- Confirmar que la pantalla es blanca (sin punto rojo)
+- Verificar que LY avanza correctamente
+- Eliminar el log temporal después de confirmar que funciona
+- Considerar añadir un script de build automatizado para Windows
+

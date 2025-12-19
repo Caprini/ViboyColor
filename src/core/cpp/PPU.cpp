@@ -43,6 +43,15 @@ PPU::~PPU() {
 }
 
 void PPU::step(int cpu_cycles) {
+    // DIAGNÓSTICO TEMPORAL: Confirmar que se ejecuta código nuevo
+    // Este printf solo debe aparecer si el binario se actualizó correctamente
+    // TODO: Eliminar después de verificar que funciona
+    static bool first_call = true;
+    if (first_call) {
+        printf("[PPU C++] STEP LIVE - Código actualizado correctamente\n");
+        first_call = false;
+    }
+    
     // CRÍTICO: Verificar si el LCD está encendido (LCDC bit 7)
     // Si el LCD está apagado, la PPU se detiene y LY se mantiene en 0
     uint8_t lcdc = mmu_->read(IO_LCDC);

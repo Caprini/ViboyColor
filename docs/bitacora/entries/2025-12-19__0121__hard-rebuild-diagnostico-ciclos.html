@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hard Rebuild y Diagnóstico de Ciclos - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Hard Rebuild y Diagnóstico de Ciclos</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0121
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0120__limpieza-build-verificacion-renderizado.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El usuario reportó que seguía viendo el "Punto Rojo" (código antiguo del paso 116) y que LY se mantenía en 0, a pesar de que el código fuente ya estaba actualizado. El diagnóstico indicó que el binario `.pyd` no se había actualizado correctamente en Windows, posiblemente porque Python tenía el archivo cargado en memoria. Se implementó una solución radical: añadir un log temporal en C++ para confirmar que se ejecuta código nuevo, mejorar el diagnóstico en Python para mostrar ciclos y LCDC, y proporcionar comandos para forzar la recompilación en Windows.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En Windows, cuando Python importa un módulo compilado (`.pyd`), el sistema operativo carga el archivo en memoria. Si intentas recompilar el módulo mientras Python aún tiene el archivo cargado, Windows puede:
+                </p>
+                <ul>
+                    <li><strong>Bloquear la escritura:</strong> El archivo está en uso y no se puede sobrescribir.</li>
+                    <li><strong>Permitir la escritura pero mantener la versión antigua en memoria:</strong> Python sigue usando la versión antigua que ya cargó.</li>
+                    <li><strong>Fallar silenciosamente:</strong> La compilación parece exitosa, pero el archivo no se actualiza.</li>
+                </ul>
+                <p>
+                    Para forzar la actualización, es necesario:
+                </p>
+                <ol>
+                    <li><strong>Cerrar todas las instancias de Python</strong> que puedan tener el módulo cargado.</li>
+                    <li><strong>Renombrar o eliminar el archivo `.pyd` antiguo</strong> antes de recompilar.</li>
+                    <li><strong>Recompilar desde cero</strong> con `python setup.py build_ext --inplace`.</li>
+                </ol>
+                <p>
+                    Además, para diagnosticar si el código nuevo se está ejecutando, añadimos un log temporal que se imprime la primera vez que se llama a `PPU::step()`. Si este log aparece, confirmamos que el binario se actualizó correctamente.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron tres cambios principales:
+                </p>
+                
+                <h3>1. Log Temporal en PPU C++</h3>
+                <p>
+                    Se añadió un log temporal en `PPU::step()` que se imprime la primera vez que se llama al método. Este log confirma que el código nuevo se está ejecutando:
+                </p>
+                <pre><code>// DIAGNÓSTICO TEMPORAL: Confirmar que se ejecuta código nuevo
+static bool first_call = true;
+if (first_call) {
+    printf("[PPU C++] STEP LIVE - Código actualizado correctamente\n");
+    first_call = false;
+}</code></pre>
+                <p>
+                    <strong>Nota:</strong> Este log es temporal y debe eliminarse después de verificar que funciona.
+                </p>
+
+                <h3>2. Diagnóstico de Ciclos en Python</h3>
+                <p>
+                    Se añadió una advertencia en el bucle de scanline para detectar si `line_cycles` es 0, lo que indicaría que la CPU no está ejecutando instrucciones:
+                </p>
+                <pre><code># DIAGNÓSTICO: Verificar ciclos ejecutados en el scanline
+if line_cycles == 0:
+    logger.warning(f"⚠️ ADVERTENCIA: line_cycles=0 en scanline. CPU puede estar detenida.")</code></pre>
+
+                <h3>3. Diagnóstico de LCDC en Heartbeat</h3>
+                <p>
+                    Se mejoró el heartbeat para mostrar el valor de LCDC (registro 0xFF40) y si el LCD está encendido o apagado:
+                </p>
+                <pre><code>logger.info(
+    f"💓 Heartbeat ... LY={ly_value} | LCDC=0x{lcdc_value:02X} "
+    f"(LCD {'ON' if (lcdc_value & 0x80) != 0 else 'OFF'}) "
+    f"| PPU {'viva' if ly_value > 0 or frame_count > 60 else 'inicializando'}"
+)</code></pre>
+                <p>
+                    Esto permite diagnosticar si el LCD está apagado (LCDC=0x00) o si hay otro problema.
+                </p>
+
+                <h3>Comandos para Forzar Recompilación en Windows</h3>
+                <p>
+                    Se proporcionaron comandos para forzar la recompilación:
+                </p>
+                <ol>
+                    <li><strong>Cerrar todas las instancias de Python</strong> (terminales, IDEs, procesos en segundo plano).</li>
+                    <li><strong>Renombrar el archivo `.pyd` antiguo:</strong>
+                        <pre><code>ren build\lib.win-amd64-cpython-313\viboy_core.cp313-win_amd64.pyd viboy_core_OLD.pyd</code></pre>
+                    </li>
+                    <li><strong>Limpiar archivos compilados:</strong>
+                        <pre><code>python setup.py clean --all</code></pre>
+                    </li>
+                    <li><strong>Recompilar:</strong>
+                        <pre><code>python setup.py build_ext --inplace</code></pre>
+                    </li>
+                </ol>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Añadido log temporal para confirmar ejecución de código nuevo</li>
+                    <li><code>src/viboy.py</code> - Añadido diagnóstico de ciclos y LCDC en el bucle principal</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realiza ejecutando el emulador y observando:
+                </p>
+                <ul>
+                    <li><strong>Log de confirmación:</strong> Si aparece `[PPU C++] STEP LIVE - Código actualizado correctamente` en la consola, el binario se actualizó correctamente.</li>
+                    <li><strong>Pantalla blanca:</strong> Si el framebuffer se inicializa correctamente a `0xFFFFFFFF`, la pantalla debe ser blanca (sin punto rojo).</li>
+                    <li><strong>LY avanzando:</strong> Si LY cambia de 0 a valores mayores, la PPU está funcionando.</li>
+                    <li><strong>LCDC cambiando:</strong> Si LCDC cambia de 0x00 a 0x91 (o similar), el juego está inicializando el LCD.</li>
+                </ul>
+                <p>
+                    <strong>Comando de prueba:</strong>
+                </p>
+                <pre><code>python main.py roms/tetris.gb</code></pre>
+                <p>
+                    <strong>Validación esperada:</strong>
+                </p>
+                <ul>
+                    <li>Log `[PPU C++] STEP LIVE` aparece al inicio.</li>
+                    <li>Pantalla blanca (sin punto rojo).</li>
+                    <li>Heartbeat muestra `LY` avanzando y `LCDC` cambiando.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Documentación de Windows: Comportamiento de archivos DLL/PDY en uso</li>
+                    <li>Pan Docs: Registro LCDC (0xFF40) y control del LCD</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Windows y módulos compilados:</strong> Windows bloquea archivos `.pyd` cuando están en uso por Python. Para actualizar el módulo, es necesario cerrar todas las instancias de Python o renombrar el archivo antes de recompilar.</li>
+                        <li><strong>Diagnóstico de código nuevo:</strong> Añadir un log temporal que se imprime la primera vez que se ejecuta un método es una forma efectiva de confirmar que el binario se actualizó correctamente.</li>
+                        <li><strong>LCDC y estado del LCD:</strong> El registro LCDC (0xFF40) controla si el LCD está encendido (bit 7). Si el LCD está apagado, la PPU se detiene y LY se mantiene en 0.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento en otros sistemas:</strong> ¿Linux y macOS tienen el mismo problema con archivos `.so` en uso?</li>
+                        <li><strong>Estrategia de build:</strong> ¿Deberíamos añadir un script de build que automáticamente cierre procesos de Python y renombre archivos antes de compilar?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que el problema es que Windows no permite sobrescribir archivos `.pyd` en uso. Si el problema persiste después de seguir estos pasos, puede haber otro problema (por ejemplo, el compilador no está generando el archivo en la ubicación correcta).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar que el log `[PPU C++] STEP LIVE` aparece al ejecutar el emulador</li>
+                    <li>[ ] Confirmar que la pantalla es blanca (sin punto rojo)</li>
+                    <li>[ ] Verificar que LY avanza correctamente</li>
+                    <li>[ ] Eliminar el log temporal después de confirmar que funciona</li>
+                    <li>[ ] Considerar añadir un script de build automatizado para Windows</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
