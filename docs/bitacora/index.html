@@ -59,6 +59,14 @@
                         <p class="summary">Se implementó el sistema completo de interrupciones en C++, añadiendo la capacidad de la CPU para reaccionar al hardware externo (V-Blank, Timer, LCD STAT, Serial, Joypad). Se implementaron 3 nuevos opcodes críticos: DI (0xF3), EI (0xFB) y HALT (0x76), junto con el dispatcher de interrupciones que se ejecuta antes de cada instrucción. El sistema maneja correctamente la prioridad de interrupciones, el retraso de EI y el despertar de HALT. Todos los tests pasan, validando el comportamiento preciso del hardware real.</p>
                     </li>
                     
+                    <!-- Entrada 0112 - PPU Fase B - Renderizado Scanline y Framebuffer -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-19</span>
+                        <span class="tag">0112</span>
+                        <a href="entries/2025-12-19__0112__ppu-renderizado-scanline-framebuffer.html" class="title">PPU Fase B - Renderizado Scanline y Framebuffer</a>
+                        <p class="summary">Se implementó el renderizado línea a línea (scanline rendering) de la PPU en C++, añadiendo la capacidad de generar píxeles reales para Background y Window. El framebuffer se expone como un memoryview de NumPy para transferencia Zero-Copy a Python/Pygame, lo que permite alcanzar rendimientos de miles de FPS potenciales en lugar de los 30 FPS limitados de la implementación Python pura. Esta es la Fase B de la migración de PPU, que transforma el motor de timing en un renderizador completo de píxeles.</p>
+                    </li>
+                    
                     <!-- Entrada 0111 - Migración de PPU (Timing y Estado) a C++ -->
                     <li class="entry-item">
                         <span class="meta">2025-12-19</span>
