@@ -111,6 +111,21 @@ Mantenemos y mejoramos el sistema estricto de la v0.0.1.
 - Usar plantilla `_entry_template.html`.
 - **Rutas Relativas**: Asegurar que CSS e imágenes cargan offline.
 
+**Step ID Correlativo (CRÍTICO):**
+- Los Step IDs son **correlativos** y deben incrementarse secuencialmente.
+- **SIEMPRE** verifica el último Step ID usado en `docs/bitacora/index.html` (primera entrada de la lista).
+- El Step ID es un número de 4 dígitos (ej: 0117, 0118, 0119...).
+- **Proceso:**
+  1. Abre `docs/bitacora/index.html`.
+  2. Busca la primera entrada en `<ul class="entry-list">` (la más reciente).
+  3. Lee el Step ID de esa entrada (ej: "0116").
+  4. El siguiente Step ID será el siguiente número correlativo (ej: "0117").
+  5. Usa este Step ID en:
+     - El nombre del archivo: `YYYY-MM-DD__NNNN__slug.html` (donde NNNN es el Step ID).
+     - El campo `<strong>Step ID:</strong> NNNN` dentro del HTML.
+     - El comentario HTML: `<!-- Entrada NNNN - Título -->`.
+- **NO uses la hora del día** (ej: 1213) como Step ID. El Step ID es independiente de la hora.
+
 **Mantenimiento del Índice (OBLIGATORIO):**
 - **CADA VEZ** que generes una nueva entrada HTML, debes generar también el código o diff para actualizar `docs/bitacora/index.html`.
 - La nueva entrada debe insertarse al **principio** de la lista (`<ul class="entries-list">`) manteniendo este formato exacto:

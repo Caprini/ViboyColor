@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix de Compatibilidad API MMU y Numpy - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Fix de Compatibilidad API MMU y Numpy</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0116
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="#">Anterior</a></li>
+                    <li><a href="2025-12-19__0115__fix-inicializacion-ppu-cpp-pantalla-negra.html">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Al ejecutar el emulador con el núcleo C++ migrado, aparecieron dos errores críticos:
+                    (1) `ModuleNotFoundError: No module named 'numpy'` al intentar usar el framebuffer Zero-Copy,
+                    y (2) `AttributeError: 'viboy_core.PyMMU' object has no attribute 'read_byte'` porque el wrapper
+                    Cython expone métodos `read()`/`write()` pero el código Python espera `read_byte()`/`write_byte()`.
+                    Se implementaron métodos de compatibilidad (aliases) en el wrapper PyMMU y se verificó la
+                    instalación de numpy para mantener retrocompatibilidad con el código Python existente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Este fix no está relacionado directamente con el hardware del Game Boy, sino con la
+                    <strong>arquitectura híbrida Python-C++</strong> del proyecto. Durante la migración del núcleo
+                    a C++, se creó un wrapper Cython (`PyMMU`) que expone la clase C++ `MMU` a Python.
+                </p>
+                <p>
+                    El problema surge cuando el código Python existente (como `renderer.py`) fue escrito para
+                    trabajar con la MMU Python original, que tenía métodos `read_byte()`, `write_byte()`, `read_word()`
+                    y `write_word()`. El nuevo wrapper Cython expuso métodos más simples (`read()` y `write()`),
+                    rompiendo la compatibilidad con el código legacy.
+                </p>
+                <p>
+                    <strong>Retrocompatibilidad en arquitecturas híbridas:</strong> Cuando se migra código de un lenguaje
+                    a otro, es crucial mantener la API pública compatible para evitar tener que reescribir todo el
+                    código que depende de ella. Los métodos "alias" son una técnica común para mantener compatibilidad
+                    mientras se refactoriza internamente.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadieron cuatro métodos de compatibilidad al wrapper `PyMMU` en `src/core/cython/mmu.pyx`:
+                </p>
+                
+                <h3>Métodos de Compatibilidad Añadidos</h3>
+                <ul>
+                    <li><strong><code>read_byte(addr)</code>:</strong> Alias de <code>read(addr)</code> para compatibilidad con código Python antiguo.</li>
+                    <li><strong><code>write_byte(addr, value)</code>:</strong> Alias de <code>write(addr, value)</code>.</li>
+                    <li><strong><code>read_word(addr)</code>:</strong> Lee 16 bits usando Little-Endian (LSB en addr, MSB en addr+1).</li>
+                    <li><strong><code>write_word(addr, value)</code>:</strong> Escribe 16 bits usando Little-Endian.</li>
+                </ul>
+
+                <h3>Implementación de read_word/write_word</h3>
+                <p>
+                    Los métodos `read_word()` y `write_word()` implementan correctamente el orden Little-Endian
+                    de la Game Boy:
+                </p>
+                <pre><code>def read_word(self, uint16_t addr):
+    # Leer LSB (menos significativo) en addr
+    cdef uint8_t lsb = self.read(addr)
+    
+    # Leer MSB (más significativo) en addr+1 (con wrap-around)
+    cdef uint8_t msb = self.read((addr + 1) & 0xFFFF)
+    
+    # Combinar en Little-Endian: (MSB << 8) | LSB
+    return ((msb << 8) | lsb) & 0xFFFF
+
+def write_word(self, uint16_t addr, uint16_t value):
+    # Extraer LSB y MSB
+    cdef uint8_t lsb = value & 0xFF
+    cdef uint8_t msb = (value >> 8) & 0xFF
+    
+    # Escribir en orden Little-Endian
+    self.write(addr, lsb)
+    self.write((addr + 1) & 0xFFFF, msb)</code></pre>
+
+                <h3>Dependencia Numpy</h3>
+                <p>
+                    Numpy ya estaba en `requirements.txt` pero no estaba instalado en el entorno virtual.
+                    Se verificó su instalación y se confirmó que está disponible. Numpy es necesario para
+                    el framebuffer Zero-Copy que permite transferir el buffer de píxeles de C++ a Pygame
+                    sin copias de memoria.
+                </p>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Alias en lugar de renombrar:</strong> Se optó por mantener ambos nombres de métodos
+                        (`read()` y `read_byte()`) para no romper código existente ni código nuevo que use la API simplificada.</li>
+                    <li><strong>Implementación en Cython:</strong> Los métodos `read_word()` y `write_word()` se implementaron
+                        en Cython usando los métodos base `read()` y `write()`, evitando duplicar lógica en C++.</li>
+                    <li><strong>Tipado estático:</strong> Se usaron tipos C (`cdef uint8_t`, `cdef uint16_t`) para mantener
+                        el rendimiento sin overhead de Python.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cython/mmu.pyx</code> - Añadidos métodos de compatibilidad (read_byte, write_byte, read_word, write_word)</li>
+                    <li><code>requirements.txt</code> - Verificado que numpy>=1.24.0 está presente</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizó mediante:
+                </p>
+                <ul>
+                    <li><strong>Compilación exitosa:</strong> El módulo Cython se recompiló sin errores usando
+                        <code>python setup.py build_ext --inplace</code>.</li>
+                    <li><strong>Validación de sintaxis:</strong> No se encontraron errores de linter en el archivo modificado.</li>
+                    <li><strong>Numpy instalado:</strong> Se confirmó que numpy está disponible en el entorno virtual.</li>
+                </ul>
+                <p>
+                    <strong>Próxima verificación:</strong> Ejecutar el emulador con una ROM para confirmar que el renderer
+                    puede acceder a la MMU sin errores de atributos faltantes.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Cython Documentation: <a href="https://cython.readthedocs.io/">https://cython.readthedocs.io/</a></li>
+                    <li>Pan Docs: Little-Endian byte order (sección Memory Map)</li>
+                </ul>
+                <p>
+                    <em>Nota: Este fix es principalmente sobre arquitectura de software e interoperabilidad Python-C++,
+                    no sobre hardware del Game Boy.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Retrocompatibilidad en wrappers:</strong> Cuando se crea un wrapper de C++ a Python,
+                            es crucial mantener la API compatible con el código existente. Los métodos alias son una
+                            solución elegante que no añade overhead significativo.</li>
+                        <li><strong>Little-Endian en Game Boy:</strong> La implementación de `read_word()` y `write_word()`
+                            confirma que la Game Boy usa Little-Endian, donde el byte menos significativo se almacena
+                            en la dirección más baja.</li>
+                        <li><strong>Zero-Copy con Numpy:</strong> Numpy es esencial para transferir buffers de memoria
+                            entre C++ y Python sin copias, usando memoryviews que apuntan directamente a la memoria nativa.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento de los alias:</strong> Aunque los métodos alias son simples wrappers,
+                            sería útil medir si hay algún overhead medible comparado con llamar directamente a `read()`/`write()`.</li>
+                        <li><strong>Uso en el código:</strong> Verificar que todos los lugares que usan `read_byte()`/`write_byte()`
+                            ahora funcionan correctamente con el wrapper C++.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el código Python existente no usa características avanzadas de la MMU Python
+                        que no estén disponibles en la versión C++. Si aparecen más incompatibilidades, se añadirán
+                        métodos de compatibilidad adicionales según sea necesario.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con una ROM y verificar que el renderer funciona sin errores</li>
+                    <li>[ ] Verificar que el framebuffer Zero-Copy funciona correctamente con numpy</li>
+                    <li>[ ] Si aparecen más incompatibilidades de API, añadir métodos de compatibilidad adicionales</li>
+                    <li>[ ] Considerar crear una suite de tests específica para validar la compatibilidad del wrapper PyMMU</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

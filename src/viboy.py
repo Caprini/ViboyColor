@@ -298,36 +298,43 @@ class Viboy:
             # SP inicializado a 0xFFFE (top de la pila)
             self._regs.sp = 0xFFFE
             
-            # VERSIÓN 0.0.1: Valores CGB exactos para compatibilidad máxima
-            # AF = 0x1180 (A=0x11 indica CGB, F=0x80 con Z flag activo)
-            self._regs.a = 0x11
-            self._regs.f = 0x80  # Z flag activo
+            # CRÍTICO: Forzar Modo DMG (A=0x01) porque el PPU C++ solo soporta DMG por ahora
+            # El registro A determina la identidad del hardware:
+            # - A = 0x01: Game Boy Clásica (DMG) - SOPORTADO
+            # - A = 0x11: Game Boy Color (CGB) - NO SOPORTADO AÚN EN C++
+            # 
+            # Al forzar A=0x01, los juegos se comportarán como en una Game Boy gris,
+            # evitando que intenten usar características CGB que no están implementadas.
+            # AF = 0x01B0 (A=0x01 indica DMG, F=0xB0 con flags estándar)
+            self._regs.a = 0x01
+            self._regs.f = 0xB0  # Flags estándar DMG
             
-            # BC = 0x0000
+            # BC = 0x0013 (valor típico de Boot ROM DMG)
             self._regs.b = 0x00
-            self._regs.c = 0x00
+            self._regs.c = 0x13
             
-            # DE = 0xFF56
-            self._regs.d = 0xFF
-            self._regs.e = 0x56
+            # DE = 0x00D8 (valor típico de Boot ROM DMG)
+            self._regs.d = 0x00
+            self._regs.e = 0xD8
             
-            # HL = 0x000D
-            self._regs.h = 0x00
-            self._regs.l = 0x0D
+            # HL = 0x014D (valor típico de Boot ROM DMG)
+            self._regs.h = 0x01
+            self._regs.l = 0x4D
             
             # Verificar que se estableció correctamente
             reg_a = self._regs.a
-            if reg_a != 0x11:
-                logger.error(f"⚠️ ERROR: Registro A no se estableció correctamente. Esperado: 0x11, Obtenido: 0x{reg_a:02X}")
+            if reg_a != 0x01:
+                logger.error(f"⚠️ ERROR: Registro A no se estableció correctamente. Esperado: 0x01, Obtenido: 0x{reg_a:02X}")
             else:
                 logger.info(
-                    f"✅ Post-Boot State (CGB): PC=0x{self._regs.pc:04X}, "
+                    f"✅ Post-Boot State (DMG forzado): PC=0x{self._regs.pc:04X}, "
                     f"SP=0x{self._regs.sp:04X}, "
-                    f"A=0x{reg_a:02X} (CGB mode), "
+                    f"A=0x{reg_a:02X} (DMG mode), "
                     f"BC=0x{self._regs.bc:04X}, "
                     f"DE=0x{self._regs.de:04X}, "
                     f"HL=0x{self._regs.hl:04X}"
                 )
+                logger.info("🔧 Core C++: Forzado Modo DMG (A=0x01) - PPU C++ solo soporta DMG por ahora")
         else:
             # Usar componentes Python (fallback)
             # PC inicializado a 0x0100 (inicio del código del cartucho)

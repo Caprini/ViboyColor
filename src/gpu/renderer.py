@@ -425,33 +425,33 @@ class Renderer:
                 framebuffer = self.cpp_ppu.framebuffer
                 
                 # El framebuffer es uint32_t en formato ARGB32 (0xAARRGGBB)
-                # Necesitamos convertirlo a una superficie pygame
-                # Usar numpy para reshape y luego convertir a superficie
-                import numpy as np
+                # Pygame espera RGBA, así que necesitamos convertir ARGB -> RGBA
+                # Conversión: ARGB (0xAARRGGBB) -> RGBA (0xRRGGBBAA)
+                # Esto requiere reordenar los bytes: A R G B -> R G B A
                 
-                # Reshape a (144, 160) - altura x ancho
-                # El framebuffer es un array plano de 144*160 = 23040 elementos
-                fb_array = np.frombuffer(framebuffer, dtype=np.uint32).reshape((144, 160))
+                # Crear un bytearray para la conversión (160*144*4 = 92160 bytes)
+                rgba_buffer = bytearray(160 * 144 * 4)
                 
-                # Convertir ARGB32 a RGBA para pygame
-                # ARGB32: 0xAARRGGBB -> RGBA: (R, G, B, A)
-                # Extraer componentes usando operaciones vectorizadas
-                r = (fb_array >> 16) & 0xFF
-                g = (fb_array >> 8) & 0xFF
-                b = fb_array & 0xFF
-                a = (fb_array >> 24) & 0xFF
+                # Convertir cada píxel de ARGB a RGBA
+                for i in range(160 * 144):
+                    argb = framebuffer[i]
+                    # Extraer componentes ARGB
+                    a = (argb >> 24) & 0xFF
+                    r = (argb >> 16) & 0xFF
+                    g = (argb >> 8) & 0xFF
+                    b = argb & 0xFF
+                    # Reordenar a RGBA
+                    rgba_buffer[i * 4 + 0] = r
+                    rgba_buffer[i * 4 + 1] = g
+                    rgba_buffer[i * 4 + 2] = b
+                    rgba_buffer[i * 4 + 3] = a
                 
-                # Crear array RGBA (144, 160, 4)
-                rgba_array = np.stack([r, g, b, a], axis=2).astype(np.uint8)
-                
-                # Crear superficie pygame desde el array
-                # pygame.surfarray.make_surface espera (width, height, 3) o (width, height, 4)
-                # y el array debe estar en formato (width, height) no (height, width)
-                # Necesitamos transponer: (144, 160, 4) -> (160, 144, 4)
-                rgba_array = rgba_array.swapaxes(0, 1)
-                
-                # Crear superficie (pygame espera formato (width, height, channels))
-                surface = pygame.surfarray.make_surface(rgba_array)
+                # Crear superficie desde el buffer RGBA (Zero-Copy después de la conversión)
+                surface = pygame.image.frombuffer(
+                    rgba_buffer, 
+                    (160, 144), 
+                    "RGBA"
+                )
                 
                 # Escalar y hacer blit
                 scaled_surface = pygame.transform.scale(surface, (self.window_width, self.window_height))
@@ -462,6 +462,10 @@ class Renderer:
                 return
             except Exception as e:
                 # Fallback a método Python si hay error
+                logger.error(f"Error crítico renderizando frame C++: {e}")
+                # Fallback a pantalla roja para indicar error grave
+                self.screen.fill((255, 0, 0))
+                pygame.display.flip()
                 logger.warning(f"Error al usar framebuffer C++: {e}. Usando método Python.")
                 self.use_cpp_ppu = False
         

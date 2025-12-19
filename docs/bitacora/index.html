@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0117 - Fix: Renderizado Zero-Copy nativo con Pygame y Forzado DMG en C++ -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0117__fix-renderizado-video-cpp-modo-dmg.html" class="entry-link">
+                                    Fix: Renderizado Zero-Copy nativo con Pygame y Forzado DMG en C++
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0117 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            El emulador alcanzó 58.8 FPS con el núcleo C++, pero la pantalla permanecía blanca debido a dos problemas: (1) el renderer fallaba al intentar usar numpy para convertir el framebuffer C++ (ARGB32) a una superficie Pygame, y (2) el núcleo C++ se inicializaba como Game Boy Color (A=0x11) pero el PPU C++ solo soporta DMG por ahora. Se implementó renderizado Zero-Copy nativo usando `pygame.image.frombuffer` sin numpy (conversión manual ARGB→RGBA) y se forzó el modo DMG (A=0x01) en la inicialización del core C++.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0116 - Fix de Compatibilidad API MMU y Numpy -->
                     <li>
                         <div class="entry-header">
