@@ -38,12 +38,20 @@ cdef class PyPPU:
             raise ValueError("PyPPU: mmu no puede ser None")
         if mmu._mmu == NULL:
             raise ValueError("PyPPU: mmu._mmu es NULL - MMU no inicializada correctamente")
+        
+        # ¡LÍNEA CRÍTICA! Crear el objeto C++ PPU
+        # La función mmu._mmu extrae el puntero MMU* crudo del wrapper PyMMU
         self._ppu = new ppu.PPU(mmu._mmu)
+        
+        # CRÍTICO: Verificar que la creación fue exitosa
+        if self._ppu == NULL:
+            raise MemoryError("PyPPU: No se pudo crear la instancia de PPU en C++ - new PPU() falló")
     
     def __dealloc__(self):
         """Destructor: libera la memoria C++."""
         if self._ppu != NULL:
             del self._ppu
+            self._ppu = NULL
     
     def step(self, int cpu_cycles):
         """
@@ -55,7 +63,9 @@ cdef class PyPPU:
         Args:
             cpu_cycles: Número de T-Cycles (ciclos de reloj) a procesar
         """
+        # CRÍTICO: Verificar que el puntero C++ no sea nulo antes de usarlo
         if self._ppu == NULL:
+            print("[CYTHON CRITICAL] ¡El puntero PPU C++ (_ppu) es NULO! La creación falló en __cinit__.")
             return
         self._ppu.step(cpu_cycles)
     

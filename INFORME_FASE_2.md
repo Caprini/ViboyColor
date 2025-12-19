@@ -32,8 +32,28 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-19 - Step 0142: Fix: Corregir Creación de PPU en Wrapper Cython para Resolver Puntero Nulo
+**Estado**: ✅ Completado
+
+El diagnóstico del Step 0141 reveló que el `Segmentation Fault` ocurría **antes** de que se ejecutara cualquier código dentro de `render_scanline()`, lo que confirmó que el problema estaba en el wrapper de Cython: el puntero al objeto PPU de C++ era nulo (`nullptr`). 
+
+**Correcciones aplicadas:**
+- ✅ Mejorado el constructor `__cinit__` de `PyPPU` en `ppu.pyx` añadiendo verificación explícita después de crear el objeto C++ con `new PPU()`
+- ✅ Añadida verificación de seguridad en el método `step()` para detectar si el puntero es nulo antes de llamar al método C++
+- ✅ Mejorado el destructor `__dealloc__` para asignar explícitamente `NULL` después de liberar el objeto
+- ✅ Eliminadas las verificaciones temporales de diagnóstico en `PPU.cpp` (eliminado `#include <cstdio>` y el `printf`)
+
+**Resultado del diagnóstico (Step 0141):**
+El hecho de que el mensaje `printf` del Step 0141 nunca se ejecutara confirmó que el crash ocurría en la llamada al método mismo, no dentro de él. Esto indicó definitivamente que el puntero `self._ppu` en el wrapper de Cython era nulo.
+
+**Próximos pasos:**
+- Recompilar el módulo C++ y ejecutar el emulador para verificar que el `Segmentation Fault` está resuelto
+- Si está resuelto, verificar que la PPU está renderizando gráficos correctamente
+
+---
+
 ### 2025-12-19 - Step 0141: Debug: Verificación de Puntero Nulo en la PPU
-**Estado**: 🔍 En depuración
+**Estado**: ✅ Completado (Diagnóstico exitoso)
 
 Se añadió una verificación de diagnóstico temporal en el método `render_scanline()` de la PPU para confirmar si el puntero a la MMU es nulo cuando se llama al método. Esta verificación utiliza `printf` para emitir un mensaje crítico que confirme si el problema está en la capa de Cython, específicamente en cómo se pasa el puntero desde el wrapper de Cython al constructor de la PPU en C++.
 
