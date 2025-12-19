@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0141 - Debug: Verificación de Puntero Nulo en la PPU -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0141__debug-verificacion-puntero-nulo-ppu.html" class="entry-link">
+                                    Debug: Verificación de Puntero Nulo en la PPU
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0141 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se añadió una verificación de diagnóstico temporal en el método render_scanline() de la PPU para confirmar si el puntero a la MMU es nulo cuando se llama al método. Esta verificación utiliza printf para emitir un mensaje crítico que confirme si el problema está en la capa de Cython, específicamente en cómo se pasa el puntero desde el wrapper de Cython al constructor de la PPU en C++. La hipótesis principal es que el puntero MMU* que se pasa al constructor de la PPU desde el wrapper de Cython ya es un puntero nulo (nullptr), y el problema no está en la asignación dentro del constructor, sino en el valor que se está pasando.
+                        </p>
+                    </li>
                     <!-- Entrada 0140 - Fix: Conexión PPU a MMU para Resolver Crash de Puntero Nulo -->
                     <li>
                         <div class="entry-header">

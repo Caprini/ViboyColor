@@ -1,5 +1,6 @@
 #include "PPU.hpp"
 #include "MMU.hpp"
+#include <cstdio>
 
 PPU::PPU(MMU* mmu) 
     : mmu_(mmu)
@@ -250,8 +251,10 @@ uint8_t* PPU::get_framebuffer_ptr() {
 
 void PPU::render_scanline() {
     // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
-    if (mmu_ == nullptr) {
-        return;
+    // AÑADE ESTA VERIFICACIÓN CRÍTICA AL INICIO DEL MÉTODO
+    if (this->mmu_ == nullptr) {
+        printf("[PPU CRITICAL] ¡El puntero a la MMU es NULO! El problema está en la capa de Cython.\n");
+        return; // Salimos pronto para evitar el crash y ver el mensaje.
     }
     
     // Solo renderizar si estamos en una línea visible (0-143)

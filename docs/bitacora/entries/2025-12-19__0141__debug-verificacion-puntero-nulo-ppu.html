@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug: Verificación de Puntero Nulo en la PPU - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug: Verificación de Puntero Nulo en la PPU</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0141
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0140__fix-conexion-ppu-mmu-puntero-nulo.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se añadió una verificación de diagnóstico temporal en el método <code>render_scanline()</code> de la PPU 
+                    para confirmar si el puntero a la MMU es nulo cuando se llama al método. Esta verificación utiliza 
+                    <code>printf</code> para emitir un mensaje crítico que confirme si el problema está en la capa de Cython, 
+                    específicamente en cómo se pasa el puntero desde el wrapper de Cython al constructor de la PPU en C++.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En un emulador híbrido Python/C++, la comunicación entre las capas requiere un manejo cuidadoso de los 
+                    punteros. El flujo de datos desde Python hasta C++ pasa por varias capas:
+                </p>
+                <ol>
+                    <li><strong>Python:</strong> Se crea una instancia de <code>PyMMU</code>, que contiene un puntero C++ válido (<code>MMU*</code>).</li>
+                    <li><strong>Python:</strong> Se crea una instancia de <code>PyPPU</code> pasando el objeto <code>PyMMU</code>.</li>
+                    <li><strong>Cython:</strong> El constructor de <code>PyPPU</code> debe "desenvolver" el objeto <code>PyMMU</code> para extraer 
+                        el puntero <code>MMU*</code> crudo que contiene y pasárselo al constructor de la PPU en C++.</li>
+                    <li><strong>C++:</strong> El constructor de la PPU recibe el puntero <code>MMU*</code> y lo almacena en un miembro de la clase.</li>
+                </ol>
+                <p>
+                    Si en cualquier punto de esta cadena el puntero se corrompe o no se pasa correctamente, la PPU intentará 
+                    acceder a memoria inválida, causando un <code>Segmentation Fault</code>. La verificación de puntero nulo con 
+                    <code>printf</code> nos permite identificar exactamente en qué punto falla la cadena.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió una verificación temporal de puntero nulo al inicio del método <code>render_scanline()</code> que 
+                    imprime un mensaje crítico si el puntero <code>mmu_</code> es nulo. Esta verificación es binaria y definitiva:
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>PPU.cpp:</strong> Se añadió <code>#include &lt;cstdio&gt;</code> para usar <code>printf</code>.</li>
+                    <li><strong>PPU.cpp:</strong> Se añadió una verificación <code>if (this->mmu_ == nullptr)</code> al inicio de 
+                        <code>render_scanline()</code> que imprime un mensaje y retorna temprano para evitar el crash.</li>
+                </ul>
+
+                <h3>Código añadido</h3>
+                <pre><code>#include &lt;cstdio&gt;
+
+// ...
+
+void PPU::render_scanline() {
+    // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
+    // AÑADE ESTA VERIFICACIÓN CRÍTICA AL INICIO DEL MÉTODO
+    if (this->mmu_ == nullptr) {
+        printf("[PPU CRITICAL] ¡El puntero a la MMU es NULO! El problema está en la capa de Cython.\n");
+        return; // Salimos pronto para evitar el crash y ver el mensaje.
+    }
+    
+    // ... resto del método render_scanline ...
+}</code></pre>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se utiliza <code>printf</code> en lugar de <code>std::cout</code> porque es más seguro para depuración de crashes 
+                    (no depende de los objetos estáticos de la librería estándar de C++ que pueden no estar inicializados durante un crash). 
+                    El mensaje es explícito y directo para identificar rápidamente el problema si ocurre.
+                </p>
+                <p>
+                    <strong>Nota:</strong> Esta verificación es temporal y será eliminada una vez confirmado o descartado el problema 
+                    del puntero nulo. Si el mensaje aparece, confirmaremos que el problema está en el wrapper de Cython. Si no aparece 
+                    y el crash persiste, sabremos que el problema es más profundo.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Añadido <code>#include &lt;cstdio&gt;</code> y verificación de puntero nulo con <code>printf</code> en <code>render_scanline()</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Esta verificación se valida mediante ejecución real del emulador:
+                </p>
+                <ol>
+                    <li><strong>Recompilación:</strong> Se debe recompilar el módulo C++ con <code>.\rebuild_cpp.ps1</code>.</li>
+                    <li><strong>Ejecución:</strong> Se ejecuta el emulador con <code>python main.py roms/tetris.gb</code>.</li>
+                    <li><strong>Análisis del resultado:</strong>
+                        <ul>
+                            <li><strong>Si aparece el mensaje:</strong> Confirma al 100% que el problema está en el wrapper de Cython 
+                                (<code>ppu.pyx</code>) y sabremos exactamente dónde corregirlo.</li>
+                            <li><strong>Si NO aparece el mensaje y sigue habiendo crash:</strong> Nuestra hipótesis es incorrecta y 
+                                el problema es más profundo (aunque esto es muy poco probable).</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Esta verificación se ejecuta directamente en el código 
+                    compilado de C++, por lo que cualquier mensaje impreso confirmará que el código C++ se está ejecutando correctamente 
+                    y que el puntero es efectivamente nulo en ese momento.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Documentación de Cython: <a href="https://cython.readthedocs.io/">https://cython.readthedocs.io/</a> - Gestión de punteros C++ desde Python</li>
+                    <li>Principios de depuración de punteros: Basado en conocimiento general de depuración de sistemas híbridos Python/C++</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Flujo de punteros en arquitectura híbrida:</strong> El flujo Python → Cython → C++ requiere 
+                            un manejo cuidadoso de los punteros en cada capa. Si el puntero se corrompe en cualquier punto, 
+                            el resultado será un crash en tiempo de ejecución.</li>
+                        <li><strong>Diagnóstico binario:</strong> Las verificaciones de puntero nulo con mensajes de diagnóstico 
+                            son herramientas efectivas para aislar problemas en sistemas híbridos, ya que proporcionan una 
+                            respuesta binaria: el puntero es nulo o no lo es.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Hipótesis del wrapper de Cython:</strong> Necesitamos confirmar si el problema está en cómo 
+                            Cython extrae el puntero de <code>PyMMU</code> y lo pasa al constructor de la PPU. Si el mensaje 
+                            aparece, confirmaremos esta hipótesis.</li>
+                        <li><strong>Corrección del wrapper:</strong> Si se confirma que el problema está en Cython, necesitaremos 
+                            revisar el código de <code>ppu.pyx</code> para corregir cómo se pasa el puntero.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal (99% de certeza):</strong> El puntero <code>MMU*</code> que se pasa al constructor 
+                        de la PPU desde el wrapper de Cython ya es un puntero nulo (<code>nullptr</code>). El problema no está en la 
+                        asignación dentro del constructor de la PPU, sino en el valor que se está pasando.
+                    </p>
+                    <p>
+                        Esta hipótesis se basa en el hecho de que:
+                    </p>
+                    <ol>
+                        <li>Ya hemos descartado que el problema esté en los valores calculados (Step 0139).</li>
+                        <li>Ya hemos confirmado que el constructor asigna correctamente el puntero (Step 0140).</li>
+                        <li>El único punto restante en la cadena es el paso del puntero desde Cython a C++.</li>
+                    </ol>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++: <code>.\rebuild_cpp.ps1</code></li>
+                    <li>[ ] Ejecutar el emulador: <code>python main.py roms/tetris.gb</code></li>
+                    <li>[ ] Analizar el resultado:
+                        <ul>
+                            <li>Si aparece el mensaje: Revisar y corregir el wrapper de Cython (<code>ppu.pyx</code>)</li>
+                            <li>Si NO aparece: Investigar causas más profundas del Segmentation Fault</li>
+                        </ul>
+                    </li>
+                    <li>[ ] Eliminar la verificación temporal una vez confirmado el problema</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

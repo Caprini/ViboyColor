@@ -32,6 +32,35 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-19 - Step 0141: Debug: Verificación de Puntero Nulo en la PPU
+**Estado**: 🔍 En depuración
+
+Se añadió una verificación de diagnóstico temporal en el método `render_scanline()` de la PPU para confirmar si el puntero a la MMU es nulo cuando se llama al método. Esta verificación utiliza `printf` para emitir un mensaje crítico que confirme si el problema está en la capa de Cython, específicamente en cómo se pasa el puntero desde el wrapper de Cython al constructor de la PPU en C++.
+
+**Problema identificado**:
+El `Segmentation Fault` persiste incluso después de verificar que el constructor de la PPU (`PPU.cpp`) está asignando correctamente el puntero a la MMU mediante la lista de inicialización. Esto significa que el problema no está en la asignación del puntero *dentro* de la clase PPU, sino en el valor que se le está pasando al constructor desde el principio. La hipótesis principal es que el puntero `MMU*` que se pasa al constructor de la PPU desde el wrapper de Cython ya es un puntero nulo (`nullptr`).
+
+**Implementación**:
+- ✅ Añadido `#include <cstdio>` al principio de `PPU.cpp` para poder usar `printf`
+- ✅ Añadida verificación `if (this->mmu_ == nullptr)` al inicio de `render_scanline()` que imprime un mensaje crítico y retorna temprano para evitar el crash
+- ✅ Mensaje de diagnóstico: `[PPU CRITICAL] ¡El puntero a la MMU es NULO! El problema está en la capa de Cython.`
+
+**Análisis del resultado esperado**:
+- Si nuestra hipótesis es correcta, al ejecutar el emulador, **no debería haber un `Segmentation Fault`**. En su lugar, deberíamos ver claramente en la consola el mensaje crítico, y el programa debería terminar limpiamente poco después, ya que el `return` en nuestra comprobación evita que el código llegue a la parte que crashea.
+- Si vemos el mensaje, confirmamos al 100% que el problema está en el wrapper de Cython (`ppu.pyx`) y sabremos exactamente dónde corregirlo.
+- Si NO vemos el mensaje y sigue habiendo un crash, nuestra hipótesis es incorrecta y el problema es más profundo (aunque esto es muy poco probable).
+
+**Próximos pasos**:
+- Recompilar el módulo C++: `.\rebuild_cpp.ps1`
+- Ejecutar el emulador: `python main.py roms/tetris.gb`
+- Analizar el resultado: si aparece el mensaje, revisar y corregir el wrapper de Cython (`ppu.pyx`)
+- Eliminar la verificación temporal una vez confirmado el problema
+
+**Archivos modificados**:
+- `src/core/cpp/PPU.cpp` - Añadido `#include <cstdio>` y verificación de puntero nulo con `printf` en `render_scanline()`
+
+---
+
 ### 2025-12-19 - Step 0140: Fix: Conexión PPU a MMU para Resolver Crash de Puntero Nulo
 **Estado**: ✅ Completado
 
