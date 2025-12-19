@@ -172,6 +172,16 @@ cdef class PyPPU:
         cdef unsigned char[:] view = <unsigned char[:144*160]>ptr
         return view
     
+    @property
+    def framebuffer(self):
+        """
+        Propiedad para acceso al framebuffer (compatibilidad con tests existentes).
+        
+        Returns:
+            memoryview de uint8_t 1D con 23040 elementos - Zero-Copy directo a memoria C++.
+        """
+        return self.get_framebuffer()
+    
     # Método para obtener el puntero C++ como entero (para evitar problemas de conversión)
     def get_cpp_ptr_as_int(self):
         """Obtiene el puntero C++ interno como entero (para uso en otros módulos Cython)."""

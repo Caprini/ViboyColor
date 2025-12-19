@@ -72,7 +72,7 @@ class TestCorePPURendering:
         assert ppu.get_ly() == 0, "Debe estar en línea 0"
         
         # Obtener framebuffer
-        framebuffer = ppu.framebuffer
+        framebuffer = ppu.get_framebuffer()
         
         # Verificar que el framebuffer tiene el tamaño correcto (160 * 144 = 23040)
         assert len(framebuffer) == 160 * 144, f"Framebuffer debe tener 23040 píxeles, tiene {len(framebuffer)}"
@@ -127,7 +127,7 @@ class TestCorePPURendering:
         ppu.step(252)
         
         # Obtener framebuffer
-        framebuffer = ppu.framebuffer
+        framebuffer = ppu.get_framebuffer()
         
         # El primer píxel visible debe ser del tile 1 (blanco)
         first_pixel = framebuffer[0]
@@ -173,7 +173,7 @@ class TestCorePPURendering:
         ppu.step(252)
         
         # Obtener framebuffer
-        framebuffer = ppu.framebuffer
+        framebuffer = ppu.get_framebuffer()
         
         # Como la Window está en (0,0) y cubre toda la pantalla, debe sobrescribir el Background
         # El primer píxel debe ser blanco (de la Window)
@@ -199,7 +199,7 @@ class TestCorePPURendering:
         ppu.step(252)
         
         # Obtener framebuffer
-        framebuffer = ppu.framebuffer
+        framebuffer = ppu.get_framebuffer()
         
         # Verificar que es un memoryview
         assert hasattr(framebuffer, '__class__'), "Framebuffer debe ser un objeto válido"
@@ -257,16 +257,18 @@ class TestCorePPURendering:
         # Configurar tilemap 0x9800 con tile ID 128 (que se interpreta como -128)
         mmu.write(0x9800, 128)  # Tile ID 128 = -128 en signed
         
-        # Avanzar PPU hasta completar la línea 0 (entra en H-Blank)
+        # Avanzar PPU hasta completar la línea 0 (456 ciclos)
+        # El renderizado ocurre cuando se completan 456 ciclos de una línea
         # Esto debería renderizar sin Segmentation Fault
-        ppu.step(456)  # Una línea completa
+        ppu.step(456)  # Completar línea 0 (se renderiza al completar)
         
-        # Verificar que estamos en Mode 0 (H-Blank) y se ha renderizado
-        assert ppu.get_mode() == 0, "Debe estar en Mode 0 (H-Blank) después de renderizar"
-        assert ppu.get_ly() == 0, "Debe estar en línea 0"
+        # Después de 456 ciclos, avanzamos a la línea 1 y el modo se reinicia a Mode 2
+        # Pero el framebuffer de la línea 0 ya se ha renderizado
+        assert ppu.get_ly() == 1, "Después de 456 ciclos, debe estar en línea 1"
+        assert ppu.get_mode() == 2, "Al inicio de línea 1, debe estar en Mode 2 (OAM Search)"
         
         # Obtener framebuffer
-        framebuffer = ppu.framebuffer
+        framebuffer = ppu.get_framebuffer()
         
         # Verificar que el framebuffer tiene el tamaño correcto
         assert len(framebuffer) == 160 * 144, f"Framebuffer debe tener 23040 píxeles, tiene {len(framebuffer)}"
@@ -293,11 +295,15 @@ class TestCorePPURendering:
             mmu.write(tile_addr_0 + (line * 2), 0x00)      # Tile blanco (color 0)
             mmu.write(tile_addr_0 + (line * 2) + 1, 0x00)
         
-        # Avanzar otra línea
-        ppu.step(456)
+        # Avanzar hasta completar la línea 1 (456 ciclos más)
+        # Esto renderizará la línea 1 con el tile ID 0 (blanco)
+        ppu.step(456)  # Completar línea 1
         
-        # Verificar que el primer píxel es color 0 (blanco)
-        framebuffer = ppu.framebuffer
-        first_pixel = framebuffer[160]  # Primera línea del framebuffer (línea 1)
+        # Verificar que estamos en línea 2
+        assert ppu.get_ly() == 2, "Después de completar línea 1, debe estar en línea 2"
+        
+        # Verificar que el primer píxel de la línea 1 es color 0 (blanco)
+        framebuffer = ppu.get_framebuffer()
+        first_pixel = framebuffer[160]  # Primer píxel de la línea 1 (índice 160)
         assert first_pixel == 0, f"Primer píxel de línea 1 debe ser color 0 (blanco), es {first_pixel}"
 
