@@ -5,6 +5,8 @@ Wrapper Cython para NativeCore.
 
 Este módulo expone la clase C++ NativeCore a Python, permitiendo
 que el código Python llame a funciones C++ compiladas.
+
+También incluye el módulo MMU para gestión de memoria de alta velocidad.
 """
 
 from libcpp cimport bool
@@ -15,6 +17,9 @@ cdef extern from "NativeCore.hpp":
     cdef cppclass NativeCore:
         NativeCore() except +
         int add(int a, int b)
+
+# Incluir el módulo MMU
+include "mmu.pyx"
 
 # Clase Python que envuelve la clase C++
 cdef class PyNativeCore:

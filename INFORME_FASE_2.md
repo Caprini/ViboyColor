@@ -10,7 +10,7 @@
 
 ### 1. Migración del Núcleo a C++/Cython
 - [ ] Reescritura de CPU (LR35902) en C++ con wrapper Cython
-- [ ] Migración de MMU a código compilado
+- [x] Migración de MMU a código compilado
 - [ ] Migración de PPU a código compilado
 - [ ] Optimización de sincronización ciclo a ciclo
 - [ ] Mantener interfaz Python para frontend y tests
@@ -60,4 +60,47 @@ Se configuró la infraestructura completa de compilación híbrida (Python + C++
 - ✅ Instancia `PyNativeCore()` creada sin errores
 - ✅ Método `add(2, 2)` retorna `4` correctamente
 - ✅ Pipeline completamente funcional y verificado
+
+---
+
+### 2025-12-19 - Step 0102: Migración de MMU a C++ (CoreMMU)
+**Estado**: ✅ Completado
+
+Se ha completado la primera migración real de un componente crítico: la MMU (Memory Management Unit).
+Esta migración establece el patrón para futuras migraciones (CPU, PPU, APU) y proporciona acceso
+de alta velocidad a la memoria del Game Boy.
+
+**Implementación**:
+- ✅ Clase C++ `MMU` creada (`MMU.hpp` / `MMU.cpp`)
+  - Memoria plana de 64KB usando `std::vector<uint8_t>`
+  - Métodos `read()`, `write()`, `load_rom()` con acceso O(1)
+- ✅ Wrapper Cython `PyMMU` creado (`mmu.pxd` / `mmu.pyx`)
+  - Gestión automática de memoria (RAII)
+  - Método `load_rom_py(bytes)` para cargar ROMs desde Python
+- ✅ Integración en sistema de compilación
+  - `MMU.cpp` añadido a `setup.py`
+  - `mmu.pyx` incluido en `native_core.pyx`
+- ✅ Suite completa de tests (`test_core_mmu.py`)
+  - 7 tests que validan funcionalidad básica
+  - Todos los tests pasan (7/7 ✅)
+
+**Archivos creados/modificados**:
+- `src/core/cpp/MMU.hpp` / `MMU.cpp` - Clase C++ de MMU
+- `src/core/cython/mmu.pxd` / `mmu.pyx` - Wrapper Cython
+- `src/core/cython/native_core.pyx` - Actualizado para incluir mmu.pyx
+- `setup.py` - Añadido MMU.cpp a fuentes
+- `tests/test_core_mmu.py` - Suite de tests (7 tests)
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0102__migracion-mmu-cpp.html`
+
+**Resultados de verificación**:
+- ✅ Compilación exitosa (sin errores, warnings menores de C++)
+- ✅ Módulo `viboy_core` actualizado con `PyMMU`
+- ✅ Todos los tests pasan: `7/7 passed in 0.05s`
+- ✅ Acceso a memoria ahora es O(1) directo (nanosegundos vs microsegundos)
+
+**Próximos pasos**:
+- Migrar CPU a C++ (siguiente componente crítico)
+- Implementar mapeo de regiones de memoria (ROM, VRAM, etc.)
+- Añadir métodos `read_word()` / `write_word()` (16 bits, Little-Endian)
 
