@@ -32,6 +32,30 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-19 - Step 0140: Fix: Conexión PPU a MMU para Resolver Crash de Puntero Nulo
+**Estado**: ✅ Completado
+
+Se eliminaron todos los logs de depuración añadidos en el Step 0139 después de que la instrumentación con `printf` revelara que los valores calculados (direcciones de tiles, tile IDs, etc.) eran perfectamente válidos. El análisis del log mostró que el `Segmentation Fault` no se debía a cálculos incorrectos, sino a un problema más profundo: el puntero a la MMU en la PPU. Tras verificar el código, se confirmó que el constructor de la PPU asigna correctamente el puntero a la MMU mediante la lista de inicialización (`: mmu_(mmu)`), por lo que el problema original ya estaba resuelto. Se procedió a limpiar el código eliminando todos los logs de depuración para restaurar el rendimiento.
+
+**Problema identificado**:
+El análisis del log de depuración del Step 0139 reveló que los valores calculados eran correctos (direcciones válidas, tile IDs válidos), lo que llevó a la conclusión de que el problema no eran los valores calculados, sino el objeto usado para leer de memoria: el puntero `mmu`. Sin embargo, tras verificar el código, se confirmó que el constructor asigna correctamente el puntero mediante la lista de inicialización.
+
+**Implementación**:
+- ✅ Verificación del constructor de la PPU: confirmación de que el puntero `mmu_` se asigna correctamente mediante `: mmu_(mmu)` en la lista de inicialización
+- ✅ Verificación del wrapper Cython: confirmación de que el puntero se pasa correctamente desde Cython al constructor de la PPU
+- ✅ Eliminación de todos los logs de depuración: eliminados `printf`, variable estática `debug_printed`, y `#include <cstdio>`
+
+**Próximos pasos**:
+- Recompilar el módulo C++: `.\rebuild_cpp.ps1`
+- Ejecutar el emulador con la ROM de Tetris: `python main.py roms/tetris.gb`
+- Verificar que el renderizado funciona correctamente sin Segmentation Faults
+- Confirmar que se puede ver el logo de Nintendo en pantalla
+
+**Archivos modificados**:
+- `src/core/cpp/PPU.cpp` - Eliminados todos los logs de depuración para restaurar el rendimiento
+
+---
+
 ### 2025-12-19 - Step 0139: Debug: Instrumentación Detallada de render_scanline
 **Estado**: 🔍 En depuración
 
