@@ -750,6 +750,40 @@ Después de desbloquear el bucle principal (Step 0122), el emulador se ejecutaba
 
 ---
 
+### 2025-12-19 - Step 0125: Validación e Implementación de Cargas Inmediatas (LD r, d8)
+**Estado**: ✅ Completado
+
+Después del diagnóstico que reveló que la pantalla estaba en blanco y `LY` estaba atascado en 0, se identificó que la causa raíz era que la CPU de C++ devolvía 0 ciclos cuando encontraba opcodes no implementados. Aunque las instrucciones **LD r, d8** (cargas inmediatas de 8 bits) ya estaban implementadas en el código C++, este paso documenta su importancia crítica y valida su funcionamiento completo mediante un test parametrizado que verifica las 7 instrucciones: `LD B, d8`, `LD C, d8`, `LD D, d8`, `LD E, d8`, `LD H, d8`, `LD L, d8`, y `LD A, d8`.
+
+**Implementación**:
+- ✅ Test parametrizado creado usando `pytest.mark.parametrize`:
+  - Valida las 7 instrucciones LD r, d8 de manera sistemática
+  - Verifica que cada instrucción carga correctamente el valor inmediato
+  - Confirma que todas consumen exactamente 2 M-Cycles
+  - Valida que PC avanza 2 bytes después de cada instrucción
+- ✅ Documentación de importancia crítica:
+  - Estas instrucciones son las primeras que cualquier ROM ejecuta al iniciar
+  - Son fundamentales para inicializar registros con valores de partida
+  - Sin ellas, la CPU no puede avanzar más allá de las primeras instrucciones
+
+**Archivos modificados**:
+- `tests/test_core_cpu_loads.py` - Añadido test parametrizado `test_ld_register_immediate` que valida las 7 instrucciones LD r, d8
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0125__validacion-implementacion-cargas-inmediatas-ld-r-d8.html`
+
+**Resultados de verificación**:
+- ✅ Todos los tests pasan: `9/9 passed in 0.07s`
+  - 7 tests parametrizados (uno por cada instrucción LD r, d8)
+  - 2 tests legacy (compatibilidad)
+- ✅ Validación de módulo compilado C++: Todas las instrucciones funcionan correctamente
+
+**Próximos pasos**:
+- Ejecutar una ROM y analizar qué opcodes se encuentran después de las primeras instrucciones LD r, d8
+- Implementar las siguientes instrucciones más comunes que las ROMs necesitan
+- Continuar con enfoque incremental: identificar opcodes faltantes → implementar → validar con tests → documentar
+
+---
+
 ### 2025-12-19 - Step 0124: PPU Fase B: Framebuffer y Renderizado en C++
 **Estado**: ✅ Completado
 

@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Validación e Implementación de Cargas Inmediatas (LD r, d8) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Validación e Implementación de Cargas Inmediatas (LD r, d8)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0125
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0124__ppu-fase-b-framebuffer-renderizado-cpp.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Después del diagnóstico que reveló que la pantalla estaba en blanco y <code>LY</code> estaba atascado en 0, se identificó que la causa raíz era que la CPU de C++ estaba devolviendo 0 ciclos cuando encontraba opcodes no implementados. Esto congelaba el tiempo de la máquina emulada, impidiendo que la PPU avanzara.
+                </p>
+                <p>
+                    Aunque las instrucciones <strong>LD r, d8</strong> (cargas inmediatas de 8 bits) ya estaban implementadas en el código C++, este paso documenta su importancia crítica y valida su funcionamiento completo mediante un test parametrizado que verifica las 7 instrucciones: <code>LD B, d8</code>, <code>LD C, d8</code>, <code>LD D, d8</code>, <code>LD E, d8</code>, <code>LD H, d8</code>, <code>LD L, d8</code>, y <code>LD A, d8</code>.
+                </p>
+                <p>
+                    Estas instrucciones son <strong>fundamentales</strong> porque son las primeras que cualquier ROM ejecuta al iniciar: cargan valores inmediatos en los registros para inicializar el estado de la máquina. Sin ellas, la CPU no puede avanzar más allá de las primeras instrucciones del código del juego.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Las instrucciones <strong>LD r, d8</strong> (Load register with immediate 8-bit value) son parte del conjunto de instrucciones más básico del LR35902 (CPU de Game Boy). Permiten cargar un valor constante de 8 bits directamente en un registro de 8 bits.
+                </p>
+                
+                <h3>Formato de la Instrucción</h3>
+                <p>
+                    Cada instrucción <code>LD r, d8</code> consta de:
+                </p>
+                <ul>
+                    <li><strong>Opcode</strong> (1 byte): Identifica la operación y el registro destino</li>
+                    <li><strong>d8</strong> (1 byte): El valor inmediato a cargar (0x00 - 0xFF)</li>
+                </ul>
+                
+                <h3>Opcodes de LD r, d8</h3>
+                <table style="border-collapse: collapse; width: 100%; margin: 1em 0;">
+                    <thead>
+                        <tr>
+                            <th style="border: 1px solid #ddd; padding: 8px;">Opcode</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">Instrucción</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">M-Cycles</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">Bytes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;"><code>0x06</code></td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">LD B, d8</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">2</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">2</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;"><code>0x0E</code></td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">LD C, d8</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">2</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">2</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;"><code>0x16</code></td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">LD D, d8</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">2</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">2</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;"><code>0x1E</code></td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">LD E, d8</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">2</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">2</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;"><code>0x26</code></td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">LD H, d8</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">2</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">2</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;"><code>0x2E</code></td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">LD L, d8</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">2</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">2</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;"><code>0x3E</code></td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">LD A, d8</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">2</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">2</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3>¿Por qué son Críticas?</h3>
+                <p>
+                    Al iniciar cualquier ROM de Game Boy, el código de boot/inicialización <strong>siempre</strong> comienza ejecutando secuencias de instrucciones <code>LD r, d8</code> para:
+                </p>
+                <ul>
+                    <li><strong>Inicializar registros</strong>: Establecer valores de partida para B, C, D, E, H, L y A</li>
+                    <li><strong>Configurar direcciones</strong>: Preparar pares de registros (HL, BC, DE) con direcciones de memoria iniciales</li>
+                    <li><strong>Establecer constantes</strong>: Cargar valores mágicos, máscaras, o flags iniciales</li>
+                </ul>
+                
+                <p>
+                    Sin estas instrucciones implementadas, la CPU encuentra el primer <code>LD r, d8</code> en la ROM, entra en el caso <code>default</code> del <code>switch</code> (opcode no implementado), devuelve 0 ciclos, y el tiempo de la máquina emulada se congela. Por eso el diagnóstico mostró que <code>LY</code> estaba atascado en 0: la PPU no recibía ciclos porque la CPU no estaba ejecutando instrucciones.
+                </p>
+
+                <h3>Timing</h3>
+                <p>
+                    Todas las instrucciones <code>LD r, d8</code> consumen <strong>2 M-Cycles</strong> (8 T-Cycles):
+                </p>
+                <ul>
+                    <li><strong>M-Cycle 1</strong>: Lectura del opcode (4 T-Cycles)</li>
+                    <li><strong>M-Cycle 2</strong>: Lectura del byte inmediato d8 y escritura en el registro (4 T-Cycles)</li>
+                </ul>
+                
+                <p>
+                    El Program Counter (PC) avanza 2 bytes: el opcode y el valor inmediato.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Las instrucciones <code>LD r, d8</code> ya estaban implementadas en <code>src/core/cpp/CPU.cpp</code> dentro del método <code>CPU::step()</code>. Sin embargo, se mejoró la validación mediante un test parametrizado que verifica todas las 7 instrucciones de manera sistemática.
+                </p>
+
+                <h3>Código Implementado</h3>
+                <p>
+                    Cada instrucción sigue el mismo patrón simple:
+                </p>
+                <pre><code>case 0x0E:  // LD C, d8
+{
+    uint8_t value = fetch_byte();  // Lee el siguiente byte (d8)
+    regs_->c = value;              // Asigna al registro
+    cycles_ += 2;                  // Acumula 2 M-Cycles
+    return 2;                      // Retorna 2 M-Cycles
+}
+</code></pre>
+
+                <p>
+                    El método <code>fetch_byte()</code> se encarga de:
+                </p>
+                <ul>
+                    <li>Leer el byte de memoria en la dirección PC</li>
+                    <li>Incrementar PC automáticamente</li>
+                    <li>Manejar el wrap-around en 16 bits (PC se mantiene en el rango 0x0000-0xFFFF)</li>
+                </ul>
+
+                <h3>Test Parametrizado</h3>
+                <p>
+                    Se añadió un test parametrizado usando <code>pytest.mark.parametrize</code> que valida todas las instrucciones <code>LD r, d8</code> en una sola función:
+                </p>
+                <pre><code>@pytest.mark.parametrize("opcode,register_name,test_value", [
+    (0x06, 'b', 0x33),  # LD B, d8
+    (0x0E, 'c', 0x42),  # LD C, d8
+    (0x16, 'd', 0x55),  # LD D, d8
+    (0x1E, 'e', 0x78),  # LD E, d8
+    (0x26, 'h', 0x9A),  # LD H, d8
+    (0x2E, 'l', 0xBC),  # LD L, d8
+    (0x3E, 'a', 0xDE),  # LD A, d8
+])
+def test_ld_register_immediate(self, opcode, register_name, test_value):
+    """Valida que cada instrucción carga correctamente el valor inmediato."""
+    # ... implementación del test
+</code></pre>
+
+                <p>
+                    Este enfoque permite validar todas las instrucciones de manera sistemática y garantiza que cada una funciona correctamente:
+                </p>
+                <ul>
+                    <li>✅ Carga el valor inmediato en el registro correcto</li>
+                    <li>✅ Consume exactamente 2 M-Cycles</li>
+                    <li>✅ Avanza PC en 2 bytes</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Las instrucciones LD r, d8 ya estaban implementadas (líneas 364-419)</li>
+                    <li><code>tests/test_core_cpu_loads.py</code> - Añadido test parametrizado <code>test_ld_register_immediate</code> para validar todas las instrucciones LD r, d8</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron los tests para validar que todas las instrucciones <code>LD r, d8</code> funcionan correctamente:
+                </p>
+                
+                <h3>Comando Ejecutado</h3>
+                <pre><code>pytest tests/test_core_cpu_loads.py::TestLD_8bit_Immediate -v</code></pre>
+
+                <h3>Resultado</h3>
+                <pre><code>============================= test session starts =============================
+platform win32 - Python 3.13.5, pytest-9.0.2, pluggy-1.6.0
+collecting ... collected 9 items
+
+tests/test_core_cpu_loads.py::TestLD_8bit_Immediate::test_ld_register_immediate[6-b-51] PASSED [ 11%]
+tests/test_core_cpu_loads.py::TestLD_8bit_Immediate::test_ld_register_immediate[14-c-66] PASSED [ 22%]
+tests/test_core_cpu_loads.py::TestLD_8bit_Immediate::test_ld_register_immediate[22-d-85] PASSED [ 33%]
+tests/test_core_cpu_loads.py::TestLD_8bit_Immediate::test_ld_register_immediate[30-e-120] PASSED [ 44%]
+tests/test_core_cpu_loads.py::TestLD_8bit_Immediate::test_ld_register_immediate[38-h-154] PASSED [ 55%]
+tests/test_core_cpu_loads.py::TestLD_8bit_Immediate::test_ld_register_immediate[46-l-188] PASSED [ 66%]
+tests/test_core_cpu_loads.py::TestLD_8bit_Immediate::test_ld_register_immediate[62-a-222] PASSED [ 77%]
+tests/test_core_cpu_loads.py::TestLD_8bit_Immediate::test_ld_b_immediate PASSED [ 88%]
+tests/test_core_cpu_loads.py::TestLD_8bit_Immediate::test_ld_hl_immediate PASSED [100%]
+
+============================== 9 passed in 0.07s ==============================
+</code></pre>
+
+                <h3>Código del Test</h3>
+                <p>
+                    El test parametrizado valida que cada instrucción:
+                </p>
+                <pre><code>@pytest.mark.parametrize("opcode,register_name,test_value", [
+    (0x06, 'b', 0x33),  # LD B, d8
+    (0x0E, 'c', 0x42),  # LD C, d8
+    (0x16, 'd', 0x55),  # LD D, d8
+    (0x1E, 'e', 0x78),  # LD E, d8
+    (0x26, 'h', 0x9A),  # LD H, d8
+    (0x2E, 'l', 0xBC),  # LD L, d8
+    (0x3E, 'a', 0xDE),  # LD A, d8
+])
+def test_ld_register_immediate(self, opcode, register_name, test_value):
+    """Valida que cada instrucción LD r, d8 funciona correctamente."""
+    mmu = PyMMU()
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    
+    regs.pc = 0x0100
+    mmu.write(0x0100, opcode)
+    mmu.write(0x0101, test_value)
+    
+    cycles = cpu.step()
+    
+    # Verificar que el registro tiene el valor correcto
+    register_value = getattr(regs, register_name)
+    assert register_value == test_value
+    assert cycles == 2
+    assert regs.pc == 0x0102
+</code></pre>
+
+                <p>
+                    <strong>Validación de módulo compilado C++</strong>: Todos los tests pasan, confirmando que las instrucciones están correctamente implementadas en el código nativo C++ compilado.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs</strong>: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">CPU Instruction Set</a> - Sección de Load Instructions (LD r, n)</li>
+                    <li><strong>Game Boy CPU Manual</strong>: Referencia de opcodes y timing de instrucciones</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Importancia de LD r, d8</strong>: Estas instrucciones son las primeras que cualquier ROM ejecuta al iniciar. Son fundamentales para inicializar el estado de la máquina.</li>
+                        <li><strong>Diagnóstico del problema</strong>: Cuando la CPU encuentra un opcode no implementado y devuelve 0 ciclos, el tiempo de la máquina emulada se congela. Esto explica por qué LY estaba atascado en 0: la PPU no recibía ciclos porque la CPU no estaba ejecutando instrucciones.</li>
+                        <li><strong>Timing consistente</strong>: Todas las instrucciones LD r, d8 consumen exactamente 2 M-Cycles (8 T-Cycles), lo cual es importante para la sincronización ciclo a ciclo con la PPU.</li>
+                        <li><strong>fetch_byte() como abstracción</strong>: El método <code>fetch_byte()</code> encapsula la lectura de memoria y el incremento de PC, simplificando la implementación de todas las instrucciones que leen operandos de memoria.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Opcodes faltantes</strong>: Aunque LD r, d8 está implementado, hay muchos otros opcodes que las ROMs necesitan. Es necesario implementar más instrucciones para que las ROMs puedan ejecutarse completamente.</li>
+                        <li><strong>Progresión de ejecución</strong>: Con LD r, d8 implementado, la CPU debería poder ejecutar más instrucciones antes de encontrar un opcode no implementado. Esto podría permitir que LY avance ligeramente.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis</strong>: Con las instrucciones LD r, d8 implementadas y validadas, la CPU debería poder ejecutar los primeros pasos de inicialización de cualquier ROM. Sin embargo, probablemente encontrará otros opcodes no implementados poco después, por lo que será necesario continuar implementando más instrucciones de manera incremental.
+                    </p>
+                    <p>
+                        <strong>Estrategia incremental</strong>: El enfoque correcto es implementar las instrucciones más fundamentales primero (como LD r, d8) y luego ir añadiendo más instrucciones según se identifiquen los opcodes que las ROMs necesitan.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar una ROM y analizar qué opcodes se encuentran después de las primeras instrucciones LD r, d8</li>
+                    <li>[ ] Implementar las siguientes instrucciones más comunes que las ROMs necesitan (probablemente más instrucciones de carga, saltos, o aritmética)</li>
+                    <li>[ ] Continuar con un enfoque incremental: identificar opcodes faltantes → implementar → validar con tests → documentar</li>
+                    <li>[ ] Monitorear el progreso: verificar si LY comienza a avanzar cuando se implementan más instrucciones</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

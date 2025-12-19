@@ -163,9 +163,46 @@ class TestLD_8bit_Register:
 class TestLD_8bit_Immediate:
     """Tests para LD r, n (carga inmediata de 8 bits)"""
 
+    @pytest.mark.parametrize("opcode,register_name,test_value", [
+        (0x06, 'b', 0x33),  # LD B, d8
+        (0x0E, 'c', 0x42),  # LD C, d8
+        (0x16, 'd', 0x55),  # LD D, d8
+        (0x1E, 'e', 0x78),  # LD E, d8
+        (0x26, 'h', 0x9A),  # LD H, d8
+        (0x2E, 'l', 0xBC),  # LD L, d8
+        (0x3E, 'a', 0xDE),  # LD A, d8
+    ])
+    def test_ld_register_immediate(self, opcode, register_name, test_value):
+        """
+        Test parametrizado: Verificar todas las instrucciones LD r, d8.
+        
+        Valida que cada instrucción:
+        - Carga correctamente el valor inmediato en el registro
+        - Consume 2 M-Cycles
+        - Avanza PC en 2 bytes
+        """
+        mmu = PyMMU()
+        regs = PyRegisters()
+        cpu = PyCPU(mmu, regs)
+        
+        regs.pc = 0x0100
+        mmu.write(0x0100, opcode)
+        mmu.write(0x0101, test_value)
+        
+        cycles = cpu.step()
+        
+        # Verificar que el registro tiene el valor correcto
+        register_value = getattr(regs, register_name)
+        assert register_value == test_value, (
+            f"LD {register_name.upper()}, d8 (0x{opcode:02X}): "
+            f"registro debe ser 0x{test_value:02X}, es 0x{register_value:02X}"
+        )
+        assert cycles == 2, f"LD {register_name.upper()}, d8 debe consumir 2 M-Cycles"
+        assert regs.pc == 0x0102, "PC debe avanzar 2 bytes después de LD r, d8"
+    
     def test_ld_b_immediate(self):
         """
-        Test 6: Verificar LD B, d8 (0x06).
+        Test 6: Verificar LD B, d8 (0x06) - Test legacy para compatibilidad.
         
         - Ejecutar LD B, 0x33
         - Verificar que B = 0x33
