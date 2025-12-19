@@ -32,6 +32,234 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0949 - Implementación del Sistema de Interrupciones en C++ -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0949__implementacion-sistema-interrupciones-cpp.html" class="entry-link">
+                                    Implementación del Sistema de Interrupciones en C++
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0949 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó el sistema completo de interrupciones en C++, añadiendo la capacidad de la CPU para reaccionar al hardware externo (V-Blank, Timer, LCD STAT, Serial, Joypad). Se implementaron 3 nuevos opcodes críticos: DI (0xF3), EI (0xFB) y HALT (0x76), junto con el dispatcher de interrupciones que se ejecuta antes de cada instrucción. El sistema maneja correctamente la prioridad de interrupciones, el retraso de EI y el despertar de HALT. Todos los tests pasan, validando el comportamiento preciso del hardware real.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0112 - PPU Fase B - Renderizado Scanline y Framebuffer -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0112__ppu-renderizado-scanline-framebuffer.html" class="entry-link">
+                                    PPU Fase B - Renderizado Scanline y Framebuffer
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0112 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó el renderizado línea a línea (scanline rendering) de la PPU en C++, añadiendo la capacidad de generar píxeles reales para Background y Window. El framebuffer se expone como un memoryview de NumPy para transferencia Zero-Copy a Python/Pygame, lo que permite alcanzar rendimientos de miles de FPS potenciales en lugar de los 30 FPS limitados de la implementación Python pura. Esta es la Fase B de la migración de PPU, que transforma el motor de timing en un renderizador completo de píxeles.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0111 - Migración de PPU (Timing y Estado) a C++ -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0111__migracion-ppu-timing-estado-cpp.html" class="entry-link">
+                                    Migración de PPU (Timing y Estado) a C++
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0111 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se migró la lógica de timing y estado de la PPU (Pixel Processing Unit) a C++, implementando el motor de estados que gestiona los modos PPU (0-3), el registro LY, las interrupciones V-Blank y STAT. Esta es la Fase A de la migración de PPU, enfocada en el timing preciso sin renderizado de píxeles (que será la Fase B). La implementación mantiene toda la lógica de sincronización crítica de la v0.0.1 pero ahora ejecuta en código nativo para evitar el cuello de botella del cambio de contexto Python-C++.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0110 - Implementación del Prefijo CB (Instrucciones Extendidas) en C++ -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0110__implementacion-prefijo-cb-cpp.html" class="entry-link">
+                                    Implementación del Prefijo CB (Instrucciones Extendidas) en C++
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0110 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó el prefijo CB completo (256 instrucciones extendidas) en C++, incluyendo rotaciones, shifts, BIT, RES y SET. Esta es la "joya de la corona" de la CPU de la Game Boy, permitiendo manipulación de bits nativa y extremadamente rápida. Se añadió el método handle_cb() que decodifica el opcode CB usando lógica bitwise eficiente, y se implementaron todas las operaciones según Pan Docs. Todos los tests pasan (11/11), validando el comportamiento correcto de flags, timing y acceso a memoria indirecta.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0106 - Implementación de Stack y Subrutinas en C++ -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0106__implementacion-stack-cpp.html" class="entry-link">
+                                    Implementación de Stack y Subrutinas en C++
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0106 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó el Stack (Pila) y las operaciones de subrutinas en C++, añadiendo los helpers de pila (push_byte, pop_byte, push_word, pop_word) y 4 opcodes críticos: PUSH BC (0xC5), POP BC (0xC1), CALL nn (0xCD) y RET (0xC9). La implementación respeta el crecimiento hacia abajo de la pila (SP decrece en PUSH) y el orden Little-Endian correcto. Todos los tests pasan, validando operaciones básicas, CALL/RET anidados y el comportamiento correcto de la pila.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0106 - Implementación de Loads y Aritmética 16-bit en C++ -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0106__implementacion-loads-aritmetica-16bit-cpp.html" class="entry-link">
+                                    Implementación de Loads y Aritmética 16-bit en C++
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0106 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementaron las operaciones de transferencia de datos (Loads) y aritmética de 16 bits en C++, cubriendo aproximadamente el 40% del set de instrucciones de la Game Boy. Se añadieron helpers genéricos para manejar el bloque completo 0x40-0x7F de LD r, r', así como operaciones de carga inmediata (8 y 16 bits) y aritmética de pares de registros. Se implementaron 64+ nuevos opcodes con una arquitectura optimizada que usa punteros a registros y funciones helper inline para máximo rendimiento. Todos los 16 tests pasan correctamente.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0106 - Implementación de Control de Flujo y Saltos en C++ -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0106__implementacion-control-flujo-saltos-cpp.html" class="entry-link">
+                                    Implementación de Control de Flujo y Saltos en C++
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0106 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó el control de flujo básico de la CPU en C++, añadiendo instrucciones de salto absoluto (JP nn) y relativo (JR e, JR NZ e). Esta implementación rompe la linealidad de ejecución, permitiendo bucles y decisiones condicionales. La CPU ahora es prácticamente Turing Completa. Se aprovechó el manejo nativo de enteros con signo de C++ para simplificar los saltos relativos, eliminando la complejidad de simular complemento a dos que existía en Python. Todos los tests pasan (8/8).
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0105 - Implementación de ALU y Flags en C++ -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0105__implementacion-alu-flags-cpp.html" class="entry-link">
+                                    Implementación de ALU y Flags en C++
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0105 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó la ALU (Arithmetic Logic Unit) y la gestión de Flags en C++, añadiendo operaciones aritméticas básicas (ADD, SUB) y lógicas (AND, XOR) al núcleo nativo. Se implementaron 5 nuevos opcodes: INC A, DEC A, ADD A d8, SUB d8 y XOR A. Todos los tests pasan correctamente, validando la gestión precisa de flags (Z, N, H, C) y el cálculo eficiente de half-carry en C++.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0104 - Migración del Esqueleto de CPU a C++ -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0104__migracion-cpu-esqueleto-cpp.html" class="entry-link">
+                                    Migración del Esqueleto de CPU a C++ (CoreCPU)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0104 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se ha completado la migración del esqueleto básico de la CPU a C++, estableciendo el patrón de inyección de dependencias en código nativo. La CPU ahora ejecuta el ciclo Fetch-Decode-Execute en C++ puro, accediendo a MMU y Registros mediante punteros directos. Se implementaron dos opcodes de prueba (NOP y LD A, d8) para validar el patrón arquitectónico antes de migrar el resto de instrucciones.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0103 - Migración de Registros a C++ -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0103__migracion-registros-cpp.html" class="entry-link">
+                                    Migración de Registros a C++ (CoreRegisters)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0103 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se ha completado la migración de los registros de la CPU de Python a C++, creando la clase CoreRegisters que proporciona acceso ultrarrápido a los registros de 8 y 16 bits. Esta implementación es crítica para el rendimiento, ya que los registros se acceden miles de veces por segundo durante la emulación. Con acceso directo a memoria en lugar de llamadas a métodos Python, el bucle principal de la CPU será significativamente más rápido.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0102 - Migración de MMU a C++ -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0102__migracion-mmu-cpp.html" class="entry-link">
+                                    Migración de MMU a C++ (CoreMMU)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0102 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se ha completado la migración de la MMU (Memory Management Unit) de Python a C++, creando la clase CoreMMU que proporciona acceso de alta velocidad a la memoria del Game Boy. Esta es la primera migración real de un componente crítico del emulador, estableciendo el patrón para futuras migraciones (CPU, PPU, APU). La implementación incluye: clase C++ MMU, wrapper Cython PyMMU, integración en el sistema de compilación, y suite completa de tests que validan la funcionalidad. Todos los tests pasan exitosamente, confirmando que el acceso a memoria es ahora órdenes de magnitud más rápido (nanosegundos vs microsegundos).
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0101 - Configuración del Pipeline de Compilación Híbrido -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0101__configuracion-pipeline-compilacion-hibrido.html" class="entry-link">
+                                    Configuración del Pipeline de Compilación Híbrido
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0101 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se ha configurado la infraestructura completa de compilación híbrida (Python + C++/Cython) para la Fase 2. Se creó la estructura de directorios del núcleo, se implementó una prueba de concepto "Hello World" en C++, se configuró el sistema de build con setup.py y se verificó que el pipeline de compilación funciona correctamente en Windows. Este es el primer paso crítico antes de migrar cualquier componente de emulación al código compilado.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0100 - Inicio de Fase 2 (v0.0.2) -->
                     <li>
                         <div class="entry-header">
@@ -49,102 +277,6 @@
                         <p class="entry-summary">
                             Inicio oficial de la Fase 2 (v0.0.2) del proyecto Viboy Color. Esta fase se enfoca en la migración del núcleo de emulación a C++/Cython para alcanzar precisión de timing necesaria para jugabilidad completa, y en la implementación del subsistema de Audio (APU). Se realizó limpieza del espacio de trabajo, archivando la documentación de v0.0.1 y eliminando artefactos de release que no son necesarios en desarrollo activo.
                         </p>
-                    </li>
-                    
-                    <!-- Entrada 0949 - Implementación del Sistema de Interrupciones en C++ -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-19</span>
-                        <span class="tag">0949</span>
-                        <a href="entries/2025-12-19__0949__implementacion-sistema-interrupciones-cpp.html" class="title">Implementación del Sistema de Interrupciones en C++</a>
-                        <p class="summary">Se implementó el sistema completo de interrupciones en C++, añadiendo la capacidad de la CPU para reaccionar al hardware externo (V-Blank, Timer, LCD STAT, Serial, Joypad). Se implementaron 3 nuevos opcodes críticos: DI (0xF3), EI (0xFB) y HALT (0x76), junto con el dispatcher de interrupciones que se ejecuta antes de cada instrucción. El sistema maneja correctamente la prioridad de interrupciones, el retraso de EI y el despertar de HALT. Todos los tests pasan, validando el comportamiento preciso del hardware real.</p>
-                    </li>
-                    
-                    <!-- Entrada 0112 - PPU Fase B - Renderizado Scanline y Framebuffer -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-19</span>
-                        <span class="tag">0112</span>
-                        <a href="entries/2025-12-19__0112__ppu-renderizado-scanline-framebuffer.html" class="title">PPU Fase B - Renderizado Scanline y Framebuffer</a>
-                        <p class="summary">Se implementó el renderizado línea a línea (scanline rendering) de la PPU en C++, añadiendo la capacidad de generar píxeles reales para Background y Window. El framebuffer se expone como un memoryview de NumPy para transferencia Zero-Copy a Python/Pygame, lo que permite alcanzar rendimientos de miles de FPS potenciales en lugar de los 30 FPS limitados de la implementación Python pura. Esta es la Fase B de la migración de PPU, que transforma el motor de timing en un renderizador completo de píxeles.</p>
-                    </li>
-                    
-                    <!-- Entrada 0111 - Migración de PPU (Timing y Estado) a C++ -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-19</span>
-                        <span class="tag">0111</span>
-                        <a href="entries/2025-12-19__0111__migracion-ppu-timing-estado-cpp.html" class="title">Migración de PPU (Timing y Estado) a C++</a>
-                        <p class="summary">Se migró la lógica de timing y estado de la PPU (Pixel Processing Unit) a C++, implementando el motor de estados que gestiona los modos PPU (0-3), el registro LY, las interrupciones V-Blank y STAT. Esta es la Fase A de la migración de PPU, enfocada en el timing preciso sin renderizado de píxeles (que será la Fase B). La implementación mantiene toda la lógica de sincronización crítica de la v0.0.1 pero ahora ejecuta en código nativo para evitar el cuello de botella del cambio de contexto Python-C++.</p>
-                    </li>
-                    
-                    <!-- Entrada 0110 - Implementación del Prefijo CB (Instrucciones Extendidas) en C++ -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-19</span>
-                        <span class="tag">0110</span>
-                        <a href="entries/2025-12-19__0110__implementacion-prefijo-cb-cpp.html" class="title">Implementación del Prefijo CB (Instrucciones Extendidas) en C++</a>
-                        <p class="summary">Se implementó el prefijo CB completo (256 instrucciones extendidas) en C++, incluyendo rotaciones, shifts, BIT, RES y SET. Esta es la "joya de la corona" de la CPU de la Game Boy, permitiendo manipulación de bits nativa y extremadamente rápida. Se añadió el método handle_cb() que decodifica el opcode CB usando lógica bitwise eficiente, y se implementaron todas las operaciones según Pan Docs. Todos los tests pasan (11/11), validando el comportamiento correcto de flags, timing y acceso a memoria indirecta.</p>
-                    </li>
-                    
-                    <!-- Entrada 0106 - Implementación de Stack y Subrutinas en C++ -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-19</span>
-                        <span class="tag">0106</span>
-                        <a href="entries/2025-12-19__0106__implementacion-stack-cpp.html" class="title">Implementación de Stack y Subrutinas en C++</a>
-                        <p class="summary">Se implementó el Stack (Pila) y las operaciones de subrutinas en C++, añadiendo los helpers de pila (push_byte, pop_byte, push_word, pop_word) y 4 opcodes críticos: PUSH BC (0xC5), POP BC (0xC1), CALL nn (0xCD) y RET (0xC9). La implementación respeta el crecimiento hacia abajo de la pila (SP decrece en PUSH) y el orden Little-Endian correcto. Todos los tests pasan, validando operaciones básicas, CALL/RET anidados y el comportamiento correcto de la pila.</p>
-                    </li>
-                    
-                    <!-- Entrada 0106 - Implementación de Loads y Aritmética 16-bit en C++ -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-19</span>
-                        <span class="tag">0106</span>
-                        <a href="entries/2025-12-19__0106__implementacion-loads-aritmetica-16bit-cpp.html" class="title">Implementación de Loads y Aritmética 16-bit en C++</a>
-                        <p class="summary">Se implementaron las operaciones de transferencia de datos (Loads) y aritmética de 16 bits en C++, cubriendo aproximadamente el 40% del set de instrucciones de la Game Boy. Se añadieron helpers genéricos para manejar el bloque completo 0x40-0x7F de LD r, r', así como operaciones de carga inmediata (8 y 16 bits) y aritmética de pares de registros. Se implementaron 64+ nuevos opcodes con una arquitectura optimizada que usa punteros a registros y funciones helper inline para máximo rendimiento. Todos los 16 tests pasan correctamente.</p>
-                    </li>
-                    
-                    <!-- Entrada 0106 - Implementación de Control de Flujo y Saltos en C++ -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-19</span>
-                        <span class="tag">0106</span>
-                        <a href="entries/2025-12-19__0106__implementacion-control-flujo-saltos-cpp.html" class="title">Implementación de Control de Flujo y Saltos en C++</a>
-                        <p class="summary">Se implementó el control de flujo básico de la CPU en C++, añadiendo instrucciones de salto absoluto (JP nn) y relativo (JR e, JR NZ e). Esta implementación rompe la linealidad de ejecución, permitiendo bucles y decisiones condicionales. La CPU ahora es prácticamente Turing Completa. Se aprovechó el manejo nativo de enteros con signo de C++ para simplificar los saltos relativos, eliminando la complejidad de simular complemento a dos que existía en Python. Todos los tests pasan (8/8).</p>
-                    </li>
-                    
-                    <!-- Entrada 0105 - Implementación de ALU y Flags en C++ -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-19</span>
-                        <span class="tag">0105</span>
-                        <a href="entries/2025-12-19__0105__implementacion-alu-flags-cpp.html" class="title">Implementación de ALU y Flags en C++</a>
-                        <p class="summary">Se implementó la ALU (Arithmetic Logic Unit) y la gestión de Flags en C++, añadiendo operaciones aritméticas básicas (ADD, SUB) y lógicas (AND, XOR) al núcleo nativo. Se implementaron 5 nuevos opcodes: INC A, DEC A, ADD A d8, SUB d8 y XOR A. Todos los tests pasan correctamente, validando la gestión precisa de flags (Z, N, H, C) y el cálculo eficiente de half-carry en C++.</p>
-                    </li>
-                    
-                    <!-- Entrada 0104 - Migración del Esqueleto de CPU a C++ -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-19</span>
-                        <span class="tag">0104</span>
-                        <a href="entries/2025-12-19__0104__migracion-cpu-esqueleto-cpp.html" class="title">Migración del Esqueleto de CPU a C++ (CoreCPU)</a>
-                        <p class="summary">Se ha completado la migración del esqueleto básico de la CPU a C++, estableciendo el patrón de inyección de dependencias en código nativo. La CPU ahora ejecuta el ciclo Fetch-Decode-Execute en C++ puro, accediendo a MMU y Registros mediante punteros directos. Se implementaron dos opcodes de prueba (NOP y LD A, d8) para validar el patrón arquitectónico antes de migrar el resto de instrucciones.</p>
-                    </li>
-                    
-                    <!-- Entrada 0103 - Migración de Registros a C++ -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-19</span>
-                        <span class="tag">0103</span>
-                        <a href="entries/2025-12-19__0103__migracion-registros-cpp.html" class="title">Migración de Registros a C++ (CoreRegisters)</a>
-                        <p class="summary">Se ha completado la migración de los registros de la CPU de Python a C++, creando la clase CoreRegisters que proporciona acceso ultrarrápido a los registros de 8 y 16 bits. Esta implementación es crítica para el rendimiento, ya que los registros se acceden miles de veces por segundo durante la emulación. Con acceso directo a memoria en lugar de llamadas a métodos Python, el bucle principal de la CPU será significativamente más rápido.</p>
-                    </li>
-                    
-                    <!-- Entrada 0102 - Migración de MMU a C++ -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-19</span>
-                        <span class="tag">0102</span>
-                        <a href="entries/2025-12-19__0102__migracion-mmu-cpp.html" class="title">Migración de MMU a C++ (CoreMMU)</a>
-                        <p class="summary">Se ha completado la migración de la MMU (Memory Management Unit) de Python a C++, creando la clase CoreMMU que proporciona acceso de alta velocidad a la memoria del Game Boy. Esta es la primera migración real de un componente crítico del emulador, estableciendo el patrón para futuras migraciones (CPU, PPU, APU). La implementación incluye: clase C++ MMU, wrapper Cython PyMMU, integración en el sistema de compilación, y suite completa de tests que validan la funcionalidad. Todos los tests pasan exitosamente, confirmando que el acceso a memoria es ahora órdenes de magnitud más rápido (nanosegundos vs microsegundos).</p>
-                    </li>
-                    
-                    <!-- Entrada 0101 - Configuración del Pipeline de Compilación Híbrido -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-19</span>
-                        <span class="tag">0101</span>
-                        <a href="entries/2025-12-19__0101__configuracion-pipeline-compilacion-hibrido.html" class="title">Configuración del Pipeline de Compilación Híbrido</a>
-                        <p class="summary">Se ha configurado la infraestructura completa de compilación híbrida (Python + C++/Cython) para la Fase 2. Se creó la estructura de directorios del núcleo, se implementó una prueba de concepto "Hello World" en C++, se configuró el sistema de build con setup.py y se verificó que el pipeline de compilación funciona correctamente en Windows. Este es el primer paso crítico antes de migrar cualquier componente de emulación al código compilado.</p>
                     </li>
                     
                     <!-- Entrada 0096 - Corrección de Error en Ejecutable Modo Windowed -->
