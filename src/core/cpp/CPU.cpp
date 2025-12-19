@@ -753,6 +753,17 @@ int CPU::step() {
                 return 1;
             }
 
+        case 0xCB:  // CB Prefix (Extended Instructions)
+            // Prefijo para instrucciones extendidas (256 instrucciones adicionales)
+            // El siguiente byte se interpreta con una tabla diferente
+            // Incluye: Rotaciones, Shifts, BIT, RES, SET
+            // Fuente: Pan Docs - CPU Instruction Set (CB Prefix)
+            {
+                int cycles = handle_cb();
+                cycles_ += cycles;
+                return cycles;
+            }
+
         default:
             // Opcode no implementado
             // En producción, esto debería lanzar una excepción o loggear
@@ -839,5 +850,154 @@ uint8_t CPU::handle_interrupts() {
     
     // No hay interrupciones que procesar
     return 0;
+}
+
+// ========== Implementación del Prefijo CB (Extended Instructions) ==========
+
+int CPU::handle_cb() {
+    // Leer el opcode CB (siguiente byte después de 0xCB)
+    uint8_t cb_opcode = fetch_byte();
+    
+    // Extraer componentes del opcode CB
+    uint8_t reg_code = cb_opcode & 0x07;        // Bits 0-2: Registro
+    uint8_t bit_index = (cb_opcode >> 3) & 0x07; // Bits 3-5: Índice de bit
+    uint8_t op_group = (cb_opcode >> 6) & 0x03;  // Bits 6-7: Grupo de operación
+    
+    // Determinar si es acceso a memoria (reg_code == 6)
+    bool is_memory = (reg_code == 6);
+    
+    // Leer valor del registro o memoria
+    uint8_t value = read_register_or_mem(reg_code);
+    uint8_t result = value;
+    bool carry = regs_->get_flag_c();  // Preservar C para operaciones que lo usan
+    
+    // Decodificar y ejecutar operación según el grupo
+    switch (op_group) {
+        case 0x00: {  // Rotaciones y Shifts (0x00-0x3F)
+            // Bits 3-5 determinan la operación específica
+            uint8_t shift_op = (cb_opcode >> 3) & 0x07;
+            
+            switch (shift_op) {
+                case 0x00: {  // RLC (Rotate Left Circular)
+                    // Bit 7 sale y entra por bit 0, también va a C
+                    bool bit7 = (value & 0x80) != 0;
+                    result = (value << 1) | (bit7 ? 1 : 0);
+                    carry = bit7;
+                    // Flags: Z según resultado, N=0, H=0, C=bit7
+                    regs_->set_flag_z(result == 0);
+                    regs_->set_flag_n(false);
+                    regs_->set_flag_h(false);
+                    regs_->set_flag_c(carry);
+                    break;
+                }
+                case 0x01: {  // RRC (Rotate Right Circular)
+                    // Bit 0 sale y entra por bit 7, también va a C
+                    bool bit0 = (value & 0x01) != 0;
+                    result = (value >> 1) | (bit0 ? 0x80 : 0);
+                    carry = bit0;
+                    regs_->set_flag_z(result == 0);
+                    regs_->set_flag_n(false);
+                    regs_->set_flag_h(false);
+                    regs_->set_flag_c(carry);
+                    break;
+                }
+                case 0x02: {  // RL (Rotate Left through Carry)
+                    // Bit 7 va a C, antiguo C entra en bit 0
+                    bool bit7 = (value & 0x80) != 0;
+                    result = (value << 1) | (carry ? 1 : 0);
+                    carry = bit7;
+                    regs_->set_flag_z(result == 0);
+                    regs_->set_flag_n(false);
+                    regs_->set_flag_h(false);
+                    regs_->set_flag_c(carry);
+                    break;
+                }
+                case 0x03: {  // RR (Rotate Right through Carry)
+                    // Bit 0 va a C, antiguo C entra en bit 7
+                    bool bit0 = (value & 0x01) != 0;
+                    result = (value >> 1) | (carry ? 0x80 : 0);
+                    carry = bit0;
+                    regs_->set_flag_z(result == 0);
+                    regs_->set_flag_n(false);
+                    regs_->set_flag_h(false);
+                    regs_->set_flag_c(carry);
+                    break;
+                }
+                case 0x04: {  // SLA (Shift Left Arithmetic)
+                    // Bit 7 va a C, bit 0 entra 0
+                    bool bit7 = (value & 0x80) != 0;
+                    result = value << 1;
+                    carry = bit7;
+                    regs_->set_flag_z(result == 0);
+                    regs_->set_flag_n(false);
+                    regs_->set_flag_h(false);
+                    regs_->set_flag_c(carry);
+                    break;
+                }
+                case 0x05: {  // SRA (Shift Right Arithmetic - preserva signo)
+                    // Bit 0 va a C, bit 7 se mantiene (signo preservado)
+                    bool bit0 = (value & 0x01) != 0;
+                    bool bit7 = (value & 0x80) != 0;  // Signo original
+                    result = (value >> 1) | (bit7 ? 0x80 : 0);
+                    carry = bit0;
+                    regs_->set_flag_z(result == 0);
+                    regs_->set_flag_n(false);
+                    regs_->set_flag_h(false);
+                    regs_->set_flag_c(carry);
+                    break;
+                }
+                case 0x06: {  // SWAP (Swap nibbles)
+                    // Intercambia los 4 bits altos con los 4 bits bajos
+                    result = ((value & 0x0F) << 4) | ((value & 0xF0) >> 4);
+                    regs_->set_flag_z(result == 0);
+                    regs_->set_flag_n(false);
+                    regs_->set_flag_h(false);
+                    regs_->set_flag_c(false);
+                    break;
+                }
+                case 0x07: {  // SRL (Shift Right Logical - sin signo)
+                    // Bit 0 va a C, bit 7 entra 0
+                    bool bit0 = (value & 0x01) != 0;
+                    result = value >> 1;
+                    carry = bit0;
+                    regs_->set_flag_z(result == 0);
+                    regs_->set_flag_n(false);
+                    regs_->set_flag_h(false);
+                    regs_->set_flag_c(carry);
+                    break;
+                }
+            }
+            break;
+        }
+        case 0x01: {  // BIT (Test bit) - 0x40-0x7F
+            // Testear si el bit 'bit_index' está encendido
+            bool bit_set = (value & (1 << bit_index)) != 0;
+            // Z = !bit_set (si bit está apagado, Z=1)
+            regs_->set_flag_z(!bit_set);
+            regs_->set_flag_n(false);
+            regs_->set_flag_h(true);  // QUIRK: BIT siempre pone H=1
+            // C no se modifica (preservado)
+            // No modificamos result (BIT solo testea, no modifica)
+            return is_memory ? 4 : 2;  // Retornar aquí porque BIT no escribe
+        }
+        case 0x02: {  // RES (Reset bit) - 0x80-0xBF
+            // Apagar el bit 'bit_index'
+            result = value & ~(1 << bit_index);
+            // RES no afecta flags (preserva todos)
+            break;
+        }
+        case 0x03: {  // SET (Set bit) - 0xC0-0xFF
+            // Encender el bit 'bit_index'
+            result = value | (1 << bit_index);
+            // SET no afecta flags (preserva todos)
+            break;
+        }
+    }
+    
+    // Escribir resultado de vuelta al registro o memoria
+    write_register_or_mem(reg_code, result);
+    
+    // Timing: (HL) consume 4 M-Cycles, registros consumen 2
+    return is_memory ? 4 : 2;
 }
 

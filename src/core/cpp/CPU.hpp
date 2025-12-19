@@ -168,6 +168,33 @@ private:
      */
     uint8_t handle_interrupts();
 
+    /**
+     * Maneja el prefijo CB (Extended Instructions).
+     * 
+     * Cuando la CPU lee el opcode 0xCB, el siguiente byte se interpreta
+     * con una tabla diferente de instrucciones. El prefijo CB permite
+     * acceder a 256 instrucciones adicionales:
+     * 
+     * - 0x00-0x3F: Rotaciones y shifts (RLC, RRC, RL, RR, SLA, SRA, SRL, SWAP)
+     * - 0x40-0x7F: BIT b, r (Test bit)
+     * - 0x80-0xBF: RES b, r (Reset bit)
+     * - 0xC0-0xFF: SET b, r (Set bit)
+     * 
+     * Estructura del opcode CB:
+     * - Bits 0-2: Registro (0=B, 1=C, 2=D, 3=E, 4=H, 5=L, 6=(HL), 7=A)
+     * - Bits 3-5: Índice de Bit (0-7) para BIT/SET/RES
+     * - Bits 6-7: Operación (00=Rotaciones/Shifts, 01=BIT, 10=RES, 11=SET)
+     * 
+     * Timing:
+     * - Registro: 2 M-Cycles (8 T-Cycles)
+     * - (HL): 4 M-Cycles (16 T-Cycles) - requiere leer memoria, modificar, escribir
+     * 
+     * @return Número de M-Cycles consumidos
+     * 
+     * Fuente: Pan Docs - CPU Instruction Set (CB Prefix)
+     */
+    int handle_cb();
+
     // ========== Helpers de ALU (Arithmetic Logic Unit) ==========
     // Todos los métodos son inline para máximo rendimiento en el bucle crítico
     

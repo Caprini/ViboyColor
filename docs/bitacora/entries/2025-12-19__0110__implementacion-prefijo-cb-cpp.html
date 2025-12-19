@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementación del Prefijo CB (Instrucciones Extendidas) en C++ - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Implementación del Prefijo CB (Instrucciones Extendidas) en C++</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0110
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-completed">Completado</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0105__implementacion-alu-flags-cpp.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó el prefijo CB completo (256 instrucciones extendidas) en C++,
+                    incluyendo rotaciones, shifts, BIT, RES y SET. Esta es la "joya de la corona"
+                    de la CPU de la Game Boy, permitiendo manipulación de bits nativa y extremadamente
+                    rápida. Se añadió el método <code>handle_cb()</code> que decodifica el opcode CB
+                    usando lógica bitwise eficiente, y se implementaron todas las operaciones según
+                    Pan Docs. Todos los tests pasan (11/11), validando el comportamiento correcto
+                    de flags, timing y acceso a memoria indirecta.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La Game Boy tiene más instrucciones de las que caben en 1 byte (256 opcodes).
+                    Cuando la CPU lee el opcode <code>0xCB</code>, sabe que el siguiente byte debe
+                    interpretarse con una tabla diferente de instrucciones. El prefijo CB permite
+                    acceder a 256 instrucciones adicionales, organizadas de forma muy ordenada:
+                </p>
+                <ul>
+                    <li><strong>0x00-0x3F:</strong> Rotaciones y Shifts (RLC, RRC, RL, RR, SLA, SRA, SWAP, SRL)
+                        <ul>
+                            <li>RLC/RRC: Rotación circular (bit 7/0 sale y entra por el otro extremo)</li>
+                            <li>RL/RR: Rotación a través de Carry (bit 7/0 va a C, antiguo C entra)</li>
+                            <li>SLA: Shift Left Arithmetic (multiplica por 2, bit 7 → C, bit 0 ← 0)</li>
+                            <li>SRA: Shift Right Arithmetic (divide por 2 con signo, preserva bit 7)</li>
+                            <li>SRL: Shift Right Logical (divide por 2 sin signo, bit 7 ← 0)</li>
+                            <li>SWAP: Intercambia nibbles altos y bajos (0xF0 → 0x0F)</li>
+                        </ul>
+                    </li>
+                    <li><strong>0x40-0x7F:</strong> BIT b, r (Test bit) - Prueba si un bit está encendido
+                        <ul>
+                            <li>Z = !bit (si bit está apagado, Z=1)</li>
+                            <li>H = 1 (siempre, quirk del hardware)</li>
+                            <li>N = 0 (siempre)</li>
+                            <li>C = Preservado (no se modifica)</li>
+                        </ul>
+                    </li>
+                    <li><strong>0x80-0xBF:</strong> RES b, r (Reset bit) - Apaga un bit específico
+                        <ul>
+                            <li>No afecta flags (preserva todos)</li>
+                        </ul>
+                    </li>
+                    <li><strong>0xC0-0xFF:</strong> SET b, r (Set bit) - Enciende un bit específico
+                        <ul>
+                            <li>No afecta flags (preserva todos)</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Estructura Matemática del Opcode CB:</strong> El opcode CB está perfectamente
+                    estructurado para decodificación eficiente:
+                </p>
+                <ul>
+                    <li>Bits 0-2: Registro (0=B, 1=C, 2=D, 3=E, 4=H, 5=L, 6=(HL), 7=A)</li>
+                    <li>Bits 3-5: Índice de Bit (0-7) para BIT/SET/RES, o tipo de operación para rotaciones</li>
+                    <li>Bits 6-7: Grupo de operación (00=Rotaciones/Shifts, 01=BIT, 10=RES, 11=SET)</li>
+                </ul>
+                <p>
+                    <strong>Diferencia Crítica con Rotaciones Rápidas:</strong> Las rotaciones del prefijo CB
+                    (ej: RLC) calculan el flag Z según el resultado, mientras que las rotaciones rápidas
+                    (ej: RLCA) siempre ponen Z=0. Esta diferencia es crítica para la compatibilidad con juegos.
+                </p>
+                <p>
+                    <strong>Optimización C++:</strong> Las operaciones bitwise nativas de C++ (<code>&</code>, <code>|</code>, <code>~</code>, <code>&lt;&lt;</code>, <code>&gt;&gt;</code>)
+                    se compilan directamente a instrucciones de máquina de un solo ciclo, ofreciendo rendimiento
+                    máximo. El acceso a memoria indirecta (HL) requiere 4 M-Cycles (leer, modificar, escribir),
+                    mientras que los registros solo requieren 2 M-Cycles.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó el método <code>handle_cb()</code> en <code>CPU.cpp</code> que decodifica
+                    el opcode CB usando lógica bitwise eficiente. El método extrae los componentes del opcode
+                    (registro, bit índice, grupo de operación) y ejecuta la operación correspondiente usando
+                    un switch anidado para máximo rendimiento.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>CPU.hpp</strong>: Añadida declaración de <code>handle_cb()</code> con documentación completa.</li>
+                    <li><strong>CPU.cpp</strong>: 
+                        <ul>
+                            <li>Implementación de <code>handle_cb()</code> con decodificación bitwise</li>
+                            <li>Switch anidado para rotaciones/shifts (8 operaciones: RLC, RRC, RL, RR, SLA, SRA, SWAP, SRL)</li>
+                            <li>Lógica para BIT (testear bits con flags correctos)</li>
+                            <li>Lógica para RES y SET (resetear y establecer bits sin afectar flags)</li>
+                            <li>Manejo de acceso a memoria indirecta (HL) con timing correcto</li>
+                        </ul>
+                    </li>
+                    <li><strong>CPU.cpp (step())</strong>: Añadido case <code>0xCB</code> que llama a <code>handle_cb()</code>.</li>
+                    <li><strong>tests/test_core_cpu_cb.py</strong>: Suite completa de 11 tests validando:
+                        <ul>
+                            <li>BIT con bits encendidos/apagados y preservación de C</li>
+                            <li>RL con y sin carry previo</li>
+                            <li>SET/RES en memoria indirecta (HL)</li>
+                            <li>SWAP con diferentes valores</li>
+                            <li>RLC con diferencia crítica de flags Z vs RLCA</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Decodificación Bitwise:</strong> Se usa extracción de bits (<code>&</code>, <code>&gt;&gt;</code>)
+                        para decodificar el opcode CB en lugar de un switch gigante de 256 casos. Esto reduce
+                        el tamaño del código y mejora la predicción de ramas del procesador host.</li>
+                    <li><strong>Switch Anidado:</strong> Se usa un switch externo para el grupo de operación (bits 6-7)
+                        y un switch interno para el tipo de rotación/shift (bits 3-5). Esto permite al compilador
+                        optimizar mejor que un switch plano de 256 casos.</li>
+                    <li><strong>Preservación de Flags:</strong> RES y SET no modifican flags, mientras que BIT siempre
+                        pone H=1 y N=0, pero preserva C. Esta lógica se implementa explícitamente para garantizar
+                        compatibilidad con el hardware real.</li>
+                    <li><strong>Timing Preciso:</strong> Se retorna 2 M-Cycles para registros y 4 M-Cycles para (HL),
+                        reflejando el costo real de acceso a memoria (leer, modificar, escribir).</li>
+                    <li><strong>Early Return en BIT:</strong> BIT no modifica el registro/memoria, por lo que se retorna
+                        inmediatamente después de actualizar flags, evitando escritura innecesaria.</li>
+                </ul>
+
+                <h3>Código Clave</h3>
+                <pre><code>int CPU::handle_cb() {
+    uint8_t cb_opcode = fetch_byte();
+    uint8_t reg_code = cb_opcode & 0x07;        // Bits 0-2
+    uint8_t bit_index = (cb_opcode >> 3) & 0x07; // Bits 3-5
+    uint8_t op_group = (cb_opcode >> 6) & 0x03;  // Bits 6-7
+    
+    bool is_memory = (reg_code == 6);
+    uint8_t value = read_register_or_mem(reg_code);
+    
+    // Switch según grupo de operación
+    switch (op_group) {
+        case 0x00: // Rotaciones/Shifts
+            // Switch interno para tipo de operación
+            break;
+        case 0x01: // BIT
+            // Testear bit, actualizar flags, retornar
+            break;
+        case 0x02: // RES
+            result = value & ~(1 << bit_index);
+            break;
+        case 0x03: // SET
+            result = value | (1 << bit_index);
+            break;
+    }
+    
+    write_register_or_mem(reg_code, result);
+    return is_memory ? 4 : 2;
+}</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Añadida declaración de <code>handle_cb()</code></li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Implementación completa del prefijo CB (200+ líneas)</li>
+                    <li><code>tests/test_core_cpu_cb.py</code> - Suite de 11 tests para validar operaciones CB</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests en <code>test_core_cpu_cb.py</code> que valida:
+                </p>
+                <ul>
+                    <li><strong>BIT:</strong> Test con bits encendidos/apagados, verificación de flags (Z inverso, H=1 siempre, C preservado)</li>
+                    <li><strong>RL:</strong> Rotación a través de carry con y sin carry previo, verificación de flags</li>
+                    <li><strong>SET/RES:</strong> Operaciones en memoria indirecta (HL), verificación de timing (4 M-Cycles)</li>
+                    <li><strong>SWAP:</strong> Intercambio de nibbles con diferentes valores, verificación de flags Z</li>
+                    <li><strong>RLC:</strong> Diferencia crítica de flags Z vs rotaciones rápidas (RLCA)</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> Todos los tests pasan (11/11) ✅
+                </p>
+                <pre><code>$ python -m pytest tests/test_core_cpu_cb.py -v
+============================= test session starts =============================
+tests/test_core_cpu_cb.py::TestCBBit::test_cb_bit_7_h_set PASSED
+tests/test_core_cpu_cb.py::TestCBBit::test_cb_bit_7_h_clear PASSED
+tests/test_core_cpu_cb.py::TestCBBit::test_cb_bit_preserves_carry PASSED
+tests/test_core_cpu_cb.py::TestCBRot::test_cb_rl_c PASSED
+tests/test_core_cpu_cb.py::TestCBRot::test_cb_rl_with_carry PASSED
+tests/test_core_cpu_cb.py::TestCBHL::test_cb_set_3_hl PASSED
+tests/test_core_cpu_cb.py::TestCBHL::test_cb_res_0_hl PASSED
+tests/test_core_cpu_cb.py::TestCBSwap::test_cb_swap_a PASSED
+tests/test_core_cpu_cb.py::TestCBSwap::test_cb_swap_zero_result PASSED
+tests/test_core_cpu_cb.py::TestCBRLC::test_cb_rlc_z_flag PASSED
+tests/test_core_cpu_cb.py::TestCBRLC::test_cb_rlc_nonzero_result PASSED
+============================= 11 passed in 0.07s =============================</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#cb-prefix">CB Prefix Instructions</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#bit-b-r">BIT b, r Instruction</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#res-b-r">RES b, r Instruction</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#set-b-r">SET b, r Instruction</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#rotations-and-shifts">Rotations and Shifts</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Estructura Matemática del Opcode CB:</strong> El opcode CB está perfectamente organizado
+                            para decodificación eficiente usando operaciones bitwise. Los bits 6-7 determinan el grupo de
+                            operación, los bits 3-5 determinan el tipo de operación o el índice de bit, y los bits 0-2
+                            determinan el registro destino.</li>
+                        <li><strong>Diferencia Crítica de Flags:</strong> Las rotaciones del prefijo CB (RLC, RRC, RL, RR)
+                            calculan el flag Z según el resultado, mientras que las rotaciones rápidas (RLCA, RRCA, RLA, RRA)
+                            siempre ponen Z=0. Esta diferencia es crítica para la compatibilidad con juegos.</li>
+                        <li><strong>Quirks del Hardware:</strong> BIT siempre pone H=1, independientemente del valor del bit.
+                            RES y SET no afectan flags, preservando todos los flags anteriores. Estas peculiaridades se
+                            implementan explícitamente para garantizar compatibilidad.</li>
+                        <li><strong>Timing Preciso:</strong> El acceso a memoria indirecta (HL) requiere 4 M-Cycles porque
+                            implica leer, modificar y escribir, mientras que los registros solo requieren 2 M-Cycles.</li>
+                        <li><strong>Optimización C++:</strong> Las operaciones bitwise nativas de C++ se compilan directamente
+                            a instrucciones de máquina de un solo ciclo, ofreciendo rendimiento máximo. El switch anidado
+                            permite al compilador optimizar mejor que un switch plano de 256 casos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento con Juegos Reales:</strong> Aunque los tests pasan, sería valioso probar
+                            con ROMs de test permitidas para verificar que las operaciones CB funcionan correctamente en
+                            contextos reales de juego.</li>
+                        <li><strong>Edge Cases:</strong> Verificar comportamiento con valores límite (0x00, 0xFF) y con todos
+                            los bits encendidos/apagados en diferentes combinaciones.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        La implementación se basa estrictamente en Pan Docs. No se han hecho suposiciones adicionales,
+                        y todas las decisiones de diseño están respaldadas por documentación técnica oficial.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar instrucciones restantes de la CPU (STOP, DAA, etc.) si es necesario</li>
+                    <li>[ ] Validar con ROMs de test permitidas para verificar compatibilidad completa</li>
+                    <li>[ ] Optimizar el bucle principal de emulación para máximo rendimiento</li>
+                    <li>[ ] Comenzar implementación de APU (Audio Processing Unit) - Fase 2 objetivo principal</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
