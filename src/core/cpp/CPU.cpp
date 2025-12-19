@@ -428,6 +428,31 @@ int CPU::step() {
                 return 3;
             }
 
+        // ========== Loads Indirectas con Auto-incremento/Decremento ==========
+        case 0x22:  // LDI (HL), A (o LD (HL+), A)
+            // Escribe A en la dirección apuntada por HL y luego incrementa HL
+            // Fuente: Pan Docs - LDI (HL), A: 2 M-Cycles
+            {
+                uint16_t addr = regs_->get_hl();
+                mmu_->write(addr, regs_->a);
+                regs_->set_hl((addr + 1) & 0xFFFF);  // Incrementar HL con wrap-around
+                cycles_ += 2;
+                return 2;
+            }
+
+        case 0x32:  // LDD (HL), A (o LD (HL-), A)
+            // Escribe A en la dirección apuntada por HL y luego decrementa HL
+            // Fuente: Pan Docs - LDD (HL), A: 2 M-Cycles
+            {
+                uint16_t addr = regs_->get_hl();
+                mmu_->write(addr, regs_->a);
+                regs_->set_hl((addr - 1) & 0xFFFF);  // Decrementar HL con wrap-around
+                cycles_ += 2;
+                return 2;
+            }
+
+        // Nota: LD (HL), A (0x77) está implementado en el bloque LD r, r' (0x70-0x77)
+
         // ========== Loads 16-bit (LD rr, nn) ==========
         case 0x01:  // LD BC, d16
             {

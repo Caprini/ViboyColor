@@ -74,12 +74,6 @@ void PPU::step(int cpu_cycles) {
         // Esto asegura que renderizamos cada línea visible exactamente una vez
         // cuando completamos los 456 ciclos de esa línea (estamos en H-Blank)
         if (ly_ < VISIBLE_LINES && !scanline_rendered_) {
-            // DIAGNÓSTICO TEMPORAL: Verificar que render_scanline() se llama
-            static int render_count = 0;
-            render_count++;
-            if (render_count <= 10 || render_count % 144 == 0) {
-                printf("[PPU C++] RENDER_SCANLINE #%d: ly_=%u, mode_=%u (antes de avanzar)\n", render_count, ly_, mode_);
-            }
             render_scanline();
             scanline_rendered_ = true;
         }
@@ -247,38 +241,71 @@ void PPU::render_scanline() {
         return;
     }
     
-    // FASE B: Renderizado simplificado con patrón de degradado de prueba
-    // Este patrón nos permite verificar que el framebuffer se está escribiendo
-    // y que la transferencia zero-copy a Python funciona correctamente.
-    // 
-    // Una vez confirmado que funciona, reemplazaremos este código por
-    // el renderizado real de Background, Window y Sprites.
+    // FASE C: Renderizado real de Background desde VRAM
+    // Este método lee los datos de tiles desde la VRAM que la CPU del juego
+    // ha escrito y los renderiza en el framebuffer.
     
+    // Leer registro LCDC para verificar si el LCD está habilitado y configuraciones
+    uint8_t lcdc = mmu_->read(IO_LCDC);
+    if (!(lcdc & 0x80)) {  // Bit 7: LCD Display Enable
+        return;
+    }
+    
+    // Leer registros de scroll
+    uint8_t scy = mmu_->read(IO_SCY);
+    uint8_t scx = mmu_->read(IO_SCX);
+    
+    // Determinar base de tilemap (Bit 3 de LCDC)
+    uint16_t tile_map_base = (lcdc & 0x08) ? 0x9C00 : 0x9800;
+    
+    // Determinar base de tile data (Bit 4 de LCDC)
+    // 1 = 0x8000 (unsigned addressing: tile IDs 0-255)
+    // 0 = 0x8800 (signed addressing: tile IDs -128 a 127, tile 0 en 0x9000)
+    uint16_t tile_data_base = (lcdc & 0x10) ? 0x8000 : 0x8800;
+    bool signed_addressing = !(lcdc & 0x10);
+    
+    // Índice base en el framebuffer para esta línea
     int line_start_index = static_cast<int>(ly_) * SCREEN_WIDTH;
     
-    // DIAGNÓSTICO TEMPORAL: Verificar que se escribe en el framebuffer
-    static int write_count = 0;
-    write_count++;
-    if (write_count <= 5 || (write_count % 144 == 0)) {
-        printf("[PPU C++] render_scanline(): ly_=%u, escribiendo %d píxeles en índice %d\n", 
-               ly_, SCREEN_WIDTH, line_start_index);
-    }
+    // Calcular posición Y en el tilemap (con scroll)
+    uint8_t map_y = static_cast<uint8_t>((ly_ + scy) & 0xFF);
+    uint8_t tile_y_offset = map_y % 8;
     
+    // Renderizar 160 píxeles (una línea completa)
     for (int x = 0; x < SCREEN_WIDTH; ++x) {
-        // Crear un patrón de degradado diagonal basado en ly_ y x
-        // Esto produce un patrón visual que se actualiza a 60 FPS
-        // y nos permite verificar que LY está avanzando correctamente
-        uint8_t color_idx = static_cast<uint8_t>((ly_ + x) % 4);
-        framebuffer_[line_start_index + x] = color_idx;
+        // Calcular posición X en el tilemap (con scroll)
+        uint8_t map_x = static_cast<uint8_t>((x + scx) & 0xFF);
         
-        // DIAGNÓSTICO: Verificar primeros píxeles
-        if (write_count <= 5 && x < 5) {
-            printf("[PPU C++]   Píxel [%d,%d] = índice %u\n", ly_, x, color_idx);
+        // Calcular dirección en el tilemap (32 tiles por línea)
+        uint16_t tile_map_addr = tile_map_base + (map_y / 8) * 32 + (map_x / 8);
+        
+        // Leer tile ID del tilemap
+        uint8_t tile_id = mmu_->read(tile_map_addr);
+        
+        // Calcular dirección del tile en VRAM
+        uint16_t tile_addr;
+        if (signed_addressing) {
+            // Signed: tile_id como int8_t, tile 0 está en 0x9000
+            int8_t signed_tile_id = static_cast<int8_t>(tile_id);
+            tile_addr = tile_data_base + (static_cast<int16_t>(signed_tile_id) * 16);
+        } else {
+            // Unsigned: tile_id directamente (0-255)
+            tile_addr = tile_data_base + (tile_id * 16);
         }
+        
+        // Leer los dos bytes que forman la línea del tile
+        uint8_t byte1 = mmu_->read(tile_addr + tile_y_offset * 2);
+        uint8_t byte2 = mmu_->read(tile_addr + tile_y_offset * 2 + 1);
+        
+        // Decodificar el píxel específico (bit position dentro del tile)
+        uint8_t bit_pos = 7 - (map_x % 8);
+        uint8_t lsb = (byte1 >> bit_pos) & 1;
+        uint8_t msb = (byte2 >> bit_pos) & 1;
+        uint8_t color_index = (msb << 1) | lsb;  // Valor 0-3
+        
+        // Escribir índice de color en el framebuffer
+        framebuffer_[line_start_index + x] = color_index;
     }
-    
-    // NOTA: El renderizado real (render_bg, render_window, render_sprites)
-    // se implementará en la siguiente fase una vez confirmado que el framebuffer funciona.
 }
 
 void PPU::render_bg() {

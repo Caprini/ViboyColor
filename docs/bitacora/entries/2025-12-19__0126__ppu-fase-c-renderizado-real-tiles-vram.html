@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PPU Fase C: Renderizado Real de Tiles desde VRAM - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>PPU Fase C: Renderizado Real de Tiles desde VRAM</h1>
+            <!-- Entrada 0126 - PPU Fase C: Renderizado Real de Tiles desde VRAM -->
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0126
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0125__validacion-implementacion-cargas-inmediatas-ld-r-d8.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Después del éxito de la Fase B, que confirmó que el framebuffer y el pipeline de renderizado funcionan correctamente mostrando un patrón de prueba a 60 FPS, este paso implementa el <strong>renderizado real de tiles del Background desde VRAM</strong>. Para que esto sea posible, también se implementaron las instrucciones de escritura indirecta en memoria: <code>LDI (HL), A</code> (0x22), <code>LDD (HL), A</code> (0x32), y <code>LD (HL), A</code> (0x77).
+                </p>
+                <p>
+                    El renderizado de tiles lee los datos de gráficos que la CPU del juego escribe en VRAM durante la inicialización, decodifica los tiles en formato 2bpp (2 bits por píxel), y los dibuja en el framebuffer aplicando scroll (SCX/SCY) y respetando las configuraciones del registro LCDC (tilemap base, tile data base, direccionamiento signed/unsigned).
+                </p>
+                <p>
+                    Este es el paso que convierte el motor de prueba en un <strong>verdadero emulador visual</strong>: ahora la PPU puede mostrar los gráficos reales del juego en lugar de patrones de prueba.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El renderizado del Background en la Game Boy funciona mediante un sistema de <strong>tilemaps</strong> y <strong>tile data</strong>. Los juegos almacenan sus gráficos como tiles (baldosas) de 8x8 píxeles en VRAM, y luego organizan estos tiles en un mapa de 32x32 tiles (tilemap) para formar la pantalla completa.
+                </p>
+                
+                <h3>Estructura de VRAM</h3>
+                <p>
+                    La VRAM (Video RAM) de la Game Boy tiene 8KB (0x8000-0x9FFF) y se organiza en dos regiones principales:
+                </p>
+                <ul>
+                    <li><strong>Tile Data</strong> (0x8000-0x97FF): Contiene los datos gráficos de los tiles en formato 2bpp (16 bytes por tile)</li>
+                    <li><strong>Tile Maps</strong> (0x9800-0x9BFF y 0x9C00-0x9FFF): Contienen índices de tiles que forman el mapa del Background</li>
+                </ul>
+                
+                <h3>Formato de Tile (2bpp)</h3>
+                <p>
+                    Cada tile ocupa 16 bytes (8 líneas × 2 bytes por línea). Cada píxel está codificado en 2 bits:
+                </p>
+                <ul>
+                    <li><strong>Byte 1</strong>: Bits bajos de cada píxel (LSB)</li>
+                    <li><strong>Byte 2</strong>: Bits altos de cada píxel (MSB)</li>
+                    <li><strong>Color del píxel</strong>: <code>(bit_alto &lt;&lt; 1) | bit_bajo</code> → valores 0-3 (índice de paleta)</li>
+                </ul>
+                <p>
+                    Los píxeles se leen de izquierda a derecha, con el bit 7 siendo el píxel más a la izquierda.
+                </p>
+
+                <h3>Direccionamiento de Tiles</h3>
+                <p>
+                    El registro LCDC (0xFF40) controla cómo se direccionan los tiles:
+                </p>
+                <ul>
+                    <li><strong>Bit 4 = 1</strong>: Tile Data en 0x8000 (direccionamiento unsigned: tile IDs 0-255)</li>
+                    <li><strong>Bit 4 = 0</strong>: Tile Data en 0x8800 (direccionamiento signed: tile IDs -128 a 127, tile 0 en 0x9000)</li>
+                </ul>
+
+                <h3>Instrucciones de Escritura Indirecta</h3>
+                <p>
+                    Para que la CPU pueda escribir los datos de tiles en VRAM, necesita instrucciones que escriban en memoria indirecta usando HL como puntero:
+                </p>
+                <ul>
+                    <li><strong>LDI (HL), A (0x22)</strong>: Escribe A en (HL) y luego incrementa HL. Útil para copias de memoria secuenciales (equivalente a <code>*HL++ = A</code> en C).</li>
+                    <li><strong>LDD (HL), A (0x32)</strong>: Escribe A en (HL) y luego decrementa HL. Menos común, pero útil para copias en dirección inversa (equivalente a <code>*HL-- = A</code> en C).</li>
+                    <li><strong>LD (HL), A (0x77)</strong>: Escribe A en (HL) sin modificar HL. La instrucción más común para escritura indirecta (equivalente a <code>*HL = A</code> en C).</li>
+                </ul>
+                <p>
+                    Estas instrucciones son fundamentales durante la inicialización del juego, cuando se copian datos de gráficos desde la ROM a la VRAM.
+                </p>
+
+                <h3>Proceso de Renderizado de una Scanline</h3>
+                <p>
+                    Para cada línea visible (LY = 0-143), la PPU:
+                </p>
+                <ol>
+                    <li>Lee SCY y SCX (registros de scroll) para determinar qué parte del tilemap mostrar</li>
+                    <li>Para cada píxel X en la pantalla (0-159):
+                        <ul>
+                            <li>Calcula la posición en el tilemap: <code>map_x = (x + SCX) % 256</code>, <code>map_y = (LY + SCY) % 256</code></li>
+                            <li>Lee el tile ID del tilemap en esa posición</li>
+                            <li>Calcula la dirección del tile en VRAM según el direccionamiento (signed/unsigned)</li>
+                            <li>Decodifica el píxel específico del tile (lee 2 bytes, extrae el bit correspondiente)</li>
+                            <li>Escribe el índice de color (0-3) en el framebuffer</li>
+                        </ul>
+                    </li>
+                </ol>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron dos componentes principales: las instrucciones de escritura indirecta en la CPU y el renderizado real de scanlines en la PPU.
+                </p>
+                
+                <h3>CPU: Instrucciones de Escritura Indirecta</h3>
+                <p>
+                    Se añadieron tres nuevos casos en el <code>switch</code> de <code>CPU::step()</code> en <code>src/core/cpp/CPU.cpp</code>:
+                </p>
+                <ul>
+                    <li><strong>LDI (HL), A (0x22)</strong>: Escribe <code>regs_->a</code> en la dirección <code>regs_->get_hl()</code>, luego incrementa HL con wrap-around.</li>
+                    <li><strong>LDD (HL), A (0x32)</strong>: Similar a LDI, pero decrementa HL después de escribir.</li>
+                    <li><strong>LD (HL), A (0x77)</strong>: Ya estaba implementado en el bloque LD r, r', por lo que no se duplicó (solo se añadió un comentario).</li>
+                </ul>
+                <p>
+                    Todas estas instrucciones consumen 2 M-Cycles según las especificaciones de Pan Docs.
+                </p>
+
+                <h3>PPU: Renderizado Real de Scanline</h3>
+                <p>
+                    Se reemplazó completamente el método <code>PPU::render_scanline()</code> en <code>src/core/cpp/PPU.cpp</code>. El nuevo código:
+                </p>
+                <ol>
+                    <li>Verifica que el LCD esté habilitado (LCDC bit 7)</li>
+                    <li>Lee registros de configuración: SCY, SCX, LCDC</li>
+                    <li>Determina las bases de tilemap y tile data según LCDC</li>
+                    <li>Para cada píxel X (0-159):
+                        <ul>
+                            <li>Calcula posición en el tilemap con scroll</li>
+                            <li>Lee tile ID del tilemap</li>
+                            <li>Calcula dirección del tile en VRAM (signed/unsigned)</li>
+                            <li>Lee 2 bytes de la línea del tile</li>
+                            <li>Decodifica el píxel específico extrayendo los bits correspondientes</li>
+                            <li>Escribe índice de color (0-3) en el framebuffer</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Decisiones de diseño:</strong>
+                </p>
+                <ul>
+                    <li>Se usa acceso directo a MMU para leer VRAM (la PPU tiene acceso completo a memoria)</li>
+                    <li>Se calcula cada píxel individualmente en lugar de decodificar tiles completos (simplicidad inicial, puede optimizarse después)</li>
+                    <li>Se mantiene el formato de índice de color (0-3) en el framebuffer, la aplicación de paleta se hace en Python</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadidas instrucciones LDI (HL), A (0x22) y LDD (HL), A (0x32)</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Reemplazado render_scanline() con implementación real de renderizado de tiles</li>
+                    <li><code>tests/test_core_cpu_indirect_writes.py</code> - Nuevo archivo con 6 tests para validar las instrucciones de escritura indirecta</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó un nuevo archivo de tests <code>test_core_cpu_indirect_writes.py</code> con 6 tests unitarios:
+                </p>
+                <ul>
+                    <li><strong>test_ldi_hl_a</strong>: Verifica que LDI (HL), A escribe correctamente y incrementa HL</li>
+                    <li><strong>test_ldi_hl_a_wrap_around</strong>: Verifica que LDI maneja correctamente el wrap-around (0xFFFF → 0x0000)</li>
+                    <li><strong>test_ldd_hl_a</strong>: Verifica que LDD (HL), A escribe correctamente y decrementa HL</li>
+                    <li><strong>test_ldd_hl_a_wrap_around</strong>: Verifica que LDD maneja correctamente el wrap-around (0x0000 → 0xFFFF)</li>
+                    <li><strong>test_ld_hl_a</strong>: Verifica que LD (HL), A escribe correctamente sin modificar HL</li>
+                    <li><strong>test_ldi_sequence</strong>: Verifica una secuencia de múltiples LDI para simular un bucle de copia</li>
+                </ul>
+                <p>
+                    <strong>Resultado de ejecución:</strong>
+                </p>
+                <pre><code>$ pytest tests/test_core_cpu_indirect_writes.py -v
+============================= test session starts =============================
+collected 6 items
+
+tests/test_core_cpu_indirect_writes.py::TestLDIndirectWrites::test_ldi_hl_a PASSED
+tests/test_core_cpu_indirect_writes.py::TestLDIndirectWrites::test_ldi_hl_a_wrap_around PASSED
+tests/test_core_cpu_indirect_writes.py::TestLDIndirectWrites::test_ldd_hl_a PASSED
+tests/test_core_cpu_indirect_writes.py::TestLDIndirectWrites::test_ldd_hl_a_wrap_around PASSED
+tests/test_core_cpu_indirect_writes.py::TestLDIndirectWrites::test_ld_hl_a PASSED
+tests/test_core_cpu_indirect_writes.py::TestLDIndirectWrites::test_ldi_sequence PASSED
+
+============================== 6 passed in 0.06s ==============================
+</code></pre>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Todos los tests usan el módulo nativo compilado (<code>viboy_core</code>) y verifican que las instrucciones se ejecutan correctamente con el timing preciso (2 M-Cycles).
+                </p>
+                <p>
+                    <strong>Fragmento clave del test:</strong>
+                </p>
+                <pre><code>def test_ldi_hl_a(self):
+    """Verifica LDI (HL), A (0x22)"""
+    mmu = PyMMU()
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    
+    regs.pc = 0x8000
+    regs.a = 0xBE
+    regs.hl = 0xC000
+    
+    mmu.write(0x8000, 0x22)  # LDI (HL), A
+    cycles = cpu.step()
+    
+    assert mmu.read(0xC000) == 0xBE
+    assert regs.hl == 0xC001
+    assert cycles == 2</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs - CPU Instruction Set</strong>: Especificación de las instrucciones LDI (HL), A, LDD (HL), A y LD (HL), A, incluyendo timing (M-Cycles)</li>
+                    <li><strong>Pan Docs - Video Display</strong>: Explicación del formato de tiles (2bpp), estructura de VRAM, y proceso de renderizado del Background</li>
+                    <li><strong>Pan Docs - LCDC Register</strong>: Descripción de los bits que controlan el direccionamiento de tiles (bit 4) y selección de tilemaps</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Formato 2bpp</strong>: Entiendo cómo los tiles se almacenan como 16 bytes (8 líneas × 2 bytes), donde cada píxel está codificado en 2 bits distribuidos en dos bytes separados.</li>
+                        <li><strong>Direccionamiento de Tiles</strong>: La diferencia entre signed y unsigned addressing y cómo afecta al cálculo de la dirección del tile en VRAM.</li>
+                        <li><strong>Scroll</strong>: Cómo SCX y SCY permiten desplazar el tilemap visible en pantalla, creando el efecto de cámara.</li>
+                        <li><strong>Instrucciones de Escritura Indirecta</strong>: Cómo LDI/LDD son esenciales para bucles de copia de memoria eficientes en el código de inicialización del juego.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Renderizado con ROMs reales</strong>: Necesitamos probar el emulador con ROMs reales (como Tetris) para verificar que los gráficos se renderizan correctamente. Esto validará que toda la cadena (CPU escribe VRAM → PPU lee VRAM → renderiza) funciona.</li>
+                        <li><strong>Paleta de colores</strong>: Aunque el framebuffer contiene índices 0-3, necesitamos aplicar la paleta BGP (Background Palette) en Python para ver los colores correctos.</li>
+                        <li><strong>Optimización de rendimiento</strong>: El renderizado actual decodifica píxel por píxel. Podríamos optimizar decodificando líneas completas de tiles y cacheándolas.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que el cálculo del direccionamiento signed está correcto: cuando LCDC bit 4 = 0, el tile 0 está en 0x9000, lo que significa que los IDs se interpretan como int8_t y se calculan como <code>tile_data_base + (signed_tile_id * 16)</code>. Esto necesita validación con ROMs reales.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Probar el emulador con ROMs reales (Tetris, Mario) para verificar que los gráficos se renderizan correctamente</li>
+                    <li>[ ] Implementar aplicación de paleta BGP en el renderer Python para mostrar colores correctos (actualmente solo índices 0-3)</li>
+                    <li>[ ] Optimizar el renderizado de scanlines (decodificar líneas completas de tiles en lugar de píxel por píxel)</li>
+                    <li>[ ] Implementar renderizado de Window (capa opaca sobre Background)</li>
+                    <li>[ ] Implementar renderizado de Sprites (OBJ - Objects) para mostrar elementos móviles</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

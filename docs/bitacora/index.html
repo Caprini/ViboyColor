@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0126 - PPU Fase C: Renderizado Real de Tiles desde VRAM -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0126__ppu-fase-c-renderizado-real-tiles-vram.html" class="entry-link">
+                                    PPU Fase C: Renderizado Real de Tiles desde VRAM
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0126 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Después del éxito de la Fase B que confirmó que el framebuffer funciona correctamente, este paso implementa el renderizado real de tiles del Background desde VRAM. Para que esto sea posible, se implementaron las instrucciones de escritura indirecta en memoria: LDI (HL), A (0x22), LDD (HL), A (0x32), y LD (HL), A (0x77). El renderizado lee los datos de gráficos que la CPU escribe en VRAM, decodifica los tiles en formato 2bpp, y los dibuja en el framebuffer aplicando scroll y respetando las configuraciones del LCDC. Este es el paso que convierte el motor de prueba en un verdadero emulador visual capaz de mostrar gráficos reales del juego.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0125 - Validación e Implementación de Cargas Inmediatas (LD r, d8) -->
                     <li>
                         <div class="entry-header">

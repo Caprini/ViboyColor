@@ -750,6 +750,45 @@ Después de desbloquear el bucle principal (Step 0122), el emulador se ejecutaba
 
 ---
 
+### 2025-12-19 - Step 0126: PPU Fase C - Renderizado Real de Tiles desde VRAM
+**Estado**: ✅ Completado
+
+Después del éxito de la Fase B que confirmó que el framebuffer funciona correctamente mostrando un patrón de prueba a 60 FPS, este paso implementa el **renderizado real de tiles del Background desde VRAM**. Para que esto sea posible, también se implementaron las instrucciones de escritura indirecta en memoria: `LDI (HL), A` (0x22), `LDD (HL), A` (0x32), y `LD (HL), A` (0x77).
+
+**Implementación**:
+- ✅ Instrucciones de escritura indirecta en CPU C++:
+  - `LDI (HL), A` (0x22): Escribe A en (HL) y luego incrementa HL (2 M-Cycles)
+  - `LDD (HL), A` (0x32): Escribe A en (HL) y luego decrementa HL (2 M-Cycles)
+  - `LD (HL), A` (0x77): Ya estaba implementado en el bloque LD r, r'
+- ✅ Renderizado real de scanlines en PPU C++:
+  - Reemplazado `render_scanline()` con lógica completa de renderizado de Background
+  - Lee tiles desde VRAM en formato 2bpp (2 bits por píxel)
+  - Aplica scroll (SCX/SCY) y respeta configuraciones LCDC (tilemap base, direccionamiento signed/unsigned)
+  - Decodifica tiles línea por línea y escribe índices de color (0-3) en el framebuffer
+- ✅ Suite completa de tests (`test_core_cpu_indirect_writes.py`):
+  - 6 tests que validan LDI, LDD, LD (HL), A con casos normales y wrap-around
+  - Todos los tests pasan (6/6 ✅)
+
+**Archivos modificados/creados**:
+- `src/core/cpp/CPU.cpp` - Añadidas instrucciones LDI (HL), A y LDD (HL), A
+- `src/core/cpp/PPU.cpp` - Reemplazado render_scanline() con implementación real
+- `tests/test_core_cpu_indirect_writes.py` - Nuevo archivo con 6 tests
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0126__ppu-fase-c-renderizado-real-tiles-vram.html`
+
+**Resultados de verificación**:
+- ✅ Compilación exitosa (sin errores)
+- ✅ Todos los tests pasan: `6/6 passed in 0.06s`
+- ✅ Validación de módulo compilado C++: Todas las instrucciones funcionan correctamente con timing preciso
+
+**Próximos pasos**:
+- Probar el emulador con ROMs reales (Tetris, Mario) para verificar que los gráficos se renderizan correctamente
+- Implementar aplicación de paleta BGP en el renderer Python para mostrar colores correctos
+- Optimizar el renderizado (decodificar líneas completas de tiles en lugar de píxel por píxel)
+- Implementar renderizado de Window y Sprites
+
+---
+
 ### 2025-12-19 - Step 0125: Validación e Implementación de Cargas Inmediatas (LD r, d8)
 **Estado**: ✅ Completado
 
