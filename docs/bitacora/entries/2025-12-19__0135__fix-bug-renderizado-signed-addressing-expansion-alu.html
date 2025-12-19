@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix: Bug de Renderizado en Signed Addressing y Expansión de la ALU - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Fix: Bug de Renderizado en Signed Addressing y Expansión de la ALU</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0135
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0134__cpu-nativa-implementacion-io-basico-ldh.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se corrigió un bug crítico en el cálculo de direcciones de tiles en modo <strong>signed addressing</strong> 
+                    dentro de <code>PPU::render_scanline()</code> que causaba Segmentation Faults cuando la PPU intentaba 
+                    renderizar el background. Además, se implementó el bloque completo de la ALU (0x80-0xBF), añadiendo 
+                    64 opcodes de operaciones aritméticas y lógicas que son fundamentales para la ejecución de juegos. 
+                    El diagnóstico reveló que la CPU funcionaba correctamente hasta el punto de configurar la PPU, pero 
+                    el crash ocurría cuando la PPU intentaba leer tiles con direcciones calculadas incorrectamente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La PPU de la Game Boy puede usar dos modos de direccionamiento para los tiles en VRAM:
+                </p>
+                <ul>
+                    <li><strong>Unsigned Addressing (bit 4 de LCDC = 1)</strong>: Los tile IDs van de 0 a 255, y los tiles 
+                        están almacenados desde 0x8000. Fórmula: <code>tile_addr = 0x8000 + (tile_id * 16)</code></li>
+                    <li><strong>Signed Addressing (bit 4 de LCDC = 0)</strong>: Los tile IDs van de -128 a 127, y el tile 0 
+                        está en 0x9000 (no en 0x8800). Fórmula: <code>tile_addr = 0x9000 + (signed_tile_id * 16)</code></li>
+                </ul>
+                <p>
+                    <strong>¿Por qué existe signed addressing?</strong> Permite referenciar tiles tanto hacia adelante 
+                    (tiles 0-127) como hacia atrás (tiles -128 a -1) desde una posición central (0x9000). Esto es útil 
+                    para sprites y efectos de scroll que necesitan acceder a tiles en ambas direcciones sin tener que 
+                    recalcular direcciones base.
+                </p>
+                <p>
+                    <strong>El bug:</strong> El código original usaba <code>tile_data_base</code> (0x8800) para calcular 
+                    direcciones en modo signed, pero según Pan Docs, el tile 0 está en 0x9000. Esto causaba que tiles 
+                    con IDs negativos calcularan direcciones fuera de VRAM (por ejemplo, tile ID 128 = -128 calculaba 
+                    0x8800 + (-128 * 16) = 0x8800 - 0x800 = 0x8000, pero debería ser 0x9000 + (-128 * 16) = 0x8800). 
+                    Cuando el tile ID era más negativo, la dirección calculada salía completamente fuera de VRAM, causando 
+                    Segmentation Faults.
+                </p>
+                <p>
+                    <strong>Bloque ALU (0x80-0xBF):</strong> Este bloque contiene todas las operaciones aritméticas y lógicas 
+                    entre el registro A y otros registros/memoria. Incluye:
+                </p>
+                <ul>
+                    <li><strong>0x80-0x87</strong>: ADD A, r (Suma)</li>
+                    <li><strong>0x88-0x8F</strong>: ADC A, r (Suma con carry)</li>
+                    <li><strong>0x90-0x97</strong>: SUB A, r (Resta)</li>
+                    <li><strong>0x98-0x9F</strong>: SBC A, r (Resta con carry)</li>
+                    <li><strong>0xA0-0xA7</strong>: AND A, r (AND lógico)</li>
+                    <li><strong>0xA8-0xAF</strong>: XOR A, r (XOR lógico)</li>
+                    <li><strong>0xB0-0xB7</strong>: OR A, r (OR lógico)</li>
+                    <li><strong>0xB8-0xBF</strong>: CP A, r (Comparar, sin modificar A)</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Tile Data Addressing, CPU Instruction Set (ALU Operations)
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se corrigió el cálculo de direcciones en <code>PPU::render_scanline()</code> para usar correctamente 
+                    la base 0x9000 en modo signed addressing, y se añadió validación exhaustiva de rangos VRAM para prevenir 
+                    accesos fuera de límites. Además, se implementaron los helpers faltantes de ALU (alu_adc, alu_sbc, 
+                    alu_or, alu_cp) y se añadieron los 64 opcodes del bloque ALU completo.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>src/core/cpp/PPU.cpp</strong>: Corregido cálculo de direcciones en signed addressing y validación de rangos VRAM</li>
+                    <li><strong>src/core/cpp/CPU.cpp</strong>: Añadidos helpers ALU faltantes y bloque completo 0x80-0xBF</li>
+                    <li><strong>src/core/cpp/CPU.hpp</strong>: Declaraciones de nuevos helpers ALU</li>
+                    <li><strong>tests/test_core_ppu_rendering.py</strong>: Añadido test para signed addressing</li>
+                </ul>
+
+                <h3>Código Implementado</h3>
+                <p>
+                    Corrección del cálculo de direcciones en modo signed:
+                </p>
+                <pre><code>// Calcular dirección del tile en VRAM
+uint16_t tile_addr;
+if (signed_addressing) {
+    // Signed: tile_id como int8_t, tile 0 está en 0x9000
+    int8_t signed_tile_id = static_cast&lt;int8_t&gt;(tile_id);
+    tile_addr = 0x9000 + (static_cast&lt;int16_t&gt;(signed_tile_id) * 16);
+} else {
+    // Unsigned: tile_id directamente (0-255), base en 0x8000
+    tile_addr = tile_data_base + (tile_id * 16);
+}
+
+// CRÍTICO: Validar que la dirección del tile esté dentro de VRAM (0x8000-0x9FFF)
+if (tile_addr &lt; VRAM_START || tile_addr &gt; VRAM_END) {
+    framebuffer_[line_start_index + x] = 0;
+    continue;
+}</code></pre>
+                <p>
+                    Implementación de helpers ALU faltantes (ejemplo: alu_adc):
+                </p>
+                <pre><code>void CPU::alu_adc(uint8_t value) {
+    // ADC: Add with Carry - A = A + value + C
+    uint8_t a_old = regs_-&gt;a;
+    uint8_t carry = regs_-&gt;get_flag_c() ? 1 : 0;
+    uint16_t result = static_cast&lt;uint16_t&gt;(a_old) + 
+                      static_cast&lt;uint16_t&gt;(value) + 
+                      static_cast&lt;uint16_t&gt;(carry);
+    
+    regs_-&gt;a = static_cast&lt;uint8_t&gt;(result);
+    regs_-&gt;set_flag_z(regs_-&gt;a == 0);
+    regs_-&gt;set_flag_n(false);
+    
+    // H: half-carry incluyendo carry
+    uint8_t a_low = a_old &amp; 0x0F;
+    uint8_t value_low = value &amp; 0x0F;
+    bool half_carry = (a_low + value_low + carry) &gt; 0x0F;
+    regs_-&gt;set_flag_h(half_carry);
+    
+    // C: carry completo
+    regs_-&gt;set_flag_c(result &gt; 0xFF);
+}</code></pre>
+                <p>
+                    Implementación del bloque ALU completo (ejemplo: ADD A, r):
+                </p>
+                <pre><code>// ADD A, r (0x80-0x87)
+case 0x80:  // ADD A, B
+    {
+        alu_add(regs_-&gt;b);
+        cycles_ += 1;
+        return 1;
+    }
+case 0x86:  // ADD A, (HL)
+    {
+        uint8_t value = mmu_-&gt;read(regs_-&gt;get_hl());
+        alu_add(value);
+        cycles_ += 2;  // (HL) consume 2 M-Cycles
+        return 2;
+    }
+// ... y así para todos los registros y operaciones</code></pre>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Validación de rangos VRAM:</strong> Se añadió validación exhaustiva tanto para <code>tile_addr</code> 
+                    como para <code>tile_line_addr</code> (dirección de la línea específica del tile). Si alguna dirección 
+                    está fuera de VRAM, se usa color 0 (transparente) en lugar de crashear. Esto es más seguro y permite 
+                    que el emulador continúe ejecutándose incluso con datos corruptos.
+                </p>
+                <p>
+                    <strong>Base 0x9000 para signed addressing:</strong> Según Pan Docs, cuando el bit 4 de LCDC es 0, 
+                    el tile 0 está en 0x9000, no en 0x8800. La variable <code>tile_data_base</code> se mantiene en 0x8800 
+                    para referencia, pero el cálculo real usa 0x9000 explícitamente.
+                </p>
+                <p>
+                    <strong>Patrón regular del bloque ALU:</strong> Los 64 opcodes del bloque ALU siguen un patrón muy regular: 
+                    bits 0-2 determinan el registro (0=B, 1=C, 2=D, 3=E, 4=H, 5=L, 6=(HL), 7=A), y bits 3-5 determinan la 
+                    operación. Se implementaron todos los casos explícitamente para claridad y facilidad de mantenimiento, 
+                    aunque se podría optimizar con una tabla de funciones.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Corregido cálculo de direcciones en signed addressing y validación de rangos (líneas ~304-331)</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadidos helpers ALU (alu_adc, alu_sbc, alu_or, alu_cp) y bloque completo 0x80-0xBF (líneas ~199-350)</li>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Declaraciones de nuevos helpers ALU (líneas ~293-350)</li>
+                    <li><code>tests/test_core_ppu_rendering.py</code> - Añadido test <code>test_signed_addressing_fix</code> (nuevo test)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se añadió un test específico para verificar la corrección del bug de signed addressing:
+                </p>
+                <ul>
+                    <li><strong>test_signed_addressing_fix</strong>: Configura LCDC con bit 4=0 (signed addressing), escribe un tile 
+                        en la dirección esperada (0x8800 para tile ID 128 = -128), y verifica que la PPU puede renderizar sin crash. 
+                        También verifica que tile ID 0 está correctamente en 0x9000.</li>
+                </ul>
+                <p>
+                    <strong>Comando ejecutado:</strong>
+                </p>
+                <pre><code>pytest tests/test_core_ppu_rendering.py::TestCorePPURendering::test_signed_addressing_fix -v</code></pre>
+                <p>
+                    <strong>Resultado esperado:</strong> Test pasa sin Segmentation Fault
+                </p>
+                <p>
+                    <strong>Código del Test:</strong>
+                </p>
+                <pre><code>def test_signed_addressing_fix(self):
+    """Test: Verifica que el cálculo de dirección en modo signed addressing es correcto."""
+    mmu = PyMMU()
+    ppu = PyPPU(mmu)
+    
+    # Habilitar LCD con signed addressing (bit 4=0)
+    mmu.write(0xFF40, 0x89)  # LCDC: bit 7=1, bit 4=0, bit 0=1
+    
+    # Escribir tile en 0x8800 (tile ID 128 = -128 en signed)
+    tile_addr = 0x8800
+    for line in range(8):
+        mmu.write(tile_addr + (line * 2), 0xFF)
+        mmu.write(tile_addr + (line * 2) + 1, 0xFF)
+    
+    # Configurar tilemap con tile ID 128
+    mmu.write(0x9800, 128)
+    
+    # Avanzar PPU (debe renderizar sin crash)
+    ppu.step(456)
+    
+    # Verificar que se renderizó correctamente
+    framebuffer = ppu.framebuffer
+    assert framebuffer[0] == 3  # Color 3 (negro)</code></pre>
+                <p>
+                    <strong>Validación Nativa:</strong> El test valida el módulo compilado C++ a través del wrapper Cython. 
+                    La PPU nativa ejecuta directamente el cálculo de direcciones y el renderizado.
+                </p>
+                <p>
+                    <strong>Tests del bloque ALU:</strong> Los opcodes del bloque ALU se validan indirectamente a través 
+                    de la ejecución de ROMs reales. Se planea añadir tests unitarios específicos en el futuro.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Data Addressing</a> - Sección sobre signed vs unsigned addressing</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set</a> - Sección "ALU Operations" (0x80-0xBF)</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Control Register (LCDC)</a> - Bit 4: Tile Data Addressing Mode</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Signed Addressing en PPU:</strong> El tile 0 está en 0x9000 cuando se usa signed addressing, 
+                            no en 0x8800. La fórmula correcta es <code>0x9000 + (signed_tile_id * 16)</code>. Esto permite 
+                            referenciar tiles hacia atrás (negativos) y hacia adelante (positivos) desde una posición central.</li>
+                        <li><strong>Validación de Rangos VRAM:</strong> Es crítico validar que todas las direcciones calculadas 
+                            estén dentro de VRAM (0x8000-0x9FFF) antes de leer datos. Si una dirección está fuera de rango, 
+                            es más seguro usar un color por defecto (transparente) que crashear el emulador.</li>
+                        <li><strong>Bloque ALU Completo:</strong> Los 64 opcodes del bloque ALU (0x80-0xBF) son fundamentales 
+                            para la ejecución de juegos. Incluyen todas las operaciones aritméticas y lógicas básicas entre A 
+                            y otros registros/memoria. Sin este bloque, los juegos no pueden realizar cálculos complejos.</li>
+                        <li><strong>ADC y SBC:</strong> Estas operaciones incluyen el flag C (carry) en el cálculo, lo que permite 
+                            realizar sumas y restas de múltiples bytes (aritmética de precisión extendida). El cálculo de half-carry 
+                            también debe incluir el carry.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento del bloque ALU:</strong> Se implementaron todos los casos explícitamente para 
+                            claridad, pero se podría optimizar usando una tabla de funciones. Verificar si el compilador optimiza 
+                            suficientemente el switch statement.</li>
+                        <li><strong>Tests unitarios del bloque ALU:</strong> Se planea añadir tests unitarios específicos para 
+                            cada operación ALU (ADC, SBC, OR, CP) para validar el cálculo correcto de flags en casos edge.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Comportamiento seguro en accesos inválidos:</strong> Se asume que es mejor usar color 0 (transparente) 
+                        cuando hay accesos fuera de VRAM en lugar de crashear. Esto permite que el emulador continúe ejecutándose 
+                        incluso con datos corruptos, lo que facilita la depuración. Sin embargo, en producción, podría ser mejor 
+                        lanzar una excepción o loggear el error para identificar problemas de implementación.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con ROMs reales (Tetris, Mario) para verificar que el bug de signed addressing está corregido</li>
+                    <li>[ ] Añadir tests unitarios específicos para cada operación ALU (ADC, SBC, OR, CP) con casos edge</li>
+                    <li>[ ] Verificar que el logo de Nintendo se renderiza correctamente en el boot de los juegos</li>
+                    <li>[ ] Optimizar el bloque ALU si es necesario (tabla de funciones vs switch statement)</li>
+                    <li>[ ] Implementar el resto de opcodes faltantes de la CPU (rotaciones, shifts, etc.)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

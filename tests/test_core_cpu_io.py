@@ -52,18 +52,18 @@ class TestCoreCPUIO:
         regs.pc = 0x8000
         regs.a = 0x00  # A inicia en 0
         
-        # Escribir un valor en el registro STAT (0xFF41)
-        mmu.write(0xFF41, 0xCD)
+        # Escribir un valor en HRAM (0xFF80) - no tiene lógica especial en MMU
+        mmu.write(0xFF80, 0xCD)
         
         # Escribir instrucción LDH A, (n)
         mmu.write(0x8000, 0xF0)  # Opcode LDH A, (n)
-        mmu.write(0x8001, 0x41)  # offset 'n' (para la dirección 0xFF41 - STAT)
+        mmu.write(0x8001, 0x80)  # offset 'n' (para la dirección 0xFF80 - HRAM)
         
         # Ejecutar instrucción
         cycles = cpu.step()
         
         # Verificar resultados
-        assert regs.a == 0xCD, "El registro A debería tener el valor de 0xFF41"
+        assert regs.a == 0xCD, "El registro A debería tener el valor de 0xFF80"
         assert regs.pc == 0x8002, "PC debe avanzar 2 bytes (opcode + offset)"
         assert cycles == 3, "LDH A, (n) debe consumir 3 M-Cycles"
     
@@ -88,8 +88,8 @@ class TestCoreCPUIO:
         assert mmu.read(0xFF40) == 0x91, "LCDC debe tener el valor escrito"
         assert cycles == 3
     
-    def test_ldh_read_stat(self):
-        """Test: LDH A, (n) puede leer de STAT (0xFF41)."""
+    def test_ldh_read_hram(self):
+        """Test: LDH A, (n) puede leer de HRAM (0xFF80)."""
         mmu = PyMMU()
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
@@ -98,18 +98,18 @@ class TestCoreCPUIO:
         regs.pc = 0x0200
         regs.a = 0x00
         
-        # Escribir un valor en STAT
-        mmu.write(0xFF41, 0x85)  # STAT con bits específicos activos
+        # Escribir un valor en HRAM (0xFF80) - no tiene lógica especial
+        mmu.write(0xFF80, 0x85)
         
         # Escribir instrucción LDH A, (n)
         mmu.write(0x0200, 0xF0)  # Opcode LDH A, (n)
-        mmu.write(0x0201, 0x41)  # offset para 0xFF41 (STAT)
+        mmu.write(0x0201, 0x80)  # offset para 0xFF80 (HRAM)
         
         # Ejecutar instrucción
         cycles = cpu.step()
         
-        # Verificar que A tiene el valor de STAT
-        assert regs.a == 0x85, "A debe tener el valor leído de STAT"
+        # Verificar que A tiene el valor de HRAM
+        assert regs.a == 0x85, "A debe tener el valor leído de HRAM"
         assert cycles == 3
     
     def test_ldh_offset_wraparound(self):

@@ -32,6 +32,33 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-19 - Step 0135: Fix: Bug de Renderizado en Signed Addressing y Expansión de la ALU
+**Estado**: ✅ Completado
+
+Se corrigió un bug crítico en el cálculo de direcciones de tiles en modo **signed addressing** dentro de `PPU::render_scanline()` que causaba Segmentation Faults cuando la PPU intentaba renderizar el background. Además, se implementó el bloque completo de la ALU (0x80-0xBF), añadiendo 64 opcodes de operaciones aritméticas y lógicas que son fundamentales para la ejecución de juegos.
+
+**Problema identificado**:
+El código usaba `tile_data_base` (0x8800) para calcular direcciones en modo signed, pero según Pan Docs, el tile 0 está en 0x9000. Esto causaba que tiles con IDs negativos calcularan direcciones fuera de VRAM, resultando en Segmentation Faults. El diagnóstico reveló que la CPU funcionaba correctamente hasta configurar la PPU, pero el crash ocurría cuando la PPU intentaba leer tiles.
+
+**Implementación**:
+- ✅ Corrección del cálculo de direcciones en signed addressing usando base 0x9000
+- ✅ Validación exhaustiva de rangos VRAM antes de leer datos
+- ✅ Helpers ALU faltantes: `alu_adc()`, `alu_sbc()`, `alu_or()`, `alu_cp()`
+- ✅ Bloque completo ALU (0x80-0xBF): 64 opcodes implementados
+- ✅ Test específico para signed addressing (`test_signed_addressing_fix`)
+
+**Archivos creados/modificados**:
+- `src/core/cpp/PPU.cpp` - Corregido cálculo de direcciones y validación de rangos
+- `src/core/cpp/CPU.cpp` - Añadidos helpers ALU y bloque completo 0x80-0xBF
+- `src/core/cpp/CPU.hpp` - Declaraciones de nuevos helpers ALU
+- `tests/test_core_ppu_rendering.py` - Añadido test para signed addressing
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0135__fix-bug-renderizado-signed-addressing-expansion-alu.html`
+
+**Fuentes**: Pan Docs - Tile Data Addressing, CPU Instruction Set (ALU Operations)
+
+---
+
 ### 2025-12-19 - Step 0134: CPU Nativa: Implementación de I/O Básico (LDH)
 **Estado**: ✅ Completado
 

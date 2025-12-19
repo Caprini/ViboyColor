@@ -215,3 +215,89 @@ class TestCorePPURendering:
         first_pixel = np_array[0]
         assert isinstance(first_pixel, (np.uint32, np.integer, int)), "Elemento debe ser uint32 o compatible"
 
+    def test_signed_addressing_fix(self) -> None:
+        """
+        Test: Verifica que el cálculo de dirección en modo signed addressing es correcto.
+        
+        Este test valida la corrección del bug que causaba Segmentation Faults
+        cuando la PPU intentaba renderizar tiles con signed addressing.
+        
+        Pasos:
+        1. Configura LCDC con bit 4=0 (signed addressing activo)
+        2. Escribe un tile en la dirección esperada para signed addressing
+        3. Configura tilemap con un tile ID que se interpreta como negativo
+        4. Verifica que la PPU puede renderizar sin crash
+        5. Verifica que el cálculo de dirección es correcto (0x9000 + signed_offset)
+        
+        Fuente: Pan Docs - Tile Data Addressing
+        """
+        mmu = PyMMU()
+        ppu = PyPPU(mmu)
+        
+        # Habilitar LCD (bit 7=1) y Background (bit 0=1)
+        # IMPORTANTE: bit 4=0 activa signed addressing
+        # LCDC = 0x89 = 10001001 (bit 7=1, bit 4=0, bit 0=1)
+        mmu.write(0xFF40, 0x89)
+        
+        # Configurar paleta BGP
+        mmu.write(0xFF47, 0xE4)  # BGP: 0->blanco, 1->gris claro, 2->gris oscuro, 3->negro
+        
+        # En modo signed addressing:
+        # - Tile ID 0 está en 0x9000 (no en 0x8800)
+        # - Tile ID 128 (0x80) se interpreta como -128
+        # - Dirección = 0x9000 + (-128 * 16) = 0x9000 - 0x800 = 0x8800
+        
+        # Escribir un tile todo negro (color 3) en 0x8800
+        # Este tile corresponde a tile ID 128 en modo signed (que es -128)
+        tile_addr = 0x8800
+        for line in range(8):
+            mmu.write(tile_addr + (line * 2), 0xFF)      # Byte 1 (LSB)
+            mmu.write(tile_addr + (line * 2) + 1, 0xFF)  # Byte 2 (MSB)
+        
+        # Configurar tilemap 0x9800 con tile ID 128 (que se interpreta como -128)
+        mmu.write(0x9800, 128)  # Tile ID 128 = -128 en signed
+        
+        # Avanzar PPU hasta completar la línea 0 (entra en H-Blank)
+        # Esto debería renderizar sin Segmentation Fault
+        ppu.step(456)  # Una línea completa
+        
+        # Verificar que estamos en Mode 0 (H-Blank) y se ha renderizado
+        assert ppu.get_mode() == 0, "Debe estar en Mode 0 (H-Blank) después de renderizar"
+        assert ppu.get_ly() == 0, "Debe estar en línea 0"
+        
+        # Obtener framebuffer
+        framebuffer = ppu.framebuffer
+        
+        # Verificar que el framebuffer tiene el tamaño correcto
+        assert len(framebuffer) == 160 * 144, f"Framebuffer debe tener 23040 píxeles, tiene {len(framebuffer)}"
+        
+        # Verificar que el primer píxel es negro (color 3)
+        # El framebuffer contiene índices de color (0-3), no valores ARGB32
+        # En el test anterior, el framebuffer se convertía a ARGB32, pero aquí
+        # verificamos directamente el índice de color
+        first_pixel = framebuffer[0]
+        assert first_pixel == 3, f"Primer píxel debe ser color 3 (negro), es {first_pixel}"
+        
+        # Verificar que todos los píxeles de la primera línea son color 3
+        for x in range(160):
+            pixel = framebuffer[x]
+            assert pixel == 3, f"Píxel {x} debe ser color 3 (negro), es {pixel}"
+        
+        # Test adicional: Verificar tile ID 0 en modo signed (debe estar en 0x9000)
+        # Limpiar tilemap
+        mmu.write(0x9800, 0)  # Tile ID 0
+        
+        # Escribir tile en 0x9000 (tile 0 en modo signed)
+        tile_addr_0 = 0x9000
+        for line in range(8):
+            mmu.write(tile_addr_0 + (line * 2), 0x00)      # Tile blanco (color 0)
+            mmu.write(tile_addr_0 + (line * 2) + 1, 0x00)
+        
+        # Avanzar otra línea
+        ppu.step(456)
+        
+        # Verificar que el primer píxel es color 0 (blanco)
+        framebuffer = ppu.framebuffer
+        first_pixel = framebuffer[160]  # Primera línea del framebuffer (línea 1)
+        assert first_pixel == 0, f"Primer píxel de línea 1 debe ser color 0 (blanco), es {first_pixel}"
+

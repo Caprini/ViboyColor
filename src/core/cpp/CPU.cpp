@@ -196,6 +196,84 @@ uint8_t CPU::alu_dec(uint8_t value) {
     return result;
 }
 
+void CPU::alu_adc(uint8_t value) {
+    // ADC: Add with Carry - A = A + value + C
+    uint8_t a_old = regs_->a;
+    uint8_t carry = regs_->get_flag_c() ? 1 : 0;
+    uint16_t result = static_cast<uint16_t>(a_old) + static_cast<uint16_t>(value) + static_cast<uint16_t>(carry);
+    
+    // Actualizar registro A
+    regs_->a = static_cast<uint8_t>(result);
+    
+    // Calcular flags
+    regs_->set_flag_z(regs_->a == 0);
+    regs_->set_flag_n(false);
+    
+    // H: half-carry (bit 3 -> 4) incluyendo carry
+    uint8_t a_low = a_old & 0x0F;
+    uint8_t value_low = value & 0x0F;
+    bool half_carry = (a_low + value_low + carry) > 0x0F;
+    regs_->set_flag_h(half_carry);
+    
+    // C: carry completo
+    regs_->set_flag_c(result > 0xFF);
+}
+
+void CPU::alu_sbc(uint8_t value) {
+    // SBC: Subtract with Carry - A = A - value - C
+    uint8_t a_old = regs_->a;
+    uint8_t carry = regs_->get_flag_c() ? 1 : 0;
+    uint16_t result = static_cast<uint16_t>(a_old) - static_cast<uint16_t>(value) - static_cast<uint16_t>(carry);
+    
+    // Actualizar registro A
+    regs_->a = static_cast<uint8_t>(result);
+    
+    // Calcular flags
+    regs_->set_flag_z(regs_->a == 0);
+    regs_->set_flag_n(true);
+    
+    // H: half-borrow (bit 4 -> 3) incluyendo carry
+    uint8_t a_low = a_old & 0x0F;
+    uint8_t value_low = value & 0x0F;
+    bool half_borrow = (a_low < (value_low + carry));
+    regs_->set_flag_h(half_borrow);
+    
+    // C: borrow completo
+    regs_->set_flag_c(a_old < (value + carry));
+}
+
+void CPU::alu_or(uint8_t value) {
+    // OR: A = A | value
+    regs_->a = regs_->a | value;
+    
+    // Calcular flags
+    regs_->set_flag_z(regs_->a == 0);
+    regs_->set_flag_n(false);
+    regs_->set_flag_h(false);
+    regs_->set_flag_c(false);
+}
+
+void CPU::alu_cp(uint8_t value) {
+    // CP: Compare - realiza A - value pero NO guarda el resultado
+    // Es equivalente a SUB pero sin modificar A
+    uint8_t a_old = regs_->a;
+    uint16_t result = static_cast<uint16_t>(a_old) - static_cast<uint16_t>(value);
+    uint8_t result_8bit = static_cast<uint8_t>(result);
+    
+    // Calcular flags (igual que SUB)
+    regs_->set_flag_z(result_8bit == 0);
+    regs_->set_flag_n(true);
+    
+    // H: half-borrow
+    bool half_borrow = (a_old & 0x0F) < (value & 0x0F);
+    regs_->set_flag_h(half_borrow);
+    
+    // C: borrow completo
+    regs_->set_flag_c(a_old < value);
+    
+    // IMPORTANTE: A NO se modifica (solo se calculan flags)
+}
+
 // ========== Implementación de Helpers de Load ==========
 
 uint8_t* CPU::get_register_ptr(uint8_t reg_code) {
@@ -756,6 +834,414 @@ int CPU::step() {
             {
                 alu_xor(regs_->a);  // XOR A con A mismo
                 cycles_ += 1;  // XOR A consume 1 M-Cycle
+                return 1;
+            }
+
+        // ========== Bloque ALU Completo (0x80-0xBF) ==========
+        // Este bloque contiene todas las operaciones aritméticas y lógicas
+        // entre A y registros/memoria. Sigue un patrón regular:
+        // - Bits 0-2: Registro (0=B, 1=C, 2=D, 3=E, 4=H, 5=L, 6=(HL), 7=A)
+        // - Bits 3-5: Operación (0=ADD, 1=ADC, 2=SUB, 3=SBC, 4=AND, 5=XOR, 6=OR, 7=CP)
+        
+        // ADD A, r (0x80-0x87)
+        case 0x80:  // ADD A, B
+            {
+                alu_add(regs_->b);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x81:  // ADD A, C
+            {
+                alu_add(regs_->c);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x82:  // ADD A, D
+            {
+                alu_add(regs_->d);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x83:  // ADD A, E
+            {
+                alu_add(regs_->e);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x84:  // ADD A, H
+            {
+                alu_add(regs_->h);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x85:  // ADD A, L
+            {
+                alu_add(regs_->l);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x86:  // ADD A, (HL)
+            {
+                uint8_t value = mmu_->read(regs_->get_hl());
+                alu_add(value);
+                cycles_ += 2;  // (HL) consume 2 M-Cycles
+                return 2;
+            }
+        case 0x87:  // ADD A, A
+            {
+                alu_add(regs_->a);
+                cycles_ += 1;
+                return 1;
+            }
+
+        // ADC A, r (0x88-0x8F)
+        case 0x88:  // ADC A, B
+            {
+                alu_adc(regs_->b);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x89:  // ADC A, C
+            {
+                alu_adc(regs_->c);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x8A:  // ADC A, D
+            {
+                alu_adc(regs_->d);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x8B:  // ADC A, E
+            {
+                alu_adc(regs_->e);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x8C:  // ADC A, H
+            {
+                alu_adc(regs_->h);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x8D:  // ADC A, L
+            {
+                alu_adc(regs_->l);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x8E:  // ADC A, (HL)
+            {
+                uint8_t value = mmu_->read(regs_->get_hl());
+                alu_adc(value);
+                cycles_ += 2;
+                return 2;
+            }
+        case 0x8F:  // ADC A, A
+            {
+                alu_adc(regs_->a);
+                cycles_ += 1;
+                return 1;
+            }
+
+        // SUB A, r (0x90-0x97)
+        case 0x90:  // SUB B
+            {
+                alu_sub(regs_->b);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x91:  // SUB C
+            {
+                alu_sub(regs_->c);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x92:  // SUB D
+            {
+                alu_sub(regs_->d);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x93:  // SUB E
+            {
+                alu_sub(regs_->e);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x94:  // SUB H
+            {
+                alu_sub(regs_->h);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x95:  // SUB L
+            {
+                alu_sub(regs_->l);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x96:  // SUB (HL)
+            {
+                uint8_t value = mmu_->read(regs_->get_hl());
+                alu_sub(value);
+                cycles_ += 2;
+                return 2;
+            }
+        case 0x97:  // SUB A
+            {
+                alu_sub(regs_->a);
+                cycles_ += 1;
+                return 1;
+            }
+
+        // SBC A, r (0x98-0x9F)
+        case 0x98:  // SBC A, B
+            {
+                alu_sbc(regs_->b);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x99:  // SBC A, C
+            {
+                alu_sbc(regs_->c);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x9A:  // SBC A, D
+            {
+                alu_sbc(regs_->d);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x9B:  // SBC A, E
+            {
+                alu_sbc(regs_->e);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x9C:  // SBC A, H
+            {
+                alu_sbc(regs_->h);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x9D:  // SBC A, L
+            {
+                alu_sbc(regs_->l);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0x9E:  // SBC A, (HL)
+            {
+                uint8_t value = mmu_->read(regs_->get_hl());
+                alu_sbc(value);
+                cycles_ += 2;
+                return 2;
+            }
+        case 0x9F:  // SBC A, A
+            {
+                alu_sbc(regs_->a);
+                cycles_ += 1;
+                return 1;
+            }
+
+        // AND A, r (0xA0-0xA7)
+        case 0xA0:  // AND B
+            {
+                alu_and(regs_->b);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xA1:  // AND C
+            {
+                alu_and(regs_->c);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xA2:  // AND D
+            {
+                alu_and(regs_->d);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xA3:  // AND E
+            {
+                alu_and(regs_->e);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xA4:  // AND H
+            {
+                alu_and(regs_->h);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xA5:  // AND L
+            {
+                alu_and(regs_->l);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xA6:  // AND (HL)
+            {
+                uint8_t value = mmu_->read(regs_->get_hl());
+                alu_and(value);
+                cycles_ += 2;
+                return 2;
+            }
+        case 0xA7:  // AND A
+            {
+                alu_and(regs_->a);
+                cycles_ += 1;
+                return 1;
+            }
+
+        // XOR A, r (0xA8-0xAF) - 0xAF ya está implementado arriba
+        case 0xA8:  // XOR B
+            {
+                alu_xor(regs_->b);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xA9:  // XOR C
+            {
+                alu_xor(regs_->c);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xAA:  // XOR D
+            {
+                alu_xor(regs_->d);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xAB:  // XOR E
+            {
+                alu_xor(regs_->e);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xAC:  // XOR H
+            {
+                alu_xor(regs_->h);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xAD:  // XOR L
+            {
+                alu_xor(regs_->l);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xAE:  // XOR (HL)
+            {
+                uint8_t value = mmu_->read(regs_->get_hl());
+                alu_xor(value);
+                cycles_ += 2;
+                return 2;
+            }
+
+        // OR A, r (0xB0-0xB7)
+        case 0xB0:  // OR B
+            {
+                alu_or(regs_->b);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xB1:  // OR C
+            {
+                alu_or(regs_->c);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xB2:  // OR D
+            {
+                alu_or(regs_->d);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xB3:  // OR E
+            {
+                alu_or(regs_->e);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xB4:  // OR H
+            {
+                alu_or(regs_->h);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xB5:  // OR L
+            {
+                alu_or(regs_->l);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xB6:  // OR (HL)
+            {
+                uint8_t value = mmu_->read(regs_->get_hl());
+                alu_or(value);
+                cycles_ += 2;
+                return 2;
+            }
+        case 0xB7:  // OR A
+            {
+                alu_or(regs_->a);
+                cycles_ += 1;
+                return 1;
+            }
+
+        // CP A, r (0xB8-0xBF)
+        case 0xB8:  // CP B
+            {
+                alu_cp(regs_->b);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xB9:  // CP C
+            {
+                alu_cp(regs_->c);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xBA:  // CP D
+            {
+                alu_cp(regs_->d);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xBB:  // CP E
+            {
+                alu_cp(regs_->e);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xBC:  // CP H
+            {
+                alu_cp(regs_->h);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xBD:  // CP L
+            {
+                alu_cp(regs_->l);
+                cycles_ += 1;
+                return 1;
+            }
+        case 0xBE:  // CP (HL)
+            {
+                uint8_t value = mmu_->read(regs_->get_hl());
+                alu_cp(value);
+                cycles_ += 2;
+                return 2;
+            }
+        case 0xBF:  // CP A
+            {
+                alu_cp(regs_->a);
+                cycles_ += 1;
                 return 1;
             }
 

@@ -323,8 +323,10 @@ void PPU::render_scanline() {
         }
         
         // Validar que la dirección de la línea del tile también esté dentro de VRAM
+        // Cada línea del tile ocupa 2 bytes, así que necesitamos verificar tile_line_addr y tile_line_addr+1
         uint16_t tile_line_addr = tile_addr + tile_y_offset * 2;
-        if (tile_line_addr > VRAM_END || (tile_line_addr + 1) > VRAM_END) {
+        if (tile_line_addr < VRAM_START || tile_line_addr > VRAM_END || 
+            (tile_line_addr + 1) < VRAM_START || (tile_line_addr + 1) > VRAM_END) {
             // Si la línea del tile está fuera de VRAM, usar color 0 (transparente)
             framebuffer_[line_start_index + x] = 0;
             continue;

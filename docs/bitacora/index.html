@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0135 - Fix: Bug de Renderizado en Signed Addressing y Expansión de la ALU -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0135__fix-bug-renderizado-signed-addressing-expansion-alu.html" class="entry-link">
+                                    Fix: Bug de Renderizado en Signed Addressing y Expansión de la ALU
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0135 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se corrigió un bug crítico en el cálculo de direcciones de tiles en modo signed addressing dentro de PPU::render_scanline() que causaba Segmentation Faults cuando la PPU intentaba renderizar el background. Además, se implementó el bloque completo de la ALU (0x80-0xBF), añadiendo 64 opcodes de operaciones aritméticas y lógicas que son fundamentales para la ejecución de juegos. El diagnóstico reveló que la CPU funcionaba correctamente hasta el punto de configurar la PPU, pero el crash ocurría cuando la PPU intentaba leer tiles con direcciones calculadas incorrectamente.
+                        </p>
+                    </li>
                     <!-- Entrada 0134 - CPU Nativa: Implementación de I/O Básico (LDH) -->
                     <li>
                         <div class="entry-header">

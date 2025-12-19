@@ -290,6 +290,73 @@ private:
      */
     uint8_t alu_dec(uint8_t value);
 
+    /**
+     * Suma un valor al registro A con carry y actualiza flags (ADC).
+     * 
+     * ADC: A = A + value + C
+     * 
+     * Flags actualizados:
+     * - Z: 1 si resultado == 0, 0 en caso contrario
+     * - N: 0 (siempre, es suma)
+     * - H: 1 si hay half-carry (bit 3 -> 4) incluyendo carry, 0 en caso contrario
+     * - C: 1 si hay carry (overflow 8 bits), 0 en caso contrario
+     * 
+     * @param value Valor a sumar a A (con carry)
+     * 
+     * Fuente: Pan Docs - ADC A, r
+     */
+    inline void alu_adc(uint8_t value);
+
+    /**
+     * Resta un valor del registro A con carry y actualiza flags (SBC).
+     * 
+     * SBC: A = A - value - C
+     * 
+     * Flags actualizados:
+     * - Z: 1 si resultado == 0, 0 en caso contrario
+     * - N: 1 (siempre, es resta)
+     * - H: 1 si hay half-borrow (bit 4 -> 3) incluyendo carry, 0 en caso contrario
+     * - C: 1 si hay borrow (underflow), 0 en caso contrario
+     * 
+     * @param value Valor a restar de A (con carry)
+     * 
+     * Fuente: Pan Docs - SBC A, r
+     */
+    inline void alu_sbc(uint8_t value);
+
+    /**
+     * Operación OR lógica entre A y un valor.
+     * 
+     * Flags actualizados:
+     * - Z: 1 si resultado == 0, 0 en caso contrario
+     * - N: 0 (siempre)
+     * - H: 0 (siempre)
+     * - C: 0 (siempre)
+     * 
+     * @param value Valor para OR con A
+     * 
+     * Fuente: Pan Docs - OR A, r
+     */
+    inline void alu_or(uint8_t value);
+
+    /**
+     * Compara A con un valor sin modificar A (CP).
+     * 
+     * CP realiza A - value pero NO guarda el resultado.
+     * Solo actualiza flags. Es equivalente a SUB pero sin modificar A.
+     * 
+     * Flags actualizados:
+     * - Z: 1 si A == value, 0 en caso contrario
+     * - N: 1 (siempre, es resta)
+     * - H: 1 si hay half-borrow (bit 4 -> 3), 0 en caso contrario
+     * - C: 1 si A < value, 0 en caso contrario
+     * 
+     * @param value Valor a comparar con A
+     * 
+     * Fuente: Pan Docs - CP A, r
+     */
+    inline void alu_cp(uint8_t value);
+
     // ========== Helpers de Load (Transferencia de Datos) ==========
     
     /**
