@@ -999,3 +999,88 @@ Después de lograr que la ventana de Pygame aparezca y se actualice a 60 FPS (St
 - Implementar renderizado de Window y Sprites
 - Optimizar el acceso al framebuffer si es necesario (profiling)
 
+---
+
+### 2025-12-19 - Step 0131: Balance de la Fase 2 (v0.0.2) - Estado Actual
+**Estado**: ✅ Completado
+
+Este paso documenta un balance completo del estado actual de la Fase 2 (v0.0.2), justo cuando estamos en medio de la "niebla de guerra" del debugging. El balance muestra el progreso realizado en la migración del núcleo a C++/Cython y las tareas pendientes para completar la fase, incluyendo la implementación de Audio (APU).
+
+**Progreso Realizado**:
+
+1. **Infraestructura de Compilación Híbrida**: [100% COMPLETADO]
+   - Pipeline de build robusto que compila C++ y lo expone a Python
+   - Problemas de entorno (setuptools, Cython, NumPy) superados
+
+2. **MMU (Memory Management Unit)**: [100% COMPLETADO]
+   - Toda la gestión de memoria ahora ocurre en CoreMMU (C++)
+   - Acceso O(1) directo, eliminando overhead de Python
+
+3. **Registros de la CPU**: [100% COMPLETADO]
+   - Todos los registros de 8 y 16 bits viven en CoreRegisters (C++)
+   - Acceso directo y ultrarrápido, cache-friendly
+
+4. **CPU (Núcleo y Opcodes)**: [~30% COMPLETADO]
+   - Ciclo Fetch-Decode-Execute funcionando en C++
+   - Sistema de Interrupciones implementado (DI, EI, HALT)
+   - Opcodes básicos migrados: NOP, LD r d8, LDI/LDD, JP/JR, ALU básica, Stack
+
+5. **PPU (Picture Processing Unit)**: [~50% COMPLETADO]
+   - Fase A: Timing y Estado (LY, Modos 0-3, STAT) funcionando en C++
+   - Fase B/C: Framebuffer y renderizado de Background desde VRAM implementado
+
+6. **Arquitectura Híbrida Python/C++**: [100% ESTABLECIDA]
+   - Patrón "Python orquesta, C++ ejecuta" funcionando
+   - Tests híbridos (TDD) completamente funcionales
+
+**Tareas Pendientes**:
+
+1. **CPU (Completar Opcodes)**: [TAREA ACTUAL]
+   - CALL y RET (condicionales y no condicionales)
+   - PUSH y POP para todos los pares de registros
+   - Bloque ALU completo (0x80-BF)
+   - Bloque de transferencias completo (0x40-7F)
+   - **El gran desafío: el prefijo CB completo en C++**
+
+2. **PPU (Completar Renderizado)**:
+   - Renderizado de Sprites (OBJ) en C++
+   - Renderizado de la Window en C++
+   - Prioridades y mezcla de píxeles
+
+3. **Timer**: Migración completa a C++
+
+4. **Cartucho/MBC**: Migración a C++
+
+5. **Implementación de Audio (APU)**: [AÚN NO INICIADO]
+   - Canal 1 (Onda Cuadrada con Sweep y Envelope)
+   - Canal 2 (Onda Cuadrada simple)
+   - Canal 3 (Onda de Wavetable desde RAM)
+   - Canal 4 (Generador de Ruido Blanco)
+   - Mezclador de audio y Ring Buffer
+   - Integración con pygame.mixer
+
+6. **Mejoras de Arquitectura**:
+   - Bucle Principal 100% Nativo (optimización final)
+   - Sincronización de Audio/Video
+   - Implementación del Joypad en el núcleo nativo
+
+**Archivos creados/modificados**:
+- `docs/bitacora/entries/2025-12-19__0131__balance-fase-2-estado-actual.html` - Entrada HTML completa del balance
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0131__balance-fase-2-estado-actual.html`
+
+**Conceptos clave**:
+- **Arquitectura Híbrida**: El patrón de "Python orquesta, C++ ejecuta" funciona correctamente mediante inyección de dependencias y wrappers de Cython.
+- **Progreso Incremental**: La migración se ha realizado de forma incremental, validando cada componente con tests antes de continuar.
+- **Debugging como Proceso**: El Segmentation Fault actual no es un paso atrás, es la señal de que la CPU está viva y corriendo lo suficientemente lejos como para encontrar los límites de lo que hemos construido.
+- **Balance en la Niebla de Guerra**: Ver el panorama completo nos recuerda lo mucho que hemos avanzado y lo cerca que estamos del siguiente gran hito.
+
+**Próximos pasos**:
+- Resolver el Segmentation Fault actual analizando los logs con trazas de std::cout
+- Completar opcodes de CPU identificados durante el debugging
+- Completar renderizado de PPU (Sprites y Window)
+- Migrar Timer y Cartucho a C++
+- Iniciar implementación de Audio (APU)
+
+---
+
