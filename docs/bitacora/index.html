@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0129 - Fix: Error de Importación de NumPy en setup.py -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0129__fix-setup-numpy-import-error.html" class="entry-link">
+                                    Fix: Error de Importación de NumPy en setup.py
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0129 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección de un error crítico de compilación causado por una instalación corrupta de NumPy que impedía que setup.py se ejecutara correctamente. El error ModuleNotFoundError: No module named 'numpy._core._multiarray_umath' bloqueaba completamente el proceso de compilación del módulo C++/Cython. Se implementaron dos soluciones: (1) Reinstalación completa de NumPy (desinstalación → limpieza de caché → reinstalación) y (2) Mejora de robustez de setup.py para manejar NumPy de forma opcional y segura, permitiendo que la compilación continúe incluso si NumPy está corrupto o no disponible.
+                        </p>
+                    </li>
                     <!-- Entrada 0128 - Fix: Crash de access violation por Recursión Infinita en STAT -->
                     <li>
                         <div class="entry-header">

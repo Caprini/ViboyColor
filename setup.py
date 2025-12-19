@@ -10,13 +10,29 @@ Uso:
 
 from setuptools import setup, Extension
 from Cython.Build import cythonize
-import numpy
 from pathlib import Path
+import sys
+
+# Intentar importar numpy de forma segura (opcional)
+try:
+    import numpy
+    numpy_available = True
+    numpy_include = numpy.get_include()
+except (ImportError, AttributeError) as e:
+    numpy_available = False
+    numpy_include = None
+    print(f"[INFO] NumPy no disponible o corrupto: {e}")
+    print("[INFO] Continuando sin NumPy (no es necesario para la compilación actual)")
 
 # Obtener el directorio raíz del proyecto
 project_root = Path(__file__).parent.absolute()
 cpp_dir = project_root / "src" / "core" / "cpp"
 cython_dir = project_root / "src" / "core" / "cython"
+
+# Construir include_dirs
+include_dirs = [str(cpp_dir.absolute())]
+if numpy_available and numpy_include:
+    include_dirs.append(numpy_include)
 
 # Definir la extensión
 extensions = [
@@ -30,13 +46,10 @@ extensions = [
             str(cpp_dir / "CPU.cpp"),
             str(cpp_dir / "PPU.cpp"),  # PPU (Pixel Processing Unit)
         ],
-        include_dirs=[
-            str(cpp_dir.absolute()),
-            numpy.get_include(),  # Para futuros usos de numpy
-        ],
+        include_dirs=include_dirs,
         language="c++",
         extra_compile_args=[
-            "/std:c++17" if __import__("sys").platform == "win32" else "-std=c++17",
+            "/std:c++17" if sys.platform == "win32" else "-std=c++17",
         ],
     )
 ]

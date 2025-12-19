@@ -804,6 +804,35 @@ Este paso implementa la **máquina de estados de la PPU (Modos 0-3)** y el **reg
 
 ---
 
+### 2025-12-19 - Step 0129: Fix - Error de Importación de NumPy en setup.py
+**Estado**: ✅ Completado
+
+Este paso corrige un error crítico de compilación causado por una instalación corrupta de NumPy que impedía que `setup.py` se ejecutara correctamente. El error `ModuleNotFoundError: No module named 'numpy._core._multiarray_umath'` bloqueaba completamente el proceso de compilación del módulo C++/Cython.
+
+**Implementación**:
+- ✅ Reinstalación completa de NumPy
+  - Desinstalación: `pip uninstall numpy -y`
+  - Limpieza de caché: `pip cache purge`
+  - Reinstalación limpia: `pip install --no-cache-dir numpy`
+  - Resultado: NumPy 2.3.5 funcionando correctamente en Python 3.13.5
+- ✅ Mejora de robustez de setup.py
+  - Manejo opcional y seguro de NumPy con try/except
+  - La compilación puede continuar incluso si NumPy está corrupto o no disponible
+  - Mensajes informativos claros para el usuario
+  - NumPy se añade a `include_dirs` solo si está disponible y funcional
+
+**Archivos modificados**:
+- `setup.py` - Modificado para manejar NumPy de forma opcional y segura
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0129__fix-setup-numpy-import-error.html`
+
+**Resultados de verificación**:
+- ✅ NumPy 2.3.5 importado correctamente
+- ✅ `setup.py` puede ejecutarse sin errores de importación
+- ✅ El script `rebuild_cpp.ps1` ahora puede ejecutarse sin errores de NumPy
+
+---
+
 ### 2025-12-19 - Step 0128: Fix - Crash de access violation por Recursión Infinita en STAT
 **Estado**: ✅ Completado
 
