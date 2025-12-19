@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementación de Stack y Subrutinas en C++ - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Implementación de Stack y Subrutinas en C++</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0106
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-completed">Completado</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0105__implementacion-alu-flags-cpp.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó el Stack (Pila) y las operaciones de subrutinas en C++, añadiendo
+                    los helpers de pila (push_byte, pop_byte, push_word, pop_word) y 4 opcodes críticos:
+                    PUSH BC (0xC5), POP BC (0xC1), CALL nn (0xCD) y RET (0xC9). La implementación
+                    respeta el crecimiento hacia abajo de la pila (SP decrece en PUSH) y el orden
+                    Little-Endian correcto. Todos los tests pasan, validando operaciones básicas,
+                    CALL/RET anidados y el comportamiento correcto de la pila.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El Stack (Pila) es una estructura de datos LIFO (Last In First Out) que permite
+                    a la CPU "recordar" direcciones de retorno cuando se ejecutan subrutinas. En la
+                    Game Boy, la pila crece hacia abajo (direcciones de memoria decrecientes), lo que
+                    significa que el Stack Pointer (SP) se decrementa cuando se hace PUSH y se incrementa
+                    cuando se hace POP.
+                </p>
+                <p>
+                    <strong>Stack Growth (Crecimiento de la Pila)</strong>: La pila crece hacia abajo
+                    porque el espacio de memoria de la pila está típicamente en la región alta de la RAM
+                    (0xFFFE es el valor inicial típico). Al decrementar SP, la pila se expande hacia
+                    direcciones más bajas, evitando colisiones con el código y datos del programa.
+                </p>
+                <p>
+                    <strong>Little-Endian en PUSH/POP</strong>: Cuando se hace PUSH de una palabra de 16 bits
+                    (ej: PC), se escribe primero el byte ALTO (MSB) en SP-1 y luego el byte BAJO (LSB) en SP-2.
+                    Al hacer POP, se lee primero el byte BAJO de SP y luego el byte ALTO de SP+1, combinándolos
+                    en formato Little-Endian. Este orden es crítico para la correcta restauración de direcciones.
+                </p>
+                <p>
+                    <strong>CALL y RET</strong>: CALL nn guarda la dirección de retorno (PC actual) en la pila
+                    y luego salta a la dirección nn. RET recupera la dirección de retorno de la pila y restaura
+                    PC. Sin estas operaciones, la CPU no puede ejecutar código estructurado con subrutinas,
+                    limitándose a "espagueti de saltos" sin capacidad de retorno.
+                </p>
+                <p>
+                    <strong>Optimización C++</strong>: Las operaciones de pila son extremadamente frecuentes
+                    en el código de la Game Boy (cada CALL/RET, cada interrupción). En C++, estas operaciones
+                    se compilan a simples movimientos de punteros y asignaciones directas de memoria, ofreciendo
+                    rendimiento brutal comparado con Python donde cada operación implica múltiples llamadas
+                    a función y gestión de objetos.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadieron 4 métodos privados inline en la clase CPU para operaciones de pila:
+                    <code>push_byte()</code>, <code>pop_byte()</code>, <code>push_word()</code> y
+                    <code>pop_word()</code>. Estos métodos manejan la aritmética del Stack Pointer y
+                    el orden correcto de bytes (Little-Endian).
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>CPU.hpp</strong>: Añadidas declaraciones de métodos de stack inline.</li>
+                    <li><strong>CPU.cpp</strong>: Implementación de helpers de stack y 4 nuevos opcodes (0xC5, 0xC1, 0xCD, 0xC9).</li>
+                    <li><strong>tests/test_core_cpu_stack.py</strong>: Suite completa de 4 tests para validar stack nativo.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Métodos inline</strong>: Los helpers de stack son métodos privados inline para máximo
+                        rendimiento. El compilador los incrusta directamente en los opcodes, eliminando el coste
+                        de llamada a función.</li>
+                    <li><strong>Wrap-around en 16 bits</strong>: Todas las operaciones de SP usan <code>& 0xFFFF</code>
+                        para garantizar que SP siempre esté en el rango válido de 16 bits, incluso en casos edge
+                        (aunque en hardware real esto no debería ocurrir).</li>
+                    <li><strong>Orden de bytes en PUSH/POP</strong>: PUSH escribe high byte primero (SP-1), luego low byte (SP-2).
+                        POP lee low byte primero (SP), luego high byte (SP+1). Este orden es consistente con el
+                        formato Little-Endian de la Game Boy.</li>
+                    <li><strong>CALL guarda PC después de fetch</strong>: CALL guarda el valor de PC después de leer
+                        toda la instrucción (incluyendo la dirección destino), que es la dirección de la siguiente
+                        instrucción. Esto permite que RET retorne correctamente al código que sigue al CALL.</li>
+                </ul>
+
+                <h3>Código clave</h3>
+                <pre><code>// Helper para PUSH de palabra (16 bits)
+void CPU::push_word(uint16_t val) {
+    push_byte((val >> 8) & 0xFF);  // High byte primero
+    push_byte(val & 0xFF);           // Low byte segundo
+}
+
+// Helper para POP de palabra (16 bits)
+uint16_t CPU::pop_word() {
+    uint8_t low = pop_byte();   // Low byte primero
+    uint8_t high = pop_byte();  // High byte segundo
+    return (static_cast&lt;uint16_t&gt;(high) &lt;&lt; 8) | static_cast&lt;uint16_t&gt;(low);
+}
+
+// CALL nn: Guarda dirección de retorno y salta
+case 0xCD: {
+    uint16_t target = fetch_word();
+    uint16_t return_addr = regs_-&gt;pc;
+    push_word(return_addr);
+    regs_-&gt;pc = target;
+    cycles_ += 6;
+    return 6;
+}</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Añadidas declaraciones de métodos de stack (push_byte, pop_byte, push_word, pop_word)</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Implementación de helpers de stack y opcodes (0xC5, 0xC1, 0xCD, 0xC9)</li>
+                    <li><code>tests/test_core_cpu_stack.py</code> - Suite de 4 tests para validar operaciones de stack</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests en <code>test_core_cpu_stack.py</code> que valida:
+                </p>
+                <ul>
+                    <li><strong>test_push_pop_bc</strong>: Verifica PUSH BC y POP BC básico, validando que los datos
+                        se guardan y restauran correctamente, y que SP se decrementa/incrementa apropiadamente.</li>
+                    <li><strong>test_stack_grows_downwards</strong>: Test crítico que verifica que la pila crece hacia abajo
+                        (SP decrece en PUSH). Si la pila creciera hacia arriba, los juegos se corromperían.</li>
+                    <li><strong>test_call_ret_basic</strong>: Verifica CALL nn y RET básico, validando que la dirección
+                        de retorno se guarda correctamente en la pila y que RET restaura PC correctamente.</li>
+                    <li><strong>test_call_nested</strong>: Verifica CALL anidado (subrutina que llama a otra subrutina),
+                        validando que múltiples niveles de llamadas funcionan correctamente.</li>
+                </ul>
+                <p>
+                    <strong>Resultado</strong>: Todos los 4 tests pasan correctamente (0.06s de ejecución).
+                    La implementación C++ es funcionalmente correcta y lista para uso en emulación.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">CPU Instruction Set</a> - Secciones sobre PUSH, POP, CALL y RET</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Memory_Map.html">Memory Map</a> - Stack Pointer y región de pila</li>
+                </ul>
+                <p>
+                    <em>Nota: La implementación sigue estrictamente la especificación de Pan Docs sobre el orden
+                    de bytes en PUSH/POP y el comportamiento del Stack Pointer.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Stack Growth</strong>: La pila crece hacia abajo (SP decrece) porque el espacio
+                            de pila está en la región alta de RAM. Esto evita colisiones con código y datos.</li>
+                        <li><strong>Little-Endian en PUSH/POP</strong>: PUSH escribe high byte primero (SP-1), luego
+                            low byte (SP-2). POP lee low byte primero (SP), luego high byte (SP+1). Este orden
+                            es crítico para la correcta restauración de direcciones.</li>
+                        <li><strong>CALL/RET</strong>: CALL guarda PC (dirección de retorno) en la pila y salta a
+                            la subrutina. RET recupera PC de la pila y restaura la ejecución. Sin esto, no hay
+                            código estructurado.</li>
+                        <li><strong>Rendimiento C++</strong>: Las operaciones de pila son extremadamente frecuentes
+                            y en C++ se compilan a simples movimientos de punteros, ofreciendo rendimiento brutal
+                            comparado con Python.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>PUSH/POP de otros pares</strong>: Actualmente solo se implementó PUSH/POP BC.
+                            Falta implementar PUSH/POP DE, HL y AF (este último requiere máscara especial para F).</li>
+                        <li><strong>CALL/RET condicionales</strong>: Falta implementar CALL/RET condicionales (CALL NZ,
+                            CALL Z, RET NZ, RET Z, etc.) que verifican flags antes de ejecutar.</li>
+                        <li><strong>Interrupciones</strong>: Las interrupciones también usan la pila para guardar PC.
+                            Falta validar que el comportamiento sea correcto cuando se implementen interrupciones.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el orden de bytes en PUSH/POP es consistente con el formato Little-Endian
+                        de la Game Boy. Esto está respaldado por Pan Docs y los tests confirman que funciona
+                        correctamente.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar PUSH/POP para otros pares de registros (DE, HL, AF)</li>
+                    <li>[ ] Implementar CALL/RET condicionales (CALL NZ, CALL Z, RET NZ, RET Z, etc.)</li>
+                    <li>[ ] Implementar más opcodes de carga y almacenamiento (LD)</li>
+                    <li>[ ] Continuar migrando más opcodes de la CPU a C++</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

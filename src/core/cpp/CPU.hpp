@@ -79,6 +79,51 @@ private:
      */
     uint16_t fetch_word();
 
+    // ========== Helpers de Stack (Pila) ==========
+    // La pila crece hacia abajo (direcciones decrecientes)
+    // PUSH: decrementa SP, luego escribe
+    // POP: lee, luego incrementa SP
+    // Little-Endian: PUSH escribe high byte en SP-1, low byte en SP-2
+    
+    /**
+     * Empuja un byte en la pila.
+     * 
+     * Decrementa SP primero, luego escribe el byte en memoria.
+     * La pila crece hacia abajo (SP decrece).
+     * 
+     * @param val Byte a empujar en la pila
+     */
+    inline void push_byte(uint8_t val);
+
+    /**
+     * Saca un byte de la pila.
+     * 
+     * Lee el byte de memoria en la dirección SP, luego incrementa SP.
+     * 
+     * @return Byte leído de la pila
+     */
+    inline uint8_t pop_byte();
+
+    /**
+     * Empuja una palabra (16 bits) en la pila.
+     * 
+     * Empuja primero el byte alto (MSB) y luego el byte bajo (LSB).
+     * Esto es consistente con el formato Little-Endian de la Game Boy.
+     * 
+     * @param val Palabra de 16 bits a empujar en la pila
+     */
+    inline void push_word(uint16_t val);
+
+    /**
+     * Saca una palabra (16 bits) de la pila.
+     * 
+     * Lee primero el byte bajo (LSB) y luego el byte alto (MSB),
+     * y los combina en formato Little-Endian.
+     * 
+     * @return Palabra de 16 bits leída de la pila
+     */
+    inline uint16_t pop_word();
+
     // ========== Helpers de ALU (Arithmetic Logic Unit) ==========
     // Todos los métodos son inline para máximo rendimiento en el bucle crítico
     

@@ -30,6 +30,40 @@ uint16_t CPU::fetch_word() {
     return (static_cast<uint16_t>(high) << 8) | static_cast<uint16_t>(low);
 }
 
+// ========== Implementación de Helpers de Stack ==========
+
+void CPU::push_byte(uint8_t val) {
+    // La pila crece hacia abajo: decrementar SP primero
+    regs_->sp = (regs_->sp - 1) & 0xFFFF;  // Wrap-around en 16 bits
+    // Escribir el byte en memoria
+    mmu_->write(regs_->sp, val);
+}
+
+uint8_t CPU::pop_byte() {
+    // Leer el byte de memoria en la dirección SP
+    uint8_t val = mmu_->read(regs_->sp);
+    // Incrementar SP (la pila se "encoge")
+    regs_->sp = (regs_->sp + 1) & 0xFFFF;  // Wrap-around en 16 bits
+    return val;
+}
+
+void CPU::push_word(uint16_t val) {
+    // PUSH escribe primero el byte alto (MSB), luego el bajo (LSB)
+    // Esto es consistente con el orden de escritura en memoria
+    // High byte va en SP-1, low byte va en SP-2
+    push_byte((val >> 8) & 0xFF);  // High byte
+    push_byte(val & 0xFF);          // Low byte
+}
+
+uint16_t CPU::pop_word() {
+    // POP lee primero el byte bajo (LSB), luego el alto (MSB)
+    // Esto es el orden inverso de PUSH (LIFO - Last In First Out)
+    uint8_t low = pop_byte();   // Low byte (se lee primero)
+    uint8_t high = pop_byte();  // High byte (se lee segundo)
+    // Combinar en formato Little-Endian: (high << 8) | low
+    return (static_cast<uint16_t>(high) << 8) | static_cast<uint16_t>(low);
+}
+
 // ========== Implementación de Helpers ALU ==========
 
 void CPU::alu_add(uint8_t value) {
@@ -249,6 +283,58 @@ int CPU::step() {
                     cycles_ += 2;  // JR NZ consume 2 M-Cycles si no salta
                     return 2;
                 }
+            }
+
+        // ========== Operaciones de Stack (Pila) ==========
+        // La pila es crítica para llamadas a subrutinas (CALL/RET)
+
+        case 0xC5:  // PUSH BC (Push BC onto stack)
+            // Empuja el par de registros BC en la pila
+            // La pila crece hacia abajo: SP se decrementa primero
+            // Fuente: Pan Docs - PUSH BC: 4 M-Cycles
+            {
+                uint16_t bc = regs_->get_bc();
+                push_word(bc);
+                cycles_ += 4;  // PUSH BC consume 4 M-Cycles
+                return 4;
+            }
+
+        case 0xC1:  // POP BC (Pop from stack into BC)
+            // Saca una palabra de la pila y la guarda en BC
+            // La pila se "encoge": SP se incrementa después de leer
+            // Fuente: Pan Docs - POP BC: 3 M-Cycles
+            {
+                uint16_t value = pop_word();
+                regs_->set_bc(value);
+                cycles_ += 3;  // POP BC consume 3 M-Cycles
+                return 3;
+            }
+
+        case 0xCD:  // CALL nn (Call subroutine at address nn)
+            // Llama a una subrutina guardando la dirección de retorno en la pila
+            // 1. Lee la dirección destino nn (16 bits, Little-Endian)
+            // 2. Empuja PC (dirección de retorno) en la pila
+            // 3. Asigna PC = nn (salta a la subrutina)
+            // Fuente: Pan Docs - CALL nn: 6 M-Cycles
+            {
+                uint16_t target = fetch_word();  // Lee dirección destino
+                uint16_t return_addr = regs_->pc;  // PC actual es la dirección de retorno
+                push_word(return_addr);  // Guardar dirección de retorno en la pila
+                regs_->pc = target;  // Saltar a la subrutina
+                cycles_ += 6;  // CALL nn consume 6 M-Cycles
+                return 6;
+            }
+
+        case 0xC9:  // RET (Return from subroutine)
+            // Retorna de una subrutina recuperando la dirección de retorno de la pila
+            // 1. Saca la dirección de retorno de la pila
+            // 2. Asigna PC = dirección de retorno
+            // Fuente: Pan Docs - RET: 4 M-Cycles
+            {
+                uint16_t return_addr = pop_word();
+                regs_->pc = return_addr;
+                cycles_ += 4;  // RET consume 4 M-Cycles
+                return 4;
             }
 
         default:

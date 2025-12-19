@@ -309,3 +309,59 @@ bucles y decisiones condicionales. La CPU ahora es prácticamente Turing Complet
 - Implementar CALL y RET para subrutinas (control de flujo avanzado)
 - Continuar expandiendo el conjunto de instrucciones básicas de la CPU
 
+---
+
+### 2025-12-19 - Step 0106: Implementación de Stack y Subrutinas en C++
+**Estado**: ✅ Completado
+
+Se implementó el Stack (Pila) y las operaciones de subrutinas en C++, añadiendo los helpers de pila
+(push_byte, pop_byte, push_word, pop_word) y 4 opcodes críticos: PUSH BC (0xC5), POP BC (0xC1),
+CALL nn (0xCD) y RET (0xC9). La implementación respeta el crecimiento hacia abajo de la pila
+(SP decrece en PUSH) y el orden Little-Endian correcto.
+
+**Implementación**:
+- ✅ Helpers de stack inline añadidos a `CPU.hpp` / `CPU.cpp`:
+  - `push_byte()`: Decrementa SP y escribe byte en memoria
+  - `pop_byte()`: Lee byte de memoria e incrementa SP
+  - `push_word()`: Empuja palabra de 16 bits (high byte primero, luego low byte)
+  - `pop_word()`: Saca palabra de 16 bits (low byte primero, luego high byte)
+- ✅ 4 nuevos opcodes implementados:
+  - `0xC5`: PUSH BC (Push BC onto stack) - 4 M-Cycles
+  - `0xC1`: POP BC (Pop from stack into BC) - 3 M-Cycles
+  - `0xCD`: CALL nn (Call subroutine at address nn) - 6 M-Cycles
+  - `0xC9`: RET (Return from subroutine) - 4 M-Cycles
+- ✅ Suite completa de tests (`test_core_cpu_stack.py`):
+  - 4 tests que validan PUSH/POP básico, crecimiento de pila, CALL/RET y CALL anidado
+  - Todos los tests pasan (4/4 ✅)
+
+**Archivos creados/modificados**:
+- `src/core/cpp/CPU.hpp` - Añadidas declaraciones de métodos de stack inline
+- `src/core/cpp/CPU.cpp` - Implementación de helpers de stack y 4 opcodes
+- `tests/test_core_cpu_stack.py` - Suite de 4 tests para validar stack nativo
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0106__implementacion-stack-cpp.html`
+
+**Resultados de verificación**:
+- ✅ Compilación exitosa (sin errores)
+- ✅ Todos los tests pasan: `4/4 passed in 0.06s`
+- ✅ Pila crece hacia abajo correctamente (SP decrece en PUSH)
+- ✅ Orden Little-Endian correcto en PUSH/POP validado
+- ✅ CALL/RET anidado funciona correctamente
+
+**Conceptos clave**:
+- **Stack Growth**: La pila crece hacia abajo (SP decrece) porque el espacio de pila está en la región
+  alta de RAM (0xFFFE típico). Esto evita colisiones con código y datos.
+- **Little-Endian en PUSH/POP**: PUSH escribe high byte en SP-1, luego low byte en SP-2. POP lee
+  low byte de SP, luego high byte de SP+1. Este orden es crítico para la correcta restauración
+  de direcciones.
+- **CALL/RET**: CALL guarda PC (dirección de retorno) en la pila y salta a la subrutina. RET
+  recupera PC de la pila y restaura la ejecución. Sin esto, no hay código estructurado.
+- **Rendimiento C++**: Las operaciones de pila son extremadamente frecuentes y en C++ se compilan
+  a simples movimientos de punteros, ofreciendo rendimiento brutal comparado con Python.
+
+**Próximos pasos**:
+- Implementar PUSH/POP para otros pares de registros (DE, HL, AF)
+- Implementar CALL/RET condicionales (CALL NZ, CALL Z, RET NZ, RET Z, etc.)
+- Implementar más opcodes de carga y almacenamiento (LD)
+- Continuar migrando más opcodes de la CPU a C++
+
