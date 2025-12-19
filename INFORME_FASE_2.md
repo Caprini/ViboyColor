@@ -38,16 +38,24 @@
 El diagnóstico del Step 0141 reveló que el `Segmentation Fault` ocurría **antes** de que se ejecutara cualquier código dentro de `render_scanline()`, lo que confirmó que el problema estaba en el wrapper de Cython: el puntero al objeto PPU de C++ era nulo (`nullptr`). 
 
 **Correcciones aplicadas:**
-- ✅ Mejorado el constructor `__cinit__` de `PyPPU` en `ppu.pyx` añadiendo verificación explícita después de crear el objeto C++ con `new PPU()`
-- ✅ Añadida verificación de seguridad en el método `step()` para detectar si el puntero es nulo antes de llamar al método C++
-- ✅ Mejorado el destructor `__dealloc__` para asignar explícitamente `NULL` después de liberar el objeto
-- ✅ Eliminadas las verificaciones temporales de diagnóstico en `PPU.cpp` (eliminado `#include <cstdio>` y el `printf`)
+- ✅ Mejorado el constructor `__cinit__` de `PyPPU` en `ppu.pyx` con:
+  - Logs de diagnóstico para rastrear la creación del objeto (`print("[PyPPU __cinit__] Creando instancia de PPU en C++...")`)
+  - Verificación explícita de que `mmu_wrapper` no sea `None`
+  - Extracción explícita del puntero C++ crudo desde el wrapper de MMU: `cdef mmu.MMU* mmu_ptr = (<PyMMU>mmu_wrapper)._mmu`
+  - Verificación de que el puntero de MMU no sea nulo antes de crear la PPU
+  - Verificación explícita después de `new PPU(mmu_ptr)` para asegurar que la asignación fue exitosa
+  - Lanzamiento de excepciones descriptivas (`ValueError`, `MemoryError`) si algo falla
+- ✅ Mejorado el destructor `__dealloc__` con:
+  - Logs de diagnóstico para rastrear la liberación del objeto
+  - Asignación explícita de `NULL` después de liberar el objeto para evitar punteros colgantes
+- ✅ El código temporal de diagnóstico en `PPU.cpp` ya había sido eliminado previamente (no se encontró `printf` ni `#include <cstdio>`)
 
 **Resultado del diagnóstico (Step 0141):**
 El hecho de que el mensaje `printf` del Step 0141 nunca se ejecutara confirmó que el crash ocurría en la llamada al método mismo, no dentro de él. Esto indicó definitivamente que el puntero `self._ppu` en el wrapper de Cython era nulo.
 
 **Próximos pasos:**
-- Recompilar el módulo C++ y ejecutar el emulador para verificar que el `Segmentation Fault` está resuelto
+- Recompilar el módulo C++ con `.\rebuild_cpp.ps1` y ejecutar el emulador para verificar que el `Segmentation Fault` está resuelto
+- Verificar que los logs de diagnóstico aparecen: `[PyPPU __cinit__] Creando instancia de PPU en C++...`
 - Si está resuelto, verificar que la PPU está renderizando gráficos correctamente
 
 ---

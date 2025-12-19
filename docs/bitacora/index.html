@@ -47,7 +47,7 @@
                             <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
                         </div>
                         <p class="entry-summary">
-                            El diagnóstico del Step 0141 reveló que el Segmentation Fault ocurría antes de que se ejecutara cualquier código dentro de render_scanline(), lo que confirmó que el problema estaba en el wrapper de Cython: el puntero al objeto PPU de C++ era nulo (nullptr). Se corrigió el constructor de PyPPU en ppu.pyx añadiendo verificaciones robustas y manejo de errores, y se añadió una verificación de seguridad en el método step() para detectar si el puntero es nulo antes de usarlo. Se eliminaron las verificaciones temporales de diagnóstico en PPU.cpp.
+                            El diagnóstico del Step 0141 reveló que el Segmentation Fault ocurría antes de que se ejecutara cualquier código dentro de render_scanline(), lo que confirmó que el problema estaba en el wrapper de Cython: el puntero al objeto PPU de C++ era nulo (nullptr). Se corrigió el constructor __cinit__ de PyPPU en ppu.pyx añadiendo logs de diagnóstico, verificaciones robustas (verificación de mmu_wrapper, extracción explícita del puntero C++, verificación post-new) y manejo de errores con excepciones descriptivas. Se mejoró también el destructor __dealloc__ con logs y asignación explícita de NULL.
                         </p>
                     </li>
                     <!-- Entrada 0141 - Debug: Verificación de Puntero Nulo en la PPU -->

@@ -26,32 +26,42 @@ cdef class PyPPU:
     """
     cdef ppu.PPU* _ppu
     
-    def __cinit__(self, PyMMU mmu):
+    def __cinit__(self, PyMMU mmu_wrapper):
         """
         Constructor: crea la instancia C++ con una referencia a MMU.
         
         Args:
-            mmu: Instancia de PyMMU (debe tener un atributo _mmu válido)
+            mmu_wrapper: Instancia de PyMMU (debe tener un atributo _mmu válido)
         """
-        # CRÍTICO: Verificar que mmu y su puntero interno sean válidos
-        if mmu is None:
-            raise ValueError("PyPPU: mmu no puede ser None")
-        if mmu._mmu == NULL:
-            raise ValueError("PyPPU: mmu._mmu es NULL - MMU no inicializada correctamente")
+        print("[PyPPU __cinit__] Creando instancia de PPU en C++...")
         
-        # ¡LÍNEA CRÍTICA! Crear el objeto C++ PPU
-        # La función mmu._mmu extrae el puntero MMU* crudo del wrapper PyMMU
-        self._ppu = new ppu.PPU(mmu._mmu)
+        # CRÍTICO: Verificar que mmu_wrapper y su puntero interno sean válidos
+        if mmu_wrapper is None:
+            raise ValueError("PyPPU: mmu_wrapper no puede ser None")
         
-        # CRÍTICO: Verificar que la creación fue exitosa
+        # Extrae el puntero C++ crudo desde el wrapper de la MMU
+        cdef mmu.MMU* mmu_ptr = (<PyMMU>mmu_wrapper)._mmu
+        
+        # Comprobación de seguridad: Asegurarse de que el puntero de la MMU no es nulo
+        if mmu_ptr == NULL:
+            raise ValueError("Se intentó crear PyPPU con un wrapper de MMU inválido (puntero nulo).")
+        
+        # --- LÍNEA CRÍTICA ---
+        # Crea la instancia de PPU en C++ y asigna el puntero
+        self._ppu = new ppu.PPU(mmu_ptr)
+        
+        # Comprobación de seguridad: Asegurarse de que la creación fue exitosa
         if self._ppu == NULL:
-            raise MemoryError("PyPPU: No se pudo crear la instancia de PPU en C++ - new PPU() falló")
+            raise MemoryError("Falló la asignación de memoria para la PPU en C++.")
+        
+        print("[PyPPU __cinit__] Instancia de PPU en C++ creada exitosamente.")
     
     def __dealloc__(self):
         """Destructor: libera la memoria C++."""
+        print("[PyPPU __dealloc__] Liberando instancia de PPU en C++...")
         if self._ppu != NULL:
             del self._ppu
-            self._ppu = NULL
+            self._ppu = NULL  # Buena práctica para evitar punteros colgantes
     
     def step(self, int cpu_cycles):
         """

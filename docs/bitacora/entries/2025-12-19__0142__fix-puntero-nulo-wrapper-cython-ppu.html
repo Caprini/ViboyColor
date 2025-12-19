@@ -43,10 +43,7 @@
             <section id="resumen">
                 <h2>Resumen</h2>
                 <p>
-                    El diagnóstico del Step 0141 reveló que el <code>Segmentation Fault</code> ocurría <strong>antes</strong> de que se ejecutara cualquier código dentro de <code>render_scanline()</code>, 
-                    lo que confirmó que el problema estaba en el wrapper de Cython: el puntero al objeto PPU de C++ era nulo (<code>nullptr</code>). 
-                    Se corrigió el constructor de <code>PyPPU</code> en <code>ppu.pyx</code> añadiendo verificaciones robustas y manejo de errores, 
-                    y se añadió una verificación de seguridad en el método <code>step()</code> para detectar si el puntero es nulo antes de usarlo.
+                    El diagnóstico del Step 0141 reveló que el <code>Segmentation Fault</code> ocurría <strong>antes</strong> de que se ejecutara cualquier código dentro de <code>render_scanline()</code>, lo que confirmó que el problema estaba en el wrapper de Cython: el puntero al objeto PPU de C++ era nulo (<code>nullptr</code>). Se corrigió el constructor <code>__cinit__</code> de <code>PyPPU</code> en <code>ppu.pyx</code> añadiendo logs de diagnóstico, verificaciones robustas y manejo de errores explícito para asegurar que la instancia de PPU en C++ se crea correctamente.
                 </p>
             </section>
 
@@ -54,22 +51,13 @@
             <section id="concepto-hardware">
                 <h2>Concepto de Hardware</h2>
                 <p>
-                    En arquitecturas híbridas Python/C++, cuando Python intenta llamar a un método de un objeto C++, el flujo de ejecución es:
-                </p>
-                <ol>
-                    <li><strong>Python:</strong> Se llama a <code>pyppu.step(cpu_cycles)</code></li>
-                    <li><strong>Cython:</strong> El wrapper traduce la llamada y accede al atributo <code>self._ppu</code> (puntero C++)</li>
-                    <li><strong>Cython:</strong> Se llama al método C++: <code>self._ppu.step(cpu_cycles)</code></li>
-                    <li><strong>C++:</strong> El método se ejecuta en el objeto apuntado por <code>self._ppu</code></li>
-                </ol>
-                <p>
-                    Si el puntero <code>self._ppu</code> es <code>NULL</code> (o <code>nullptr</code> en C++), la llamada al método en el paso 3 causará un 
-                    <code>Segmentation Fault</code> inmediato, <strong>antes</strong> de que se ejecute cualquier código dentro del método C++. 
-                    Esto es porque el sistema intenta desreferenciar un puntero nulo para acceder a la tabla de métodos virtuales del objeto.
+                    En un emulador híbrido Python/C++, la creación de objetos C++ desde Python requiere un "wrapper" de Cython que actúa como puente entre ambos mundos. El wrapper de Cython mantiene un puntero C++ crudo (<code>cdef PPU* _ppu</code>) que apunta a la instancia real del objeto en memoria C++.
                 </p>
                 <p>
-                    El hecho de que el mensaje <code>printf</code> del Step 0141 <strong>nunca se ejecutara</strong> confirmó que el crash ocurría en la 
-                    llamada al método mismo, no dentro de él. Esto indicó definitivamente que el puntero <code>self._ppu</code> en el wrapper de Cython era nulo.
+                    Cuando Python llama a un método del wrapper (ej: <code>ppu.step()</code>), Cython traduce la llamada a una invocación directa del método C++ (ej: <code>self._ppu.step()</code>). Si el puntero <code>_ppu</code> es <code>NULL</code> (nulo), intentar llamar a un método en un puntero nulo causa un <code>Segmentation Fault</code> inmediato, <strong>antes</strong> de que cualquier código dentro del método C++ pueda ejecutarse.
+                </p>
+                <p>
+                    El constructor de Cython (<code>__cinit__</code>) es responsable de crear la instancia C++ usando <code>new PPU(...)</code> y asignar el puntero resultante a <code>self._ppu</code>. Si este proceso falla silenciosamente o no se ejecuta correctamente, el puntero queda en <code>NULL</code> y todas las llamadas posteriores fallarán con un crash.
                 </p>
             </section>
 
@@ -77,79 +65,67 @@
             <section id="implementacion">
                 <h2>Implementación</h2>
                 <p>
-                    Se corrigieron tres aspectos críticos en el wrapper de Cython:
+                    Se corrigió el constructor <code>__cinit__</code> de <code>PyPPU</code> en <code>src/core/cython/ppu.pyx</code> para asegurar la creación correcta de la instancia C++ y añadir capas de seguridad que prevengan futuros crashes silenciosos.
                 </p>
                 
-                <h3>1. Mejora del Constructor <code>__cinit__</code></h3>
-                <p>
-                    Se añadió una verificación explícita después de crear el objeto C++ para confirmar que la creación fue exitosa:
-                </p>
-                <pre><code>def __cinit__(self, PyMMU mmu):
-    # ... verificaciones de mmu ...
-    
-    # ¡LÍNEA CRÍTICA! Crear el objeto C++ PPU
-    self._ppu = new ppu.PPU(mmu._mmu)
-    
-    # CRÍTICO: Verificar que la creación fue exitosa
-    if self._ppu == NULL:
-        raise MemoryError("PyPPU: No se pudo crear la instancia de PPU en C++ - new PPU() falló")</code></pre>
-                
-                <h3>2. Verificación de Seguridad en <code>step()</code></h3>
-                <p>
-                    Se añadió una verificación explícita al inicio del método <code>step()</code> para detectar si el puntero es nulo 
-                    antes de intentar llamar al método C++:
-                </p>
-                <pre><code>def step(self, int cpu_cycles):
-    # CRÍTICO: Verificar que el puntero C++ no sea nulo antes de usarlo
-    if self._ppu == NULL:
-        print("[CYTHON CRITICAL] ¡El puntero PPU C++ (_ppu) es NULO! La creación falló en __cinit__.")
-        return
-    self._ppu.step(cpu_cycles)</code></pre>
-                
-                <h3>3. Mejora del Destructor <code>__dealloc__</code></h3>
-                <p>
-                    Se añadió la asignación explícita de <code>NULL</code> después de liberar el objeto para evitar problemas de doble liberación:
-                </p>
-                <pre><code>def __dealloc__(self):
-    """Destructor: libera la memoria C++."""
-    if self._ppu != NULL:
-        del self._ppu
-        self._ppu = NULL</code></pre>
-
-                <h3>4. Limpieza de Verificaciones Temporales en C++</h3>
-                <p>
-                    Se eliminaron las verificaciones temporales de diagnóstico añadidas en el Step 0141:
-                </p>
-                <ul>
-                    <li>Eliminado <code>#include &lt;cstdio&gt;</code> de <code>PPU.cpp</code></li>
-                    <li>Eliminado el <code>printf</code> de <code>render_scanline()</code></li>
-                    <li>Mantenida la verificación de seguridad de <code>mmu_ == nullptr</code> (sin printf, solo retorno temprano)</li>
-                </ul>
-
                 <h3>Componentes modificados</h3>
                 <ul>
-                    <li><strong>src/core/cython/ppu.pyx:</strong> Mejoras en constructor, destructor y método <code>step()</code> con verificaciones robustas</li>
-                    <li><strong>src/core/cpp/PPU.cpp:</strong> Limpieza de verificaciones temporales de diagnóstico</li>
+                    <li><strong>src/core/cython/ppu.pyx</strong>: Constructor <code>__cinit__</code> mejorado con logs de diagnóstico y verificaciones robustas</li>
+                    <li><strong>src/core/cython/ppu.pyx</strong>: Destructor <code>__dealloc__</code> mejorado con logs y asignación explícita de <code>NULL</code></li>
                 </ul>
 
-                <h3>Decisiones de diseño</h3>
+                <h3>Cambios aplicados</h3>
                 <p>
-                    <strong>Uso de <code>print()</code> en Cython:</strong> Se usa <code>print()</code> de Python en lugar de <code>printf</code> de C 
-                    porque es más seguro en el contexto de Cython y no requiere includes adicionales. Además, si el puntero es nulo, 
-                    queremos que Python capture el error de manera controlada en lugar de crashear el proceso.
+                    <strong>1. Constructor <code>__cinit__</code> mejorado:</strong>
                 </p>
+                <ul>
+                    <li>Añadidos logs de diagnóstico con <code>print()</code> para rastrear la creación del objeto</li>
+                    <li>Verificación explícita de que <code>mmu_wrapper</code> no sea <code>None</code></li>
+                    <li>Extracción explícita del puntero C++ crudo desde el wrapper de MMU: <code>cdef mmu.MMU* mmu_ptr = (&lt;PyMMU&gt;mmu_wrapper)._mmu</code></li>
+                    <li>Verificación de que el puntero de MMU no sea nulo antes de crear la PPU</li>
+                    <li>Verificación explícita después de <code>new PPU(mmu_ptr)</code> para asegurar que la asignación fue exitosa</li>
+                    <li>Lanzamiento de excepciones descriptivas (<code>ValueError</code>, <code>MemoryError</code>) si algo falla</li>
+                </ul>
+
                 <p>
-                    <strong>Verificación doble:</strong> Se verifica tanto en el constructor (para detectar fallos de creación) como en el método 
-                    <code>step()</code> (para detectar corrupción posterior del puntero). Esto proporciona dos capas de seguridad.
+                    <strong>2. Destructor <code>__dealloc__</code> mejorado:</strong>
                 </p>
+                <ul>
+                    <li>Añadidos logs de diagnóstico para rastrear la liberación del objeto</li>
+                    <li>Asignación explícita de <code>NULL</code> después de liberar el objeto para evitar punteros colgantes</li>
+                </ul>
+
+                <h3>Código clave</h3>
+                <pre><code>def __cinit__(self, PyMMU mmu_wrapper):
+    print("[PyPPU __cinit__] Creando instancia de PPU en C++...")
+    
+    # Verificar que mmu_wrapper no sea None
+    if mmu_wrapper is None:
+        raise ValueError("PyPPU: mmu_wrapper no puede ser None")
+    
+    # Extrae el puntero C++ crudo desde el wrapper de la MMU
+    cdef mmu.MMU* mmu_ptr = (&lt;PyMMU&gt;mmu_wrapper)._mmu
+    
+    # Comprobación de seguridad: Asegurarse de que el puntero de la MMU no es nulo
+    if mmu_ptr == NULL:
+        raise ValueError("Se intentó crear PyPPU con un wrapper de MMU inválido (puntero nulo).")
+    
+    # --- LÍNEA CRÍTICA ---
+    # Crea la instancia de PPU en C++ y asigna el puntero
+    self._ppu = new ppu.PPU(mmu_ptr)
+    
+    # Comprobación de seguridad: Asegurarse de que la creación fue exitosa
+    if self._ppu == NULL:
+        raise MemoryError("Falló la asignación de memoria para la PPU en C++.")
+    
+    print("[PyPPU __cinit__] Instancia de PPU en C++ creada exitosamente.")</code></pre>
             </section>
 
             <!-- 4. Archivos Tocados -->
             <section id="archivos">
                 <h2>Archivos Afectados</h2>
                 <ul>
-                    <li><code>src/core/cython/ppu.pyx</code> - Mejoras en constructor (<code>__cinit__</code>), destructor (<code>__dealloc__</code>) y método <code>step()</code> con verificaciones robustas de puntero nulo</li>
-                    <li><code>src/core/cpp/PPU.cpp</code> - Eliminado <code>#include &lt;cstdio&gt;</code> y limpieza de verificaciones temporales de diagnóstico</li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Constructor y destructor mejorados con logs y verificaciones robustas</li>
                 </ul>
             </section>
 
@@ -157,48 +133,30 @@
             <section id="tests">
                 <h2>Tests y Verificación</h2>
                 <p>
-                    Esta corrección se valida mediante:
-                </p>
-                <ol>
-                    <li><strong>Recompilación:</strong> Recompilar el módulo C++ con <code>.\rebuild_cpp.ps1</code> para aplicar los cambios en el wrapper de Cython</li>
-                    <li><strong>Ejecución:</strong> Ejecutar el emulador con <code>python main.py roms/tetris.gb</code></li>
-                    <li><strong>Validación esperada:</strong>
-                        <ul>
-                            <li>Si el problema estaba en el constructor: Se lanzará una excepción <code>MemoryError</code> al crear la PPU, 
-                                permitiendo identificar el problema específico</li>
-                            <li>Si el problema está en la llamada: Se mostrará el mensaje <code>[CYTHON CRITICAL]</code> y el programa 
-                                terminará limpiamente sin crash</li>
-                            <li>Si el problema está resuelto: El emulador debería ejecutarse sin crashes y comenzar a renderizar gráficos</li>
-                        </ul>
-                    </li>
-                </ol>
-                <p>
-                    <strong>Validación de módulo compilado C++:</strong> Los cambios en Cython requieren recompilación del módulo. 
-                    Una vez recompilado, las verificaciones estarán activas en tiempo de ejecución y cualquier problema con el puntero 
-                    será detectado inmediatamente.
-                </p>
-                
-                <h3>Resultado del Diagnóstico (Step 0141)</h3>
-                <p>
-                    El diagnóstico del Step 0141 reveló que el <code>printf</code> nunca se ejecutó, confirmando que:
+                    <strong>Validación del diagnóstico (Step 0141):</strong>
                 </p>
                 <ul>
-                    <li>El crash ocurre <strong>antes</strong> de entrar a <code>render_scanline()</code></li>
-                    <li>El problema está en la llamada al método mismo, no dentro de él</li>
-                    <li>El puntero <code>self._ppu</code> en el wrapper de Cython es <code>NULL</code></li>
+                    <li>El hecho de que el mensaje <code>printf</code> del Step 0141 nunca se ejecutara confirmó que el crash ocurría en la llamada al método mismo, no dentro de él.</li>
+                    <li>Esto indicó definitivamente que el puntero <code>self._ppu</code> en el wrapper de Cython era nulo.</li>
                 </ul>
                 <p>
-                    Esta información definitiva nos permitió enfocar la corrección exactamente en el punto correcto: el wrapper de Cython.
+                    <strong>Próxima verificación (pendiente de recompilación):</strong>
                 </p>
+                <ul>
+                    <li>Recompilar el módulo C++: <code>.\rebuild_cpp.ps1</code></li>
+                    <li>Ejecutar el emulador: <code>python main.py roms/tetris.gb</code></li>
+                    <li>Verificar que los logs de diagnóstico aparecen: <code>[PyPPU __cinit__] Creando instancia de PPU en C++...</code></li>
+                    <li>Verificar que el <code>Segmentation Fault</code> ha desaparecido</li>
+                    <li>Verificar que el renderizado funciona correctamente</li>
+                </ul>
             </section>
 
             <!-- 6. Fuentes Consultadas -->
             <section id="fuentes">
                 <h2>Fuentes Consultadas</h2>
                 <ul>
-                    <li>Documentación de Cython: <a href="https://cython.readthedocs.io/en/latest/src/userguide/language_basics.html#creating-c-types">Extension Types</a> - Gestión de constructores y destructores</li>
-                    <li>Documentación de Cython: <a href="https://cython.readthedocs.io/en/latest/src/userguide/language_basics.html#memory-allocation">Memory Allocation</a> - Gestión de punteros C++ desde Cython</li>
-                    <li>Principios de depuración de punteros: Basado en conocimiento general de depuración de sistemas híbridos Python/C++</li>
+                    <li>Cython Documentation: <a href="https://cython.readthedocs.io/">https://cython.readthedocs.io/</a> - Gestión de memoria y punteros en Cython</li>
+                    <li>Cython Best Practices: Constructores y destructores con objetos C++</li>
                 </ul>
             </section>
 
@@ -208,37 +166,24 @@
                 <div class="integridad">
                     <h3>Lo que Entiendo Ahora</h3>
                     <ul>
-                        <li><strong>Diagnóstico binario efectivo:</strong> La ausencia de un mensaje de diagnóstico puede ser tan informativa 
-                            como su presencia. El hecho de que el <code>printf</code> no se ejecutara nos dio información definitiva sobre 
-                            dónde estaba el problema.</li>
-                        <li><strong>Llamadas a métodos en punteros nulos:</strong> Cuando se intenta llamar a un método en un puntero nulo, 
-                            el crash ocurre <strong>antes</strong> de entrar al método, en el momento de desreferenciar el puntero para acceder 
-                            a la tabla de métodos virtuales (VTable).</li>
-                        <li><strong>Verificaciones en múltiples capas:</strong> En arquitecturas híbridas, es importante tener verificaciones 
-                            en cada capa (Python, Cython, C++) para aislar problemas rápidamente.</li>
-                        <li><strong>Constructor de Cython (<code>__cinit__</code>):</strong> Es el lugar correcto para verificar que la creación 
-                            del objeto C++ fue exitosa. Si <code>new</code> falla (aunque es raro), queremos detectarlo inmediatamente.</li>
+                        <li><strong>Punteros nulos en Cython:</strong> Cuando un puntero C++ en un wrapper de Cython es nulo, cualquier intento de llamar a un método en ese puntero causa un <code>Segmentation Fault</code> inmediato, antes de que el código dentro del método pueda ejecutarse.</li>
+                        <li><strong>Diagnóstico mediante ausencia de logs:</strong> Si un <code>printf</code> al inicio de un método nunca se ejecuta, significa que el crash ocurre en la invocación del método mismo, no dentro de él.</li>
+                        <li><strong>Constructor de Cython:</strong> El método <code>__cinit__</code> es crítico para la creación correcta de objetos C++. Debe verificar explícitamente que <code>new</code> fue exitoso y que el puntero resultante no es nulo.</li>
+                        <li><strong>Gestión de memoria:</strong> Es buena práctica asignar explícitamente <code>NULL</code> a un puntero después de liberarlo con <code>delete</code> para evitar punteros colgantes.</li>
                     </ul>
 
                     <h3>Lo que Falta Confirmar</h3>
                     <ul>
-                        <li><strong>Ejecución real:</strong> Necesitamos ejecutar el emulador después de la recompilación para confirmar que 
-                            las correcciones resuelven el <code>Segmentation Fault</code>.</li>
-                        <li><strong>Renderizado de gráficos:</strong> Una vez resuelto el crash, debemos verificar que la PPU está renderizando 
-                            correctamente los gráficos desde la VRAM.</li>
+                        <li><strong>Verificación de ejecución:</strong> Confirmar que después de recompilar, el emulador ejecuta sin <code>Segmentation Fault</code> y que los logs de diagnóstico aparecen correctamente.</li>
+                        <li><strong>Renderizado funcional:</strong> Verificar que el renderizado de la PPU funciona correctamente ahora que el puntero es válido.</li>
                     </ul>
 
                     <h3>Hipótesis y Suposiciones</h3>
                     <p>
-                        <strong>Hipótesis confirmada (100% de certeza):</strong> El problema estaba en el wrapper de Cython, específicamente 
-                        en que el puntero <code>self._ppu</code> era nulo cuando se intentaba llamar a <code>step()</code>. Esta hipótesis 
-                        se confirmó porque el mensaje de diagnóstico del Step 0141 nunca se ejecutó, indicando que el crash ocurría antes 
-                        de entrar al método C++.
+                        <strong>Hipótesis principal:</strong> El problema estaba en el constructor de Cython, donde la creación del objeto C++ no se estaba verificando correctamente. Con las verificaciones añadidas, el problema debería estar resuelto.
                     </p>
                     <p>
-                        <strong>Corrección aplicada:</strong> Se añadieron verificaciones robustas en el constructor y en el método <code>step()</code> 
-                        para detectar y manejar correctamente el caso de puntero nulo. Esto debería prevenir el crash y permitir identificar 
-                        exactamente dónde está el problema si persiste.
+                        <strong>Suposición:</strong> El código anterior del constructor ya tenía la línea <code>self._ppu = new ppu.PPU(mmu._mmu)</code>, pero posiblemente había un problema sutil en cómo se accedía al puntero de MMU o en el orden de las operaciones. Las verificaciones explícitas añadidas deberían prevenir cualquier problema similar en el futuro.
                     </p>
                 </div>
             </section>
@@ -247,11 +192,11 @@
             <section id="proximos-pasos">
                 <h2>Próximos Pasos</h2>
                 <ul>
-                    <li>[ ] Recompilar el módulo C++: <code>.\rebuild_cpp.ps1</code></li>
-                    <li>[ ] Ejecutar el emulador: <code>python main.py roms/tetris.gb</code></li>
-                    <li>[ ] Verificar que no haya <code>Segmentation Fault</code></li>
-                    <li>[ ] Si persiste el problema, revisar los mensajes de diagnóstico para identificar el punto exacto del fallo</li>
-                    <li>[ ] Si el problema está resuelto, verificar que la PPU está renderizando gráficos correctamente</li>
+                    <li>[ ] Recompilar el módulo C++ con <code>.\rebuild_cpp.ps1</code></li>
+                    <li>[ ] Ejecutar el emulador y verificar que los logs de diagnóstico aparecen</li>
+                    <li>[ ] Confirmar que el <code>Segmentation Fault</code> ha desaparecido</li>
+                    <li>[ ] Verificar que el renderizado funciona correctamente</li>
+                    <li>[ ] Si todo funciona, eliminar los logs de diagnóstico de producción (mantener solo en modo debug)</li>
                 </ul>
             </section>
         </main>
@@ -265,4 +210,3 @@
     </div>
 </body>
 </html>
-
