@@ -32,6 +32,55 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-19 - Step 0143: Debug: Rastreo Completo del Segmentation Fault en Referencia Circular PPU↔MMU
+**Estado**: 🔍 En depuración
+
+Después de resolver el problema del puntero nulo en el constructor de `PyPPU` (Step 0142), el `Segmentation Fault` persistió pero ahora ocurre en un punto diferente: dentro de `check_stat_interrupt()` cuando se intenta leer el registro STAT (`0xFF41`) desde la MMU, que a su vez intenta llamar a `ppu_->get_mode()` para construir el valor dinámico de STAT. Este es un problema de **referencia circular** entre PPU y MMU.
+
+**Problema identificado:**
+El crash ocurre en la siguiente cadena de llamadas:
+1. `PPU::step()` completa `render_scanline()` exitosamente
+2. `PPU::step()` llama a `check_stat_interrupt()`
+3. `check_stat_interrupt()` llama a `mmu_->read(IO_STAT)` (dirección `0xFF41`)
+4. `MMU::read()` detecta que es STAT y necesita llamar a `ppu_->get_mode()`, `ppu_->get_ly()`, y `ppu_->get_lyc()` para construir el valor dinámico
+5. **CRASH** al intentar llamar a `ppu_->get_mode()` - el puntero `ppu_` en MMU apunta a memoria inválida
+
+**Análisis del problema:**
+- El puntero `ppu_` en MMU no es `NULL` (tiene un valor como `00000000222F0040`), pero apunta a memoria inválida o a un objeto que ya fue destruido
+- El problema es una **referencia circular**: PPU tiene un puntero a MMU (`mmu_`), y MMU tiene un puntero a PPU (`ppu_`)
+- Cuando `PPU` llama a `mmu_->read()`, la `MMU` intenta llamar de vuelta a `ppu_->get_mode()`, pero el puntero `ppu_` en MMU puede estar apuntando a un objeto que ya fue destruido o movido
+
+**Implementación de debugging:**
+- ✅ Agregados logs extensivos en `PPU::step()` para rastrear el flujo completo
+- ✅ Agregados logs en `PPU::render_scanline()` para confirmar que completa exitosamente
+- ✅ Agregados logs en `PPU::check_stat_interrupt()` para rastrear la llamada a `mmu_->read()`
+- ✅ Agregados logs en `MMU::read()` para rastrear la lectura de STAT y la llamada a `ppu_->get_mode()`
+- ✅ Agregada referencia al objeto `PyMMU` en `PyPPU` (`cdef object _mmu_wrapper`) para evitar destrucción prematura
+- ✅ Agregados logs en `PyMMU::set_ppu()` y `MMU::setPPU()` para verificar qué puntero se está configurando
+
+**Logs agregados:**
+- `[PPU::step]` - Inicio y fin de step()
+- `[PPU::render_scanline]` - Inicio, fin, y valores calculados
+- `[PPU::check_stat_interrupt]` - Verificación de mmu_, lectura de STAT, llamada a get_mode()
+- `[MMU::read]` - Dirección leída, detección de STAT, verificación de ppu_, llamada a get_mode()
+- `[PyMMU::set_ppu]` - Puntero obtenido de get_cpp_ptr_as_int(), conversión, llamada a setPPU()
+- `[MMU::setPPU]` - Puntero recibido y almacenado
+
+**Próximos pasos:**
+- Ejecutar el emulador con los nuevos logs para ver exactamente qué puntero se está configurando en `set_ppu()`
+- Verificar si el puntero `ppu_` en MMU se está configurando correctamente o si hay un problema en la conversión
+- Si el puntero se configura correctamente pero luego se invalida, investigar el ciclo de vida de los objetos
+- Considerar usar `std::shared_ptr` o `std::weak_ptr` para manejar la referencia circular de forma segura
+
+**Archivos modificados:**
+- `src/core/cpp/PPU.cpp` - Logs extensivos en `step()`, `render_scanline()`, y `check_stat_interrupt()`
+- `src/core/cpp/MMU.cpp` - Logs en `read()` y `setPPU()`
+- `src/core/cython/ppu.pyx` - Referencia a `_mmu_wrapper` para evitar destrucción prematura
+- `src/core/cython/mmu.pyx` - Logs en `set_ppu()`
+- `src/viboy.py` - Logs en la llamada a `ppu.step()`
+
+---
+
 ### 2025-12-19 - Step 0142: Fix: Corregir Creación de PPU en Wrapper Cython para Resolver Puntero Nulo
 **Estado**: ✅ Completado
 

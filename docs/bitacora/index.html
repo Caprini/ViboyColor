@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0143 - Debug: Rastreo Completo del Segmentation Fault en Referencia Circular PPU↔MMU -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0143__debug-referencia-circular-ppu-mmu.html" class="entry-link">
+                                    Debug: Rastreo Completo del Segmentation Fault en Referencia Circular PPU↔MMU
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0143 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔍 EN DEPURACIÓN</span>
+                        </div>
+                        <p class="entry-summary">
+                            Después de resolver el problema del puntero nulo en el constructor de PyPPU (Step 0142), el Segmentation Fault persistió pero ahora ocurre en un punto diferente: dentro de check_stat_interrupt() cuando se intenta leer el registro STAT (0xFF41) desde la MMU, que a su vez intenta llamar a ppu_->get_mode() para construir el valor dinámico de STAT. Este es un problema de referencia circular entre PPU y MMU. Se agregaron logs extensivos en múltiples puntos del código para rastrear exactamente dónde ocurre el crash y qué valores tienen los punteros en cada momento. Se agregó también una referencia al objeto PyMMU en PyPPU para evitar destrucción prematura.
+                        </p>
+                    </li>
                     <!-- Entrada 0142 - Fix: Corregir Creación de PPU en Wrapper Cython para Resolver Puntero Nulo -->
                     <li>
                         <div class="entry-header">

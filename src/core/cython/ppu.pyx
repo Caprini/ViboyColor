@@ -25,6 +25,7 @@ cdef class PyPPU:
     el rendimiento de C++ (ciclo a ciclo sin overhead).
     """
     cdef ppu.PPU* _ppu
+    cdef object _mmu_wrapper  # CRÍTICO: Mantener referencia al wrapper para evitar destrucción
     
     def __cinit__(self, PyMMU mmu_wrapper):
         """
@@ -38,6 +39,10 @@ cdef class PyPPU:
         # CRÍTICO: Verificar que mmu_wrapper y su puntero interno sean válidos
         if mmu_wrapper is None:
             raise ValueError("PyPPU: mmu_wrapper no puede ser None")
+        
+        # CRÍTICO: Mantener una referencia al wrapper para evitar que se destruya
+        # Esto asegura que el objeto MMU C++ siga existiendo mientras PPU lo use
+        self._mmu_wrapper = mmu_wrapper
         
         # Extrae el puntero C++ crudo desde el wrapper de la MMU
         cdef mmu.MMU* mmu_ptr = (<PyMMU>mmu_wrapper)._mmu
@@ -77,7 +82,10 @@ cdef class PyPPU:
         if self._ppu == NULL:
             print("[CYTHON CRITICAL] ¡El puntero PPU C++ (_ppu) es NULO! La creación falló en __cinit__.")
             return
+        
+        print("[PyPPU::step] Llamando a PPU::step() desde Cython...")
         self._ppu.step(cpu_cycles)
+        print("[PyPPU::step] PPU::step() retornó a Cython exitosamente")
     
     def get_ly(self):
         """
@@ -188,8 +196,21 @@ cdef class PyPPU:
         if self._ppu == NULL:
             # Retornar None si el puntero es NULL
             return None
+        
+        print("[PyPPU::get_framebuffer] Llamando a get_framebuffer_ptr()...")
+        
         cdef uint8_t* ptr = self._ppu.get_framebuffer_ptr()
+        
+        if ptr == NULL:
+            print("[PyPPU::get_framebuffer CRITICAL] get_framebuffer_ptr() retornó NULL!")
+            return None
+        
+        print("[PyPPU::get_framebuffer] Puntero obtenido, creando memoryview...")
+        
         cdef unsigned char[:] view = <unsigned char[:144*160]>ptr
+        
+        print("[PyPPU::get_framebuffer] Memoryview creado, retornando...")
+        
         return view
     
     @property

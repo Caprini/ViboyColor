@@ -158,6 +158,8 @@ cdef class PyMMU:
         Args:
             ppu_obj: Instancia de PyPPU (debe tener un método get_cpp_ptr_as_int())
         """
+        print("[PyMMU::set_ppu] Llamado con ppu_obj:", ppu_obj)
+        
         # Usar object en lugar de PyPPU para evitar dependencia circular en tiempo de compilación
         # En tiempo de ejecución, ppu_obj será una instancia de PyPPU
         cdef ppu.PPU* c_ppu = NULL
@@ -166,8 +168,15 @@ cdef class PyMMU:
             # Llamar al método get_cpp_ptr_as_int() que devuelve el puntero como entero
             # Luego convertimos el entero de vuelta a puntero C++
             ptr_int = ppu_obj.get_cpp_ptr_as_int()
+            print(f"[PyMMU::set_ppu] ptr_int obtenido: {ptr_int} (0x{ptr_int:X})")
             c_ppu = <ppu.PPU*>ptr_int
+            print(f"[PyMMU::set_ppu] c_ppu convertido: {<long>c_ppu} (0x{<long>c_ppu:X})")
+        else:
+            print("[PyMMU::set_ppu] ppu_obj es None, configurando c_ppu a NULL")
+        
+        print("[PyMMU::set_ppu] Llamando a _mmu.setPPU()...")
         self._mmu.setPPU(c_ppu)
+        print("[PyMMU::set_ppu] setPPU() completado")
     
     # NOTA: El miembro _mmu es accesible desde otros módulos Cython
     # que incluyan este archivo (como cpu.pyx)

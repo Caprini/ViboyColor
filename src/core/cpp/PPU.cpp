@@ -1,5 +1,6 @@
 #include "PPU.hpp"
 #include "MMU.hpp"
+#include <cstdio>
 
 PPU::PPU(MMU* mmu) 
     : mmu_(mmu)
@@ -43,11 +44,14 @@ PPU::~PPU() {
 }
 
 void PPU::step(int cpu_cycles) {
-    // Logs de diagnóstico desactivados para mejorar rendimiento
-    // (Se pueden reactivar para debugging si es necesario)
+    // DIAGNÓSTICO TEMPORAL: Verificar que el método se ejecuta
+    printf("[PPU::step] Iniciando step() con %d ciclos\n", cpu_cycles);
+    fflush(stdout);
     
     // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
     if (mmu_ == nullptr) {
+        printf("[PPU::step CRITICAL] mmu_ es nullptr!\n");
+        fflush(stdout);
         // Si mmu_ es nullptr, no podemos avanzar la PPU
         // Esto puede ocurrir si la MMU fue destruida antes que la PPU
         return;
@@ -83,13 +87,21 @@ void PPU::step(int cpu_cycles) {
         if (ly_ < VISIBLE_LINES && !scanline_rendered_) {
             render_scanline();
             scanline_rendered_ = true;
+            printf("[PPU::step] render_scanline() retornó, continuando...\n");
+            fflush(stdout);
         }
+        
+        printf("[PPU::step] Restando ciclos y avanzando línea...\n");
+        fflush(stdout);
         
         // Restar los ciclos de una línea completa
         clock_ -= CYCLES_PER_SCANLINE;
         
         // Avanzar a la siguiente línea
         ly_ += 1;
+        
+        printf("[PPU::step] LY incrementado a %d\n", ly_);
+        fflush(stdout);
         
         // Al inicio de cada nueva línea, el modo es Mode 2 (OAM Search)
         // Se actualizará automáticamente en la siguiente llamada a update_mode()
@@ -103,6 +115,9 @@ void PPU::step(int cpu_cycles) {
         
         // Si llegamos a V-Blank (línea 144), solicitar interrupción y marcar frame listo
         if (ly_ == VBLANK_START) {
+            printf("[PPU::step] V-Blank detectado (LY=144), solicitando interrupción...\n");
+            fflush(stdout);
+            
             // CRÍTICO: Activar bit 0 del registro IF (Interrupt Flag) en 0xFF0F
             // Este bit corresponde a la interrupción V-Blank.
             //
@@ -112,26 +127,48 @@ void PPU::step(int cpu_cycles) {
             if_val |= 0x01;  // Set bit 0 (V-Blank interrupt)
             mmu_->write(IO_IF, if_val);
             
+            printf("[PPU::step] Interrupción V-Blank escrita\n");
+            fflush(stdout);
+            
             // CRÍTICO: Marcar frame como listo para renderizar
             frame_ready_ = true;
         }
         
         // Si pasamos la última línea (153), reiniciar a 0 (nuevo frame)
         if (ly_ > 153) {
+            printf("[PPU::step] Reiniciando LY a 0 (nuevo frame)\n");
+            fflush(stdout);
             ly_ = 0;
             // Reiniciar flag de interrupción STAT al cambiar de frame
             stat_interrupt_line_ = false;
         }
+        
+        printf("[PPU::step] Fin del bucle while, continuando...\n");
+        fflush(stdout);
     }
+    
+    printf("[PPU::step] Saliendo del bucle while, actualizando modo...\n");
+    fflush(stdout);
     
     // Actualizar el modo después de procesar líneas completas
     // (por si quedaron ciclos residuales en la línea actual)
     update_mode();
     
+    printf("[PPU::step] Modo actualizado, verificando interrupciones STAT...\n");
+    fflush(stdout);
+    
     // Verificar interrupciones STAT si LY cambió o el modo cambió
     if (ly_ != old_ly || mode_ != old_mode) {
+        printf("[PPU::step] LY o modo cambió, llamando a check_stat_interrupt()...\n");
+        fflush(stdout);
         check_stat_interrupt();
+        printf("[PPU::step] check_stat_interrupt() retornó\n");
+        fflush(stdout);
     }
+    
+    // DIAGNÓSTICO: Confirmar que step() está a punto de retornar
+    printf("[PPU::step] step() completado, retornando a Python\n");
+    fflush(stdout);
 }
 
 void PPU::update_mode() {
@@ -158,14 +195,37 @@ void PPU::update_mode() {
 }
 
 void PPU::check_stat_interrupt() {
+    printf("[PPU::check_stat_interrupt] Iniciando...\n");
+    fflush(stdout);
+    
     // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
     if (mmu_ == nullptr) {
+        printf("[PPU::check_stat_interrupt CRITICAL] mmu_ es nullptr!\n");
+        fflush(stdout);
         return;
     }
+    
+    printf("[PPU::check_stat_interrupt] mmu_ es válido, verificando puntero...\n");
+    fflush(stdout);
+    
+    printf("[PPU::check_stat_interrupt] mmu_ puntero: %p\n", (void*)mmu_);
+    fflush(stdout);
+    
+    printf("[PPU::check_stat_interrupt] IO_STAT = 0x%04X\n", IO_STAT);
+    fflush(stdout);
+    
+    printf("[PPU::check_stat_interrupt] Llamando a mmu_->read(IO_STAT)...\n");
+    fflush(stdout);
     
     // Leer el registro STAT directamente de memoria
     // Solo leemos los bits configurables (3-7), los bits 0-2 se actualizan dinámicamente
     uint8_t stat_value = mmu_->read(IO_STAT);
+    
+    printf("[PPU::check_stat_interrupt] STAT leído exitosamente: 0x%02X\n", stat_value);
+    fflush(stdout);
+    
+    printf("[PPU::check_stat_interrupt] STAT leído: 0x%02X\n", stat_value);
+    fflush(stdout);
     
     // Inicializar señal de interrupción
     bool signal = false;
@@ -173,43 +233,82 @@ void PPU::check_stat_interrupt() {
     // Verificar LYC=LY Coincidence (bit 2 y bit 6)
     bool lyc_match = (ly_ & 0xFF) == (lyc_ & 0xFF);
     
+    printf("[PPU::check_stat_interrupt] LY=%d, LYC=%d, match=%d\n", ly_ & 0xFF, lyc_ & 0xFF, lyc_match);
+    fflush(stdout);
+    
     // Actualizar bit 2 de STAT dinámicamente (LYC=LY Coincidence Flag)
     // Preservamos los bits configurables (3-7) y actualizamos bits 0-2
     if (lyc_match) {
+        printf("[PPU::check_stat_interrupt] LYC match, actualizando STAT...\n");
+        fflush(stdout);
+        
         // Set bit 2 de STAT (LYC=LY Coincidence Flag)
         stat_value = (stat_value & 0xF8) | mode_ | 0x04;  // Set bit 2
         mmu_->write(IO_STAT, stat_value);
+        
+        printf("[PPU::check_stat_interrupt] STAT escrito: 0x%02X\n", stat_value);
+        fflush(stdout);
         
         // Si el bit 6 (LYC Int Enable) está activo, solicitar interrupción
         if ((stat_value & 0x40) != 0) {  // Bit 6 activo
             signal = true;
         }
     } else {
+        printf("[PPU::check_stat_interrupt] LYC no match, actualizando STAT...\n");
+        fflush(stdout);
+        
         // Si LY != LYC, el bit 2 debe estar limpio
         stat_value = (stat_value & 0xF8) | mode_;  // Clear bit 2
         mmu_->write(IO_STAT, stat_value);
+        
+        printf("[PPU::check_stat_interrupt] STAT escrito: 0x%02X\n", stat_value);
+        fflush(stdout);
     }
+    
+    printf("[PPU::check_stat_interrupt] Verificando otros bits de STAT...\n");
+    fflush(stdout);
     
     // Verificar interrupciones por modo PPU
     if (mode_ == MODE_0_HBLANK && (stat_value & 0x08) != 0) {  // Bit 3 activo
+        printf("[PPU::check_stat_interrupt] Mode 0 interrupt habilitado\n");
+        fflush(stdout);
         signal = true;
     } else if (mode_ == MODE_1_VBLANK && (stat_value & 0x10) != 0) {  // Bit 4 activo
+        printf("[PPU::check_stat_interrupt] Mode 1 interrupt habilitado\n");
+        fflush(stdout);
         signal = true;
     } else if (mode_ == MODE_2_OAM_SEARCH && (stat_value & 0x20) != 0) {  // Bit 5 activo
+        printf("[PPU::check_stat_interrupt] Mode 2 interrupt habilitado\n");
+        fflush(stdout);
         signal = true;
     }
     
+    printf("[PPU::check_stat_interrupt] signal=%d, stat_interrupt_line_=%d\n", signal, stat_interrupt_line_);
+    fflush(stdout);
+    
     // Disparar interrupción en rising edge (solo si signal es True y antes era False)
     if (signal && !stat_interrupt_line_) {
+        printf("[PPU::check_stat_interrupt] Disparando interrupción STAT...\n");
+        fflush(stdout);
+        
         // Activar bit 1 del registro IF (Interrupt Flag) en 0xFF0F
         // Este bit corresponde a la interrupción LCD STAT
         uint8_t if_val = mmu_->read(IO_IF);
+        printf("[PPU::check_stat_interrupt] IF leído: 0x%02X\n", if_val);
+        fflush(stdout);
+        
         if_val |= 0x02;  // Set bit 1 (LCD STAT interrupt)
         mmu_->write(IO_IF, if_val);
+        
+        printf("[PPU::check_stat_interrupt] IF escrito: 0x%02X\n", if_val);
+        fflush(stdout);
     }
     
     // Actualizar flag de interrupción STAT
     stat_interrupt_line_ = signal;
+    
+    printf("[PPU::check_stat_interrupt] Completado, retornando...\n");
+    fflush(stdout);
 }
 
 uint8_t PPU::get_ly() const {
@@ -245,34 +344,75 @@ bool PPU::get_frame_ready_and_reset() {
 }
 
 uint8_t* PPU::get_framebuffer_ptr() {
-    return framebuffer_.data();
+    printf("[PPU::get_framebuffer_ptr] Llamado, framebuffer_.size()=%zu\n", framebuffer_.size());
+    fflush(stdout);
+    
+    uint8_t* ptr = framebuffer_.data();
+    
+    if (ptr == nullptr) {
+        printf("[PPU::get_framebuffer_ptr CRITICAL] framebuffer_.data() retornó nullptr!\n");
+        fflush(stdout);
+    } else {
+        printf("[PPU::get_framebuffer_ptr] Puntero válido: %p\n", (void*)ptr);
+        fflush(stdout);
+    }
+    
+    return ptr;
 }
 
 void PPU::render_scanline() {
+    // DIAGNÓSTICO TEMPORAL: Verificar que el método se ejecuta
+    printf("[PPU::render_scanline] Iniciando render_scanline() para LY=%d\n", ly_);
+    fflush(stdout);
+    
     // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
     // Si mmu_ es nullptr, no podemos renderizar (esto no debería ocurrir si la PPU se creó correctamente)
     if (this->mmu_ == nullptr) {
+        printf("[PPU::render_scanline CRITICAL] mmu_ es nullptr!\n");
+        fflush(stdout);
         return;
     }
     
+    printf("[PPU::render_scanline] mmu_ es válido\n");
+    fflush(stdout);
+    
     // Solo renderizar si estamos en una línea visible (0-143)
     if (ly_ >= VISIBLE_LINES) {
+        printf("[PPU::render_scanline] LY >= VISIBLE_LINES, retornando\n");
+        fflush(stdout);
         return;
     }
+    
+    printf("[PPU::render_scanline] LY es visible, continuando...\n");
+    fflush(stdout);
     
     // FASE C: Renderizado real de Background desde VRAM
     // Este método lee los datos de tiles desde la VRAM que la CPU del juego
     // ha escrito y los renderiza en el framebuffer.
     
+    printf("[PPU::render_scanline] Leyendo LCDC...\n");
+    fflush(stdout);
+    
     // Leer registro LCDC para verificar si el LCD está habilitado y configuraciones
     uint8_t lcdc = mmu_->read(IO_LCDC);
+    
+    printf("[PPU::render_scanline] LCDC leído: 0x%02X\n", lcdc);
+    fflush(stdout);
     if (!(lcdc & 0x80)) {  // Bit 7: LCD Display Enable
+        printf("[PPU::render_scanline] LCD deshabilitado, retornando\n");
+        fflush(stdout);
         return;
     }
+    
+    printf("[PPU::render_scanline] LCD habilitado, leyendo registros de scroll...\n");
+    fflush(stdout);
     
     // Leer registros de scroll
     uint8_t scy = mmu_->read(IO_SCY);
     uint8_t scx = mmu_->read(IO_SCX);
+    
+    printf("[PPU::render_scanline] SCY=0x%02X, SCX=0x%02X\n", scy, scx);
+    fflush(stdout);
     
     // Determinar base de tilemap (Bit 3 de LCDC)
     uint16_t tile_map_base = (lcdc & 0x08) ? 0x9C00 : 0x9800;
@@ -286,20 +426,43 @@ void PPU::render_scanline() {
     // Índice base en el framebuffer para esta línea
     int line_start_index = static_cast<int>(ly_) * SCREEN_WIDTH;
     
+    printf("[PPU::render_scanline] line_start_index=%d\n", line_start_index);
+    fflush(stdout);
+    
     // Calcular posición Y en el tilemap (con scroll)
     uint8_t map_y = static_cast<uint8_t>((ly_ + scy) & 0xFF);
     uint8_t tile_y_offset = map_y % 8;
     
+    printf("[PPU::render_scanline] map_y=%d, tile_y_offset=%d\n", map_y, tile_y_offset);
+    fflush(stdout);
+    
+    printf("[PPU::render_scanline] Iniciando bucle de renderizado (160 píxeles)...\n");
+    fflush(stdout);
+    
     // Renderizar 160 píxeles (una línea completa)
     for (int x = 0; x < SCREEN_WIDTH; ++x) {
+        if (x == 0) {
+            printf("[PPU::render_scanline] Primer píxel (x=0)\n");
+            fflush(stdout);
+        }
         // Calcular posición X en el tilemap (con scroll)
         uint8_t map_x = static_cast<uint8_t>((x + scx) & 0xFF);
         
         // Calcular dirección en el tilemap (32 tiles por línea)
         uint16_t tile_map_addr = tile_map_base + (map_y / 8) * 32 + (map_x / 8);
         
+        if (x == 0) {
+            printf("[PPU::render_scanline] x=0: tile_map_addr=0x%04X\n", tile_map_addr);
+            fflush(stdout);
+        }
+        
         // Leer tile ID del tilemap
         uint8_t tile_id = mmu_->read(tile_map_addr);
+        
+        if (x == 0) {
+            printf("[PPU::render_scanline] x=0: tile_id=0x%02X\n", tile_id);
+            fflush(stdout);
+        }
         
         // Calcular dirección del tile en VRAM
         uint16_t tile_addr;
@@ -337,19 +500,64 @@ void PPU::render_scanline() {
             continue;
         }
         
+        if (x == 0) {
+            printf("[PPU::render_scanline] x=0: tile_line_addr=0x%04X\n", tile_line_addr);
+            fflush(stdout);
+        }
+        
         // Leer los dos bytes que forman la línea del tile
         uint8_t byte1 = mmu_->read(tile_line_addr);
+        
+        if (x == 0) {
+            printf("[PPU::render_scanline] x=0: byte1 leído=0x%02X\n", byte1);
+            fflush(stdout);
+        }
+        
         uint8_t byte2 = mmu_->read(tile_line_addr + 1);
+        
+        if (x == 0) {
+            printf("[PPU::render_scanline] x=0: byte2 leído=0x%02X\n", byte2);
+            fflush(stdout);
+        }
         
         // Decodificar el píxel específico (bit position dentro del tile)
         uint8_t bit_pos = 7 - (map_x % 8);
+        
+        if (x == 0) {
+            printf("[PPU::render_scanline] x=0: bit_pos=%d, map_x=%d\n", bit_pos, map_x);
+            fflush(stdout);
+        }
+        
         uint8_t lsb = (byte1 >> bit_pos) & 1;
         uint8_t msb = (byte2 >> bit_pos) & 1;
         uint8_t color_index = (msb << 1) | lsb;  // Valor 0-3
         
+        if (x == 0) {
+            printf("[PPU::render_scanline] x=0: lsb=%d, msb=%d, color_index=%d\n", lsb, msb, color_index);
+            fflush(stdout);
+        }
+        
+        if (x == 0) {
+            printf("[PPU::render_scanline] x=0: framebuffer_.size()=%zu, line_start_index+x=%d\n", framebuffer_.size(), line_start_index + x);
+            fflush(stdout);
+        }
+        
         // Escribir índice de color en el framebuffer
         framebuffer_[line_start_index + x] = color_index;
+        
+        if (x == 0) {
+            printf("[PPU::render_scanline] x=0: Escritura al framebuffer completada\n");
+            fflush(stdout);
+        }
+        
+        if (x == 1) {
+            printf("[PPU::render_scanline] x=1: Segundo píxel procesado\n");
+            fflush(stdout);
+        }
     }
+    
+    printf("[PPU::render_scanline] Bucle completado, retornando...\n");
+    fflush(stdout);
 }
 
 void PPU::render_bg() {

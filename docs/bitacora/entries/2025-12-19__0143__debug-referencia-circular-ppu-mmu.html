@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug: Rastreo Completo del Segmentation Fault en Referencia Circular PPU↔MMU - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug: Rastreo Completo del Segmentation Fault en Referencia Circular PPU↔MMU</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0143
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 EN DEPURACIÓN</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0142__fix-puntero-nulo-wrapper-cython-ppu.html">Anterior (Step 0142)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Después de resolver el problema del puntero nulo en el constructor de <code>PyPPU</code> (Step 0142), el <code>Segmentation Fault</code> persistió pero ahora ocurre en un punto diferente: dentro de <code>check_stat_interrupt()</code> cuando se intenta leer el registro STAT (<code>0xFF41</code>) desde la MMU, que a su vez intenta llamar a <code>ppu_->get_mode()</code> para construir el valor dinámico de STAT. Este es un problema de <strong>referencia circular</strong> entre PPU y MMU.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy real, el registro STAT (<code>0xFF41</code>) tiene bits de solo lectura (0-2) que son actualizados dinámicamente por la PPU. Estos bits representan:
+                </p>
+                <ul>
+                    <li><strong>Bits 0-1:</strong> Modo actual de la PPU (Mode 0: H-Blank, Mode 1: V-Blank, Mode 2: OAM Search, Mode 3: Pixel Transfer)</li>
+                    <li><strong>Bit 2:</strong> LYC=LY Coincidence Flag (1 si LY == LYC, 0 si no)</li>
+                </ul>
+                <p>
+                    Cuando la CPU o cualquier componente intenta leer STAT, debe obtener el valor actualizado de estos bits desde el estado interno de la PPU, no desde la memoria estática.
+                </p>
+                <p>
+                    En nuestro emulador, esto crea una <strong>referencia circular</strong>:
+                </p>
+                <ul>
+                    <li>PPU tiene un puntero a MMU (<code>MMU* mmu_</code>) para leer/escribir memoria</li>
+                    <li>MMU tiene un puntero a PPU (<code>PPU* ppu_</code>) para leer el estado dinámico de STAT</li>
+                </ul>
+                <p>
+                    Cuando PPU llama a <code>mmu_->read(IO_STAT)</code>, la MMU necesita llamar de vuelta a <code>ppu_->get_mode()</code> para construir el valor correcto. Si el puntero <code>ppu_</code> en MMU apunta a memoria inválida o a un objeto que ya fue destruido, esto causa un <code>Segmentation Fault</code>.
+                </p>
+            </section>
+
+            <!-- 3. Problema Identificado -->
+            <section id="problema">
+                <h2>Problema Identificado</h2>
+                <p>
+                    El crash ocurre en la siguiente cadena de llamadas:
+                </p>
+                <ol>
+                    <li><code>PPU::step()</code> completa <code>render_scanline()</code> exitosamente</li>
+                    <li><code>PPU::step()</code> llama a <code>check_stat_interrupt()</code></li>
+                    <li><code>check_stat_interrupt()</code> llama a <code>mmu_->read(IO_STAT)</code> (dirección <code>0xFF41</code>)</li>
+                    <li><code>MMU::read()</code> detecta que es STAT y necesita llamar a <code>ppu_->get_mode()</code>, <code>ppu_->get_ly()</code>, y <code>ppu_->get_lyc()</code> para construir el valor dinámico</li>
+                    <li><strong>CRASH</strong> al intentar llamar a <code>ppu_->get_mode()</code> - el puntero <code>ppu_</code> en MMU apunta a memoria inválida</li>
+                </ol>
+                <p>
+                    <strong>Análisis del problema:</strong>
+                </p>
+                <ul>
+                    <li>El puntero <code>ppu_</code> en MMU no es <code>NULL</code> (tiene un valor como <code>00000000222F0040</code>), pero apunta a memoria inválida o a un objeto que ya fue destruido</li>
+                    <li>El problema es una <strong>referencia circular</strong>: PPU tiene un puntero a MMU (<code>mmu_</code>), y MMU tiene un puntero a PPU (<code>ppu_</code>)</li>
+                    <li>Cuando <code>PPU</code> llama a <code>mmu_->read()</code>, la <code>MMU</code> intenta llamar de vuelta a <code>ppu_->get_mode()</code>, pero el puntero <code>ppu_</code> en MMU puede estar apuntando a un objeto que ya fue destruido o movido</li>
+                </ul>
+            </section>
+
+            <!-- 4. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación de Debugging</h2>
+                <p>
+                    Se agregaron logs extensivos en múltiples puntos del código para rastrear exactamente dónde ocurre el crash y qué valores tienen los punteros en cada momento.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>src/core/cpp/PPU.cpp</strong>: Logs en <code>step()</code>, <code>render_scanline()</code>, y <code>check_stat_interrupt()</code></li>
+                    <li><strong>src/core/cpp/MMU.cpp</strong>: Logs en <code>read()</code> y <code>setPPU()</code></li>
+                    <li><strong>src/core/cython/ppu.pyx</strong>: Referencia a <code>_mmu_wrapper</code> para evitar destrucción prematura</li>
+                    <li><strong>src/core/cython/mmu.pyx</strong>: Logs en <code>set_ppu()</code></li>
+                    <li><strong>src/viboy.py</strong>: Logs en la llamada a <code>ppu.step()</code></li>
+                </ul>
+
+                <h3>Logs agregados</h3>
+                <p>
+                    <strong>1. En <code>PPU::step()</code>:</strong>
+                </p>
+                <ul>
+                    <li><code>[PPU::step] Iniciando step() con X ciclos</code> - Al inicio del método</li>
+                    <li><code>[PPU::step] render_scanline() retornó, continuando...</code> - Después de render_scanline()</li>
+                    <li><code>[PPU::step] LY incrementado a X</code> - Después de incrementar LY</li>
+                    <li><code>[PPU::step] LY o modo cambió, llamando a check_stat_interrupt()...</code> - Antes de llamar a check_stat_interrupt()</li>
+                    <li><code>[PPU::step] step() completado, retornando a Python</code> - Al final del método</li>
+                </ul>
+
+                <p>
+                    <strong>2. En <code>PPU::render_scanline()</code>:</strong>
+                </p>
+                <ul>
+                    <li><code>[PPU::render_scanline] Iniciando renderizado de línea X</code> - Al inicio</li>
+                    <li><code>[PPU::render_scanline] Bucle completado, retornando...</code> - Al final</li>
+                </ul>
+
+                <p>
+                    <strong>3. En <code>PPU::check_stat_interrupt()</code>:</strong>
+                </p>
+                <ul>
+                    <li><code>[PPU::check_stat_interrupt] Iniciando...</code> - Al inicio</li>
+                    <li><code>[PPU::check_stat_interrupt] mmu_ puntero: 0x...</code> - Valor del puntero mmu_</li>
+                    <li><code>[PPU::check_stat_interrupt] Llamando a mmu_->read(IO_STAT)...</code> - Antes de leer STAT</li>
+                </ul>
+
+                <p>
+                    <strong>4. En <code>MMU::read()</code>:</strong>
+                </p>
+                <ul>
+                    <li><code>[MMU::read] Iniciando, addr=0xFF41</code> - Al inicio</li>
+                    <li><code>[MMU::read] Leyendo STAT (0xFF41)...</code> - Detección de STAT</li>
+                    <li><code>[MMU::read] ppu_ puntero: 0x...</code> - Valor del puntero ppu_</li>
+                    <li><code>[MMU::read] Llamando a ppu_->get_mode()...</code> - Antes de llamar a get_mode()</li>
+                </ul>
+
+                <p>
+                    <strong>5. En <code>PyMMU::set_ppu()</code> y <code>MMU::setPPU()</code>:</strong>
+                </p>
+                <ul>
+                    <li><code>[PyMMU::set_ppu] ptr_int obtenido: X (0x...)</code> - Puntero obtenido de get_cpp_ptr_as_int()</li>
+                    <li><code>[PyMMU::set_ppu] c_ppu convertido: X (0x...)</code> - Puntero convertido</li>
+                    <li><code>[MMU::setPPU] Llamado con puntero: 0x...</code> - Puntero recibido en setPPU()</li>
+                    <li><code>[MMU::setPPU] ppu_ configurado a: 0x...</code> - Puntero almacenado</li>
+                </ul>
+
+                <h3>Mejora en gestión de memoria</h3>
+                <p>
+                    Se agregó una referencia al objeto <code>PyMMU</code> en <code>PyPPU</code> para evitar que el objeto MMU se destruya mientras PPU lo está usando:
+                </p>
+                <pre><code>cdef class PyPPU:
+    cdef ppu.PPU* _ppu
+    cdef object _mmu_wrapper  # CRÍTICO: Mantener referencia al wrapper para evitar destrucción
+    
+    def __cinit__(self, PyMMU mmu_wrapper):
+        # ...
+        self._mmu_wrapper = mmu_wrapper  # Mantener referencia</code></pre>
+            </section>
+
+            <!-- 5. Resultados del Debugging -->
+            <section id="resultados">
+                <h2>Resultados del Debugging</h2>
+                <p>
+                    Los logs muestran que:
+                </p>
+                <ul>
+                    <li>✅ <code>render_scanline()</code> completa exitosamente</li>
+                    <li>✅ <code>check_stat_interrupt()</code> se llama correctamente</li>
+                    <li>✅ <code>mmu_->read(IO_STAT)</code> se llama correctamente</li>
+                    <li>✅ El puntero <code>ppu_</code> en MMU no es <code>NULL</code> (tiene un valor)</li>
+                    <li>❌ El crash ocurre al intentar llamar a <code>ppu_->get_mode()</code></li>
+                </ul>
+                <p>
+                    Esto indica que el puntero <code>ppu_</code> en MMU apunta a memoria inválida o a un objeto que ya fue destruido, aunque no sea <code>NULL</code>.
+                </p>
+            </section>
+
+            <!-- 6. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ol>
+                    <li>Ejecutar el emulador con los nuevos logs para ver exactamente qué puntero se está configurando en <code>set_ppu()</code></li>
+                    <li>Verificar si el puntero <code>ppu_</code> en MMU se está configurando correctamente o si hay un problema en la conversión</li>
+                    <li>Si el puntero se configura correctamente pero luego se invalida, investigar el ciclo de vida de los objetos</li>
+                    <li>Considerar usar <code>std::shared_ptr</code> o <code>std::weak_ptr</code> para manejar la referencia circular de forma segura</li>
+                </ol>
+            </section>
+
+            <!-- 7. Archivos Modificados -->
+            <section id="archivos">
+                <h2>Archivos Modificados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Logs extensivos en <code>step()</code>, <code>render_scanline()</code>, y <code>check_stat_interrupt()</code></li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Logs en <code>read()</code> y <code>setPPU()</code></li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Referencia a <code>_mmu_wrapper</code> para evitar destrucción prematura, logs en <code>step()</code></li>
+                    <li><code>src/core/cython/mmu.pyx</code> - Logs en <code>set_ppu()</code></li>
+                    <li><code>src/viboy.py</code> - Logs en la llamada a <code>ppu.step()</code></li>
+                </ul>
+            </section>
+
+            <!-- 8. Referencias -->
+            <section id="referencias">
+                <h2>Referencias</h2>
+                <ul>
+                    <li><a href="https://gbdev.io/pandocs/STAT.html">Pan Docs - STAT Register</a></li>
+                    <li><a href="2025-12-19__0142__fix-puntero-nulo-wrapper-cython-ppu.html">Step 0142: Fix: Corregir Creación de PPU en Wrapper Cython</a></li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>Bitácora del Proyecto Viboy Color - Implementación Clean-Room de Game Boy Color</p>
+        </footer>
+    </div>
+</body>
+</html>
+

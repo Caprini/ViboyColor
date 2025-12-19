@@ -750,7 +750,9 @@ class Viboy:
                         try:
                             if self._use_cpp:
                                 # PPU C++: usar método step directamente
+                                print("[Viboy] Llamando a ppu.step()...")
                                 self._ppu.step(CYCLES_PER_LINE)
+                                print("[Viboy] ppu.step() completado exitosamente")
                             else:
                                 # PPU Python: usar método step
                                 self._ppu.step(CYCLES_PER_LINE)
