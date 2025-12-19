@@ -204,3 +204,56 @@ en C++ puro, accediendo a MMU y Registros mediante punteros directos.
 - Migrar opcodes CB (prefijo 0xCB)
 - Integrar CPU nativa con el bucle principal de emulación
 
+---
+
+### 2025-12-19 - Step 0105: Implementación de ALU y Flags en C++
+**Estado**: ✅ Completado
+
+Se implementó la ALU (Arithmetic Logic Unit) y la gestión de Flags en C++, añadiendo operaciones
+aritméticas básicas (ADD, SUB) y lógicas (AND, XOR) al núcleo nativo. Se implementaron 5 nuevos
+opcodes: INC A, DEC A, ADD A d8, SUB d8 y XOR A.
+
+**Implementación**:
+- ✅ Métodos ALU inline añadidos a `CPU.hpp` / `CPU.cpp`:
+  - `alu_add()`: Suma con cálculo de flags Z, N, H, C
+  - `alu_sub()`: Resta con cálculo de flags Z, N, H, C
+  - `alu_and()`: AND lógico (quirk: siempre pone H=1)
+  - `alu_xor()`: XOR lógico (limpia flags H y C)
+- ✅ 5 nuevos opcodes implementados:
+  - `0x3C`: INC A (Increment A) - 1 M-Cycle
+  - `0x3D`: DEC A (Decrement A) - 1 M-Cycle
+  - `0xC6`: ADD A, d8 (Add immediate) - 2 M-Cycles
+  - `0xD6`: SUB d8 (Subtract immediate) - 2 M-Cycles
+  - `0xAF`: XOR A (XOR A with A, optimización para A=0) - 1 M-Cycle
+- ✅ Suite completa de tests (`test_core_cpu_alu.py`):
+  - 7 tests que validan operaciones aritméticas, flags y half-carry
+  - Todos los tests pasan (7/7 ✅)
+
+**Archivos creados/modificados**:
+- `src/core/cpp/CPU.hpp` - Añadidas declaraciones de métodos ALU inline
+- `src/core/cpp/CPU.cpp` - Implementación de ALU y 5 nuevos opcodes
+- `tests/test_core_cpu_alu.py` - Suite de 7 tests para validar ALU nativa
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0105__implementacion-alu-flags-cpp.html`
+
+**Resultados de verificación**:
+- ✅ Compilación exitosa (sin errores)
+- ✅ Todos los tests pasan: `7/7 passed in 0.04s`
+- ✅ Gestión precisa de flags (Z, N, H, C) validada
+- ✅ Cálculo eficiente de half-carry en C++ (compila a pocas instrucciones de máquina)
+- ✅ Optimización XOR A validada (limpia A a 0 en un ciclo)
+
+**Conceptos clave**:
+- **Half-Carry en C++**: La fórmula `((a & 0xF) + (b & 0xF)) > 0xF` se compila a muy pocas
+  instrucciones de máquina (AND, ADD, CMP), ofreciendo rendimiento máximo comparado con Python.
+- **Flags y DAA**: El flag H (Half-Carry) es crítico para DAA, que ajusta resultados binarios
+  a BCD. Sin H correcto, DAA falla y los juegos que usan BCD crashean.
+- **Optimización XOR A**: `XOR A` (0xAF) es una optimización común en código Game Boy para
+  limpiar A a 0 en un solo ciclo, más eficiente que `LD A, 0`.
+
+**Próximos pasos**:
+- Implementar ADC A, d8 (0xCE) y SBC A, d8 (0xDE) - operaciones con carry/borrow
+- Implementar operaciones ALU con registros (ADD A, r donde r = B, C, D, E, H, L)
+- Implementar operaciones lógicas restantes (OR, CP)
+- Implementar operaciones de 16 bits (ADD HL, rr, INC rr, DEC rr)
+

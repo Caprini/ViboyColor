@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementación de ALU y Flags en C++ - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Implementación de ALU y Flags en C++</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0105
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-completed">Completado</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0104__migracion-cpu-esqueleto-cpp.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó la ALU (Arithmetic Logic Unit) y la gestión de Flags en C++,
+                    añadiendo operaciones aritméticas básicas (ADD, SUB) y lógicas (AND, XOR)
+                    al núcleo nativo. Se implementaron 5 nuevos opcodes: INC A, DEC A, ADD A d8,
+                    SUB d8 y XOR A. Todos los tests pasan correctamente, validando la gestión
+                    precisa de flags (Z, N, H, C) y el cálculo eficiente de half-carry en C++.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La ALU (Arithmetic Logic Unit) es el componente de la CPU que realiza
+                    operaciones matemáticas y lógicas. En la Game Boy (LR35902), la ALU opera
+                    principalmente sobre el registro A (Acumulador) y actualiza 4 flags críticos:
+                </p>
+                <ul>
+                    <li><strong>Z (Zero)</strong>: Se activa cuando el resultado de una operación es 0.</li>
+                    <li><strong>N (Subtract)</strong>: Se activa en operaciones de resta, se desactiva en suma.</li>
+                    <li><strong>H (Half-Carry)</strong>: Se activa cuando hay desbordamiento del nibble bajo (bit 3 → 4) en suma, o borrow en resta.</li>
+                    <li><strong>C (Carry)</strong>: Se activa cuando hay desbordamiento completo de 8 bits (overflow/underflow).</li>
+                </ul>
+                <p>
+                    El cálculo de Half-Carry es crítico para la instrucción DAA (Decimal Adjust Accumulator),
+                    que convierte resultados binarios a BCD (Binary Coded Decimal). En C++, estas operaciones
+                    bitwise se compilan a muy pocas instrucciones de máquina, ofreciendo rendimiento máximo.
+                </p>
+                <p>
+                    <strong>Optimización C++</strong>: La fórmula <code>((a & 0xF) + (b & 0xF)) > 0xF</code>
+                    para half-carry se compila directamente a operaciones de registro, eliminando el overhead
+                    de objetos Python y llamadas a función.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadieron 4 métodos privados inline en la clase CPU para operaciones ALU:
+                    <code>alu_add()</code>, <code>alu_sub()</code>, <code>alu_and()</code> y <code>alu_xor()</code>.
+                    Estos métodos actualizan el registro A y los flags de forma atómica, usando los métodos
+                    inline de <code>CoreRegisters</code> para máximo rendimiento.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>CPU.hpp</strong>: Añadidas declaraciones de métodos ALU inline.</li>
+                    <li><strong>CPU.cpp</strong>: Implementación de métodos ALU y 5 nuevos opcodes (0x3C, 0x3D, 0xC6, 0xD6, 0xAF).</li>
+                    <li><strong>tests/test_core_cpu_alu.py</strong>: Suite completa de 7 tests para validar ALU nativa.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Métodos inline</strong>: Los helpers ALU son métodos privados inline para que el compilador
+                        los incruste directamente en el switch de opcodes, eliminando el coste de llamada a función.</li>
+                    <li><strong>Reutilización de CoreRegisters</strong>: Se usan los métodos <code>set_flag_*()</code> ya existentes
+                        en CoreRegisters, que son inline y aplican automáticamente la máscara del registro F.</li>
+                    <li><strong>Cálculo de Half-Carry</strong>: Se guarda el valor original de A antes de la operación para
+                        calcular correctamente el half-carry/half-borrow.</li>
+                    <li><strong>Opcodes implementados</strong>:
+                        <ul>
+                            <li><code>0x3C</code>: INC A (Increment A) - 1 M-Cycle</li>
+                            <li><code>0x3D</code>: DEC A (Decrement A) - 1 M-Cycle</li>
+                            <li><code>0xC6</code>: ADD A, d8 (Add immediate) - 2 M-Cycles</li>
+                            <li><code>0xD6</code>: SUB d8 (Subtract immediate) - 2 M-Cycles</li>
+                            <li><code>0xAF</code>: XOR A (XOR A with A, optimización para A=0) - 1 M-Cycle</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Código clave</h3>
+                <pre><code>// Ejemplo: alu_add() en CPU.cpp
+void CPU::alu_add(uint8_t value) {
+    uint8_t a_old = regs_->a;  // Guardar para calcular flags
+    uint16_t result = static_cast&lt;uint16_t&gt;(a_old) + static_cast&lt;uint16_t&gt;(value);
+    regs_->a = static_cast&lt;uint8_t&gt;(result);
+    
+    // Flags
+    regs_->set_flag_z(regs_->a == 0);
+    regs_->set_flag_n(false);
+    
+    // Half-carry: ((a_old & 0xF) + (value & 0xF)) > 0xF
+    uint8_t a_low = a_old & 0x0F;
+    uint8_t value_low = value & 0x0F;
+    regs_->set_flag_h((a_low + value_low) > 0x0F);
+    
+    regs_->set_flag_c(result > 0xFF);
+}</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Añadidas declaraciones de métodos ALU inline</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Implementación de ALU y 5 nuevos opcodes</li>
+                    <li><code>tests/test_core_cpu_alu.py</code> - Suite de 7 tests para validar ALU nativa</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests en Python que valida la ALU nativa:
+                </p>
+                <ul>
+                    <li><strong>test_add_immediate_basic</strong>: Suma básica (10 + 2 = 12), verifica flags Z, N, H, C.</li>
+                    <li><strong>test_sub_immediate_zero_flag</strong>: Resta que activa Flag Z (10 - 10 = 0).</li>
+                    <li><strong>test_add_half_carry</strong>: Detección de half-carry (0x0F + 0x01 = 0x10).</li>
+                    <li><strong>test_xor_a_optimization</strong>: XOR A limpia A a 0 y activa Z.</li>
+                    <li><strong>test_inc_a</strong>: Incremento de A con actualización de flags.</li>
+                    <li><strong>test_dec_a</strong>: Decremento de A con half-borrow.</li>
+                    <li><strong>test_add_full_carry</strong>: Detección de carry completo (0xFF + 0x01 = 0x00).</li>
+                </ul>
+                <p>
+                    <strong>Resultado</strong>: ✅ <strong>7/7 tests pasando</strong> (100% éxito).
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++</strong>: La extensión Cython se compiló
+                    correctamente sin errores. Los tests ejecutan código nativo C++ a través del wrapper
+                    Python, validando la interoperabilidad completa.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">CPU Instruction Set</a> - Sección de operaciones aritméticas y flags</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Registers_and_Flags.html">CPU Registers and Flags</a> - Especificación de flags Z, N, H, C</li>
+                    <li>GBEDG: <a href="https://izik1.github.io/gbops/">Game Boy Opcodes</a> - Referencia de opcodes 0x3C, 0x3D, 0xC6, 0xD6, 0xAF</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Half-Carry en C++</strong>: La fórmula <code>((a & 0xF) + (b & 0xF)) > 0xF</code>
+                            se compila a muy pocas instrucciones de máquina (AND, ADD, CMP), ofreciendo rendimiento
+                            máximo comparado con Python donde cada operación crea objetos int.</li>
+                        <li><strong>Flags y DAA</strong>: El flag H (Half-Carry) es crítico para DAA, que ajusta
+                            resultados binarios a BCD. Sin H correcto, DAA falla y los juegos que usan BCD crashean.</li>
+                        <li><strong>Optimización XOR A</strong>: <code>XOR A</code> (0xAF) es una optimización común
+                            en código Game Boy para limpiar A a 0 en un solo ciclo, más eficiente que <code>LD A, 0</code>.</li>
+                        <li><strong>Inline en C++</strong>: Los métodos inline se incrustan directamente en el código
+                            de llamada, eliminando el overhead de llamada a función. En el bucle crítico de emulación,
+                            esto es esencial para rendimiento.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>ADC/SBC</strong>: Operaciones con carry/borrow previo (ADC A, d8 y SBC A, d8)
+                            aún no implementadas. Requieren leer el flag C antes de la operación.</li>
+                        <li><strong>Operaciones con registros</strong>: ADD A, r (donde r es B, C, D, E, H, L) aún
+                            no implementadas. Requieren mapeo de opcodes a registros.</li>
+                        <li><strong>OR y CP</strong>: Operaciones lógicas OR y comparación CP aún no implementadas.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Half-Borrow en DEC</strong>: La implementación actual calcula half-borrow como
+                        <code>(old_a & 0x0F) == 0x00</code>, lo que detecta cuando el nibble bajo es 0 antes de
+                        decrementar. Esto es correcto según Pan Docs, pero se validó con tests para asegurar precisión.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Implementar ADC A, d8 (0xCE) y SBC A, d8 (0xDE) - operaciones con carry/borrow</li>
+                    <li>[ ] Implementar operaciones ALU con registros (ADD A, r donde r = B, C, D, E, H, L)</li>
+                    <li>[ ] Implementar operaciones lógicas restantes (OR, CP)</li>
+                    <li>[ ] Implementar operaciones de 16 bits (ADD HL, rr, INC rr, DEC rr)</li>
+                    <li>[ ] Optimizar el switch de opcodes con lookup tables o jump tables</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -109,6 +109,10 @@ Mantenemos el sistema estricto de la v0.0.1.
 - Usar plantilla `_entry_template.html`.
 - **Rutas Relativas**: Asegurar que CSS e imágenes cargan offline.
 
+**Integración Académica del Prompt (CRÍTICO):**
+- **Fuente de Verdad**: Si el usuario proporciona información teórica, enlaces a Pan Docs, explicaciones de hardware o diagramas en el prompt, **DEBES** incorporar esa información explícitamente en la sección `<section id="concepto">` del HTML.
+- **Enriquecimiento**: No te limites a describir el código generado; usa la información del prompt para explicar el *porqué* arquitectónico (ej: "Como se mencionó en el prompt, el bit 2 de STAT es de solo lectura porque...").
+
 **Evidencia de Tests (Actualizada para C++):**
 - Cuando pruebes código nativo, indica: "Validación de módulo compilado C++".
 - Si hay errores de compilación o segfaults, documéntalos como parte del aprendizaje.
@@ -116,7 +120,7 @@ Mantenemos el sistema estricto de la v0.0.1.
 **Salida del Asistente:**
 Al final de cada respuesta con código, genera:
 1.  Bloque para `INFORME_FASE_2.md`.
-2.  Archivo HTML completo para la bitácora.
+2.  Archivo HTML completo para la bitácora (integrando la info académica del prompt).
 3.  Confirmación de que los tests pasan.
 4.  **Comandos GIT + PUSH**.
 
