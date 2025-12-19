@@ -473,6 +473,13 @@ class Viboy:
             # TODO: Implementar Timer C++ o mantener compatibilidad con Python
             # Por ahora, solo devolvemos los T-Cycles
             t_cycles = cycles * 4
+            
+            # CRÍTICO: Garantizar que siempre devolvemos al menos algunos ciclos
+            # Si por alguna razón t_cycles es 0, forzar avance mínimo
+            if t_cycles <= 0:
+                logger.warning(f"⚠️ ADVERTENCIA: _execute_cpu_timer_only() devolvió {t_cycles} T-Cycles. Forzando avance mínimo.")
+                t_cycles = 16  # 4 M-Cycles * 4 = 16 T-Cycles (mínimo seguro)
+            
             return t_cycles
         else:
             # CPU Python: comportamiento original
@@ -497,6 +504,13 @@ class Viboy:
             # CRÍTICO: El Timer debe actualizarse cada instrucción para mantener
             # la precisión del RNG (usado por juegos como Tetris)
             t_cycles = cycles * 4
+            
+            # CRÍTICO: Garantizar que siempre devolvemos al menos algunos ciclos
+            # Si por alguna razón t_cycles es 0, forzar avance mínimo
+            if t_cycles <= 0:
+                logger.warning(f"⚠️ ADVERTENCIA: _execute_cpu_timer_only() (Python) devolvió {t_cycles} T-Cycles. Forzando avance mínimo.")
+                t_cycles = 16  # 4 M-Cycles * 4 = 16 T-Cycles (mínimo seguro)
+            
             if self._timer is not None:
                 self._timer.tick(t_cycles)
             
@@ -696,13 +710,30 @@ class Viboy:
                 while frame_cycles < CYCLES_PER_FRAME:
                     # --- BUCLE DE SCANLINE (456 ciclos) ---
                     line_cycles = 0
+                    safety_counter = 0  # Contador de seguridad para evitar bucles infinitos
+                    max_iterations = 1000  # Límite máximo de iteraciones por scanline
+                    
                     while line_cycles < CYCLES_PER_LINE:
                         # A. Ejecutar CPU y Timer (cada instrucción)
                         # CRÍTICO: El Timer debe actualizarse cada instrucción
                         # para mantener la precisión del RNG (usado por Tetris)
                         t_cycles = self._execute_cpu_timer_only()
                         
+                        # CRÍTICO: Protección contra deadlock - si t_cycles es 0 o negativo,
+                        # forzar avance mínimo para evitar bucle infinito
+                        if t_cycles <= 0:
+                            logger.warning(f"⚠️ ADVERTENCIA: CPU devolvió {t_cycles} ciclos. Forzando avance mínimo.")
+                            t_cycles = 16  # 4 M-Cycles * 4 = 16 T-Cycles (mínimo seguro)
+                        
                         line_cycles += t_cycles
+                        
+                        # Protección contra bucle infinito
+                        safety_counter += 1
+                        if safety_counter >= max_iterations:
+                            logger.error(f"⚠️ ERROR: Bucle de scanline excedió {max_iterations} iteraciones. Forzando avance.")
+                            # Forzar avance del scanline completo
+                            line_cycles = CYCLES_PER_LINE
+                            break
                     
                     # --- FIN DE SCANLINE ---
                     # B. Actualizar PPU una vez por línea (Mucho más rápido)

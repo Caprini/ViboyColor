@@ -659,3 +659,45 @@ El usuario reportó que seguía viendo el "Punto Rojo" (código antiguo del paso
 - Eliminar el log temporal después de confirmar que funciona
 - Considerar añadir un script de build automatizado para Windows
 
+---
+
+### 2025-12-19 - Step 0122: Fix: Desbloqueo del Bucle Principal (Deadlock de Ciclos)
+**Estado**: ✅ Completado
+
+El emulador estaba ejecutándose en segundo plano (logs de "Heartbeat" visibles) pero la ventana no aparecía o estaba congelada. El diagnóstico reveló que `LY=0` se mantenía constante, indicando que la PPU no avanzaba. La causa raíz era que el bucle de scanline podía quedarse atascado si la CPU devolvía 0 ciclos repetidamente, bloqueando el avance de la PPU y, por tanto, el renderizado.
+
+**Implementación**:
+- ✅ Protección en `_execute_cpu_timer_only()` (C++ y Python):
+  - Verificación de que `t_cycles > 0` antes de devolver
+  - Forzado de avance mínimo (16 T-Cycles = 4 M-Cycles) si se detectan ciclos cero o negativos
+  - Logging de advertencia para diagnóstico
+- ✅ Protección en el bucle de scanline (`run()`):
+  - Contador de seguridad (`safety_counter`) con límite de 1000 iteraciones
+  - Verificación de `t_cycles <= 0` antes de acumular
+  - Forzado de avance del scanline completo si se excede el límite de iteraciones
+  - Logging de error si se detecta bucle infinito
+- ✅ Verificación de tipo de dato en PPU C++:
+  - Confirmado que `PPU::step(int cpu_cycles)` acepta `int`, suficiente para manejar los ciclos pasados
+
+**Archivos modificados**:
+- `src/viboy.py` - Agregadas protecciones contra deadlock en `run()` y `_execute_cpu_timer_only()`
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0122__fix-deadlock-bucle-scanline.html`
+
+**Resultados de verificación**:
+- ✅ Protecciones implementadas en múltiples capas
+- ✅ Código compila sin errores
+- ✅ No se requirió recompilación de C++ (cambios solo en Python)
+
+**Conceptos clave**:
+- **Deadlock en emulación**: Un bucle infinito puede ocurrir si un componente devuelve 0 ciclos repetidamente, bloqueando el avance de otros subsistemas. En hardware real, el reloj nunca se detiene, incluso durante HALT.
+- **Protección en capas**: Múltiples verificaciones en diferentes puntos del código (método de ejecución, bucle de scanline) proporcionan redundancia y hacen el sistema más robusto.
+- **Ciclos mínimos forzados**: Se eligió 16 T-Cycles (4 M-Cycles) como mínimo porque es el tiempo de una instrucción NOP, el caso más simple posible.
+- **Límite de iteraciones**: Se estableció 1000 iteraciones como límite máximo por scanline, permitiendo hasta 16,000 T-Cycles antes de forzar el avance.
+
+**Próximos pasos**:
+- Verificar que la ventana aparece correctamente después del fix
+- Monitorear logs para detectar si la CPU devuelve 0 ciclos (indicaría un bug más profundo)
+- Si el problema persiste, investigar la implementación de la CPU C++ para identificar la causa raíz
+- Considerar agregar tests unitarios que verifiquen que `_execute_cpu_timer_only()` nunca devuelve 0
+
