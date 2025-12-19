@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnóstico de Segmentation Fault con Trazas Nativas - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Diagnóstico de Segmentation Fault con Trazas Nativas</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0130
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0129__fix-setup-numpy-import-error.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El emulador está crasheando con un <code>Segmentation Fault</code> al ejecutar ROMs, lo que indica un error de acceso a memoria en el núcleo C++. Para diagnosticar el problema, se ha instrumentado la CPU C++ con logging detallado usando <code>std::cout</code> que imprime el estado de la CPU (PC, opcode, registros) en cada ciclo de instrucción. Esto permitirá identificar la última instrucción ejecutada antes del crash y, específicamente, detectar si alguna instrucción de salto (<code>JP</code>, <code>JR</code>, <code>CALL</code>, <code>RET</code>) está calculando una dirección de destino inválida.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Un <strong>Segmentation Fault</strong> (o "access violation" en Windows) es un error de bajo nivel que ocurre cuando un programa intenta acceder a una dirección de memoria que no le pertenece o que está protegida por el sistema operativo. En el contexto de un emulador, esto generalmente significa que:
+                </p>
+                <ul>
+                    <li>La CPU intentó leer un opcode desde una dirección de memoria inválida (fuera del rango 0x0000-0xFFFF).</li>
+                    <li>Una instrucción de salto calculó una dirección de destino corrupta o fuera de rango.</li>
+                    <li>El puntero PC (Program Counter) se corrompió y apunta a memoria no mapeada.</li>
+                </ul>
+                <p>
+                    En la Game Boy, todas las direcciones de memoria son válidas en el rango de 16 bits (0x0000-0xFFFF), pero el sistema operativo del host puede proteger ciertas regiones de memoria. Si la CPU C++ intenta hacer <code>fetch_byte()</code> desde una dirección que el sistema operativo considera inválida (por ejemplo, si PC se corrompió y tiene un valor como 0xFFFFFFFF), el sistema operativo detiene el programa con un segfault.
+                </p>
+                <p>
+                    <strong>Estrategia de Depuración:</strong> El logging en C++ es una técnica clásica de depuración de bajo nivel. Al imprimir el estado de la CPU antes de cada instrucción, creamos una "caja negra" que nos cuenta todo lo que hace. Cuando el programa crashea, la última línea impresa en la consola será la instrucción que causó el problema. Esto es especialmente útil para encontrar bugs en instrucciones de salto, ya que podemos ver exactamente qué dirección calculó y compararla con lo que debería ser.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se ha añadido logging temporal a la CPU C++ para rastrear cada ciclo de instrucción. El logging se implementa en dos niveles:
+                </p>
+                
+                <h3>1. Logging General en CPU::step()</h3>
+                <p>
+                    Justo después de leer el opcode (antes del switch), se imprime el estado completo de la CPU:
+                </p>
+                <ul>
+                    <li><strong>PC</strong>: Dirección actual del Program Counter (antes de leer el opcode)</li>
+                    <li><strong>Opcode</strong>: Código de operación leído de memoria</li>
+                    <li><strong>Registros</strong>: AF, BC, DE, HL, SP (en hexadecimal)</li>
+                </ul>
+                <p>
+                    Este log se imprime para <strong>cada instrucción</strong>, lo que generará una salida masiva pero permitirá ver exactamente qué estaba haciendo la CPU cuando crasheó.
+                </p>
+
+                <h3>2. Logging Específico en Instrucciones de Salto</h3>
+                <p>
+                    Se añadió logging adicional en las instrucciones que modifican PC:
+                </p>
+                <ul>
+                    <li><strong>JP nn (0xC3)</strong>: Muestra la dirección destino calculada</li>
+                    <li><strong>JR e (0x18)</strong>: Muestra el offset (con signo) y el nuevo PC calculado</li>
+                    <li><strong>JR NZ, e (0x20)</strong>: Muestra si saltó o no (según el flag Z) y el nuevo PC si saltó</li>
+                    <li><strong>CALL nn (0xCD)</strong>: Muestra la dirección destino y la dirección de retorno guardada en la pila</li>
+                    <li><strong>RET (0xC9)</strong>: Muestra la dirección de retorno recuperada de la pila</li>
+                </ul>
+                <p>
+                    Este logging específico es crucial porque los saltos son la causa más probable del segfault: si una instrucción calcula una dirección inválida, el siguiente <code>fetch_byte()</code> intentará leer desde esa dirección y crasheará.
+                </p>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Logging Temporal:</strong> Este logging es <strong>temporal</strong> y se eliminará después de encontrar y arreglar el bug. El I/O de consola es extremadamente lento y no debe estar en el bucle crítico de emulación en producción.</li>
+                    <li><strong>Formato Hexadecimal:</strong> Todos los valores se imprimen en hexadecimal con padding de ceros para facilitar la lectura y comparación con documentación técnica.</li>
+                    <li><strong>PC Antes del Fetch:</strong> Se guarda el PC <strong>antes</strong> de llamar a <code>fetch_byte()</code>, porque <code>fetch_byte()</code> incrementa PC. Esto nos muestra la dirección exacta donde estaba la CPU cuando leyó el opcode.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Añadidos includes para <code>iostream</code> e <code>iomanip</code></li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido logging en <code>CPU::step()</code> y en instrucciones de salto (JP, JR, CALL, RET)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Nota:</strong> Este paso es de diagnóstico, no de implementación. Los tests se ejecutarán después de identificar y corregir el bug.
+                </p>
+                <p>
+                    <strong>Proceso de Depuración:</strong>
+                </p>
+                <ol>
+                    <li>Recompilar el módulo C++ con el logging: <code>.\rebuild_cpp.ps1</code></li>
+                    <li>Ejecutar el emulador con una ROM: <code>python main.py roms/tetris.gb</code></li>
+                    <li>Observar la salida de la consola hasta que crashee</li>
+                    <li>Analizar las últimas 5-10 líneas impresas antes del crash</li>
+                    <li>Identificar la instrucción problemática y la dirección calculada</li>
+                    <li>Corregir el bug en la instrucción identificada</li>
+                    <li>Eliminar el logging temporal</li>
+                    <li>Recompilar y verificar que el crash se haya solucionado</li>
+                </ol>
+                <p>
+                    <strong>Validación Nativa:</strong> El logging se ejecuta directamente en C++, sin pasar por Python, lo que garantiza que capturamos el estado exacto de la CPU justo antes del crash.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set</a> - Referencia para las instrucciones de salto</li>
+                    <li>Documentación de C++: <a href="https://en.cppreference.com/w/cpp/io/manip">I/O Manipulators</a> - Para formateo hexadecimal con <code>std::hex</code>, <code>std::setw</code>, <code>std::setfill</code></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Segmentation Fault:</strong> Es un error de acceso a memoria que ocurre cuando el programa intenta leer/escribir en una dirección inválida. En nuestro caso, probablemente PC se corrompió y apunta fuera del rango válido de memoria.</li>
+                        <li><strong>Logging en C++:</strong> Aunque es lento, el logging con <code>std::cout</code> es una herramienta poderosa para depuración de bajo nivel. Nos permite ver el estado exacto de la CPU en cada ciclo.</li>
+                        <li><strong>Debugging de Emuladores:</strong> Los segfaults en emuladores suelen ser causados por instrucciones de salto que calculan direcciones incorrectas. El logging nos permite identificar exactamente qué instrucción y qué dirección causó el problema.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Instrucción Culpable:</strong> Necesitamos ejecutar el emulador con el logging y analizar la salida para identificar qué instrucción está calculando una dirección inválida.</li>
+                        <li><strong>Causa Raíz:</strong> Una vez identificada la instrucción, necesitamos entender por qué está calculando mal la dirección. Podría ser un error en la lógica de cálculo, un problema con el formato Little-Endian, o un bug en el manejo de offsets con signo.</li>
+                        <li><strong>Otros Saltos:</strong> Aunque hemos añadido logging a los saltos más comunes, podría haber otros saltos condicionales (JR Z, JR C, etc.) que también necesiten revisión.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> El bug está en una instrucción de salto que calcula mal la dirección de destino. Las causas más probables son:
+                    </p>
+                    <ul>
+                        <li>Error en el cálculo del offset con signo en <code>JR</code> (el offset se lee como <code>uint8_t</code> pero debe interpretarse como <code>int8_t</code>).</li>
+                        <li>Error en el formato Little-Endian al leer direcciones de 16 bits en <code>JP</code> o <code>CALL</code>.</li>
+                        <li>Corrupción de la pila que hace que <code>RET</code> recupere una dirección inválida.</li>
+                    </ul>
+                    <p>
+                        El logging nos permitirá confirmar o refutar estas hipótesis.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con el logging: <code>.\rebuild_cpp.ps1</code></li>
+                    <li>[ ] Ejecutar el emulador y capturar la salida hasta el crash</li>
+                    <li>[ ] Analizar las últimas líneas del log para identificar la instrucción problemática</li>
+                    <li>[ ] Corregir el bug en la instrucción identificada</li>
+                    <li>[ ] Eliminar el logging temporal del código</li>
+                    <li>[ ] Recompilar y verificar que el segfault se haya solucionado</li>
+                    <li>[ ] Ejecutar tests para asegurar que no se rompió nada más</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

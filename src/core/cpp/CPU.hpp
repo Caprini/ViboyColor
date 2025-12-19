@@ -2,6 +2,8 @@
 #define CPU_HPP
 
 #include <cstdint>
+#include <iostream>
+#include <iomanip>  // Para std::hex, std::setw, std::setfill
 
 // Forward declarations (evitar includes circulares)
 class MMU;
