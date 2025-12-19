@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuración del Pipeline de Compilación Híbrido - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Configuración del Pipeline de Compilación Híbrido</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0101
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0100__inicio-fase-2.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se ha configurado la infraestructura completa de compilación híbrida (Python + C++/Cython) para la Fase 2.
+                    Se creó la estructura de directorios del núcleo, se implementó una prueba de concepto "Hello World" en C++,
+                    se configuró el sistema de build con <code>setup.py</code> y se verificó que el pipeline de compilación
+                    funciona correctamente en Windows. Este es el primer paso crítico antes de migrar cualquier componente
+                    de emulación al código compilado.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Nota:</strong> Esta entrada no trata directamente sobre hardware del Game Boy, sino sobre la
+                    infraestructura de compilación necesaria para emularlo eficientemente.
+                </p>
+                <p>
+                    La emulación ciclo a ciclo de un sistema como el Game Boy requiere precisión de timing en el orden de
+                    microsegundos. Python, siendo un lenguaje interpretado, introduce overhead significativo en cada operación,
+                    lo que impide alcanzar la sincronización necesaria para jugabilidad fluida.
+                </p>
+                <p>
+                    La solución adoptada es una <strong>arquitectura híbrida</strong>:
+                </p>
+                <ul>
+                    <li><strong>Python (Frontend)</strong>: Maneja la interfaz de usuario, carga de archivos, eventos de input
+                        y orquestación de alto nivel. Mantiene la flexibilidad y facilidad de desarrollo.</li>
+                    <li><strong>C++ (Núcleo)</strong>: Implementa la lógica crítica de emulación ciclo a ciclo (CPU, MMU, PPU, APU).
+                        Proporciona el rendimiento necesario para sincronización precisa.</li>
+                    <li><strong>Cython (Puente)</strong>: Permite que Python llame a código C++ compilado sin overhead significativo.
+                        Cython genera código C que se compila a extensiones Python (.pyd en Windows, .so en Linux/macOS).</li>
+                </ul>
+                <p>
+                    Esta arquitectura permite mantener los beneficios de Python (tests, documentación, desarrollo rápido) mientras
+                    se obtiene el rendimiento de código compilado en las rutas críticas.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se configuró completamente el sistema de compilación híbrido siguiendo las mejores prácticas de Cython y
+                    setuptools. La implementación incluye:
+                </p>
+
+                <h3>1. Gestión de Dependencias</h3>
+                <p>
+                    Se actualizó <code>requirements.txt</code> con las dependencias necesarias:
+                </p>
+                <ul>
+                    <li><code>cython>=3.0.0</code>: Compilador Cython para generar código C/C++</li>
+                    <li><code>setuptools>=68.0.0</code>: Sistema de build para extensiones Python</li>
+                    <li><code>numpy>=1.24.0</code>: Para futuros usos de buffers de video/audio (MemoryViews)</li>
+                </ul>
+
+                <h3>2. Estructura de Directorios</h3>
+                <p>
+                    Se creó la siguiente estructura para organizar el código del núcleo:
+                </p>
+                <pre><code>src/core/
+├── __init__.py          # Módulo Python del núcleo
+├── cpp/                 # Código C++ puro (.cpp, .hpp)
+│   ├── NativeCore.hpp
+│   └── NativeCore.cpp
+└── cython/              # Wrappers Cython (.pyx, .pxd)
+    └── native_core.pyx</code></pre>
+
+                <h3>3. Prueba de Concepto: NativeCore</h3>
+                <p>
+                    Se implementó una clase C++ simple <code>NativeCore</code> con un método <code>add(int a, int b)</code>
+                    para verificar que el pipeline funciona. Esta clase será expandida en el futuro para contener la lógica
+                    de emulación.
+                </p>
+                <p>
+                    <strong>Archivo C++ (NativeCore.hpp/cpp):</strong>
+                </p>
+                <ul>
+                    <li>Clase simple con constructor, destructor y método <code>add()</code></li>
+                    <li>Estándar C++17 para compatibilidad moderna</li>
+                    <li>Preparado para expansión futura</li>
+                </ul>
+
+                <h3>4. Wrapper Cython</h3>
+                <p>
+                    Se creó el wrapper Cython <code>native_core.pyx</code> que:
+                </p>
+                <ul>
+                    <li>Declara la clase C++ usando <code>cdef extern</code></li>
+                    <li>Expone una clase Python <code>PyNativeCore</code> que envuelve la clase C++</li>
+                    <li>Gestiona memoria correctamente (constructor <code>__cinit__</code> y destructor <code>__dealloc__</code>)</li>
+                    <li>Permite llamar métodos C++ desde Python sin overhead</li>
+                </ul>
+
+                <h3>5. Sistema de Build (setup.py)</h3>
+                <p>
+                    Se configuró <code>setup.py</code> con:
+                </p>
+                <ul>
+                    <li>Extensiones Cython usando <code>Cython.Build.cythonize</code></li>
+                    <li>Configuración de compilador C++17 (compatible con Windows/Linux/macOS)</li>
+                    <li>Directivas de optimización: <code>boundscheck=False</code>, <code>wraparound=False</code></li>
+                    <li>Include directories para headers C++ y numpy</li>
+                </ul>
+
+                <h3>6. Script de Verificación</h3>
+                <p>
+                    Se creó <code>test_build.py</code> que:
+                </p>
+                <ul>
+                    <li>Importa el módulo compilado <code>viboy_core</code></li>
+                    <li>Crea una instancia de <code>PyNativeCore</code></li>
+                    <li>Ejecuta la prueba: <code>core.add(2, 2) == 4</code></li>
+                    <li>Proporciona mensajes de error claros si la compilación falla</li>
+                </ul>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Separación C++/Cython:</strong> El código C++ puro está en <code>cpp/</code> y los wrappers
+                        en <code>cython/</code>. Esto permite reutilizar el código C++ en otros contextos si es necesario.</li>
+                    <li><strong>Naming:</strong> El módulo compilado se llama <code>viboy_core</code> para evitar conflictos
+                        con el módulo Python <code>src/core</code>.</li>
+                    <li><strong>Windows Compatibility:</strong> Se usa <code>/std:c++17</code> para MSVC y <code>-std=c++17</code>
+                        para GCC/Clang, detectando automáticamente la plataforma.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>requirements.txt</code> - Añadidas dependencias Cython, setuptools, numpy</li>
+                    <li><code>src/core/__init__.py</code> - Módulo Python del núcleo (nuevo)</li>
+                    <li><code>src/core/cpp/NativeCore.hpp</code> - Header C++ de prueba (nuevo)</li>
+                    <li><code>src/core/cpp/NativeCore.cpp</code> - Implementación C++ de prueba (nuevo)</li>
+                    <li><code>src/core/cython/native_core.pyx</code> - Wrapper Cython (nuevo)</li>
+                    <li><code>setup.py</code> - Sistema de build para extensiones (nuevo)</li>
+                    <li><code>test_build.py</code> - Script de verificación (nuevo)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizó mediante el script <code>test_build.py</code>:
+                </p>
+                <ol>
+                    <li><strong>Compilación:</strong> Ejecutar <code>python setup.py build_ext --inplace</code> genera el archivo
+                        <code>viboy_core.pyd</code> (o <code>viboy_core.so</code> en Linux/macOS) en el directorio raíz.</li>
+                    <li><strong>Importación:</strong> El módulo se importa correctamente desde Python.</li>
+                    <li><strong>Instanciación:</strong> Se puede crear una instancia de <code>PyNativeCore</code> sin errores.</li>
+                    <li><strong>Funcionalidad:</strong> El método <code>add(2, 2)</code> retorna correctamente <code>4</code>.</li>
+                </ol>
+                <p>
+                    <strong>Comando de compilación:</strong>
+                </p>
+                <pre><code>python setup.py build_ext --inplace</code></pre>
+                <p>
+                    <strong>Comando de verificación:</strong>
+                </p>
+                <pre><code>python test_build.py</code></pre>
+                <p>
+                    <strong>Nota:</strong> Si la compilación falla, puede ser necesario instalar Visual Studio Build Tools
+                    en Windows o las herramientas de desarrollo en Linux/macOS.
+                </p>
+                
+                <h3>Resultados de Verificación Realizados</h3>
+                <p>
+                    La compilación y verificación se ejecutaron exitosamente en Windows 10 con Python 3.13:
+                </p>
+                <ul>
+                    <li><strong>Dependencias instaladas:</strong> Cython 3.2.3, setuptools 75.1.0, numpy 2.2.6</li>
+                    <li><strong>Compilador detectado:</strong> Visual Studio 2022 Community (MSVC 14.44.35207)</li>
+                    <li><strong>Archivo generado:</strong> <code>viboy_core.cp313-win_amd64.pyd</code> (44 KB)</li>
+                    <li><strong>Estándar C++:</strong> C++17 habilitado correctamente</li>
+                    <li><strong>Warnings:</strong> Algunos warnings menores de Cython (normales, no afectan funcionalidad)</li>
+                    <li><strong>Importación:</strong> Módulo importado correctamente desde Python</li>
+                    <li><strong>Instanciación:</strong> <code>PyNativeCore()</code> creada sin errores</li>
+                    <li><strong>Funcionalidad:</strong> <code>core.add(2, 2)</code> retorna <code>4</code> correctamente</li>
+                </ul>
+                <p>
+                    <strong>Conclusión:</strong> El pipeline de compilación híbrido está completamente funcional y listo
+                    para comenzar la migración de componentes reales de emulación.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><a href="https://cython.readthedocs.io/">Documentación oficial de Cython</a></li>
+                    <li><a href="https://docs.python.org/3/extending/building.html">Python Extension Building Guide</a></li>
+                    <li><a href="https://setuptools.pypa.io/">Documentación de setuptools</a></li>
+                </ul>
+                <p>
+                    <em>Nota: Esta implementación es estándar y no requiere documentación específica de hardware del Game Boy.
+                    Se basa en conocimiento general de interoperabilidad Python/C++ mediante Cython.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Cython como puente:</strong> Cython permite escribir código "casi Python" que se compila a C,
+                            generando extensiones Python que pueden llamar código C++ directamente. El overhead de llamadas es
+                            mínimo comparado con ctypes o cffi.</li>
+                        <li><strong>Gestión de memoria:</strong> Las clases Cython que envuelven objetos C++ deben gestionar
+                            memoria manualmente en <code>__cinit__</code> y <code>__dealloc__</code>. Esto es crítico para evitar
+                            memory leaks.</li>
+                        <li><strong>Tipos estáticos:</strong> Cython permite usar tipos estáticos de C (<code>cdef int</code>,
+                            <code>cdef unsigned char</code>) que evitan el overhead de objetos Python en rutas críticas.</li>
+                        <li><strong>MemoryViews:</strong> Para buffers grandes (video/audio), Cython puede usar MemoryViews de
+                            numpy que permiten acceso directo a memoria sin copias.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento real:</strong> Aunque el pipeline funciona, falta medir el rendimiento real
+                            comparado con Python puro. Esto se validará al migrar componentes reales de emulación.</li>
+                        <li><strong>Compatibilidad cross-platform:</strong> La compilación se probó en Windows. Falta verificar
+                            que funciona correctamente en Linux y macOS.</li>
+                        <li><strong>Debugging:</strong> Falta explorar herramientas de debugging para código C++ compilado desde
+                            Python (gdb, Visual Studio Debugger, etc.).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el compilador C++ está disponible en el sistema. En Windows, esto requiere Visual Studio
+                        Build Tools o Visual Studio con componentes de C++. Si no está disponible, el usuario deberá instalarlo.
+                    </p>
+                    <p>
+                        Se asume que la arquitectura híbrida será suficiente para alcanzar 60 FPS estables. Si no es así,
+                        puede ser necesario optimizar más agresivamente o considerar otras estrategias (JIT compilation, etc.).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Migrar CPU (LR35902) a C++/Cython</li>
+                    <li>[ ] Migrar MMU a código compilado</li>
+                    <li>[ ] Migrar PPU a código compilado</li>
+                    <li>[ ] Implementar APU (Audio Processing Unit) en C++</li>
+                    <li>[ ] Optimizar sincronización ciclo a ciclo</li>
+                    <li>[ ] Validar rendimiento con juegos sensibles al timing</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

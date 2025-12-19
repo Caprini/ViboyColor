@@ -5,6 +5,21 @@ __pycache__/
 
 # C extensions
 *.so
+*.pyd
+*.dll
+
+# Cython generated files
+*.c
+*.cpp
+!src/core/cpp/*.cpp
+!src/core/cpp/*.hpp
+
+# Compiled object files
+*.obj
+*.o
+*.exp
+*.lib
+*.a
 
 # Distribution / packaging
 .Python
