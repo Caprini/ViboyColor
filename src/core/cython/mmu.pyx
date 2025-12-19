@@ -17,10 +17,6 @@ cimport ppu
 # NOTA: PyPPU se define en ppu.pyx, pero como native_core.pyx incluye ambos módulos,
 # PyPPU estará disponible en tiempo de ejecución. Para evitar dependencia circular,
 # declaramos PyPPU como forward declaration aquí.
-cdef class PyPPU:
-    """Forward declaration de PyPPU para uso en set_ppu()."""
-    cdef ppu.PPU* get_cpp_ptr(self)
-
 cdef class PyMMU:
     """
     Wrapper Python para MMU.
