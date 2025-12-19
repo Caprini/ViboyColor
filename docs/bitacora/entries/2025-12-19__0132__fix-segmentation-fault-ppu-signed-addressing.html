@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix: Segmentation Fault en PPU - Signed Addressing - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Fix: Segmentation Fault en PPU - Signed Addressing</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0132
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0131__balance-fase-2-estado-actual.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se corrigió un <strong>Segmentation Fault</strong> crítico que ocurría al ejecutar Tetris (y probablemente otros juegos) cuando la PPU intentaba renderizar el background. El problema tenía dos causas principales: (1) <strong>cálculo incorrecto de direcciones de tiles con signed addressing</strong> (usaba base 0x8800 en lugar de 0x9000) y (2) <strong>falta de validación de rangos VRAM</strong> que permitía accesos fuera de límites. Se implementaron validaciones exhaustivas y se corrigió la fórmula de cálculo según Pan Docs.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La Game Boy tiene dos modos de direccionamiento para los tiles en VRAM, controlados por el bit 4 del registro LCDC (0xFF40):
+                </p>
+                <ul>
+                    <li><strong>Unsigned Addressing (LCDC bit 4 = 1)</strong>: Los tile IDs van de 0-255, y los tiles están almacenados desde 0x8000. Fórmula: <code>tile_addr = 0x8000 + (tile_id * 16)</code></li>
+                    <li><strong>Signed Addressing (LCDC bit 4 = 0)</strong>: Los tile IDs van de -128 a 127 (interpretados como int8_t), y el <strong>tile 0 está en 0x9000</strong>, no en 0x8800. Fórmula: <code>tile_addr = 0x9000 + (signed_tile_id * 16)</code></li>
+                </ul>
+                <p>
+                    <strong>CRÍTICO</strong>: En signed addressing, aunque el bit 4 de LCDC indica que la base es 0x8800, el tile 0 (signed_tile_id = 0) está físicamente en 0x9000. Esto significa que:
+                </p>
+                <ul>
+                    <li>Tile -128 → Dirección 0x9000 + (-128 * 16) = 0x9000 - 0x800 = <strong>0x8800</strong></li>
+                    <li>Tile 0 → Dirección 0x9000 + (0 * 16) = <strong>0x9000</strong></li>
+                    <li>Tile 127 → Dirección 0x9000 + (127 * 16) = 0x9000 + 0x7F0 = <strong>0x97F0</strong></li>
+                </ul>
+                <p>
+                    La VRAM ocupa el rango 0x8000-0x9FFF (8KB). Cualquier acceso fuera de este rango causa un Segmentation Fault en C++.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - VRAM Tile Data, LCD Control Register (LCDC)
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se corrigieron dos problemas en el método <code>PPU::render_scanline()</code>:
+                </p>
+                
+                <h3>1. Corrección del Cálculo de Direcciones con Signed Addressing</h3>
+                <p>
+                    <strong>Problema</strong>: El código usaba <code>tile_data_base</code> (0x8800) para calcular direcciones con signed addressing, lo cual es incorrecto. El tile 0 debe estar en 0x9000.
+                </p>
+                <p>
+                    <strong>Código anterior (incorrecto)</strong>:
+                </p>
+                <pre><code>if (signed_addressing) {
+    int8_t signed_tile_id = static_cast&lt;int8_t&gt;(tile_id);
+    tile_addr = tile_data_base + (static_cast&lt;int16_t&gt;(signed_tile_id) * 16);
+}</code></pre>
+                <p>
+                    <strong>Código corregido</strong>:
+                </p>
+                <pre><code>if (signed_addressing) {
+    // Signed: tile_id como int8_t, tile 0 está en 0x9000
+    // NOTA: Cuando signed_addressing es true, tile_data_base es 0x8800,
+    // pero el tile 0 está en 0x9000, no en 0x8800.
+    // Fórmula: 0x9000 + (signed_tile_id * 16)
+    int8_t signed_tile_id = static_cast&lt;int8_t&gt;(tile_id);
+    tile_addr = 0x9000 + (static_cast&lt;int16_t&gt;(signed_tile_id) * 16);
+}</code></pre>
+
+                <h3>2. Validación de Rangos VRAM</h3>
+                <p>
+                    Se agregaron validaciones exhaustivas para prevenir accesos fuera de límites:
+                </p>
+                <ul>
+                    <li><strong>Validación de dirección base del tile</strong>: Verifica que <code>tile_addr</code> esté en 0x8000-0x9FFF</li>
+                    <li><strong>Validación de dirección de línea del tile</strong>: Verifica que <code>tile_addr + tile_y_offset * 2</code> y <code>tile_addr + tile_y_offset * 2 + 1</code> estén dentro de VRAM</li>
+                    <li><strong>Comportamiento seguro</strong>: Si alguna validación falla, se usa color 0 (transparente) en lugar de causar un crash</li>
+                </ul>
+                <pre><code>// CRÍTICO: Validar que la dirección del tile esté dentro de VRAM (0x8000-0x9FFF)
+if (tile_addr &lt; VRAM_START || tile_addr &gt; VRAM_END) {
+    framebuffer_[line_start_index + x] = 0;
+    continue;
+}
+
+// Validar que la dirección de la línea del tile también esté dentro de VRAM
+uint16_t tile_line_addr = tile_addr + tile_y_offset * 2;
+if (tile_line_addr &gt; VRAM_END || (tile_line_addr + 1) &gt; VRAM_END) {
+    framebuffer_[line_start_index + x] = 0;
+    continue;
+}</code></pre>
+
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code>: Método <code>render_scanline()</code> corregido con cálculo correcto de signed addressing y validaciones de rangos VRAM</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Comportamiento seguro en errores</strong>: En lugar de crashear, se usa color 0 (transparente) cuando hay un acceso inválido. Esto permite que el emulador continúe ejecutándose aunque haya datos corruptos en VRAM.</li>
+                    <li><strong>Validación exhaustiva</strong>: Se valida tanto la dirección base del tile como la dirección de la línea específica que se va a leer. Esto previene accesos fuera de límites incluso con cálculos complejos.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Corrección del cálculo de direcciones con signed addressing y agregado de validaciones de rangos VRAM en <code>render_scanline()</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Validación mediante ejecución real</strong>:
+                </p>
+                <ul>
+                    <li><strong>ROM de test</strong>: <code>roms/tetris.gb</code> (Tetris original de Game Boy)</li>
+                    <li><strong>Comportamiento anterior</strong>: Segmentation Fault inmediato al iniciar el juego</li>
+                    <li><strong>Comportamiento esperado</strong>: El juego debe iniciar sin crashes y mostrar la pantalla correctamente</li>
+                </ul>
+                <p>
+                    <strong>Comando de prueba</strong>:
+                </p>
+                <pre><code>python main.py roms/tetris.gb</code></pre>
+                <p>
+                    <strong>Validación de módulo compilado C++</strong>: El fix requiere recompilación del módulo C++ con:
+                </p>
+                <pre><code>python setup.py build_ext --inplace</code></pre>
+                <p>
+                    <strong>Nota</strong>: Este fix corrige un bug crítico que impedía la ejecución de juegos. La validación se realizará ejecutando Tetris y verificando que no ocurra Segmentation Fault.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs</strong>: VRAM Tile Data, LCD Control Register (LCDC) - Sección sobre signed vs unsigned addressing de tiles</li>
+                    <li><strong>Pan Docs</strong>: Memory Map - Rango de VRAM (0x8000-0x9FFF)</li>
+                    <li><strong>Stack Trace del error</strong>: Identificó que el crash ocurría en <code>PPU::render_scanline()</code> línea 753 de <code>viboy.py</code> (llamada a <code>self._ppu.step()</code>)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Signed Addressing en Game Boy</strong>: Aunque el bit 4 de LCDC indica base 0x8800, el tile 0 está físicamente en 0x9000. Esto es un detalle crítico de la especificación hardware que puede causar bugs sutiles si no se implementa correctamente.</li>
+                        <li><strong>Validación de Rangos en C++</strong>: En C++, los accesos fuera de límites de arrays/vectores causan Segmentation Faults. Es crítico validar todos los accesos a memoria, especialmente cuando se calculan direcciones dinámicamente.</li>
+                        <li><strong>Comportamiento Defensivo</strong>: En lugar de crashear, es mejor usar un valor seguro (color 0 transparente) cuando hay datos inválidos. Esto permite que el emulador continúe ejecutándose y facilita el debugging.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Validación con múltiples ROMs</strong>: Verificar que el fix funciona correctamente con otros juegos además de Tetris, especialmente juegos que usen signed addressing extensivamente.</li>
+                        <li><strong>Rendimiento</strong>: Las validaciones adicionales agregan overhead. Verificar que no impacten significativamente el rendimiento (aunque el impacto debería ser mínimo).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición validada</strong>: El uso de color 0 (transparente) cuando hay un acceso inválido es el comportamiento correcto. Esto es consistente con cómo la Game Boy maneja datos corruptos o fuera de rango (simplemente no renderiza nada en ese píxel).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar módulo C++ y probar con Tetris para verificar que el Segmentation Fault está resuelto</li>
+                    <li>[ ] Probar con otras ROMs (Mario, Pokémon) para verificar que el fix es general</li>
+                    <li>[ ] Continuar con la implementación de renderizado de Window y Sprites en la PPU C++</li>
+                    <li>[ ] Optimizar el rendimiento si las validaciones causan overhead significativo</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

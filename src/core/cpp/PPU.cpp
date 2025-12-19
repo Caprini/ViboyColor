@@ -46,6 +46,13 @@ void PPU::step(int cpu_cycles) {
     // Logs de diagnóstico desactivados para mejorar rendimiento
     // (Se pueden reactivar para debugging si es necesario)
     
+    // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
+    if (mmu_ == nullptr) {
+        // Si mmu_ es nullptr, no podemos avanzar la PPU
+        // Esto puede ocurrir si la MMU fue destruida antes que la PPU
+        return;
+    }
+    
     // CRÍTICO: Verificar si el LCD está encendido (LCDC bit 7)
     // Si el LCD está apagado, la PPU se detiene y LY se mantiene en 0
     uint8_t lcdc = mmu_->read(IO_LCDC);
@@ -151,6 +158,11 @@ void PPU::update_mode() {
 }
 
 void PPU::check_stat_interrupt() {
+    // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
+    if (mmu_ == nullptr) {
+        return;
+    }
+    
     // Leer el registro STAT directamente de memoria
     // Solo leemos los bits configurables (3-7), los bits 0-2 se actualizan dinámicamente
     uint8_t stat_value = mmu_->read(IO_STAT);
@@ -237,6 +249,11 @@ uint8_t* PPU::get_framebuffer_ptr() {
 }
 
 void PPU::render_scanline() {
+    // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
+    if (mmu_ == nullptr) {
+        return;
+    }
+    
     // Solo renderizar si estamos en una línea visible (0-143)
     if (ly_ >= VISIBLE_LINES) {
         return;
@@ -287,16 +304,35 @@ void PPU::render_scanline() {
         uint16_t tile_addr;
         if (signed_addressing) {
             // Signed: tile_id como int8_t, tile 0 está en 0x9000
+            // NOTA: Cuando signed_addressing es true, tile_data_base es 0x8800,
+            // pero el tile 0 está en 0x9000, no en 0x8800.
+            // Fórmula: 0x9000 + (signed_tile_id * 16)
             int8_t signed_tile_id = static_cast<int8_t>(tile_id);
-            tile_addr = tile_data_base + (static_cast<int16_t>(signed_tile_id) * 16);
+            tile_addr = 0x9000 + (static_cast<int16_t>(signed_tile_id) * 16);
         } else {
-            // Unsigned: tile_id directamente (0-255)
+            // Unsigned: tile_id directamente (0-255), base en 0x8000
             tile_addr = tile_data_base + (tile_id * 16);
         }
         
+        // CRÍTICO: Validar que la dirección del tile esté dentro de VRAM (0x8000-0x9FFF)
+        // Esto previene Segmentation Faults por accesos fuera de límites
+        if (tile_addr < VRAM_START || tile_addr > VRAM_END) {
+            // Si la dirección está fuera de VRAM, usar color 0 (transparente)
+            framebuffer_[line_start_index + x] = 0;
+            continue;
+        }
+        
+        // Validar que la dirección de la línea del tile también esté dentro de VRAM
+        uint16_t tile_line_addr = tile_addr + tile_y_offset * 2;
+        if (tile_line_addr > VRAM_END || (tile_line_addr + 1) > VRAM_END) {
+            // Si la línea del tile está fuera de VRAM, usar color 0 (transparente)
+            framebuffer_[line_start_index + x] = 0;
+            continue;
+        }
+        
         // Leer los dos bytes que forman la línea del tile
-        uint8_t byte1 = mmu_->read(tile_addr + tile_y_offset * 2);
-        uint8_t byte2 = mmu_->read(tile_addr + tile_y_offset * 2 + 1);
+        uint8_t byte1 = mmu_->read(tile_line_addr);
+        uint8_t byte2 = mmu_->read(tile_line_addr + 1);
         
         // Decodificar el píxel específico (bit position dentro del tile)
         uint8_t bit_pos = 7 - (map_x % 8);
@@ -310,6 +346,11 @@ void PPU::render_scanline() {
 }
 
 void PPU::render_bg() {
+    // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
+    if (mmu_ == nullptr) {
+        return;
+    }
+    
     // NOTA: render_bg() no se usa en esta fase (Fase B simplificada)
     // Se mantiene para referencia futura pero no se llama desde render_scanline()
     
@@ -378,6 +419,11 @@ void PPU::render_bg() {
 }
 
 void PPU::render_window() {
+    // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
+    if (mmu_ == nullptr) {
+        return;
+    }
+    
     // Leer registros necesarios
     uint8_t lcdc = mmu_->read(IO_LCDC);
     uint8_t wy = mmu_->read(IO_WY);
@@ -418,6 +464,15 @@ void PPU::render_window() {
 }
 
 void PPU::decode_tile_line(uint16_t tile_addr, uint8_t line, uint8_t* output) {
+    // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
+    if (mmu_ == nullptr) {
+        // Si mmu_ es nullptr, llenar output con ceros (transparente)
+        for (uint8_t i = 0; i < 8; i++) {
+            output[i] = 0;
+        }
+        return;
+    }
+    
     // Cada línea del tile ocupa 2 bytes consecutivos
     // Byte 1: Bits bajos de cada píxel (bit 7 = píxel 0, bit 6 = píxel 1, ...)
     // Byte 2: Bits altos de cada píxel (bit 7 = píxel 0, bit 6 = píxel 1, ...)
@@ -434,6 +489,11 @@ void PPU::decode_tile_line(uint16_t tile_addr, uint8_t line, uint8_t* output) {
 }
 
 void PPU::render_sprites() {
+    // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
+    if (mmu_ == nullptr) {
+        return;
+    }
+    
     // Solo renderizar si estamos en una línea visible (0-143)
     if (ly_ >= VISIBLE_LINES) {
         return;

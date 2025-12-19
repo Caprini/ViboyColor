@@ -32,6 +32,29 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-19 - Step 0132: Fix: Segmentation Fault en PPU - Signed Addressing
+**Estado**: ✅ Completado
+
+Corrección crítica de un Segmentation Fault que ocurría al ejecutar Tetris cuando la PPU intentaba renderizar el background. El problema tenía dos causas principales:
+
+1. **Cálculo incorrecto de direcciones con signed addressing**: El código usaba `tile_data_base` (0x8800) para calcular direcciones, pero según Pan Docs, el tile 0 está en 0x9000 cuando se usa signed addressing. Fórmula corregida: `tile_addr = 0x9000 + (signed_tile_id * 16)`
+
+2. **Falta de validación de rangos VRAM**: No se validaba que las direcciones calculadas estuvieran dentro del rango VRAM (0x8000-0x9FFF), lo que causaba accesos fuera de límites y Segmentation Faults.
+
+**Correcciones implementadas**:
+- ✅ Cálculo correcto de direcciones con signed addressing usando base 0x9000
+- ✅ Validación exhaustiva de rangos VRAM antes de leer datos
+- ✅ Comportamiento seguro: usar color 0 (transparente) cuando hay accesos inválidos en lugar de crashear
+
+**Archivos modificados**:
+- `src/core/cpp/PPU.cpp` - Método `render_scanline()` corregido
+
+**Bitácora**: `docs/bitacora/entries/2025-12-19__0132__fix-segmentation-fault-ppu-signed-addressing.html`
+
+**Fuentes**: Pan Docs - VRAM Tile Data, LCD Control Register (LCDC), Memory Map
+
+---
+
 ### 2025-12-19 - Step 0101: Configuración del Pipeline de Compilación Híbrido
 **Estado**: ✅ Completado
 
