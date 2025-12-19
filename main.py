@@ -109,10 +109,14 @@ def main() -> None:
         
         # Obtener estado inicial de la CPU
         cpu = viboy.get_cpu()
-        if cpu is not None and has_console:
+        regs = viboy.registers
+        if cpu is not None and regs is not None and has_console:
             print(f"\n🖥️  CPU inicializada:")
-            print(f"   PC = 0x{cpu.registers.get_pc():04X}")
-            print(f"   SP = 0x{cpu.registers.get_sp():04X}")
+            # Acceso compatible con ambas APIs (Python: get_pc(), C++: .pc)
+            pc = regs.pc if hasattr(regs, 'pc') else regs.get_pc()
+            sp = regs.sp if hasattr(regs, 'sp') else regs.get_sp()
+            print(f"   PC = 0x{pc:04X}")
+            print(f"   SP = 0x{sp:04X}")
         
         if has_console:
             print("\n✅ Sistema listo para ejecutar")

@@ -775,6 +775,16 @@ class Viboy:
         """
         return self._total_cycles
 
+    @property
+    def registers(self) -> Registers | PyRegisters | None:
+        """
+        Devuelve la instancia de registros (compatible con Python y C++).
+        
+        Returns:
+            Instancia de Registers (Python) o PyRegisters (C++), o None si no está inicializada
+        """
+        return self._regs
+    
     def get_cpu(self) -> CPU | None:
         """
         Devuelve la instancia de la CPU (para tests y debugging).
