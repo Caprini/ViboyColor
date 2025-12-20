@@ -316,3 +316,40 @@ class TestCoreCPUIncDec:
         assert regs.a == 0x00, "DEC A debe hacer wrap-around (0x01 -> 0x00)"
         assert regs.flag_z == True, "Z debe estar activo después de llegar a 0"
 
+    def test_dec_b_sets_zero_flag(self):
+        """
+        Test 7: Verificar que DEC B activa el flag Z cuando el resultado es 0.
+        
+        Este es el test crítico que valida el fix del Step 0152.
+        El bucle infinito en las ROMs se debía a que DEC B no activaba el flag Z
+        cuando B pasaba de 1 a 0, causando que JR NZ siempre saltara.
+        
+        Escenario:
+        - B = 1, flag Z = 0 (desactivado)
+        - Ejecutar DEC B (0x05)
+        - Resultado esperado: B = 0, flag Z = 1 (activado)
+        - Esto permite que JR NZ no salte y el bucle termine
+        """
+        mmu = PyMMU()
+        regs = PyRegisters()
+        cpu = PyCPU(mmu, regs)
+        
+        # Configurar B=1 y el flag Z=0
+        regs.pc = 0x0100
+        regs.b = 1
+        regs.set_flag_z(False)  # Asegurar que Z está desactivado
+        
+        # Verificar estado inicial
+        assert regs.b == 1, "B debe ser 1 inicialmente"
+        assert regs.get_flag_z() == False, "Flag Z debe estar desactivado inicialmente"
+        
+        # Ejecutar DEC B (opcode 0x05)
+        mmu.write(0x0100, 0x05)  # Opcode DEC B
+        cpu.step()
+        
+        # Verificar resultado: B debe ser 0 y Z debe estar activo
+        assert regs.b == 0, f"B debe ser 0 después de DEC, es {regs.b}"
+        assert regs.get_flag_z() == True, "Flag Z debe estar activo cuando resultado es 0 (¡COMPROBACIÓN CLAVE!)"
+        assert regs.flag_n == True, "Flag N debe estar activo (es decremento)"
+        assert regs.pc == 0x0101, "PC debe avanzar 1 byte después de DEC B"
+

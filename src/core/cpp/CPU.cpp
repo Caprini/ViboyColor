@@ -186,7 +186,9 @@ uint8_t CPU::alu_dec(uint8_t value) {
     uint8_t result = value - 1;
     
     // Calcular flags
-    // Z: resultado == 0
+    // Z: resultado == 0 (CRÍTICO: Este flag permite que JR NZ termine bucles)
+    // Si result == 0, entonces Z = 1 (activado)
+    // Si result != 0, entonces Z = 0 (desactivado)
     regs_->set_flag_z(result == 0);
     
     // N: siempre 1 (es decremento)

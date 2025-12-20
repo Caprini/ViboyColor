@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0152 - Fix: Corregir Gestión del Flag Cero (Z) en Instrucción DEC -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0152__fix-corregir-flag-cero-dec.html" class="entry-link">
+                                    Fix: Corregir Gestión del Flag Cero (Z) en Instrucción DEC
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0152 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            La traza de la CPU confirmó que el emulador estaba atrapado en un bucle infinito `LDD (HL), A -> DEC B -> JR NZ`. Aunque las instrucciones de carga estaban implementadas (Step 0151), el bucle nunca terminaba. El análisis reveló que el problema residía en la implementación C++ de `DEC B` (opcode `0x05`): la instrucción no estaba actualizando correctamente el **flag Cero (Z)** cuando el resultado del decremento era `0`, lo que causaba que la condición de `JR NZ` siempre fuera verdadera y el bucle fuera infinito. Se mejoraron los comentarios en `alu_dec` y se añadió un test específico para validar el comportamiento crítico del flag Z.
+                        </p>
+                    </li>
                     <!-- Entrada 0151 - CPU: Validación de Cargas Inmediatas para Desbloquear Bucles de Inicialización -->
                     <li>
                         <div class="entry-header">

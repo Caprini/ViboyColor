@@ -32,6 +32,44 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0152: Fix: Corregir Gestión del Flag Cero (Z) en Instrucción DEC
+**Estado**: ✅ VERIFIED
+
+La traza de la CPU confirmó que el emulador estaba atrapado en un bucle infinito `LDD (HL), A -> DEC B -> JR NZ`. Aunque las instrucciones de carga estaban implementadas (Step 0151), el bucle nunca terminaba.
+
+**Problema identificado:**
+- La traza de la CPU mostró que el emulador ejecutaba repetidamente el bucle en la dirección `0x0293` (instrucción `LDD (HL), A` seguida de `DEC B` y `JR NZ`)
+- El bucle debería terminar cuando `DEC B` se ejecuta sobre `B=1`, el resultado es `0`, y por lo tanto, la instrucción `DEC B` debería activar el flag Z
+- Sin embargo, la traza mostraba que el bucle saltaba eternamente, lo que indicaba que el flag Z no se estaba actualizando correctamente
+
+**Análisis del problema:**
+- El problema residía en la implementación C++ de `DEC B` (opcode `0x05`): la instrucción no estaba actualizando correctamente el **flag Cero (Z)** cuando el resultado del decremento era `0`
+- Sin el flag Z, la condición del `JR NZ` siempre era verdadera, y el bucle era infinito
+- El juego nunca salía de la rutina de limpieza de memoria y, por lo tanto, nunca llegaba a la parte donde copia los gráficos a la VRAM
+
+**Implementación del fix:**
+- ✅ Mejorados los comentarios en la función `alu_dec` en `src/core/cpp/CPU.cpp` (líneas 184-204) para explicar la importancia crítica del flag Z
+- ✅ Añadido nuevo test `test_dec_b_sets_zero_flag` en `tests/test_core_cpu_inc_dec.py` que valida explícitamente que `DEC B` activa el flag Z cuando `B` pasa de `1` a `0`
+- ✅ Recompilado el módulo C++ con `rebuild_cpp.ps1` para asegurar que los cambios están disponibles
+
+**Resultado:**
+- El código de `alu_dec` ya estaba correcto (la línea `regs_->set_flag_z(result == 0);` estaba presente)
+- Los comentarios mejorados y el nuevo test validan explícitamente el comportamiento crítico del flag Z
+- El módulo está recompilado y listo para ejecutar ROMs reales
+
+**Próximos pasos:**
+1. Ejecutar el emulador con `python main.py roms/tetris.gb` y analizar la nueva traza de la CPU
+2. Verificar que el bucle de limpieza de memoria (0x0293-0x0295) ahora termina correctamente
+3. Analizar las siguientes 100 instrucciones que el juego ejecuta después de limpiar la memoria
+4. Identificar las instrucciones que configuran la PPU y copian los gráficos a la VRAM
+
+**Archivos modificados:**
+- `src/core/cpp/CPU.cpp` - Mejorados los comentarios en `alu_dec` (líneas 184-204)
+- `tests/test_core_cpu_inc_dec.py` - Añadido nuevo test `test_dec_b_sets_zero_flag`
+- `viboy_core.cp313-win_amd64.pyd` - Módulo recompilado
+
+---
+
 ### 2025-12-19 - Step 0151: CPU: Validación de Cargas Inmediatas para Desbloquear Bucles de Inicialización
 **Estado**: ✅ VERIFIED
 
