@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug: Re-activación del Trazado para Analizar Bucle Lógico - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug: Re-activación del Trazado para Analizar Bucle Lógico</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0169
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0168__debug-instrumentar-default-case-opcodes-desconocidos.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El diagnóstico del Step 0168 confirmó que la CPU no está encontrando opcodes desconocidos. El deadlock de <code>LY=0</code> persiste porque la CPU está atrapada en un bucle infinito compuesto por instrucciones <strong>válidas</strong>. Se revirtió la estrategia "fail-fast" y se re-activó el sistema de trazado disparado (triggered) con un trigger en <code>0x02A0</code> y un límite de 200 instrucciones para capturar y analizar el bucle lógico en el que está atrapada la CPU.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: Depuración de Lógica vs. Opcodes</h2>
+                <p>
+                    Existen dos tipos principales de errores que causan <code>deadlocks</code> en un emulador en desarrollo:
+                </p>
+                <ol>
+                    <li>
+                        <strong>Error de Opcode Faltante:</strong> La CPU encuentra una instrucción que no conoce. Nuestra estrategia "fail-fast" del Step 0168 es perfecta para esto, ya que termina la ejecución inmediatamente y reporta el opcode desconocido.
+                    </li>
+                    <li>
+                        <strong>Error de Lógica de Bucle:</strong> La CPU ejecuta un bucle (ej: <code>DEC B -> JR NZ</code>) pero la condición de salida nunca se cumple (ej. el flag <code>Z</code> nunca se activa). Esto requiere observar el estado de los registros y flags <em>dentro</em> del bucle para entender por qué la condición nunca se cumple.
+                    </li>
+                </ol>
+                <p>
+                    El diagnóstico del Step 0168 descartó el primer tipo de error: el hecho de que el bucle principal de Python siga ejecutándose (mostrando los mensajes <code>💓 Heartbeat</code>) y que nunca veamos el mensaje fatal del <code>default</code> case confirma que <strong>todos los opcodes que la CPU está ejecutando ya están implementados</strong>.
+                </p>
+                <p>
+                    Por lo tanto, el problema es del segundo tipo: un bucle lógico infinito. La ROM de Tetris ejecuta varias rutinas de limpieza de memoria en secuencia. Hemos arreglado el bucle <code>DEC B</code> del Step 0165, pero es casi seguro que la ROM ha entrado inmediatamente en otro bucle similar, por ejemplo, uno que usa <code>DEC C</code> o <code>DEC DE</code>.
+                </p>
+                <p>
+                    Para analizar este tipo de error, necesitamos una herramienta de observación (una traza) en lugar de un detector de minas (fail-fast). El trazado disparado nos permite capturar el patrón de opcodes que se ejecutan repetidamente, permitiéndonos identificar el bucle y deducir qué condición de salida no se está cumpliendo.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó <code>src/core/cpp/CPU.cpp</code> para revertir el comportamiento "fail-fast" del Step 0168 y re-activar el sistema de trazado disparado con una configuración optimizada para capturar bucles lógicos.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code>: Revertido el caso <code>default</code> del switch para devolver 0 ciclos silenciosamente, y ajustado el sistema de trazado disparado.</li>
+                </ul>
+
+                <h3>Cambios realizados</h3>
+                <p>
+                    <strong>1. Ajuste del Trigger y Límite de Trazado:</strong>
+                </p>
+                <pre><code>// Variables estáticas para logging de diagnóstico con sistema "disparado" (triggered)
+// El trigger se activa después de las rutinas de limpieza de memoria (0x02A0)
+// para capturar el código crítico de configuración de hardware y bucles lógicos
+static const uint16_t DEBUG_TRIGGER_PC = 0x02A0; // Dirección de activación del trazado (después de limpieza)
+static bool debug_trace_activated = false;      // Bandera de activación
+static int debug_instruction_counter = 0;       // Contador post-activación
+static const int DEBUG_INSTRUCTION_LIMIT = 200;  // Límite post-activación (Step 0169: aumentado para capturar bucles)</code></pre>
+                <p>
+                    El trigger se cambió de <code>0x0300</code> a <code>0x02A0</code> para capturar el código que se ejecuta justo después del primer bucle de limpieza conocido. El límite se aumentó de 100 a 200 instrucciones para capturar bucles completos.
+                </p>
+                <p>
+                    <strong>2. Reversión del Default Case:</strong>
+                </p>
+                <pre><code>default:
+    // --- Step 0169: Revertido a comportamiento silencioso ---
+    // El diagnóstico del Step 0168 confirmó que no hay opcodes desconocidos.
+    // El deadlock es causado por un bucle lógico con instrucciones válidas.
+    // Volvemos a devolver 0 ciclos para permitir que el trazado capture el bucle.
+    cycles_ += 0;
+    return 0;</code></pre>
+                <p>
+                    Se eliminó el <code>exit(1)</code> y se volvió a devolver 0 ciclos silenciosamente. Esto permite que el emulador continúe ejecutándose y que el trazado capture el bucle lógico.
+                </p>
+                <p>
+                    <strong>3. Eliminación de Include Innecesario:</strong>
+                </p>
+                <p>
+                    Se eliminó el <code>#include &lt;cstdlib&gt;</code> ya que ya no se usa <code>exit()</code>.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Modificado el sistema de trazado disparado (trigger ajustado a 0x02A0, límite aumentado a 200) y revertido el default case a comportamiento silencioso.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizará ejecutando el emulador y observando la salida del trazado:
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Resultado esperado:</strong> El emulador debería ejecutarse en silencio hasta que el PC alcance <code>0x02A0</code>, momento en el que debería aparecer el mensaje <code>--- [CPU TRACE TRIGGERED at PC: 0x02A0] ---</code> seguido de 200 líneas de traza mostrando el patrón de opcodes del bucle lógico.</li>
+                    <li><strong>Validación Nativa:</strong> Validación de módulo compilado C++ con trazado activado.</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> Este Step no incluye tests unitarios porque es una modificación de depuración temporal. La validación se realiza mediante observación directa de la traza de ejecución.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Implementación basada en conocimiento general de técnicas de depuración de emuladores y análisis de bucles infinitos.</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set</a> - Para referencia de instrucciones válidas.</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Diferencia entre Error de Opcode y Error de Lógica:</strong> Un error de opcode se detecta inmediatamente cuando la CPU intenta ejecutar una instrucción desconocida. Un error de lógica requiere observar el comportamiento repetitivo de instrucciones válidas para identificar por qué una condición nunca se cumple.</li>
+                        <li><strong>Estrategias de Depuración Complementarias:</strong> "Fail-fast" es excelente para detectar opcodes faltantes, pero inútil para analizar bucles lógicos. El trazado disparado es la herramienta correcta para observar patrones repetitivos de ejecución.</li>
+                        <li><strong>El Diagnóstico del Step 0168 fue Exitoso:</strong> Aunque no resolvió el deadlock, confirmó que no hay opcodes desconocidos, lo cual es información valiosa que nos permite enfocar la depuración en la lógica de bucles.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Patrón del Bucle:</strong> Necesitamos ejecutar el emulador y analizar la traza para identificar el patrón exacto de opcodes que se repite, lo cual nos permitirá deducir qué instrucción o condición está causando el bucle infinito.</li>
+                        <li><strong>Condición de Salida:</strong> Una vez identificado el bucle, necesitamos analizar por qué la condición de salida (ej. flag <code>Z</code> en <code>JR NZ</code>) nunca se cumple.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> El bucle lógico es similar al del Step 0165 (un bucle de decremento que nunca termina), pero probablemente usa un registro diferente (ej. <code>DEC C</code> en lugar de <code>DEC B</code>) o una instrucción de 16 bits (ej. <code>DEC DE</code>). La traza nos confirmará o refutará esta hipótesis.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y capturar la traza del bucle lógico</li>
+                    <li>[ ] Analizar el patrón de opcodes repetitivos en la traza</li>
+                    <li>[ ] Identificar la instrucción o condición que causa el bucle infinito</li>
+                    <li>[ ] Implementar la corrección necesaria (probablemente similar a la del Step 0165)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

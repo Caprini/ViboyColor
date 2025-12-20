@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0169 - Debug: Re-activación del Trazado para Analizar Bucle Lógico -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0169__debug-reactivacion-trazado-analizar-bucle-logico.html" class="entry-link">
+                                    Debug: Re-activación del Trazado para Analizar Bucle Lógico
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0169 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            El diagnóstico del Step 0168 confirmó que la CPU no está encontrando opcodes desconocidos. El deadlock de <code>LY=0</code> persiste porque la CPU está atrapada en un bucle infinito compuesto por instrucciones válidas. Se revirtió la estrategia "fail-fast" y se re-activó el sistema de trazado disparado con un trigger en <code>0x02A0</code> y un límite de 200 instrucciones para capturar y analizar el bucle lógico.
+                        </p>
+                    </li>
                     <!-- Entrada 0168 - Debug: Instrumentar Default Case para Capturar Opcodes Desconocidos -->
                     <li>
                         <div class="entry-header">

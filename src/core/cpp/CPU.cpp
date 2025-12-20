@@ -2,15 +2,14 @@
 #include "MMU.hpp"
 #include "Registers.hpp"
 #include <cstdio>
-#include <cstdlib>
 
 // Variables estáticas para logging de diagnóstico con sistema "disparado" (triggered)
-// El trigger se activa después de las rutinas de limpieza de memoria (0x0300)
-// para capturar el código crítico de configuración de hardware
-static const uint16_t DEBUG_TRIGGER_PC = 0x0300; // Dirección de activación del trazado (después de limpieza)
+// El trigger se activa después de las rutinas de limpieza de memoria (0x02A0)
+// para capturar el código crítico de configuración de hardware y bucles lógicos
+static const uint16_t DEBUG_TRIGGER_PC = 0x02A0; // Dirección de activación del trazado (después de limpieza)
 static bool debug_trace_activated = false;      // Bandera de activación
 static int debug_instruction_counter = 0;       // Contador post-activación
-static const int DEBUG_INSTRUCTION_LIMIT = 100;  // Límite post-activación (dirigido, más corto)
+static const int DEBUG_INSTRUCTION_LIMIT = 200;  // Límite post-activación (Step 0169: aumentado para capturar bucles)
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
@@ -1545,14 +1544,12 @@ int CPU::step() {
             }
 
         default:
-            // --- Instrumentación del Step 0168 ---
-            // Fail-fast: Si encontramos un opcode desconocido, lo reportamos
-            // y terminamos la ejecución inmediatamente. Esto es mucho mejor que
-            // devolver 0 ciclos y causar un deadlock silencioso.
-            std::fprintf(stderr, "[CPU FATAL] Unimplemented opcode: 0x%02X at PC: 0x%04X\n", opcode, current_pc);
-            std::fflush(stderr); // Asegurar que el mensaje se muestre antes de salir
-            exit(1); // Termina el programa con un código de error.
-            return 0; // No se alcanzará, pero mantiene la lógica del compilador.
+            // --- Step 0169: Revertido a comportamiento silencioso ---
+            // El diagnóstico del Step 0168 confirmó que no hay opcodes desconocidos.
+            // El deadlock es causado por un bucle lógico con instrucciones válidas.
+            // Volvemos a devolver 0 ciclos para permitir que el trazado capture el bucle.
+            cycles_ += 0;
+            return 0;
     }
 }
 

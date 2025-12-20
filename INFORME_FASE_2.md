@@ -32,6 +32,45 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0169: Debug: Re-activación del Trazado para Analizar Bucle Lógico
+**Estado**: 🔍 DRAFT
+
+El diagnóstico del Step 0168 confirmó que la CPU no está encontrando opcodes desconocidos. El deadlock de `LY=0` persiste porque la CPU está atrapada en un bucle infinito compuesto por instrucciones válidas. Se revirtió la estrategia "fail-fast" y se re-activó el sistema de trazado disparado con un trigger en `0x02A0` y un límite de 200 instrucciones para capturar y analizar el bucle lógico en el que está atrapada la CPU.
+
+**Objetivo:**
+- Revertir el comportamiento "fail-fast" del Step 0168 (eliminar `exit(1)` del `default` case).
+- Re-activar el sistema de trazado disparado con trigger en `0x02A0` (antes `0x0300`).
+- Aumentar el límite de instrucciones registradas de 100 a 200 para capturar bucles completos.
+- Permitir que el emulador continúe ejecutándose para que el trazado capture el bucle lógico.
+
+**Concepto de Hardware:**
+Existen dos tipos principales de errores que causan deadlocks en un emulador en desarrollo:
+1. **Error de Opcode Faltante:** La CPU encuentra una instrucción que no conoce. La estrategia "fail-fast" es perfecta para esto.
+2. **Error de Lógica de Bucle:** La CPU ejecuta un bucle (ej: `DEC B -> JR NZ`) pero la condición de salida nunca se cumple. Esto requiere observar el estado de los registros y flags dentro del bucle.
+
+El diagnóstico del Step 0168 descartó el primer tipo de error. El hecho de que el bucle principal de Python siga ejecutándose (mostrando los mensajes `💓 Heartbeat`) y que nunca veamos el mensaje fatal del `default` case confirma que todos los opcodes que la CPU está ejecutando ya están implementados. Por lo tanto, el problema es del segundo tipo: un bucle lógico infinito.
+
+**Implementación:**
+- Modificado `src/core/cpp/CPU.cpp` para revertir el `default` case a comportamiento silencioso (devolver 0 ciclos).
+- Ajustado `DEBUG_TRIGGER_PC` de `0x0300` a `0x02A0` para capturar el código justo después del primer bucle de limpieza conocido.
+- Aumentado `DEBUG_INSTRUCTION_LIMIT` de 100 a 200 instrucciones para capturar bucles completos.
+- Eliminado `#include <cstdlib>` ya que ya no se usa `exit()`.
+
+**Resultado Esperado:**
+La ejecución del emulador permanecerá en silencio hasta que el PC alcance `0x02A0`, momento en el que debería aparecer el mensaje `--- [CPU TRACE TRIGGERED at PC: 0x02A0] ---` seguido de 200 líneas de traza mostrando el patrón de opcodes del bucle lógico.
+
+---
+
+### 2025-12-20 - Step 0168: Debug: Instrumentar Default Case para Capturar Opcodes Desconocidos
+**Estado**: 🔍 DRAFT
+
+Se modificó el caso `default` en el método `CPU::step()` para implementar una estrategia "fail-fast" que termina la ejecución inmediatamente cuando se encuentra un opcode no implementado, en lugar de devolver 0 ciclos y causar un deadlock silencioso. Esto permite identificar rápidamente qué opcodes faltan implementar al mostrar un mensaje de error fatal con el opcode y el PC exactos donde ocurre el problema.
+
+**Resultado del Diagnóstico:**
+El diagnóstico confirmó que no hay opcodes desconocidos. El bucle principal de Python sigue ejecutándose (mostrando los mensajes `💓 Heartbeat`), lo que significa que `cpu.step()` está retornando valores y nunca está entrando en el `default` case. Esto confirma que el deadlock es causado por un bucle lógico con instrucciones válidas, no por opcodes faltantes.
+
+---
+
 ### 2025-12-20 - Step 0166: Debug: Reimplementación del Trazado Disparado para Superar Bucles de Inicialización
 **Estado**: 🔍 DRAFT
 
