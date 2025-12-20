@@ -1545,13 +1545,13 @@ int CPU::step() {
             }
 
         default:
-            // Opcode no implementado - WARNING (no fatal)
-            // Ahora que hemos identificado y corregido el opcode crítico (0xFE),
-            // cambiamos a modo warning para permitir que la emulación continúe
-            // y detectar otros opcodes faltantes sin crashear
-            printf("[CPU WARN] Opcode no implementado: 0x%02X en PC: 0x%04X. Devolviendo 0 ciclos.\n", opcode, current_pc);
-            // Devolver 0 para señalar un problema sin crashear
-            return 0;
+            // --- Instrumentación del Step 0168 ---
+            // Fail-fast: Si encontramos un opcode desconocido, lo reportamos
+            // y terminamos la ejecución inmediatamente. Esto es mucho mejor que
+            // devolver 0 ciclos y causar un deadlock silencioso.
+            printf("[CPU FATAL] Unimplemented opcode: 0x%02X at PC: 0x%04X\n", opcode, current_pc);
+            exit(1); // Termina el programa con un código de error.
+            return 0; // No se alcanzará, pero mantiene la lógica del compilador.
     }
 }
 

@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug: Instrumentar Default Case para Capturar Opcodes Desconocidos - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug: Instrumentar Default Case para Capturar Opcodes Desconocidos</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0168
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0167__fix-propiedades-cython-tests-interrupciones.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se modificó el caso <code>default</code> en el método <code>CPU::step()</code> para implementar una estrategia "fail-fast" que termina la ejecución inmediatamente cuando se encuentra un opcode no implementado, en lugar de devolver 0 ciclos y causar un deadlock silencioso. Esto permite identificar rápidamente qué opcodes faltan implementar al mostrar un mensaje de error fatal con el opcode y el PC exactos donde ocurre el problema.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: Depuración "Fail-Fast"</h2>
+                <p>
+                    En el desarrollo de emuladores, es una práctica estándar hacer que el núcleo falle de manera ruidosa y temprana cuando encuentra una condición inesperada, como un opcode desconocido. En lugar de permitir que el emulador continúe en un estado indefinido (como nuestro deadlock de <code>LY=0</code>), lo forzamos a detenerse inmediatamente, mostrándonos la causa exacta del problema.
+                </p>
+                <p>
+                    La estrategia "fail-fast" acelera drásticamente el ciclo de depuración porque:
+                </p>
+                <ul>
+                    <li><strong>Identificación Inmediata:</strong> El programa termina en el momento exacto en que encuentra el problema, no después de ejecutar miles de instrucciones en un estado corrupto.</li>
+                    <li><strong>Información Precisa:</strong> Reporta el opcode exacto y la dirección de memoria (PC) donde ocurre el fallo, permitiendo una investigación directa y eficiente.</li>
+                    <li><strong>Evita Estados Indefinidos:</strong> Previene que el emulador entre en bucles infinitos o estados corruptos que son difíciles de depurar retrospectivamente.</li>
+                </ul>
+                <p>
+                    En nuestro caso específico, el deadlock de <code>LY=0</code> persistía porque <code>cpu.step()</code> estaba devolviendo 0 ciclos repetidamente cuando encontraba un opcode no implementado. Al cambiar a fail-fast, el emulador se detendrá inmediatamente y nos mostrará qué opcode falta, permitiéndonos implementarlo y continuar con la emulación.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó el caso <code>default</code> en el método <code>CPU::step()</code> en <code>src/core/cpp/CPU.cpp</code> para que, en lugar de imprimir un warning y devolver 0 ciclos, imprima un mensaje fatal y termine la ejecución con <code>exit(1)</code>.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code>: Modificado el caso <code>default</code> del switch de opcodes para implementar fail-fast.</li>
+                </ul>
+
+                <h3>Cambios realizados</h3>
+                <p>
+                    El código anterior solo imprimía un warning y devolvía 0 ciclos:
+                </p>
+                <pre><code>default:
+    printf("[CPU WARN] Opcode no implementado: 0x%02X en PC: 0x%04X. Devolviendo 0 ciclos.\n", opcode, current_pc);
+    return 0;
+</code></pre>
+                <p>
+                    El nuevo código implementa fail-fast:
+                </p>
+                <pre><code>default:
+    // --- Instrumentación del Step 0168 ---
+    // Fail-fast: Si encontramos un opcode desconocido, lo reportamos
+    // y terminamos la ejecución inmediatamente. Esto es mucho mejor que
+    // devolver 0 ciclos y causar un deadlock silencioso.
+    printf("[CPU FATAL] Unimplemented opcode: 0x%02X at PC: 0x%04X\n", opcode, current_pc);
+    exit(1); // Termina el programa con un código de error.
+    return 0; // No se alcanzará, pero mantiene la lógica del compilador.
+</code></pre>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se decidió usar <code>exit(1)</code> en lugar de lanzar una excepción C++ porque:
+                </p>
+                <ul>
+                    <li><strong>Simplicidad:</strong> En esta fase de desarrollo, queremos un fallo inmediato y visible, no manejo de excepciones complejo.</li>
+                    <li><strong>Claridad:</strong> El mensaje de error se imprime directamente en la consola, facilitando la depuración.</li>
+                    <li><strong>Eficiencia:</strong> No hay overhead de manejo de excepciones en el código crítico de ejecución.</li>
+                </ul>
+                <p>
+                    En el futuro, cuando el núcleo esté más completo, podríamos considerar cambiar esto a un sistema de logging más sofisticado o excepciones, pero para identificar opcodes faltantes durante el desarrollo, fail-fast es la estrategia óptima.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Modificado el caso <code>default</code> para implementar fail-fast</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Esta modificación no requiere tests unitarios específicos porque es una herramienta de depuración que se activará cuando se ejecute el emulador con una ROM real. La verificación se realiza ejecutando el emulador:
+                </p>
+                <pre><code>python main.py roms/tetris.gb</code></pre>
+                <p>
+                    <strong>Resultado esperado:</strong> El emulador debe terminar inmediatamente (sin mostrar el bucle de heartbeat) y mostrar un mensaje de error fatal en la consola con el formato:
+                </p>
+                <pre><code>[CPU FATAL] Unimplemented opcode: 0xXX at PC: 0xXXXX</code></pre>
+                <p>
+                    Este mensaje identificará exactamente qué opcode falta implementar y en qué dirección de memoria se encuentra, permitiendo una corrección rápida y precisa.
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El módulo debe recompilarse exitosamente. El archivo <code>cstdlib</code> ya estaba incluido en el archivo, por lo que no se necesitan includes adicionales.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Práctica de desarrollo de software: Estrategia "Fail-Fast" para depuración temprana</li>
+                    <li>Pan Docs: CPU Instruction Set - Referencia para implementar opcodes faltantes una vez identificados</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Fail-Fast en Emulación:</strong> Es mejor hacer que el emulador falle inmediatamente con información precisa que permitir que continúe en un estado indefinido, especialmente durante el desarrollo.</li>
+                        <li><strong>Deadlock Silencioso:</strong> Devolver 0 ciclos cuando se encuentra un opcode desconocido puede causar que el tiempo emulado no avance, creando un deadlock difícil de depurar. Fail-fast evita este problema completamente.</li>
+                        <li><strong>Instrumentación de Debug:</strong> Agregar código específico de depuración (como mensajes de error fatal) en puntos críticos del código ayuda a identificar problemas rápidamente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>Qué opcode específico está causando el deadlock - esto se determinará cuando se ejecute el emulador con la nueva instrumentación.</li>
+                        <li>Si hay múltiples opcodes faltantes o solo uno que bloquea la ejecución temprana.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> Hay al menos un opcode no implementado que se ejecuta durante la inicialización de la ROM (antes de llegar a <code>PC=0x0300</code>), causando que <code>cpu.step()</code> devuelva 0 ciclos y el emulador entre en deadlock.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Una vez identificado el opcode faltante, implementarlo debería permitir que la emulación avance hasta el siguiente opcode faltante (si existe) o hasta que se complete la inicialización y comience el renderizado.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con la nueva instrumentación</li>
+                    <li>[ ] Ejecutar el emulador con una ROM para identificar el opcode faltante</li>
+                    <li>[ ] Implementar el opcode identificado según Pan Docs</li>
+                    <li>[ ] Repetir el proceso hasta que la emulación avance correctamente</li>
+                    <li>[ ] Una vez que el emulador avance, considerar cambiar de fail-fast a un sistema de logging más sofisticado para producción</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
