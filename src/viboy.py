@@ -710,34 +710,73 @@ class Viboy:
             while self.running:
                 # --- Bucle de Frame Completo (70224 ciclos) ---
                 for line in range(SCANLINES_PER_FRAME):
+                    # ✅ PROTECCIÓN: Verificar running antes de cada scanline
+                    if not self.running:
+                        break
+                    
                     # --- Bucle de Scanline (456 ciclos) ---
                     cycles_this_scanline = 0
+                    safety_counter = 0  # ✅ PROTECCIÓN: Contador de seguridad
+                    MAX_ITERATIONS_PER_SCANLINE = 1000  # Límite de iteraciones
+                    
                     while cycles_this_scanline < CYCLES_PER_SCANLINE:
-                        # Ejecuta una instrucción de CPU y devuelve los M-Cycles
-                        # m_cycles puede ser negativo (-1) si la CPU entra en HALT
+                        # ✅ PROTECCIÓN: Verificar running dentro del bucle interno
+                        if not self.running:
+                            break
+                        
+                        # ✅ PROTECCIÓN: Detectar bucles infinitos
+                        safety_counter += 1
+                        if safety_counter > MAX_ITERATIONS_PER_SCANLINE:
+                            logger.error(
+                                f"⚠️ BUCLE INFINITO DETECTADO en scanline {line}: "
+                                f"ciclos acumulados={cycles_this_scanline}/{CYCLES_PER_SCANLINE}, "
+                                f"iteraciones={safety_counter}"
+                            )
+                            # Forzar avance del scanline completo
+                            remaining_cycles = CYCLES_PER_SCANLINE - cycles_this_scanline
+                            cycles_this_scanline = CYCLES_PER_SCANLINE
+                            # Actualizar Timer si está disponible
+                            if not self._use_cpp and self._timer is not None:
+                                self._timer.tick(remaining_cycles)
+                            break
+                        
+                        # Siempre llamamos a step() para que la CPU pueda procesar interrupciones y despertar.
+                        # Esto es crítico: incluso si la CPU está en HALT, debe seguir "despertando" cada ciclo
+                        # para comprobar si hay interrupciones pendientes.
                         m_cycles = self._cpu.step()
                         
-                        if m_cycles == -1:
-                            # ¡La CPU ha entrado en HALT!
-                            # "Avance Rápido": Calculamos los ciclos restantes para
-                            # completar la scanline y los añadimos de un solo golpe.
-                            # Esto simula correctamente que la CPU está dormida pero
-                            # el resto del hardware (PPU) sigue funcionando.
-                            remaining_cycles_in_scanline = CYCLES_PER_SCANLINE - cycles_this_scanline
-                            t_cycles = remaining_cycles_in_scanline
-                            cycles_this_scanline += t_cycles
-                            
-                            # Actualizar Timer si está disponible (solo en modo Python por ahora)
-                            if not self._use_cpp and self._timer is not None:
-                                self._timer.tick(t_cycles)
+                        # ✅ PROTECCIÓN: Verificar que m_cycles es válido
+                        if m_cycles == 0:
+                            logger.warning(f"⚠️ CPU devolvió 0 ciclos en scanline {line}, forzando avance mínimo")
+                            m_cycles = 1  # Forzar avance mínimo (1 M-Cycle = 4 T-Cycles)
+                        
+                        # Verificar si la CPU está en HALT usando el flag (no el código de retorno)
+                        if self._use_cpp:
+                            is_halted = self._cpu.get_halted()
                         else:
-                            # Instrucción normal: convertir M-Cycles a T-Cycles
+                            is_halted = self._cpu.halted
+                        
+                        if is_halted:
+                            # Si la CPU está en HALT, no consumió ciclos de instrucción,
+                            # pero el tiempo debe avanzar. Avanzamos en la unidad mínima
+                            # de tiempo (1 M-Cycle = 4 T-Cycles).
+                            # cpu.step() ya se ha encargado de comprobar si debe despertar.
+                            t_cycles = 4
+                        else:
+                            # Si no está en HALT, la instrucción consumió ciclos reales.
+                            # Convertir M-Cycles a T-Cycles
                             t_cycles = m_cycles * 4
-                            cycles_this_scanline += t_cycles
                             
-                            # Actualizar Timer si está disponible (solo en modo Python por ahora)
-                            if not self._use_cpp and self._timer is not None:
-                                self._timer.tick(t_cycles)
+                            # ✅ PROTECCIÓN: Verificar que t_cycles es positivo
+                            if t_cycles <= 0:
+                                logger.warning(f"⚠️ t_cycles <= 0 ({t_cycles}), forzando avance mínimo")
+                                t_cycles = 4  # Forzar avance mínimo (1 M-Cycle)
+                        
+                        cycles_this_scanline += t_cycles
+                        
+                        # Actualizar Timer si está disponible (solo en modo Python por ahora)
+                        if not self._use_cpp and self._timer is not None:
+                            self._timer.tick(t_cycles)
                     
                     # Al final de la scanline, actualizamos la PPU una sola vez
                     self._ppu.step(CYCLES_PER_SCANLINE)

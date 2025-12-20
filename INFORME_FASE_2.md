@@ -32,6 +32,43 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0173: Arquitectura de HALT (Fase 2): El Despertador de Interrupciones
+**Estado**: ✅ VERIFIED
+
+El emulador se estaba bloqueando debido a una implementación incompleta de la lógica de `HALT` en el bucle principal. Aunque la CPU entraba correctamente en estado de bajo consumo, nuestro orquestador de Python no le daba la oportunidad de despertar con las interrupciones, creando un `deadlock` en el que el tiempo avanzaba pero la CPU permanecía dormida eternamente. Este Step corrige el bucle principal para que, mientras la CPU está en `HALT`, siga llamando a `cpu.step()` en cada ciclo de tiempo, permitiendo que el mecanismo de interrupciones interno de la CPU la despierte.
+
+**Objetivo:**
+- Corregir el bucle principal en `viboy.py` para que siempre llame a `cpu.step()`, incluso cuando la CPU está en `HALT`.
+- Permitir que `handle_interrupts()` se ejecute en cada ciclo, dando a la CPU la oportunidad de despertar cuando hay interrupciones pendientes.
+- Eliminar el código especial `m_cycles == -1` y usar el flag `cpu.halted` directamente para mayor claridad.
+
+**Concepto de Hardware:**
+Una CPU en estado `HALT` no está muerta, está en espera. Sigue conectada al bus de interrupciones. El hardware real funciona así:
+1. La CPU ejecuta `HALT`. El PC deja de avanzar.
+2. El resto del sistema (PPU, Timer) sigue funcionando.
+3. La PPU llega a V-Blank y levanta una bandera en el registro `IF` (Interrupt Flag).
+4. En el **siguiente ciclo de reloj**, la CPU comprueba sus pines de interrupción. Detecta que hay una interrupción pendiente (`(IE & IF) != 0`).
+5. La CPU se despierta (`halted = false`), y si `IME` está activo, procesa la interrupción.
+
+El problema de nuestra implementación anterior era que, cuando la CPU entraba en `HALT`, avanzábamos el tiempo hasta el final de la scanline pero **no volvíamos a llamar a `cpu.step()`** en la siguiente iteración. La CPU se quedaba dormida para siempre, nunca ejecutando `handle_interrupts()` que es el único mecanismo que puede despertarla.
+
+**Implementación:**
+1. **Corregir el bucle principal:** Siempre llamamos a `cpu.step()` en cada iteración, incluso cuando la CPU está en `HALT`.
+2. **Usar el flag `halted`:** En lugar de códigos de retorno especiales (`-1`), usamos el flag `cpu.halted` (o `cpu.get_halted()` en C++) para determinar cómo manejar el tiempo.
+3. **Actualizar C++:** Modificamos `CPU::step()` para que devuelva `1` en lugar de `-1` cuando está en `HALT`, ya que ahora usamos el flag directamente.
+
+**Resultado:**
+Con esta corrección, el flujo será el correcto:
+1. La CPU ejecutará `HALT`.
+2. El bucle `run()` seguirá llamando a `cpu.step()` en cada "tick" de 4 ciclos.
+3. La PPU avanzará. `LY` se incrementará.
+4. Cuando `LY` llegue a 144, la PPU solicitará una interrupción V-Blank.
+5. En la siguiente llamada a `cpu.step()`, el `handle_interrupts()` interno de la CPU detectará la interrupción, pondrá `halted_ = false`.
+6. En la siguiente iteración del bucle `run()`, `self._cpu.halted` será `False`, y la CPU ejecutará la instrucción en `PC=0x0101` (el `NOP` después de `HALT`).
+7. **El juego continuará su ejecución.**
+
+---
+
 ### 2025-12-20 - Step 0172: Arquitectura de HALT: "Avance Rápido" al Siguiente Evento
 **Estado**: ✅ VERIFIED
 

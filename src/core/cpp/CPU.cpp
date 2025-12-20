@@ -448,11 +448,12 @@ int CPU::step() {
     
     // ========== FASE 2: Gestión de HALT ==========
     // Si la CPU está en HALT, no ejecutar instrucciones
-    // Retornamos -1 para señalar al orquestador que debe hacer "avance rápido"
-    // hasta el siguiente evento (fin de scanline)
+    // Consumimos 1 M-Cycle (el reloj sigue funcionando) y retornamos 1.
+    // El orquestador debe usar el flag halted_ (get_halted()) para determinar
+    // cómo manejar el tiempo, no el código de retorno.
     if (halted_) {
         cycles_ += 1;
-        return -1;  // Código especial: señala HALT para avance rápido
+        return 1;  // HALT consume 1 M-Cycle por tick (espera activa)
     }
     
     // ========== FASE 3: Gestión de EI retrasado ==========
@@ -1498,11 +1499,12 @@ int CPU::step() {
             // - Ocurre una interrupción (si IME está activo)
             // - O se despierta manualmente (si hay interrupción pendiente sin IME)
             // Fuente: Pan Docs - HALT: 1 M-Cycle
-            // Retornamos -1 para señalar al orquestador que debe hacer "avance rápido"
+            // Retornamos 1 M-Cycle. El orquestador debe usar get_halted() para
+            // determinar cómo manejar el tiempo.
             {
                 halted_ = true;
                 cycles_ += 1;  // HALT consume 1 M-Cycle
-                return -1;  // Código especial: señala HALT para avance rápido
+                return 1;  // HALT consume 1 M-Cycle (espera activa)
             }
 
         // ========== I/O de Memoria Alta (LDH) ==========

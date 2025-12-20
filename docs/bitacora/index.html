@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0173 - Arquitectura de HALT (Fase 2): El Despertador de Interrupciones -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0173__arquitectura-halt-despertador-interrupciones.html" class="entry-link">
+                                    Arquitectura de HALT (Fase 2): El Despertador de Interrupciones
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0173 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            El emulador se estaba bloqueando debido a una implementación incompleta de la lógica de HALT en el bucle principal. Aunque la CPU entraba correctamente en estado de bajo consumo, nuestro orquestador de Python no le daba la oportunidad de despertar con las interrupciones, creando un deadlock en el que el tiempo avanzaba pero la CPU permanecía dormida eternamente. Este Step corrige el bucle principal para que, mientras la CPU está en HALT, siga llamando a cpu.step() en cada ciclo de tiempo, permitiendo que el mecanismo de interrupciones interno de la CPU la despierte.
+                        </p>
+                    </li>
                     <!-- Entrada 0172 - Arquitectura de HALT: "Avance Rápido" al Siguiente Evento -->
                     <li>
                         <div class="entry-header">

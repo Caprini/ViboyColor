@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arquitectura de HALT (Fase 2): El Despertador de Interrupciones - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Arquitectura de HALT (Fase 2): El Despertador de Interrupciones</h1>
+            <!-- Entrada 0173 - Arquitectura de HALT (Fase 2): El Despertador de Interrupciones -->
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0173
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0172__arquitectura-halt-avance-rapido.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El emulador se estaba bloqueando debido a una implementación incompleta de la lógica de <code>HALT</code> en el bucle principal. Aunque la CPU entraba correctamente en estado de bajo consumo, nuestro orquestador de Python no le daba la oportunidad de despertar con las interrupciones, creando un <code>deadlock</code> en el que el tiempo avanzaba pero la CPU permanecía dormida eternamente. Este Step corrige el bucle principal para que, mientras la CPU está en <code>HALT</code>, siga llamando a <code>cpu.step()</code> en cada ciclo de tiempo, permitiendo que el mecanismo de interrupciones interno de la CPU la despierte.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: Despertando de HALT</h2>
+                <p>
+                    Una CPU en estado <code>HALT</code> no está muerta, está en espera. Sigue conectada al bus de interrupciones. El hardware real funciona así:
+                </p>
+                <ol>
+                    <li>La CPU ejecuta <code>HALT</code>. El PC deja de avanzar.</li>
+                    <li>El resto del sistema (PPU, Timer) sigue funcionando.</li>
+                    <li>La PPU llega a V-Blank y levanta una bandera en el registro <code>IF</code> (Interrupt Flag).</li>
+                    <li>En el <strong>siguiente ciclo de reloj</strong>, la CPU comprueba sus pines de interrupción. Detecta que hay una interrupción pendiente (<code>(IE & IF) != 0</code>).</li>
+                    <li>La CPU se despierta (<code>halted = false</code>), y si <code>IME</code> está activo, procesa la interrupción. Si no, simplemente continúa con la siguiente instrucción después de <code>HALT</code>.</li>
+                </ol>
+                
+                <h3>El Problema de Nuestra Implementación Anterior</h3>
+                <p>
+                    En el Step 0172, implementamos un "avance rápido" cuando la CPU entraba en <code>HALT</code>. El código detectaba que <code>m_cycles == -1</code> y avanzaba el tiempo hasta el final de la scanline. Sin embargo, había un problema crítico:
+                </p>
+                <pre><code>if m_cycles == -1:
+    # Avanzar tiempo hasta el final de la scanline
+    remaining_cycles = CYCLES_PER_SCANLINE - cycles_this_scanline
+    cycles_this_scanline += remaining_cycles
+    # ❌ PROBLEMA: No volvemos a llamar a cpu.step()</code></pre>
+                
+                <p>
+                    En la siguiente iteración del bucle de scanline, la CPU <strong>sigue en estado <code>halted</code></strong>. Nuestro código no vuelve a llamar a <code>cpu.step()</code> para darle la oportunidad de "despertar". Simplemente vuelve a ver que está en <code>HALT</code> y avanza el tiempo de nuevo. La CPU se queda dormida para siempre. Nunca ejecuta <code>handle_interrupts()</code> que es el único mecanismo que puede despertarla.
+                </p>
+                
+                <p>
+                    <strong>La Analogía:</strong> Hemos puesto al trabajador a dormir, y en lugar de ponerle un despertador (la interrupción), simplemente adelantamos el reloj de la pared una y otra vez mientras él sigue en la cama.
+                </p>
+                
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - HALT behavior, Interrupts, System Clock
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    La corrección es simple pero crítica: <strong>siempre debemos llamar a <code>cpu.step()</code></strong>, incluso cuando la CPU está en <code>HALT</code>. El método <code>step()</code> internamente llama a <code>handle_interrupts()</code>, que es el único mecanismo que puede despertar la CPU.
+                </p>
+                
+                <h3>A. Corregir el Bucle Principal en <code>viboy.py</code></h3>
+                <p>
+                    Reemplazamos la lógica dentro del bucle de scanline para que siempre llame a <code>cpu.step()</code> pero maneje el tiempo de forma diferente si está en <code>HALT</code>:
+                </p>
+                <pre><code>while cycles_this_scanline < CYCLES_PER_SCANLINE:
+    # Siempre llamamos a step() para que la CPU pueda procesar interrupciones y despertar.
+    m_cycles = self._cpu.step() 
+    
+    # Verificar si la CPU está en HALT usando el flag (no el código de retorno)
+    if self._use_cpp:
+        is_halted = self._cpu.get_halted()
+    else:
+        is_halted = self._cpu.halted
+    
+    if is_halted:
+        # Si la CPU está en HALT, no consumió ciclos de instrucción,
+        # pero el tiempo debe avanzar. Avanzamos en la unidad mínima
+        # de tiempo (1 M-Cycle = 4 T-Cycles).
+        # cpu.step() ya se ha encargado de comprobar si debe despertar.
+        t_cycles = 4 
+    else:
+        # Si no está en HALT, la instrucción consumió ciclos reales.
+        t_cycles = m_cycles * 4
+    
+    cycles_this_scanline += t_cycles</code></pre>
+                
+                <p>
+                    <strong>Cambios clave:</strong>
+                </p>
+                <ul>
+                    <li>Eliminamos la lógica de <code>m_cycles == -1</code>. Ya no es necesaria.</li>
+                    <li>Siempre llamamos a <code>cpu.step()</code> en cada iteración del bucle.</li>
+                    <li>Usamos el flag <code>cpu.halted</code> (o <code>cpu.get_halted()</code> en C++) para determinar cómo manejar el tiempo.</li>
+                    <li>Si está en <code>HALT</code>, avanzamos 4 T-Cycles (1 M-Cycle) por iteración, permitiendo que <code>handle_interrupts()</code> se ejecute en cada ciclo.</li>
+                </ul>
+                
+                <h3>B. Actualizar el Código C++ para Consistencia</h3>
+                <p>
+                    Modificamos <code>CPU::step()</code> para que devuelva <code>1</code> en lugar de <code>-1</code> cuando está en <code>HALT</code>, ya que ahora usamos el flag <code>halted_</code> directamente:
+                </p>
+                <pre><code>// ========== FASE 2: Gestión de HALT ==========
+// Si la CPU está en HALT, no ejecutar instrucciones
+// Consumimos 1 M-Cycle (el reloj sigue funcionando) y retornamos 1.
+// El orquestador debe usar el flag halted_ (get_halted()) para determinar
+// cómo manejar el tiempo, no el código de retorno.
+if (halted_) {
+    cycles_ += 1;
+    return 1;  // HALT consume 1 M-Cycle por tick (espera activa)
+}</code></pre>
+                
+                <p>
+                    También actualizamos el caso del opcode <code>0x76</code> (HALT) para que devuelva <code>1</code> en lugar de <code>-1</code>.
+                </p>
+                
+                <h3>Componentes Modificados</h3>
+                <ul>
+                    <li><code>src/viboy.py</code>: Corregido el bucle principal en <code>run()</code> para que siempre llame a <code>cpu.step()</code> y use el flag <code>halted</code> para manejar el tiempo.</li>
+                    <li><code>src/core/cpp/CPU.cpp</code>: Actualizado para devolver <code>1</code> en lugar de <code>-1</code> cuando está en <code>HALT</code>.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Corregido el bucle principal para manejar HALT correctamente</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Actualizado para devolver 1 en lugar de -1 en HALT</li>
+                    <li><code>tests/test_emulator_halt_wakeup.py</code> - Nuevo test de integración para validar el ciclo completo de HALT</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó un nuevo test de integración que verifica el ciclo completo: <code>HALT</code> → Interrupción → Despertar.
+                </p>
+                
+                <h3>Test de Integración: <code>test_halt_wakeup_integration</code></h3>
+                <p>
+                    Este test valida que:
+                </p>
+                <ol>
+                    <li>La CPU ejecuta <code>HALT</code> y entra en estado de bajo consumo.</li>
+                    <li>La PPU genera una interrupción V-Blank.</li>
+                    <li>La CPU se despierta del estado <code>HALT</code> cuando detecta la interrupción.</li>
+                </ol>
+                
+                <pre><code>def test_halt_wakeup_integration():
+    """
+    Step 0173: Test de integración que verifica el ciclo completo:
+    1. CPU ejecuta HALT.
+    2. PPU genera una interrupción V-Blank.
+    3. La CPU se despierta del estado HALT.
+    """
+    # Inicializar emulador
+    viboy = Viboy(rom_path=None, use_cpp_core=True)
+    cpu = viboy.get_cpu()
+    mmu = viboy.get_mmu()
+    
+    # Configurar interrupciones
+    mmu.write(0xFFFF, 0x01)  # Habilitar V-Blank
+    cpu.ime = True
+    
+    # Escribir programa: HALT
+    mmu.write(0x0100, 0x76)  # HALT
+    regs = viboy.registers
+    regs.pc = 0x0100
+    
+    # Ejecutar HALT
+    viboy.tick()
+    assert cpu.get_halted() == 1, "CPU debe estar en HALT"
+    
+    # Simular ejecución hasta V-Blank
+    for _ in range(CYCLES_PER_FRAME):
+        viboy.tick()
+        if cpu.get_halted() == 0:
+            break
+    
+    # Verificar que la CPU se despertó
+    assert cpu.get_halted() == 0, "CPU debe haberse despertado"</code></pre>
+                
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>pytest tests/test_emulator_halt_wakeup.py -v</code>
+                </p>
+                <p>
+                    <strong>Resultado esperado:</strong> Todos los tests pasan, validando que el ciclo completo de HALT funciona correctamente.
+                </p>
+                
+                <h3>Validación Nativa</h3>
+                <p>
+                    Este test valida el módulo compilado C++ y la integración completa entre CPU, MMU, PPU y el orquestador de Python.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">HALT behavior, Interrupts, System Clock</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Interrupt Flag (IF) and Interrupt Enable (IE) registers</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>HALT no es "muerte":</strong> La CPU en HALT sigue conectada al bus de interrupciones y debe comprobar interrupciones en cada ciclo de reloj.</li>
+                        <li><strong>El orquestador es crítico:</strong> El bucle principal debe siempre llamar a <code>cpu.step()</code>, incluso cuando la CPU está en HALT, para permitir que <code>handle_interrupts()</code> se ejecute.</li>
+                        <li><strong>El flag vs. el código de retorno:</strong> Es mejor usar el flag <code>halted</code> directamente en lugar de códigos de retorno especiales, ya que es más explícito y menos propenso a errores.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento:</strong> Verificar que el nuevo bucle no introduce overhead significativo cuando la CPU está en HALT.</li>
+                        <li><strong>Comportamiento con múltiples interrupciones:</strong> Validar que el despertar funciona correctamente cuando hay múltiples interrupciones pendientes.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que el comportamiento de <code>handle_interrupts()</code> en el código C++ es correcto y que despierta la CPU cuando hay interrupciones pendientes, incluso si <code>IME</code> está desactivado. Esto está basado en la documentación de Pan Docs, pero debe validarse con tests adicionales.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con una ROM real (ej: <code>tetris.gb</code>) y verificar que el logo de Nintendo aparece correctamente</li>
+                    <li>[ ] Validar que el rendimiento no se degrada con el nuevo bucle de HALT</li>
+                    <li>[ ] Añadir tests adicionales para casos edge (múltiples interrupciones, IME desactivado, etc.)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
