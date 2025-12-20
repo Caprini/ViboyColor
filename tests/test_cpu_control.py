@@ -34,7 +34,7 @@ class TestCPUControl:
         assert cycles == 1
 
     def test_ei_enables_interrupts(self) -> None:
-        """Test: EI activa las interrupciones (IME = True)"""
+        """Test: EI activa las interrupciones (IME = True) después de la siguiente instrucción"""
         mmu = MMU(None)
         cpu = CPU(mmu)
         
@@ -44,10 +44,18 @@ class TestCPUControl:
         
         # Ejecutar EI
         cycles = cpu._op_ei()
-        
-        # Verificar que IME está activado
-        assert cpu.ime is True
         assert cycles == 1
+        
+        # EI tiene un retraso de 1 instrucción, así que IME aún no está activado
+        assert cpu.ime is False, "IME no debe estar activado inmediatamente después de EI"
+        
+        # Ejecutar una instrucción (NOP) para que EI tome efecto
+        mmu.write_byte(0x0100, 0x00)  # NOP
+        cpu.registers.set_pc(0x0100)
+        cpu.step()
+        
+        # Ahora IME debe estar activado
+        assert cpu.ime is True, "IME debe estar activado después de ejecutar una instrucción después de EI"
 
     def test_di_ei_sequence(self) -> None:
         """Test: Secuencia DI seguida de EI"""

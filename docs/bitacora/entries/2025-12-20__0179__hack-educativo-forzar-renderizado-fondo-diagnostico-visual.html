@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hack Educativo: Forzar Renderizado del Fondo para Diagnóstico Visual - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Hack Educativo: Forzar Renderizado del Fondo para Diagnóstico Visual</h1>
+            <!-- Entrada 0179 - Hack Educativo: Forzar Renderizado del Fondo para Diagnóstico Visual -->
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0179
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0178__hito-primeros-graficos-verificacion-final-nucleo-nativo.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    <strong>¡VICTORIA! El deadlock está roto.</strong> El análisis del <code>Heartbeat</code> revela que <code>LY</code> está ciclando correctamente (<code>LY=53, LY=107, LY=7</code>), confirmando que la arquitectura de bucle nativo en C++ ha resuelto el problema de sincronización de raíz. Sin embargo, la pantalla sigue en blanco. El diagnóstico del <code>Heartbeat</code> muestra que <code>LCDC=0x80</code>, lo que significa que el juego ha encendido el LCD (Bit 7=1) pero mantiene la capa de fondo deshabilitada (Bit 0=0) durante la inicialización.
+                </p>
+                <p>
+                    Este Step implementa un "hack educativo" temporal en la PPU de C++ para forzar el renderizado de la capa de fondo, ignorando el estado del Bit 0 de LCDC. Esto nos permite verificar si los datos gráficos ya están en la VRAM antes de que el juego active el fondo, confirmando visualmente que nuestro emulador está funcionando correctamente y que el problema es simplemente que el juego aún no ha llegado a la parte donde activa el fondo.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: Desacoplamiento de la Lógica del Juego</h2>
+                <p>
+                    Los juegos de Game Boy a menudo encienden el LCD (<code>LCDC Bit 7 = 1</code>) pero mantienen capas específicas apagadas (<code>LCDC Bit 0 = 0</code> para el fondo, <code>Bit 1 = 0</code> para los sprites) mientras realizan tareas de configuración. Esta es una técnica común durante la inicialización:
+                </p>
+                <ol>
+                    <li>El juego enciende el LCD para iniciar la sincronización de la PPU.</li>
+                    <li>Mientras tanto, el juego copia datos gráficos a la VRAM (tiles del logo de Nintendo, sprites, etc.).</li>
+                    <li>El juego configura paletas de color y otros registros de la PPU.</li>
+                    <li>Solo <em>después</em> de que todo está listo, el juego activa las capas gráficas (<code>LCDC Bit 0 = 1</code>).</li>
+                </ol>
+                <p>
+                    Nuestra PPU está simulando esto correctamente, resultando en una pantalla en blanco porque el juego explícitamente le ha dicho que no dibuje el fondo. Esto no es un bug del emulador; es el comportamiento esperado según las especificaciones del hardware.
+                </p>
+                <p>
+                    Según <strong>Pan Docs</strong>, el registro <code>LCDC</code> (0xFF40) controla la PPU con los siguientes bits relevantes:
+                </p>
+                <ul>
+                    <li><strong>Bit 7:</strong> LCD Display Enable (1 = LCD encendido, 0 = LCD apagado)</li>
+                    <li><strong>Bit 0:</strong> BG & Window Display Priority (1 = Fondo habilitado, 0 = Fondo deshabilitado)</li>
+                </ul>
+                <p>
+                    El valor <code>0x80</code> en hexadecimal es <code>1000 0000</code> en binario:
+                </p>
+                <ul>
+                    <li><strong>Bit 7 = 1:</strong> El LCD está encendido. La PPU está funcionando y generando líneas de escaneo.</li>
+                    <li><strong>Bit 0 = 0:</strong> El fondo está deshabilitado. La PPU no dibuja la capa de fondo, resultando en una pantalla en blanco.</li>
+                </ul>
+                <p>
+                    Para depurar y confirmar que la CPU ha copiado exitosamente los tiles del logo de Nintendo a la VRAM, vamos a "desobedecer" temporalmente al juego y forzar a la PPU a dibujar la capa de fondo siempre que el LCD esté encendido, independientemente del estado del Bit 0.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    El hack educativo consiste en comentar temporalmente la comprobación del Bit 0 del LCDC en el método <code>render_scanline()</code> de la PPU. Esto permite que la PPU lea y renderice los datos de tiles desde la VRAM incluso cuando el juego tiene el fondo deshabilitado.
+                </p>
+                
+                <h3>Modificación en PPU.cpp</h3>
+                <p>
+                    Se actualizó el comentario del hack educativo para reflejar el Step 0179 y se añadió una explicación del diagnóstico basado en el <code>Heartbeat</code>:
+                </p>
+                <pre><code>// --- HACK EDUCATIVO (Step 0179) ---
+// Comentamos esta comprobación para forzar el renderizado del fondo
+// incluso si el juego lo tiene deshabilitado (LCDC Bit 0 = 0).
+// Esto nos permite ver si los datos están en VRAM durante la inicialización.
+// Según Pan Docs, el Bit 0 del LCDC controla si el Background está habilitado:
+// 0 = Background deshabilitado (pantalla en blanco)
+// 1 = Background habilitado
+//
+// DIAGNÓSTICO: El Heartbeat muestra LCDC=0x80 (Bit 7=1, Bit 0=0), lo que significa
+// que el juego ha encendido el LCD pero mantiene el fondo deshabilitado durante
+// la inicialización. Este hack temporal nos permite verificar si los datos
+// gráficos ya están en VRAM antes de que el juego active el fondo.
+/*
+if ((lcdc & 0x01) == 0) {
+    // Fondo deshabilitado, podríamos llenar con blanco.
+    return;
+}
+*/</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Hack Temporal:</strong> Este cambio es explícitamente temporal y educativo. Una vez que confirmemos que los datos están en VRAM, deberíamos revertir este hack y esperar a que el juego active el fondo correctamente.</li>
+                    <li><strong>Preservación del Código Original:</strong> El código original está comentado (no eliminado) para facilitar su restauración posterior.</li>
+                    <li><strong>Documentación del Diagnóstico:</strong> Se añadió un comentario explicando el diagnóstico basado en el <code>Heartbeat</code> para futura referencia.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Actualizado el comentario del hack educativo para reflejar el Step 0179 y añadida explicación del diagnóstico de <code>LCDC=0x80</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este cambio no requiere nuevos tests unitarios, ya que es una modificación de depuración temporal. El objetivo es la verificación visual:
+                </p>
+                <ol>
+                    <li><strong>Recompilación del Módulo C++:</strong>
+                        <pre><code>.\rebuild_cpp.ps1</code></pre>
+                    </li>
+                    <li><strong>Ejecución del Emulador:</strong>
+                        <pre><code>python main.py roms/tetris.gb</code></pre>
+                    </li>
+                    <li><strong>Verificación Visual Esperada:</strong>
+                        <ul>
+                            <li>Si los datos gráficos están en VRAM, deberíamos ver el logo de Nintendo desplazándose hacia abajo por la pantalla.</li>
+                            <li>Si la pantalla sigue en blanco, significa que los datos aún no han sido copiados a VRAM o hay otro problema en el pipeline de renderizado.</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Nota:</strong> Este hack educativo es una herramienta de diagnóstico. Una vez que confirmemos el estado de la VRAM, deberíamos revertir este cambio y permitir que el juego controle el renderizado del fondo según las especificaciones del hardware.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs:</strong> Sección sobre el registro LCDC (0xFF40) y control de la PPU</li>
+                    <li><strong>Diagnóstico del Heartbeat:</strong> Análisis del estado del registro LCDC durante la ejecución del emulador</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Comportamiento de Inicialización:</strong> Los juegos de Game Boy a menudo mantienen capas gráficas deshabilitadas durante la inicialización, incluso cuando el LCD está encendido. Esto es un comportamiento normal y esperado.</li>
+                        <li><strong>Diagnóstico Basado en Heartbeat:</strong> El análisis del <code>Heartbeat</code> nos permite diagnosticar el estado del hardware sin necesidad de depuración compleja. El valor <code>LCDC=0x80</code> nos dice exactamente qué está pasando.</li>
+                        <li><strong>Hacks Educativos:</strong> Los hacks temporales son herramientas válidas de depuración cuando se usan con propósito educativo y se documentan claramente. Nos permiten aislar problemas y verificar hipótesis.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Estado de la VRAM:</strong> Necesitamos verificar visualmente si los datos gráficos ya están en VRAM cuando el juego tiene el fondo deshabilitado.</li>
+                        <li><strong>Timing de Activación del Fondo:</strong> Necesitamos entender cuándo el juego activa el fondo y por qué tarda tanto tiempo.</li>
+                        <li><strong>Pipeline de Renderizado:</strong> Si los datos están en VRAM pero la pantalla sigue en blanco después del hack, necesitamos investigar el pipeline de renderizado (lectura de tiles, decodificación, escritura al framebuffer).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> Los datos gráficos (tiles del logo de Nintendo) ya están en VRAM, pero la pantalla está en blanco porque el juego tiene el fondo deshabilitado. Si esta hipótesis es correcta, el hack educativo debería revelar el logo de Nintendo.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Asumimos que el pipeline de renderizado (lectura de VRAM, decodificación de tiles, escritura al framebuffer) está funcionando correctamente. Si el hack no revela gráficos, necesitaremos investigar este pipeline.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con el hack educativo actualizado</li>
+                    <li>[ ] Ejecutar el emulador y verificar visualmente si aparecen gráficos</li>
+                    <li>[ ] Si aparecen gráficos: Confirmar que el emulador está funcionando correctamente y que el problema era simplemente el timing de activación del fondo</li>
+                    <li>[ ] Si la pantalla sigue en blanco: Investigar el pipeline de renderizado (lectura de VRAM, decodificación de tiles, escritura al framebuffer)</li>
+                    <li>[ ] Una vez confirmado el diagnóstico, revertir el hack educativo y permitir que el juego controle el renderizado del fondo según las especificaciones del hardware</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

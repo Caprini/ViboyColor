@@ -20,6 +20,43 @@ except ImportError:
     NATIVE_AVAILABLE = False
     pytestmark = pytest.mark.skip(reason="viboy_core no está disponible (compilación requerida)")
 
+# Paleta de grises (mismo formato que en renderer.py)
+PALETTE_GREYSCALE = [
+    (255, 255, 255),  # Color 0: Blanco -> 0xFFFFFFFF
+    (170, 170, 170),  # Color 1: Gris claro -> 0xFFAAAAAA
+    (85, 85, 85),     # Color 2: Gris oscuro -> 0xFF555555
+    (0, 0, 0),        # Color 3: Negro -> 0xFF000000
+]
+
+def color_index_to_argb32(color_index: int, palette_reg: int) -> int:
+    """
+    Convierte un índice de color (0-3) del framebuffer a ARGB32 usando una paleta (BGP, OBP0, OBP1).
+    
+    Args:
+        color_index: Índice de color del framebuffer (0-3)
+        palette_reg: Valor del registro de paleta (BGP=0xFF47, OBP0=0xFF48, OBP1=0xFF49)
+    
+    Returns:
+        Valor ARGB32 (ej: 0xFF000000 para negro, 0xFFFFFFFF para blanco)
+    """
+    # Decodificar paleta (cada par de bits representa un color 0-3)
+    # Formato: bits 0-1 = color 0, bits 2-3 = color 1, bits 4-5 = color 2, bits 6-7 = color 3
+    palette_mapping = [
+        (palette_reg >> 0) & 0x03,  # Color 0 -> índice en PALETTE_GREYSCALE
+        (palette_reg >> 2) & 0x03,  # Color 1 -> índice en PALETTE_GREYSCALE
+        (palette_reg >> 4) & 0x03,  # Color 2 -> índice en PALETTE_GREYSCALE
+        (palette_reg >> 6) & 0x03,  # Color 3 -> índice en PALETTE_GREYSCALE
+    ]
+    
+    # Obtener el índice real en la paleta greyscale
+    greyscale_index = palette_mapping[color_index & 0x03]
+    
+    # Obtener color RGB de la paleta
+    r, g, b = PALETTE_GREYSCALE[greyscale_index]
+    
+    # Convertir a ARGB32: Alpha=0xFF, R, G, B
+    return (0xFF << 24) | (r << 16) | (g << 8) | b
+
 
 class TestCorePPUSprites:
     """Tests para el renderizado de sprites en la PPU en C++."""
@@ -97,10 +134,14 @@ class TestCorePPUSprites:
         # La línea 0 del sprite (línea sólida negra) debería estar en píxeles X=12-19 de LY=4
         framebuffer_line_4 = framebuffer[4 * 160:(4 * 160) + 160]
         
+        # Leer paleta OBP0
+        obp0 = mmu.read(0xFF48) & 0xFF
+        
         # Verificar que hay píxeles negros (0xFF000000) en la posición del sprite
         sprite_found = False
         for x in range(12, 20):
-            pixel = framebuffer_line_4[x]
+            color_index = framebuffer_line_4[x]
+            pixel = color_index_to_argb32(color_index, obp0)
             if pixel == 0xFF000000:  # Negro
                 sprite_found = True
                 break
@@ -151,17 +192,21 @@ class TestCorePPUSprites:
         # Avanzar hasta línea 4 (donde está el sprite) y renderizar
         for _ in range(4):
             ppu.step(456)
-        ppu.step(252)  # Entrar en H-Blank
+        ppu.step(456)  # Completar línea 4 para renderizar
         
         # El sprite es transparente, así que el fondo debería ser visible
         # (negro, que es el tile 0 del fondo)
         framebuffer_line_4 = ppu.framebuffer[4 * 160:(4 * 160) + 160]
         
+        # Leer paleta BGP para el fondo
+        bgp = mmu.read(0xFF47) & 0xFF
+        
         # Verificar que los píxeles donde está el sprite son del fondo (negro)
         # El sprite está en screen_x=12, screen_y=4, así que X=12-19 deberían ser negros
         for x in range(12, 20):
-            pixel = framebuffer_line_4[x]
-            assert pixel == 0xFF000000, f"Píxel {x} debe ser del fondo (negro), es 0x{pixel:08X}"
+            color_index = framebuffer_line_4[x]
+            pixel = color_index_to_argb32(color_index, bgp)
+            assert pixel == 0xFF000000, f"Píxel {x} debe ser del fondo (negro), es 0x{pixel:08X} (índice={color_index})"
     
     def test_sprite_x_flip(self) -> None:
         """
@@ -201,12 +246,16 @@ class TestCorePPUSprites:
         # Avanzar hasta línea 4 y renderizar
         for _ in range(4):
             ppu.step(456)
-        ppu.step(252)
+        ppu.step(456)  # Completar línea 4 para renderizar
         
         framebuffer_line_4 = ppu.framebuffer[4 * 160:(4 * 160) + 160]
         
+        # Leer paleta OBP0
+        obp0 = mmu.read(0xFF48) & 0xFF
+        
         # Sin X-Flip, el píxel negro debería estar en X=12 (primer píxel del sprite)
-        pixel_left = framebuffer_line_4[12]
+        color_index_left = framebuffer_line_4[12]
+        pixel_left = color_index_to_argb32(color_index_left, obp0)
         
         # Ahora configurar sprite con X-Flip
         mmu.write(0xFE00 + 3, 0x20)  # Attributes con X-Flip (bit 5)
@@ -220,12 +269,15 @@ class TestCorePPUSprites:
         framebuffer_line_4_flipped = ppu.framebuffer[4 * 160:(4 * 160) + 160]
         
         # Con X-Flip, el píxel negro debería estar en X=19 (último píxel del sprite)
-        pixel_right = framebuffer_line_4_flipped[19]
+        color_index_right = framebuffer_line_4_flipped[19]
+        pixel_right = color_index_to_argb32(color_index_right, obp0)
         
         # Verificar que ambos son negros (el patrón se invirtió)
         assert pixel_left == 0xFF000000, "Píxel izquierdo sin flip debe ser negro"
         assert pixel_right == 0xFF000000, "Píxel derecho con flip debe ser negro"
-        assert framebuffer_line_4_flipped[12] != 0xFF000000, "Píxel izquierdo con flip NO debe ser negro"
+        color_index_left_flipped = framebuffer_line_4_flipped[12]
+        pixel_left_flipped = color_index_to_argb32(color_index_left_flipped, obp0)
+        assert pixel_left_flipped != 0xFF000000, "Píxel izquierdo con flip NO debe ser negro"
     
     def test_sprite_palette_selection(self) -> None:
         """
@@ -260,10 +312,11 @@ class TestCorePPUSprites:
         # Avanzar hasta línea 4 y renderizar
         for _ in range(4):
             ppu.step(456)
-        ppu.step(252)
+        ppu.step(456)  # Completar línea 4 para renderizar
         
         framebuffer_line_4_pal0 = ppu.framebuffer[4 * 160:(4 * 160) + 160]
-        pixel_pal0 = framebuffer_line_4_pal0[12]
+        color_index_pal0 = framebuffer_line_4_pal0[12]
+        pixel_pal0 = color_index_to_argb32(color_index_pal0, 0xE4)  # OBP0
         
         # Ahora configurar sprite con paleta 1 (OBP1)
         mmu.write(0xFE00 + 3, 0x10)  # Paleta 1 (bit 4 = 1)
@@ -275,7 +328,8 @@ class TestCorePPUSprites:
         ppu.step(252)
         
         framebuffer_line_4_pal1 = ppu.framebuffer[4 * 160:(4 * 160) + 160]
-        pixel_pal1 = framebuffer_line_4_pal1[12]
+        color_index_pal1 = framebuffer_line_4_pal1[12]
+        pixel_pal1 = color_index_to_argb32(color_index_pal1, 0x40)  # OBP1
         
         # Con OBP0, color 3 = negro (0xFF000000)
         # Con OBP1, color 3 = gris claro (0xFFAAAAAA)

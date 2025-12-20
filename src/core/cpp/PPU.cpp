@@ -299,13 +299,18 @@ void PPU::render_scanline() {
         return;
     }
     
-    // --- HACK EDUCATIVO (Step 0176) ---
+    // --- HACK EDUCATIVO (Step 0179) ---
     // Comentamos esta comprobación para forzar el renderizado del fondo
     // incluso si el juego lo tiene deshabilitado (LCDC Bit 0 = 0).
     // Esto nos permite ver si los datos están en VRAM durante la inicialización.
     // Según Pan Docs, el Bit 0 del LCDC controla si el Background está habilitado:
     // 0 = Background deshabilitado (pantalla en blanco)
     // 1 = Background habilitado
+    //
+    // DIAGNÓSTICO: El Heartbeat muestra LCDC=0x80 (Bit 7=1, Bit 0=0), lo que significa
+    // que el juego ha encendido el LCD pero mantiene el fondo deshabilitado durante
+    // la inicialización. Este hack temporal nos permite verificar si los datos
+    // gráficos ya están en VRAM antes de que el juego active el fondo.
     /*
     if ((lcdc & 0x01) == 0) {
         // Fondo deshabilitado, podríamos llenar con blanco.
@@ -393,6 +398,12 @@ void PPU::render_scanline() {
         
         // Escribir índice de color en el framebuffer
         framebuffer_[line_start_index + x] = color_index;
+    }
+    
+    // Renderizar sprites después del Background (los sprites se dibujan encima)
+    // Verificar si los sprites están habilitados (LCDC bit 1)
+    if (lcdc & 0x02) {
+        render_sprites();
     }
 }
 

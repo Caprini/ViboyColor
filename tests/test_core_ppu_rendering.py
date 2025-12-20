@@ -21,6 +21,43 @@ except ImportError:
     NATIVE_AVAILABLE = False
     pytestmark = pytest.mark.skip(reason="viboy_core no está disponible (compilación requerida)")
 
+# Paleta de grises (mismo formato que en renderer.py)
+PALETTE_GREYSCALE = [
+    (255, 255, 255),  # Color 0: Blanco -> 0xFFFFFFFF
+    (170, 170, 170),  # Color 1: Gris claro -> 0xFFAAAAAA
+    (85, 85, 85),     # Color 2: Gris oscuro -> 0xFF555555
+    (0, 0, 0),        # Color 3: Negro -> 0xFF000000
+]
+
+def color_index_to_argb32(color_index: int, bgp: int) -> int:
+    """
+    Convierte un índice de color (0-3) del framebuffer a ARGB32 usando la paleta BGP.
+    
+    Args:
+        color_index: Índice de color del framebuffer (0-3)
+        bgp: Valor del registro BGP (0xFF47)
+    
+    Returns:
+        Valor ARGB32 (ej: 0xFF000000 para negro, 0xFFFFFFFF para blanco)
+    """
+    # Decodificar paleta BGP (cada par de bits representa un color 0-3)
+    # Formato: bits 0-1 = color 0, bits 2-3 = color 1, bits 4-5 = color 2, bits 6-7 = color 3
+    palette_mapping = [
+        (bgp >> 0) & 0x03,  # Color 0 -> índice en PALETTE_GREYSCALE
+        (bgp >> 2) & 0x03,  # Color 1 -> índice en PALETTE_GREYSCALE
+        (bgp >> 4) & 0x03,  # Color 2 -> índice en PALETTE_GREYSCALE
+        (bgp >> 6) & 0x03,  # Color 3 -> índice en PALETTE_GREYSCALE
+    ]
+    
+    # Obtener el índice real en la paleta greyscale
+    greyscale_index = palette_mapping[color_index & 0x03]
+    
+    # Obtener color RGB de la paleta
+    r, g, b = PALETTE_GREYSCALE[greyscale_index]
+    
+    # Convertir a ARGB32: Alpha=0xFF, R, G, B
+    return (0xFF << 24) | (r << 16) | (g << 8) | b
+
 
 class TestCorePPURendering:
     """Tests para el renderizado scanline de la PPU en C++."""
@@ -63,29 +100,35 @@ class TestCorePPURendering:
         mmu.write(0x9800, 0x00)  # Tile ID 0 en posición (0,0) del tilemap
         
         # Avanzar PPU hasta completar la línea 0
-        # Necesitamos llegar a Mode 0 (H-Blank) después de Mode 3 (Pixel Transfer)
-        # Esto ocurre después de 252 ciclos (80 Mode 2 + 172 Mode 3)
-        ppu.step(252)
+        # Necesitamos completar una línea completa (456 ciclos) para que se renderice
+        # 80 ciclos Mode 2 (OAM Search) + 172 ciclos Mode 3 (Pixel Transfer) + 204 ciclos Mode 0 (H-Blank) = 456 ciclos
+        ppu.step(456)
         
-        # Verificar que estamos en Mode 0 (H-Blank) y se ha renderizado
-        assert ppu.get_mode() == 0, "Debe estar en Mode 0 (H-Blank) después de renderizar"
-        assert ppu.get_ly() == 0, "Debe estar en línea 0"
+        # Después de completar 456 ciclos, la PPU avanza a la siguiente línea y entra en Mode 2 (OAM Search)
+        # El renderizado ocurrió durante la línea 0, así que verificamos que estamos en línea 1, Mode 2
+        assert ppu.get_ly() == 1, f"Debe estar en línea 1 después de completar línea 0, está en línea {ppu.get_ly()}"
+        assert ppu.get_mode() == 2, f"Debe estar en Mode 2 (OAM Search) después de avanzar a línea 1, está en Mode {ppu.get_mode()}"
         
-        # Obtener framebuffer
+        # Obtener framebuffer (devuelve índices de color 0-3)
         framebuffer = ppu.get_framebuffer()
         
         # Verificar que el framebuffer tiene el tamaño correcto (160 * 144 = 23040)
         assert len(framebuffer) == 160 * 144, f"Framebuffer debe tener 23040 píxeles, tiene {len(framebuffer)}"
         
+        # Leer paleta BGP
+        bgp = mmu.read(0xFF47) & 0xFF
+        
         # Verificar que el primer píxel es negro (0xFF000000)
-        # Nota: En ARGB32, 0xFF000000 = Negro (Alpha=FF, R=00, G=00, B=00)
-        first_pixel = framebuffer[0]
-        assert first_pixel == 0xFF000000, f"Primer píxel debe ser negro (0xFF000000), es 0x{first_pixel:08X}"
+        # El framebuffer contiene índices de color (0-3), necesitamos convertirlos a ARGB32
+        color_index = framebuffer[0]
+        first_pixel = color_index_to_argb32(color_index, bgp)
+        assert first_pixel == 0xFF000000, f"Primer píxel debe ser negro (0xFF000000), es 0x{first_pixel:08X} (índice={color_index})"
         
         # Verificar que todos los píxeles de la primera línea son negro
         for x in range(160):
-            pixel = framebuffer[x]
-            assert pixel == 0xFF000000, f"Píxel {x} debe ser negro (0xFF000000), es 0x{pixel:08X}"
+            color_index = framebuffer[x]
+            pixel = color_index_to_argb32(color_index, bgp)
+            assert pixel == 0xFF000000, f"Píxel {x} debe ser negro (0xFF000000), es 0x{pixel:08X} (índice={color_index})"
 
     def test_bg_rendering_scroll(self) -> None:
         """
@@ -123,15 +166,19 @@ class TestCorePPURendering:
         # Como cada tile tiene 8 píxeles, el primer píxel visible será del tile 1 (blanco)
         mmu.write(0xFF43, 8)  # SCX = 8
         
-        # Avanzar PPU hasta completar la línea 0 (entra en H-Blank)
-        ppu.step(252)
+        # Avanzar PPU hasta completar la línea 0 (456 ciclos para renderizar)
+        ppu.step(456)
         
         # Obtener framebuffer
         framebuffer = ppu.get_framebuffer()
         
+        # Leer paleta BGP
+        bgp = mmu.read(0xFF47) & 0xFF
+        
         # El primer píxel visible debe ser del tile 1 (blanco)
-        first_pixel = framebuffer[0]
-        assert first_pixel == 0xFFFFFFFF, f"Primer píxel debe ser blanco (0xFFFFFFFF), es 0x{first_pixel:08X}"
+        color_index = framebuffer[0]
+        first_pixel = color_index_to_argb32(color_index, bgp)
+        assert first_pixel == 0xFFFFFFFF, f"Primer píxel debe ser blanco (0xFFFFFFFF), es 0x{first_pixel:08X} (índice={color_index})"
 
     def test_window_rendering(self) -> None:
         """
@@ -175,11 +222,15 @@ class TestCorePPURendering:
         # Obtener framebuffer
         framebuffer = ppu.get_framebuffer()
         
+        # Leer paleta BGP
+        bgp = mmu.read(0xFF47) & 0xFF
+        
         # Como la Window está en (0,0) y cubre toda la pantalla, debe sobrescribir el Background
         # El primer píxel debe ser blanco (de la Window)
-        first_pixel = framebuffer[0]
+        color_index = framebuffer[0]
+        first_pixel = color_index_to_argb32(color_index, bgp)
         # Nota: La Window se renderiza después del Background, así que debe sobrescribirlo
-        assert first_pixel == 0xFFFFFFFF, f"Primer píxel debe ser blanco (Window), es 0x{first_pixel:08X}"
+        assert first_pixel == 0xFFFFFFFF, f"Primer píxel debe ser blanco (Window), es 0x{first_pixel:08X} (índice={color_index})"
 
     def test_framebuffer_memoryview(self) -> None:
         """
