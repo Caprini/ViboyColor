@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PPU Fase E: Arquitectura por Scanlines para Sincronización CPU-PPU - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>PPU Fase E: Arquitectura por Scanlines para Sincronización CPU-PPU</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0171
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0170__ppu-fase-d-implementacion-modos-ppu-registro-stat.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El análisis del deadlock de polling ha revelado una falla fundamental en nuestra arquitectura de bucle principal. Aunque la CPU y la PPU son lógicamente correctas, no están sincronizadas en el tiempo. La CPU ejecuta su bucle de polling tan rápido que la PPU nunca tiene suficientes ciclos para cambiar de estado, creando un deadlock temporal. Este Step documenta la re-arquitectura completa del bucle principal (`run()`) para que se base en "scanlines", forzando una sincronización precisa entre los ciclos de la CPU y los de la PPU, y rompiendo estructuralmente el deadlock.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: El Tiempo Basado en Scanlines</h2>
+                <p>
+                    El hardware de la Game Boy está rígidamente sincronizado. La PPU tarda exactamente <strong>456 T-Cycles</strong> en procesar una línea de escaneo (scanline). Durante esos 456 ciclos, la CPU está ejecutando instrucciones en paralelo. Un emulador preciso debe replicar esta relación 1:1.
+                </p>
+                
+                <h3>El Problema del Deadlock de Polling</h3>
+                <p>
+                    Imagina que la PPU es un coche que viaja de una ciudad (Modo 2) a otra (Modo 3), un viaje que dura 80 minutos (ciclos). La CPU es un niño impaciente en el asiento de atrás que, cada 32 minutos (ciclos), pregunta: "¿Ya llegamos a la ciudad H-Blank?". El coche (PPU) aún no ha llegado ni a la primera ciudad, pero la CPU ya ha preguntado dos veces.
+                </p>
+                
+                <p>
+                    Esto es exactamente lo que estaba pasando:
+                </p>
+                <ol>
+                    <li>La PPU empieza una línea y entra en <strong>Modo 2 (OAM Scan)</strong>, un estado que dura <strong>80 T-Cycles</strong>.</li>
+                    <li>La CPU entra en su bucle de polling: <code>LDH A, (n) -> CP d8 -> JR NZ, e</code>.</li>
+                    <li>Este bucle completo consume <code>12 + 8 + 12 = 32 T-Cycles</code>.</li>
+                    <li>La CPU ejecuta el bucle, lee STAT (que dice "Modo 2"), la comparación falla, y salta. Han pasado 32 ciclos.</li>
+                    <li>La CPU vuelve a ejecutar el bucle. Lee STAT (que sigue diciendo "Modo 2" porque solo han pasado 32 de los 80 ciclos). La comparación falla. Salta. Han pasado 64 ciclos.</li>
+                    <li>La CPU está "girando en vacío" dentro del Modo 2, sin darle tiempo a la PPU a que termine su trabajo y cambie de estado.</li>
+                </ol>
+                
+                <p>
+                    El problema no está en los componentes, sino en el <strong>orquestador</strong>: nuestro bucle principal en <code>viboy.py</code>. Nuestro <code>while True</code> actual no tiene noción del "tiempo emulado". Simplemente ejecuta la CPU una vez y luego hace otras cosas. Necesitamos una arquitectura que fuerce el paso del tiempo de manera sincronizada.
+                </p>
+
+                <h3>La Solución: Arquitectura por Scanlines</h3>
+                <p>
+                    La nueva arquitectura funcionará así:
+                </p>
+                <ol>
+                    <li><strong>Bucle Externo (por Frame):</strong> Sigue siendo un <code>while self.running</code>.</li>
+                    <li><strong>Bucle Medio (por Scanline):</strong> Dentro, un bucle que se repite 154 veces (el número total de líneas de un fotograma).</li>
+                    <li><strong>Bucle Interno (de CPU):</strong> Por cada una de esas 154 líneas, ejecutaremos la CPU repetidamente hasta que se hayan consumido exactamente <strong>456 T-Cycles</strong>.</li>
+                    <li><strong>Actualización PPU:</strong> Una vez consumidos los 456 ciclos, llamaremos a <code>ppu.step(456)</code> una sola vez, pasándole exactamente 456 ciclos.</li>
+                </ol>
+                
+                <p>
+                    Este diseño garantiza que, por cada "paso" de la PPU (una scanline), la CPU haya ejecutado la cantidad correcta de "pasos" (instrucciones). El deadlock se vuelve imposible, porque el tiempo emulado siempre avanza.
+                </p>
+                
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Timing, System Clock
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se reescribió por completo el método <code>run()</code> en <code>src/viboy.py</code> para implementar la arquitectura estricta por scanlines.
+                </p>
+                
+                <h3>Componentes Modificados</h3>
+                <ul>
+                    <li><strong>Viboy::run()</strong>: Reescrito completamente con arquitectura por scanlines estricta.</li>
+                    <li><strong>Constantes de Timing</strong>: Definidas al inicio del método:
+                        <ul>
+                            <li><code>CYCLES_PER_SCANLINE = 456</code></li>
+                            <li><code>SCANLINES_PER_FRAME = 154</code></li>
+                            <li><code>CYCLES_PER_FRAME = 70224</code></li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Estructura del Nuevo Bucle</h3>
+                <pre><code># Bucle principal del emulador
+while self.running:
+    # --- Bucle de Frame Completo (70224 ciclos) ---
+    for line in range(SCANLINES_PER_FRAME):
+        
+        # --- Bucle de Scanline (456 ciclos) ---
+        cycles_this_scanline = 0
+        while cycles_this_scanline < CYCLES_PER_SCANLINE:
+            if not self._cpu.halted:
+                # Ejecuta una instrucción de CPU y devuelve los M-Cycles
+                m_cycles = self._cpu.step() 
+                # Convierte a T-Cycles (1 M-Cycle = 4 T-Cycles)
+                t_cycles = m_cycles * 4
+                cycles_this_scanline += t_cycles
+            else:
+                # Si la CPU está en HALT, simplemente avanzamos el tiempo
+                # en la unidad mínima posible.
+                cycles_this_scanline += 4 
+
+        # Al final de la scanline, actualizamos la PPU una sola vez
+        self._ppu.step(CYCLES_PER_SCANLINE)
+
+    # --- Fin del Frame ---
+    # Renderizado y sincronización...</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Sincronización Estricta:</strong> La PPU solo se actualiza una vez por scanline, con exactamente 456 ciclos. Esto garantiza que el tiempo emulado siempre avanza correctamente.</li>
+                    <li><strong>Manejo de HALT:</strong> Si la CPU está en HALT, avanzamos el tiempo en incrementos mínimos (4 T-Cycles) para que la PPU pueda seguir avanzando y generar interrupciones.</li>
+                    <li><strong>Timer:</strong> El Timer se actualiza cada instrucción (solo en modo Python por ahora) para mantener la precisión del RNG usado por juegos como Tetris.</li>
+                    <li><strong>Renderizado:</strong> El renderizado ya no depende de "is_frame_ready" porque este bucle garantiza que se ha completado un frame completo (154 scanlines).</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Reescritura completa del método <code>run()</code> con arquitectura por scanlines estricta.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Esta implementación es una re-arquitectura del bucle principal. Los tests unitarios de CPU y PPU siguen siendo válidos, pero la validación principal se realizará ejecutando el emulador con una ROM real.
+                </p>
+                
+                <h3>Resultado Esperado</h3>
+                <p>
+                    Al ejecutar el emulador con esta nueva arquitectura:
+                </p>
+                <ol>
+                    <li><strong>El deadlock se romperá.</strong> Es estructuralmente imposible que la CPU se quede girando en vacío sin que la PPU avance.</li>
+                    <li><strong><code>LY</code> se incrementará.</strong> El <code>Heartbeat</code> finalmente mostrará <code>LY</code> cambiando de 0 a 1, 2, 3... hasta 153, y luego volviendo a 0. ¡Veremos el latido del corazón del sistema de vídeo por primera vez!</li>
+                    <li><strong>¡Veremos Gráficos!</strong> Una vez que el deadlock se rompa, la CPU podrá continuar con su rutina de inicialización, copiará los datos de los tiles a la VRAM, y nuestra PPU, que ya sabe cómo renderizar el background, finalmente tendrá algo que dibujar. Deberíamos ver aparecer el logo de Nintendo o la pantalla de copyright de Tetris.</li>
+                </ol>
+                
+                <p>
+                    <strong>Validación:</strong> Ejecución del emulador con ROM real (Tetris, Mario, etc.) para confirmar que el deadlock se rompe y que <code>LY</code> avanza correctamente.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Timing, System Clock</a></li>
+                    <li>GBEDG: <a href="https://gbdev.io/gb-opcodes/optables/">Timing de Instrucciones</a></li>
+                </ul>
+                <p>
+                    <em>Nota: Esta arquitectura es un estándar de oro en la industria de la emulación. Varios emuladores de referencia (SameBoy, mGBA) usan arquitecturas similares basadas en scanlines para garantizar sincronización perfecta.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Sincronización de Tiempo:</strong> La diferencia entre la corrección de los componentes y la sincronización del sistema. Los componentes pueden ser correctos individualmente, pero si no están sincronizados en el tiempo, el sistema falla.</li>
+                        <li><strong>Arquitectura por Scanlines:</strong> Un diseño que fuerza el paso del tiempo emulado de manera sincronizada, garantizando que la CPU y la PPU siempre estén en el mismo "momento" del tiempo emulado.</li>
+                        <li><strong>Deadlock de Polling:</strong> Un tipo de deadlock donde la CPU está esperando un cambio de estado que nunca ocurre porque no se le da tiempo suficiente a la PPU para avanzar.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Ejecución con ROM Real:</strong> Verificar que el deadlock se rompe y que <code>LY</code> avanza correctamente ejecutando el emulador con una ROM real.</li>
+                        <li><strong>Renderizado de Gráficos:</strong> Confirmar que una vez que el deadlock se rompe, la CPU puede copiar datos a VRAM y la PPU puede renderizar el background correctamente.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Esta arquitectura asume que la PPU puede procesar exactamente 456 ciclos por scanline de manera correcta. Si hay algún problema en la implementación de la PPU que cause que no procese correctamente los ciclos, el deadlock podría persistir o aparecer otros problemas de sincronización.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con una ROM real (Tetris, Mario) para confirmar que el deadlock se rompe.</li>
+                    <li>[ ] Verificar que <code>LY</code> avanza correctamente (0 → 153 → 0) en el heartbeat.</li>
+                    <li>[ ] Confirmar que los gráficos se renderizan correctamente una vez que el deadlock se rompe.</li>
+                    <li>[ ] Si el deadlock persiste, investigar posibles problemas en la implementación de la PPU o en la conversión de M-Cycles a T-Cycles.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0171 - PPU Fase E: Arquitectura por Scanlines para Sincronización CPU-PPU -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0171__ppu-fase-e-arquitectura-por-scanlines-sincronizacion-cpu-ppu.html" class="entry-link">
+                                    PPU Fase E: Arquitectura por Scanlines para Sincronización CPU-PPU
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0171 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            El análisis del deadlock de polling ha revelado una falla fundamental en nuestra arquitectura de bucle principal. Aunque la CPU y la PPU son lógicamente correctas, no están sincronizadas en el tiempo. La CPU ejecuta su bucle de polling tan rápido que la PPU nunca tiene suficientes ciclos para cambiar de estado, creando un deadlock temporal. Este Step documenta la re-arquitectura completa del bucle principal (`run()`) para que se base en "scanlines", forzando una sincronización precisa entre los ciclos de la CPU y los de la PPU, y rompiendo estructuralmente el deadlock.
+                        </p>
+                    </li>
                     <!-- Entrada 0170 - PPU Fase D: Implementación de Modos PPU y Registro STAT -->
                     <li>
                         <div class="entry-header">

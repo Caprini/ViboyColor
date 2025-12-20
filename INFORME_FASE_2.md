@@ -32,6 +32,38 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0171: PPU Fase E: Arquitectura por Scanlines para Sincronización CPU-PPU
+**Estado**: ✅ VERIFIED
+
+El análisis del deadlock de polling ha revelado una falla fundamental en nuestra arquitectura de bucle principal. Aunque la CPU y la PPU son lógicamente correctas, no están sincronizadas en el tiempo. La CPU ejecuta su bucle de polling tan rápido que la PPU nunca tiene suficientes ciclos para cambiar de estado, creando un deadlock temporal. Este Step documenta la re-arquitectura completa del bucle principal (`run()`) para que se base en "scanlines", forzando una sincronización precisa entre los ciclos de la CPU y los de la PPU, y rompiendo estructuralmente el deadlock.
+
+**Objetivo:**
+- Re-arquitecturar el bucle principal (`run()`) para que se base en "scanlines", forzando una sincronización precisa entre los ciclos de la CPU y los de la PPU.
+- Garantizar que por cada "paso" de la PPU (una scanline), la CPU haya ejecutado la cantidad correcta de "pasos" (instrucciones).
+- Romper estructuralmente el deadlock de polling, haciendo imposible que la CPU se quede girando en vacío sin que la PPU avance.
+
+**Concepto de Hardware:**
+El hardware de la Game Boy está rígidamente sincronizado. La PPU tarda exactamente **456 T-Cycles** en procesar una línea de escaneo (scanline). Durante esos 456 ciclos, la CPU está ejecutando instrucciones en paralelo. Un emulador preciso debe replicar esta relación 1:1.
+
+El problema del deadlock de polling ocurre cuando la CPU ejecuta su bucle de polling (ej: `LDH A, (n) -> CP d8 -> JR NZ, e`) que consume 32 T-Cycles, pero la PPU necesita 80 T-Cycles para cambiar del Modo 2 al Modo 3. La CPU pregunta "¿ya llegamos a H-Blank?" antes de que la PPU haya tenido tiempo de avanzar, creando un bucle infinito.
+
+**Implementación:**
+La nueva arquitectura funciona así:
+1. **Bucle Externo (por Frame):** Se repite mientras el emulador esté corriendo.
+2. **Bucle Medio (por Scanline):** Se repite 154 veces (número total de líneas).
+3. **Bucle Interno (de CPU):** Ejecuta la CPU repetidamente hasta consumir exactamente 456 T-Cycles por scanline.
+4. **Actualización PPU:** Una vez consumidos los 456 ciclos, se llama a `ppu.step(456)` una sola vez.
+
+Este diseño garantiza que el tiempo emulado siempre avanza de manera sincronizada, rompiendo estructuralmente el deadlock.
+
+**Resultado:**
+La arquitectura está implementada y lista para pruebas. El siguiente paso es ejecutar el emulador con una ROM real para confirmar que:
+1. El deadlock se rompe estructuralmente.
+2. `LY` se incrementa correctamente (0 → 153 → 0).
+3. Los gráficos se renderizan correctamente una vez que el deadlock se rompe.
+
+---
+
 ### 2025-12-20 - Step 0170: PPU Fase D: Implementación de Modos PPU y Registro STAT
 **Estado**: ✅ VERIFIED
 

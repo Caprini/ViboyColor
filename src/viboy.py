@@ -656,26 +656,26 @@ class Viboy:
         """
         Ejecuta el bucle principal del emulador (Game Loop).
         
-        VERSIÓN 0.0.1: ARQUITECTURA BASADA EN SCANLINES (HÍBRIDA)
-        - CPU y Timer: se ejecutan cada instrucción (precisión del RNG)
-        - PPU: se actualiza una vez por scanline (456 ciclos) para rendimiento
-        - Input: se lee cada frame
-        - Equilibrio perfecto entre rendimiento y precisión
+        VERSIÓN 0.0.2: ARQUITECTURA POR SCANLINES (SINCRONIZACIÓN PERFECTA)
+        
+        Esta arquitectura garantiza sincronización perfecta entre CPU y PPU mediante
+        un diseño estricto basado en scanlines. El tiempo emulado siempre avanza
+        correctamente, rompiendo estructuralmente cualquier deadlock de polling.
         
         ARQUITECTURA:
-        - Bucle principal: ejecuta frames completos (70224 T-Cycles)
-        - Bucle de scanline: ejecuta 456 T-Cycles por línea
-        - Dentro del scanline: CPU y Timer se ejecutan cada instrucción
-        - Al final del scanline: PPU se actualiza una vez (mucho más rápido)
-        - Renderizado: cuando PPU indica frame listo
-        - Sincronización: pygame.Clock limita a 60 FPS
+        1. Bucle Externo (por Frame): Se repite mientras el emulador esté corriendo.
+        2. Bucle Medio (por Scanline): Se repite 154 veces (número total de líneas).
+        3. Bucle Interno (de CPU): Ejecuta la CPU repetidamente hasta consumir
+           exactamente 456 T-Cycles por scanline.
+        4. Actualización PPU: Una vez consumidos los 456 ciclos, se llama a
+           ppu.step(456) una sola vez.
         
-        Esta arquitectura reduce el coste de la PPU en un 99% (154 actualizaciones
-        por frame en lugar de ~17.556) mientras mantiene la precisión del Timer
-        necesaria para juegos como Tetris que usan DIV para RNG.
-        
-        Este método ejecuta instrucciones continuamente hasta que se interrumpe
-        (Ctrl+C) o se produce un error.
+        Este diseño garantiza que:
+        - Por cada "paso" de la PPU (una scanline), la CPU haya ejecutado la cantidad
+          correcta de instrucciones (exactamente 456 T-Cycles).
+        - El deadlock de polling se vuelve imposible, porque el tiempo emulado siempre
+          avanza de manera sincronizada.
+        - La PPU siempre tiene suficientes ciclos para cambiar de estado (Modo 2 -> 3 -> 0).
         
         Args:
             debug: Si es True, activa el modo debug con trazas detalladas (no implementado aún)
@@ -686,170 +686,106 @@ class Viboy:
             
         Fuente: Pan Docs - System Clock, Timing, Frame Rate, LCD Timing
         """
-        if self._cpu is None:
-            raise RuntimeError("Sistema no inicializado. Llama a load_cartridge() primero.")
+        if self._cpu is None or self._mmu is None or self._ppu is None:
+            raise RuntimeError("El emulador no está inicializado.")
         
         # Constantes de timing
         # Fuente: Pan Docs - LCD Timing
-        CYCLES_PER_FRAME = 70_224  # T-Cycles por frame (154 líneas * 456 ciclos)
-        CYCLES_PER_LINE = 456       # T-Cycles por scanline
+        CYCLES_PER_SCANLINE = 456  # T-Cycles por scanline
+        SCANLINES_PER_FRAME = 154  # Total de líneas por frame (144 visibles + 10 V-Blank)
+        CYCLES_PER_FRAME = CYCLES_PER_SCANLINE * SCANLINES_PER_FRAME  # 70,224 T-Cycles
         
         # Configuración de rendimiento
         TARGET_FPS = 60
         
-        # Contador de frames para título
-        frame_count = 0
+        # Contador de frames
+        self.frame_count = 0
+        self.running = True
+        self.verbose = True  # Para heartbeat
+        
+        print("🚀 Ejecutando el núcleo C++ con arquitectura por scanlines...")
         
         try:
-            # BUCLE PRINCIPAL: Por frame
-            while True:
-                # 1. Gestionar Input (una vez por frame)
-                if self._renderer is not None:
+            # Bucle principal del emulador
+            while self.running:
+                # --- Bucle de Frame Completo (70224 ciclos) ---
+                for line in range(SCANLINES_PER_FRAME):
+                    # --- Bucle de Scanline (456 ciclos) ---
+                    cycles_this_scanline = 0
+                    while cycles_this_scanline < CYCLES_PER_SCANLINE:
+                        if not (self._cpu.get_halted() if self._use_cpp else self._cpu.halted):
+                            # Ejecuta una instrucción de CPU y devuelve los M-Cycles
+                            m_cycles = self._cpu.step()
+                            # Convierte a T-Cycles (1 M-Cycle = 4 T-Cycles)
+                            t_cycles = m_cycles * 4
+                            cycles_this_scanline += t_cycles
+                            
+                            # Actualizar Timer si está disponible (solo en modo Python por ahora)
+                            if not self._use_cpp and self._timer is not None:
+                                self._timer.tick(t_cycles)
+                        else:
+                            # Si la CPU está en HALT, simplemente avanzamos el tiempo
+                            # en la unidad mínima posible (4 T-Cycles = 1 M-Cycle)
+                            cycles_this_scanline += 4
+                            
+                            # Actualizar Timer también durante HALT
+                            if not self._use_cpp and self._timer is not None:
+                                self._timer.tick(4)
+                    
+                    # Al final de la scanline, actualizamos la PPU una sola vez
+                    self._ppu.step(CYCLES_PER_SCANLINE)
+                
+                # --- Fin del Frame ---
+                # En este punto, se ha dibujado un frame completo (154 scanlines)
+                
+                # Renderizado en Python (solo si hay un frame listo)
+                if self._renderer:
                     should_continue = self._handle_pygame_events()
                     if not should_continue:
+                        self.running = False
                         break
-                
-                # 2. Ejecutar un frame completo (70224 T-Cycles)
-                frame_cycles = 0
-                while frame_cycles < CYCLES_PER_FRAME:
-                    # --- BUCLE DE SCANLINE (456 ciclos) ---
-                    line_cycles = 0
-                    safety_counter = 0  # Contador de seguridad para evitar bucles infinitos
-                    max_iterations = 1000  # Límite máximo de iteraciones por scanline
                     
-                    while line_cycles < CYCLES_PER_LINE:
-                        # A. Ejecutar CPU y Timer (cada instrucción)
-                        # CRÍTICO: El Timer debe actualizarse cada instrucción
-                        # para mantener la precisión del RNG (usado por Tetris)
-                        t_cycles = self._execute_cpu_timer_only()
-                        
-                        # CRÍTICO: Protección contra deadlock - si t_cycles es 0 o negativo,
-                        # forzar avance mínimo para evitar bucle infinito
-                        if t_cycles <= 0:
-                            logger.warning(f"⚠️ ADVERTENCIA: CPU devolvió {t_cycles} ciclos. Forzando avance mínimo.")
-                            t_cycles = 16  # 4 M-Cycles * 4 = 16 T-Cycles (mínimo seguro)
-                        
-                        line_cycles += t_cycles
-                        
-                        # Protección contra bucle infinito
-                        safety_counter += 1
-                        if safety_counter >= max_iterations:
-                            logger.error(f"⚠️ ERROR: Bucle de scanline excedió {max_iterations} iteraciones. Forzando avance.")
-                            # Forzar avance del scanline completo
-                            line_cycles = CYCLES_PER_LINE
-                            break
+                    # El renderizado ya no depende de "is_frame_ready" porque este bucle
+                    # garantiza que se ha completado un frame.
+                    self._renderer.render_frame()
                     
-                    # --- FIN DE SCANLINE ---
-                    # B. Actualizar PPU una vez por línea (Mucho más rápido)
-                    # La PPU debe avanzar exactamente 456 ciclos por línea
-                    # Nota: Si line_cycles > 456, la PPU procesará 456 y los sobrantes
-                    # se acumularán en el siguiente scanline (comportamiento correcto)
-                    if self._ppu is not None:
-                        # Actualizar PPU con exactamente 456 ciclos (una línea completa)
-                        # Los ciclos sobrantes (si los hay) se procesarán en la siguiente línea
+                    # Sincronización con el reloj del host para mantener 60 FPS
+                    if self._clock is not None:
+                        self._clock.tick(TARGET_FPS)
+                    
+                    # Título con FPS (cada 60 frames para no frenar)
+                    if self.frame_count % 60 == 0 and self._clock is not None:
                         try:
-                            if self._use_cpp:
-                                # PPU C++: usar método step directamente
-                                # Logs silenciados para aislar la traza de la CPU (Step 0150)
-                                # print("[Viboy] Llamando a ppu.step()...")
-                                self._ppu.step(CYCLES_PER_LINE)
-                                # print("[Viboy] ppu.step() completado exitosamente")
-                            else:
-                                # PPU Python: usar método step
-                                self._ppu.step(CYCLES_PER_LINE)
-                        except Exception as e:
-                            logger.error(f"Error crítico en PPU.step(): {e}", exc_info=True)
-                            # Si hay un error crítico, detener la ejecución
-                            raise
-                    
-                    # DIAGNÓSTICO: Verificar ciclos ejecutados en el scanline
-                    # Si line_cycles es 0, hay un problema en la CPU C++
-                    if line_cycles == 0:
-                        logger.warning(f"⚠️ ADVERTENCIA: line_cycles=0 en scanline. CPU puede estar detenida.")
-                    
-                    # Acumular ciclos del frame (usamos CYCLES_PER_LINE para mantener
-                    # sincronización exacta, aunque line_cycles pueda ser ligeramente mayor)
-                    frame_cycles += CYCLES_PER_LINE
-                
-                # 3. Renderizado si es V-Blank
-                if self._ppu is not None:
-                    # Verificar si hay frame listo (método diferente según core)
-                    frame_ready = False
-                    if self._use_cpp:
-                        frame_ready = self._ppu.get_frame_ready_and_reset()
-                    else:
-                        frame_ready = self._ppu.is_frame_ready()  # PPU Python mantiene nombre antiguo
-                    
-                    if frame_ready:
-                        if self._renderer is not None:
-                            self._renderer.render_frame()
-                            try:
-                                import pygame
-                                pygame.display.flip()
-                            except ImportError:
-                                pass
-                
-                # 4. Sincronización FPS
-                if self._clock is not None:
-                    self._clock.tick(TARGET_FPS)
-                
-                # 5. Título con FPS (cada 60 frames para no frenar)
-                frame_count += 1
-                if frame_count % 60 == 0 and self._clock is not None:
-                    try:
-                        import pygame
-                        fps = self._clock.get_fps()
-                        pygame.display.set_caption(f"Viboy Color v0.0.1 - FPS: {fps:.1f}")
-                    except ImportError:
-                        pass
-                
-                # 6. Heartbeat: Diagnóstico de LY cada segundo (60 frames ≈ 1 segundo a 60 FPS)
-                if frame_count % 60 == 0 and self._ppu is not None:
-                    # Obtener LY de la PPU (compatible con Python y C++)
-                    ly_value = 0
-                    try:
-                        if self._use_cpp:
-                            # PPU C++: usar propiedad .ly (definida en ppu.pyx)
-                            ly_value = self._ppu.ly
-                        else:
-                            # PPU Python: usar método get_ly()
-                            ly_value = self._ppu.get_ly()
-                    except AttributeError:
-                        # Fallback si no existe el método/propiedad
-                        ly_value = 0
-                    
-                    # Logging de diagnóstico: Si LY se mueve (0-153), la PPU está viva
-                    # Si LY está en 0 después de 60 frames, puede indicar que la PPU no avanza
-                    # Añadir LCDC para diagnosticar si el LCD está encendido
-                    lcdc_value = 0
-                    if self._mmu is not None:
-                        try:
-                            if self._use_cpp:
-                                # MMU C++: usar método read directamente
-                                lcdc_value = self._mmu.read(0xFF40)
-                            else:
-                                # MMU Python: usar método read
-                                lcdc_value = self._mmu.read(0xFF40)
-                        except Exception:
+                            import pygame
+                            fps = self._clock.get_fps()
+                            pygame.display.set_caption(f"Viboy Color v0.0.2 - FPS: {fps:.1f}")
+                        except ImportError:
                             pass
-                    
-                    # Obtener modo PPU para diagnóstico
+                
+                # Heartbeat (opcional, para depuración)
+                if self.verbose and self.frame_count % 60 == 0:
+                    # Obtener LY y modo de la PPU
+                    ly_value = 0
                     mode_value = 0
+                    lcdc_value = 0
+                    
                     try:
                         if self._use_cpp:
-                            # PPU C++: usar propiedad .mode (definida en ppu.pyx)
+                            ly_value = self._ppu.ly
                             mode_value = self._ppu.mode
+                            lcdc_value = self._mmu.read(0xFF40)
                         else:
-                            # PPU Python: usar método get_mode()
+                            ly_value = self._ppu.get_ly()
                             mode_value = self._ppu.get_mode()
-                    except AttributeError:
+                            lcdc_value = self._mmu.read(0xFF40)
+                    except (AttributeError, Exception):
                         pass
                     
                     logger.info(
-                        f"💓 Heartbeat ... LY={ly_value} | Mode={mode_value} | LCDC=0x{lcdc_value:02X} "
-                        f"(LCD {'ON' if (lcdc_value & 0x80) != 0 else 'OFF'}) "
-                        f"| PPU {'viva' if ly_value > 0 or frame_count > 60 else 'inicializando'}"
+                        f"💓 Heartbeat ... LY={ly_value} | Mode={mode_value} | LCDC={lcdc_value:02X}"
                     )
+                
+                self.frame_count += 1
         
         except KeyboardInterrupt:
             # Salir limpiamente con Ctrl+C
