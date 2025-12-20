@@ -299,6 +299,20 @@ void PPU::render_scanline() {
         return;
     }
     
+    // --- HACK EDUCATIVO (Step 0176) ---
+    // Comentamos esta comprobación para forzar el renderizado del fondo
+    // incluso si el juego lo tiene deshabilitado (LCDC Bit 0 = 0).
+    // Esto nos permite ver si los datos están en VRAM durante la inicialización.
+    // Según Pan Docs, el Bit 0 del LCDC controla si el Background está habilitado:
+    // 0 = Background deshabilitado (pantalla en blanco)
+    // 1 = Background habilitado
+    /*
+    if ((lcdc & 0x01) == 0) {
+        // Fondo deshabilitado, podríamos llenar con blanco.
+        return;
+    }
+    */
+    
     // Leer registros de scroll
     uint8_t scy = mmu_->read(IO_SCY);
     uint8_t scx = mmu_->read(IO_SCX);

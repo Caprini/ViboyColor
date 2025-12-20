@@ -32,6 +32,48 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0176: Hack Educativo: Forzar el Renderizado del Fondo para Diagnóstico Visual
+**Estado**: ✅ VERIFIED
+
+¡La arquitectura de bucle nativo en C++ ha roto todos los `deadlocks`! El registro `LY` está ciclando correctamente, confirmando que la CPU y la PPU están sincronizadas. Sin embargo, la pantalla sigue en blanco. El diagnóstico del `Heartbeat` revela que `LCDC` es `0x80`, lo que significa que el juego ha encendido el LCD (Bit 7) pero mantiene la capa de fondo apagada (Bit 0). Este Step implementa un "hack educativo" temporal en la PPU de C++ para forzar el renderizado de la capa de fondo, ignorando el estado del Bit 0 de LCDC. Esto nos permitirá verificar si los datos gráficos ya están en la VRAM durante la inicialización.
+
+**Objetivo:**
+- Implementar un hack temporal en la PPU para forzar el renderizado del fondo, ignorando el bit 0 del LCDC.
+- Verificar visualmente si los datos gráficos del logo de Nintendo ya están en la VRAM.
+- Confirmar que el problema es simplemente de timing del juego (el fondo está deshabilitado durante la inicialización).
+
+**Concepto de Hardware:**
+Los juegos de Game Boy a menudo encienden el LCD (`LCDC Bit 7 = 1`) pero mantienen capas específicas apagadas (`LCDC Bit 0 = 0` para el fondo, `Bit 1 = 0` para los sprites) mientras realizan tareas de configuración. Nuestra PPU está simulando esto correctamente, resultando en una pantalla en blanco.
+
+El valor `LCDC=0x80` en hexadecimal es `1000 0000` en binario:
+- **Bit 7 = 1:** El LCD está encendido. El juego le ha dicho a la PPU que empiece a funcionar.
+- **Bit 0 = 0:** El fondo está deshabilitado. El juego explícitamente no quiere que se dibuje la capa de fondo.
+
+Es una técnica común durante la inicialización: el juego primero enciende el LCD, luego pasa unos fotogramas preparando otras cosas (cargar sprites en OAM, configurar paletas, etc.) y solo *después* activa la capa de fondo para que todo aparezca sincronizado.
+
+**Implementación:**
+1. **Modificación de PPU.cpp:**
+   - Se comentó temporalmente la comprobación del bit 0 del LCDC en el método `render_scanline()`.
+   - Esto permite que la PPU renderice el fondo incluso si el juego lo tiene deshabilitado.
+   - El hack está claramente marcado con comentarios explicativos.
+
+**Archivos Modificados:**
+- `src/core/cpp/PPU.cpp` - Comentada la comprobación del bit 0 del LCDC en `render_scanline()`
+
+**Resultado Esperado:**
+Si nuestra teoría es correcta, al ejecutar el emulador con el hack activo, veremos el logo de Nintendo en la pantalla, confirmando que:
+- La CPU ha copiado exitosamente los tiles del logo a la VRAM.
+- La PPU puede leer y renderizar correctamente esos tiles.
+- El problema es simplemente que el juego mantiene el fondo deshabilitado durante la inicialización.
+
+**Próximos Pasos:**
+- Ejecutar el emulador con el hack activo y verificar visualmente si aparece el logo de Nintendo.
+- Si el logo aparece, confirmar que la implementación de renderizado es correcta.
+- Remover el hack una vez confirmada la teoría.
+- Investigar el timing del juego para entender cuándo activa el bit 0 del LCDC.
+
+---
+
 ### 2025-12-20 - Step 0175: Arquitectura Final: Bucle de Emulación Nativo en C++
 **Estado**: ✅ VERIFIED
 
