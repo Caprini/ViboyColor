@@ -45,6 +45,7 @@ extensions = [
             str(cpp_dir / "Registers.cpp"),
             str(cpp_dir / "CPU.cpp"),
             str(cpp_dir / "PPU.cpp"),  # PPU (Pixel Processing Unit)
+            str(cpp_dir / "Timer.cpp"),  # Timer (Subsistema de Temporización)
         ],
         include_dirs=include_dirs,
         language="c++",

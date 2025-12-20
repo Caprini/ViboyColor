@@ -23,6 +23,10 @@ cdef extern from "PPU.hpp":
     cdef cppclass PPU:
         pass
 
+cdef extern from "Timer.hpp":
+    cdef cppclass Timer:
+        pass
+
 cdef extern from "CPU.hpp":
     cdef cppclass CPU:
         # Constructor: recibe punteros a MMU y CoreRegisters
@@ -33,6 +37,9 @@ cdef extern from "CPU.hpp":
         
         # Establece el puntero a la PPU para sincronización ciclo a ciclo
         void setPPU(PPU* ppu)
+        
+        # Establece el puntero al Timer para actualización del registro DIV
+        void setTimer(Timer* timer)
         
         # Ejecuta una scanline completa (456 T-Cycles) con sincronización ciclo a ciclo
         void run_scanline()

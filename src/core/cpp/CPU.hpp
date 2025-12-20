@@ -9,6 +9,7 @@
 class MMU;
 class CoreRegisters;
 class PPU;
+class Timer;
 
 /**
  * CPU - Procesador LR35902 de la Game Boy
@@ -61,6 +62,16 @@ public:
      * @param ppu Puntero a la instancia de PPU (puede ser nullptr)
      */
     void setPPU(PPU* ppu);
+
+    /**
+     * Establece el puntero al Timer para permitir actualización del registro DIV.
+     * 
+     * Este método permite conectar el Timer a la CPU, permitiendo que run_scanline()
+     * actualice el Timer después de cada instrucción.
+     * 
+     * @param timer Puntero a la instancia de Timer (puede ser nullptr)
+     */
+    void setTimer(Timer* timer);
 
     /**
      * Ejecuta una scanline completa (456 T-Cycles) con sincronización ciclo a ciclo.
@@ -487,6 +498,7 @@ private:
     MMU* mmu_;              // Puntero a MMU (no poseído)
     CoreRegisters* regs_;   // Puntero a Registros (no poseído)
     PPU* ppu_;              // Puntero a PPU (no poseído, opcional)
+    Timer* timer_;          // Puntero a Timer (no poseído, opcional)
 
     // Contador de ciclos acumulados
     uint32_t cycles_;

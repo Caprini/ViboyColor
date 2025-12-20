@@ -4,8 +4,9 @@
 #include <cstdint>
 #include <vector>
 
-// Forward declaration para evitar dependencia circular
+// Forward declarations para evitar dependencia circular
 class PPU;
+class Timer;
 
 /**
  * MMU (Memory Management Unit) - Unidad de Gestión de Memoria
@@ -62,6 +63,17 @@ public:
      * @param ppu Puntero a la instancia de PPU (puede ser nullptr)
      */
     void setPPU(PPU* ppu);
+
+    /**
+     * Establece el puntero al Timer para permitir lectura/escritura del registro DIV.
+     * 
+     * El registro DIV (0xFF04) es actualizado dinámicamente por el Timer.
+     * Para leer el valor correcto, la MMU necesita llamar a Timer::read_div()
+     * cuando se lee 0xFF04. Para escribir, llama a Timer::write_div().
+     * 
+     * @param timer Puntero a la instancia de Timer (puede ser nullptr)
+     */
+    void setTimer(Timer* timer);
     
     /**
      * Solicita una interrupción activando el bit correspondiente en el registro IF (0xFF0F).
@@ -100,6 +112,14 @@ private:
      * el registro STAT para obtener el valor actualizado de los bits de solo lectura.
      */
     PPU* ppu_;
+
+    /**
+     * Puntero al Timer para lectura/escritura del registro DIV (0xFF04).
+     * 
+     * Este puntero se establece mediante setTimer() y se usa cuando se lee
+     * o escribe el registro DIV para obtener/actualizar el valor del contador.
+     */
+    Timer* timer_;
 };
 
 #endif // MMU_HPP

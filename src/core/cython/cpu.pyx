@@ -15,6 +15,7 @@ cimport cpu
 cimport mmu
 cimport registers
 cimport ppu
+cimport timer
 
 # NOTA: PyMMU, PyRegisters y PyPPU están definidos en mmu.pyx, registers.pyx y ppu.pyx,
 # que están incluidos en native_core.pyx. Como native_core.pyx incluye todos los módulos,
@@ -145,6 +146,27 @@ cdef class PyCPU:
             # Hacer el cast a PyPPU y acceder al atributo _ppu directamente
             ppu_obj = <PyPPU>ppu_wrapper
             self._cpu.setPPU(ppu_obj._ppu)
+    
+    cpdef set_timer(self, object timer_wrapper):
+        """
+        Conecta el Timer a la CPU para permitir actualización del registro DIV.
+        
+        Este método permite que run_scanline() actualice el Timer después de cada
+        instrucción, permitiendo que el registro DIV avance correctamente y la CPU
+        pueda salir de bucles de retardo de tiempo.
+        
+        Args:
+            timer_wrapper: Instancia de PyTimer (debe tener un método get_cpp_ptr() válido) o None
+        """
+        cdef timer.Timer* timer_ptr = NULL
+        if timer_wrapper is None:
+            # Si se pasa None, desconectamos el Timer
+            self._cpu.setTimer(NULL)
+        else:
+            # Extraer el puntero C++ subyacente desde el wrapper
+            # Hacer el cast a PyTimer y llamar al método get_cpp_ptr()
+            timer_ptr = (<PyTimer>timer_wrapper).get_cpp_ptr()
+            self._cpu.setTimer(timer_ptr)
     
     def run_scanline(self):
         """

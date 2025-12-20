@@ -13,6 +13,7 @@ from libcpp cimport bool
 # Importar la definición de la clase C++ desde el archivo .pxd
 cimport mmu
 cimport ppu
+cimport timer
 
 # NOTA: PyPPU se define en ppu.pyx, pero como native_core.pyx incluye ambos módulos,
 # PyPPU estará disponible en tiempo de ejecución. Para evitar dependencia circular,
@@ -174,6 +175,32 @@ cdef class PyMMU:
 
         # Llama al método C++ con el puntero C++ correcto
         self._mmu.setPPU(ppu_ptr)
+    
+    def set_timer(self, object timer_wrapper):
+        """
+        Conecta el Timer a la MMU para permitir lectura/escritura del registro DIV.
+        
+        El registro DIV (0xFF04) es actualizado dinámicamente por el Timer.
+        Para leer el valor correcto, la MMU necesita llamar a Timer::read_div()
+        cuando se lee 0xFF04. Para escribir, llama a Timer::write_div().
+        
+        Args:
+            timer_wrapper: Instancia de PyTimer (debe tener un método get_cpp_ptr() válido) o None
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        if timer_wrapper is None:
+            raise ValueError("Se intentó conectar un Timer nulo a la MMU.")
+        
+        # Extrae el puntero Timer* directamente del objeto wrapper PyTimer
+        # usando el método get_cpp_ptr() que devuelve el puntero directamente
+        cdef timer.Timer* timer_ptr = NULL
+        
+        # Hacer el cast a PyTimer y llamar al método get_cpp_ptr()
+        timer_ptr = (<PyTimer>timer_wrapper).get_cpp_ptr()
+        
+        # Llama al método C++ con el puntero C++ correcto
+        self._mmu.setTimer(timer_ptr)
     
     def request_interrupt(self, uint8_t bit):
         """

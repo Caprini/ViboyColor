@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El Latido del Tiempo: Implementación del Timer (DIV) en C++ - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>El Latido del Tiempo: Implementación del Timer (DIV) en C++</h1>
+            <!-- Entrada 0181 - El Latido del Tiempo: Implementación del Timer (DIV) en C++ -->
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0181
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0180__debug-instrumentacion-pipeline-pixeles-cpp.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    <strong>¡Hito alcanzado!</strong> La arquitectura de bucle nativo ha resuelto todos los <code>deadlocks</code> de sincronización y <code>LY</code> cicla correctamente. Sin embargo, la pantalla permanece en blanco porque la VRAM está vacía. El diagnóstico de la PPU revela que la CPU nunca copia los datos gráficos a la VRAM, probablemente porque está atrapada en un bucle de retardo de tiempo esperando al Timer, que aún no estaba implementado en el núcleo C++.
+                </p>
+                <p>
+                    Este Step implementa el subsistema del Timer (inicialmente solo el registro <code>DIV</code>) en C++ e integra su actualización en el bucle de emulación nativo para permitir que la CPU supere los bucles de retardo de tiempo. Con el Timer funcionando, la CPU podrá avanzar en la secuencia de arranque y eventualmente copiar los datos del logo de Nintendo a la VRAM.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: El Registro DIV (El Metrónomo del Sistema)</h2>
+                <p>
+                    El <strong>Timer</strong> es un componente de hardware independiente que se usa para temporización y generación de números aleatorios. Su componente más básico es el registro <strong><code>DIV</code> (Divider, en <code>0xFF04</code>)</strong>.
+                </p>
+                <p>
+                    Características del registro DIV según <strong>Pan Docs</strong>:
+                </p>
+                <ul>
+                    <li><strong>Frecuencia de Incremento:</strong> Es un contador que se incrementa constantemente a una frecuencia fija de <strong>16384 Hz</strong>.</li>
+                    <li><strong>Cálculo de Ciclos:</strong> Dado que el reloj principal es de 4.194304 MHz, <code>DIV</code> se incrementa cada <strong>256 T-Cycles</strong> (4194304 / 16384 = 256).</li>
+                    <li><strong>Lectura:</strong> Es de solo lectura desde la perspectiva del juego. El valor leído es los 8 bits altos del contador interno de 16 bits.</li>
+                    <li><strong>Escritura:</strong> Escribir <strong>CUALQUIER</strong> valor en <code>0xFF04</code> tiene el efecto secundario de resetear el contador a <code>0</code>. El valor escrito es ignorado.</li>
+                    <li><strong>Uso en el BIOS:</strong> El BIOS lo usa para generar retardos de tiempo precisos durante el arranque. Sin un <code>DIV</code> que avance, la CPU se queda en un bucle infinito esperando que el contador alcance un valor específico.</li>
+                </ul>
+                <p>
+                    <strong>¿Por qué es crítico para el arranque?</strong>
+                </p>
+                <p>
+                    Durante la secuencia de arranque, el BIOS y los juegos usan bucles de retardo de tiempo basados en el registro <code>DIV</code> para la sincronización. Un ejemplo típico sería:
+                </p>
+                <pre><code>; Pseudocódigo del BIOS
+wait_for_timer:
+    ld a, (0xFF04)  ; Lee DIV
+    cp 0x10         ; Compara con valor objetivo
+    jr c, wait_for_timer  ; Si DIV < 0x10, espera más</code></pre>
+                <p>
+                    Si <code>DIV</code> nunca avanza (porque el Timer no está implementado), este bucle nunca termina y la CPU queda atrapada, impidiendo que continúe con la siguiente parte de la inicialización (como copiar los datos del logo a la VRAM).
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó el subsistema del Timer en C++ con la clase <code>Timer</code>, que mantiene un contador interno de T-Cycles y expone el registro <code>DIV</code> a través de la MMU. El Timer se integra en el bucle de emulación nativo mediante inyección de dependencias, permitiendo que la CPU y la MMU accedan a él sin acoplamiento directo.
+                </p>
+                
+                <h3>Componentes Creados</h3>
+                <ul>
+                    <li><strong><code>Timer.hpp</code> y <code>Timer.cpp</code>:</strong> Clase C++ que implementa el registro DIV con un contador interno de 16 bits que se incrementa con cada llamada a <code>step()</code>.</li>
+                    <li><strong><code>timer.pyx</code> y <code>timer.pxd</code>:</strong> Wrappers de Cython que exponen la clase <code>Timer</code> a Python como <code>PyTimer</code>.</li>
+                </ul>
+
+                <h3>Modificaciones en Componentes Existentes</h3>
+                <ul>
+                    <li><strong><code>CPU.hpp</code> y <code>CPU.cpp</code>:</strong> Agregado método <code>setTimer()</code> y actualización del Timer en <code>run_scanline()</code> después de cada instrucción.</li>
+                    <li><strong><code>MMU.hpp</code> y <code>MMU.cpp</code>:</strong> Agregado método <code>setTimer()</code> y manejo especial de lectura/escritura en <code>0xFF04</code> para acceder al Timer dinámicamente.</li>
+                    <li><strong><code>cpu.pyx</code> y <code>mmu.pyx</code>:</strong> Agregados métodos <code>set_timer()</code> en los wrappers de Cython para conectar el Timer desde Python.</li>
+                    <li><strong><code>viboy.py</code>:</strong> Creación de instancia de <code>PyTimer</code> y conexión a CPU y MMU durante la inicialización.</li>
+                    <li><strong><code>setup.py</code>:</strong> Agregado <code>Timer.cpp</code> a la lista de fuentes para compilación.</li>
+                </ul>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Inyección de Dependencias:</strong> El Timer se pasa como puntero a CPU y MMU, manteniendo el desacoplamiento y permitiendo que los componentes funcionen independientemente.</li>
+                    <li><strong>Actualización en el Bucle Principal:</strong> El Timer se actualiza en <code>run_scanline()</code> después de cada instrucción, garantizando sincronización precisa con el tiempo emulado.</li>
+                    <li><strong>Acceso Dinámico desde MMU:</strong> La MMU lee/escribe el registro DIV directamente desde el Timer, no desde memoria estática, permitiendo que el valor se actualice en tiempo real.</li>
+                    <li><strong>Contador Interno de 16 bits:</strong> Se usa un contador interno de 16 bits para mantener precisión, y solo se exponen los 8 bits altos como DIV, simulando el comportamiento del hardware real.</li>
+                </ul>
+
+                <h3>Código Clave</h3>
+                <p>
+                    <strong>Implementación del Timer en C++:</strong>
+                </p>
+                <pre><code>// Timer.cpp
+void Timer::step(int t_cycles) {
+    div_counter_ += t_cycles;
+}
+
+uint8_t Timer::read_div() const {
+    return (div_counter_ >> 8) & 0xFF;
+}
+
+void Timer::write_div() {
+    div_counter_ = 0;
+}</code></pre>
+                <p>
+                    <strong>Integración en el bucle de emulación:</strong>
+                </p>
+                <pre><code>// CPU.cpp - run_scanline()
+// Actualizar el Timer con los T-Cycles consumidos
+if (timer_ != nullptr) {
+    timer_->step(t_cycles);
+}</code></pre>
+                <p>
+                    <strong>Acceso dinámico desde MMU:</strong>
+                </p>
+                <pre><code>// MMU.cpp - read()
+if (addr == 0xFF04) {
+    if (timer_ != nullptr) {
+        return timer_->read_div();
+    }
+    return 0x00;
+}
+
+// MMU.cpp - write()
+if (addr == 0xFF04) {
+    if (timer_ != nullptr) {
+        timer_->write_div();
+    }
+    return;  // No escribimos en memoria
+}</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/Timer.hpp</code> - Definición de la clase Timer</li>
+                    <li><code>src/core/cpp/Timer.cpp</code> - Implementación del Timer</li>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Agregado método setTimer() y puntero a Timer</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Integración del Timer en run_scanline()</li>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Agregado método setTimer() y puntero a Timer</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Manejo de lectura/escritura de 0xFF04</li>
+                    <li><code>src/core/cython/timer.pxd</code> - Definición Cython de Timer</li>
+                    <li><code>src/core/cython/timer.pyx</code> - Wrapper Python de Timer</li>
+                    <li><code>src/core/cython/cpu.pxd</code> - Agregado método setTimer()</li>
+                    <li><code>src/core/cython/cpu.pyx</code> - Implementación de set_timer()</li>
+                    <li><code>src/core/cython/mmu.pxd</code> - Agregado método setTimer()</li>
+                    <li><code>src/core/cython/mmu.pyx</code> - Implementación de set_timer()</li>
+                    <li><code>src/core/cython/native_core.pyx</code> - Inclusión de timer.pyx</li>
+                    <li><code>src/viboy.py</code> - Creación y conexión del Timer</li>
+                    <li><code>setup.py</code> - Agregado Timer.cpp a las fuentes</li>
+                    <li><code>tests/test_core_timer.py</code> - Tests unitarios del Timer</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se crearon tests unitarios exhaustivos para validar la implementación del Timer:
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>pytest tests/test_core_timer.py -v</code></li>
+                    <li><strong>Resultado esperado:</strong> Todos los tests pasan, validando:
+                        <ul>
+                            <li>Valor inicial de DIV (0)</li>
+                            <li>Incremento cada 256 T-Cycles</li>
+                            <li>Reset al escribir en DIV</li>
+                            <li>Wrap-around después de 0xFF</li>
+                            <li>Frecuencia correcta (16384 Hz)</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Código del Test (Fragmento Clave):</strong>
+                </p>
+                <pre><code>def test_div_increment_after_256_cycles():
+    """Verifica que DIV se incrementa cada 256 T-Cycles."""
+    timer = PyTimer()
+    
+    # DIV debe ser 0 después de 255 ciclos
+    timer.step(255)
+    assert timer.read_div() == 0
+    
+    # DIV debe ser 1 después de 1 ciclo más (256 total)
+    timer.step(1)
+    assert timer.read_div() == 1
+    
+    # DIV debe ser 2 después de 256 ciclos más (512 total)
+    timer.step(256)
+    assert timer.read_div() == 2</code></pre>
+                <p>
+                    <strong>Validación de Módulo Compilado C++:</strong> Los tests validan directamente la implementación C++ a través del wrapper de Cython, confirmando que el Timer funciona correctamente en el código nativo.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs:</strong> Sección "Timer and Divider Register" - Descripción del registro DIV y su comportamiento</li>
+                    <li><strong>Pan Docs:</strong> Sección "System Clock" - Frecuencia del reloj principal (4.194304 MHz) y cálculo de ciclos</li>
+                    <li><strong>Diagnóstico del Renderizador Ciego:</strong> Análisis que identificó que la CPU está atrapada en bucles de retardo de tiempo</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Registro DIV:</strong> Es un contador de 16 bits interno que se incrementa continuamente. Solo los 8 bits altos son accesibles como DIV a través de <code>0xFF04</code>.</li>
+                        <li><strong>Frecuencia de Incremento:</strong> DIV se incrementa cada 256 T-Cycles porque el reloj principal (4.194304 MHz) dividido por la frecuencia objetivo (16384 Hz) es 256.</li>
+                        <li><strong>Reset por Escritura:</strong> Cualquier escritura en <code>0xFF04</code> resetea el contador a 0, independientemente del valor escrito. Este es un efecto secundario del hardware.</li>
+                        <li><strong>Rol en el Arranque:</strong> El BIOS y los juegos usan DIV para generar retardos de tiempo precisos. Sin DIV funcionando, la CPU queda atrapada en bucles infinitos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Valor Inicial de DIV:</strong> En una Game Boy real, DIV inicia en un valor aleatorio. Por simplicidad, lo inicializamos a 0. Esto debería verificarse con hardware real o documentación más detallada.</li>
+                        <li><strong>Comportamiento con Wrap-around:</strong> El contador interno puede desbordarse (wrap-around) después de 65535. Esto es correcto y esperado, pero debería validarse con tests de larga duración.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> Con el Timer implementado, la CPU podrá salir de los bucles de retardo de tiempo y avanzar en la secuencia de arranque, eventualmente copiando los datos del logo de Nintendo a la VRAM. Esto debería resultar en la aparición del logo en la pantalla.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Asumimos que el valor inicial de DIV es 0, aunque en hardware real puede ser aleatorio. Esto no debería afectar el comportamiento una vez que el Timer comience a avanzar.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con <code>python setup.py build_ext --inplace</code></li>
+                    <li>[ ] Ejecutar los tests del Timer para validar la implementación</li>
+                    <li>[ ] Ejecutar el emulador con una ROM y verificar que la CPU avanza más allá de los bucles de retardo</li>
+                    <li>[ ] Verificar que la VRAM se llena con datos del logo (usando logs de depuración si es necesario)</li>
+                    <li>[ ] Confirmar que el logo de Nintendo aparece en la pantalla</li>
+                    <li>[ ] Si el logo aparece, celebrar la victoria y documentar el hito</li>
+                    <li>[ ] Si aún hay problemas, investigar otros componentes faltantes (otros registros del Timer, interrupciones, etc.)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

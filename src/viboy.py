@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING
 
 # Importar componentes C++ (core nativo)
 try:
-    from viboy_core import PyCPU, PyMMU, PyPPU, PyRegisters
+    from viboy_core import PyCPU, PyMMU, PyPPU, PyRegisters, PyTimer
     CPP_CORE_AVAILABLE = True
 except ImportError:
     # Fallback a componentes Python si C++ no está compilado
@@ -40,6 +40,7 @@ except ImportError:
     PyMMU = None  # type: ignore
     PyPPU = None  # type: ignore
     PyRegisters = None  # type: ignore
+    PyTimer = None  # type: ignore
     CPP_CORE_AVAILABLE = False
     logger.warning("viboy_core no disponible. Usando componentes Python (más lentos).")
 
@@ -206,13 +207,18 @@ class Viboy:
             self._mmu = PyMMU()
             # Cargar ROM en MMU C++
             self._mmu.load_rom_py(rom_data)
-            # Inicializar CPU y PPU con componentes C++
+            # Inicializar CPU, PPU y Timer con componentes C++
             self._cpu = PyCPU(self._mmu, self._regs)
             self._ppu = PyPPU(self._mmu)
+            self._timer = PyTimer()
             # CRÍTICO: Conectar PPU a MMU para lectura dinámica del registro STAT (0xFF41)
             self._mmu.set_ppu(self._ppu)
             # CRÍTICO: Conectar PPU a CPU para sincronización ciclo a ciclo
             self._cpu.set_ppu(self._ppu)
+            # CRÍTICO: Conectar Timer a CPU y MMU para actualización del registro DIV (0xFF04)
+            self._cpu.set_timer(self._timer)
+            self._mmu.set_timer(self._timer)
+            print("⏰ Timer C++ conectado al sistema.")
         else:
             # Usar componentes Python (fallback)
             self._mmu = MMU(self._cartridge)

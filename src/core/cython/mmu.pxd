@@ -9,9 +9,13 @@ pueda generar el código de enlace correcto.
 
 from libc.stdint cimport uint8_t, uint16_t
 
-# Forward declaration de PPU (evitar dependencia circular)
+# Forward declarations (evitar dependencia circular)
 cdef extern from "PPU.hpp":
     cdef cppclass PPU:
+        pass
+
+cdef extern from "Timer.hpp":
+    cdef cppclass Timer:
         pass
 
 cdef extern from "MMU.hpp":
@@ -21,5 +25,6 @@ cdef extern from "MMU.hpp":
         void write(uint16_t addr, uint8_t value)
         void load_rom(const uint8_t* data, size_t size)
         void setPPU(PPU* ppu)
+        void setTimer(Timer* timer)
         void request_interrupt(uint8_t bit)
 

@@ -2,6 +2,7 @@
 #include "MMU.hpp"
 #include "Registers.hpp"
 #include "PPU.hpp"
+#include "Timer.hpp"
 #include <cstdio>
 
 // Variables estáticas para logging de diagnóstico con sistema "disparado" (triggered)
@@ -13,7 +14,7 @@ static int debug_instruction_counter = 0;       // Contador post-activación
 static const int DEBUG_INSTRUCTION_LIMIT = 200;  // Límite post-activación (Step 0169: aumentado para capturar bucles)
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
-    : mmu_(mmu), regs_(registers), ppu_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
+    : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
     // Validación básica (en producción, podríamos usar assert)
     // Por ahora, confiamos en que Python pasa punteros válidos
     // IME inicia en false por seguridad (el juego lo activará si lo necesita)
@@ -1797,6 +1798,10 @@ void CPU::setPPU(PPU* ppu) {
     ppu_ = ppu;
 }
 
+void CPU::setTimer(Timer* timer) {
+    timer_ = timer;
+}
+
 void CPU::run_scanline() {
     // Si la PPU no está conectada, no podemos ejecutar el bucle de scanline
     if (ppu_ == nullptr) {
@@ -1836,6 +1841,13 @@ void CPU::run_scanline() {
         // Esto permite que la PPU cambie de modo en los ciclos exactos
         // y resuelve los deadlocks de polling
         ppu_->step(t_cycles);
+        
+        // Actualizar el Timer con los T-Cycles consumidos
+        // Esto permite que el registro DIV avance correctamente
+        // y la CPU pueda salir de bucles de retardo de tiempo
+        if (timer_ != nullptr) {
+            timer_->step(t_cycles);
+        }
         
         // Acumular ciclos para esta scanline
         cycles_this_scanline += t_cycles;

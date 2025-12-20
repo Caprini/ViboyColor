@@ -1,8 +1,9 @@
 #include "MMU.hpp"
 #include "PPU.hpp"
+#include "Timer.hpp"
 #include <cstring>
 
-MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr) {
+MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr) {
     // Inicializar memoria a 0
     // CRÍTICO: En una Game Boy real, la Boot ROM inicializa BGP (0xFF47) a 0xE4
     // Por ahora, lo haremos en el wrapper Python o cuando se necesite
@@ -48,6 +49,16 @@ uint8_t MMU::read(uint16_t addr) const {
         return 0x02;
     }
     
+    // CRÍTICO: El registro DIV (0xFF04) es actualizado dinámicamente por el Timer
+    // La MMU es la dueña de la memoria, así que leemos el valor desde el Timer
+    if (addr == 0xFF04) {
+        if (timer_ != nullptr) {
+            return timer_->read_div();
+        }
+        // Si el Timer no está conectado, devolver valor por defecto
+        return 0x00;
+    }
+    
     // Acceso directo al array: O(1), sin overhead de Python
     return memory_[addr];
 }
@@ -58,6 +69,18 @@ void MMU::write(uint16_t addr, uint8_t value) {
     
     // Enmascarar el valor a 8 bits
     value &= 0xFF;
+    
+    // CRÍTICO: El registro DIV (0xFF04) tiene comportamiento especial
+    // Cualquier escritura en 0xFF04 resetea el contador del Timer a 0
+    // El valor escrito es ignorado
+    if (addr == 0xFF04) {
+        if (timer_ != nullptr) {
+            timer_->write_div();
+        }
+        // No escribimos en memoria porque DIV no es un registro de memoria real
+        // Es un registro de hardware que se lee/escribe dinámicamente
+        return;
+    }
     
     // Escritura directa: O(1), sin overhead de Python
     memory_[addr] = value;
@@ -74,6 +97,10 @@ void MMU::load_rom(const uint8_t* data, size_t size) {
 
 void MMU::setPPU(PPU* ppu) {
     ppu_ = ppu;
+}
+
+void MMU::setTimer(Timer* timer) {
+    timer_ = timer;
 }
 
 void MMU::request_interrupt(uint8_t bit) {
