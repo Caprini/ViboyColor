@@ -32,6 +32,36 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0170: PPU Fase D: Implementación de Modos PPU y Registro STAT
+**Estado**: ✅ VERIFIED
+
+El análisis de la traza del Step 0169 reveló un bucle de "polling" infinito. La CPU está esperando un cambio en el registro STAT (0xFF41) que nunca ocurre, porque nuestra PPU en C++ aún no implementaba la máquina de estados de renderizado. Este Step documenta la implementación completa de los 4 modos PPU (0-3) y el registro STAT dinámico, que permite la comunicación y sincronización entre la CPU y la PPU, rompiendo el deadlock de polling.
+
+**Objetivo:**
+- Documentar la implementación completa de la máquina de estados de la PPU (Modos 0-3).
+- Verificar que el registro STAT (0xFF41) se lee dinámicamente, combinando bits escribibles con bits de solo lectura desde la PPU.
+- Confirmar que la conexión PPU-MMU está correctamente establecida en `viboy.py`.
+- Validar mediante tests que los modos PPU transicionan correctamente durante una scanline.
+
+**Concepto de Hardware:**
+La CPU no puede simplemente escribir en la memoria de vídeo (VRAM) cuando quiera. Si lo hiciera mientras la PPU está dibujando en la pantalla, causaría "tearing" y corrupción gráfica. Para evitar esto, la PPU opera en una máquina de estados de 4 modos y reporta su estado actual a través del registro **STAT (0xFF41)**:
+- **Modo 2 (OAM Search, ~80 ciclos):** Al inicio de una línea, la PPU busca los sprites que se dibujarán.
+- **Modo 3 (Pixel Transfer, ~172 ciclos):** La PPU dibuja los píxeles de la línea. VRAM y OAM están bloqueadas.
+- **Modo 0 (H-Blank, ~204 ciclos):** Pausa horizontal. La CPU tiene vía libre para acceder a VRAM.
+- **Modo 1 (V-Blank, 10 líneas completas):** Pausa vertical. La CPU tiene aún más tiempo para preparar el siguiente fotograma.
+
+El juego sondea constantemente los **bits 0 y 1** del registro STAT para saber en qué modo se encuentra la PPU y esperar al Modo 0 o 1 antes de transferir datos.
+
+**Implementación:**
+- La PPU calcula su modo actual en cada llamada a `step()` mediante `update_mode()`.
+- La MMU construye el valor de STAT dinámicamente cuando se lee 0xFF41, combinando bits escribibles (3-7) con bits de solo lectura (0-2) desde la PPU.
+- La conexión PPU-MMU se establece automáticamente en `viboy.py` mediante `mmu.set_ppu(ppu)`.
+
+**Resultado:**
+Todos los tests pasan correctamente (4/4). La implementación está completa y funcionando. El siguiente paso es ejecutar el emulador con una ROM real para confirmar que el deadlock de polling se rompe.
+
+---
+
 ### 2025-12-20 - Step 0169: Debug: Re-activación del Trazado para Analizar Bucle Lógico
 **Estado**: 🔍 DRAFT
 

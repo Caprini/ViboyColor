@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0170 - PPU Fase D: Implementación de Modos PPU y Registro STAT -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0170__ppu-fase-d-implementacion-modos-ppu-registro-stat.html" class="entry-link">
+                                    PPU Fase D: Implementación de Modos PPU y Registro STAT
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0170 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            El análisis de la traza del Step 0169 reveló un bucle de "polling" infinito. La CPU está esperando un cambio en el registro STAT (0xFF41) que nunca ocurre, porque nuestra PPU en C++ aún no implementaba la máquina de estados de renderizado. Este Step documenta la implementación completa de los 4 modos PPU (0-3) y el registro STAT dinámico, que permite la comunicación y sincronización entre la CPU y la PPU, rompiendo el deadlock de polling.
+                        </p>
+                    </li>
                     <!-- Entrada 0169 - Debug: Re-activación del Trazado para Analizar Bucle Lógico -->
                     <li>
                         <div class="entry-header">

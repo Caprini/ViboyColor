@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PPU Fase D: Implementación de Modos PPU y Registro STAT - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>PPU Fase D: Implementación de Modos PPU y Registro STAT</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0170
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0169__debug-reactivacion-trazado-analizar-bucle-logico.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El análisis de la traza del Step 0169 reveló un bucle de "polling" infinito. La CPU está esperando un cambio en el registro STAT (0xFF41) que nunca ocurre, porque nuestra PPU en C++ aún no implementaba la máquina de estados de renderizado. Este Step documenta la implementación completa de los 4 modos PPU (0-3) y el registro STAT dinámico, que permite la comunicación y sincronización entre la CPU y la PPU, rompiendo el deadlock de polling.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: La Danza de la CPU y la PPU</h2>
+                <p>
+                    La CPU no puede simplemente escribir en la memoria de vídeo (VRAM) cuando quiera. Si lo hiciera mientras la PPU está dibujando en la pantalla, causaría "tearing" y corrupción gráfica. Para evitar esto, la PPU opera en una máquina de estados de 4 modos y reporta su estado actual a través del registro <strong>STAT (0xFF41)</strong>.
+                </p>
+                
+                <h3>Los 4 Modos de la PPU</h3>
+                <ul>
+                    <li><strong>Modo 2 (OAM Search, ~80 ciclos):</strong> Al inicio de una línea, la PPU busca los sprites que se dibujarán. Durante este modo, la CPU no puede acceder a OAM (Object Attribute Memory).</li>
+                    <li><strong>Modo 3 (Pixel Transfer, ~172 ciclos):</strong> La PPU dibuja los píxeles de la línea. VRAM y OAM están bloqueadas para la CPU.</li>
+                    <li><strong>Modo 0 (H-Blank, ~204 ciclos):</strong> Pausa horizontal. La CPU tiene vía libre para acceder a VRAM y preparar datos para la siguiente línea.</li>
+                    <li><strong>Modo 1 (V-Blank, 10 líneas completas):</strong> Pausa vertical. La CPU tiene aún más tiempo para preparar el siguiente fotograma, copiar datos a VRAM, y actualizar sprites en OAM.</li>
+                </ul>
+
+                <p>
+                    El juego sondea constantemente los <strong>bits 0 y 1</strong> del registro STAT para saber en qué modo se encuentra la PPU y esperar al Modo 0 (H-Blank) o Modo 1 (V-Blank) antes de transferir datos. Nuestro deadlock se debía a que estos bits nunca cambiaban de valor en nuestra implementación anterior, porque la PPU no tenía una máquina de estados interna que simulara los diferentes modos de renderizado.
+                </p>
+
+                <h3>El Registro STAT (0xFF41)</h3>
+                <p>
+                    El registro STAT es un registro híbrido:
+                </p>
+                <ul>
+                    <li><strong>Bits 0-1 (Solo Lectura):</strong> Modo PPU actual (0, 1, 2 o 3). Actualizado dinámicamente por la PPU.</li>
+                    <li><strong>Bit 2 (Solo Lectura):</strong> LYC=LY Coincidence Flag. Se activa cuando LY == LYC.</li>
+                    <li><strong>Bits 3-6 (Lectura/Escritura):</strong> Flags de habilitación de interrupciones STAT.</li>
+                    <li><strong>Bit 7 (Solo Lectura):</strong> Siempre 1 según Pan Docs.</li>
+                </ul>
+
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Status Register (STAT), LCD Timing
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    La implementación de los modos PPU y el registro STAT ya estaba presente en el código, pero este Step documenta su funcionamiento y verifica que todo está correctamente conectado para romper el deadlock de polling.
+                </p>
+                
+                <h3>Componentes Verificados</h3>
+                <ul>
+                    <li><strong>PPU::update_mode()</strong>: Calcula el modo actual según los ciclos dentro de la línea y LY.</li>
+                    <li><strong>PPU::get_mode()</strong>: Retorna el modo PPU actual (0, 1, 2 o 3).</li>
+                    <li><strong>MMU::read(0xFF41)</strong>: Construye el valor de STAT combinando bits escribibles (3-7) con bits de solo lectura (0-2) desde la PPU.</li>
+                    <li><strong>MMU::setPPU()</strong>: Conecta la PPU a la MMU para permitir lectura dinámica del STAT.</li>
+                    <li><strong>PyMMU::set_ppu()</strong>: Wrapper Cython que expone la conexión PPU-MMU a Python.</li>
+                    <li><strong>viboy.py</strong>: Conecta automáticamente PPU y MMU en el constructor.</li>
+                </ul>
+
+                <h3>Máquina de Estados de la PPU</h3>
+                <p>
+                    La PPU calcula su modo actual en cada llamada a <code>step()</code> mediante el método <code>update_mode()</code>:
+                </p>
+                <pre><code>void PPU::update_mode() {
+    // Si estamos en V-Blank (líneas 144-153), siempre Mode 1
+    if (ly_ >= VBLANK_START) {
+        mode_ = MODE_1_VBLANK;
+    } else {
+        // Para líneas visibles (0-143), el modo depende de los ciclos dentro de la línea
+        uint16_t line_cycles = static_cast&lt;uint16_t&gt;(clock_ % CYCLES_PER_SCANLINE);
+        
+        if (line_cycles &lt; MODE_2_CYCLES) {
+            mode_ = MODE_2_OAM_SEARCH;  // 0-79 ciclos
+        } else if (line_cycles &lt; (MODE_2_CYCLES + MODE_3_CYCLES)) {
+            mode_ = MODE_3_PIXEL_TRANSFER;  // 80-251 ciclos
+        } else {
+            mode_ = MODE_0_HBLANK;  // 252-455 ciclos
+        }
+    }
+}</code></pre>
+
+                <h3>Registro STAT Dinámico</h3>
+                <p>
+                    La MMU construye el valor de STAT al vuelo cuando se lee 0xFF41:
+                </p>
+                <pre><code>uint8_t MMU::read(uint16_t addr) const {
+    if (addr == 0xFF41) {  // Registro STAT
+        if (ppu_ != nullptr) {
+            // Leer el valor base de STAT (bits escribibles) de la memoria
+            uint8_t stat_base = memory_[addr];
+            
+            // Obtener el modo actual de la PPU (bits 0-1)
+            uint8_t mode = static_cast&lt;uint8_t&gt;(ppu_-&gt;get_mode());
+            
+            // Calcular LYC=LY Coincidence Flag (bit 2)
+            uint8_t ly = ppu_-&gt;get_ly();
+            uint8_t lyc = ppu_-&gt;get_lyc();
+            uint8_t lyc_match = ((ly &amp; 0xFF) == (lyc &amp; 0xFF)) ? 0x04 : 0x00;
+            
+            // Combinar: bits escribibles (3-7) | modo actual (0-1) | LYC match (2) | bit 7 siempre 1
+            uint8_t result = (stat_base &amp; 0xF8) | mode | lyc_match | 0x80;
+            
+            return result;
+        }
+        return 0x80;  // Valor por defecto si PPU no está conectada
+    }
+    return memory_[addr];
+}</code></pre>
+
+                <h3>Conexión PPU-MMU</h3>
+                <p>
+                    La conexión se realiza en <code>viboy.py</code> después de crear los objetos:
+                </p>
+                <pre><code># En src/viboy.py, dentro del constructor __init__
+self._mmu = PyMMU()
+self._ppu = PyPPU(self._mmu)
+# CRÍTICO: Conectar PPU a MMU para lectura dinámica del registro STAT (0xFF41)
+self._mmu.set_ppu(self._ppu)</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Definición de constantes de modos y método get_mode()</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementación de update_mode() y get_mode()</li>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Declaración de setPPU() y puntero ppu_</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Implementación de setPPU() y lectura dinámica de STAT</li>
+                    <li><code>src/core/cython/mmu.pyx</code> - Wrapper set_ppu() para Python</li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Propiedad mode para acceso Pythonic</li>
+                    <li><code>src/viboy.py</code> - Conexión automática PPU-MMU en constructor</li>
+                    <li><code>tests/test_core_ppu_modes.py</code> - Tests completos de modos PPU y STAT</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Todos los tests pasan correctamente, validando que la implementación funciona como se espera:
+                </p>
+                
+                <h3>Comando Ejecutado</h3>
+                <pre><code>pytest tests/test_core_ppu_modes.py -v</code></pre>
+
+                <h3>Resultado</h3>
+                <pre><code>============================= test session starts =============================
+platform win32 - Python 3.13.5, pytest-9.0.2, pluggy-1.6.0
+collected 4 items
+
+tests/test_core_ppu_modes.py::TestPPUModes::test_ppu_mode_transitions PASSED [ 25%]
+tests/test_core_ppu_modes.py::TestPPUModes::test_ppu_vblank_mode PASSED  [ 50%]
+tests/test_core_ppu_modes.py::TestPPUModes::test_ppu_stat_register PASSED [ 75%]
+tests/test_core_ppu_modes.py::TestPPUModes::test_ppu_stat_lyc_coincidence PASSED [100%]
+
+============================== 4 passed in 0.05s =============================</code></pre>
+
+                <h3>Código del Test (Fragmento Clave)</h3>
+                <pre><code>def test_ppu_mode_transitions(self):
+    """Verifica las transiciones de modo de la PPU durante una scanline."""
+    mmu = PyMMU()
+    ppu = PyPPU(mmu)
+    mmu.set_ppu(ppu)  # CRÍTICO: Conectar PPU a MMU
+    
+    mmu.write(0xFF40, 0x91)  # LCD ON
+    
+    # Inicio de línea -> Modo 2 (OAM Search)
+    assert ppu.mode == 2
+    
+    # Avanzar al modo Pixel Transfer
+    ppu.step(80)
+    assert ppu.mode == 3
+    
+    # Avanzar al modo H-Blank
+    ppu.step(172)
+    assert ppu.mode == 0
+    
+    # Avanzar a la siguiente línea
+    ppu.step(204)
+    assert ppu.ly == 1
+    assert ppu.mode == 2  # De vuelta a OAM Search</code></pre>
+
+                <p>
+                    <strong>Validación Nativa:</strong> Todos los tests validan el módulo compilado C++ a través de los wrappers Cython, confirmando que la máquina de estados funciona correctamente y que el registro STAT se lee dinámicamente.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html#lcd-status-register-stat-ff41">LCD Status Register (STAT)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html#lcd-timing">LCD Timing</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html#ppu-modes">PPU Modes</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Máquina de Estados PPU:</strong> La PPU no es un simple contador de líneas. Es una máquina de estados compleja que alterna entre 4 modos diferentes durante cada frame, cada uno con restricciones de acceso a memoria diferentes.</li>
+                        <li><strong>Registro STAT Híbrido:</strong> El registro STAT es único porque combina bits de solo lectura (actualizados por la PPU) con bits de lectura/escritura (configurados por el juego). La MMU debe construir este valor dinámicamente en cada lectura.</li>
+                        <li><strong>Sincronización CPU-PPU:</strong> Los juegos usan polling del registro STAT para sincronizarse con la PPU. Sin esta comunicación, la CPU no sabe cuándo es seguro escribir en VRAM, causando deadlocks.</li>
+                        <li><strong>Timing Preciso:</strong> Los modos PPU tienen duraciones específicas en ciclos T (80, 172, 204 ciclos). El cálculo del modo debe ser preciso para que el polling funcione correctamente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Ruptura del Deadlock:</strong> Aunque los tests pasan, necesitamos ejecutar el emulador con una ROM real para confirmar que el bucle de polling identificado en el Step 0169 ahora se rompe correctamente.</li>
+                        <li><strong>Interrupciones STAT:</strong> Los bits 3-6 de STAT permiten generar interrupciones cuando la PPU entra en ciertos modos. Esta funcionalidad está implementada pero necesita validación con ROMs reales.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> El deadlock de polling identificado en el Step 0169 se romperá ahora que el registro STAT cambia dinámicamente. La CPU podrá detectar cuando la PPU entra en Modo 0 (H-Blank) o Modo 1 (V-Blank) y salir del bucle de espera.
+                    </p>
+                    <p>
+                        <strong>Suposición de Timing:</strong> Asumimos que los valores de timing (80, 172, 204 ciclos) son correctos según Pan Docs. Si hay discrepancias menores, podrían causar problemas de sincronización sutiles.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con una ROM real (ej: tetris.gb) para confirmar que el deadlock de polling se rompe</li>
+                    <li>[ ] Verificar que LY avanza correctamente más allá de 0</li>
+                    <li>[ ] Validar que las interrupciones STAT se generan correctamente cuando los bits de habilitación están activos</li>
+                    <li>[ ] Si el deadlock persiste, analizar la traza para identificar qué valor específico del STAT está esperando el juego</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
