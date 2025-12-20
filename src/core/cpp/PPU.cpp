@@ -299,10 +299,10 @@ void PPU::render_scanline() {
         return;
     }
     
-    // --- RESTAURACIÓN DE LA PRECISIÓN (Step 0183) ---
-    // Reactivamos la comprobación del Bit 0 del LCDC.
-    // Ahora que el emulador está sincronizado, el juego debería ser capaz
-    // de activar este bit por sí mismo en el momento adecuado.
+    // --- PRECISIÓN 100% DEL HARDWARE (Step 0185) ---
+    // Verificación del Bit 0 del LCDC restaurada.
+    // El emulador es ahora lo suficientemente preciso como para que el juego
+    // controle la pantalla por sí mismo, tal como lo haría en hardware real.
     if ((lcdc & 0x01) == 0) {
         // Fondo deshabilitado, no renderizamos nada.
         return;

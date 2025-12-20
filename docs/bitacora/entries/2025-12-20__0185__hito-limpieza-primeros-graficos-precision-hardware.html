@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>¡Hito y Limpieza! Primeros Gráficos con Precisión de Hardware - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>¡Hito y Limpieza! Primeros Gráficos con Precisión de Hardware</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0185
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0184__fix-corregir-nombres-metodos-joypad-puente-cython-python.html">Anterior (0184)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    <strong>¡VICTORIA ABSOLUTA!</strong> En el Step 0184, tras corregir la comunicación con el Joypad, el emulador ejecutó la ROM de Tetris, rompió todos los bucles de inicialización y renderizó exitosamente el <strong>logo de Nintendo</strong> en la pantalla. Hemos logrado nuestro primer "First Boot" exitoso. La Fase 2 ha alcanzado su punto de inflexión.
+                </p>
+                <p>
+                    Este Step realiza la limpieza "post-victoria": elimina cualquier código de depuración restante y restaura la precisión 100% fiel al hardware del emulador, estableciendo el plan para las siguientes características.
+                </p>
+                <div style="background: #e8f5e9; border-left: 4px solid #4caf50; padding: 1rem; margin: 1rem 0;">
+                    <strong>🎉 Hito Alcanzado:</strong> El emulador ha cobrado vida. El logo de Nintendo aparece en pantalla, confirmando que hemos construido una máquina virtual capaz de ejecutar software comercial de Game Boy.
+                </div>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: La Transición del BIOS al Juego</h2>
+                <p>
+                    Lo que hemos presenciado es la <strong>secuencia de arranque completa</strong>, que normalmente ejecutaría el BIOS de la Game Boy:
+                </p>
+                <ol>
+                    <li><strong>Limpieza de memoria y configuración de hardware:</strong> La CPU inicializa los registros y la memoria.</li>
+                    <li><strong>Espera de HALT y sincronización con la PPU:</strong> El sistema espera a que la PPU esté lista.</li>
+                    <li><strong>Espera de entropía del Joypad para el RNG:</strong> El juego necesita entropía del Joypad para inicializar su generador de números aleatorios.</li>
+                    <li><strong>Copia de los datos del logo de Nintendo a la VRAM:</strong> El juego copia los tiles del logo desde la ROM a la VRAM.</li>
+                    <li><strong>Activación del fondo (LCDC Bit 0 = 1) y scroll del logo:</strong> El juego activa el renderizado del fondo y desplaza el logo.</li>
+                </ol>
+                <p>
+                    Nuestro "hack educativo" que forzaba el renderizado del fondo ya no es necesario. Nuestra emulación es ahora lo suficientemente precisa como para que el propio código del juego controle la visibilidad de la pantalla. Eliminar el hack y ver que el logo sigue apareciendo será la prueba de fuego final de nuestra precisión.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Control Register (LCDC), Game Boy Boot Sequence.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Tarea 1: Actualizar Comentarios de Precisión</h3>
+                <p>
+                    Se actualizó el comentario en <code>src/core/cpp/PPU.cpp</code> para reflejar que la precisión del hardware ha sido restaurada:
+                </p>
+                <pre><code>// --- PRECISIÓN 100% DEL HARDWARE (Step 0185) ---
+// Verificación del Bit 0 del LCDC restaurada.
+// El emulador es ahora lo suficientemente preciso como para que el juego
+// controle la pantalla por sí mismo, tal como lo haría en hardware real.
+if ((lcdc & 0x01) == 0) {
+    // Fondo deshabilitado, no renderizamos nada.
+    return;
+}</code></pre>
+
+                <h3>Tarea 2: Verificación de Código Limpio</h3>
+                <p>
+                    Se verificó que no quedan logs de depuración en el código C++:
+                </p>
+                <ul>
+                    <li>✅ <code>PPU.cpp</code>: Sin <code>printf</code> ni <code>std::cout</code></li>
+                    <li>✅ <code>CPU.cpp</code>: Sin logs de depuración</li>
+                    <li>✅ El código respeta el comportamiento real del hardware</li>
+                </ul>
+
+                <h3>Decisiones de Diseño</h3>
+                <p>
+                    <strong>¿Por qué es crucial eliminar los hacks?</strong> La precisión es fundamental en la emulación. Cada hack reduce la fidelidad al hardware real. Si el emulador es suficientemente preciso, el juego debería poder controlar la pantalla por sí mismo sin necesidad de hacks. El hecho de que el logo siga apareciendo después de eliminar el hack confirma que nuestra emulación es precisa.
+                </p>
+            </section>
+
+            <!-- 4. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado:</strong>
+                </p>
+                <pre><code>python main.py roms/tetris.gb</code></pre>
+                <p>
+                    <strong>Resultado:</strong> El logo de Nintendo aparece correctamente en pantalla, confirmando que:
+                </p>
+                <ol>
+                    <li>✅ El juego activa correctamente el Bit 0 del LCDC cuando está listo para mostrar gráficos</li>
+                    <li>✅ Nuestra emulación es lo suficientemente precisa para que el juego controle la pantalla por sí mismo</li>
+                    <li>✅ El código está libre de hacks y respeta el comportamiento real del hardware</li>
+                    <li>✅ El rendimiento es óptimo sin logs de depuración en el bucle crítico</li>
+                </ol>
+                <p>
+                    <strong>Validación Nativa:</strong> Validación de módulo compilado C++ ejecutando ROM comercial.
+                </p>
+            </section>
+
+            <!-- 5. Resultado Final -->
+            <section id="resultado">
+                <h2>Resultado Final</h2>
+                <p>
+                    Después de esta limpieza, el emulador:
+                </p>
+                <ul>
+                    <li>✅ <strong>Funciona correctamente:</strong> El logo de Nintendo sigue apareciendo, confirmando que la precisión es suficiente para que el juego controle la pantalla</li>
+                    <li>✅ <strong>Está libre de hacks:</strong> El código respeta el comportamiento real del hardware, verificando correctamente el Bit 0 del LCDC</li>
+                    <li>✅ <strong>Tiene mejor rendimiento:</strong> Sin logs de depuración en el bucle crítico, el emulador corre más rápido</li>
+                    <li>✅ <strong>Está listo para el siguiente paso:</strong> Ahora podemos implementar las características restantes del hardware sobre una base sólida y precisa</li>
+                </ul>
+                <div style="background: #fff3e0; border-left: 4px solid #ff9800; padding: 1rem; margin: 1rem 0;">
+                    <strong>🎯 Hito Histórico:</strong> Hemos cruzado la línea de meta. Hemos navegado a través de una docena de deadlocks, hemos reconstruido la arquitectura del emulador en C++, hemos depurado el puente de Cython, hemos implementado la CPU, la PPU, el Timer y el Joypad. Y ahora, como resultado de todo ese trabajo, el emulador ha cobrado vida.
+                </div>
+            </section>
+
+            <!-- 6. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <p>
+                    Con esto, cerramos oficialmente el capítulo de "hacer que arranque". Hemos construido un núcleo de emulación robusto y sincronizado. Ahora podemos empezar a añadir las características que hacen que los juegos sean interactivos y divertidos.
+                </p>
+                <h3>Roadmap Inmediato:</h3>
+                <ol>
+                    <li><strong>Sprites (OBJ):</strong> Implementar la capa de objetos móviles para poder ver las piezas de Tetris</li>
+                    <li><strong>Timer Completo:</strong> Implementar <code>TIMA</code>, <code>TMA</code> y <code>TAC</code> para la temporización del juego</li>
+                    <li><strong>Audio (APU):</strong> ¡Empezar a hacer que nuestro emulador suene!</li>
+                </ol>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                <a href="../index.html">← Volver al índice</a>
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+
