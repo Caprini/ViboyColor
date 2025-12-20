@@ -247,6 +247,20 @@ cdef class PyMMU:
         """
         self._mmu.request_interrupt(bit)
     
+    # Método para obtener el puntero C++ directamente (forma segura)
+    cdef mmu.MMU* get_cpp_ptr(self):
+        """
+        Obtiene el puntero C++ interno directamente (para uso en otros módulos Cython).
+        
+        Este método permite que otros wrappers (PyTimer, etc.) extraigan el puntero
+        C++ directamente sin necesidad de conversiones intermedias.
+        
+        Returns:
+            Puntero C++ a la instancia de MMU
+        """
+        return self._mmu
+    
     # NOTA: El miembro _mmu es accesible desde otros módulos Cython
-    # que incluyan este archivo (como cpu.pyx)
+    # que incluyan este archivo (como cpu.pyx), pero es mejor usar get_cpp_ptr()
+    # para mantener consistencia con otros wrappers
 

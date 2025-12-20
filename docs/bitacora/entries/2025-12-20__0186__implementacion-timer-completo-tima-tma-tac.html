@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El Corazón del Tiempo: Implementación del Timer Completo (TIMA, TMA, TAC) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>El Corazón del Tiempo: Implementación del Timer Completo (TIMA, TMA, TAC)</h1>
+            <!-- Entrada 0186 - El Corazón del Tiempo: Implementación del Timer Completo -->
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0186
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0185__hito-limpieza-primeros-graficos-precision-hardware.html">Anterior (0185)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Tras el éxito del Step 0185, donde el emulador renderizó exitosamente el logo de Nintendo, surgió un diagnóstico crítico: aunque el emulador está estable y el registro <code>LY</code> cicla correctamente, la pantalla permanece en blanco porque la CPU nunca llega a la instrucción que activa el renderizado del fondo. El diagnóstico apuntó a que la CPU está atrapada en un bucle de retardo de tiempo, esperando una interrupción del Timer que nuestro núcleo C++ aún no podía generar.
+                </p>
+                <p>
+                    Este Step implementa el subsistema completo del Timer programable (<code>TIMA</code>, <code>TMA</code>, <code>TAC</code>) en C++, completando la funcionalidad que solo tenía el registro <code>DIV</code>. Con esta implementación, el emulador puede ejecutar rutinas de temporización precisas, permitiendo que los juegos completen sus secuencias de arranque y, finalmente, den la orden de dibujar la pantalla de título.
+                </p>
+                <div style="background: #e3f2fd; border-left: 4px solid #2196f3; padding: 1rem; margin: 1rem 0;">
+                    <strong>🔍 Diagnóstico Definitivo:</strong> La paradoja de la precisión. Nuestra PPU, ahora precisa, ve que el Bit 0 del <code>LCDC</code> es 0 y, obedientemente, se niega a dibujar la capa de fondo. El problema no es nuestro emulador; es que el juego nunca llega a la instrucción que cambia <code>LCDC</code> de <code>0x80</code> a <code>0x91</code> porque está esperando una interrupción del Timer que aún no podíamos generar.
+                </div>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: El Temporizador Programable</h2>
+                <p>
+                    Además del registro <code>DIV</code> (Divider, 0xFF04), la Game Boy tiene un temporizador configurable por el juego, controlado por 3 registros:
+                </p>
+                <ul>
+                    <li>
+                        <strong><code>TAC</code> (Timer Control - 0xFF07):</strong>
+                        <ul>
+                            <li><strong>Bit 2:</strong> Timer Enable (1 = ON, 0 = OFF).</li>
+                            <li><strong>Bits 1-0:</strong> Input Clock Select. Selecciona la frecuencia a la que se incrementa <code>TIMA</code>:
+                                <ul>
+                                    <li><code>00</code>: 4096 Hz (1024 T-Cycles por incremento)</li>
+                                    <li><code>01</code>: 262144 Hz (16 T-Cycles por incremento)</li>
+                                    <li><code>10</code>: 65536 Hz (64 T-Cycles por incremento)</li>
+                                    <li><code>11</code>: 16384 Hz (256 T-Cycles por incremento)</li>
+                                </ul>
+                            </li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong><code>TIMA</code> (Timer Counter - 0xFF05):</strong> Es un contador de 8 bits que se incrementa a la frecuencia seleccionada en <code>TAC</code>. Cuando <code>TIMA</code> se desborda (pasa de <code>0xFF</code> a <code>0x00</code>), se recarga automáticamente con el valor de <code>TMA</code> y se solicita una <strong>interrupción de Timer (Bit 2 del registro <code>IF</code>)</strong>.
+                    </li>
+                    <li>
+                        <strong><code>TMA</code> (Timer Modulo - 0xFF06):</strong> Cuando <code>TIMA</code> se desborda, se recarga automáticamente con el valor de <code>TMA</code>.
+                    </li>
+                </ul>
+                <p>
+                    El BIOS y los juegos usan este sistema para crear retardos precisos. Si no se implementa, cualquier juego que configure el Timer y luego use <code>HALT</code> para esperar la interrupción se quedará congelado para siempre.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Timer and Divider Register, Timer Control, Timer Counter, Timer Modulo.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>1. Expansión de la Clase Timer en C++</h3>
+                <p>
+                    Se expandió la clase <code>Timer</code> existente para incluir los registros <code>TIMA</code>, <code>TMA</code> y <code>TAC</code>, junto con la lógica de desbordamiento e interrupciones.
+                </p>
+                
+                <h4>Modificaciones en <code>Timer.hpp</code>:</h4>
+                <ul>
+                    <li>Agregado puntero a <code>MMU</code> para solicitar interrupciones cuando <code>TIMA</code> desborda</li>
+                    <li>Agregados miembros privados: <code>tima_counter_</code>, <code>tima_</code>, <code>tma_</code>, <code>tac_</code></li>
+                    <li>Agregados métodos públicos: <code>read_tima()</code>, <code>write_tima()</code>, <code>read_tma()</code>, <code>write_tma()</code>, <code>read_tac()</code>, <code>write_tac()</code></li>
+                    <li>Agregado método privado: <code>get_tima_threshold()</code> para calcular el número de T-Cycles según la frecuencia configurada</li>
+                    <li>Modificado el constructor para aceptar un puntero a <code>MMU</code></li>
+                </ul>
+
+                <h4>Modificaciones en <code>Timer.cpp</code>:</h4>
+                <ul>
+                    <li>Actualizado el método <code>step()</code> para manejar el incremento de <code>TIMA</code> según la configuración de <code>TAC</code></li>
+                    <li>Implementada la lógica de desbordamiento: cuando <code>TIMA</code> pasa de <code>0xFF</code> a <code>0x00</code>, se recarga con <code>TMA</code> y se solicita una interrupción mediante <code>mmu_-&gt;request_interrupt(2)</code></li>
+                    <li>Implementado <code>get_tima_threshold()</code> que retorna el número de T-Cycles necesario según los bits 1-0 de <code>TAC</code></li>
+                </ul>
+
+                <h3>2. Integración en la MMU</h3>
+                <p>
+                    Se actualizó <code>MMU.cpp</code> para manejar las lecturas y escrituras de los registros del Timer:
+                </p>
+                <ul>
+                    <li><code>0xFF05</code> (<code>TIMA</code>): Lectura/escritura mediante <code>Timer::read_tima()</code> / <code>Timer::write_tima()</code></li>
+                    <li><code>0xFF06</code> (<code>TMA</code>): Lectura/escritura mediante <code>Timer::read_tma()</code> / <code>Timer::write_tma()</code></li>
+                    <li><code>0xFF07</code> (<code>TAC</code>): Lectura/escritura mediante <code>Timer::read_tac()</code> / <code>Timer::write_tac()</code></li>
+                </ul>
+
+                <h3>3. Actualización de Wrappers Cython</h3>
+                <p>
+                    Se actualizaron los wrappers Cython para exponer la nueva funcionalidad:
+                </p>
+                <ul>
+                    <li><code>timer.pxd</code>: Agregadas declaraciones para los nuevos métodos y modificado el constructor para aceptar <code>MMU*</code></li>
+                    <li><code>timer.pyx</code>: Implementados métodos Python para leer/escribir <code>TIMA</code>, <code>TMA</code> y <code>TAC</code>, y modificado el constructor para aceptar un <code>PyMMU</code> opcional</li>
+                    <li><code>mmu.pyx</code>: Agregado método <code>get_cpp_ptr()</code> para mantener consistencia con otros wrappers</li>
+                </ul>
+
+                <h3>4. Actualización del Sistema Principal</h3>
+                <p>
+                    Se actualizó <code>viboy.py</code> para pasar la instancia de <code>MMU</code> al constructor de <code>PyTimer</code>, permitiendo que el Timer solicite interrupciones correctamente.
+                </p>
+
+                <h3>Decisiones de Diseño</h3>
+                <p>
+                    <strong>¿Por qué el Timer necesita un puntero a MMU?</strong> Cuando <code>TIMA</code> desborda, el hardware solicita una interrupción de Timer escribiendo en el bit 2 del registro <code>IF</code> (0xFF0F). Como la MMU es la dueña de la memoria y maneja el registro <code>IF</code>, el Timer necesita un puntero a la MMU para poder solicitar interrupciones.
+                </p>
+                <p>
+                    <strong>Manejo de múltiples incrementos:</strong> El método <code>step()</code> maneja correctamente casos donde una instrucción consume muchos T-Cycles, usando un bucle <code>while</code> para procesar múltiples incrementos de <code>TIMA</code> si es necesario.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/Timer.hpp</code> - Expansión para incluir TIMA, TMA, TAC</li>
+                    <li><code>src/core/cpp/Timer.cpp</code> - Implementación de lógica de desbordamiento e interrupciones</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Manejo de lecturas/escrituras de 0xFF05, 0xFF06, 0xFF07</li>
+                    <li><code>src/core/cython/timer.pxd</code> - Declaraciones Cython actualizadas</li>
+                    <li><code>src/core/cython/timer.pyx</code> - Wrapper Python actualizado con nuevos métodos</li>
+                    <li><code>src/core/cython/mmu.pyx</code> - Agregado método get_cpp_ptr()</li>
+                    <li><code>src/viboy.py</code> - Actualizado para pasar MMU al constructor de PyTimer</li>
+                    <li><code>tests/test_core_timer.py</code> - Tests completos para TIMA, TMA, TAC</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado:</strong>
+                </p>
+                <pre><code>python -m pytest tests/test_core_timer.py -v</code></pre>
+                <p>
+                    <strong>Resultado:</strong> <strong>16 tests pasados</strong> en 0.07s
+                </p>
+                <p>
+                    Los tests validan:
+                </p>
+                <ol>
+                    <li>✅ Lectura/escritura de <code>TIMA</code>, <code>TMA</code> y <code>TAC</code></li>
+                    <li>✅ Incremento de <code>TIMA</code> cuando el Timer está activado</li>
+                    <li>✅ <code>TIMA</code> NO se incrementa cuando el Timer está desactivado</li>
+                    <li>✅ <code>TIMA</code> se incrementa a las frecuencias correctas (4096Hz, 262144Hz, 65536Hz, 16384Hz)</li>
+                    <li>✅ Cuando <code>TIMA</code> desborda, se recarga con el valor de <code>TMA</code></li>
+                    <li>✅ Cuando <code>TIMA</code> desborda, se solicita una interrupción de Timer (bit 2 de IF)</li>
+                    <li>✅ Manejo correcto de múltiples incrementos en un solo <code>step()</code></li>
+                </ol>
+                <p>
+                    <strong>Código del Test Clave:</strong>
+                </p>
+                <pre><code>def test_tima_overflow_requests_interrupt(self):
+    """Verifica que cuando TIMA desborda, se solicita una interrupción de Timer."""
+    mmu = PyMMU()
+    timer = PyTimer(mmu)
+    mmu.set_timer(timer)  # Conectar Timer a MMU para interrupciones
+    
+    # Configurar TIMA cerca del desbordamiento
+    timer.write_tima(0xFF)
+    timer.write_tac(0x04)  # Timer ON, frecuencia 4096 Hz
+    
+    # Avanzar 1024 T-Cycles (debería causar desbordamiento)
+    timer.step(1024)
+    
+    # Verificar que se solicitó una interrupción de Timer (bit 2 del registro IF)
+    if_reg = mmu.read(0xFF0F)
+    assert (if_reg & 0x04) != 0, "Se debería haber solicitado una interrupción de Timer (bit 2 de IF)"</code></pre>
+                <p>
+                    <strong>Validación Nativa:</strong> Validación de módulo compilado C++ con tests unitarios exhaustivos.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: Timer and Divider Register (0xFF04)</li>
+                    <li>Pan Docs: Timer Counter (TIMA - 0xFF05)</li>
+                    <li>Pan Docs: Timer Modulo (TMA - 0xFF06)</li>
+                    <li>Pan Docs: Timer Control (TAC - 0xFF07)</li>
+                    <li>Pan Docs: Interrupts, Interrupt Flag Register (IF - 0xFF0F)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>El Timer programable:</strong> Además del DIV (que es un contador continuo), la Game Boy tiene un Timer programable que permite a los juegos crear retardos precisos y generar interrupciones de tiempo.</li>
+                        <li><strong>Las frecuencias del Timer:</strong> El Timer puede funcionar a 4 frecuencias diferentes (4096Hz, 262144Hz, 65536Hz, 16384Hz), seleccionadas mediante los bits 1-0 de TAC.</li>
+                        <li><strong>El desbordamiento y la recarga:</strong> Cuando TIMA desborda (0xFF → 0x00), se recarga automáticamente con el valor de TMA y se solicita una interrupción de Timer.</li>
+                        <li><strong>La importancia para la secuencia de arranque:</strong> El BIOS y los juegos usan el Timer para crear retardos precisos durante la inicialización. Sin esta funcionalidad, los juegos se quedarían congelados esperando interrupciones que nunca llegan.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Verificación con ROMs reales:</strong> El próximo paso será ejecutar el emulador con una ROM real para verificar que el Timer completo permite que los juegos completen sus rutinas de temporización y finalmente dibujen la pantalla de título.</li>
+                        <li><strong>Sincronización con HALT:</strong> Verificar que cuando la CPU ejecuta HALT y el Timer genera una interrupción, la CPU se despierta correctamente y procesa la interrupción.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        No hay suposiciones críticas. La implementación está basada directamente en Pan Docs, que especifica claramente el comportamiento de cada registro y la relación entre TIMA, TMA y TAC.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Resultado Final -->
+            <section id="resultado">
+                <h2>Resultado Final</h2>
+                <p>
+                    Después de esta implementación, el emulador ahora tiene:
+                </p>
+                <ul>
+                    <li>✅ <strong>Timer completo funcional:</strong> Todos los registros del Timer (DIV, TIMA, TMA, TAC) están implementados y funcionando correctamente</li>
+                    <li>✅ <strong>Interrupciones de Timer:</strong> Cuando TIMA desborda, se solicita correctamente una interrupción de Timer (bit 2 de IF)</li>
+                    <li>✅ <strong>Frecuencias precisas:</strong> El Timer se incrementa a las frecuencias correctas según la configuración de TAC</li>
+                    <li>✅ <strong>Tests exhaustivos:</strong> 16 tests unitarios validan toda la funcionalidad del Timer</li>
+                </ul>
+                <div style="background: #fff3e0; border-left: 4px solid #ff9800; padding: 1rem; margin: 1rem 0;">
+                    <strong>🎯 Próximo Hito Esperado:</strong> Con el Timer completo implementado, el emulador debería ser capaz de ejecutar las rutinas de temporización de los juegos, permitiendo que completen sus secuencias de arranque y finalmente dibujen la pantalla de título. El diagnóstico del Step 0185 apuntaba a que la CPU estaba atrapada esperando una interrupción del Timer. Ahora que el Timer puede generar esas interrupciones, esperamos ver el logo de Nintendo aparecer en pantalla.
+                </div>
+            </section>
+
+            <!-- 9. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con una ROM real para verificar que el Timer completo permite que los juegos completen sus rutinas de temporización</li>
+                    <li>[ ] Verificar que las interrupciones de Timer despiertan correctamente a la CPU cuando está en estado HALT</li>
+                    <li>[ ] Si todo funciona correctamente, deberíamos ver finalmente el logo de Nintendo en pantalla</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

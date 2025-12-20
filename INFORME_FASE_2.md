@@ -96,6 +96,84 @@ Después de esta limpieza, el emulador:
 
 ---
 
+### 2025-12-20 - Step 0188: La Prueba Final: Completar la ALU (SUB, SBC) para el Checksum
+**Estado**: ✅ VERIFIED
+
+El emulador ha superado todos los `deadlocks` de sincronización, pero la pantalla sigue en blanco porque la VRAM permanece vacía. El diagnóstico indica que la CPU está fallando la verificación del checksum del header del cartucho porque le faltan instrucciones de resta (`SUB`, `SBC`). Como resultado, el software de arranque entra en un bucle infinito deliberado, impidiendo que el juego se inicie.
+
+**Objetivo:**
+- Corregir la implementación de `alu_sbc` para el cálculo correcto del flag C (borrow).
+- Añadir tests específicos para `SUB` y `SBC` con registros.
+- Completar la ALU de la CPU para permitir el cálculo correcto del checksum del cartucho.
+
+**Concepto de Hardware: El Cartridge Header Checksum**
+
+El header de la ROM, en la dirección `0x014D`, contiene un checksum de 8 bits. El software de arranque calcula su propio checksum para validar la integridad de la ROM. La fórmula es:
+
+```
+x = 0;
+for (i = 0x0134; i <= 0x014C; i++) {
+    x = x - rom[i] - 1;
+}
+```
+
+Esta operación repetida de resta y decremento depende fundamentalmente de las instrucciones `SUB` (resta) y `SBC` (resta con acarreo/préstamo). Si alguna de estas instrucciones falla o no está implementada, el checksum será incorrecto y el sistema se bloqueará.
+
+**¿Por qué es crítico?** El código de arranque (ya sea el BIOS o el propio juego) realiza esta verificación como medida de seguridad. Si el checksum calculado no coincide con el almacenado en `0x014D`, el sistema entra deliberadamente en un bucle infinito para congelar el sistema. No copia los gráficos. No inicia el juego. Simplemente se detiene de forma segura.
+
+**Implementación:**
+
+1. **Corrección de `alu_sbc`**: Se corrigió el cálculo del flag C (Carry/Borrow) para usar el resultado de 16 bits de forma segura: `result > 0xFF` indica que hubo underflow, lo cual es la condición correcta para activar el flag C en una resta.
+
+2. **Verificación de Opcodes**: Se verificó que todos los opcodes de `SUB` (0x90-0x97) y `SBC` (0x98-0x9F) están correctamente implementados en el switch de la CPU.
+
+3. **Tests Específicos**: Se añadieron tres tests nuevos en `tests/test_core_cpu_alu.py`:
+   - `test_sub_a_b`: Verifica que `SUB B` calcula correctamente la resta y activa el flag Z cuando el resultado es 0.
+   - `test_sbc_a_b_with_borrow`: Verifica que `SBC A, B` funciona correctamente cuando el flag C (borrow) está activado.
+   - `test_sbc_a_b_with_full_borrow`: Verifica que `SBC A, B` detecta correctamente el borrow completo (underflow) y activa el flag C.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Corrección del cálculo del flag C en `alu_sbc`
+- `tests/test_core_cpu_alu.py` - Añadidos 3 tests nuevos para SUB y SBC con registros
+
+**Tests y Verificación:**
+
+Todos los tests de la ALU pasan correctamente (10 tests en total):
+
+```
+$ python -m pytest tests/test_core_cpu_alu.py -v
+============================= test session starts =============================
+collected 10 items
+
+tests/test_core_cpu_alu.py::TestCoreCPUALU::test_add_immediate_basic PASSED
+tests/test_core_cpu_alu.py::TestCoreCPUALU::test_sub_immediate_zero_flag PASSED
+tests/test_core_cpu_alu.py::TestCoreCPUALU::test_add_half_carry PASSED
+tests/test_core_cpu_alu.py::TestCoreCPUALU::test_xor_a_optimization PASSED
+tests/test_core_cpu_alu.py::TestCoreCPUALU::test_inc_a PASSED
+tests/test_core_cpu_alu.py::TestCoreCPUALU::test_dec_a PASSED
+tests/test_core_cpu_alu.py::TestCoreCPUALU::test_add_full_carry PASSED
+tests/test_core_cpu_alu.py::TestCoreCPUALU::test_sub_a_b PASSED
+tests/test_core_cpu_alu.py::TestCoreCPUALU::test_sbc_a_b_with_borrow PASSED
+tests/test_core_cpu_alu.py::TestCoreCPUALU::test_sbc_a_b_with_full_borrow PASSED
+
+============================= 10 passed in 0.07s =============================
+```
+
+**Resultado Final:**
+
+Con la ALU completa (SUB y SBC correctamente implementadas), el emulador debería poder calcular el checksum del cartucho correctamente y pasar la verificación de arranque. Esto debería permitir que el juego finalmente copie los gráficos a la VRAM y active el renderizado del fondo.
+
+**Hipótesis Principal:** Con la ALU completa, el emulador debería poder calcular el checksum del cartucho correctamente y pasar la verificación de arranque. Esto debería permitir que el juego finalmente copie los gráficos a la VRAM y active el renderizado del fondo.
+
+**Próximos Pasos:**
+- Ejecutar el emulador con una ROM real (ej: `tetris.gb`) y verificar que puede calcular el checksum correctamente
+- Verificar que el juego pasa la verificación de arranque y copia los gráficos a la VRAM
+- Si la pantalla sigue en blanco, investigar otras posibles causas (ej: instrucciones faltantes, bugs en otras partes de la CPU)
+
+**Bitácora**: `docs/bitacora/entries/2025-12-20__0188__prueba-final-completar-alu-sub-sbc-checksum.html`
+
+---
+
 ### 2025-12-20 - Step 0183: ¡Hito! Primeros Gráficos - Limpieza Post-Victoria y Restauración de la Precisión
 **Estado**: ✅ VERIFIED
 

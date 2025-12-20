@@ -60,6 +60,30 @@ uint8_t MMU::read(uint16_t addr) const {
         return 0x00;
     }
     
+    // CRÍTICO: Los registros TIMA (0xFF05), TMA (0xFF06) y TAC (0xFF07) son controlados por el Timer
+    // Estos registros pueden ser leídos y escritos por el juego, pero están almacenados
+    // en el hardware del Timer, no en la memoria
+    if (addr == 0xFF05) {
+        if (timer_ != nullptr) {
+            return timer_->read_tima();
+        }
+        return 0x00;
+    }
+    
+    if (addr == 0xFF06) {
+        if (timer_ != nullptr) {
+            return timer_->read_tma();
+        }
+        return 0x00;
+    }
+    
+    if (addr == 0xFF07) {
+        if (timer_ != nullptr) {
+            return timer_->read_tac();
+        }
+        return 0x00;
+    }
+    
     // CRÍTICO: El registro P1 (0xFF00) es controlado por el Joypad
     // La CPU escribe en P1 para seleccionar qué fila de botones leer, y lee
     // el estado de los botones de la fila seleccionada
@@ -91,6 +115,33 @@ void MMU::write(uint16_t addr, uint8_t value) {
         }
         // No escribimos en memoria porque DIV no es un registro de memoria real
         // Es un registro de hardware que se lee/escribe dinámicamente
+        return;
+    }
+    
+    // CRÍTICO: Los registros TIMA (0xFF05), TMA (0xFF06) y TAC (0xFF07) son controlados por el Timer
+    // Estos registros pueden ser leídos y escritos por el juego, pero están almacenados
+    // en el hardware del Timer, no en la memoria
+    if (addr == 0xFF05) {
+        if (timer_ != nullptr) {
+            timer_->write_tima(value);
+        }
+        // No escribimos en memoria porque TIMA no es un registro de memoria real
+        return;
+    }
+    
+    if (addr == 0xFF06) {
+        if (timer_ != nullptr) {
+            timer_->write_tma(value);
+        }
+        // No escribimos en memoria porque TMA no es un registro de memoria real
+        return;
+    }
+    
+    if (addr == 0xFF07) {
+        if (timer_ != nullptr) {
+            timer_->write_tac(value);
+        }
+        // No escribimos en memoria porque TAC no es un registro de memoria real
         return;
     }
     

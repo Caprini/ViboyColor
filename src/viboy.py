@@ -211,7 +211,8 @@ class Viboy:
             # Inicializar CPU, PPU y Timer con componentes C++
             self._cpu = PyCPU(self._mmu, self._regs)
             self._ppu = PyPPU(self._mmu)
-            self._timer = PyTimer()
+            # CRÍTICO: Timer necesita MMU para solicitar interrupciones cuando TIMA desborda
+            self._timer = PyTimer(self._mmu)
             self._joypad = PyJoypad()
             # CRÍTICO: Conectar PPU a MMU para lectura dinámica del registro STAT (0xFF41)
             self._mmu.set_ppu(self._ppu)

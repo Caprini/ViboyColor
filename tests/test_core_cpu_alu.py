@@ -253,3 +253,121 @@ class TestCoreCPUALU:
         assert regs.flag_h, "H debe estar activo (half-carry)"
         assert regs.flag_c, "C debe estar ACTIVO (carry completo)"
 
+    def test_sub_a_b(self):
+        """
+        Test 8: Verificar SUB B (resta con registro).
+        
+        Resta: A = 0x3E - B = 0x3E = 0x00
+        - Resultado: A = 0x00
+        - Z: 1 (resultado == 0) <- CRÍTICO para checksum
+        - N: 1 (es resta)
+        - H: 0 (no hay half-borrow)
+        - C: 0 (no hay borrow)
+        """
+        mmu = PyMMU()
+        regs = PyRegisters()
+        cpu = PyCPU(mmu, regs)
+        
+        regs.pc = 0x0100
+        
+        # Cargar A = 0x3E
+        mmu.write(0x0100, 0x3E)  # LD A, d8
+        mmu.write(0x0101, 0x3E)  # Operando: 0x3E
+        cpu.step()
+        
+        # Cargar B = 0x3E
+        mmu.write(0x0102, 0x06)  # LD B, d8
+        mmu.write(0x0103, 0x3E)  # Operando: 0x3E
+        cpu.step()
+        
+        # SUB B (0x90)
+        mmu.write(0x0104, 0x90)  # SUB B
+        cpu.step()
+        
+        # Verificar resultado
+        assert regs.a == 0x00, f"A debe ser 0x00, es 0x{regs.a:02X}"
+        assert regs.flag_z, "Z debe estar ACTIVO (resultado == 0)"
+        assert regs.flag_n, "N debe estar activo (es resta)"
+        assert not regs.flag_h, "H debe estar apagado (no hay half-borrow)"
+        assert not regs.flag_c, "C debe estar apagado (no hay borrow)"
+
+    def test_sbc_a_b_with_borrow(self):
+        """
+        Test 9: Verificar SBC A, B con el flag de carry (borrow) activado.
+        
+        Resta con carry: A = 0x3B - B = 0x2A - C = 1 = 0x10
+        - Resultado: A = 0x10
+        - Z: 0 (resultado != 0)
+        - N: 1 (es resta)
+        - H: 0 (no hay half-borrow en este caso)
+        - C: 0 (no hay borrow completo)
+        """
+        mmu = PyMMU()
+        regs = PyRegisters()
+        cpu = PyCPU(mmu, regs)
+        
+        regs.pc = 0x0100
+        
+        # Cargar A = 0x3B
+        mmu.write(0x0100, 0x3E)  # LD A, d8
+        mmu.write(0x0101, 0x3B)  # Operando: 0x3B
+        cpu.step()
+        
+        # Cargar B = 0x2A
+        mmu.write(0x0102, 0x06)  # LD B, d8
+        mmu.write(0x0103, 0x2A)  # Operando: 0x2A
+        cpu.step()
+        
+        # Activar flag C (borrow previo)
+        regs.flag_c = True
+        
+        # SBC A, B (0x98)
+        mmu.write(0x0104, 0x98)  # SBC A, B
+        cpu.step()
+        
+        # Verificar resultado: 0x3B - 0x2A - 1 = 0x10
+        assert regs.a == 0x10, f"A debe ser 0x10, es 0x{regs.a:02X}"
+        assert not regs.flag_z, "Z debe estar apagado (resultado != 0)"
+        assert regs.flag_n, "N debe estar activo (es resta)"
+        assert not regs.flag_c, "C debe estar apagado (no hay borrow completo)"
+
+    def test_sbc_a_b_with_full_borrow(self):
+        """
+        Test 10: Verificar SBC A, B con borrow completo (underflow).
+        
+        Resta con carry: A = 0x10 - B = 0x20 - C = 0 = 0xF0 (con borrow)
+        - Resultado: A = 0xF0 (underflow)
+        - Z: 0
+        - N: 1
+        - H: 1 (half-borrow: nibble bajo 0x0 < 0x0)
+        - C: 1 (borrow completo) <- CRÍTICO
+        """
+        mmu = PyMMU()
+        regs = PyRegisters()
+        cpu = PyCPU(mmu, regs)
+        
+        regs.pc = 0x0100
+        
+        # Cargar A = 0x10
+        mmu.write(0x0100, 0x3E)  # LD A, d8
+        mmu.write(0x0101, 0x10)  # Operando: 0x10
+        cpu.step()
+        
+        # Cargar B = 0x20
+        mmu.write(0x0102, 0x06)  # LD B, d8
+        mmu.write(0x0103, 0x20)  # Operando: 0x20
+        cpu.step()
+        
+        # Desactivar flag C (sin borrow previo)
+        regs.flag_c = False
+        
+        # SBC A, B (0x98)
+        mmu.write(0x0104, 0x98)  # SBC A, B
+        cpu.step()
+        
+        # Verificar resultado: 0x10 - 0x20 = 0xF0 (underflow)
+        assert regs.a == 0xF0, f"A debe ser 0xF0, es 0x{regs.a:02X}"
+        assert not regs.flag_z, "Z debe estar apagado"
+        assert regs.flag_n, "N debe estar activo"
+        assert regs.flag_c, "C debe estar ACTIVO (borrow completo detectado)"
+

@@ -244,13 +244,16 @@ void CPU::alu_sbc(uint8_t value) {
     regs_->set_flag_n(true);
     
     // H: half-borrow (bit 4 -> 3) incluyendo carry
+    // Ocurre cuando el nibble bajo de A es menor que el nibble bajo de (value + carry)
     uint8_t a_low = a_old & 0x0F;
     uint8_t value_low = value & 0x0F;
     bool half_borrow = (a_low < (value_low + carry));
     regs_->set_flag_h(half_borrow);
     
-    // C: borrow completo
-    regs_->set_flag_c(a_old < (value + carry));
+    // C: borrow completo (underflow)
+    // Usar el resultado de 16 bits para detectar underflow de forma segura
+    // Si result > 0xFF, significa que hubo underflow (resultado negativo en aritmética con signo)
+    regs_->set_flag_c(result > 0xFF);
 }
 
 void CPU::alu_or(uint8_t value) {

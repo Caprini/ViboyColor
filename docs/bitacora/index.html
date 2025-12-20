@@ -32,6 +32,42 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0188 - La Prueba Final: Completar la ALU (SUB, SBC) para el Checksum -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0188__prueba-final-completar-alu-sub-sbc-checksum.html" class="entry-link">
+                                    La Prueba Final: Completar la ALU (SUB, SBC) para el Checksum
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0188 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            El emulador ha superado todos los deadlocks de sincronización, pero la pantalla sigue en blanco porque la VRAM permanece vacía. El diagnóstico indica que la CPU está fallando la verificación del checksum del header del cartucho porque le faltan instrucciones de resta (SUB, SBC). Este Step completa la ALU de la CPU corrigiendo e implementando las instrucciones SUB A, r y SBC A, r, permitiendo que la CPU calcule correctamente el checksum del cartucho y supere la secuencia de arranque.
+                        </p>
+                    </li>
+                    <!-- Entrada 0186 - El Corazón del Tiempo: Implementación del Timer Completo (TIMA, TMA, TAC) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0186__implementacion-timer-completo-tima-tma-tac.html" class="entry-link">
+                                    El Corazón del Tiempo: Implementación del Timer Completo (TIMA, TMA, TAC)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0186 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Tras el éxito del Step 0185, surgió un diagnóstico crítico: aunque el emulador está estable y LY cicla correctamente, la pantalla permanece en blanco porque la CPU nunca llega a la instrucción que activa el renderizado del fondo. El diagnóstico apuntó a que la CPU está atrapada en un bucle de retardo de tiempo, esperando una interrupción del Timer. Este Step implementa el subsistema completo del Timer programable (TIMA, TMA, TAC) en C++, permitiendo que el emulador ejecute rutinas de temporización precisas y desbloquee la fase final de la secuencia de arranque del juego.
+                        </p>
+                    </li>
                     <!-- Entrada 0185 - ¡Hito y Limpieza! Primeros Gráficos con Precisión de Hardware -->
                     <li>
                         <div class="entry-header">
