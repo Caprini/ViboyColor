@@ -32,6 +32,92 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0190: El Estado del GÉNESIS - Inicialización de Registros de CPU Post-BIOS
+**Estado**: ✅ VERIFIED
+
+El emulador está completamente sincronizado, pero la pantalla sigue en blanco porque la CPU entra en un bucle de error. El diagnóstico definitivo revela que esto se debe a un estado inicial de la CPU incorrecto. Nuestro emulador no inicializa los registros de la CPU (especialmente el registro de Flags, F) a los valores específicos que la Boot ROM oficial habría dejado, causando que las primeras comprobaciones condicionales del juego fallen.
+
+**Objetivo:**
+- Implementar el estado "Post-BIOS" directamente en el constructor de `CoreRegisters` en C++, asegurando que el emulador arranque con un estado de CPU idéntico al de una Game Boy real.
+
+**Concepto de Hardware: El Estado de la CPU Post-Boot ROM**
+
+La Boot ROM de 256 bytes de la Game Boy no solo inicializa los periféricos (PPU, Timer, Joypad), sino que también deja los registros de la CPU en un estado muy específico antes de transferir el control al código del cartucho en la dirección `0x0100`.
+
+En una Game Boy real, cuando se enciende la consola:
+1. La Boot ROM se ejecuta desde `0x0000` hasta `0x00FF`.
+2. La Boot ROM realiza verificaciones de hardware (checksum del cartucho, timer, joypad).
+3. La Boot ROM inicializa los registros de la CPU a valores específicos.
+4. La Boot ROM transfiere el control al código del cartucho en `0x0100` mediante un salto.
+
+**El Problema Fundamental:** Nuestro emulador no ejecuta una Boot ROM. En su lugar, inicializamos los registros de la CPU a cero (o a valores simples). El código del juego, al arrancar en `0x0100`, ejecuta inmediatamente instrucciones condicionales como `JR Z, some_error_loop` que esperan que el flag Z esté en un estado concreto (por ejemplo, `Z=1`) que el BIOS habría dejado. Como nuestros registros empiezan en un estado "limpio" e incorrecto, la condición del salto falla, y la CPU es enviada a una sección de código que no es la de mostrar el logo. Entra en un bucle de "fallo seguro", apaga el fondo (`LCDC=0x80`), y se queda ahí, esperando indefinidamente.
+
+**Valores Post-BIOS para DMG (según Pan Docs - "Power Up Sequence"):**
+- `AF = 0x01B0` (es decir, `A = 0x01` y `F = 0xB0`). `F=0xB0` significa `Z=1`, `N=0`, `H=1`, `C=1`.
+- `BC = 0x0013`
+- `DE = 0x00D8`
+- `HL = 0x014D`
+- `SP = 0xFFFE`
+- `PC = 0x0100`
+
+El estado inicial del **Flag Z (`Z=1`)** es probablemente el más crítico, ya que las primeras instrucciones suelen ser saltos condicionales basados en este flag. Si el flag Z no está en el estado correcto, el juego puede entrar en un bucle de error en lugar de ejecutar la rutina de arranque normal.
+
+**Implementación:**
+
+1. **Modificación del Constructor de CoreRegisters**: Se modificó `CoreRegisters::CoreRegisters()` en `src/core/cpp/Registers.cpp` para inicializar todos los registros con los valores Post-BIOS DMG directamente en la lista de inicialización del constructor.
+
+2. **Simplificación de _initialize_post_boot_state**: Se simplificó el método `_initialize_post_boot_state` en `src/viboy.py` para eliminar todas las asignaciones redundantes de registros. Ahora solo verifica que el estado Post-BIOS se estableció correctamente.
+
+3. **Tests de Validación**: Se creó un nuevo archivo de tests `test_core_registers_initial_state.py` con tres tests que validan:
+   - Que todos los registros se inicializan con los valores correctos Post-BIOS
+   - Que los valores de los registros individuales son consistentes con los pares de 16 bits
+   - Que el flag Z está activo, ya que es crítico para las primeras comprobaciones condicionales
+
+**Archivos Afectados:**
+- `src/core/cpp/Registers.cpp` - Constructor modificado para inicializar registros con valores Post-BIOS DMG
+- `src/viboy.py` - Simplificado `_initialize_post_boot_state` para eliminar inicialización redundante
+- `tests/test_core_registers_initial_state.py` - Nuevo archivo de tests para validar el estado inicial Post-BIOS
+
+**Tests y Verificación:**
+
+```
+$ pytest tests/test_core_registers_initial_state.py -v
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.2, pluggy-1.6.0
+collecting ... collected 3 items
+
+tests/test_core_registers_initial_state.py::test_registers_post_bios_state PASSED [ 33%]
+tests/test_core_registers_initial_state.py::test_registers_post_bios_state_consistency PASSED [ 66%]
+tests/test_core_registers_initial_state.py::test_registers_flag_z_critical PASSED [100%]
+
+============================== 3 passed in 0.06s ==============================
+```
+
+**Validación de módulo compilado C++**: Los tests validan directamente el módulo C++ compilado (`viboy_core`), verificando que el constructor de `CoreRegisters` inicializa correctamente los registros con valores Post-BIOS.
+
+**Resultado Final:**
+
+Con el estado Post-BIOS correcto implementado en el constructor de C++, el emulador debería poder:
+1. Arrancar en `0x0100` con los registros correctos
+2. Pasar las primeras comprobaciones condicionales (`JR Z`, etc.) tomando el camino correcto
+3. Ejecutar la rutina de checksum (nuestra ALU completa la pasará)
+4. Ejecutar la rutina de espera del Timer (nuestro Timer completo la pasará)
+5. Ejecutar la rutina de espera del Joypad (la pulsación de tecla la pasará)
+6. Ejecutar la rutina de comprobación de hardware de I/O (nuestros registros Post-BIOS la pasarán)
+7. Finalmente, copiar los datos del logo a la VRAM y activar el bit 0 del LCDC
+
+**Hipótesis Principal:** Con el estado Post-BIOS correcto, el emulador debería poder ejecutar el código de arranque del juego correctamente, pasando todas las comprobaciones condicionales y llegando finalmente a la rutina que copia los gráficos del logo a la VRAM. Esta es la pieza final del rompecabezas que debería resolver el problema de la pantalla blanca persistente.
+
+**Próximos Pasos:**
+- Ejecutar el emulador con una ROM real (ej: Tetris) para verificar que el estado Post-BIOS correcto permite que el juego ejecute la rutina de arranque normal
+- Verificar que el logo de Nintendo aparece en la pantalla (si el estado Post-BIOS es correcto, el juego debería copiar los gráficos a la VRAM y activar el bit 0 del LCDC)
+- Si el logo aparece, celebrar el éxito y documentar el resultado en el siguiente Step
+- Si la pantalla sigue en blanco, investigar otros posibles problemas (ej: rutina de copia de gráficos, activación del LCDC, etc.)
+
+**Bitácora**: `docs/bitacora/entries/2025-12-20__0190__estado-genesis-inicializacion-registros-cpu-post-bios.html`
+
+---
+
 ### 2025-12-20 - Step 0185: ¡Hito y Limpieza! Primeros Gráficos con Precisión de Hardware
 **Estado**: ✅ VERIFIED
 
