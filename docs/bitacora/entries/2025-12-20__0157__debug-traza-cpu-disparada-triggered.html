@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug: Implementación de Trazado de CPU "Disparado" (Triggered) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug: Implementación de Trazado de CPU "Disparado" (Triggered)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0157
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0156__debug-extension-final-traza-cpu-2000.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El análisis de la traza de 2000 instrucciones (Step 0156) demostró que el método de trazado de longitud fija es ineficiente para superar las largas rutinas de inicialización de la ROM. Se implementó un sistema de trazado "disparado" (triggered) que se activa automáticamente cuando el Program Counter (PC) supera una dirección específica (0x0300), evitando así registrar miles de instrucciones de bucles de inicialización y permitiendo capturar directamente el código crítico que se ejecuta después.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Las rutinas de inicialización de las ROMs de Game Boy pueden ejecutar miles de instrucciones en bucles de limpieza de memoria antes de llegar al código principal del juego. El trazado de todas estas instrucciones es ineficiente y genera logs masivos que dificultan el análisis.
+                </p>
+                <p>
+                    Una estrategia más eficiente es usar <strong>trazado condicional</strong> o <strong>trazado disparado</strong>: en lugar de registrar las primeras N instrucciones desde el inicio, el sistema espera hasta que el Program Counter alcance una dirección específica (el "trigger") y solo entonces comienza a registrar. Esto permite:
+                </p>
+                <ul>
+                    <li><strong>Evitar ruido:</strong> No se registran miles de instrucciones de bucles de inicialización.</li>
+                    <li><strong>Enfoque dirigido:</strong> Se captura directamente el código crítico que se ejecuta después de la inicialización.</li>
+                    <li><strong>Eficiencia:</strong> Se reduce drásticamente el tamaño de los logs y el tiempo de análisis.</li>
+                </ul>
+                <p>
+                    Basándonos en el análisis previo, sabemos que los bucles de inicialización de Tetris terminan alrededor de la dirección <code>0x0297-0x0298</code>. Establecer el trigger en <code>0x0300</code> garantiza que capturaremos el código que se ejecuta inmediatamente después de que todos los bucles hayan finalizado.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Técnica de depuración estándar en emulación - Conditional Breakpoints / Triggered Tracing
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se reemplazó el sistema de trazado de longitud fija por un sistema de trazado disparado basado en el Program Counter. El sistema ahora incluye:
+                </p>
+                <ul>
+                    <li><strong>Dirección de activación (trigger):</strong> <code>DEBUG_TRIGGER_PC = 0x0300</code></li>
+                    <li><strong>Bandera de activación:</strong> <code>debug_trace_activated</code> que se activa cuando el PC supera el trigger</li>
+                    <li><strong>Contador post-activación:</strong> Registra hasta 100 instrucciones después de la activación</li>
+                </ul>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>CPU.cpp:</strong> Reemplazo completo de la lógica de trazado con sistema disparado.</li>
+                </ul>
+
+                <h3>Cambios realizados</h3>
+                <p>
+                    <strong>Variables estáticas actualizadas:</strong>
+                </p>
+                <pre><code>// Variables estáticas para logging de diagnóstico con sistema "disparado" (triggered)
+static const uint16_t DEBUG_TRIGGER_PC = 0x0300; // Dirección de activación del trazado
+static bool debug_trace_activated = false;      // Bandera de activación
+static int debug_instruction_counter = 0;       // Contador post-activación
+static const int DEBUG_INSTRUCTION_LIMIT = 100; // Límite post-activación (reducido porque ahora es dirigido)</code></pre>
+
+                <p>
+                    <strong>Constructor actualizado:</strong>
+                </p>
+                <pre><code>CPU::CPU(MMU* mmu, CoreRegisters* registers)
+    : mmu_(mmu), regs_(registers), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
+    // ...
+    // Resetear contador y bandera de debug al crear nueva instancia
+    debug_trace_activated = false;
+    debug_instruction_counter = 0;
+}</code></pre>
+
+                <p>
+                    <strong>Lógica de trazado en step():</strong>
+                </p>
+                <pre><code>// --- NUEVA LÓGICA DE TRAZADO DISPARADO (TRIGGERED) ---
+// 1. Comprobar si debemos activar la traza cuando el PC supera el trigger
+if (!debug_trace_activated && current_pc >= DEBUG_TRIGGER_PC) {
+    printf("--- [CPU TRACE TRIGGERED at PC: 0x%04X] ---\n", current_pc);
+    debug_trace_activated = true;
+}
+
+// 2. Si la traza está activa, registrar hasta el límite
+if (debug_trace_activated && debug_instruction_counter < DEBUG_INSTRUCTION_LIMIT) {
+    printf("[CPU TRACE %d] PC: 0x%04X | Opcode: 0x%02X\n",
+           debug_instruction_counter, current_pc, opcode);
+    debug_instruction_counter++;
+}
+// --- FIN DE LA NUEVA LÓGICA DE TRAZADO DISPARADO ---</code></pre>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Dirección de trigger (0x0300):</strong> Elegida basándose en el análisis previo que mostró que los bucles terminan alrededor de 0x0297-0x0298. 0x0300 proporciona un margen de seguridad.</li>
+                    <li><strong>Límite reducido (100 instrucciones):</strong> Como ahora el trazado es dirigido y captura código crítico, 100 instrucciones deberían ser suficientes para identificar el siguiente opcode faltante.</li>
+                    <li><strong>Bandera estática:</strong> Se usa una bandera estática para mantener el estado entre llamadas a <code>step()</code>, permitiendo que el sistema se active una sola vez y luego registre las siguientes instrucciones.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Reemplazo completo del sistema de trazado con lógica disparada basada en PC.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizará mediante ejecución del emulador con una ROM de prueba:
+                </p>
+                <ul>
+                    <li><strong>Comando de compilación:</strong> <code>.\rebuild_cpp.ps1</code></li>
+                    <li><strong>Comando de ejecución:</strong> <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Resultado esperado:</strong> 
+                        <ul>
+                            <li>La consola debería permanecer en silencio durante los bucles de inicialización.</li>
+                            <li>Cuando el PC alcance 0x0300, debería aparecer: <code>--- [CPU TRACE TRIGGERED at PC: 0x0300] ---</code></li>
+                            <li>A continuación, deberían aparecer las 100 instrucciones críticas que se ejecutan después.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Validación:</strong> La nueva traza debería ser radicalmente diferente a la anterior, sin mostrar ninguna instrucción del bucle 0x0293-0x0295, y capturando directamente el código de la siguiente fase de inicialización.</li>
+                </ul>
+                <p>
+                    <em>Nota: La validación completa requiere ejecutar el emulador y analizar la salida de la consola. Este paso documenta la implementación del sistema de trazado disparado.</em>
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Técnica de depuración estándar: Conditional Breakpoints / Triggered Tracing</li>
+                    <li>Análisis previo de trazas (Steps 0155 y 0156) que identificaron la ubicación de los bucles de inicialización</li>
+                </ul>
+                <p>
+                    <em>Nota: Esta es una técnica de depuración estándar en emulación, no específica del hardware Game Boy.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Trazado condicional:</strong> El trazado de todas las instrucciones desde el inicio es ineficiente cuando hay rutinas de inicialización largas. El trazado condicional permite enfocarse en el código crítico.</li>
+                        <li><strong>Estrategia de depuración:</strong> En lugar de usar "fuerza bruta" (aumentar el límite indefinidamente), es mejor usar una estrategia dirigida que capture solo lo relevante.</li>
+                        <li><strong>Análisis de trazas previas:</strong> El análisis de las trazas anteriores nos permitió identificar dónde terminan los bucles de inicialización, lo que nos permitió elegir una dirección de trigger apropiada.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Efectividad del trigger:</strong> Necesitamos verificar que 0x0300 es una dirección apropiada y que captura el código crítico sin perder información importante.</li>
+                        <li><strong>Límite de 100 instrucciones:</strong> Necesitamos confirmar que 100 instrucciones son suficientes para identificar el siguiente opcode faltante.</li>
+                        <li><strong>Análisis de la nueva traza:</strong> Una vez ejecutado el emulador, necesitamos analizar la nueva traza para identificar el siguiente opcode que debemos implementar.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El código que se ejecuta después de 0x0300 contendrá el siguiente opcode faltante que necesitamos implementar para que el juego continúe. Esta hipótesis se basa en el análisis previo que mostró que los bucles de inicialización terminan alrededor de 0x0297-0x0298.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con <code>.\rebuild_cpp.ps1</code></li>
+                    <li>[ ] Ejecutar el emulador con <code>python main.py roms/tetris.gb</code></li>
+                    <li>[ ] Analizar la nueva traza dirigida para identificar el siguiente opcode faltante</li>
+                    <li>[ ] Implementar el opcode identificado si es necesario</li>
+                    <li>[ ] Verificar que el juego puede continuar más allá de la inicialización</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

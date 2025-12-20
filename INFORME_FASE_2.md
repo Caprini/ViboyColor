@@ -32,6 +32,42 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0157: Debug: Implementación de Trazado de CPU "Disparado" (Triggered)
+**Estado**: 🔍 DRAFT
+
+El análisis de la traza de 2000 instrucciones (Step 0156) demostró que el método de trazado de longitud fija es ineficiente para superar las largas rutinas de inicialización de la ROM.
+
+**Objetivo:**
+- Reemplazar el trazado de longitud fija por un sistema de trazado "disparado" (triggered) que se active automáticamente cuando el Program Counter (PC) supere la zona de los bucles de limpieza de memoria.
+- Evitar registrar miles de instrucciones de bucles de inicialización y capturar directamente el código crítico que se ejecuta después.
+- Identificar el siguiente opcode faltante de manera más eficiente.
+
+**Modificaciones realizadas:**
+- Reemplazo completo del sistema de trazado en `src/core/cpp/CPU.cpp`.
+- Implementación de variables estáticas para el sistema disparado:
+  - `DEBUG_TRIGGER_PC = 0x0300`: Dirección de activación del trazado
+  - `debug_trace_activated`: Bandera de activación
+  - `debug_instruction_counter`: Contador post-activación
+  - `DEBUG_INSTRUCTION_LIMIT = 100`: Límite reducido (ahora es dirigido)
+- Actualización del constructor para resetear la bandera de activación.
+- Nueva lógica en `step()` que activa el trazado cuando el PC supera 0x0300.
+
+**Estrategia:**
+- En lugar de usar "fuerza bruta" (aumentar el límite indefinidamente), se adopta una estrategia dirigida que captura solo el código relevante.
+- El trigger en 0x0300 se basa en el análisis previo que mostró que los bucles terminan alrededor de 0x0297-0x0298.
+- El sistema permanece en silencio durante los bucles de inicialización y solo comienza a registrar cuando el PC alcanza el territorio nuevo.
+
+**Próximos pasos:**
+- Recompilar el módulo C++ con `.\rebuild_cpp.ps1`.
+- Ejecutar el emulador con `python main.py roms/tetris.gb`.
+- Analizar la nueva traza dirigida para identificar el siguiente opcode faltante.
+- Verificar que la nueva traza es radicalmente diferente y captura código crítico sin ruido de bucles.
+
+**Hipótesis:**
+El código que se ejecuta después de 0x0300 contendrá el siguiente opcode faltante que necesitamos implementar para que el juego continúe su ejecución. Esta estrategia de "francotirador" debería ser mucho más eficiente que el método de "fuerza bruta".
+
+---
+
 ### 2025-12-20 - Step 0156: Debug: Extensión Final del Trazado de CPU a 2000 Instrucciones
 **Estado**: 🔍 DRAFT
 
