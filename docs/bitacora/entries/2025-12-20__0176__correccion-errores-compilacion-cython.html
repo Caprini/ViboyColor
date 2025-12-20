@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrección de Errores de Compilación Cython: setPPU y run_scanline - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Corrección de Errores de Compilación Cython: setPPU y run_scanline</h1>
+            <!-- Entrada 0176 - Corrección de Errores de Compilación Cython -->
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0176
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0175__arquitectura-final-bucle-emulacion-nativo-cpp.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Después de implementar el método <code>run_scanline()</code> en C++ y su wrapper en Cython, la compilación falló con múltiples errores relacionados con declaraciones de tipos y métodos faltantes. Este Step documenta la corrección sistemática de estos errores: eliminación de declaraciones duplicadas de <code>PyPPU</code>, adición de métodos faltantes en <code>cpu.pxd</code> (<code>setPPU</code> y <code>run_scanline</code>), y corrección del orden de inclusión en <code>native_core.pyx</code> para resolver dependencias entre módulos Cython.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Este Step no implementa nueva funcionalidad de hardware, sino que corrige problemas de infraestructura en el puente Python-C++ (Cython). Sin embargo, es crítico para la arquitectura implementada en el Step 0175: sin estos cambios, el método <code>run_scanline()</code> no puede ser compilado y expuesto a Python, bloqueando completamente la nueva arquitectura de emulación ciclo a ciclo.
+                </p>
+                <p>
+                    <strong>Importancia:</strong> Cython requiere que todas las clases C++ estén correctamente declaradas en archivos <code>.pxd</code> para generar el código de enlace apropiado. Las declaraciones forward y el orden de inclusión son críticos cuando hay dependencias circulares entre módulos.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Problemas Identificados</h3>
+                <p>
+                    La compilación de Cython falló con los siguientes errores:
+                </p>
+                <ol>
+                    <li><strong>Declaración duplicada de PyPPU:</strong> La clase <code>PyPPU</code> estaba declarada tanto en <code>cpu.pyx</code> (como forward declaration) como en <code>ppu.pyx</code> (definición completa), causando conflicto durante la compilación.</li>
+                    <li><strong>Métodos faltantes en cpu.pxd:</strong> Los métodos <code>setPPU</code> y <code>run_scanline</code> estaban implementados en C++ pero no declarados en <code>cpu.pxd</code>, por lo que Cython no podía generar el código de enlace.</li>
+                    <li><strong>Falta de forward declaration de PPU:</strong> El archivo <code>cpu.pxd</code> no tenía una forward declaration de la clase <code>PPU</code>, necesaria para el método <code>setPPU(PPU* ppu)</code>.</li>
+                    <li><strong>Orden de inclusión incorrecto:</strong> En <code>native_core.pyx</code>, <code>cpu.pyx</code> se incluía antes que <code>ppu.pyx</code>, pero <code>cpu.pyx</code> necesitaba acceso a <code>PyPPU</code> definido en <code>ppu.pyx</code>.</li>
+                </ol>
+
+                <h3>Correcciones Aplicadas</h3>
+                
+                <h4>A. Eliminación de Declaración Duplicada (cpu.pyx)</h4>
+                <p>
+                    Se eliminó la forward declaration de <code>PyPPU</code> en <code>cpu.pyx</code>, ya que la definición completa en <code>ppu.pyx</code> será accesible cuando ambos módulos se incluyan en <code>native_core.pyx</code>.
+                </p>
+                <pre><code># ANTES (causaba conflicto):
+cdef class PyPPU:
+    cdef ppu.PPU* _ppu
+
+# DESPUÉS (eliminado, PyPPU disponible desde ppu.pyx):
+# PyPPU estará disponible cuando ppu.pyx se incluya antes que cpu.pyx</code></pre>
+
+                <h4>B. Actualización de cpu.pxd</h4>
+                <p>
+                    Se añadieron la forward declaration de <code>PPU</code> y los métodos faltantes:
+                </p>
+                <pre><code># Forward declaration de PPU
+cdef extern from "PPU.hpp":
+    cdef cppclass PPU:
+        pass
+
+# Métodos añadidos a la clase CPU
+cdef cppclass CPU:
+    # ... métodos existentes ...
+    void setPPU(PPU* ppu)           # NUEVO
+    void run_scanline()              # NUEVO</code></pre>
+
+                <h4>C. Corrección del Orden de Inclusión (native_core.pyx)</h4>
+                <p>
+                    Se cambió el orden para que <code>ppu.pyx</code> se incluya antes de <code>cpu.pyx</code>, asegurando que <code>PyPPU</code> esté disponible cuando <code>cpu.pyx</code> se compile:
+                </p>
+                <pre><code># ANTES:
+include "mmu.pyx"
+include "registers.pyx"
+include "cpu.pyx"
+include "ppu.pyx"
+
+# DESPUÉS:
+include "mmu.pyx"
+include "registers.pyx"
+include "ppu.pyx"    # Movido antes de cpu.pyx
+include "cpu.pyx"    # Ahora puede usar PyPPU</code></pre>
+
+                <h4>D. Corrección del Método set_ppu (cpu.pyx)</h4>
+                <p>
+                    Se ajustó el método <code>set_ppu</code> para declarar la variable <code>cdef PyPPU ppu_obj</code> al principio del método (fuera de bloques condicionales), cumpliendo con las reglas de Cython:
+                </p>
+                <pre><code>cpdef set_ppu(self, object ppu_wrapper):
+    cdef PyPPU ppu_obj  # Declaración al principio
+    if ppu_wrapper is None:
+        self._cpu.setPPU(NULL)
+    else:
+        ppu_obj = &lt;PyPPU&gt;ppu_wrapper
+        self._cpu.setPPU(ppu_obj._ppu)</code></pre>
+
+                <h3>Componentes Modificados</h3>
+                <ul>
+                    <li><code>src/core/cython/cpu.pyx</code>: Eliminada declaración duplicada de PyPPU, corregido método set_ppu.</li>
+                    <li><code>src/core/cython/cpu.pxd</code>: Añadida forward declaration de PPU y métodos setPPU/run_scanline.</li>
+                    <li><code>src/core/cython/native_core.pyx</code>: Corregido orden de inclusión (ppu.pyx antes de cpu.pyx).</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cython/cpu.pyx</code> - Eliminada forward declaration duplicada de PyPPU, corregido método set_ppu</li>
+                    <li><code>src/core/cython/cpu.pxd</code> - Añadida forward declaration de PPU y métodos setPPU/run_scanline</li>
+                    <li><code>src/core/cython/native_core.pyx</code> - Corregido orden de inclusión de módulos</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizó mediante compilación exitosa del módulo C++:
+                </p>
+                <ul>
+                    <li><strong>Compilación:</strong> <code>python setup.py build_ext --inplace</code> completada exitosamente</li>
+                    <li><strong>Script de rebuild:</strong> <code>.\rebuild_cpp.ps1</code> ejecutado sin errores</li>
+                    <li><strong>Errores resueltos:</strong> Todos los errores de compilación de Cython fueron eliminados</li>
+                    <li><strong>Warnings:</strong> Solo warnings menores relacionados con truncamiento de punteros (normales en código generado por Cython)</li>
+                </ul>
+                
+                <h3>Validación de Módulo Compilado C++</h3>
+                <p>
+                    El módulo <code>viboy_core.cp313-win_amd64.pyd</code> se generó correctamente, confirmando que:
+                </p>
+                <ul>
+                    <li>Los métodos <code>setPPU</code> y <code>run_scanline</code> están correctamente enlazados</li>
+                    <li>La clase <code>PyPPU</code> es accesible desde <code>PyCPU</code></li>
+                    <li>No hay dependencias circulares que bloqueen la compilación</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><a href="https://cython.readthedocs.io/">Documentación oficial de Cython</a> - Declaraciones de tipos, forward declarations, orden de inclusión</li>
+                    <li><a href="https://cython.readthedocs.io/en/latest/src/userguide/sharing_declarations.html">Cython: Sharing Declarations Between Cython Modules</a> - Mecanismos de forward declarations</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Declaraciones Forward en Cython:</strong> Cuando un módulo Cython necesita referenciar una clase definida en otro módulo, hay dos opciones: usar una forward declaration (si solo se necesita el tipo para punteros) o asegurar que el módulo que define la clase se incluya antes en el archivo que los agrupa.</li>
+                        <li><strong>Archivos .pxd:</strong> Los archivos <code>.pxd</code> son críticos para declarar la interfaz de clases C++ a Cython. Sin declarar métodos en <code>.pxd</code>, Cython no puede generar el código de enlace correcto, incluso si los métodos están implementados en C++.</li>
+                        <li><strong>Orden de Inclusión:</strong> En Cython, cuando se usan directivas <code>include</code>, el orden importa. Si <code>módulo_a.pyx</code> necesita tipos de <code>módulo_b.pyx</code>, <code>módulo_b.pyx</code> debe incluirse primero.</li>
+                        <li><strong>Declaraciones cdef en Métodos cpdef:</strong> Las variables <code>cdef</code> en métodos <code>cpdef</code> deben declararse al principio del método, fuera de bloques condicionales, para cumplir con las reglas de Cython.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Funcionalidad completa:</strong> Aunque el módulo compila correctamente, aún falta verificar que <code>run_scanline()</code> funciona correctamente en tiempo de ejecución y resuelve el deadlock de sincronización.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        No hay suposiciones críticas. Todas las correcciones se basan en documentación oficial de Cython y reglas estándar de compilación.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar que <code>run_scanline()</code> funciona correctamente en tiempo de ejecución</li>
+                    <li>[ ] Actualizar <code>viboy.py</code> para usar el nuevo método <code>run_scanline()</code> en lugar del bucle Python</li>
+                    <li>[ ] Probar el emulador con Tetris para confirmar que el deadlock de sincronización está resuelto</li>
+                    <li>[ ] Verificar que la PPU se actualiza correctamente después de cada instrucción de la CPU</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

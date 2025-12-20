@@ -19,6 +19,10 @@ cdef extern from "Registers.hpp":
     cdef cppclass CoreRegisters:
         pass
 
+cdef extern from "PPU.hpp":
+    cdef cppclass PPU:
+        pass
+
 cdef extern from "CPU.hpp":
     cdef cppclass CPU:
         # Constructor: recibe punteros a MMU y CoreRegisters
@@ -26,6 +30,12 @@ cdef extern from "CPU.hpp":
         
         # Método principal: ejecuta un ciclo de instrucción
         int step()
+        
+        # Establece el puntero a la PPU para sincronización ciclo a ciclo
+        void setPPU(PPU* ppu)
+        
+        # Ejecuta una scanline completa (456 T-Cycles) con sincronización ciclo a ciclo
+        void run_scanline()
         
         # Obtiene el contador de ciclos acumulados
         uint32_t get_cycles()

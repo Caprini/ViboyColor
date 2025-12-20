@@ -86,6 +86,50 @@ Este cambio representa la solución definitiva al problema de sincronización, m
 
 ---
 
+### 2025-12-20 - Step 0176: Corrección de Errores de Compilación Cython: setPPU y run_scanline
+**Estado**: ✅ VERIFIED
+
+Después de implementar el método `run_scanline()` en C++ y su wrapper en Cython, la compilación falló con múltiples errores relacionados con declaraciones de tipos y métodos faltantes. Este Step documenta la corrección sistemática de estos errores: eliminación de declaraciones duplicadas de `PyPPU`, adición de métodos faltantes en `cpu.pxd` (`setPPU` y `run_scanline`), y corrección del orden de inclusión en `native_core.pyx` para resolver dependencias entre módulos Cython.
+
+**Objetivo:**
+- Corregir errores de compilación de Cython que bloqueaban la nueva arquitectura de emulación ciclo a ciclo.
+- Resolver conflictos de declaraciones duplicadas y dependencias circulares entre módulos Cython.
+- Asegurar que todos los métodos C++ estén correctamente declarados en archivos `.pxd`.
+
+**Concepto de Hardware:**
+Este Step no implementa nueva funcionalidad de hardware, sino que corrige problemas de infraestructura en el puente Python-C++ (Cython). Sin embargo, es crítico para la arquitectura implementada en el Step 0175: sin estos cambios, el método `run_scanline()` no puede ser compilado y expuesto a Python, bloqueando completamente la nueva arquitectura de emulación ciclo a ciclo.
+
+Cython requiere que todas las clases C++ estén correctamente declaradas en archivos `.pxd` para generar el código de enlace apropiado. Las declaraciones forward y el orden de inclusión son críticos cuando hay dependencias circulares entre módulos.
+
+**Implementación:**
+1. **Eliminación de Declaración Duplicada (cpu.pyx):**
+   - Se eliminó la forward declaration de `PyPPU` en `cpu.pyx`, ya que causaba conflicto con la definición completa en `ppu.pyx`.
+   - La clase `PyPPU` será accesible cuando ambos módulos se incluyan correctamente en `native_core.pyx`.
+
+2. **Actualización de cpu.pxd:**
+   - Se añadió la forward declaration de `PPU` necesaria para el método `setPPU(PPU* ppu)`.
+   - Se añadieron las declaraciones de los métodos `setPPU()` y `run_scanline()` que estaban implementados en C++ pero no declarados en el archivo `.pxd`.
+
+3. **Corrección del Orden de Inclusión (native_core.pyx):**
+   - Se cambió el orden para que `ppu.pyx` se incluya antes de `cpu.pyx`, asegurando que `PyPPU` esté disponible cuando `cpu.pyx` se compile.
+   - Esto resuelve el problema de dependencias donde `cpu.pyx` necesita referenciar `PyPPU` definido en `ppu.pyx`.
+
+4. **Corrección del Método set_ppu (cpu.pyx):**
+   - Se ajustó el método para declarar la variable `cdef PyPPU ppu_obj` al principio del método (fuera de bloques condicionales), cumpliendo con las reglas de Cython.
+
+**Resultado:**
+- La compilación de Cython ahora se completa exitosamente sin errores.
+- El módulo `viboy_core.cp313-win_amd64.pyd` se genera correctamente con todos los métodos enlazados.
+- Los métodos `setPPU` y `run_scanline` están disponibles para Python.
+- No hay dependencias circulares que bloqueen la compilación.
+
+**Archivos Modificados:**
+- `src/core/cython/cpu.pyx` - Eliminada forward declaration duplicada de PyPPU, corregido método set_ppu
+- `src/core/cython/cpu.pxd` - Añadida forward declaration de PPU y métodos setPPU/run_scanline
+- `src/core/cython/native_core.pyx` - Corregido orden de inclusión de módulos
+
+---
+
 ### 2025-12-20 - Step 0174: PPU Fase F: Implementación de Interrupciones STAT
 **Estado**: ✅ VERIFIED
 

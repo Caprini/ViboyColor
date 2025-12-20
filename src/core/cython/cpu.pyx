@@ -16,14 +16,10 @@ cimport mmu
 cimport registers
 cimport ppu
 
-# NOTA: PyMMU y PyRegisters están definidos en mmu.pyx y registers.pyx,
-# que están incluidos en native_core.pyx. Los métodos get_c_mmu() y get_c_regs()
-# son cpdef, por lo que son accesibles desde aquí.
-# PyPPU se define en ppu.pyx, pero como native_core.pyx incluye ambos módulos,
-# PyPPU estará disponible en tiempo de ejecución. Para evitar dependencia circular,
-# declaramos PyPPU como forward declaration aquí.
-cdef class PyPPU:
-    cdef ppu.PPU* _ppu
+# NOTA: PyMMU, PyRegisters y PyPPU están definidos en mmu.pyx, registers.pyx y ppu.pyx,
+# que están incluidos en native_core.pyx. Como native_core.pyx incluye todos los módulos,
+# PyPPU estará disponible en tiempo de ejecución sin necesidad de forward declaration.
+# Simplemente importamos el tipo cuando sea necesario usando un cast.
 
 cdef class PyCPU:
     """
@@ -130,7 +126,7 @@ cdef class PyCPU:
         """
         return self._cpu.get_halted()
     
-    def set_ppu(self, PyPPU ppu_wrapper):
+    cpdef set_ppu(self, object ppu_wrapper):
         """
         Conecta la PPU a la CPU para permitir sincronización ciclo a ciclo.
         
@@ -138,15 +134,17 @@ cdef class PyCPU:
         instrucción, resolviendo deadlocks de polling mediante sincronización precisa.
         
         Args:
-            ppu_wrapper: Instancia de PyPPU (debe tener un atributo _ppu válido)
+            ppu_wrapper: Instancia de PyPPU (debe tener un atributo _ppu válido) o None
         """
+        cdef PyPPU ppu_obj
         if ppu_wrapper is None:
             # Si se pasa None, desconectamos la PPU
             self._cpu.setPPU(NULL)
         else:
             # Extraer el puntero C++ subyacente desde el wrapper
-            cdef ppu.PPU* ppu_ptr = (<PyPPU>ppu_wrapper)._ppu
-            self._cpu.setPPU(ppu_ptr)
+            # Hacer el cast a PyPPU y acceder al atributo _ppu directamente
+            ppu_obj = <PyPPU>ppu_wrapper
+            self._cpu.setPPU(ppu_obj._ppu)
     
     def run_scanline(self):
         """

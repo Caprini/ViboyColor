@@ -18,11 +18,12 @@ cdef extern from "NativeCore.hpp":
         NativeCore() except +
         int add(int a, int b)
 
-# Incluir los módulos MMU, Registers, CPU y PPU
+# Incluir los módulos MMU, Registers, PPU y CPU
+# ORDEN CRÍTICO: PPU debe incluirse antes que CPU porque CPU necesita PyPPU
 include "mmu.pyx"
 include "registers.pyx"
-include "cpu.pyx"
 include "ppu.pyx"
+include "cpu.pyx"
 
 # Clase Python que envuelve la clase C++
 cdef class PyNativeCore:
