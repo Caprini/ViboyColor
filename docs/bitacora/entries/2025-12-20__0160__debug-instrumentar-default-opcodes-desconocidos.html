@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug: Instrumentar default para Capturar Opcodes Desconocidos - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug: Instrumentar default para Capturar Opcodes Desconocidos</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0160
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0159__cpu-implementar-dec-hl-bucle-infinito.html">Anterior (0159)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se instrumentó el caso <code>default</code> del switch de opcodes en la CPU de C++ para detectar y reportar explícitamente qué opcode no implementado está causando el deadlock lógico. El diagnóstico previo confirmó que <code>LY</code> está atascado en 0 porque la CPU devuelve 0 ciclos repetidamente, indicando que está ejecutando un opcode desconocido en un bucle infinito. La solución implementada añade un <code>printf</code> y <code>exit(1)</code> en el caso <code>default</code> para que el emulador termine inmediatamente y muestre el opcode y PC exactos donde ocurre el problema.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En un emulador de Game Boy, cuando la CPU encuentra un opcode que no está implementado, debe manejarlo de alguna forma. En nuestro caso, el caso <code>default</code> del switch retornaba 0 ciclos, lo que causaba un deadlock lógico:
+                </p>
+                <ul>
+                    <li>La CPU ejecuta un opcode desconocido y devuelve 0 ciclos.</li>
+                    <li>El motor de timing en Python acumula 0 ciclos, por lo que nunca alcanza el umbral de <code>CYCLES_PER_SCANLINE</code>.</li>
+                    <li>Como resultado, <code>LY</code> (línea de escaneo) nunca avanza, quedándose atascado en 0.</li>
+                    <li>El bucle principal sigue corriendo (por eso vemos el Heartbeat), pero el tiempo de emulación no avanza.</li>
+                </ul>
+                <p>
+                    Esta técnica de instrumentación es conocida como "fail-fast" o "fail-loud": en lugar de fallar silenciosamente, el programa termina inmediatamente con un mensaje claro que identifica exactamente qué opcode falta. Esto es especialmente útil durante el desarrollo, cuando aún no se han implementado todos los 256 opcodes base (más los 256 del prefijo CB).
+                </p>
+                <p>
+                    <strong>Referencia:</strong> Técnica de depuración estándar en emulación - "Opcode Trap" o "Unimplemented Instruction Handler".
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó el archivo <code>src/core/cpp/CPU.cpp</code> para añadir instrumentación de depuración en el caso <code>default</code> del switch de opcodes.
+                </p>
+                
+                <h3>Modificaciones Realizadas</h3>
+                <ul>
+                    <li><strong>Inclusión de headers:</strong> Se añadió <code>#include &lt;cstdlib&gt;</code> para usar <code>exit()</code>.</li>
+                    <li><strong>Instrumentación del default:</strong> Se reemplazó el retorno silencioso de 0 ciclos por un <code>printf</code> que muestra el opcode y PC, seguido de <code>exit(1)</code> para terminar la ejecución inmediatamente.</li>
+                </ul>
+
+                <h3>Código Implementado</h3>
+                <p>
+                    El caso <code>default</code> ahora tiene esta estructura:
+                </p>
+                <pre><code>default:
+    // Opcode no implementado - INSTRUMENTACIÓN DE DEPURACIÓN
+    // Esta es la "bala de plata" para detectar opcodes faltantes
+    // Imprimimos el opcode y PC, luego terminamos la ejecución inmediatamente
+    printf("[CPU FATAL] Opcode no implementado: 0x%02X en PC: 0x%04X\n", opcode, current_pc);
+    // Detenemos la emulación bruscamente para que el mensaje sea lo último que veamos
+    exit(1);
+    return 0; // No se ejecutará, pero es buena práctica</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <p>
+                    Se eligió <code>exit(1)</code> en lugar de lanzar una excepción o usar logging porque:
+                </p>
+                <ul>
+                    <li><strong>Inmediatez:</strong> Termina el programa de forma inmediata, evitando que se inunde la consola con mensajes repetidos.</li>
+                    <li><strong>Claridad:</strong> El mensaje de error es lo último que se ve, facilitando su identificación.</li>
+                    <li><strong>Simplicidad:</strong> No requiere manejo de excepciones en el código Python, simplificando el flujo de depuración.</li>
+                    <li><strong>Debugging:</strong> Es una técnica estándar en desarrollo de emuladores para identificar rápidamente opcodes faltantes.</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> Esta instrumentación es temporal y se removerá o se convertirá en un modo de debug opcional una vez que todos los opcodes estén implementados.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido <code>#include &lt;cstdlib&gt;</code> y modificado el caso <code>default</code> del switch de opcodes.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Esta modificación no requiere tests unitarios tradicionales, ya que es una herramienta de depuración. La validación se realizará ejecutando el emulador:
+                </p>
+                <ul>
+                    <li><strong>Comando de recompilación:</strong> <code>.\rebuild_cpp.ps1</code></li>
+                    <li><strong>Comando de ejecución:</strong> <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Resultado esperado:</strong> El emulador debería terminar inmediatamente con un mensaje como:
+                        <pre><code>[CPU FATAL] Opcode no implementado: 0xXX en PC: 0xYYYY</code></pre>
+                    </li>
+                </ul>
+                <p>
+                    Este mensaje identificará exactamente qué opcode falta implementar, permitiendo continuar con la depuración de forma dirigida.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Técnica de depuración estándar en emulación: "Opcode Trap" o "Unimplemented Instruction Handler"</li>
+                    <li>Principio de "Fail-Fast" en desarrollo de software</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Deadlock lógico:</strong> Cuando la CPU devuelve 0 ciclos repetidamente, el tiempo de emulación no avanza, causando que <code>LY</code> se quede atascado.</li>
+                        <li><strong>Instrumentación de depuración:</strong> Añadir código específico para detectar y reportar problemas durante el desarrollo es una práctica estándar.</li>
+                        <li><strong>Fail-fast:</strong> Terminar inmediatamente con un mensaje claro es más útil que fallar silenciosamente o generar logs masivos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Opcode faltante:</strong> Una vez ejecutado el emulador con esta instrumentación, sabremos exactamente qué opcode no está implementado y está causando el deadlock.</li>
+                        <li><strong>Contexto de ejecución:</strong> El PC donde ocurre el problema nos dará contexto sobre en qué parte del código de la ROM se está ejecutando este opcode.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> La CPU está ejecutando un opcode no implementado en un bucle infinito, causando que devuelva 0 ciclos repetidamente. Esta instrumentación confirmará o refutará esta hipótesis de forma definitiva.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con <code>.\rebuild_cpp.ps1</code></li>
+                    <li>[ ] Ejecutar el emulador con <code>python main.py roms/tetris.gb</code></li>
+                    <li>[ ] Identificar el opcode faltante del mensaje de error</li>
+                    <li>[ ] Implementar el opcode faltante en la CPU de C++</li>
+                    <li>[ ] Verificar que el emulador avanza más allá del punto de bloqueo</li>
+                    <li>[ ] Actualizar el estado de esta entrada a VERIFIED una vez confirmado</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -2,6 +2,7 @@
 #include "MMU.hpp"
 #include "Registers.hpp"
 #include <cstdio>
+#include <cstdlib>
 
 // Variables estáticas para logging de diagnóstico con sistema "disparado" (triggered)
 static const uint16_t DEBUG_TRIGGER_PC = 0x0300; // Dirección de activación del trazado
@@ -1462,11 +1463,13 @@ int CPU::step() {
             }
 
         default:
-            // Opcode no implementado
-            // En producción, esto debería lanzar una excepción o loggear
-            // Por ahora, retornamos 0 para indicar error
-            // NOTA: No usamos std::cout aquí porque está en el bucle crítico
-            return 0;
+            // Opcode no implementado - INSTRUMENTACIÓN DE DEPURACIÓN
+            // Esta es la "bala de plata" para detectar opcodes faltantes
+            // Imprimimos el opcode y PC, luego terminamos la ejecución inmediatamente
+            printf("[CPU FATAL] Opcode no implementado: 0x%02X en PC: 0x%04X\n", opcode, current_pc);
+            // Detenemos la emulación bruscamente para que el mensaje sea lo último que veamos
+            exit(1);
+            return 0; // No se ejecutará, pero es buena práctica
     }
 }
 

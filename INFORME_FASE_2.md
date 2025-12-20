@@ -32,6 +32,30 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0160: Debug: Instrumentar default para Capturar Opcodes Desconocidos
+**Estado**: 🔍 DRAFT
+
+Se instrumentó el caso `default` del switch de opcodes en la CPU de C++ para detectar y reportar explícitamente qué opcode no implementado está causando el deadlock lógico. El diagnóstico previo confirmó que `LY` está atascado en 0 porque la CPU devuelve 0 ciclos repetidamente, indicando que está ejecutando un opcode desconocido en un bucle infinito. La solución implementada añade un `printf` y `exit(1)` en el caso `default` para que el emulador termine inmediatamente y muestre el opcode y PC exactos donde ocurre el problema.
+
+**Objetivo:**
+- Instrumentar el caso `default` del switch de opcodes para detectar opcodes no implementados de forma inmediata y clara.
+- Identificar exactamente qué opcode está causando el deadlock lógico que impide que `LY` avance.
+
+**Modificaciones realizadas:**
+- Añadido `#include <cstdlib>` al principio de `src/core/cpp/CPU.cpp` para usar `exit()`.
+- Modificado el caso `default` del switch para imprimir el opcode y PC con `printf`, seguido de `exit(1)` para terminar la ejecución inmediatamente.
+
+**Hallazgos:**
+- El deadlock lógico se caracteriza por: `LY` atascado en 0, Heartbeat funcionando (bucle principal corriendo), pero tiempo de emulación no avanzando.
+- Cuando la CPU devuelve 0 ciclos repetidamente, el motor de timing nunca alcanza `CYCLES_PER_SCANLINE`, causando que `LY` se quede atascado.
+- Esta técnica de "fail-fast" es estándar en desarrollo de emuladores para identificar rápidamente opcodes faltantes.
+
+**Próximos pasos:**
+- Recompilar el módulo C++ y ejecutar el emulador para identificar el opcode faltante.
+- Implementar el opcode identificado y verificar que el emulador avanza más allá del punto de bloqueo.
+
+---
+
 ### 2025-12-20 - Step 0159: CPU: Implementar DEC (HL) para Romper Segundo Bucle Infinito
 **Estado**: ✅ VERIFIED
 
