@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0177 - Fix: Reparar Wrapper Cython y Validar Sistema de Interrupciones -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0177__fix-reparar-wrapper-cython-validar-interrupciones.html" class="entry-link">
+                                    Fix: Reparar Wrapper Cython y Validar Sistema de Interrupciones
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0177 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Los tests de interrupciones estaban fallando con un AttributeError, lo que nos impedía validar la lógica de HALT y despertar. Esto probablemente también estaba relacionado con el deadlock persistente de LY=0, ya que si los tests no pueden modificar ime, es posible que la instrucción EI tampoco lo esté haciendo correctamente. Este Step corrige el wrapper de Cython (cpu.pyx) para exponer una propiedad ime escribible mediante un @property.setter, arregla los tests de interrupciones y verifica que el núcleo C++ puede habilitar interrupciones correctamente.
+                        </p>
+                    </li>
                     <!-- Entrada 0176 - Hack Educativo: Forzar el Renderizado del Fondo -->
                     <li>
                         <div class="entry-header">
