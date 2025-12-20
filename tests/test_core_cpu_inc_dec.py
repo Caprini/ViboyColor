@@ -337,11 +337,11 @@ class TestCoreCPUIncDec:
         # Configurar B=1 y el flag Z=0
         regs.pc = 0x0100
         regs.b = 1
-        regs.set_flag_z(False)  # Asegurar que Z está desactivado
+        regs.flag_z = False  # Asegurar que Z está desactivado (usar propiedad, no método)
         
         # Verificar estado inicial
         assert regs.b == 1, "B debe ser 1 inicialmente"
-        assert regs.get_flag_z() == False, "Flag Z debe estar desactivado inicialmente"
+        assert regs.flag_z == False, "Flag Z debe estar desactivado inicialmente"
         
         # Ejecutar DEC B (opcode 0x05)
         mmu.write(0x0100, 0x05)  # Opcode DEC B
@@ -349,7 +349,7 @@ class TestCoreCPUIncDec:
         
         # Verificar resultado: B debe ser 0 y Z debe estar activo
         assert regs.b == 0, f"B debe ser 0 después de DEC, es {regs.b}"
-        assert regs.get_flag_z() == True, "Flag Z debe estar activo cuando resultado es 0 (¡COMPROBACIÓN CLAVE!)"
+        assert regs.flag_z == True, "Flag Z debe estar activo cuando resultado es 0 (¡COMPROBACIÓN CLAVE!)"
         assert regs.flag_n == True, "Flag N debe estar activo (es decremento)"
         assert regs.pc == 0x0101, "PC debe avanzar 1 byte después de DEC B"
 

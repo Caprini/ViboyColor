@@ -50,11 +50,13 @@ La traza de la CPU confirmó que el emulador estaba atrapado en un bucle infinit
 **Implementación del fix:**
 - ✅ Mejorados los comentarios en la función `alu_dec` en `src/core/cpp/CPU.cpp` (líneas 184-204) para explicar la importancia crítica del flag Z
 - ✅ Añadido nuevo test `test_dec_b_sets_zero_flag` en `tests/test_core_cpu_inc_dec.py` que valida explícitamente que `DEC B` activa el flag Z cuando `B` pasa de `1` a `0`
+- ✅ Corregido el test para usar las propiedades `flag_z` en lugar de métodos inexistentes (`set_flag_z`/`get_flag_z`)
 - ✅ Recompilado el módulo C++ con `rebuild_cpp.ps1` para asegurar que los cambios están disponibles
 
 **Resultado:**
 - El código de `alu_dec` ya estaba correcto (la línea `regs_->set_flag_z(result == 0);` estaba presente)
 - Los comentarios mejorados y el nuevo test validan explícitamente el comportamiento crítico del flag Z
+- El test pasa exitosamente: `pytest tests/test_core_cpu_inc_dec.py::TestCoreCPUIncDec::test_dec_b_sets_zero_flag -v` → `1 passed in 0.07s`
 - El módulo está recompilado y listo para ejecutar ROMs reales
 
 **Próximos pasos:**

@@ -133,11 +133,11 @@
     # Configurar B=1 y el flag Z=0
     regs.pc = 0x0100
     regs.b = 1
-    regs.set_flag_z(False)  # Asegurar que Z está desactivado
+    regs.flag_z = False  # Usar propiedad, no método
     
     # Verificar estado inicial
     assert regs.b == 1, "B debe ser 1 inicialmente"
-    assert regs.get_flag_z() == False, "Flag Z debe estar desactivado inicialmente"
+    assert regs.flag_z == False, "Flag Z debe estar desactivado inicialmente"
     
     # Ejecutar DEC B (opcode 0x05)
     mmu.write(0x0100, 0x05)  # Opcode DEC B
@@ -145,7 +145,7 @@
     
     # Verificar resultado: B debe ser 0 y Z debe estar activo
     assert regs.b == 0, f"B debe ser 0 después de DEC, es {regs.b}"
-    assert regs.get_flag_z() == True, "Flag Z debe estar activo cuando resultado es 0 (¡COMPROBACIÓN CLAVE!)"
+    assert regs.flag_z == True, "Flag Z debe estar activo cuando resultado es 0 (¡COMPROBACIÓN CLAVE!)"
     assert regs.flag_n == True, "Flag N debe estar activo (es decremento)"
     assert regs.pc == 0x0101, "PC debe avanzar 1 byte después de DEC B"</code></pre>
 
@@ -160,7 +160,7 @@
                 <h2>Archivos Afectados</h2>
                 <ul>
                     <li><code>src/core/cpp/CPU.cpp</code> - Mejorados los comentarios en la función <code>alu_dec</code> (líneas 184-204) para explicar la importancia crítica del flag Z.</li>
-                    <li><code>tests/test_core_cpu_inc_dec.py</code> - Añadido nuevo test <code>test_dec_b_sets_zero_flag</code> que valida explícitamente que <code>DEC B</code> activa el flag Z cuando el resultado es 0.</li>
+                    <li><code>tests/test_core_cpu_inc_dec.py</code> - Añadido nuevo test <code>test_dec_b_sets_zero_flag</code> que valida explícitamente que <code>DEC B</code> activa el flag Z cuando el resultado es 0. El test fue corregido para usar las propiedades <code>flag_z</code> en lugar de métodos inexistentes.</li>
                     <li><code>viboy_core.cp313-win_amd64.pyd</code> - Módulo recompilado para asegurar que los cambios están disponibles.</li>
                 </ul>
             </section>
@@ -175,13 +175,20 @@
                 <h3>Comando ejecutado</h3>
                 <pre><code>pytest tests/test_core_cpu_inc_dec.py::TestCoreCPUIncDec::test_dec_b_sets_zero_flag -v</code></pre>
 
-                <h3>Resultado esperado</h3>
+                <h3>Resultado</h3>
+                <pre><code>====================== test session starts =======================
+platform win32 -- Python 3.13.5, pytest-9.0.2, pluggy-1.6.0
+collected 1 item                                                  
+
+tests/test_core_cpu_inc_dec.py::TestCoreCPUIncDec::test_dec_b_sets_zero_flag PASSED [100%]
+
+======================= 1 passed in 0.07s =======================</code></pre>
                 <p>
-                    El test debe pasar, confirmando que:
+                    El test pasó exitosamente, confirmando que:
                 </p>
                 <ul>
                     <li><code>DEC B</code> decrementa correctamente el registro B (de 1 a 0)</li>
-                    <li>El flag Z se activa cuando el resultado es 0</li>
+                    <li>El flag Z se activa cuando el resultado es 0 ✅</li>
                     <li>El flag N se activa (es decremento)</li>
                     <li>El PC avanza correctamente (1 byte)</li>
                 </ul>
@@ -196,7 +203,11 @@
     # Configurar B=1 y el flag Z=0
     regs.pc = 0x0100
     regs.b = 1
-    regs.set_flag_z(False)
+    regs.flag_z = False  # Usar propiedad, no método
+    
+    # Verificar estado inicial
+    assert regs.b == 1
+    assert regs.flag_z == False
     
     # Ejecutar DEC B (opcode 0x05)
     mmu.write(0x0100, 0x05)
@@ -204,9 +215,13 @@
     
     # Verificar resultado
     assert regs.b == 0
-    assert regs.get_flag_z() == True  # ¡La comprobación clave!
+    assert regs.flag_z == True  # ¡La comprobación clave!
     assert regs.flag_n == True
     assert regs.pc == 0x0101</code></pre>
+                
+                <p>
+                    <strong>Nota:</strong> Inicialmente el test usaba métodos <code>set_flag_z()</code> y <code>get_flag_z()</code> que no existen en la interfaz Cython. Se corrigió para usar las propiedades <code>flag_z</code> directamente, que es la forma correcta de acceder a los flags desde Python.
+                </p>
 
                 <p>
                     <strong>Validación Nativa:</strong> El test valida el módulo compilado C++ a través de la interfaz Cython. Confirma que la función <code>alu_dec</code> actualiza correctamente el flag Z cuando el resultado del decremento es 0.
