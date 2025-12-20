@@ -1,9 +1,10 @@
 #include "MMU.hpp"
 #include "PPU.hpp"
 #include "Timer.hpp"
+#include "Joypad.hpp"
 #include <cstring>
 
-MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr) {
+MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nullptr) {
     // Inicializar memoria a 0
     // CRÍTICO: En una Game Boy real, la Boot ROM inicializa BGP (0xFF47) a 0xE4
     // Por ahora, lo haremos en el wrapper Python o cuando se necesite
@@ -59,6 +60,17 @@ uint8_t MMU::read(uint16_t addr) const {
         return 0x00;
     }
     
+    // CRÍTICO: El registro P1 (0xFF00) es controlado por el Joypad
+    // La CPU escribe en P1 para seleccionar qué fila de botones leer, y lee
+    // el estado de los botones de la fila seleccionada
+    if (addr == 0xFF00) {
+        if (joypad_ != nullptr) {
+            return joypad_->read_p1();
+        }
+        // Si el Joypad no está conectado, devolver valor por defecto (0xCF = ninguna fila seleccionada)
+        return 0xCF;
+    }
+    
     // Acceso directo al array: O(1), sin overhead de Python
     return memory_[addr];
 }
@@ -82,6 +94,17 @@ void MMU::write(uint16_t addr, uint8_t value) {
         return;
     }
     
+    // CRÍTICO: El registro P1 (0xFF00) es controlado por el Joypad
+    // La CPU escribe en P1 para seleccionar qué fila de botones leer
+    if (addr == 0xFF00) {
+        if (joypad_ != nullptr) {
+            joypad_->write_p1(value);
+        }
+        // No escribimos en memoria porque P1 no es un registro de memoria real
+        // Es un registro de hardware que se lee/escribe dinámicamente
+        return;
+    }
+    
     // Escritura directa: O(1), sin overhead de Python
     memory_[addr] = value;
 }
@@ -101,6 +124,10 @@ void MMU::setPPU(PPU* ppu) {
 
 void MMU::setTimer(Timer* timer) {
     timer_ = timer;
+}
+
+void MMU::setJoypad(Joypad* joypad) {
+    joypad_ = joypad;
 }
 
 void MMU::request_interrupt(uint8_t bit) {

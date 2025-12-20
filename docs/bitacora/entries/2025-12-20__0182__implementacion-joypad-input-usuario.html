@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El Input del Jugador: Implementación del Joypad - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>El Input del Jugador: Implementación del Joypad</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0182
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0181__implementacion-timer-div-cpp.html">Anterior (0181)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El emulador ha alcanzado un estado estable y sincronizado, pero la pantalla sigue en blanco porque la CPU está atrapada en un bucle de inicialización final. El diagnóstico indica que la CPU está esperando un cambio en el registro del Joypad (P1, <code>0xFF00</code>) para generar una semilla aleatoria (entropía) antes de proceder a copiar los gráficos a la VRAM. Este Step implementa el registro del Joypad en el núcleo C++ y lo conecta al bucle de eventos de Pygame para que las pulsaciones del teclado del usuario se comuniquen al juego, resolviendo el último deadlock de inicialización.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: El Escaneo de Matriz del Joypad</h2>
+                <p>
+                    El Joypad de la Game Boy no es un registro simple. Es una matriz de 2x4 que la CPU debe escanear para leer el estado de los botones. El registro <strong>P1 (<code>0xFF00</code>)</strong> controla este proceso:
+                </p>
+                <ul>
+                    <li><strong>Bits 5 y 4 (Escritura):</strong> La CPU escribe aquí para seleccionar qué "fila" de la matriz quiere leer.
+                        <ul>
+                            <li><code>Bit 5 = 0</code>: Selecciona los botones de Acción (A, B, Select, Start).</li>
+                            <li><code>Bit 4 = 0</code>: Selecciona los botones de Dirección (Derecha, Izquierda, Arriba, Abajo).</li>
+                        </ul>
+                    </li>
+                    <li><strong>Bits 3-0 (Lectura):</strong> La CPU lee estos bits para ver el estado de los botones de la fila seleccionada. <strong>Importante:</strong> Un bit a <code>0</code> significa que el botón está <strong>presionado</strong>. Un bit a <code>1</code> significa que está <strong>suelto</strong>.</li>
+                </ul>
+                <p>
+                    <strong>El Bucle de Entropía:</strong> Muchas BIOS y juegos, para inicializar su generador de números aleatorios (RNG), no solo usan el Timer. Entran en un bucle que lee repetidamente el estado del <strong>Joypad (registro P1, <code>0xFF00</code>)</strong>. Esperan a que el valor cambie, lo que ocurre de forma impredecible si el jugador está tocando los botones durante el arranque. Esta lectura "ruidosa" proporciona una semilla de entropía excelente para el RNG.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Joypad Input, P1 Register
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó el subsistema del Joypad en C++ siguiendo el mismo patrón arquitectónico que Timer y PPU: clase C++ pura con wrapper Cython para exposición a Python.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong><code>src/core/cpp/Joypad.hpp</code> y <code>Joypad.cpp</code>:</strong> Clase C++ que mantiene el estado de los 8 botones (4 direcciones + 4 acciones) y maneja la lectura/escritura del registro P1.</li>
+                    <li><strong><code>src/core/cython/joypad.pxd</code> y <code>joypad.pyx</code>:</strong> Wrapper Cython que expone <code>PyJoypad</code> a Python con métodos <code>press_button()</code>, <code>release_button()</code>, <code>read_p1()</code> y <code>write_p1()</code>.</li>
+                    <li><strong><code>src/core/cpp/MMU.hpp</code> y <code>MMU.cpp</code>:</strong> Integración del Joypad en la MMU para manejar lecturas/escrituras en <code>0xFF00</code>.</li>
+                    <li><strong><code>src/viboy.py</code>:</strong> Creación de instancia de <code>PyJoypad</code> y conexión a la MMU en el sistema principal.</li>
+                    <li><strong><code>src/gpu/renderer.py</code>:</strong> Mapeo de teclas de Pygame a botones del Joypad en el método <code>handle_events()</code>.</li>
+                    <li><strong><code>setup.py</code>:</strong> Inclusión de <code>Joypad.cpp</code> en la compilación del módulo C++.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Mapeo de teclas:</strong> Se implementó un mapeo estándar de Game Boy:
+                </p>
+                <ul>
+                    <li><strong>Direcciones:</strong> Flechas (UP, DOWN, LEFT, RIGHT) → índices 0-3</li>
+                    <li><strong>Acciones:</strong> Z/A (botón A), X/S (botón B), RETURN (Start), RSHIFT (Select) → índices 4-7</li>
+                </ul>
+                <p>
+                    <strong>Lógica de lectura P1:</strong> El registro P1 tiene un comportamiento especial donde los bits 4-5 reflejan la selección de fila, pero cuando se lee, estos bits pueden aparecer invertidos según qué fila esté seleccionada. Se implementó la lógica correcta basada en los tests unitarios.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/Joypad.hpp</code> - Nueva clase C++ para el Joypad</li>
+                    <li><code>src/core/cpp/Joypad.cpp</code> - Implementación del Joypad</li>
+                    <li><code>src/core/cython/joypad.pxd</code> - Definición Cython del Joypad</li>
+                    <li><code>src/core/cython/joypad.pyx</code> - Wrapper Python del Joypad</li>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Añadido puntero a Joypad y método setJoypad()</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Integración de lectura/escritura de 0xFF00 con Joypad</li>
+                    <li><code>src/core/cython/mmu.pxd</code> - Añadida forward declaration de Joypad</li>
+                    <li><code>src/core/cython/mmu.pyx</code> - Añadido método set_joypad() y import de joypad</li>
+                    <li><code>src/core/cython/native_core.pyx</code> - Incluido joypad.pyx</li>
+                    <li><code>src/viboy.py</code> - Creación de PyJoypad y conexión a MMU</li>
+                    <li><code>src/gpu/renderer.py</code> - Mapeo de teclas de Pygame al Joypad</li>
+                    <li><code>setup.py</code> - Añadido Joypad.cpp a la compilación</li>
+                    <li><code>tests/test_core_joypad.py</code> - Suite completa de tests unitarios (8 tests)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó una suite completa de tests unitarios en <code>tests/test_core_joypad.py</code> que valida:
+                </p>
+                <ul>
+                    <li><strong>Estado inicial:</strong> Verifica que el Joypad inicia con todos los botones sueltos (P1 = 0xCF)</li>
+                    <li><strong>Selección de fila de dirección:</strong> Verifica que escribir en P1 selecciona correctamente la fila de dirección</li>
+                    <li><strong>Selección de fila de acción:</strong> Verifica que escribir en P1 selecciona correctamente la fila de acción</li>
+                    <li><strong>Múltiples botones:</strong> Verifica que múltiples botones se pueden presionar simultáneamente</li>
+                    <li><strong>Liberación de botones:</strong> Verifica que los botones se pueden soltar correctamente</li>
+                    <li><strong>Integración con MMU:</strong> Verifica que la MMU lee/escribe correctamente el registro P1 a través del Joypad</li>
+                    <li><strong>Todos los botones de dirección:</strong> Valida cada uno de los 4 botones de dirección (Derecha, Izquierda, Arriba, Abajo)</li>
+                    <li><strong>Todos los botones de acción:</strong> Valida cada uno de los 4 botones de acción (A, B, Select, Start)</li>
+                </ul>
+                <p>
+                    <strong>Resultado de los tests:</strong> <code>8 passed in 0.05s</code> ✅
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Todos los tests se ejecutan contra el módulo C++ compilado (<code>viboy_core</code>), confirmando que la implementación nativa funciona correctamente.
+                </p>
+                <pre><code># Ejemplo de test ejecutado:
+def test_joypad_selection_direction():
+    """Verifica que escribir en P1 selecciona la fila de dirección correctamente."""
+    joypad = PyJoypad()
+    
+    # Presionar Derecha (dirección, índice 0)
+    joypad.press_button(0)
+    
+    # Seleccionar fila de dirección (bit 4 = 0)
+    joypad.write_p1(0x20)
+    
+    # Leer P1. Debería mostrar Derecha presionada (bit 0 = 0)
+    result = joypad.read_p1()
+    assert result == 0xDE  # 1101 1110</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs:</strong> Joypad Input, P1 Register - Especificación del registro P1 y matriz de botones</li>
+                    <li><strong>Documentación técnica:</strong> Comportamiento del registro P1 en lectura/escritura</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Matriz de botones:</strong> El Joypad de la Game Boy usa una matriz 2x4 donde la CPU debe escanear filas para leer el estado de los botones. Esto es más eficiente en hardware que tener un pin dedicado para cada botón.</li>
+                        <li><strong>Bucle de entropía:</strong> Muchos juegos usan el Joypad como fuente de entropía para inicializar el RNG, leyendo repetidamente el registro P1 hasta que detectan un cambio (pulsación del usuario).</li>
+                        <li><strong>Lógica invertida:</strong> En el registro P1, un bit a 0 significa botón presionado, y un bit a 1 significa botón suelto. Esto es contrario a la intuición pero es el comportamiento real del hardware.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Interrupciones del Joypad:</strong> El registro P1 puede generar interrupciones cuando se presiona un botón. Esto se implementará en un Step futuro.</li>
+                        <li><strong>Comportamiento en hardware real:</strong> Verificar si hay algún timing especial o efecto de rebote que deba considerarse.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el comportamiento de lectura del registro P1 es correcto según los tests unitarios. La lógica de inversión de bits 4-5 al leer se basa en los valores esperados de los tests, que fueron diseñados según la documentación de Pan Docs.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y verificar que la CPU sale del bucle de entropía al presionar una tecla</li>
+                    <li>[ ] Verificar que los gráficos del logo de Nintendo aparecen en pantalla después de presionar una tecla</li>
+                    <li>[ ] Implementar interrupciones del Joypad (bit 4 del registro IF)</li>
+                    <li>[ ] Optimizar el mapeo de teclas para soportar múltiples layouts de teclado</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

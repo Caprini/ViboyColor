@@ -7,6 +7,7 @@
 // Forward declarations para evitar dependencia circular
 class PPU;
 class Timer;
+class Joypad;
 
 /**
  * MMU (Memory Management Unit) - Unidad de Gestión de Memoria
@@ -74,6 +75,17 @@ public:
      * @param timer Puntero a la instancia de Timer (puede ser nullptr)
      */
     void setTimer(Timer* timer);
+
+    /**
+     * Establece el puntero al Joypad para permitir lectura/escritura del registro P1.
+     * 
+     * El registro P1 (0xFF00) es controlado por el Joypad. La CPU escribe en P1
+     * para seleccionar qué fila de botones leer (direcciones o acciones), y lee
+     * el estado de los botones de la fila seleccionada.
+     * 
+     * @param joypad Puntero a la instancia de Joypad (puede ser nullptr)
+     */
+    void setJoypad(Joypad* joypad);
     
     /**
      * Solicita una interrupción activando el bit correspondiente en el registro IF (0xFF0F).
@@ -120,6 +132,14 @@ private:
      * o escribe el registro DIV para obtener/actualizar el valor del contador.
      */
     Timer* timer_;
+
+    /**
+     * Puntero al Joypad para lectura/escritura del registro P1 (0xFF00).
+     * 
+     * Este puntero se establece mediante setJoypad() y se usa cuando se lee
+     * o escribe el registro P1 para obtener/actualizar el estado de los botones.
+     */
+    Joypad* joypad_;
 };
 
 #endif // MMU_HPP

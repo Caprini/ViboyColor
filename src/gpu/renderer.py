@@ -115,7 +115,7 @@ class Renderer:
     el contenido de la VRAM decodificando tiles en formato 2bpp.
     """
     
-    def __init__(self, mmu: MMU, scale: int = 3, use_cpp_ppu: bool = False, ppu = None) -> None:
+    def __init__(self, mmu: MMU, scale: int = 3, use_cpp_ppu: bool = False, ppu = None, joypad = None) -> None:
         """
         Inicializa el renderer con Pygame.
         
@@ -137,6 +137,7 @@ class Renderer:
         self.scale = scale
         self.use_cpp_ppu = use_cpp_ppu
         self.cpp_ppu = ppu
+        self.joypad = joypad  # Instancia de PyJoypad (C++) o Joypad (Python)
         
         # Dimensiones de la ventana (GB_WIDTH x GB_HEIGHT escalado)
         self.window_width = GB_WIDTH * scale
@@ -1022,11 +1023,15 @@ class Renderer:
 
     def handle_events(self) -> bool:
         """
-        Maneja eventos de Pygame (especialmente pygame.QUIT).
+        Maneja eventos de Pygame (especialmente pygame.QUIT y teclado para Joypad).
         
         IMPORTANTE: En macOS, pygame.event.pump() es necesario para que la ventana se actualice.
         Este método llama automáticamente a pygame.event.pump() para asegurar que la ventana
         se refresque correctamente en todos los sistemas operativos.
+        
+        Mapea las teclas de Pygame a los botones del Joypad:
+        - Direcciones: Flechas (UP, DOWN, LEFT, RIGHT)
+        - Acciones: Z/A (botón A), X/S (botón B), RETURN (Start), RSHIFT (Select)
         
         Returns:
             True si se debe continuar ejecutando, False si se debe cerrar
@@ -1038,9 +1043,36 @@ class Renderer:
         # para que la ventana se actualice correctamente
         pygame.event.pump()
         
+        # Mapeo de teclas a índices de botones del Joypad
+        # Direcciones: 0: Derecha, 1: Izquierda, 2: Arriba, 3: Abajo
+        # Acciones:    4: A,       5: B,       6: Select, 7: Start
+        KEY_MAP = {
+            pygame.K_RIGHT: 0,    # Derecha
+            pygame.K_LEFT: 1,     # Izquierda
+            pygame.K_UP: 2,       # Arriba
+            pygame.K_DOWN: 3,     # Abajo
+            pygame.K_z: 4,        # A (también pygame.K_a)
+            pygame.K_a: 4,        # A (alternativa)
+            pygame.K_x: 5,        # B (también pygame.K_s)
+            pygame.K_s: 5,        # B (alternativa)
+            pygame.K_RSHIFT: 6,   # Select
+            pygame.K_RETURN: 7,   # Start
+        }
+        
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
+            
+            # Manejar eventos de teclado para el Joypad
+            if self.joypad is not None:
+                if event.type == pygame.KEYDOWN:
+                    if event.key in KEY_MAP:
+                        button_index = KEY_MAP[event.key]
+                        self.joypad.press_button(button_index)
+                elif event.type == pygame.KEYUP:
+                    if event.key in KEY_MAP:
+                        button_index = KEY_MAP[event.key]
+                        self.joypad.release_button(button_index)
         
         return True
 

@@ -46,6 +46,7 @@ extensions = [
             str(cpp_dir / "CPU.cpp"),
             str(cpp_dir / "PPU.cpp"),  # PPU (Pixel Processing Unit)
             str(cpp_dir / "Timer.cpp"),  # Timer (Subsistema de Temporización)
+            str(cpp_dir / "Joypad.cpp"),  # Joypad (Subsistema de Entrada del Usuario)
         ],
         include_dirs=include_dirs,
         language="c++",

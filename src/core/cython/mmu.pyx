@@ -14,6 +14,7 @@ from libcpp cimport bool
 cimport mmu
 cimport ppu
 cimport timer
+cimport joypad
 
 # NOTA: PyPPU se define en ppu.pyx, pero como native_core.pyx incluye ambos módulos,
 # PyPPU estará disponible en tiempo de ejecución. Para evitar dependencia circular,
@@ -201,6 +202,32 @@ cdef class PyMMU:
         
         # Llama al método C++ con el puntero C++ correcto
         self._mmu.setTimer(timer_ptr)
+    
+    def set_joypad(self, object joypad_wrapper):
+        """
+        Conecta el Joypad a la MMU para permitir lectura/escritura del registro P1.
+        
+        El registro P1 (0xFF00) es controlado por el Joypad. La CPU escribe en P1
+        para seleccionar qué fila de botones leer (direcciones o acciones), y lee
+        el estado de los botones de la fila seleccionada.
+        
+        Args:
+            joypad_wrapper: Instancia de PyJoypad (debe tener un método get_cpp_ptr() válido) o None
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        if joypad_wrapper is None:
+            raise ValueError("Se intentó conectar un Joypad nulo a la MMU.")
+        
+        # Extrae el puntero Joypad* directamente del objeto wrapper PyJoypad
+        # usando el método get_cpp_ptr() que devuelve el puntero directamente
+        cdef joypad.Joypad* joypad_ptr = NULL
+        
+        # Hacer el cast a PyJoypad y llamar al método get_cpp_ptr()
+        joypad_ptr = (<PyJoypad>joypad_wrapper).get_cpp_ptr()
+        
+        # Llama al método C++ con el puntero C++ correcto
+        self._mmu.setJoypad(joypad_ptr)
     
     def request_interrupt(self, uint8_t bit):
         """

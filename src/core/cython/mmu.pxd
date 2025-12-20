@@ -18,6 +18,10 @@ cdef extern from "Timer.hpp":
     cdef cppclass Timer:
         pass
 
+cdef extern from "Joypad.hpp":
+    cdef cppclass Joypad:
+        pass
+
 cdef extern from "MMU.hpp":
     cdef cppclass MMU:
         MMU() except +
@@ -26,5 +30,6 @@ cdef extern from "MMU.hpp":
         void load_rom(const uint8_t* data, size_t size)
         void setPPU(PPU* ppu)
         void setTimer(Timer* timer)
+        void setJoypad(Joypad* joypad)
         void request_interrupt(uint8_t bit)
 

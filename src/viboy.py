@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING
 
 # Importar componentes C++ (core nativo)
 try:
-    from viboy_core import PyCPU, PyMMU, PyPPU, PyRegisters, PyTimer
+    from viboy_core import PyCPU, PyMMU, PyPPU, PyRegisters, PyTimer, PyJoypad
     CPP_CORE_AVAILABLE = True
 except ImportError:
     # Fallback a componentes Python si C++ no está compilado
@@ -41,6 +41,7 @@ except ImportError:
     PyPPU = None  # type: ignore
     PyRegisters = None  # type: ignore
     PyTimer = None  # type: ignore
+    PyJoypad = None  # type: ignore
     CPP_CORE_AVAILABLE = False
     logger.warning("viboy_core no disponible. Usando componentes Python (más lentos).")
 
@@ -211,6 +212,7 @@ class Viboy:
             self._cpu = PyCPU(self._mmu, self._regs)
             self._ppu = PyPPU(self._mmu)
             self._timer = PyTimer()
+            self._joypad = PyJoypad()
             # CRÍTICO: Conectar PPU a MMU para lectura dinámica del registro STAT (0xFF41)
             self._mmu.set_ppu(self._ppu)
             # CRÍTICO: Conectar PPU a CPU para sincronización ciclo a ciclo
@@ -218,7 +220,10 @@ class Viboy:
             # CRÍTICO: Conectar Timer a CPU y MMU para actualización del registro DIV (0xFF04)
             self._cpu.set_timer(self._timer)
             self._mmu.set_timer(self._timer)
+            # CRÍTICO: Conectar Joypad a MMU para lectura/escritura del registro P1 (0xFF00)
+            self._mmu.set_joypad(self._joypad)
             print("⏰ Timer C++ conectado al sistema.")
+            print("🎮 Joypad C++ conectado al sistema.")
         else:
             # Usar componentes Python (fallback)
             self._mmu = MMU(self._cartridge)
@@ -250,7 +255,9 @@ class Viboy:
             try:
                 # Pasar PPU C++ al renderer si está disponible
                 ppu_for_renderer = self._ppu if self._use_cpp else None
-                self._renderer = Renderer(self._mmu, scale=3, use_cpp_ppu=self._use_cpp, ppu=ppu_for_renderer)
+                # Pasar Joypad al renderer para mapeo de teclas
+                joypad_for_renderer = self._joypad if self._use_cpp else (self._joypad if hasattr(self, '_joypad') else None)
+                self._renderer = Renderer(self._mmu, scale=3, use_cpp_ppu=self._use_cpp, ppu=ppu_for_renderer, joypad=joypad_for_renderer)
                 # Conectar Renderer a MMU solo si es MMU Python (tile caching)
                 if not self._use_cpp and isinstance(self._mmu, MMU):
                     self._mmu.set_renderer(self._renderer)

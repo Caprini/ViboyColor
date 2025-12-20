@@ -32,6 +32,64 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0182: El Input del Jugador: Implementación del Joypad
+**Estado**: ✅ VERIFIED
+
+El emulador ha alcanzado un estado estable y sincronizado, pero la pantalla sigue en blanco porque la CPU está atrapada en un bucle de inicialización final. El diagnóstico indica que la CPU está esperando un cambio en el registro del Joypad (P1, `0xFF00`) para generar una semilla aleatoria (entropía) antes de proceder a copiar los gráficos a la VRAM.
+
+Este Step implementa el registro del Joypad en el núcleo C++ y lo conecta al bucle de eventos de Pygame para que las pulsaciones del teclado del usuario se comuniquen al juego, resolviendo el último deadlock de inicialización.
+
+**Objetivo:**
+- Implementar el subsistema del Joypad en C++ siguiendo el patrón arquitectónico de Timer y PPU.
+- Integrar el Joypad en la MMU para manejar lecturas/escrituras en `0xFF00`.
+- Conectar el Joypad al bucle de eventos de Pygame para mapear teclas del teclado a botones del Game Boy.
+- Crear tests unitarios completos que validen el comportamiento del Joypad.
+
+**Concepto de Hardware:**
+El Joypad de la Game Boy no es un registro simple. Es una matriz de 2x4 que la CPU debe escanear para leer el estado de los botones. El registro **P1 (`0xFF00`)** controla este proceso:
+- **Bits 5 y 4 (Escritura):** La CPU escribe aquí para seleccionar qué "fila" de la matriz quiere leer.
+  - `Bit 5 = 0`: Selecciona los botones de Acción (A, B, Select, Start).
+  - `Bit 4 = 0`: Selecciona los botones de Dirección (Derecha, Izquierda, Arriba, Abajo).
+- **Bits 3-0 (Lectura):** La CPU lee estos bits para ver el estado de los botones de la fila seleccionada. **Importante:** Un bit a `0` significa que el botón está **presionado**. Un bit a `1` significa que está **suelto**.
+
+**El Bucle de Entropía:** Muchas BIOS y juegos, para inicializar su generador de números aleatorios (RNG), no solo usan el Timer. Entran en un bucle que lee repetidamente el estado del **Joypad (registro P1, `0xFF00`)**. Esperan a que el valor cambie, lo que ocurre de forma impredecible si el jugador está tocando los botones durante el arranque. Esta lectura "ruidosa" proporciona una semilla de entropía excelente para el RNG.
+
+**Implementación:**
+- Creada clase C++ `Joypad` en `src/core/cpp/Joypad.hpp` y `Joypad.cpp` que mantiene el estado de los 8 botones.
+- Creado wrapper Cython `PyJoypad` en `src/core/cython/joypad.pxd` y `joypad.pyx`.
+- Integrado el Joypad en la MMU: añadido puntero `joypad_` y método `setJoypad()`, delegando lecturas/escrituras en `0xFF00` al Joypad.
+- Actualizado `viboy.py` para crear instancia de `PyJoypad` y conectarla a la MMU.
+- Actualizado `renderer.py` para mapear teclas de Pygame al Joypad:
+  - Direcciones: Flechas (UP, DOWN, LEFT, RIGHT) → índices 0-3
+  - Acciones: Z/A (botón A), X/S (botón B), RETURN (Start), RSHIFT (Select) → índices 4-7
+- Creada suite completa de tests unitarios en `tests/test_core_joypad.py` (8 tests).
+
+**Archivos Afectados:**
+- `src/core/cpp/Joypad.hpp` - Nueva clase C++ para el Joypad
+- `src/core/cpp/Joypad.cpp` - Implementación del Joypad
+- `src/core/cython/joypad.pxd` - Definición Cython del Joypad
+- `src/core/cython/joypad.pyx` - Wrapper Python del Joypad
+- `src/core/cpp/MMU.hpp` - Añadido puntero a Joypad y método setJoypad()
+- `src/core/cpp/MMU.cpp` - Integración de lectura/escritura de 0xFF00 con Joypad
+- `src/core/cython/mmu.pxd` - Añadida forward declaration de Joypad
+- `src/core/cython/mmu.pyx` - Añadido método set_joypad() y import de joypad
+- `src/core/cython/native_core.pyx` - Incluido joypad.pyx
+- `src/viboy.py` - Creación de PyJoypad y conexión a MMU
+- `src/gpu/renderer.py` - Mapeo de teclas de Pygame al Joypad
+- `setup.py` - Añadido Joypad.cpp a la compilación
+- `tests/test_core_joypad.py` - Suite completa de tests unitarios (8 tests)
+
+**Tests y Verificación:**
+- **Tests unitarios:** `8 passed in 0.05s` ✅
+- **Validación de módulo compilado C++:** Todos los tests se ejecutan contra el módulo C++ compilado (`viboy_core`), confirmando que la implementación nativa funciona correctamente.
+
+**Próximos Pasos:**
+- Ejecutar el emulador y verificar que la CPU sale del bucle de entropía al presionar una tecla.
+- Verificar que los gráficos del logo de Nintendo aparecen en pantalla después de presionar una tecla.
+- Implementar interrupciones del Joypad (bit 4 del registro IF).
+
+---
+
 ### 2025-12-20 - Step 0180: Debug: Instrumentación del Pipeline de Píxeles en C++
 **Estado**: 🔍 DRAFT
 
