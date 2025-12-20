@@ -32,6 +32,34 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0158: Debug: Limpieza de Logs y Confirmación de Bucles Anidados
+**Estado**: 🔍 DRAFT
+
+El análisis de la traza del Step 0157 confirmó que el fix del flag Z (Step 0152) fue un éxito: el bucle `DEC B -> JR NZ` terminó correctamente cuando B llegó a 0x00 y el flag Z se activó. Sin embargo, la ejecución se detuvo silenciosamente en `PC: 0x0297`, indicando que la CPU entró inmediatamente en un segundo bucle de limpieza (`DEC C -> JR NZ`) que no estaba instrumentado.
+
+**Objetivo:**
+- Eliminar los logs de depuración detallados de `DEC B` y `JR NZ` que ya cumplieron su misión de diagnóstico.
+- Limpiar la salida de la consola para permitir que la traza disparada capture el código que se ejecuta después de todos los bucles.
+- Confirmar que la CPU está ejecutando correctamente los bucles anidados en secuencia.
+
+**Modificaciones realizadas:**
+- Eliminación de todos los `printf` de depuración en `case 0x05` (DEC B) de `src/core/cpp/CPU.cpp`.
+- Eliminación de todos los `printf` de depuración en `case 0x20` (JR NZ, e) de `src/core/cpp/CPU.cpp`.
+- Preservación intacta de la lógica de la traza disparada implementada en el Step 0157.
+
+**Hallazgos:**
+- El bucle `DEC B` termina correctamente cuando B llega a 0x00 y el flag Z se activa.
+- La CPU continúa inmediatamente con el siguiente bucle (`DEC C`) sin pausa.
+- Los bucles de limpieza se ejecutan en secuencia, cada uno usando un registro diferente.
+- El silencio durante la ejecución de bucles es una señal positiva: la CPU está funcionando a máxima velocidad.
+
+**Próximos pasos:**
+- Ejecutar el emulador y capturar la traza disparada cuando el PC supere `0x0300`.
+- Analizar las 100 instrucciones capturadas para identificar opcodes faltantes.
+- Implementar los opcodes faltantes que impiden el avance de la ejecución.
+
+---
+
 ### 2025-12-20 - Step 0157: Debug: Implementación de Trazado de CPU "Disparado" (Triggered)
 **Estado**: 🔍 DRAFT
 

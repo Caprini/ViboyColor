@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0158 - Debug: Limpieza de Logs y Confirmación de Bucles Anidados -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0158__debug-limpieza-logs-bucles-anidados.html" class="entry-link">
+                                    Debug: Limpieza de Logs y Confirmación de Bucles Anidados
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0158 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            El análisis de la traza del Step 0157 confirmó que el fix del flag Z fue un éxito: el bucle DEC B terminó correctamente. Sin embargo, la ejecución se detuvo silenciosamente en PC: 0x0297, indicando que la CPU entró inmediatamente en un segundo bucle de limpieza (DEC C) que no estaba instrumentado. Se eliminaron los logs de depuración detallados para limpiar la salida y permitir que la traza disparada capture el código que se ejecuta después de todos los bucles.
+                        </p>
+                    </li>
                     <!-- Entrada 0157 - Debug: Implementación de Trazado de CPU "Disparado" (Triggered) -->
                     <li>
                         <div class="entry-header">

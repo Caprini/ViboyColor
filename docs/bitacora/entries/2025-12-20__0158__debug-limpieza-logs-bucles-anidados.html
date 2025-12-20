@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug: Limpieza de Logs y Confirmación de Bucles Anidados - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug: Limpieza de Logs y Confirmación de Bucles Anidados</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0158
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0157__debug-traza-cpu-disparada-triggered.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El análisis de la traza del Step 0157 confirmó que el fix del flag Z (Step 0152) fue un éxito: el bucle <code>DEC B -> JR NZ</code> terminó correctamente cuando B llegó a 0x00 y el flag Z se activó. Sin embargo, la ejecución se detuvo silenciosamente en <code>PC: 0x0297</code>, indicando que la CPU entró inmediatamente en un segundo bucle de limpieza (<code>DEC C -> JR NZ</code>) que no estaba instrumentado. Se eliminaron los logs de depuración detallados de <code>DEC B</code> y <code>JR NZ</code> para limpiar la salida y permitir que la traza disparada capture el código que se ejecuta después de todos los bucles.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Las rutinas de inicialización de las ROMs de Game Boy suelen ejecutar múltiples bucles de limpieza de memoria en secuencia. Cada bucle utiliza un registro diferente (B, C, D, E, etc.) para contar iteraciones y limpiar diferentes regiones de memoria. La estructura típica es:
+                </p>
+                <pre><code>loop1:
+    DEC B
+    JR NZ, loop1    ; Bucle 1: Limpia región 1
+    
+loop2:
+    DEC C
+    JR NZ, loop2    ; Bucle 2: Limpia región 2
+    
+; ... más bucles ...
+    
+; Código principal después de la inicialización</code></pre>
+                <p>
+                    Cuando un bucle termina (el registro llega a 0x00 y el flag Z se activa), la CPU continúa con la siguiente instrucción. Si esa instrucción es el inicio de otro bucle similar, la CPU entra inmediatamente en ese segundo bucle sin pausa.
+                </p>
+                <p>
+                    <strong>Observación clave:</strong> Si solo instrumentamos el primer bucle con logs detallados, el segundo bucle se ejecutará en silencio, creando la impresión de que la ejecución se "detuvo" cuando en realidad está funcionando a máxima velocidad dentro del segundo bucle.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Análisis de trazas de ejecución de ROMs de Game Boy - Patrones comunes de inicialización
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se eliminaron todos los logs de depuración detallados que se añadieron en pasos anteriores para diagnosticar el comportamiento del flag Z en los bucles de inicialización. Estos logs ya cumplieron su misión: confirmaron que el flag Z se activa correctamente y que el bucle <code>DEC B</code> termina como se esperaba.
+                </p>
+                
+                <h3>Logs eliminados</h3>
+                <ul>
+                    <li><strong>DEC B (0x05):</strong> Se eliminaron los <code>printf</code> que mostraban el valor de B y Z antes y después de la operación.</li>
+                    <li><strong>JR NZ (0x20):</strong> Se eliminaron los <code>printf</code> que mostraban el estado del flag Z, el offset y la decisión de salto.</li>
+                </ul>
+
+                <h3>Lógica preservada</h3>
+                <p>
+                    Se mantuvo intacta la lógica de la traza disparada implementada en el Step 0157. El sistema de trazado "disparado" sigue activo y se activará automáticamente cuando el PC supere <code>0x0300</code>, capturando las 100 instrucciones críticas que se ejecutan después de todos los bucles de inicialización.
+                </p>
+
+                <h3>Cambios realizados</h3>
+                <p>
+                    <strong>CPU.cpp - case 0x05 (DEC B):</strong>
+                </p>
+                <pre><code>case 0x05:  // DEC B
+{
+    regs_->b = alu_dec(regs_->b);
+    cycles_ += 1;
+    return 1;
+}</code></pre>
+
+                <p>
+                    <strong>CPU.cpp - case 0x20 (JR NZ, e):</strong>
+                </p>
+                <pre><code>case 0x20:  // JR NZ, e (Jump Relative if Not Zero)
+{
+    uint8_t offset_raw = fetch_byte();
+    
+    if (!regs_->get_flag_z()) {
+        // Condición verdadera: saltar
+        int8_t offset = static_cast<int8_t>(offset_raw);
+        uint16_t new_pc = (regs_->pc + offset) & 0xFFFF;
+        regs_->pc = new_pc;
+        cycles_ += 3;
+        return 3;
+    } else {
+        // Condición falsa: no saltar, continuar ejecución normal
+        cycles_ += 2;
+        return 2;
+    }
+}</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Eliminación de logs de depuración en <code>DEC B</code> y <code>JR NZ</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Validación de compilación:</strong>
+                </p>
+                <ul>
+                    <li>Recompilación exitosa del módulo C++ con <code>.\rebuild_cpp.ps1</code></li>
+                    <li>Sin errores de compilación</li>
+                    <li>Módulo <code>viboy_core.cp313-win_amd64.pyd</code> generado correctamente</li>
+                </ul>
+                
+                <p>
+                    <strong>Ejecución del emulador:</strong>
+                </p>
+                <ul>
+                    <li>El emulador se ejecuta sin errores: <code>python main.py roms/tetris.gb</code></li>
+                    <li>La consola permanece en silencio durante la ejecución de los bucles (comportamiento esperado)</li>
+                    <li>La traza disparada está lista para activarse cuando el PC supere <code>0x0300</code></li>
+                </ul>
+
+                <p>
+                    <strong>Análisis del comportamiento esperado:</strong>
+                </p>
+                <p>
+                    Al ejecutar el emulador, la consola debería permanecer completamente en silencio durante un breve instante mientras la CPU ejecuta a toda velocidad los bucles de limpieza <code>DEC B</code> y <code>DEC C</code> sin imprimir nada. Después de que todos los bucles terminen y el PC finalmente supere <code>0x0300</code>, el sistema de traza disparada debería activarse y mostrar:
+                </p>
+                <pre><code>--- [CPU TRACE TRIGGERED at PC: 0x0300] ---
+[CPU TRACE 0] PC: 0x0300 | Opcode: 0xXX
+[CPU TRACE 1] PC: 0x0301 | Opcode: 0xXX
+...
+[CPU TRACE 99] PC: 0xXXXX | Opcode: 0xXX</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Análisis de trazas de ejecución de ROMs de Game Boy - Patrones comunes de inicialización</li>
+                    <li>Step 0157: Implementación de Trazado de CPU "Disparado" (Triggered)</li>
+                    <li>Step 0152: Fix del flag Z en instrucciones DEC</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Bucles anidados en secuencia:</strong> Las rutinas de inicialización ejecutan múltiples bucles de limpieza en secuencia, cada uno usando un registro diferente. Cuando un bucle termina, la CPU continúa inmediatamente con el siguiente.</li>
+                        <li><strong>Importancia de la limpieza de logs:</strong> Los logs de depuración detallados son útiles para diagnosticar problemas específicos, pero una vez confirmado el comportamiento, deben eliminarse para permitir que otros sistemas de trazado (como la traza disparada) funcionen correctamente.</li>
+                        <li><strong>Silencio como señal positiva:</strong> En un emulador funcionando correctamente, el silencio durante la ejecución de bucles optimizados es una señal positiva: significa que la CPU está ejecutando a máxima velocidad sin overhead de I/O.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Traza post-bucles:</strong> Necesitamos capturar la traza que se genera cuando el PC finalmente supera <code>0x0300</code> para confirmar que todos los bucles terminaron correctamente y ver qué código se ejecuta después.</li>
+                        <li><strong>Número exacto de bucles:</strong> Aunque sabemos que hay al menos dos bucles (DEC B y DEC C), no conocemos el número total de bucles de limpieza que ejecuta la ROM antes de llegar al código principal.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> La CPU está ejecutando correctamente todos los bucles de limpieza y eventualmente llegará a <code>PC: 0x0300</code>, momento en el cual la traza disparada se activará y capturará las instrucciones críticas que configuran los gráficos y el estado inicial del juego.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> El segundo bucle (DEC C) funciona de la misma manera que el primero (DEC B), utilizando el flag Z correctamente para terminar cuando C llega a 0x00.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y capturar la traza disparada cuando el PC supere <code>0x0300</code></li>
+                    <li>[ ] Analizar las 100 instrucciones capturadas para identificar opcodes faltantes</li>
+                    <li>[ ] Implementar los opcodes faltantes que impiden el avance de la ejecución</li>
+                    <li>[ ] Continuar el ciclo de depuración hasta que la ROM ejecute código significativo</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
