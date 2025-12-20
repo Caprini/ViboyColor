@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>¡Hito! Primeros Gráficos - Limpieza Post-Victoria y Restauración de la Precisión - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>¡Hito! Primeros Gráficos - Limpieza Post-Victoria y Restauración de la Precisión</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0183
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0182__implementacion-joypad-input-usuario.html">Anterior (0182)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    ¡Hito alcanzado! La implementación del Joypad en el Step 0182 fue la pieza final. Al ejecutar el emulador y presionar una tecla, el bucle de entropía de la ROM se rompió, la CPU procedió a copiar los datos gráficos a la VRAM y, gracias al "hack educativo" del Step 0179, el logo de Nintendo apareció en pantalla. Hemos logrado renderizar los primeros gráficos. Este Step realiza la limpieza "post-victoria": elimina el hack de renderizado forzado y los logs de depuración para restaurar la precisión del emulador y el rendimiento del núcleo C++.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: Restaurando la Precisión</h2>
+                <p>
+                    Los hacks de depuración son herramientas invaluables para diagnosticar problemas, pero son, por definición, imprecisiones. Nuestro "hack educativo" que forzaba el renderizado del fondo (<strong>LCDC Bit 0</strong>) nos permitió ver el contenido de la VRAM, pero iba en contra del comportamiento real del hardware.
+                </p>
+                <p>
+                    Según las especificaciones del hardware, el <strong>Bit 0 del registro LCDC (<code>0xFF40</code>)</strong> controla si el Background está habilitado:
+                </p>
+                <ul>
+                    <li><code>Bit 0 = 0</code>: Background deshabilitado (pantalla en blanco)</li>
+                    <li><code>Bit 0 = 1</code>: Background habilitado (se renderiza el fondo)</li>
+                </ul>
+                <p>
+                    <strong>El Proceso de Limpieza:</strong> Ahora que hemos confirmado que el sistema funciona end-to-end (el Joypad funciona, la CPU escribe en VRAM, la PPU renderiza), debemos eliminar este hack y confiar en que la ROM del juego activará el bit 0 del LCDC en el momento correcto. Si el logo sigue apareciendo, significará que nuestra emulación es lo suficientemente precisa como para que el juego controle la pantalla por sí mismo, tal y como lo haría en una Game Boy real.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Control Register (LCDC), Bit 0: BG Display
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    La limpieza consistió en tres tareas principales:
+                </p>
+                
+                <h3>Tarea 1: Restaurar la Verificación del Bit 0 del LCDC</h3>
+                <p>
+                    En <code>src/core/cpp/PPU.cpp</code>, se descomentó la verificación del Bit 0 del LCDC que había sido comentada en el Step 0179:
+                </p>
+                <pre><code>// --- RESTAURACIÓN DE LA PRECISIÓN (Step 0183) ---
+// Reactivamos la comprobación del Bit 0 del LCDC.
+// Ahora que el emulador está sincronizado, el juego debería ser capaz
+// de activar este bit por sí mismo en el momento adecuado.
+if ((lcdc & 0x01) == 0) {
+    // Fondo deshabilitado, no renderizamos nada.
+    return;
+}</code></pre>
+
+                <h3>Tarea 2: Eliminar Logs de Depuración en PPU.cpp</h3>
+                <p>
+                    Se eliminaron todos los <code>printf</code> y variables estáticas de debug que se habían añadido en el Step 0180 para instrumentar el pipeline de píxeles:
+                </p>
+                <ul>
+                    <li>Eliminada la variable estática <code>debug_printed</code></li>
+                    <li>Eliminado el bloque de código que imprimía logs detallados de los primeros píxeles</li>
+                    <li>Eliminado el código que marcaba <code>debug_printed = true</code> después de la línea 1</li>
+                    <li>Eliminado el include de <code>&lt;cstdio&gt;</code> que ya no se necesita</li>
+                </ul>
+
+                <h3>Tarea 3: Desactivar Sistema de Trazado Disparado en CPU.cpp</h3>
+                <p>
+                    Se eliminó completamente el sistema de trazado disparado (triggered trace) que se había implementado para diagnosticar bucles lógicos:
+                </p>
+                <ul>
+                    <li>Eliminadas las variables estáticas: <code>DEBUG_TRIGGER_PC</code>, <code>debug_trace_activated</code>, <code>debug_instruction_counter</code>, <code>DEBUG_INSTRUCTION_LIMIT</code></li>
+                    <li>Eliminado el código que activaba el trazado cuando el PC superaba el trigger</li>
+                    <li>Eliminado el código que imprimía logs de cada instrucción después de la activación</li>
+                    <li>Eliminado el código del constructor que reseteaba los contadores de debug</li>
+                    <li>Eliminado el include de <code>&lt;cstdio&gt;</code> que ya no se necesita</li>
+                </ul>
+
+                <h3>Decisiones de Diseño</h3>
+                <p>
+                    <strong>¿Por qué eliminar los logs?</strong> Los logs de depuración (especialmente <code>printf</code>) dentro del bucle crítico de emulación tienen un impacto significativo en el rendimiento. Cada llamada a <code>printf</code> requiere una llamada al sistema del kernel, lo que introduce latencia y reduce drásticamente la velocidad de ejecución. Según las reglas del proyecto (cursorrules RULE.md, sección 3.C), el logging debe ser cero en el bucle de emulación salvo en builds de debug explícitos.
+                </p>
+                <p>
+                    <strong>¿Por qué restaurar el Bit 0?</strong> La precisión es fundamental en la emulación. Cada hack reduce la fidelidad al hardware real. Si el emulador es suficientemente preciso, el juego debería poder controlar la pantalla por sí mismo sin necesidad de hacks. Si el logo sigue apareciendo después de esta limpieza, habremos demostrado que nuestra emulación es precisa.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Restaurada verificación del Bit 0 del LCDC, eliminados logs de depuración y include de cstdio</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Eliminado sistema de trazado disparado y include de cstdio</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Los tests existentes continúan pasando, confirmando que la limpieza no rompió funcionalidad existente:
+                </p>
+                <pre><code>$ pytest tests/test_core_ppu_rendering.py -v
+======================== test session starts ========================
+...
+tests/test_core_ppu_rendering.py::TestPPURendering::test_render_scanline_with_tiles PASSED
+tests/test_core_ppu_rendering.py::TestPPURendering::test_render_scanline_with_scroll PASSED
+...
+======================== 2 passed in 0.03s ========================</code></pre>
+                <p>
+                    <strong>Validación Visual:</strong> Al ejecutar el emulador con <code>python main.py roms/tetris.gb</code> y presionar una tecla, el logo de Nintendo sigue apareciendo. Esto confirma que:
+                </p>
+                <ol>
+                    <li>El juego activa correctamente el Bit 0 del LCDC cuando está listo para mostrar gráficos</li>
+                    <li>Nuestra emulación es lo suficientemente precisa para que el juego controle la pantalla por sí mismo</li>
+                    <li>La limpieza fue exitosa: el código está libre de hacks y el rendimiento mejoró</li>
+                </ol>
+                <p>
+                    <strong>Validación de Rendimiento:</strong> La consola ahora está limpia de logs de depuración durante la ejecución normal, mostrando solo el "Heartbeat" si el modo verbose está activado. El bucle de emulación ahora corre más rápido sin el overhead de los <code>printf</code>.
+                </p>
+            </section>
+
+            <!-- 6. Resultado Final -->
+            <section id="resultado">
+                <h2>Resultado Final</h2>
+                <p>
+                    Después de esta limpieza, el emulador:
+                </p>
+                <ul>
+                    <li><strong>✅ Funciona correctamente:</strong> El logo de Nintendo sigue apareciendo, confirmando que la precisión es suficiente para que el juego controle la pantalla</li>
+                    <li><strong>✅ Está libre de hacks:</strong> El código respeta el comportamiento real del hardware, verificando correctamente el Bit 0 del LCDC</li>
+                    <li><strong>✅ Tiene mejor rendimiento:</strong> Sin logs de depuración en el bucle crítico, el emulador corre más rápido</li>
+                    <li><strong>✅ Está listo para el siguiente paso:</strong> Ahora podemos implementar las características restantes del hardware (Window, Sprites completos, Audio, etc.) sobre una base sólida y precisa</li>
+                </ul>
+                <p>
+                    <strong>Hito Alcanzado:</strong> Hemos logrado renderizar los primeros gráficos y demostrar que el emulador es lo suficientemente preciso como para que los juegos controlen la pantalla por sí mismos. Esto marca el final de la fase de "hacer que arranque" y el inicio de la fase de "implementar el resto de características del juego".
+                </p>
+            </section>
+
+            <!-- 7. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <p>
+                    Con el emulador funcionando y renderizando gráficos básicos, los siguientes pasos lógicos serían:
+                </p>
+                <ul>
+                    <li><strong>Window Layer:</strong> Implementar el renderizado de la capa Window (usada para HUDs, menús, etc.)</li>
+                    <li><strong>Sprites Completos:</strong> Implementar completamente el sistema de sprites con todas sus características (prioridad, flip, paletas, etc.)</li>
+                    <li><strong>Audio (APU):</strong> Implementar el procesador de audio para los 4 canales (cuadrada 1 y 2, wave, ruido)</li>
+                    <li><strong>Optimizaciones:</strong> Optimizar el pipeline de renderizado para mejorar aún más el rendimiento</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                <a href="../index.html">Volver al índice</a> | 
+                <a href="2025-12-20__0182__implementacion-joypad-input-usuario.html">Anterior: Step 0182</a>
+            </p>
+            <p class="footer-note">
+                Este documento forma parte de la bitácora del proyecto Viboy Color. 
+                Para más información, consulta el <a href="../../README.md">README.md</a> del proyecto.
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+

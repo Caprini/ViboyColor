@@ -32,6 +32,72 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0183: ¡Hito! Primeros Gráficos - Limpieza Post-Victoria y Restauración de la Precisión
+**Estado**: ✅ VERIFIED
+
+¡Hito alcanzado! La implementación del Joypad en el Step 0182 fue la pieza final. Al ejecutar el emulador y presionar una tecla, el bucle de entropía de la ROM se rompió, la CPU procedió a copiar los datos gráficos a la VRAM y, gracias al "hack educativo" del Step 0179, el logo de Nintendo apareció en pantalla. Hemos logrado renderizar los primeros gráficos.
+
+Este Step realiza la limpieza "post-victoria": elimina el hack de renderizado forzado y los logs de depuración para restaurar la precisión del emulador y el rendimiento del núcleo C++.
+
+**Objetivo:**
+- Restaurar la verificación del Bit 0 del LCDC en `PPU.cpp` (eliminar hack educativo del Step 0179).
+- Eliminar todos los logs de depuración (`printf`) en `PPU.cpp` y `CPU.cpp`.
+- Desactivar el sistema de trazado disparado en `CPU.cpp`.
+- Recompilar y verificar que el emulador sigue funcionando correctamente sin hacks.
+
+**Concepto de Hardware: Restaurando la Precisión**
+
+Los hacks de depuración son herramientas invaluables para diagnosticar problemas, pero son, por definición, imprecisiones. El "hack educativo" que forzaba el renderizado del fondo (LCDC Bit 0) nos permitió ver el contenido de la VRAM, pero iba en contra del comportamiento real del hardware.
+
+Según las especificaciones del hardware, el **Bit 0 del registro LCDC (`0xFF40`)** controla si el Background está habilitado:
+- `Bit 0 = 0`: Background deshabilitado (pantalla en blanco)
+- `Bit 0 = 1`: Background habilitado (se renderiza el fondo)
+
+Ahora que hemos confirmado que el sistema funciona end-to-end, debemos eliminar este hack y confiar en que la ROM del juego activará el bit 0 del LCDC en el momento correcto. Si el logo sigue apareciendo, significará que nuestra emulación es lo suficientemente precisa como para que el juego controle la pantalla por sí mismo.
+
+**Implementación:**
+
+1. **Restauración de la Verificación del Bit 0 del LCDC**: Se descomentó la verificación que había sido comentada en el Step 0179 en `src/core/cpp/PPU.cpp`.
+
+2. **Eliminación de Logs de Depuración en PPU.cpp**: Se eliminaron todos los `printf` y variables estáticas de debug que se habían añadido en el Step 0180 para instrumentar el pipeline de píxeles, incluyendo el include de `<cstdio>`.
+
+3. **Desactivación del Sistema de Trazado Disparado en CPU.cpp**: Se eliminó completamente el sistema de trazado disparado (triggered trace) que se había implementado para diagnosticar bucles lógicos, incluyendo todas las variables estáticas relacionadas y el include de `<cstdio>`.
+
+**Decisiones de Diseño:**
+
+- **¿Por qué eliminar los logs?** Los logs de depuración (especialmente `printf`) dentro del bucle crítico de emulación tienen un impacto significativo en el rendimiento. Cada llamada a `printf` requiere una llamada al sistema del kernel, lo que introduce latencia y reduce drásticamente la velocidad de ejecución. Según las reglas del proyecto, el logging debe ser cero en el bucle de emulación salvo en builds de debug explícitos.
+
+- **¿Por qué restaurar el Bit 0?** La precisión es fundamental en la emulación. Cada hack reduce la fidelidad al hardware real. Si el emulador es suficientemente preciso, el juego debería poder controlar la pantalla por sí mismo sin necesidad de hacks.
+
+**Archivos Afectados:**
+- `src/core/cpp/PPU.cpp` - Restaurada verificación del Bit 0 del LCDC, eliminados logs de depuración y include de cstdio
+- `src/core/cpp/CPU.cpp` - Eliminado sistema de trazado disparado y include de cstdio
+
+**Tests y Verificación:**
+
+Los tests existentes continúan pasando, confirmando que la limpieza no rompió funcionalidad existente. Al ejecutar el emulador con `python main.py roms/tetris.gb` y presionar una tecla, el logo de Nintendo sigue apareciendo. Esto confirma que:
+1. El juego activa correctamente el Bit 0 del LCDC cuando está listo para mostrar gráficos
+2. Nuestra emulación es lo suficientemente precisa para que el juego controle la pantalla por sí mismo
+3. La limpieza fue exitosa: el código está libre de hacks y el rendimiento mejoró
+
+**Resultado Final:**
+
+Después de esta limpieza, el emulador:
+- ✅ Funciona correctamente: El logo de Nintendo sigue apareciendo, confirmando que la precisión es suficiente para que el juego controle la pantalla
+- ✅ Está libre de hacks: El código respeta el comportamiento real del hardware, verificando correctamente el Bit 0 del LCDC
+- ✅ Tiene mejor rendimiento: Sin logs de depuración en el bucle crítico, el emulador corre más rápido
+- ✅ Está listo para el siguiente paso: Ahora podemos implementar las características restantes del hardware sobre una base sólida y precisa
+
+**Hito Alcanzado:** Hemos logrado renderizar los primeros gráficos y demostrar que el emulador es lo suficientemente preciso como para que los juegos controlen la pantalla por sí mismos. Esto marca el final de la fase de "hacer que arranque" y el inicio de la fase de "implementar el resto de características del juego".
+
+**Próximos Pasos:**
+- Window Layer: Implementar el renderizado de la capa Window (usada para HUDs, menús, etc.)
+- Sprites Completos: Implementar completamente el sistema de sprites con todas sus características
+- Audio (APU): Implementar el procesador de audio para los 4 canales
+- Optimizaciones: Optimizar el pipeline de renderizado para mejorar aún más el rendimiento
+
+---
+
 ### 2025-12-20 - Step 0182: El Input del Jugador: Implementación del Joypad
 **Estado**: ✅ VERIFIED
 

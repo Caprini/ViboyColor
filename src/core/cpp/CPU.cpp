@@ -3,24 +3,12 @@
 #include "Registers.hpp"
 #include "PPU.hpp"
 #include "Timer.hpp"
-#include <cstdio>
-
-// Variables estáticas para logging de diagnóstico con sistema "disparado" (triggered)
-// El trigger se activa después de las rutinas de limpieza de memoria (0x02A0)
-// para capturar el código crítico de configuración de hardware y bucles lógicos
-static const uint16_t DEBUG_TRIGGER_PC = 0x02A0; // Dirección de activación del trazado (después de limpieza)
-static bool debug_trace_activated = false;      // Bandera de activación
-static int debug_instruction_counter = 0;       // Contador post-activación
-static const int DEBUG_INSTRUCTION_LIMIT = 200;  // Límite post-activación (Step 0169: aumentado para capturar bucles)
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
     // Validación básica (en producción, podríamos usar assert)
     // Por ahora, confiamos en que Python pasa punteros válidos
     // IME inicia en false por seguridad (el juego lo activará si lo necesita)
-    // Resetear contador y bandera de debug al crear nueva instancia
-    debug_trace_activated = false;
-    debug_instruction_counter = 0;
 }
 
 CPU::~CPU() {
@@ -470,23 +458,7 @@ int CPU::step() {
     
     // ========== FASE 4: Fetch-Decode-Execute ==========
     // Fetch: Leer opcode de memoria
-    uint16_t current_pc = regs_->pc;  // Guardamos el PC actual para el log
     uint8_t opcode = fetch_byte();
-    
-    // --- NUEVA LÓGICA DE TRAZADO DISPARADO (TRIGGERED) ---
-    // 1. Comprobar si debemos activar la traza cuando el PC supera el trigger
-    if (!debug_trace_activated && current_pc >= DEBUG_TRIGGER_PC) {
-        printf("--- [CPU TRACE TRIGGERED at PC: 0x%04X] ---\n", current_pc);
-        debug_trace_activated = true;
-    }
-    
-    // 2. Si la traza está activa, registrar hasta el límite
-    if (debug_trace_activated && debug_instruction_counter < DEBUG_INSTRUCTION_LIMIT) {
-        printf("[CPU TRACE %d] PC: 0x%04X | Opcode: 0x%02X\n",
-               debug_instruction_counter, current_pc, opcode);
-        debug_instruction_counter++;
-    }
-    // --- FIN DE LA NUEVA LÓGICA DE TRAZADO DISPARADO ---
 
     // Decode/Execute: Switch optimizado por el compilador
     switch (opcode) {

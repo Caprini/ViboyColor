@@ -1,6 +1,5 @@
 #include "PPU.hpp"
 #include "MMU.hpp"
-#include <cstdio>
 
 PPU::PPU(MMU* mmu) 
     : mmu_(mmu)
@@ -300,24 +299,14 @@ void PPU::render_scanline() {
         return;
     }
     
-    // --- HACK EDUCATIVO (Step 0179) ---
-    // Comentamos esta comprobación para forzar el renderizado del fondo
-    // incluso si el juego lo tiene deshabilitado (LCDC Bit 0 = 0).
-    // Esto nos permite ver si los datos están en VRAM durante la inicialización.
-    // Según Pan Docs, el Bit 0 del LCDC controla si el Background está habilitado:
-    // 0 = Background deshabilitado (pantalla en blanco)
-    // 1 = Background habilitado
-    //
-    // DIAGNÓSTICO: El Heartbeat muestra LCDC=0x80 (Bit 7=1, Bit 0=0), lo que significa
-    // que el juego ha encendido el LCD pero mantiene el fondo deshabilitado durante
-    // la inicialización. Este hack temporal nos permite verificar si los datos
-    // gráficos ya están en VRAM antes de que el juego active el fondo.
-    /*
+    // --- RESTAURACIÓN DE LA PRECISIÓN (Step 0183) ---
+    // Reactivamos la comprobación del Bit 0 del LCDC.
+    // Ahora que el emulador está sincronizado, el juego debería ser capaz
+    // de activar este bit por sí mismo en el momento adecuado.
     if ((lcdc & 0x01) == 0) {
-        // Fondo deshabilitado, podríamos llenar con blanco.
+        // Fondo deshabilitado, no renderizamos nada.
         return;
     }
-    */
     
     // Leer registros de scroll
     uint8_t scy = mmu_->read(IO_SCY);
@@ -331,10 +320,6 @@ void PPU::render_scanline() {
     // 0 = 0x8800 (signed addressing: tile IDs -128 a 127, tile 0 en 0x9000)
     uint16_t tile_data_base = (lcdc & 0x10) ? 0x8000 : 0x8800;
     bool signed_addressing = !(lcdc & 0x10);
-    
-    // --- LOGS DE DEPURACIÓN (Step 0180) ---
-    // Variable estática para imprimir logs solo una vez (primeras dos líneas, primeros 8 píxeles)
-    static bool debug_printed = false;
     
     // Índice base en el framebuffer para esta línea
     int line_start_index = static_cast<int>(ly_) * SCREEN_WIDTH;
@@ -401,22 +386,8 @@ void PPU::render_scanline() {
         uint8_t msb = (byte2 >> bit_pos) & 1;
         uint8_t color_index = (msb << 1) | lsb;  // Valor 0-3
         
-        // --- LOGS DE DEPURACIÓN (Step 0180) ---
-        // Imprimir logs detallados para los primeros píxeles de las primeras dos líneas
-        if (!debug_printed && ly_ < 2 && x < 8) {
-            // Mostrar tile_id como signed si estamos en modo signed, unsigned si estamos en modo unsigned
-            int display_tile_id = signed_addressing ? static_cast<int8_t>(tile_id) : static_cast<int>(tile_id);
-            printf("[PPU DEBUG] ly=%d, x=%d | map_x=%d, map_y=%d | tile_map_addr=0x%04X | tile_id=%d | tile_addr=0x%04X | byte1=0x%02X, byte2=0x%02X | color=%d\n",
-                ly_, x, map_x, map_y, tile_map_addr, display_tile_id, tile_addr, byte1, byte2, color_index);
-        }
-        
         // Escribir índice de color en el framebuffer
         framebuffer_[line_start_index + x] = color_index;
-    }
-    
-    // Marcar que ya imprimimos los logs (solo una vez, después de la línea 1)
-    if (ly_ == 1) {
-        debug_printed = true;
     }
     
     // Renderizar sprites después del Background (los sprites se dibujan encima)
