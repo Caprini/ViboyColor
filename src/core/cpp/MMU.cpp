@@ -6,8 +6,55 @@
 
 MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nullptr) {
     // Inicializar memoria a 0
-    // CRÍTICO: En una Game Boy real, la Boot ROM inicializa BGP (0xFF47) a 0xE4
-    // Por ahora, lo haremos en el wrapper Python o cuando se necesite
+    // --- Step 0189: Inicialización de Registros de Hardware (Post-BIOS) ---
+    // Estos son los valores que los registros de I/O tienen después de que la
+    // Boot ROM finaliza. Los juegos dependen de este estado inicial.
+    // Fuente: Pan Docs - "Power Up Sequence"
+    
+    // PPU / Video
+    memory_[0xFF40] = 0x91; // LCDC
+    memory_[0xFF41] = 0x85; // STAT (bits escribibles 3-7, bits 0-2 controlados por PPU)
+    memory_[0xFF42] = 0x00; // SCY
+    memory_[0xFF43] = 0x00; // SCX
+    // 0xFF44: LY se controla dinámicamente por la PPU
+    memory_[0xFF45] = 0x00; // LYC
+    memory_[0xFF46] = 0xFF; // DMA
+    memory_[0xFF47] = 0xFC; // BGP (Post-BIOS: 0xFC, aunque muchos juegos esperan 0xE4)
+    memory_[0xFF48] = 0xFF; // OBP0
+    memory_[0xFF49] = 0xFF; // OBP1
+    memory_[0xFF4A] = 0x00; // WY
+    memory_[0xFF4B] = 0x00; // WX
+
+    // Sonido (APU) - Valores iniciales
+    memory_[0xFF10] = 0x80; // NR10
+    memory_[0xFF11] = 0xBF; // NR11
+    memory_[0xFF12] = 0xF3; // NR12
+    memory_[0xFF14] = 0xBF; // NR14
+    memory_[0xFF16] = 0x3F; // NR21
+    memory_[0xFF17] = 0x00; // NR22
+    memory_[0xFF19] = 0xBF; // NR24
+    memory_[0xFF1A] = 0x7F; // NR30
+    memory_[0xFF1B] = 0xFF; // NR31
+    memory_[0xFF1C] = 0x9F; // NR32
+    memory_[0xFF1E] = 0xBF; // NR34
+    memory_[0xFF20] = 0xFF; // NR41
+    memory_[0xFF21] = 0x00; // NR42
+    memory_[0xFF22] = 0x00; // NR43
+    memory_[0xFF23] = 0xBF; // NR44
+    memory_[0xFF24] = 0x77; // NR50
+    memory_[0xFF25] = 0xF3; // NR51
+    memory_[0xFF26] = 0xF1; // NR52 (F1 para DMG)
+
+    // Interrupciones
+    memory_[0xFF0F] = 0x01; // IF (V-Blank interrupt request)
+    memory_[0xFFFF] = 0x00; // IE
+    
+    // NOTA: Los siguientes registros se controlan dinámicamente por hardware:
+    // - 0xFF04 (DIV): Controlado por Timer
+    // - 0xFF05 (TIMA): Controlado por Timer
+    // - 0xFF06 (TMA): Controlado por Timer
+    // - 0xFF07 (TAC): Controlado por Timer
+    // - 0xFF00 (P1): Controlado por Joypad
 }
 
 MMU::~MMU() {

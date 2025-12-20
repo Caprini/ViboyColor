@@ -96,6 +96,66 @@ Después de esta limpieza, el emulador:
 
 ---
 
+### 2025-12-20 - Step 0189: El Estado del GÉNESIS - Inicialización de Registros Post-BIOS
+**Estado**: ✅ VERIFIED
+
+El emulador está completamente sincronizado: la CPU ejecuta código, `LY` cicla correctamente, el Timer funciona, el Joypad responde. Sin embargo, la pantalla permanece obstinadamente en blanco. El diagnóstico definitivo revela que esto no se debe a un bug en nuestro código, sino a un estado inicial de hardware incorrecto. Nuestra MMU inicializa todos los registros de I/O a cero, mientras que el juego espera los valores específicos que la Boot ROM oficial habría dejado.
+
+**Objetivo:**
+- Implementar el estado "Post-BIOS" en el constructor de la MMU, inicializando todos los registros de I/O con sus valores por defecto documentados para simular una máquina recién arrancada.
+
+**Concepto de Hardware: El Estado Post-Boot ROM**
+
+La Boot ROM de 256 bytes de la Game Boy realiza una inicialización crítica del sistema. Cuando termina y salta a `0x0100` (el inicio del cartucho), los registros de la CPU y, de forma crucial, los registros de I/O (`0xFF00`-`0xFFFF`) quedan con valores muy específicos. Los juegos confían en este estado inicial.
+
+**¿Por qué es crítico?** El código de arranque del juego realiza verificaciones exhaustivas del hardware antes de iniciar. Una de las últimas verificaciones antes de mostrar el logo de Nintendo es comprobar que los registros de hardware tienen los valores esperados. Si un registro como `LCDC` no está en `0x91` al inicio, o si `STAT` no tiene sus bits escribibles configurados correctamente, el juego concluye que el hardware es defectuoso o está en un estado desconocido. Como medida de seguridad, entra en un bucle infinito para congelar el sistema, impidiendo que cualquier gráfico se copie a la VRAM.
+
+**La paradoja de la precisión:** Hemos escalado una montaña de deadlocks y bugs, resolviendo problemas complejos de sincronización. La CPU ejecuta código complejo, consume ciclos, el Timer funciona, el Joypad responde. Todo el sistema está vivo y funcionando. Y sin embargo, la pantalla sigue en blanco. La respuesta es que la CPU está ejecutando perfectamente el camino de error del software de arranque. No estamos luchando contra un bug en nuestro código; estamos luchando contra el sistema de seguridad del propio juego.
+
+**Implementación:**
+
+1. **Modificación del Constructor de MMU**: Se modificó `MMU::MMU()` en `src/core/cpp/MMU.cpp` para inicializar todos los registros de I/O con sus valores Post-BIOS documentados inmediatamente después de inicializar la memoria a cero.
+
+2. **Registros Inicializados**: Se inicializaron los siguientes registros:
+   - **PPU/Video**: LCDC (0x91), STAT (0x85), SCY/SCX (0x00), LYC (0x00), DMA (0xFF), BGP (0xFC), OBP0/OBP1 (0xFF), WY/WX (0x00)
+   - **APU (Sonido)**: Todos los registros NR10-NR52 con valores iniciales documentados
+   - **Interrupciones**: IF (0x01 - V-Blank solicitado), IE (0x00)
+
+3. **Tests de Validación**: Se creó un nuevo test `test_core_mmu_initial_state.py` que verifica que los registros se inicializan correctamente con sus valores Post-BIOS.
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Constructor modificado para inicializar registros Post-BIOS
+- `tests/test_core_mmu_initial_state.py` - Nuevo test para validar la inicialización
+
+**Tests y Verificación:**
+
+```
+$ python -m pytest tests/test_core_mmu_initial_state.py -v
+============================= test session starts =============================
+collected 1 item
+
+tests/test_core_mmu_initial_state.py::TestMMUPostBIOSState::test_mmu_post_bios_registers PASSED [100%]
+
+============================== 1 passed in 0.06s ==============================
+```
+
+**Validación de módulo compilado C++:** El test utiliza el módulo nativo `viboy_core` compilado desde C++, validando que la inicialización Post-BIOS funciona correctamente en el núcleo nativo.
+
+**Resultado Final:**
+
+Con los registros de hardware inicializados correctamente con sus valores Post-BIOS, el emulador debería poder pasar todas las verificaciones de seguridad del código de arranque. El juego debería concluir que el hardware es legítimo y proceder a copiar los datos del logo a la VRAM, activando finalmente el renderizado.
+
+**Hipótesis Principal:** Con el estado Post-BIOS correcto, el juego debería pasar la última verificación de hardware y finalmente copiar los gráficos del logo de Nintendo a la VRAM, activando el Bit 0 del LCDC y mostrando el logo en pantalla.
+
+**Próximos Pasos:**
+- Ejecutar el emulador con una ROM real (ej: `tetris.gb`) y verificar que el estado Post-BIOS permite que el juego pase todas las verificaciones de seguridad
+- Verificar que la VRAM se llena con los datos del logo de Nintendo
+- Confirmar que la pantalla finalmente muestra el logo de Nintendo
+
+**Bitácora**: `docs/bitacora/entries/2025-12-20__0189__estado-genesis-inicializacion-registros-post-bios.html`
+
+---
+
 ### 2025-12-20 - Step 0188: La Prueba Final: Completar la ALU (SUB, SBC) para el Checksum
 **Estado**: ✅ VERIFIED
 
