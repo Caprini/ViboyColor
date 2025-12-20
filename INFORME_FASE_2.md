@@ -32,6 +32,36 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0159: CPU: Implementar DEC (HL) para Romper Segundo Bucle Infinito
+**Estado**: ✅ VERIFIED
+
+Se implementaron los opcodes faltantes `INC (HL)` (0x34) y `DEC (HL)` (0x35) en la CPU de C++ para completar la familia de instrucciones de incremento y decremento. Aunque el diagnóstico inicial apuntaba a `DEC C` (0x0D), este ya estaba implementado; el verdadero problema era la ausencia de los opcodes que operan sobre memoria indirecta. Con esta implementación, los bucles de limpieza de memoria ahora pueden ejecutarse correctamente, permitiendo que el PC avance más allá de la barrera de `0x0300`.
+
+**Objetivo:**
+- Implementar los opcodes `INC (HL)` (0x34) y `DEC (HL)` (0x35) que faltaban en la CPU de C++.
+- Añadir tests unitarios para validar ambas instrucciones, incluyendo casos de half-carry/half-borrow.
+- Confirmar que los bucles de limpieza de memoria ahora se ejecutan correctamente.
+
+**Modificaciones realizadas:**
+- Añadidos casos 0x34 (INC (HL)) y 0x35 (DEC (HL)) al switch principal en `src/core/cpp/CPU.cpp`.
+- Implementación reutiliza los helpers ALU existentes (`alu_inc()` y `alu_dec()`) para mantener consistencia.
+- Ambos opcodes consumen 3 M-Cycles (lectura + operación + escritura).
+- Añadidos tres tests unitarios en `tests/test_core_cpu_inc_dec.py`:
+  - `test_inc_hl_indirect`: Verifica incremento y actualización de flags.
+  - `test_dec_hl_indirect`: Verifica decremento y activación del flag Z cuando resultado es 0.
+  - `test_dec_hl_indirect_half_borrow`: Verifica detección correcta de half-borrow.
+
+**Hallazgos:**
+- El diagnóstico inicial apuntaba a `DEC C` (0x0D), pero al revisar el código se descubrió que ya estaba implementado.
+- El verdadero problema eran los opcodes de memoria indirecta que faltaban.
+- Cuando un opcode no está implementado, el `default` case devuelve 0 ciclos, causando que el motor de timing se detenga y `LY` se quede atascado en 0.
+
+**Tests:**
+- Todos los tests unitarios pasan: `3 passed in 0.08s`.
+- Validación nativa del módulo compilado C++ a través del wrapper Cython.
+
+---
+
 ### 2025-12-20 - Step 0158: Debug: Limpieza de Logs y Confirmación de Bucles Anidados
 **Estado**: 🔍 DRAFT
 

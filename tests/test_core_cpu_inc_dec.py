@@ -353,3 +353,86 @@ class TestCoreCPUIncDec:
         assert regs.flag_n == True, "Flag N debe estar activo (es decremento)"
         assert regs.pc == 0x0101, "PC debe avanzar 1 byte después de DEC B"
 
+    def test_inc_hl_indirect(self):
+        """
+        Test 8: Verificar que INC (HL) incrementa el valor en memoria apuntado por HL.
+        
+        Opcode: 0x34 - INC (HL)
+        Consume 3 M-Cycles (lectura + operación + escritura).
+        
+        Escenario:
+        - HL = 0xC000
+        - Memoria[0xC000] = 0x42
+        - Ejecutar INC (HL)
+        - Resultado: Memoria[0xC000] = 0x43
+        """
+        mmu = PyMMU()
+        regs = PyRegisters()
+        cpu = PyCPU(mmu, regs)
+        
+        regs.pc = 0x8000
+        regs.hl = 0xC000
+        mmu.write(0xC000, 0x42)  # Valor inicial en memoria
+        
+        mmu.write(0x8000, 0x34)  # INC (HL)
+        cpu.step()
+        
+        assert mmu.read(0xC000) == 0x43, "INC (HL) debe incrementar el valor en memoria"
+        assert regs.flag_z == False, "Z debe estar desactivado (resultado != 0)"
+        assert regs.flag_n == False, "N debe estar desactivado (es incremento)"
+        assert regs.pc == 0x8001, "PC debe avanzar 1 byte"
+
+    def test_dec_hl_indirect(self):
+        """
+        Test 9: Verificar que DEC (HL) decrementa el valor en memoria apuntado por HL.
+        
+        Opcode: 0x35 - DEC (HL)
+        Consume 3 M-Cycles (lectura + operación + escritura).
+        
+        Escenario:
+        - HL = 0xC000
+        - Memoria[0xC000] = 0x01
+        - Ejecutar DEC (HL)
+        - Resultado: Memoria[0xC000] = 0x00, flag Z = 1
+        """
+        mmu = PyMMU()
+        regs = PyRegisters()
+        cpu = PyCPU(mmu, regs)
+        
+        regs.pc = 0x8000
+        regs.hl = 0xC000
+        mmu.write(0xC000, 0x01)  # Valor inicial en memoria
+        
+        mmu.write(0x8000, 0x35)  # DEC (HL)
+        cpu.step()
+        
+        assert mmu.read(0xC000) == 0x00, "DEC (HL) debe decrementar el valor en memoria"
+        assert regs.flag_z == True, "Z debe estar activo (resultado == 0)"
+        assert regs.flag_n == True, "N debe estar activo (es decremento)"
+        assert regs.pc == 0x8001, "PC debe avanzar 1 byte"
+
+    def test_dec_hl_indirect_half_borrow(self):
+        """
+        Test 10: Verificar detección de half-borrow en DEC (HL).
+        
+        Escenario:
+        - HL = 0xC000
+        - Memoria[0xC000] = 0x10 (nibble bajo en 0x00)
+        - Ejecutar DEC (HL)
+        - Resultado: Memoria[0xC000] = 0x0F, flag H = 1 (half-borrow detectado)
+        """
+        mmu = PyMMU()
+        regs = PyRegisters()
+        cpu = PyCPU(mmu, regs)
+        
+        regs.pc = 0x8000
+        regs.hl = 0xC000
+        mmu.write(0xC000, 0x10)  # Valor inicial
+        
+        mmu.write(0x8000, 0x35)  # DEC (HL)
+        cpu.step()
+        
+        assert mmu.read(0xC000) == 0x0F, "DEC (HL) debe decrementar correctamente"
+        assert regs.flag_h == True, "H debe estar activo (half-borrow: 0x10 -> 0x0F)"
+        assert regs.flag_n == True, "N debe estar activo (es decremento)"
+

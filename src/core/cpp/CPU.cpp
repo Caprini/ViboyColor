@@ -776,6 +776,16 @@ int CPU::step() {
                 cycles_ += 1;
                 return 1;
             }
+        
+        case 0x34:  // INC (HL)
+            {
+                uint16_t addr = regs_->get_hl();
+                uint8_t value = mmu_->read(addr);
+                uint8_t result = alu_inc(value);
+                mmu_->write(addr, result);
+                cycles_ += 3;  // INC (HL) consume 3 M-Cycles (lectura + escritura)
+                return 3;
+            }
 
         case 0x05:  // DEC B
             {
@@ -824,6 +834,16 @@ int CPU::step() {
                 regs_->a = alu_dec(regs_->a);
                 cycles_ += 1;
                 return 1;
+            }
+        
+        case 0x35:  // DEC (HL)
+            {
+                uint16_t addr = regs_->get_hl();
+                uint8_t value = mmu_->read(addr);
+                uint8_t result = alu_dec(value);
+                mmu_->write(addr, result);
+                cycles_ += 3;  // DEC (HL) consume 3 M-Cycles (lectura + escritura)
+                return 3;
             }
 
         case 0xC6:  // ADD A, d8 (Add immediate 8-bit value to A)

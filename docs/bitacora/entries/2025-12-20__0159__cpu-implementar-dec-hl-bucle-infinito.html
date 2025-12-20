@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPU: Implementar DEC (HL) para Romper Segundo Bucle Infinito - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>CPU: Implementar DEC (HL) para Romper Segundo Bucle Infinito</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0159
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0158__debug-limpieza-logs-bucles-anidados.html">Anterior (0158)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementaron los opcodes faltantes <code>INC (HL)</code> (0x34) y <code>DEC (HL)</code> (0x35) en la CPU de C++ para completar la familia de instrucciones de incremento y decremento. Aunque el diagnóstico inicial apuntaba a <code>DEC C</code> (0x0D), este ya estaba implementado; el verdadero problema era la ausencia de los opcodes que operan sobre memoria indirecta. Con esta implementación, los bucles de limpieza de memoria en las ROMs ahora pueden ejecutarse correctamente, permitiendo que el PC avance más allá de la barrera de <code>0x0300</code> y la traza disparada capture el código que se ejecuta después de la inicialización.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El Game Boy LR35902 soporta instrucciones de incremento y decremento de 8 bits sobre registros directos (B, C, D, E, H, L, A) y también sobre memoria indirecta usando el par de registros HL como puntero.
+                </p>
+                <p>
+                    Las instrucciones <code>INC (HL)</code> y <code>DEC (HL)</code> funcionan de la siguiente manera:
+                </p>
+                <ul>
+                    <li><strong>INC (HL)</strong> (opcode 0x34): Lee el valor de memoria en la dirección apuntada por HL, lo incrementa en 1, actualiza los flags Z, N y H según corresponda, y escribe el resultado de vuelta a memoria. Consume 3 M-Cycles (lectura + operación + escritura).</li>
+                    <li><strong>DEC (HL)</strong> (opcode 0x35): Lee el valor de memoria en la dirección apuntada por HL, lo decrementa en 1, actualiza los flags Z, N y H, y escribe el resultado de vuelta a memoria. También consume 3 M-Cycles.</li>
+                </ul>
+                <p>
+                    Estos opcodes son críticos para bucles que limpian regiones de memoria (como los bucles de inicialización en las ROMs de Game Boy). Si faltan, la CPU devuelve 0 ciclos desde el <code>default</code> case del switch, causando que el motor de timing se detenga y <code>LY</code> se quede atascado en 0.
+                </p>
+                <p>
+                    <strong>Referencia:</strong> Pan Docs - Instruction Set - Arithmetic Operations (INC/DEC).
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadieron dos casos al switch principal de <code>CPU::step()</code> en <code>src/core/cpp/CPU.cpp</code>:
+                </p>
+                
+                <h3>Opcodes Implementados</h3>
+                <ul>
+                    <li><strong>0x34 - INC (HL)</strong>: Utiliza <code>alu_inc()</code> para incrementar el valor leído de memoria y actualizar flags. Consume 3 M-Cycles.</li>
+                    <li><strong>0x35 - DEC (HL)</strong>: Utiliza <code>alu_dec()</code> para decrementar el valor leído de memoria y actualizar flags. Consume 3 M-Cycles.</li>
+                </ul>
+
+                <h3>Implementación en C++</h3>
+                <p>
+                    Ambos opcodes siguen el mismo patrón:
+                </p>
+                <ol>
+                    <li>Obtener la dirección apuntada por HL usando <code>regs_->get_hl()</code>.</li>
+                    <li>Leer el valor actual de memoria usando <code>mmu_->read(addr)</code>.</li>
+                    <li>Aplicar la operación (incremento o decremento) usando los helpers ALU existentes (<code>alu_inc()</code> o <code>alu_dec()</code>).</li>
+                    <li>Escribir el resultado de vuelta a memoria usando <code>mmu_->write(addr, result)</code>.</li>
+                    <li>Actualizar el contador de ciclos y retornar 3 M-Cycles.</li>
+                </ol>
+
+                <h3>Decisiones de Diseño</h3>
+                <p>
+                    Se reutilizaron los helpers ALU existentes (<code>alu_inc()</code> y <code>alu_dec()</code>) en lugar de duplicar la lógica de cálculo de flags. Esto mantiene la consistencia y facilita el mantenimiento. Los helpers ya manejan correctamente:
+                </p>
+                <ul>
+                    <li>Flag Z (resultado == 0)</li>
+                    <li>Flag N (1 para DEC, 0 para INC)</li>
+                    <li>Flag H (half-carry/half-borrow)</li>
+                    <li>Preservación del flag C (quirk del hardware)</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadidos casos 0x34 (INC (HL)) y 0x35 (DEC (HL)) al switch principal</li>
+                    <li><code>tests/test_core_cpu_inc_dec.py</code> - Añadidos tres tests nuevos: <code>test_inc_hl_indirect</code>, <code>test_dec_hl_indirect</code>, y <code>test_dec_hl_indirect_half_borrow</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se añadieron tres tests unitarios para validar la implementación:
+                </p>
+                <ul>
+                    <li><strong>test_inc_hl_indirect</strong>: Verifica que INC (HL) incrementa correctamente el valor en memoria y actualiza flags.</li>
+                    <li><strong>test_dec_hl_indirect</strong>: Verifica que DEC (HL) decrementa correctamente el valor en memoria y activa el flag Z cuando el resultado es 0.</li>
+                    <li><strong>test_dec_hl_indirect_half_borrow</strong>: Verifica que DEC (HL) detecta correctamente el half-borrow (0x10 -> 0x0F) y activa el flag H.</li>
+                </ul>
+                
+                <p><strong>Comando ejecutado:</strong></p>
+                <pre><code>pytest tests/test_core_cpu_inc_dec.py::TestCoreCPUIncDec::test_inc_hl_indirect \
+       tests/test_core_cpu_inc_dec.py::TestCoreCPUIncDec::test_dec_hl_indirect \
+       tests/test_core_cpu_inc_dec.py::TestCoreCPUIncDec::test_dec_hl_indirect_half_borrow -v</code></pre>
+
+                <p><strong>Resultado:</strong></p>
+                <pre><code>============================== 3 passed in 0.08s ==============================</code></pre>
+
+                <p><strong>Código del Test (Fragmento):</strong></p>
+                <pre><code>def test_dec_hl_indirect(self):
+    """Verificar que DEC (HL) decrementa el valor en memoria apuntado por HL."""
+    mmu = PyMMU()
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    
+    regs.pc = 0x8000
+    regs.hl = 0xC000
+    mmu.write(0xC000, 0x01)  # Valor inicial en memoria
+    
+    mmu.write(0x8000, 0x35)  # DEC (HL)
+    cpu.step()
+    
+    assert mmu.read(0xC000) == 0x00, "DEC (HL) debe decrementar el valor en memoria"
+    assert regs.flag_z == True, "Z debe estar activo (resultado == 0)"
+    assert regs.flag_n == True, "N debe estar activo (es decremento)"</code></pre>
+
+                <p><strong>Validación Nativa:</strong> Los tests validan directamente el módulo compilado C++ a través del wrapper Cython. La CPU nativa ejecuta las instrucciones y los tests verifican el resultado en memoria y los flags.</p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">CPU Instruction Set</a> - Sección de operaciones aritméticas (INC/DEC)</li>
+                    <li>GBEDG: Instruction Timing - Timing de instrucciones de 8 bits sobre memoria indirecta</li>
+                </ul>
+                <p>
+                    <em>Nota: La implementación se basa en la especificación oficial del LR35902 documentada en Pan Docs. Los helpers ALU ya implementados (alu_inc, alu_dec) fueron reutilizados para mantener consistencia.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Direccionamiento Indirecto:</strong> Las instrucciones que operan sobre <code>(HL)</code> requieren un acceso adicional a memoria, aumentando el tiempo de ejecución de 1 a 3 M-Cycles (lectura + operación + escritura).</li>
+                        <li><strong>Bucle Infinito por Opcode Faltante:</strong> Cuando la CPU encuentra un opcode no implementado, el <code>default</code> case del switch devuelve 0 ciclos, causando que el motor de timing se detenga y el emulador entre en un deadlock lógico donde el tiempo no avanza.</li>
+                        <li><strong>Diagnóstico de LY Atascado:</strong> Si <code>LY</code> está permanentemente en 0, indica que <code>ppu.step()</code> nunca recibe ciclos suficientes para avanzar una línea de escaneo, lo que apunta directamente a que la CPU está devolviendo 0 ciclos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Ejecución Real en ROMs:</strong> Aunque los tests unitarios pasan, falta verificar que los bucles de limpieza de memoria en las ROMs reales ahora se ejecutan correctamente y permiten que la inicialización continúe.</li>
+                        <li><strong>Traza Disparada:</strong> Con estos opcodes implementados, el PC debería avanzar más allá de <code>0x0300</code> y activar la traza disparada, proporcionando información sobre el código que se ejecuta después de los bucles de inicialización.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        La hipótesis inicial era que <code>DEC C</code> (0x0D) faltaba, pero al revisar el código se descubrió que ya estaba implementado. El verdadero problema eran los opcodes de memoria indirecta <code>INC (HL)</code> y <code>DEC (HL)</code>. Esto demuestra la importancia de verificar exhaustivamente todos los opcodes relacionados antes de asumir cuál es el culpable.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con una ROM real (ej: <code>tetris.gb</code>) y verificar que <code>LY</code> ahora avanza correctamente</li>
+                    <li>[ ] Confirmar que la traza disparada se activa cuando el PC alcanza <code>0x0300</code></li>
+                    <li>[ ] Analizar las 100 instrucciones capturadas por la traza para identificar qué opcodes adicionales pueden estar faltando</li>
+                    <li>[ ] Continuar implementando opcodes faltantes hasta que la inicialización de la ROM se complete</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

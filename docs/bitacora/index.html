@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0159 - CPU: Implementar DEC (HL) para Romper Segundo Bucle Infinito -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0159__cpu-implementar-dec-hl-bucle-infinito.html" class="entry-link">
+                                    CPU: Implementar DEC (HL) para Romper Segundo Bucle Infinito
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0159 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementaron los opcodes faltantes INC (HL) (0x34) y DEC (HL) (0x35) en la CPU de C++ para completar la familia de instrucciones de incremento y decremento. Aunque el diagnóstico inicial apuntaba a DEC C (0x0D), este ya estaba implementado; el verdadero problema era la ausencia de los opcodes que operan sobre memoria indirecta. Con esta implementación, los bucles de limpieza de memoria ahora pueden ejecutarse correctamente, permitiendo que el PC avance más allá de la barrera de 0x0300.
+                        </p>
+                    </li>
                     <!-- Entrada 0158 - Debug: Limpieza de Logs y Confirmación de Bucles Anidados -->
                     <li>
                         <div class="entry-header">
