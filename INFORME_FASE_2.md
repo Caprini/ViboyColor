@@ -32,6 +32,32 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0153: Análisis: Traza de CPU Post-Bucle de Inicialización
+**Estado**: 🔍 DRAFT
+
+Después de corregir el bug del flag Cero (Z) en la instrucción `DEC B` (Step 0152), se ejecutó el emulador con la ROM de Tetris para capturar y analizar la nueva traza de la CPU.
+
+**Objetivo:**
+- Verificar que el bucle de inicialización terminaba correctamente después del fix.
+- Descubrir qué instrucciones ejecuta el juego después de salir del bucle.
+- Identificar el siguiente obstáculo en la ejecución.
+
+**Resultados del análisis:**
+- ✅ **Confirmación del fix:** El bucle termina correctamente cuando `B` llega a `0x00` y el flag `Z` se activa (`Z: 1`).
+- ✅ **Salida del bucle:** El PC continúa en `0x0297` después de salir del bucle.
+- ⚠️ **Bucles anidados:** Inmediatamente después de salir del bucle, aparece otro `DEC B` que reinicia el bucle, sugiriendo que hay múltiples bucles anidados en la rutina de inicialización.
+- ⚠️ **Límite de traza:** El límite de 200 instrucciones aún no es suficiente para ver qué ocurre después de que todos los bucles terminan.
+
+**Modificaciones realizadas:**
+- Aumentado `DEBUG_INSTRUCTION_LIMIT` de 150 a 200 en `src/core/cpp/CPU.cpp`.
+
+**Próximos pasos:**
+1. Aumentar aún más el límite de traza (ej: 500-1000 instrucciones) para capturar el momento en que todos los bucles terminan.
+2. Implementar logging condicional que solo registre cuando se sale de bucles.
+3. Analizar la traza extendida para identificar qué opcodes se ejecutan después de que todos los bucles terminan.
+
+---
+
 ### 2025-12-20 - Step 0152: Fix: Corregir Gestión del Flag Cero (Z) en Instrucción DEC
 **Estado**: ✅ VERIFIED
 

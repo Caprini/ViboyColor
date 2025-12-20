@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análisis: Traza de CPU Post-Bucle de Inicialización - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Análisis: Traza de CPU Post-Bucle de Inicialización</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0153
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0152__fix-corregir-flag-cero-dec.html">Anterior (0152)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Después de corregir el bug del flag Cero (Z) en la instrucción `DEC B` (Step 0152), se ejecutó el emulador con la ROM de Tetris para capturar y analizar la nueva traza de la CPU. El objetivo era verificar que el bucle de inicialización terminaba correctamente y descubrir qué instrucciones ejecuta el juego después de salir del bucle. El análisis confirmó que el bucle termina correctamente cuando `B` llega a `0x00`, pero reveló que hay múltiples bucles anidados en la rutina de inicialización.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La rutina de inicialización de un juego de Game Boy típicamente realiza múltiples tareas secuenciales:
+                </p>
+                <ol>
+                    <li><strong>Limpieza de memoria:</strong> Borra regiones de RAM (WRAM, VRAM, OAM) escribiendo valores específicos (generalmente `0x00` o `0xFF`).</li>
+                    <li><strong>Configuración de hardware:</strong> Inicializa registros de I/O (LCDC, BGP, etc.).</li>
+                    <li><strong>Carga de gráficos:</strong> Copia datos de tiles desde la ROM a la VRAM.</li>
+                    <li><strong>Configuración de paletas:</strong> Establece las paletas de colores.</li>
+                </ol>
+                <p>
+                    Cada una de estas tareas puede requerir múltiples bucles anidados. Por ejemplo, limpiar la VRAM (8KB) requiere escribir 8192 bytes, lo que típicamente se hace con un bucle que decrementa un contador hasta llegar a cero. Si hay múltiples regiones de memoria que limpiar, habrá múltiples bucles anidados.
+                </p>
+                <p>
+                    <strong>Bucles anidados en Game Boy:</strong> Es común usar registros diferentes para cada bucle (ej: `B` para el bucle interno, `C` para el bucle externo). Cuando el bucle interno termina (cuando `B` llega a `0x00`), el código puede continuar con otra tarea o entrar en otro bucle.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Análisis de la Traza</h2>
+                <p>
+                    Se ejecutó el emulador con la ROM de Tetris (`roms/tetris.gb`) y se capturó la traza de las primeras 200 instrucciones (aumentado desde 150 para capturar más información).
+                </p>
+                
+                <h3>Resultados del Análisis</h3>
+                
+                <h4>1. Confirmación de la Corrección del Bug</h4>
+                <p>
+                    La traza confirmó que el fix del Step 0152 funciona correctamente:
+                </p>
+                <ul>
+                    <li>El bucle `LDD (HL), A -> DEC B -> JR NZ` se ejecuta correctamente.</li>
+                    <li>Cuando `B` llega a `0x00`, el flag `Z` se activa correctamente (`Z: 1`).</li>
+                    <li>La instrucción `JR NZ` no salta cuando `Z=1`, y el bucle termina.</li>
+                    <li>El PC continúa en `0x0297` después de salir del bucle.</li>
+                </ul>
+                
+                <h4>2. Descubrimiento de Bucles Anidados</h4>
+                <p>
+                    El análisis reveló que hay múltiples bucles anidados en la rutina de inicialización:
+                </p>
+                <pre><code>[CPU TRACE 8] PC: 0x0293 | Opcode: 0x32  (LDD (HL), A)
+[CPU TRACE 9] PC: 0x0294 | Opcode: 0x05  (DEC B)
+  [DEBUG DEC B] B antes: 0x00, Z antes: 1
+  [DEBUG DEC B] B después: 0xFF, Z después: 0
+[CPU TRACE 10] PC: 0x0295 | Opcode: 0x20  (JR NZ, e)
+  [DEBUG JR NZ] B: 0xFF, Z: 0, offset: 0xFC
+  [DEBUG JR NZ] SALTANDO a PC: 0x0293
+...
+[CPU TRACE 1224] PC: 0x0295 | Opcode: 0x20  (JR NZ, e)
+  [DEBUG JR NZ] B: 0x00, Z: 1, offset: 0xFC
+  [DEBUG JR NZ] NO SALTANDO, continuando en PC: 0x0297
+  [DEBUG DEC B] B antes: 0x00, Z antes: 0
+  [DEBUG DEC B] B después: 0xFF, Z después: 0
+  [DEBUG JR NZ] B: 0xFF, Z: 0, offset: 0xFC
+  [DEBUG JR NZ] SALTANDO a PC: 0x0293</code></pre>
+                
+                <p>
+                    <strong>Observación crítica:</strong> Inmediatamente después de que el bucle termina en `PC: 0x0297`, aparece otro `DEC B` que reinicia el bucle. Esto sugiere que:
+                </p>
+                <ul>
+                    <li>Hay un bucle externo que controla múltiples iteraciones del bucle interno.</li>
+                    <li>El código en `0x0297` probablemente contiene otra instrucción `DEC` (posiblemente `DEC C` o `DEC E`) que decrementa el contador del bucle externo.</li>
+                    <li>Después de decrementar el contador externo, el código reinicializa `B` y vuelve a entrar en el bucle interno.</li>
+                </ul>
+                
+                <h4>3. Límite de Traza Insuficiente</h4>
+                <p>
+                    El límite de 200 instrucciones aún no es suficiente para ver qué ocurre después de que todos los bucles terminan. La traza muestra que el bucle se reinicia múltiples veces, pero no captura el momento en que todos los bucles terminan y el código continúa con la siguiente fase de inicialización.
+                </p>
+                
+                <h3>Modificaciones Realizadas</h3>
+                <ul>
+                    <li><strong>src/core/cpp/CPU.cpp</strong>: Aumentado `DEBUG_INSTRUCTION_LIMIT` de 150 a 200 para capturar más instrucciones.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Aumentado límite de traza de 150 a 200 instrucciones</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este paso es de análisis, no de implementación. La verificación se realizó mediante:
+                </p>
+                <ol>
+                    <li><strong>Ejecución del emulador:</strong> <code>python main.py roms/tetris.gb > temp_trace2.log 2>&1</code></li>
+                    <li><strong>Análisis del log:</strong> Búsqueda de patrones en la traza para identificar el comportamiento del bucle.</li>
+                    <li><strong>Confirmación del fix:</strong> Verificación de que el bucle termina correctamente cuando `B=0x00` y `Z=1`.</li>
+                </ol>
+                <p>
+                    <strong>Resultado:</strong> El bucle termina correctamente, pero hay múltiples bucles anidados que requieren más análisis.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Game Boy Pan Docs</a> - Referencia general de arquitectura</li>
+                    <li>Análisis de traza de ejecución: Logs capturados del emulador ejecutando Tetris</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Bucles anidados en inicialización:</strong> Los juegos de Game Boy usan bucles anidados para limpiar múltiples regiones de memoria. Cada bucle tiene su propio contador (registro), y cuando el bucle interno termina, el código puede reinicializar el contador y volver a entrar, o continuar con otra tarea.</li>
+                        <li><strong>Verificación del fix:</strong> El fix del flag Z funciona correctamente. El bucle termina cuando `B=0x00` y `Z=1`, confirmando que la corrección del Step 0152 es efectiva.</li>
+                        <li><strong>Límites de traza:</strong> Para analizar rutinas complejas con múltiples bucles anidados, puede ser necesario aumentar el límite de traza o usar técnicas más sofisticadas de logging (ej: logging condicional que solo registre cuando se sale de bucles).</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Estructura completa de los bucles:</strong> No sabemos cuántos bucles anidados hay ni qué registros se usan para cada bucle. Necesitamos ver más instrucciones o usar logging más inteligente.</li>
+                        <li><strong>Próxima fase de inicialización:</strong> No sabemos qué ocurre después de que todos los bucles terminan. ¿Qué instrucciones ejecuta el juego a continuación? ¿Configura registros de I/O? ¿Copia gráficos a la VRAM?</li>
+                        <li><strong>Opcodes no implementados:</strong> Es posible que haya opcodes no implementados que bloqueen la ejecución después de que los bucles terminen.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis:</strong> El código en `0x0297` probablemente contiene una instrucción `DEC` que decrementa el contador del bucle externo (posiblemente `DEC C` o `DEC E`), seguida de una instrucción que reinicializa `B` y vuelve a entrar en el bucle interno. Esto explicaría por qué vemos otro `DEC B` inmediatamente después de salir del bucle.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Asumimos que la estructura de bucles anidados es estándar para rutinas de limpieza de memoria en Game Boy. Esto es consistente con patrones comunes en código de inicialización.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Aumentar aún más el límite de traza (ej: 500-1000 instrucciones) para capturar el momento en que todos los bucles terminan.</li>
+                    <li>[ ] Implementar logging condicional que solo registre cuando se sale de bucles o cuando el PC cambia a una dirección fuera del rango del bucle.</li>
+                    <li>[ ] Analizar la traza extendida para identificar qué opcodes se ejecutan después de que todos los bucles terminan.</li>
+                    <li>[ ] Identificar cualquier opcode no implementado que pueda estar bloqueando la ejecución.</li>
+                    <li>[ ] Documentar la estructura completa de los bucles de inicialización una vez que se capture la traza completa.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

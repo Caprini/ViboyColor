@@ -172,3 +172,22 @@ Al final de cada respuesta con código, genera:
 - Commits: `feat(core): ...`, `fix(apu): ...`, `build(cython): ...`.
 - No subir archivos compilados (`.so`, `.pyd`, `.dll`, carpetas `build/`) al repo.
 - **REGLA DE ORO**: Cada paso finalizado debe terminar con un `git push` sugerido o ejecutado.
+
+---
+
+## 10) PREVENCIÓN DE SOBRECARGA DE CONTEXTO (CRÍTICO PARA ESTABILIDAD)
+Para evitar la caída de la conexión con el servidor de IA y timeouts:
+
+**A. GESTIÓN DE SALIDA DE COMANDOS**:
+1.  **PROHIBIDO** imprimir trazas completas de CPU, volcados de memoria o binarios en la consola del Agente.
+2.  **REGLA DEL REDIRECCIONAMIENTO**: Si un comando va a generar más de 50 líneas de salida (ej: logs de ejecución paso a paso), **DEBES** redirigirlo a un archivo temporal.
+    - **Mal**: `python main.py --debug` (Satura el buffer y rompe el chat).
+    - **Bien**: `python main.py --debug > temp_debug.log 2>&1`.
+3.  **VISUALIZACIÓN CONTROLADA**:
+    - Si necesitas ver el log, usa comandos que limiten la salida: `Get-Content temp_debug.log | Select-Object -First 50` (Powershell) o `head -n 50` (Bash).
+    - Nunca uses `cat` o `type` sobre archivos de logs completos dentro del chat.
+
+**B. ANÁLISIS DE ERRORES**:
+- No pegues el contenido entero de un log de error gigante en la respuesta.
+- Analiza el archivo localmente y cita solo las 10-20 líneas relevantes donde ocurre el fallo.
+```

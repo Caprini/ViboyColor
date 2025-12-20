@@ -5,7 +5,7 @@
 
 // Variables estáticas para logging de diagnóstico
 static int debug_instruction_counter = 0;
-static const int DEBUG_INSTRUCTION_LIMIT = 100;
+static const int DEBUG_INSTRUCTION_LIMIT = 200;
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
@@ -769,7 +769,14 @@ int CPU::step() {
 
         case 0x05:  // DEC B
             {
+                // Logging detallado para diagnóstico del bucle
+                if (current_pc == 0x0294) {
+                    printf("  [DEBUG DEC B] B antes: 0x%02X, Z antes: %d\n", regs_->b, regs_->get_flag_z() ? 1 : 0);
+                }
                 regs_->b = alu_dec(regs_->b);
+                if (current_pc == 0x0294) {
+                    printf("  [DEBUG DEC B] B después: 0x%02X, Z después: %d\n", regs_->b, regs_->get_flag_z() ? 1 : 0);
+                }
                 cycles_ += 1;
                 return 1;
             }
@@ -1288,15 +1295,27 @@ int CPU::step() {
             {
                 uint8_t offset_raw = fetch_byte();
                 
+                // Logging detallado para diagnóstico del bucle
+                if (current_pc == 0x0295) {
+                    printf("  [DEBUG JR NZ] B: 0x%02X, Z: %d, offset: 0x%02X\n", 
+                           regs_->b, regs_->get_flag_z() ? 1 : 0, offset_raw);
+                }
+                
                 if (!regs_->get_flag_z()) {
                     // Condición verdadera: saltar
                     int8_t offset = static_cast<int8_t>(offset_raw);
                     uint16_t new_pc = (regs_->pc + offset) & 0xFFFF;
+                    if (current_pc == 0x0295) {
+                        printf("  [DEBUG JR NZ] SALTANDO a PC: 0x%04X\n", new_pc);
+                    }
                     regs_->pc = new_pc;
                     cycles_ += 3;  // JR NZ consume 3 M-Cycles si salta
                     return 3;
                 } else {
                     // Condición falsa: no saltar, continuar ejecución normal
+                    if (current_pc == 0x0295) {
+                        printf("  [DEBUG JR NZ] NO SALTANDO, continuando en PC: 0x%04X\n", regs_->pc);
+                    }
                     cycles_ += 2;  // JR NZ consume 2 M-Cycles si no salta
                     return 2;
                 }
