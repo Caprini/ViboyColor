@@ -113,8 +113,10 @@ class TestHALT:
         
         - Ejecutar HALT
         - Verificar que halted es True
+        - Verificar que step() devuelve -1 (código especial para avance rápido)
         - Ejecutar step() múltiples veces
         - Verificar que PC no cambia (CPU dormida)
+        - Verificar que step() sigue devolviendo -1
         """
         mmu = PyMMU()
         regs = PyRegisters()
@@ -129,16 +131,40 @@ class TestHALT:
         
         # Verificar que halted es True
         assert cpu.get_halted() == 1, "CPU debe estar en estado HALT (1)"
-        assert cycles == 1, "HALT debe consumir 1 M-Cycle"
+        assert cycles == -1, "HALT debe devolver -1 para señalar avance rápido"
         
         # Ejecutar step() múltiples veces
         # La CPU debe seguir dormida (PC no cambia)
         initial_pc = regs.pc
         for _ in range(5):
             cycles = cpu.step()
-            assert cycles == 1, "HALT debe consumir 1 M-Cycle por ciclo"
+            assert cycles == -1, "HALT debe devolver -1 por ciclo (señal de avance rápido)"
             assert regs.pc == initial_pc, "PC no debe cambiar cuando CPU está en HALT"
-            assert cpu.halted == True, "CPU debe seguir en HALT"
+            assert cpu.get_halted() == 1, "CPU debe seguir en HALT"
+    
+    def test_halt_instruction_signals_correctly(self):
+        """
+        Step 0172: Verifica que HALT (0x76) activa el flag 'halted' y
+        que step() devuelve -1 para señalarlo.
+        """
+        mmu = PyMMU()
+        regs = PyRegisters()
+        cpu = PyCPU(mmu, regs)
+        
+        # Configurar
+        mmu.write(0x0100, 0x76)  # HALT
+        regs.pc = 0x0100
+        
+        assert cpu.get_halted() == 0, "CPU no debe estar en HALT inicialmente"
+        
+        # Ejecutar
+        cycles = cpu.step()
+        
+        # Verificar
+        assert cycles == -1, "step() debe devolver -1 para señalar HALT"
+        assert cpu.get_halted() == 1, "El flag 'halted' debe activarse"
+        # El PC avanza porque fetch_byte() se ejecuta antes del switch
+        assert regs.pc == 0x0101, "PC debe haber avanzado 1 byte"
     
     def test_halt_wakeup_on_interrupt(self):
         """

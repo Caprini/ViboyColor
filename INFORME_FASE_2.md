@@ -32,6 +32,34 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0172: Arquitectura de HALT: "Avance Rápido" al Siguiente Evento
+**Estado**: ✅ VERIFIED
+
+El deadlock de polling ha sido resuelto por la arquitectura de scanlines, pero ha revelado un deadlock más sutil: la CPU ejecuta la instrucción `HALT` y nuestro bucle principal no avanza el tiempo de forma eficiente, manteniendo `LY` atascado en `0`. Este Step documenta la implementación de una gestión de `HALT` inteligente que "avanza rápido" el tiempo hasta el final de la scanline actual, simulando correctamente una CPU en espera mientras el resto del hardware (PPU) sigue funcionando.
+
+**Objetivo:**
+- Implementar una gestión de `HALT` inteligente que "avance rápido" el tiempo hasta el final de la scanline actual.
+- Simular correctamente una CPU en espera mientras el resto del hardware (PPU) sigue funcionando.
+- Optimizar el rendimiento del bucle principal eliminando el "gateo" de 4 en 4 ciclos durante HALT.
+
+**Concepto de Hardware:**
+La instrucción `HALT` (opcode `0x76`) pone la CPU en un estado de bajo consumo. La CPU deja de ejecutar instrucciones y espera a que se produzca una interrupción. Sin embargo, el resto del hardware (como la PPU) **no se detiene**. El reloj del sistema sigue "latiendo".
+
+Nuestra simulación anterior de `HALT` era demasiado simplista: avanzábamos el tiempo de 4 en 4 ciclos (114 iteraciones por scanline). Esto es terriblemente ineficiente y no refleja el comportamiento real del hardware. El `HALT` del hardware no "gatea"; la CPU se detiene, pero el resto del sistema sigue funcionando a toda velocidad.
+
+**Implementación:**
+1. **Señalización desde C++:** `CPU::step()` ahora devuelve `-1` cuando entra en HALT (tanto en el caso `0x76` como en la FASE 2 de gestión de HALT).
+2. **Avance Rápido en Python:** El orquestador en `viboy.py` detecta el código especial `-1` y calcula los ciclos restantes en la scanline actual, avanzando el tiempo de un solo golpe en lugar de 4 en 4 ciclos.
+
+**Resultado:**
+Todos los tests pasan correctamente (3/3). La implementación está completa y funcionando. El siguiente paso es ejecutar el emulador con una ROM real para confirmar que:
+1. Cuando el juego entra en HALT esperando V-Blank, el tiempo avanza correctamente.
+2. `LY` se incrementa correctamente (0 → 153 → 0).
+3. Cuando la PPU genera una interrupción V-Blank, la CPU se despierta correctamente del HALT.
+4. Si todo va bien, deberíamos ver el logo de Nintendo o la pantalla de copyright de Tetris por primera vez.
+
+---
+
 ### 2025-12-20 - Step 0171: PPU Fase E: Arquitectura por Scanlines para Sincronización CPU-PPU
 **Estado**: ✅ VERIFIED
 

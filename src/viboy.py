@@ -713,24 +713,31 @@ class Viboy:
                     # --- Bucle de Scanline (456 ciclos) ---
                     cycles_this_scanline = 0
                     while cycles_this_scanline < CYCLES_PER_SCANLINE:
-                        if not (self._cpu.get_halted() if self._use_cpp else self._cpu.halted):
-                            # Ejecuta una instrucción de CPU y devuelve los M-Cycles
-                            m_cycles = self._cpu.step()
-                            # Convierte a T-Cycles (1 M-Cycle = 4 T-Cycles)
-                            t_cycles = m_cycles * 4
+                        # Ejecuta una instrucción de CPU y devuelve los M-Cycles
+                        # m_cycles puede ser negativo (-1) si la CPU entra en HALT
+                        m_cycles = self._cpu.step()
+                        
+                        if m_cycles == -1:
+                            # ¡La CPU ha entrado en HALT!
+                            # "Avance Rápido": Calculamos los ciclos restantes para
+                            # completar la scanline y los añadimos de un solo golpe.
+                            # Esto simula correctamente que la CPU está dormida pero
+                            # el resto del hardware (PPU) sigue funcionando.
+                            remaining_cycles_in_scanline = CYCLES_PER_SCANLINE - cycles_this_scanline
+                            t_cycles = remaining_cycles_in_scanline
                             cycles_this_scanline += t_cycles
                             
                             # Actualizar Timer si está disponible (solo en modo Python por ahora)
                             if not self._use_cpp and self._timer is not None:
                                 self._timer.tick(t_cycles)
                         else:
-                            # Si la CPU está en HALT, simplemente avanzamos el tiempo
-                            # en la unidad mínima posible (4 T-Cycles = 1 M-Cycle)
-                            cycles_this_scanline += 4
+                            # Instrucción normal: convertir M-Cycles a T-Cycles
+                            t_cycles = m_cycles * 4
+                            cycles_this_scanline += t_cycles
                             
-                            # Actualizar Timer también durante HALT
+                            # Actualizar Timer si está disponible (solo en modo Python por ahora)
                             if not self._use_cpp and self._timer is not None:
-                                self._timer.tick(4)
+                                self._timer.tick(t_cycles)
                     
                     # Al final de la scanline, actualizamos la PPU una sola vez
                     self._ppu.step(CYCLES_PER_SCANLINE)

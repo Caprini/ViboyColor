@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arquitectura de HALT: "Avance Rápido" al Siguiente Evento - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Arquitectura de HALT: "Avance Rápido" al Siguiente Evento</h1>
+            <!-- Entrada 0172 - Arquitectura de HALT: "Avance Rápido" al Siguiente Evento -->
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0172
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0171__ppu-fase-e-arquitectura-por-scanlines-sincronizacion-cpu-ppu.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El deadlock de polling ha sido resuelto por la arquitectura de scanlines, pero ha revelado un deadlock más sutil: la CPU ejecuta la instrucción <code>HALT</code> y nuestro bucle principal no avanza el tiempo de forma eficiente, manteniendo <code>LY</code> atascado en <code>0</code>. Este Step documenta la implementación de una gestión de <code>HALT</code> inteligente que "avanza rápido" el tiempo hasta el final de la scanline actual, simulando correctamente una CPU en espera mientras el resto del hardware (PPU) sigue funcionando.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: HALT y la Sincronización de Eventos</h2>
+                <p>
+                    La instrucción <code>HALT</code> (opcode <code>0x76</code>) pone la CPU en un estado de bajo consumo. La CPU deja de ejecutar instrucciones y espera a que se produzca una interrupción. Sin embargo, el resto del hardware (como la PPU) <strong>no se detiene</strong>. El reloj del sistema sigue "latiendo".
+                </p>
+                
+                <h3>El Problema del "Gateo" de HALT</h3>
+                <p>
+                    Nuestra simulación anterior de <code>HALT</code> era demasiado simplista:
+                </p>
+                <pre><code>else: # Si la CPU está en HALT
+    cycles_this_scanline += 4</code></pre>
+                
+                <p>
+                    Esto es terriblemente ineficiente. Estamos simulando una CPU "dormida" avanzando el tiempo a paso de tortuga (4 ciclos a la vez). Se necesitarían 114 iteraciones de nuestro bucle de Python solo para completar una scanline. Mientras tanto, el <code>Heartbeat</code> se dispara, nos muestra <code>LY=0</code>, y nos hace creer que el sistema está congelado. No está congelado; está gateando.
+                </p>
+                
+                <p>
+                    El <code>HALT</code> del hardware no "gatea". La CPU se detiene, pero el resto del sistema (la PPU) sigue funcionando a toda velocidad hasta el siguiente evento. Debemos simular esto.
+                </p>
+
+                <h3>La Solución: "Avance Rápido" al Siguiente Evento</h3>
+                <p>
+                    Cuando la CPU entra en <code>HALT</code>, no debemos avanzar el tiempo de 4 en 4 ciclos. Debemos calcular cuántos ciclos faltan para el siguiente evento significativo (el final de la scanline) y avanzar el tiempo de un solo salto. Esto es una optimización crítica y una simulación mucho más precisa del comportamiento del hardware.
+                </p>
+                
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - HALT behavior, Interrupts
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificaron dos componentes principales para implementar la gestión inteligente de <code>HALT</code>:
+                </p>
+                
+                <h3>A. Señalizar HALT desde C++</h3>
+                <p>
+                    Primero, necesitamos que <code>CPU::step()</code> nos comunique que ha entrado en estado <code>HALT</code>. Usaremos un valor de retorno especial (negativo) para esto.
+                </p>
+                
+                <p>
+                    En <code>src/core/cpp/CPU.cpp</code>, modificamos el caso <code>0x76</code> (HALT) y la FASE 2 de gestión de HALT:
+                </p>
+                <pre><code>// ========== FASE 2: Gestión de HALT ==========
+// Si la CPU está en HALT, no ejecutar instrucciones
+// Retornamos -1 para señalar al orquestador que debe hacer "avance rápido"
+// hasta el siguiente evento (fin de scanline)
+if (halted_) {
+    cycles_ += 1;
+    return -1;  // Código especial: señala HALT para avance rápido
+}
+
+// ... dentro del switch(opcode)
+case 0x76:  // HALT
+    halted_ = true;
+    cycles_ += 1;  // HALT consume 1 M-Cycle
+    return -1;  // Código especial: señala HALT para avance rápido</code></pre>
+
+                <h3>B. Modificar viboy.py para Manejar la Señal HALT</h3>
+                <p>
+                    Ahora, el orquestador en Python reacciona a esta señal:
+                </p>
+                <pre><code># En src/viboy.py, dentro del método run()
+
+while cycles_this_scanline < CYCLES_PER_SCANLINE:
+    # Ejecuta una instrucción de CPU y devuelve los M-Cycles
+    # m_cycles puede ser negativo (-1) si la CPU entra en HALT
+    m_cycles = self._cpu.step()
+    
+    if m_cycles == -1:
+        # ¡La CPU ha entrado en HALT!
+        # "Avance Rápido": Calculamos los ciclos restantes para
+        # completar la scanline y los añadimos de un solo golpe.
+        remaining_cycles_in_scanline = CYCLES_PER_SCANLINE - cycles_this_scanline
+        t_cycles = remaining_cycles_in_scanline
+        cycles_this_scanline += t_cycles
+    else:
+        # Instrucción normal: convertir M-Cycles a T-Cycles
+        t_cycles = m_cycles * 4
+        cycles_this_scanline += t_cycles</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Valor de Retorno Especial:</strong> Usamos <code>-1</code> como código especial para señalar HALT. Esto es seguro porque ninguna instrucción normal devuelve un valor negativo de M-Cycles.</li>
+                    <li><strong>Avance Rápido:</strong> Cuando detectamos HALT, calculamos los ciclos restantes en la scanline actual y los añadimos de un solo golpe. Esto simula correctamente que la CPU está dormida pero el resto del hardware sigue funcionando.</li>
+                    <li><strong>Compatibilidad:</strong> El wrapper de Cython ya devuelve <code>int</code>, por lo que no necesitamos modificarlo.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Modificado para devolver <code>-1</code> cuando entra en HALT (caso <code>0x76</code> y FASE 2).</li>
+                    <li><code>src/viboy.py</code> - Modificado el bucle principal para manejar el código especial <code>-1</code> y realizar avance rápido.</li>
+                    <li><code>tests/test_core_cpu_interrupts.py</code> - Actualizado test <code>test_halt_stops_execution</code> y añadido nuevo test <code>test_halt_instruction_signals_correctly</code>.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron los tests de interrupciones para validar el nuevo comportamiento de <code>HALT</code>:
+                </p>
+                
+                <h3>Comando Ejecutado</h3>
+                <pre><code>pytest tests/test_core_cpu_interrupts.py::TestHALT -v</code></pre>
+                
+                <h3>Resultado</h3>
+                <pre><code>tests/test_core_cpu_interrupts.py::TestHALT::test_halt_stops_execution PASSED
+tests/test_core_cpu_interrupts.py::TestHALT::test_halt_instruction_signals_correctly PASSED
+tests/test_core_cpu_interrupts.py::TestHALT::test_halt_wakeup_on_interrupt PASSED
+
+============================== 3 passed in 0.05s ==============================</code></pre>
+                
+                <h3>Código del Test</h3>
+                <p>
+                    El nuevo test <code>test_halt_instruction_signals_correctly</code> valida que:
+                </p>
+                <pre><code>def test_halt_instruction_signals_correctly(self):
+    """
+    Step 0172: Verifica que HALT (0x76) activa el flag 'halted' y
+    que step() devuelve -1 para señalarlo.
+    """
+    mmu = PyMMU()
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    
+    # Configurar
+    mmu.write(0x0100, 0x76)  # HALT
+    regs.pc = 0x0100
+    
+    assert cpu.get_halted() == 0, "CPU no debe estar en HALT inicialmente"
+    
+    # Ejecutar
+    cycles = cpu.step()
+    
+    # Verificar
+    assert cycles == -1, "step() debe devolver -1 para señalar HALT"
+    assert cpu.get_halted() == 1, "El flag 'halted' debe activarse"
+    assert regs.pc == 0x0101, "PC debe haber avanzado 1 byte"</code></pre>
+                
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Todos los tests pasan correctamente, confirmando que el módulo C++ compilado funciona como se espera.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">HALT behavior, Interrupts</a></li>
+                    <li>GBEDG: <a href="https://gbdev.io/gb-opcodes/optables/">HALT (0x76)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>HALT y el Tiempo Emulado:</strong> Cuando la CPU entra en HALT, no significa que el tiempo se detiene. El resto del hardware (PPU, Timer, etc.) sigue funcionando. Nuestra simulación debe reflejar esto.</li>
+                        <li><strong>Optimización de Avance Rápido:</strong> En lugar de avanzar el tiempo de 4 en 4 ciclos durante HALT, podemos calcular los ciclos restantes hasta el siguiente evento y avanzar de un solo golpe. Esto es más eficiente y más preciso.</li>
+                        <li><strong>Señalización entre Componentes:</strong> Usar valores de retorno especiales (como <code>-1</code>) es una forma elegante de comunicar estados especiales entre el núcleo C++ y el orquestador Python.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Ejecución con ROM Real:</strong> Verificar que con esta nueva arquitectura, cuando el juego entra en HALT esperando V-Blank, el tiempo avanza correctamente y <code>LY</code> se incrementa.</li>
+                        <li><strong>Despertar de HALT:</strong> Confirmar que cuando la PPU genera una interrupción V-Blank, la CPU se despierta correctamente del HALT y continúa su ejecución.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Esta implementación asume que el siguiente evento significativo después de HALT es siempre el final de la scanline actual. Esto es correcto para la mayoría de los casos, pero podría haber situaciones donde queramos avanzar hasta un evento más específico (como una interrupción de Timer). Por ahora, avanzar hasta el final de la scanline es suficiente y correcto.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <p>
+                    Este es el momento de la verdad. Con esta nueva arquitectura:
+                </p>
+                <ol>
+                    <li>El juego entrará en <code>HALT</code> para esperar V-Blank.</li>
+                    <li>Nuestro <code>run()</code> lo detectará, avanzará el tiempo hasta el final de la scanline actual.</li>
+                    <li><code>ppu.step(456)</code> se llamará, y <strong><code>LY</code> se incrementará</strong>.</li>
+                    <li>Esto se repetirá para cada línea. Veremos en el <code>Heartbeat</code> cómo <code>LY</code> cicla de 0 a 153.</li>
+                    <li>Cuando <code>LY</code> llegue a 144, la PPU generará una interrupción de V-Blank.</li>
+                    <li><code>handle_interrupts()</code> en la CPU C++ lo detectará y despertará a la CPU de <code>HALT</code>.</li>
+                    <li>El juego continuará su ejecución.</li>
+                </ol>
+                
+                <p>
+                    Si todo va bien, <strong>deberíamos ver el logo de Nintendo o la pantalla de copyright de Tetris por primera vez.</strong>
+                </p>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
