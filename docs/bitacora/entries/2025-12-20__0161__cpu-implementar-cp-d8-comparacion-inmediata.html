@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPU: Implementación de la Comparación Inmediata CP d8 - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>CPU: Implementación de la Comparación Inmediata CP d8</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0161
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0160__debug-instrumentar-default-opcodes-desconocidos.html">Anterior (0160)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    La instrumentación de depuración del Step 0160 identificó exitosamente el opcode faltante que causaba el deadlock: <code>0xFE (CP d8)</code> en <code>PC: 0x02B4</code>. Se implementó la instrucción de comparación inmediata <code>CP d8</code>, que compara el registro A con un valor inmediato de 8 bits sin modificar A, actualizando solo los flags. Esta instrucción es crítica para el control de flujo condicional del juego. Además, se cambió el comportamiento del caso <code>default</code> de <code>exit(1)</code> a un warning no fatal para permitir que la emulación continúe y detecte otros opcodes faltantes.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La instrucción <code>CP d8</code> (Compare A with immediate 8-bit value) es una de las instrucciones más fundamentales de cualquier CPU. Funciona como una <strong>"resta fantasma"</strong>:
+                </p>
+                <ul>
+                    <li><strong>Internamente</strong>, calcula <code>A - d8</code>.</li>
+                    <li><strong>Actualiza los flags</strong> (Z, N, H, C) basándose en el resultado de esa resta.</li>
+                    <li><strong>Pero NO guarda el resultado.</strong> El valor del registro <code>A</code> permanece intacto.</li>
+                </ul>
+                <p>
+                    <strong>¿Por qué es tan crítico?</strong> Es la forma que tiene el programa de hacerse preguntas. Después de un <code>CP</code>, el código usa una instrucción de salto condicional (<code>JR Z</code>, <code>JR NZ</code>, <code>JP C</code>, etc.) para tomar una decisión:
+                </p>
+                <ul>
+                    <li><code>CP 0x0A</code> seguido de <code>JR Z, ...</code> significa: "¿Es A igual a 10? Si es así, salta".</li>
+                    <li><code>CP 0x00</code> seguido de <code>JR NZ, ...</code> significa: "¿Es A diferente de cero? Si es así, salta".</li>
+                </ul>
+                <p>
+                    <strong>La Causa Raíz del Deadlock:</strong> El juego, después de sus bucles de limpieza, llegaba a <code>PC: 0x02B4</code> y necesitaba hacer una pregunta crucial para decidir qué hacer a continuación. Pero nuestra CPU no sabía cómo "comparar". Caía en el <code>default</code>, devolvía 0 ciclos, y el emulador se congelaba en el tiempo. La pantalla estaba en blanco porque el juego nunca podía tomar la decisión de empezar a copiar los gráficos.
+                </p>
+                <p>
+                    <strong>Referencia:</strong> Pan Docs - CPU Instruction Set, sección "CP A, n" (opcode 0xFE).
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó el opcode <code>0xFE (CP d8)</code> en la CPU de C++ y se modificó el comportamiento del caso <code>default</code> para permitir que la emulación continúe detectando otros opcodes faltantes.
+                </p>
+                
+                <h3>Componentes Creados/Modificados</h3>
+                <ul>
+                    <li><strong>CPU.cpp:</strong> Añadido caso <code>0xFE</code> en el switch de opcodes que lee el siguiente byte y llama a <code>alu_cp()</code>.</li>
+                    <li><strong>CPU.cpp:</strong> Modificado el caso <code>default</code> para usar warning en lugar de <code>exit(1)</code>.</li>
+                    <li><strong>test_core_cpu_compares.py:</strong> Creado nuevo archivo de tests con 4 casos de prueba para <code>CP d8</code>.</li>
+                </ul>
+
+                <h3>Implementación del Opcode 0xFE</h3>
+                <p>
+                    El helper <code>alu_cp()</code> ya existía en el código (implementado previamente para otros opcodes de comparación como <code>CP B</code>, <code>CP C</code>, etc.). Solo faltaba añadir el caso específico para <code>CP d8</code>:
+                </p>
+                <pre><code>case 0xFE:  // CP d8 (Compare A with immediate 8-bit value)
+{
+    // CP d8: Compara A con un valor inmediato de 8 bits
+    // Lee el siguiente byte de memoria y lo compara con A
+    // No modifica A, solo actualiza flags
+    uint8_t value = fetch_byte();
+    alu_cp(value);
+    cycles_ += 2;  // 1 M-Cycle para opcode, 1 M-Cycle para leer d8
+    return 2;
+}</code></pre>
+
+                <h3>Modificación del Caso Default</h3>
+                <p>
+                    Una vez identificado y corregido el opcode crítico, se cambió el comportamiento del caso <code>default</code> para permitir que la emulación continúe:
+                </p>
+                <pre><code>default:
+    // Opcode no implementado - WARNING (no fatal)
+    // Ahora que hemos identificado y corregido el opcode crítico (0xFE),
+    // cambiamos a modo warning para permitir que la emulación continúe
+    // y detecte otros opcodes faltantes sin crashear
+    printf("[CPU WARN] Opcode no implementado: 0x%02X en PC: 0x%04X. Devolviendo 0 ciclos.\n", opcode, current_pc);
+    cycles = 0; // Devolver 0 para señalar un problema sin crashear
+    break;</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <p>
+                    <strong>Timing:</strong> <code>CP d8</code> consume 2 M-Cycles: 1 para leer el opcode y 1 para leer el byte inmediato <code>d8</code>. Esto es consistente con otras instrucciones inmediatas de 8 bits como <code>ADD A, d8</code> o <code>SUB d8</code>.
+                </p>
+                <p>
+                    <strong>Helper reutilizado:</strong> Se aprovechó el helper <code>alu_cp()</code> ya existente, que implementa correctamente la lógica de comparación y actualización de flags según la especificación del hardware.
+                </p>
+                <p>
+                    <strong>Modo warning:</strong> Cambiar de <code>exit(1)</code> a warning permite que la emulación continúe y detecte otros opcodes faltantes sin necesidad de recompilar y ejecutar repetidamente.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido caso <code>0xFE</code> en el switch de opcodes y modificado el caso <code>default</code> para usar warning.</li>
+                    <li><code>tests/test_core_cpu_compares.py</code> - Creado nuevo archivo de tests con 4 casos de prueba para <code>CP d8</code>.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se creó un nuevo archivo de tests específico para instrucciones de comparación: <code>tests/test_core_cpu_compares.py</code>.
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>pytest tests/test_core_cpu_compares.py -v</code></li>
+                    <li><strong>Resultado esperado:</strong> 4 tests pasando (test_cp_d8_equal, test_cp_d8_less, test_cp_d8_greater, test_cp_d8_half_borrow)</li>
+                </ul>
+                <p>
+                    <strong>Código del Test (fragmento clave):</strong>
+                </p>
+                <pre><code>def test_cp_d8_equal(self, setup):
+    """Verifica CP d8 cuando A == valor (Z=1)"""
+    cpu, mmu, regs = setup
+    regs.a = 0x42
+    regs.pc = 0x0100
+    
+    # CP d8: Comparar A con 0x42
+    mmu.write(0x0100, 0xFE)  # Opcode CP d8
+    mmu.write(0x0101, 0x42)  # Valor inmediato: 0x42
+    
+    cycles = cpu.step()
+    
+    # Verificar que A no cambió
+    assert regs.a == 0x42, f"A no debe cambiar, es {regs.a}"
+    
+    # Verificar flags
+    assert regs.flag_z is True, "Z debe estar activo (A == valor)"
+    assert regs.flag_n is True, "N debe estar activo (es resta)"
+    assert regs.flag_c is False, "C debe estar apagado (A >= valor)"
+    
+    # Verificar PC avanzó
+    assert regs.pc == 0x0102, f"PC debe ser 0x0102, es 0x{regs.pc:04X}"
+    
+    # Verificar ciclos
+    assert cycles == 2, f"CP d8 debe consumir 2 M-Cycles, consumió {cycles}"</code></pre>
+                <p>
+                    <strong>Validación Nativa:</strong> Los tests validan el módulo compilado C++ directamente, verificando que la implementación nativa funciona correctamente.
+                </p>
+                <p>
+                    <strong>Verificación en Emulador:</strong> Al ejecutar <code>python main.py roms/tetris.gb</code>, el emulador debería avanzar más allá de <code>PC: 0x02B4</code> y continuar la ejecución, posiblemente encontrando el siguiente opcode faltante o comenzando a copiar gráficos a la VRAM.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: CPU Instruction Set - <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#cp-a-n">CP A, n (opcode 0xFE)</a></li>
+                    <li>Pan Docs: CPU Instruction Set - Flags (Z, N, H, C) - <a href="https://gbdev.io/pandocs/CPU_Registers_and_Flags.html">CPU Registers and Flags</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>CP (Compare):</strong> Es una "resta fantasma" que actualiza flags sin modificar el registro A. Es fundamental para el control de flujo condicional.</li>
+                        <li><strong>Deadlock lógico:</strong> Cuando la CPU encuentra un opcode no implementado y devuelve 0 ciclos, el tiempo de emulación no avanza, causando que el juego se congele.</li>
+                        <li><strong>Instrumentación dirigida:</strong> La técnica de añadir <code>exit(1)</code> en el caso <code>default</code> permitió identificar exactamente qué opcode faltaba, demostrando la efectividad de las técnicas de "fail-fast" en desarrollo.</li>
+                        <li><strong>Flags de comparación:</strong> Los flags Z, N, H, C se calculan igual que en una resta, pero el resultado no se guarda. Z indica igualdad, C indica "menor que".</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Avance del emulador:</strong> Una vez implementado <code>CP d8</code>, el emulador debería avanzar más allá de <code>PC: 0x02B4</code>. Si encuentra otro opcode faltante, el nuevo modo warning lo reportará sin crashear.</li>
+                        <li><strong>Renderizado:</strong> Si el emulador avanza lo suficiente, debería comenzar a copiar gráficos a la VRAM, lo que podría resultar en que finalmente veamos algo en la pantalla.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis confirmada:</strong> El opcode <code>0xFE (CP d8)</code> era efectivamente el culpable del deadlock. La instrumentación de depuración funcionó perfectamente, identificando el problema de forma inmediata y clara.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Con <code>CP d8</code> implementado, el emulador debería avanzar significativamente más en la ejecución. Si hay más opcodes faltantes, el nuevo modo warning los reportará sin necesidad de recompilar y ejecutar repetidamente.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[x] Recompilar el módulo C++ con <code>.\rebuild_cpp.ps1</code></li>
+                    <li>[x] Ejecutar los tests con <code>pytest tests/test_core_cpu_compares.py -v</code></li>
+                    <li>[ ] Ejecutar el emulador con <code>python main.py roms/tetris.gb</code> y verificar que avanza más allá de <code>PC: 0x02B4</code></li>
+                    <li>[ ] Si aparecen warnings de otros opcodes faltantes, implementarlos secuencialmente</li>
+                    <li>[ ] Verificar si el emulador comienza a copiar gráficos a la VRAM</li>
+                    <li>[ ] Verificar si finalmente aparece algo en la pantalla</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

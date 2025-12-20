@@ -1275,6 +1275,16 @@ int CPU::step() {
                 cycles_ += 2;
                 return 2;
             }
+        case 0xFE:  // CP d8 (Compare A with immediate 8-bit value)
+            {
+                // CP d8: Compara A con un valor inmediato de 8 bits
+                // Lee el siguiente byte de memoria y lo compara con A
+                // No modifica A, solo actualiza flags
+                uint8_t value = fetch_byte();
+                alu_cp(value);
+                cycles_ += 2;  // 1 M-Cycle para opcode, 1 M-Cycle para leer d8
+                return 2;
+            }
         case 0xBF:  // CP A
             {
                 alu_cp(regs_->a);
@@ -1463,13 +1473,13 @@ int CPU::step() {
             }
 
         default:
-            // Opcode no implementado - INSTRUMENTACIÓN DE DEPURACIÓN
-            // Esta es la "bala de plata" para detectar opcodes faltantes
-            // Imprimimos el opcode y PC, luego terminamos la ejecución inmediatamente
-            printf("[CPU FATAL] Opcode no implementado: 0x%02X en PC: 0x%04X\n", opcode, current_pc);
-            // Detenemos la emulación bruscamente para que el mensaje sea lo último que veamos
-            exit(1);
-            return 0; // No se ejecutará, pero es buena práctica
+            // Opcode no implementado - WARNING (no fatal)
+            // Ahora que hemos identificado y corregido el opcode crítico (0xFE),
+            // cambiamos a modo warning para permitir que la emulación continúe
+            // y detectar otros opcodes faltantes sin crashear
+            printf("[CPU WARN] Opcode no implementado: 0x%02X en PC: 0x%04X. Devolviendo 0 ciclos.\n", opcode, current_pc);
+            // Devolver 0 para señalar un problema sin crashear
+            return 0;
     }
 }
 

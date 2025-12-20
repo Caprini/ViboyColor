@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0161 - CPU: Implementación de la Comparación Inmediata CP d8 -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0161__cpu-implementar-cp-d8-comparacion-inmediata.html" class="entry-link">
+                                    CPU: Implementación de la Comparación Inmediata CP d8
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0161 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            La instrumentación de depuración del Step 0160 identificó exitosamente el opcode faltante que causaba el deadlock: 0xFE (CP d8) en PC: 0x02B4. Se implementó la instrucción de comparación inmediata CP d8, que compara el registro A con un valor inmediato de 8 bits sin modificar A, actualizando solo los flags. Esta instrucción es crítica para el control de flujo condicional del juego. Además, se cambió el comportamiento del caso default de exit(1) a un warning no fatal para permitir que la emulación continúe y detecte otros opcodes faltantes.
+                        </p>
+                    </li>
                     <!-- Entrada 0160 - Debug: Instrumentar default para Capturar Opcodes Desconocidos -->
                     <li>
                         <div class="entry-header">

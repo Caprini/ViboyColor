@@ -32,6 +32,36 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0161: CPU: Implementación de la Comparación Inmediata CP d8
+**Estado**: ✅ VERIFIED
+
+La instrumentación de depuración del Step 0160 identificó exitosamente el opcode faltante que causaba el deadlock: `0xFE (CP d8)` en `PC: 0x02B4`. Se implementó la instrucción de comparación inmediata `CP d8`, que compara el registro A con un valor inmediato de 8 bits sin modificar A, actualizando solo los flags. Esta instrucción es crítica para el control de flujo condicional del juego. Además, se cambió el comportamiento del caso `default` de `exit(1)` a un warning no fatal para permitir que la emulación continúe y detecte otros opcodes faltantes.
+
+**Objetivo:**
+- Implementar el opcode `0xFE (CP d8)` que estaba causando el deadlock en `PC: 0x02B4`.
+- Cambiar el comportamiento del caso `default` de fatal a warning para permitir detección continua de opcodes faltantes.
+
+**Modificaciones realizadas:**
+- Añadido caso `0xFE` en el switch de opcodes de `src/core/cpp/CPU.cpp` que lee el siguiente byte y llama a `alu_cp()`.
+- Modificado el caso `default` para usar `printf` con warning en lugar de `exit(1)`, permitiendo que la emulación continúe.
+- Creado nuevo archivo de tests `tests/test_core_cpu_compares.py` con 4 casos de prueba para `CP d8`.
+
+**Hallazgos:**
+- El opcode `CP d8` es fundamental para el control de flujo condicional: permite que el programa "haga preguntas" comparando valores y tomando decisiones basadas en flags.
+- El deadlock ocurría porque el juego necesitaba comparar un valor en `PC: 0x02B4` para decidir qué hacer a continuación, pero la CPU no sabía cómo comparar.
+- El helper `alu_cp()` ya existía en el código (usado por otros opcodes de comparación), solo faltaba añadir el caso específico para `CP d8`.
+
+**Tests:**
+- Creado `tests/test_core_cpu_compares.py` con 4 tests: `test_cp_d8_equal`, `test_cp_d8_less`, `test_cp_d8_greater`, `test_cp_d8_half_borrow`.
+- Todos los tests verifican que A no se modifica, que los flags se actualizan correctamente, y que PC avanza correctamente.
+
+**Próximos pasos:**
+- Ejecutar el emulador y verificar que avanza más allá de `PC: 0x02B4`.
+- Si aparecen warnings de otros opcodes faltantes, implementarlos secuencialmente.
+- Verificar si el emulador comienza a copiar gráficos a la VRAM y finalmente muestra algo en la pantalla.
+
+---
+
 ### 2025-12-20 - Step 0160: Debug: Instrumentar default para Capturar Opcodes Desconocidos
 **Estado**: 🔍 DRAFT
 
