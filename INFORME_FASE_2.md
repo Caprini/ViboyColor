@@ -32,6 +32,35 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0163: Verificación: Ejecución Post-Saltos Condicionales
+**Estado**: 🔍 DRAFT
+
+Después de implementar los saltos relativos condicionales (JR Z, JR NC, JR C) en el Step 0162, se ejecutó el emulador para verificar si el deadlock de LY=0 se había resuelto. Los resultados muestran que el problema persiste: LY sigue atascado en 0, pero no aparecen warnings de opcodes desconocidos, lo que indica que la CPU está ejecutando instrucciones conocidas. Esto sugiere que el problema puede ser más complejo de lo inicialmente previsto o que hay otra causa adicional al deadlock original.
+
+**Objetivo:**
+- Ejecutar el emulador después de implementar los saltos condicionales para verificar si el deadlock se resuelve.
+- Observar si LY comienza a incrementarse, indicando que el sistema avanza correctamente.
+- Identificar nuevos opcodes faltantes si aparecen warnings.
+
+**Resultados:**
+- LY permanece atascado en 0 durante toda la ejecución.
+- No aparecen warnings de opcodes no implementados ([CPU WARN]), indicando que la CPU está ejecutando instrucciones conocidas.
+- No aparecen trazas de CPU (el PC no alcanza 0x0300 donde se activa el debug trace).
+- El bucle principal está funcionando (se muestran heartbeats periódicos), pero LY no avanza.
+
+**Hallazgos:**
+- La ausencia de warnings de opcodes desconocidos es significativa: la CPU está ejecutando instrucciones conocidas y correctamente implementadas.
+- La CPU está devolviendo ciclos válidos (mayores a 0), porque el sistema de protección contra deadlock no se activa.
+- El problema puede estar en otro lugar: ya sea en la lógica del bucle principal, en la sincronización de la PPU, o en un bucle infinito en el código del juego mismo.
+
+**Próximos pasos:**
+- Activar trazas de CPU desde el inicio (modificar DEBUG_TRIGGER_PC a 0x0100) para ver qué opcodes se están ejecutando realmente.
+- Verificar el estado de los registros de la CPU en diferentes momentos para detectar patrones anómalos.
+- Revisar la implementación del Timer y otras funcionalidades de I/O que el juego podría estar esperando.
+- Considerar la posibilidad de que el juego esté en un bucle infinito esperando V-Blank, pero V-Blank nunca ocurre porque LY no avanza.
+
+---
+
 ### 2025-12-20 - Step 0162: CPU: Implementación de Saltos Relativos Condicionales
 **Estado**: ✅ VERIFIED
 

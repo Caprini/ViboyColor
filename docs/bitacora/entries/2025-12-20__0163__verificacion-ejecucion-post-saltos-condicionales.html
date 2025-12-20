@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificación: Ejecución Post-Saltos Condicionales - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Verificación: Ejecución Post-Saltos Condicionales</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0163
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0162__cpu-implementacion-saltos-relativos-condicionales.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Después de implementar los saltos relativos condicionales (JR Z, JR NC, JR C) en el Step 0162, se ejecutó el emulador para verificar si el deadlock de LY=0 se había resuelto. Los resultados muestran que el problema persiste: LY sigue atascado en 0, pero no aparecen warnings de opcodes desconocidos, lo que indica que la CPU está ejecutando instrucciones conocidas. Esto sugiere que el problema puede ser más complejo de lo inicialmente previsto o que hay otra causa adicional al deadlock original.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En un emulador de Game Boy, el contador de líneas de escaneo (LY) debe incrementarse cada 456 ciclos de reloj (T-Cycles) cuando el LCD está encendido. Si LY permanece atascado en 0, significa que la PPU no está recibiendo suficientes ciclos de CPU para avanzar las líneas de escaneo, lo cual puede deberse a varias razones:
+                </p>
+                <ul>
+                    <li><strong>Opcodes no implementados:</strong> Si la CPU ejecuta un opcode desconocido que devuelve 0 ciclos, el tiempo no avanza.</li>
+                    <li><strong>Bucles infinitos en el código del juego:</strong> El código del juego puede estar ejecutando un bucle infinito esperando una condición que nunca se cumple.</li>
+                    <li><strong>HALT sin interrupciones:</strong> Si la CPU entra en estado HALT y no hay interrupciones habilitadas, la CPU consumirá ciclos mínimos pero el código no avanzará.</li>
+                    <li><strong>Problemas de sincronización:</strong> La CPU puede estar devolviendo ciclos válidos, pero la lógica de sincronización puede tener un error.</li>
+                </ul>
+                <p>
+                    La ausencia de warnings de opcodes desconocidos es un hallazgo importante: significa que la CPU está ejecutando instrucciones conocidas y correctamente implementadas, pero algo más está impidiendo que el sistema avance correctamente.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Proceso de Verificación</h2>
+                <p>
+                    Se ejecutó el emulador con el módulo C++ recompilado después de implementar los saltos condicionales, usando el modo verbose para monitorear el estado del sistema.
+                </p>
+                
+                <h3>Comandos Ejecutados</h3>
+                <pre><code>python setup.py build_ext --inplace
+python main.py roms/tetris.gb --verbose > temp_execution_0163.log 2>&1</code></pre>
+
+                <h3>Resultados Observados</h3>
+                <ul>
+                    <li><strong>Estado de LY:</strong> Permanece atascado en 0 durante toda la ejecución.</li>
+                    <li><strong>Warnings de CPU:</strong> No aparecen warnings de opcodes no implementados ([CPU WARN]).</li>
+                    <li><strong>Trazas de CPU:</strong> No aparecen trazas de ejecución (el PC no alcanza 0x0300 donde se activa el debug trace).</li>
+                    <li><strong>Renderizado:</strong> El renderer muestra frames pero todos con índices de color 0 (pantalla negra).</li>
+                    <li><strong>Bucle principal:</strong> El bucle principal está funcionando (se muestran heartbeats periódicos), pero LY no avanza.</li>
+                </ul>
+
+                <h3>Análisis de la Situación</h3>
+                <p>
+                    El hecho de que no aparezcan warnings de opcodes desconocidos es significativo. Esto indica que:
+                </p>
+                <ol>
+                    <li>La CPU no está ejecutando opcodes que caigan en el caso `default` del switch.</li>
+                    <li>La CPU está devolviendo ciclos válidos (mayores a 0), porque el sistema de protección contra deadlock no se activa (no aparecen warnings de "CPU devolvió 0 ciclos").</li>
+                    <li>El problema puede estar en otro lugar: ya sea en la lógica del bucle principal, en la sincronización de la PPU, o en un bucle infinito en el código del juego mismo.</li>
+                </ol>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Consultados</h2>
+                <ul>
+                    <li><code>temp_execution_0163.log</code> - Log completo de la ejecución del emulador</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Código de la CPU para verificar implementación de saltos condicionales</li>
+                    <li><code>src/viboy.py</code> - Bucle principal del emulador para entender la sincronización</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este step es puramente de verificación ejecutando el emulador completo. No se ejecutaron tests unitarios, pero sí se verificó que el módulo C++ se recompiló correctamente.
+                </p>
+                <ul>
+                    <li><strong>Recompilación:</strong> El módulo C++ se recompiló exitosamente sin errores.</li>
+                    <li><strong>Ejecución del emulador:</strong> El emulador se ejecutó sin crashes, pero LY permanece atascado.</li>
+                    <li><strong>Análisis de logs:</strong> Se analizaron los logs buscando warnings, trazas y patrones de comportamiento.</li>
+                </ul>
+
+                <h3>Evidencia del Log</h3>
+                <p>
+                    Extracto representativo del log de ejecución:
+                </p>
+                <pre><code>💓 Heartbeat ... LY=0 | Mode=2 | LCDC=0x80 (LCD ON) | PPU viva
+[Renderer] Frame #60: framebuffer leído, muestra índices: [0, 0, 0, 0, 0, 0], len=23040
+💓 Heartbeat ... LY=0 | Mode=2 | LCDC=0x80 (LCD ON) | PPU viva
+[Renderer] Frame #120: framebuffer leído, muestra índices: [0, 0, 0, 0, 0, 0], len=23040
+...
+(patrón se repite indefinidamente)</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: LCD Timing, V-Blank Interrupt</li>
+                    <li>Implementación existente del bucle principal en <code>src/viboy.py</code></li>
+                    <li>Implementación de la CPU en <code>src/core/cpp/CPU.cpp</code></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Diagnóstico de deadlocks:</strong> La ausencia de warnings de opcodes desconocidos es información valiosa. Indica que el problema puede estar en otro lugar del sistema, no necesariamente en la implementación de opcodes.</li>
+                        <li><strong>Complejidad del debugging:</strong> Cuando un sistema complejo como un emulador presenta un problema, puede haber múltiples causas potenciales que interactúan de manera no obvia.</li>
+                        <li><strong>Importancia de la instrumentación:</strong> Los logs y heartbeats son esenciales para entender qué está pasando en tiempo de ejecución, especialmente cuando el sistema parece estar funcionando pero no produce los resultados esperados.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Causa raíz del deadlock:</strong> Aunque los saltos condicionales están implementados, el deadlock persiste. Necesitamos identificar si es un problema de sincronización, un bucle infinito en el código del juego, o algún otro factor.</li>
+                        <li><strong>Estado real de la CPU:</strong> Sería útil activar trazas de CPU desde el principio (no solo después de PC=0x0300) para ver qué opcodes se están ejecutando realmente.</li>
+                        <li><strong>Sincronización PPU-CPU:</strong> Verificar que la PPU está recibiendo correctamente los ciclos de la CPU y que el cálculo de avance de LY es correcto.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El código del juego puede estar ejecutando un bucle infinito esperando una condición que nunca se cumple. Esto podría ser porque:
+                    </p>
+                    <ul>
+                        <li>Falta implementar alguna funcionalidad de hardware (por ejemplo, el Timer puede no estar funcionando correctamente).</li>
+                        <li>El estado inicial de la CPU o la memoria no es exactamente el esperado por el juego.</li>
+                        <li>Hay algún flag o registro que el juego está consultando y que no está en el estado correcto.</li>
+                    </ul>
+                    <p>
+                        <strong>Suposición:</strong> Asumimos que los saltos condicionales están correctamente implementados porque los tests unitarios pasaron. Sin embargo, en un sistema complejo, las interacciones entre componentes pueden revelar problemas que no aparecen en tests aislados.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Activar trazas de CPU desde el inicio (modificar DEBUG_TRIGGER_PC a 0x0100) para ver qué opcodes se están ejecutando.</li>
+                    <li>[ ] Verificar el estado de los registros de la CPU en diferentes momentos para detectar patrones anómalos.</li>
+                    <li>[ ] Revisar la implementación del Timer y otras funcionalidades de I/O que el juego podría estar esperando.</li>
+                    <li>[ ] Considerar la posibilidad de que el juego esté en un bucle infinito esperando V-Blank, pero V-Blank nunca ocurre porque LY no avanza.</li>
+                    <li>[ ] Analizar si hay algún problema en la conversión de M-Cycles a T-Cycles en el bucle principal.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
