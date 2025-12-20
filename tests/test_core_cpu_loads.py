@@ -470,3 +470,79 @@ class TestADD_HL:
         assert regs.flag_h == True, "Flag H debe ser 1 (half-carry)"
         assert regs.flag_c == True, "Flag C debe ser 1 (carry completo)"
 
+
+class TestMemoryClearLoop:
+    """Tests para validar el escenario de bucle de limpieza de memoria que requiere cargas inmediatas"""
+    
+    def test_memory_clear_loop_scenario(self):
+        """
+        Test: Simula el escenario de bucle de limpieza de memoria que se ejecuta al arrancar ROMs.
+        
+        Este test valida que las instrucciones de carga inmediata (LD B, d8, LD C, d8, LD HL, d16)
+        funcionan correctamente para inicializar los registros necesarios para bucles de limpieza.
+        
+        Secuencia simulada:
+        1. XOR A (poner A=0)
+        2. LD HL, d16 (inicializar puntero de memoria)
+        3. LD C, d8 (inicializar contador bajo)
+        4. LD B, d8 (inicializar contador alto)
+        5. LDD (HL), A (escribir cero y decrementar HL)
+        6. DEC B (decrementar contador)
+        7. JR NZ (saltar si B != 0)
+        
+        Este es el patrón que usa Tetris al arrancar para limpiar memoria.
+        """
+        mmu = PyMMU()
+        regs = PyRegisters()
+        cpu = PyCPU(mmu, regs)
+        
+        # Inicializar PC
+        regs.pc = 0x0100
+        
+        # Paso 1: XOR A (poner A=0)
+        mmu.write(0x0100, 0xAF)  # XOR A
+        cycles = cpu.step()
+        assert regs.a == 0, "A debe ser 0 después de XOR A"
+        assert regs.pc == 0x0101
+        
+        # Paso 2: LD HL, 0xC000 (inicializar puntero de memoria)
+        mmu.write(0x0101, 0x21)  # LD HL, d16
+        mmu.write(0x0102, 0x00)  # LSB
+        mmu.write(0x0103, 0xC0)  # MSB
+        cycles = cpu.step()
+        assert regs.hl == 0xC000, f"HL debe ser 0xC000, es 0x{regs.hl:04X}"
+        assert regs.pc == 0x0104
+        
+        # Paso 3: LD C, 0x10 (contador bajo)
+        mmu.write(0x0104, 0x0E)  # LD C, d8
+        mmu.write(0x0105, 0x10)  # d8 = 0x10
+        cycles = cpu.step()
+        assert regs.c == 0x10, f"C debe ser 0x10, es 0x{regs.c:02X}"
+        assert regs.pc == 0x0106
+        
+        # Paso 4: LD B, 0x02 (contador alto - bucle se ejecutará 0x02 veces)
+        mmu.write(0x0106, 0x06)  # LD B, d8
+        mmu.write(0x0107, 0x02)  # d8 = 0x02
+        cycles = cpu.step()
+        assert regs.b == 0x02, f"B debe ser 0x02, es 0x{regs.b:02X}"
+        assert regs.pc == 0x0108
+        assert regs.bc == 0x0210, f"BC debe ser 0x0210, es 0x{regs.bc:04X}"
+        
+        # Paso 5-7: Ejecutar una iteración del bucle de limpieza
+        # LDD (HL), A - escribir cero en memoria y decrementar HL
+        mmu.write(0x0108, 0x32)  # LDD (HL), A
+        cycles = cpu.step()
+        assert mmu.read(0xC000) == 0, "Memoria[0xC000] debe ser 0"
+        assert regs.hl == 0xBFFF, f"HL debe decrementarse a 0xBFFF, es 0x{regs.hl:04X}"
+        assert regs.pc == 0x0109
+        
+        # DEC B - decrementar contador
+        mmu.write(0x0109, 0x05)  # DEC B
+        cycles = cpu.step()
+        assert regs.b == 0x01, f"B debe ser 0x01 después de DEC B, es 0x{regs.b:02X}"
+        assert regs.pc == 0x010A
+        
+        # Verificar que las instrucciones de carga inmediata inicializaron correctamente
+        # los registros para el bucle
+        assert regs.bc == 0x0110, f"BC debe ser 0x0110 después de una iteración, es 0x{regs.bc:04X}"
+        assert regs.hl == 0xBFFF, f"HL debe apuntar a la siguiente dirección (0xBFFF), es 0x{regs.hl:04X}"

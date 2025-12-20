@@ -115,7 +115,7 @@
                 <h2>Archivos Afectados</h2>
                 <ul>
                     <li><code>src/core/cpp/CPU.cpp</code> - Las instrucciones ya estaban implementadas (líneas 502-508, 510-516, 611-617). Validación confirmó que funcionan correctamente.</li>
-                    <li><code>tests/test_core_cpu_loads.py</code> - Tests existentes validaron las instrucciones. Todos los tests pasaron (8/8).</li>
+                    <li><code>tests/test_core_cpu_loads.py</code> - Se agregó un nuevo test (<code>TestMemoryClearLoop::test_memory_clear_loop_scenario</code>) que valida el escenario completo del bucle de limpieza de memoria. Todos los tests pasaron (24/24).</li>
                     <li><code>viboy_core.cp313-win_amd64.pyd</code> - Módulo recompilado para asegurar que las instrucciones están disponibles.</li>
                 </ul>
             </section>
@@ -163,6 +163,24 @@ tests/test_core_cpu_loads.py::TestLD_8bit_Immediate::test_ld_register_immediate[
     assert cycles == 2, "LD B, d8 debe consumir 2 M-Cycles"
     assert regs.pc == 0x0102, "PC debe avanzar 2 bytes"</code></pre>
 
+                <h3>Test Adicional: Escenario de Bucle de Limpieza de Memoria</h3>
+                <p>
+                    Se agregó un test adicional (<code>test_memory_clear_loop_scenario</code>) que valida el escenario completo del bucle de limpieza de memoria que se ejecuta al arrancar ROMs. Este test simula la secuencia exacta que usa Tetris:
+                </p>
+                <ol>
+                    <li><code>XOR A</code> (poner A=0)</li>
+                    <li><code>LD HL, d16</code> (inicializar puntero de memoria)</li>
+                    <li><code>LD C, d8</code> (inicializar contador bajo)</li>
+                    <li><code>LD B, d8</code> (inicializar contador alto)</li>
+                    <li><code>LDD (HL), A</code> (escribir cero y decrementar HL)</li>
+                    <li><code>DEC B</code> (decrementar contador)</li>
+                </ol>
+                <p>
+                    Este test verifica que todas las instrucciones de carga inmediata funcionan correctamente en conjunto para inicializar los registros necesarios para bucles de limpieza de memoria.
+                </p>
+                <p>
+                    <strong>Resultado del test completo:</strong> 24 tests pasaron, incluyendo el nuevo test de escenario completo.
+                </p>
                 <p>
                     <strong>Validación Nativa:</strong> Todos los tests validan el módulo compilado C++ a través de la interfaz Cython. Las instrucciones funcionan correctamente y consumen el número correcto de ciclos.
                 </p>

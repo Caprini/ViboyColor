@@ -49,7 +49,8 @@ El análisis de la traza de la CPU (Step 0150) reveló que el emulador se queda 
 
 **Implementación de validación:**
 - ✅ Ejecutados tests unitarios en `tests/test_core_cpu_loads.py` para validar las instrucciones
-- ✅ Todos los tests pasaron (8/8): `test_ld_b_immediate`, `test_ld_register_immediate` (parametrizado), `test_ld_hl_immediate`
+- ✅ Todos los tests pasaron (24/24): `test_ld_b_immediate`, `test_ld_register_immediate` (parametrizado), `test_ld_hl_immediate`, y otros tests existentes
+- ✅ Agregado nuevo test `test_memory_clear_loop_scenario` que valida el escenario completo del bucle de limpieza de memoria que se ejecuta al arrancar ROMs (simula la secuencia que usa Tetris)
 - ✅ Recompilado el módulo C++ con `rebuild_cpp.ps1` para asegurar que las instrucciones están disponibles
 - ✅ Validado que las instrucciones consumen el número correcto de M-Cycles (2 para 8 bits, 3 para 16 bits)
 
