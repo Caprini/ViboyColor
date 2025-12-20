@@ -32,6 +32,31 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0154: Debug: Extensión del Trazado de CPU a 500 Instrucciones
+**Estado**: 🔍 DRAFT
+
+El análisis del Step 0153 confirmó que el fix del flag Z funciona correctamente, pero reveló que la rutina de inicialización de la ROM contiene múltiples bucles de limpieza anidados. La traza actual de 200 instrucciones es insuficiente para observar qué ocurre después de que todos estos bucles terminan.
+
+**Objetivo:**
+- Aumentar significativamente el límite de la traza de la CPU para capturar la secuencia de ejecución que sigue a los bucles de inicialización.
+- Observar qué instrucciones ejecuta el juego una vez que ha terminado de limpiar todas las áreas de memoria.
+- Identificar el siguiente opcode que debemos implementar para que el juego pueda continuar su ejecución.
+
+**Modificaciones realizadas:**
+- Aumentado `DEBUG_INSTRUCTION_LIMIT` de 200 a 500 en `src/core/cpp/CPU.cpp`.
+- Agregado comentario explicativo sobre el propósito del aumento del límite.
+
+**Próximos pasos:**
+- Recompilar el módulo C++ con el nuevo límite de traza.
+- Ejecutar el emulador con la ROM de Tetris y capturar la traza completa de 500 instrucciones.
+- Analizar la traza para identificar qué ocurre después de los bucles de inicialización.
+- Identificar el primer opcode no implementado o sospechoso que aparece en la traza.
+
+**Hipótesis:**
+Después de que los bucles de limpieza terminan, el juego debería empezar a configurar el hardware, especialmente los registros de la PPU. Esperamos ver instrucciones como `LDH (n), A` (0xE0) escribiendo en registros como `0xFF40` (LCDC) o `0xFF47` (BGP).
+
+---
+
 ### 2025-12-20 - Step 0153: Análisis: Traza de CPU Post-Bucle de Inicialización
 **Estado**: 🔍 DRAFT
 
