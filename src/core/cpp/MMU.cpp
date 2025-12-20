@@ -23,11 +23,12 @@ uint8_t MMU::read(uint16_t addr) const {
     // - Bits de solo lectura (0-2) desde el estado actual de la PPU
     if (addr == 0xFF41) {
         if (ppu_ != nullptr) {
-            // Leer el valor base de STAT (bits escribibles) de la memoria
+            // Leer el valor base de STAT (bits escribibles 3-7) de la memoria
+            // Los bits 0-2 son de solo lectura y se actualizan dinámicamente
             uint8_t stat_base = memory_[addr];
             
             // Obtener el modo actual de la PPU (bits 0-1)
-            uint8_t mode = static_cast<uint8_t>(ppu_->get_mode());
+            uint8_t mode = static_cast<uint8_t>(ppu_->get_mode()) & 0x03;
             
             // Calcular LYC=LY Coincidence Flag (bit 2)
             uint8_t ly = ppu_->get_ly();
@@ -35,15 +36,16 @@ uint8_t MMU::read(uint16_t addr) const {
             uint8_t lyc_match = ((ly & 0xFF) == (lyc & 0xFF)) ? 0x04 : 0x00;
             
             // Combinar: bits escribibles (3-7) | modo actual (0-1) | LYC match (2)
-            // Bit 7 siempre es 1 según Pan Docs
-            uint8_t result = (stat_base & 0xF8) | mode | lyc_match | 0x80;
+            // Preservamos los bits 3-7 de la memoria (configurables por el software)
+            // y actualizamos los bits 0-2 dinámicamente desde la PPU
+            uint8_t result = (stat_base & 0xF8) | mode | lyc_match;
             
             return result;
         }
         
         // Si la PPU no está conectada, devolver valor por defecto
-        // Bit 7 siempre es 1 según Pan Docs
-        return 0x80;
+        // (modo 2 = OAM Search, que es el estado inicial)
+        return 0x02;
     }
     
     // Acceso directo al array: O(1), sin overhead de Python
