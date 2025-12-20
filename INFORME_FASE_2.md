@@ -32,6 +32,46 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-19 - Step 0149: Debug: Trazado de la CPU para Diagnosticar VRAM Vacía
+**Estado**: 🔍 En depuración
+
+Después de resolver el `Segmentation Fault` y lograr que el emulador corra estable a 60 FPS, el siguiente problema identificado es una **pantalla en blanco**. El diagnóstico indica que la VRAM está vacía porque la CPU no está ejecutando la rutina que copia los datos gráficos desde la ROM a la VRAM.
+
+**Problema identificado:**
+- El emulador corre a 60 FPS sólidos (confirmado visualmente)
+- La pantalla está completamente en blanco
+- El `framebuffer` se está creando y pasando a Pygame correctamente
+- El renderizador de Python está dibujando el contenido del `framebuffer`
+- El contenido del `framebuffer` es uniformemente el color de fondo (índice de color 0 = blanco)
+- Esto indica que la PPU está renderizando correctamente, pero está leyendo una **VRAM que está completamente vacía (llena de ceros)**
+
+**Análisis del problema:**
+- La VRAM está vacía porque la CPU aún no ha ejecutado la rutina de código que copia los datos gráficos del logo de Nintendo desde la ROM a la VRAM
+- La CPU está ejecutando código, pero probablemente está atascada en un bucle o le falta una instrucción clave que le impide llegar a la rutina de copia de gráficos
+
+**Implementación de debugging:**
+- ✅ Añadido `#include <cstdio>` al principio de `CPU.cpp`
+- ✅ Añadidas variables estáticas `debug_instruction_counter` y `DEBUG_INSTRUCTION_LIMIT = 100`
+- ✅ Añadido bloque de logging en `CPU::step()` que muestra el PC y el opcode de cada instrucción
+- ✅ El contador se resetea a 0 en el constructor de `CPU` para cada nueva instancia
+- ✅ El formato del log es: `[CPU TRACE N] PC: 0xXXXX | Opcode: 0xXX`
+
+**Logs agregados:**
+- `[CPU TRACE N]` - Muestra el contador de instrucción, PC antes de leer el opcode, y el opcode leído
+
+**Próximos pasos:**
+1. Recompilar el módulo C++ con la instrumentación
+2. Ejecutar el emulador y capturar la traza de las primeras 100 instrucciones
+3. Analizar la traza para identificar el último opcode ejecutado o el bucle infinito
+4. Implementar el opcode faltante o corregir el bucle
+5. Verificar que la CPU pueda continuar hasta la rutina de copia de gráficos
+6. Eliminar la instrumentación de diagnóstico para restaurar el rendimiento
+
+**Archivos modificados:**
+- `src/core/cpp/CPU.cpp` - Añadido `#include <cstdio>`, variables estáticas para logging, y bloque de logging en `step()`
+
+---
+
 ### 2025-12-19 - Step 0148: Fix: Corregir Paso de Punteros en Cython para Resolver Segmentation Fault
 **Estado**: ✅ Completado
 

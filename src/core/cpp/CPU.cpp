@@ -1,12 +1,19 @@
 #include "CPU.hpp"
 #include "MMU.hpp"
 #include "Registers.hpp"
+#include <cstdio>
+
+// Variables estáticas para logging de diagnóstico
+static int debug_instruction_counter = 0;
+static const int DEBUG_INSTRUCTION_LIMIT = 100;
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
     // Validación básica (en producción, podríamos usar assert)
     // Por ahora, confiamos en que Python pasa punteros válidos
     // IME inicia en false por seguridad (el juego lo activará si lo necesita)
+    // Resetear contador de debug al crear nueva instancia
+    debug_instruction_counter = 0;
 }
 
 CPU::~CPU() {
@@ -443,7 +450,16 @@ int CPU::step() {
     
     // ========== FASE 4: Fetch-Decode-Execute ==========
     // Fetch: Leer opcode de memoria
+    uint16_t current_pc = regs_->pc;  // Guardamos el PC actual para el log
     uint8_t opcode = fetch_byte();
+    
+    // --- BLOQUE DE LOGGING DE DIAGNÓSTICO ---
+    if (debug_instruction_counter < DEBUG_INSTRUCTION_LIMIT) {
+        printf("[CPU TRACE %d] PC: 0x%04X | Opcode: 0x%02X\n",
+               debug_instruction_counter, current_pc, opcode);
+        debug_instruction_counter++;
+    }
+    // --- FIN DEL BLOQUE DE LOGGING ---
 
     // Decode/Execute: Switch optimizado por el compilador
     switch (opcode) {

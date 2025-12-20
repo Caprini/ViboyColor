@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug: Trazado de la CPU para Diagnosticar VRAM Vacía - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug: Trazado de la CPU para Diagnosticar VRAM Vacía</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0149
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0148__fix-corregir-paso-punteros-cython-segmentation-fault.html">Anterior (Step 0148)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Después de resolver el <code>Segmentation Fault</code> y lograr que el emulador corra estable a 60 FPS, el siguiente problema identificado es una <strong>pantalla en blanco</strong>. El diagnóstico indica que la VRAM está vacía porque la CPU no está ejecutando la rutina que copia los datos gráficos desde la ROM a la VRAM. Se añadió instrumentación de diagnóstico en <code>CPU::step()</code> para trazar las primeras 100 instrucciones ejecutadas por la ROM, mostrando el PC (Program Counter) y el opcode de cada instrucción. Esta traza permitirá identificar qué instrucción falta o qué bucle está bloqueando la ejecución.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, cuando se inicia una ROM, la CPU ejecuta una secuencia de instrucciones que inicializa el hardware y copia los datos gráficos (tiles, sprites, mapas) desde la ROM (memoria de solo lectura) a la VRAM (Video RAM, rango <code>0x8000-0x9FFF</code>). La PPU (Picture Processing Unit) lee estos datos de la VRAM para renderizar la pantalla.
+                </p>
+                <p>
+                    <strong>El problema de la pantalla blanca:</strong> Si la pantalla está en blanco pero el emulador corre a 60 FPS, significa que:
+                </p>
+                <ul>
+                    <li>El <code>framebuffer</code> se está creando y pasando a Pygame correctamente</li>
+                    <li>El renderizador de Python está dibujando el contenido del <code>framebuffer</code></li>
+                    <li>El contenido del <code>framebuffer</code> es uniformemente el color de fondo (índice de color 0, que nuestra paleta por defecto traduce a blanco)</li>
+                </ul>
+                <p>
+                    Esto indica que la PPU está renderizando correctamente, pero está leyendo una <strong>VRAM que está completamente vacía (llena de ceros)</strong>. La VRAM está vacía porque la CPU aún no ha ejecutado la rutina de código que copia los datos gráficos del logo de Nintendo desde la ROM a la VRAM.
+                </p>
+                <p>
+                    <strong>¿Por qué estaría la VRAM vacía?</strong> La CPU está ejecutando código, pero probablemente está atascada en un bucle o le falta una instrucción clave que le impide llegar a la rutina de copia de gráficos. Para diagnosticar esto, necesitamos ver exactamente qué instrucciones está ejecutando la CPU y en qué punto se detiene o entra en un bucle infinito.
+                </p>
+                <p>
+                    <strong>La solución: trazado de instrucciones</strong> Añadiendo logs de diagnóstico en el método <code>CPU::step()</code> que muestren el PC (Program Counter) y el opcode de cada instrucción antes de ejecutarla, podemos ver el flujo exacto de ejecución. Limitando el número de logs a las primeras 100 instrucciones, obtenemos suficiente información para identificar el problema sin saturar la consola.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió instrumentación de diagnóstico en <code>src/core/cpp/CPU.cpp</code> para trazar las primeras 100 instrucciones ejecutadas por la CPU. El logging muestra el contador de instrucción, el PC (Program Counter) antes de leer el opcode, y el opcode leído.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>src/core/cpp/CPU.cpp</strong>: Añadido <code>#include &lt;cstdio&gt;</code>, variables estáticas para contador de debug, y bloque de logging en <code>step()</code></li>
+                </ul>
+
+                <h3>Cambios aplicados</h3>
+                <p>
+                    <strong>1. Inclusión de librería de I/O:</strong>
+                </p>
+                <ul>
+                    <li>Añadido <code>#include &lt;cstdio&gt;</code> al principio del archivo para usar <code>printf</code></li>
+                </ul>
+
+                <p>
+                    <strong>2. Variables estáticas para logging:</strong>
+                </p>
+                <ul>
+                    <li>Añadida variable estática <code>debug_instruction_counter</code> para contar las instrucciones loggeadas</li>
+                    <li>Añadida constante <code>DEBUG_INSTRUCTION_LIMIT = 100</code> para limitar el número de logs</li>
+                    <li>El contador se resetea a 0 en el constructor de <code>CPU</code> para cada nueva instancia</li>
+                </ul>
+
+                <p>
+                    <strong>3. Bloque de logging en <code>step()</code>:</strong>
+                </p>
+                <ul>
+                    <li>Se guarda el PC actual antes de leer el opcode (porque <code>fetch_byte()</code> incrementa el PC)</li>
+                    <li>Se añade un bloque condicional que imprime el contador, PC y opcode si el contador es menor que el límite</li>
+                    <li>El formato del log es: <code>[CPU TRACE N] PC: 0xXXXX | Opcode: 0xXX</code></li>
+                </ul>
+
+                <h3>Código clave</h3>
+                <p>
+                    <strong>Variables estáticas añadidas:</strong>
+                </p>
+                <pre><code>// Variables estáticas para logging de diagnóstico
+static int debug_instruction_counter = 0;
+static const int DEBUG_INSTRUCTION_LIMIT = 100;</code></pre>
+
+                <p>
+                    <strong>Reset del contador en el constructor:</strong>
+                </p>
+                <pre><code>CPU::CPU(MMU* mmu, CoreRegisters* registers)
+    : mmu_(mmu), regs_(registers), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
+    // ...
+    // Resetear contador de debug al crear nueva instancia
+    debug_instruction_counter = 0;
+}</code></pre>
+
+                <p>
+                    <strong>Bloque de logging en <code>step()</code>:</strong>
+                </p>
+                <pre><code>// ========== FASE 4: Fetch-Decode-Execute ==========
+// Fetch: Leer opcode de memoria
+uint16_t current_pc = regs_->pc;  // Guardamos el PC actual para el log
+uint8_t opcode = fetch_byte();
+
+// --- BLOQUE DE LOGGING DE DIAGNÓSTICO ---
+if (debug_instruction_counter < DEBUG_INSTRUCTION_LIMIT) {
+    printf("[CPU TRACE %d] PC: 0x%04X | Opcode: 0x%02X\n",
+           debug_instruction_counter, current_pc, opcode);
+    debug_instruction_counter++;
+}
+// --- FIN DEL BLOQUE DE LOGGING ---</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido <code>#include &lt;cstdio&gt;</code>, variables estáticas para logging, y bloque de logging en <code>step()</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para verificar la instrumentación:
+                </p>
+                <ol>
+                    <li><strong>Recompilar el módulo:</strong> Ejecutar <code>.\rebuild_cpp.ps1</code> (o <code>python setup.py build_ext --inplace</code>)</li>
+                    <li><strong>Ejecutar el emulador:</strong> Ejecutar <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Analizar la salida:</strong> La consola mostrará las primeras 100 instrucciones ejecutadas con el formato:
+                        <pre><code>[CPU TRACE 0] PC: 0x0100 | Opcode: 0x31
+[CPU TRACE 1] PC: 0x0103 | Opcode: 0xAF
+[CPU TRACE 2] PC: 0x0104 | Opcode: 0x21
+...
+[CPU TRACE 99] PC: 0xXXXX | Opcode: 0xXX</code></pre>
+                    </li>
+                    <li><strong>Identificar el problema:</strong> Buscar en la traza:
+                        <ul>
+                            <li>El último opcode ejecutado antes de que la CPU entre en un bucle</li>
+                            <li>Un opcode no implementado (que retornaría 0 ciclos y causaría un bucle infinito)</li>
+                            <li>Un bucle infinito evidente (mismo PC y opcode repetidos)</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Nota:</strong> Esta instrumentación es temporal y se eliminará después de identificar el problema para restaurar el rendimiento máximo.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set</a></li>
+                    <li>GBEDG: <a href="https://gbdev.io/gb-opcodes/optables/">Opcodes Table</a></li>
+                </ul>
+                <p>
+                    <em>Nota: La instrumentación de diagnóstico es una técnica estándar de depuración de bajo nivel. El formato del log sigue convenciones comunes de trazas de CPU.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Trazado de instrucciones:</strong> El trazado de instrucciones es una técnica fundamental de depuración que muestra el flujo exacto de ejecución de un programa. En un emulador, esto es especialmente útil porque podemos ver exactamente qué instrucciones está ejecutando la ROM y en qué punto se detiene o entra en un bucle.</li>
+                        <li><strong>Pantalla blanca vs Segmentation Fault:</strong> Una pantalla blanca a 60 FPS indica que el emulador está funcionando correctamente a nivel de sincronización, pero la CPU no está ejecutando el código necesario para inicializar la VRAM. Esto es un problema diferente y más predecible que un Segmentation Fault.</li>
+                        <li><strong>Variables estáticas en C++:</strong> Las variables estáticas en C++ tienen un scope de archivo y se inicializan una sola vez. Son útiles para contadores globales que deben persistir entre llamadas a funciones, pero deben usarse con cuidado en contextos multi-threaded.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Opcode faltante:</strong> Necesitamos ejecutar el emulador y analizar la traza para identificar qué opcode falta o qué bucle está bloqueando la ejecución.</li>
+                        <li><strong>Rutina de inicialización:</strong> Una vez identificado el opcode faltante, necesitaremos implementarlo y verificar que la CPU pueda continuar hasta la rutina de copia de gráficos.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> La CPU está encontrando un opcode que aún no hemos migrado a C++ y que es esencial para la inicialización. Este opcode probablemente retorna 0 ciclos (porque está en el <code>default</code> del switch), causando que la CPU no avance y entre en un bucle infinito o se detenga.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> El problema no está en la PPU ni en la MMU (ambas están funcionando correctamente), sino en la CPU que no puede ejecutar todas las instrucciones necesarias para inicializar la VRAM.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con la instrumentación</li>
+                    <li>[ ] Ejecutar el emulador y capturar la traza de las primeras 100 instrucciones</li>
+                    <li>[ ] Analizar la traza para identificar el último opcode ejecutado o el bucle infinito</li>
+                    <li>[ ] Implementar el opcode faltante o corregir el bucle</li>
+                    <li>[ ] Verificar que la CPU pueda continuar hasta la rutina de copia de gráficos</li>
+                    <li>[ ] Eliminar la instrumentación de diagnóstico para restaurar el rendimiento</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

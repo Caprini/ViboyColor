@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0149 - Debug: Trazado de la CPU para Diagnosticar VRAM Vacía -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0149__debug-trazado-cpu-vram-vacia.html" class="entry-link">
+                                    Debug: Trazado de la CPU para Diagnosticar VRAM Vacía
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0149 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Después de resolver el Segmentation Fault y lograr que el emulador corra estable a 60 FPS, el siguiente problema identificado es una pantalla en blanco. El diagnóstico indica que la VRAM está vacía porque la CPU no está ejecutando la rutina que copia los datos gráficos desde la ROM a la VRAM. Se añadió instrumentación de diagnóstico en CPU::step() para trazar las primeras 100 instrucciones ejecutadas por la ROM, mostrando el PC (Program Counter) y el opcode de cada instrucción. Esta traza permitirá identificar qué instrucción falta o qué bucle está bloqueando la ejecución.
+                        </p>
+                    </li>
                     <!-- Entrada 0148 - Fix: Corregir Paso de Punteros en Cython para Resolver Segmentation Fault -->
                     <li>
                         <div class="entry-header">
