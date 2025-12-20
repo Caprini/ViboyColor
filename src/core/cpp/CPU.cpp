@@ -1343,6 +1343,69 @@ int CPU::step() {
                 }
             }
 
+        case 0x28:  // JR Z, e (Jump Relative if Zero)
+            // Salto relativo condicional: salta si el flag Z está activado (Z=1)
+            // SIEMPRE lee el offset (para avanzar PC), pero solo salta si la condición es verdadera
+            // Fuente: Pan Docs - JR Z, e: 3 M-Cycles si salta, 2 M-Cycles si no salta
+            {
+                uint8_t offset_raw = fetch_byte();
+                
+                if (regs_->get_flag_z()) {
+                    // Condición verdadera: saltar
+                    int8_t offset = static_cast<int8_t>(offset_raw);
+                    uint16_t new_pc = (regs_->pc + offset) & 0xFFFF;
+                    regs_->pc = new_pc;
+                    cycles_ += 3;  // JR Z consume 3 M-Cycles si salta
+                    return 3;
+                } else {
+                    // Condición falsa: no saltar, continuar ejecución normal
+                    cycles_ += 2;  // JR Z consume 2 M-Cycles si no salta
+                    return 2;
+                }
+            }
+
+        case 0x30:  // JR NC, e (Jump Relative if No Carry)
+            // Salto relativo condicional: salta si el flag C está desactivado (C=0)
+            // SIEMPRE lee el offset (para avanzar PC), pero solo salta si la condición es verdadera
+            // Fuente: Pan Docs - JR NC, e: 3 M-Cycles si salta, 2 M-Cycles si no salta
+            {
+                uint8_t offset_raw = fetch_byte();
+                
+                if (!regs_->get_flag_c()) {
+                    // Condición verdadera: saltar
+                    int8_t offset = static_cast<int8_t>(offset_raw);
+                    uint16_t new_pc = (regs_->pc + offset) & 0xFFFF;
+                    regs_->pc = new_pc;
+                    cycles_ += 3;  // JR NC consume 3 M-Cycles si salta
+                    return 3;
+                } else {
+                    // Condición falsa: no saltar, continuar ejecución normal
+                    cycles_ += 2;  // JR NC consume 2 M-Cycles si no salta
+                    return 2;
+                }
+            }
+
+        case 0x38:  // JR C, e (Jump Relative if Carry)
+            // Salto relativo condicional: salta si el flag C está activado (C=1)
+            // SIEMPRE lee el offset (para avanzar PC), pero solo salta si la condición es verdadera
+            // Fuente: Pan Docs - JR C, e: 3 M-Cycles si salta, 2 M-Cycles si no salta
+            {
+                uint8_t offset_raw = fetch_byte();
+                
+                if (regs_->get_flag_c()) {
+                    // Condición verdadera: saltar
+                    int8_t offset = static_cast<int8_t>(offset_raw);
+                    uint16_t new_pc = (regs_->pc + offset) & 0xFFFF;
+                    regs_->pc = new_pc;
+                    cycles_ += 3;  // JR C consume 3 M-Cycles si salta
+                    return 3;
+                } else {
+                    // Condición falsa: no saltar, continuar ejecución normal
+                    cycles_ += 2;  // JR C consume 2 M-Cycles si no salta
+                    return 2;
+                }
+            }
+
         // ========== Operaciones de Stack (Pila) ==========
         // La pila es crítica para llamadas a subrutinas (CALL/RET)
 

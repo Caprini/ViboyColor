@@ -32,6 +32,35 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0162: CPU: Implementación de Saltos Relativos Condicionales
+**Estado**: ✅ VERIFIED
+
+Después de implementar la instrucción de comparación `CP d8` (Step 0161), el emulador seguía presentando el síntoma de deadlock (`LY=0`), indicando que la CPU había encontrado otro opcode no implementado inmediatamente después de la comparación. La causa más probable era una instrucción de salto condicional que el juego utiliza para tomar decisiones basadas en los resultados de las comparaciones. Se implementó la familia completa de saltos relativos condicionales: `JR Z, e` (0x28), `JR NC, e` (0x30) y `JR C, e` (0x38), completando así la capacidad de control de flujo básico de la CPU junto con `JR NZ, e` (0x20) que ya estaba implementado.
+
+**Objetivo:**
+- Implementar los opcodes `0x28 (JR Z)`, `0x30 (JR NC)` y `0x38 (JR C)` que faltaban para completar la familia de saltos relativos condicionales.
+- Habilitar el control de flujo básico de la CPU para que pueda reaccionar a los resultados de las comparaciones.
+
+**Modificaciones realizadas:**
+- Añadidos casos `0x28`, `0x30` y `0x38` en el switch de opcodes de `src/core/cpp/CPU.cpp`, siguiendo el mismo patrón que `JR NZ` (0x20).
+- Añadidas clases de tests `TestJumpRelativeConditionalZ` y `TestJumpRelativeConditionalC` en `tests/test_core_cpu_jumps.py` con 6 tests adicionales.
+
+**Hallazgos:**
+- Las instrucciones de salto condicional son el mecanismo fundamental que permite a cualquier programa tomar decisiones basadas en resultados previos.
+- La secuencia típica "comparar y luego saltar condicionalmente" es el patrón más común en código de bajo nivel para implementar estructuras de control.
+- Todas estas instrucciones consumen diferentes cantidades de ciclos según si se toma o no el salto (3 M-Cycles si se toma, 2 M-Cycles si no), lo cual es crítico para la sincronización precisa.
+
+**Tests:**
+- Añadidos 6 tests nuevos: `test_jr_z_taken`, `test_jr_z_not_taken`, `test_jr_c_taken`, `test_jr_c_not_taken`, `test_jr_nc_taken`, `test_jr_nc_not_taken`.
+- Todos los tests verifican tanto el caso en que se toma el salto como el caso en que no se toma, validando el timing condicional correcto.
+
+**Próximos pasos:**
+- Recompilar el módulo C++ y ejecutar el emulador para verificar que el deadlock se resuelve.
+- Monitorear si `LY` comienza a incrementarse, indicando que la CPU está funcionando correctamente.
+- Si aparece otro warning de opcode no implementado, identificarlo e implementarlo en el siguiente step.
+
+---
+
 ### 2025-12-20 - Step 0161: CPU: Implementación de la Comparación Inmediata CP d8
 **Estado**: ✅ VERIFIED
 

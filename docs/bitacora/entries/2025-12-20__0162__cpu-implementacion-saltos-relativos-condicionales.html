@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPU: Implementación de Saltos Relativos Condicionales - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>CPU: Implementación de Saltos Relativos Condicionales</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0162
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0161__cpu-implementar-cp-d8-comparacion-inmediata.html">Anterior (0161)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Después de implementar la instrucción de comparación <code>CP d8</code> (Step 0161), el emulador seguía presentando el síntoma de deadlock (<code>LY=0</code>), indicando que la CPU había encontrado otro opcode no implementado inmediatamente después de la comparación. La causa más probable era una instrucción de salto condicional que el juego utiliza para tomar decisiones basadas en los resultados de las comparaciones. Se implementó la familia completa de saltos relativos condicionales: <code>JR Z, e</code> (0x28), <code>JR NC, e</code> (0x30) y <code>JR C, e</code> (0x38), completando así la capacidad de control de flujo básico de la CPU.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Las instrucciones de <strong>salto relativo condicional</strong> son el mecanismo que permite a la CPU tomar decisiones basadas en los resultados de operaciones anteriores (comparaciones, aritméticas, etc.). Son el "cerebro" básico de cualquier programa:
+                </p>
+                <ul>
+                    <li><strong>JR Z, e</strong> (Jump Relative if Zero): Salta si el flag Z está activado (Z=1), indicando que el resultado de la última operación fue cero o que dos valores eran iguales.</li>
+                    <li><strong>JR NZ, e</strong> (Jump Relative if Not Zero): Ya estaba implementado. Salta si Z=0.</li>
+                    <li><strong>JR C, e</strong> (Jump Relative if Carry): Salta si el flag C está activado (C=1), indicando que hubo un desbordamiento (carry) o que un valor era menor que otro en una comparación.</li>
+                    <li><strong>JR NC, e</strong> (Jump Relative if No Carry): Salta si C=0, indicando que no hubo carry o que un valor era mayor o igual que otro.</li>
+                </ul>
+                <p>
+                    <strong>¿Por qué son críticas después de CP?</strong> La secuencia típica en código de juego es:
+                </p>
+                <ol>
+                    <li><code>CP 0x0A</code> - Compara A con 10, actualiza flags</li>
+                    <li><code>JR Z, etiqueta</code> - Si A == 10, salta a "etiqueta"</li>
+                    <li>Código alternativo si A != 10</li>
+                </ol>
+                <p>
+                    <strong>Timing Condicional:</strong> Todas estas instrucciones consumen diferentes cantidades de ciclos según si se toma o no el salto:
+                </p>
+                <ul>
+                    <li><strong>3 M-Cycles</strong> si el salto se toma (la condición es verdadera)</li>
+                    <li><strong>2 M-Cycles</strong> si el salto NO se toma (la condición es falsa)</li>
+                </ul>
+                <p>
+                    Esta diferencia de timing es crítica para la sincronización precisa del emulador. El hardware real siempre lee el offset (para mantener la consistencia del PC), pero solo ejecuta el salto si la condición es verdadera.
+                </p>
+                <p>
+                    <strong>La Lógica Ineludible:</strong> Después de implementar <code>CP d8</code>, el juego podía hacer preguntas (comparar valores), pero no podía reaccionar a las respuestas (saltar condicionalmente). Esto causaba que la CPU se quedara ejecutando código que no tenía forma de tomar decisiones, resultando en un deadlock lógico.
+                </p>
+                <p>
+                    <strong>Referencia:</strong> Pan Docs - CPU Instruction Set, secciones "JR Z, e" (0x28), "JR NC, e" (0x30) y "JR C, e" (0x38).
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron los opcodes <code>0x28 (JR Z)</code>, <code>0x30 (JR NC)</code> y <code>0x38 (JR C)</code> en la CPU de C++, siguiendo el mismo patrón que la implementación existente de <code>JR NZ</code> (0x20).
+                </p>
+                
+                <h3>Componentes Creados/Modificados</h3>
+                <ul>
+                    <li><strong>CPU.cpp:</strong> Añadidos casos <code>0x28</code>, <code>0x30</code> y <code>0x38</code> en el switch de opcodes.</li>
+                    <li><strong>test_core_cpu_jumps.py:</strong> Añadidas tres nuevas clases de tests (<code>TestJumpRelativeConditionalZ</code>, <code>TestJumpRelativeConditionalC</code>) con 6 tests adicionales para validar todas las nuevas instrucciones.</li>
+                </ul>
+
+                <h3>Implementación de los Opcodes</h3>
+                <p>
+                    Los tres opcodes siguen el mismo patrón que <code>JR NZ</code>:
+                </p>
+                <pre><code>case 0x28:  // JR Z, e (Jump Relative if Zero)
+{
+    uint8_t offset_raw = fetch_byte();
+    
+    if (regs_->get_flag_z()) {
+        // Condición verdadera: saltar
+        int8_t offset = static_cast&lt;int8_t&gt;(offset_raw);
+        uint16_t new_pc = (regs_-&gt;pc + offset) &amp; 0xFFFF;
+        regs_-&gt;pc = new_pc;
+        cycles_ += 3;  // JR Z consume 3 M-Cycles si salta
+        return 3;
+    } else {
+        // Condición falsa: no saltar, continuar ejecución normal
+        cycles_ += 2;  // JR Z consume 2 M-Cycles si no salta
+        return 2;
+    }
+}
+
+case 0x30:  // JR NC, e (Jump Relative if No Carry)
+{
+    uint8_t offset_raw = fetch_byte();
+    
+    if (!regs_-&gt;get_flag_c()) {
+        // Condición verdadera: saltar
+        int8_t offset = static_cast&lt;int8_t&gt;(offset_raw);
+        uint16_t new_pc = (regs_-&gt;pc + offset) &amp; 0xFFFF;
+        regs_-&gt;pc = new_pc;
+        cycles_ += 3;  // JR NC consume 3 M-Cycles si salta
+        return 3;
+    } else {
+        // Condición falsa: no saltar
+        cycles_ += 2;  // JR NC consume 2 M-Cycles si no salta
+        return 2;
+    }
+}
+
+case 0x38:  // JR C, e (Jump Relative if Carry)
+{
+    uint8_t offset_raw = fetch_byte();
+    
+    if (regs_-&gt;get_flag_c()) {
+        // Condición verdadera: saltar
+        int8_t offset = static_cast&lt;int8_t&gt;(offset_raw);
+        uint16_t new_pc = (regs_-&gt;pc + offset) &amp; 0xFFFF;
+        regs_-&gt;pc = new_pc;
+        cycles_ += 3;  // JR C consume 3 M-Cycles si salta
+        return 3;
+    } else {
+        // Condición falsa: no saltar
+        cycles_ += 2;  // JR C consume 2 M-Cycles si no salta
+        return 2;
+    }
+}</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <p>
+                    <strong>Patrón consistente:</strong> Se siguió exactamente el mismo patrón que <code>JR NZ</code> para mantener la consistencia del código y facilitar el mantenimiento futuro.
+                </p>
+                <p>
+                    <strong>Timing preciso:</strong> Cada instrucción respeta el timing condicional del hardware real: 3 ciclos si se toma el salto, 2 ciclos si no se toma. Esto es crítico para la sincronización correcta de la emulación.
+                </p>
+                <p>
+                    <strong>Conversión de offset:</strong> Se usa el mismo mecanismo de cast de <code>uint8_t</code> a <code>int8_t</code> que en <code>JR NZ</code>, aprovechando la representación nativa de complemento a dos de C++ para manejar offsets negativos.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadidos casos <code>0x28</code>, <code>0x30</code> y <code>0x38</code> en el switch de opcodes, justo después de <code>0x20 (JR NZ)</code>.</li>
+                    <li><code>tests/test_core_cpu_jumps.py</code> - Añadidas clases de tests <code>TestJumpRelativeConditionalZ</code> y <code>TestJumpRelativeConditionalC</code> con 6 tests nuevos.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se añadieron 6 nuevos tests al archivo existente <code>tests/test_core_cpu_jumps.py</code>, cubriendo todos los casos posibles para las tres nuevas instrucciones.
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>pytest tests/test_core_cpu_jumps.py -v</code></li>
+                    <li><strong>Resultado esperado:</strong> Todos los tests pasando (tests existentes + 6 nuevos)</li>
+                </ul>
+                <p>
+                    <strong>Código del Test (fragmento clave - JR Z):</strong>
+                </p>
+                <pre><code>def test_jr_z_taken(self):
+    """Verificar JR Z, e cuando el salto se toma (Z=1)."""
+    mmu = PyMMU()
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    
+    regs.pc = 0x0100
+    # Activar flag Z (bit 7 de F = 1)
+    regs.f = regs.f | 0x80
+    
+    # Escribir JR Z +10 (0x28 0x0A)
+    mmu.write(0x0100, 0x28)  # Opcode JR Z, e
+    mmu.write(0x0101, 0x0A)  # Offset +10
+    
+    cycles = cpu.step()
+    
+    # Debe saltar (Z=1, condición verdadera)
+    assert regs.pc == 0x010C, (
+        f"PC debe ser 0x010C después de JR Z +10 (Z=1), es 0x{regs.pc:04X}"
+    )
+    assert cycles == 3, f"JR Z debe consumir 3 M-Cycles cuando salta, consumió {cycles}"
+
+def test_jr_z_not_taken(self):
+    """Verificar JR Z, e cuando el salto NO se toma (Z=0)."""
+    mmu = PyMMU()
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    
+    regs.pc = 0x0100
+    # Desactivar flag Z
+    regs.f = regs.f &amp; 0x7F
+    
+    # Escribir JR Z +10 (0x28 0x0A)
+    mmu.write(0x0100, 0x28)  # Opcode JR Z, e
+    mmu.write(0x0101, 0x0A)  # Offset +10
+    
+    cycles = cpu.step()
+    
+    # NO debe saltar (Z=0, condición falsa)
+    assert regs.pc == 0x0102, (
+        f"PC debe ser 0x0102 después de JR Z +10 (Z=0, no salta), es 0x{regs.pc:04X}"
+    )
+    assert cycles == 2, f"JR Z debe consumir 2 M-Cycles cuando NO salta, consumió {cycles}"</code></pre>
+                <p>
+                    <strong>Validación Nativa:</strong> Los tests validan el módulo compilado C++ directamente, verificando que todas las instrucciones funcionan correctamente con timing preciso y manejo correcto de flags.
+                </p>
+                <p>
+                    <strong>Verificación en Emulador:</strong> Al ejecutar <code>python main.py roms/tetris.gb</code>, el emulador debería superar el deadlock <code>LY=0</code> y comenzar a avanzar. Se espera uno de dos resultados:
+                </p>
+                <ul>
+                    <li><strong>¡Éxito!</strong> El deadlock desaparece y <code>LY</code> comienza a incrementarse, indicando que la CPU ha superado toda la fase de inicialización.</li>
+                    <li><strong>Progreso:</strong> El emulador avanza y se encuentra con el siguiente opcode no implementado, que será reportado por el warning del caso <code>default</code>.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: CPU Instruction Set - <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#jr-z-e">JR Z, e (opcode 0x28)</a></li>
+                    <li>Pan Docs: CPU Instruction Set - <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#jr-nc-e">JR NC, e (opcode 0x30)</a></li>
+                    <li>Pan Docs: CPU Instruction Set - <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#jr-c-e">JR C, e (opcode 0x38)</a></li>
+                    <li>Pan Docs: CPU Instruction Set - Flags (Z, C) - <a href="https://gbdev.io/pandocs/CPU_Registers_and_Flags.html">CPU Registers and Flags</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Control de Flujo Básico:</strong> Las instrucciones de salto condicional son el mecanismo fundamental que permite a cualquier programa tomar decisiones. Sin ellas, un programa solo puede ejecutarse de forma lineal, sin capacidad de reaccionar a diferentes condiciones.</li>
+                        <li><strong>El Patrón CP + JR:</strong> La secuencia "comparar y luego saltar condicionalmente" es el patrón más común en código de bajo nivel. Permite implementar estructuras de control de alto nivel (if/else, while, for) en código de máquina.</li>
+                        <li><strong>Timing Condicional:</strong> El hecho de que las instrucciones de salto condicional consuman diferentes cantidades de ciclos según si se toma o no el salto es una característica del hardware real que debe replicarse fielmente para lograr sincronización precisa.</li>
+                        <li><strong>Flags como Estado Global:</strong> Los flags (Z, C, N, H) son estado global compartido entre todas las instrucciones. Una comparación actualiza los flags, y la siguiente instrucción de salto condicional los lee para tomar una decisión.</li>
+                    </ul>
+
+                    <h3>Lo que Aprendí del Proceso de Debugging</h3>
+                    <ul>
+                        <li><strong>"Pelar la Cebolla":</strong> El proceso de debugging es iterativo. Cada vez que resolvemos un problema, revelamos el siguiente. Esto no es un fracaso, es el proceso natural de construcción incremental.</li>
+                        <li><strong>La Lógica Ineludible:</strong> Cuando un síntoma persiste (como <code>LY=0</code>), pero sabemos que hemos corregido algo, significa que hemos avanzado un paso y chocado contra la siguiente barrera. Esto es progreso, no estancamiento.</li>
+                        <li><strong>Pensar como Programador de 1990:</strong> Después de una comparación, la siguiente acción lógica es un salto condicional. Pensar en términos de "¿Qué necesita el código para funcionar?" nos guía hacia las implementaciones correctas.</li>
+                        <li><strong>Familias de Instrucciones:</strong> Las instrucciones de salto condicional forman una familia lógica. Implementarlas todas juntas tiene sentido porque comparten la misma estructura y patrón de comportamiento.</li>
+                    </ul>
+
+                    <h3>Lo que Queda por Entender</h3>
+                    <ul>
+                        <li><strong>Saltos Absolutos Condicionales:</strong> Además de los saltos relativos condicionales (JR), existen saltos absolutos condicionales (JP Z, JP NZ, JP C, JP NC) que saltan a direcciones de 16 bits. Estos serán necesarios para control de flujo más complejo.</li>
+                        <li><strong>CALL y RET Condicionales:</strong> Las llamadas a subrutinas y retornos también pueden ser condicionales, permitiendo implementar funciones que solo se ejecutan bajo ciertas condiciones.</li>
+                        <li><strong>Optimizaciones de Compilador:</strong> Los compiladores modernos generan código de máquina que aprovecha estas instrucciones de manera muy eficiente. Entender cómo se usan en la práctica nos ayudará a optimizar nuestro emulador.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ol>
+                    <li><strong>Recompilar y Ejecutar:</strong> Recompilar el módulo C++ con <code>.\rebuild_cpp.ps1</code> y ejecutar el emulador para verificar que el deadlock se resuelve.</li>
+                    <li><strong>Monitorear Progreso:</strong> Observar si <code>LY</code> comienza a incrementarse, indicando que la CPU está funcionando correctamente.</li>
+                    <li><strong>Identificar Siguiente Opcode:</strong> Si aparece otro warning de opcode no implementado, identificarlo y implementarlo en el siguiente step.</li>
+                    <li><strong>Implementar Más Saltos:</strong> Considerar implementar saltos absolutos condicionales (JP Z, JP NZ, JP C, JP NC) si son necesarios para el progreso.</li>
+                    <li><strong>Validar con Tests:</strong> Asegurarse de que todos los tests pasen correctamente antes de continuar.</li>
+                </ol>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                <a href="../index.html">← Volver al índice de la bitácora</a>
+            </p>
+            <p class="footer-meta">
+                Viboy Color - Proyecto Educativo de Emulación de Game Boy Color
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+

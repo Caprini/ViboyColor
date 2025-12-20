@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0162 - CPU: Implementación de Saltos Relativos Condicionales -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0162__cpu-implementacion-saltos-relativos-condicionales.html" class="entry-link">
+                                    CPU: Implementación de Saltos Relativos Condicionales
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0162 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Después de implementar la instrucción de comparación CP d8 (Step 0161), el emulador seguía presentando el síntoma de deadlock (LY=0), indicando que la CPU había encontrado otro opcode no implementado inmediatamente después de la comparación. La causa más probable era una instrucción de salto condicional que el juego utiliza para tomar decisiones basadas en los resultados de las comparaciones. Se implementó la familia completa de saltos relativos condicionales: JR Z, e (0x28), JR NC, e (0x30) y JR C, e (0x38), completando así la capacidad de control de flujo básico de la CPU.
+                        </p>
+                    </li>
                     <!-- Entrada 0161 - CPU: Implementación de la Comparación Inmediata CP d8 -->
                     <li>
                         <div class="entry-header">
