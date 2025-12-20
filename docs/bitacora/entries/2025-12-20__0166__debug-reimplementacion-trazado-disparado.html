@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug: Reimplementación del Trazado Disparado para Superar Bucles de Inicialización - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug: Reimplementación del Trazado Disparado para Superar Bucles de Inicialización</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0166
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0165__fix-critico-flag-cero-en-dec.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El análisis de la traza del Step 0165 confirmó que la CPU no está en un bucle infinito por un bug, sino que está ejecutando correctamente una rutina de inicialización de limpieza de memoria muy larga. Nuestro método de trazado de longitud fija (200 instrucciones desde PC=0x0100) es ineficiente para ver el código que se ejecuta <em>después</em> de esta rutina. Este Step reimplementa el sistema de trazado "disparado" (triggered) para que se active automáticamente solo cuando el Program Counter (PC) supere la dirección 0x0300, permitiéndonos capturar el código crítico de configuración de hardware que ocurre después de las rutinas de limpieza.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: Rutinas de Inicialización (BIOS/Juego)</h2>
+                <p>
+                    Antes de que cualquier juego pueda mostrar gráficos o aceptar input, debe preparar el "escenario". Esto implica una secuencia de inicialización que, típicamente, incluye:
+                </p>
+                <ol>
+                    <li><strong>Desactivar interrupciones:</strong> Para evitar que eventos externos interrumpan la secuencia crítica de inicialización.</li>
+                    <li><strong>Configurar el puntero de pila (Stack Pointer):</strong> Establecer un área de memoria válida para las operaciones de pila.</li>
+                    <li><strong>Limpiar la RAM:</strong> Poner a cero grandes áreas como WRAM (Work RAM) y HRAM (High RAM) para asegurar un estado conocido y predecible. Esto se hace con bucles anidados muy rápidos que pueden consumir miles de ciclos de CPU.</li>
+                    <li><strong>Configurar los registros de hardware:</strong> PPU (LCDC, BGP, SCY, SCX), APU, Timer, etc.</li>
+                    <li><strong>Copiar los datos gráficos (tiles):</strong> Transferir los tiles desde la ROM a la VRAM.</li>
+                    <li><strong>Activar la pantalla y las interrupciones:</strong> Finalmente, habilitar el renderizado y los eventos.</li>
+                </ol>
+                <p>
+                    Nuestro emulador está ejecutando correctamente el paso 3 (limpieza de memoria). La estrategia de trazado anterior capturaba estas rutinas de limpieza, que son aburridas y repetitivas. Nuestra nueva estrategia es dejar que la CPU corra a toda velocidad a través de estas rutinas y empezar a grabar en el paso 4, donde ocurre la configuración de hardware que realmente nos interesa.
+                </p>
+                <p>
+                    <strong>El problema del trazado fijo:</strong> Si comenzamos a trazar desde PC=0x0100 con un límite de 200 instrucciones, capturamos principalmente bucles de limpieza. Estos bucles pueden ejecutar miles de instrucciones antes de que se dibuje un solo píxel. Nuestro límite de 200 instrucciones apenas rasca la superficie de esta rutina.
+                </p>
+                <p>
+                    <strong>La solución del trazado disparado:</strong> Configuramos un "breakpoint" en la dirección 0x0300, que es una apuesta segura para estar más allá de las principales rutinas de limpieza. La CPU ejecuta silenciosamente hasta alcanzar esta dirección, y entonces comenzamos a registrar las instrucciones. Esto nos permite ver exactamente qué registros de hardware intenta configurar el juego.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificaron las constantes de trazado en <code>src/core/cpp/CPU.cpp</code> para cambiar el punto de activación y el límite de instrucciones registradas.
+                </p>
+                
+                <h3>Modificaciones en CPU.cpp</h3>
+                <p>
+                    Se actualizaron las siguientes constantes estáticas (líneas 7-13):
+                </p>
+                <ul>
+                    <li><strong>DEBUG_TRIGGER_PC:</strong> Cambiado de <code>0x0100</code> a <code>0x0300</code>. Esta dirección está más allá de las rutinas de limpieza de memoria típicas.</li>
+                    <li><strong>DEBUG_INSTRUCTION_LIMIT:</strong> Reducido de <code>200</code> a <code>100</code>. Como ahora estamos capturando código más relevante, no necesitamos tantas instrucciones para identificar el problema.</li>
+                </ul>
+                <p>
+                    La lógica del trazado disparado ya estaba implementada correctamente en el método <code>step()</code> (líneas 471-484). Solo necesitábamos ajustar los parámetros:
+                </p>
+                <pre><code>// Variables estáticas para logging de diagnóstico con sistema "disparado" (triggered)
+// El trigger se activa después de las rutinas de limpieza de memoria (0x0300)
+// para capturar el código crítico de configuración de hardware
+static const uint16_t DEBUG_TRIGGER_PC = 0x0300; // Dirección de activación del trazado (después de limpieza)
+static bool debug_trace_activated = false;      // Bandera de activación
+static int debug_instruction_counter = 0;       // Contador post-activación
+static const int DEBUG_INSTRUCTION_LIMIT = 100;  // Límite post-activación (dirigido, más corto)</code></pre>
+                <p>
+                    La lógica de activación permanece igual:
+                </p>
+                <ol>
+                    <li>Cuando el PC alcanza o supera <code>DEBUG_TRIGGER_PC</code>, se imprime un mensaje de activación y se activa la bandera <code>debug_trace_activated</code>.</li>
+                    <li>Mientras la traza esté activa y no hayamos alcanzado el límite, se registra cada instrucción con su PC y opcode.</li>
+                    <li>El contador se incrementa hasta alcanzar <code>DEBUG_INSTRUCTION_LIMIT</code>.</li>
+                </ol>
+
+                <h3>Decisiones de Diseño</h3>
+                <p>
+                    <strong>¿Por qué 0x0300?</strong> Esta dirección es una apuesta segura basada en el conocimiento de que las rutinas de limpieza típicamente ocupan las primeras 512-768 bytes de memoria. 0x0300 (768 decimal) está lo suficientemente lejos para estar fuera de estas rutinas, pero lo suficientemente cerca para capturar la configuración inicial de hardware.
+                </p>
+                <p>
+                    <strong>¿Por qué reducir el límite a 100?</strong> Ahora que estamos capturando código más relevante, 100 instrucciones deberían ser suficientes para identificar el siguiente opcode no implementado que está bloqueando el renderizado. Si necesitamos más, podemos aumentar el límite en el futuro.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Modificados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Modificación de constantes de trazado (líneas 7-13). Cambio de <code>DEBUG_TRIGGER_PC</code> de 0x0100 a 0x0300 y reducción de <code>DEBUG_INSTRUCTION_LIMIT</code> de 200 a 100.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este cambio no afecta la funcionalidad de la CPU, solo modifica el comportamiento del sistema de depuración. Los tests existentes deben seguir pasando sin modificaciones.
+                </p>
+                
+                <h3>Comando Ejecutado</h3>
+                <pre><code>pytest -v</code></pre>
+
+                <h3>Resultado Esperado</h3>
+                <p>
+                    Todos los tests deben pasar, ya que solo modificamos constantes de depuración que no afectan la lógica de emulación.
+                </p>
+
+                <h3>Validación del Trazado</h3>
+                <p>
+                    Para validar que el nuevo sistema de trazado funciona correctamente, se ejecutará el emulador con una ROM de prueba:
+                </p>
+                <pre><code>python main.py roms/tetris.gb</code></pre>
+                <p>
+                    <strong>Comportamiento esperado:</strong>
+                </p>
+                <ul>
+                    <li>La consola permanece en silencio mientras la CPU ejecuta los bucles de limpieza a toda velocidad.</li>
+                    <li>Cuando el PC alcanza 0x0300, aparece el mensaje: <code>--- [CPU TRACE TRIGGERED at PC: 0x0300] ---</code></li>
+                    <li>Se registran las siguientes 100 instrucciones con su PC y opcode.</li>
+                    <li>Esta nueva traza debería revelar los opcodes de configuración de hardware (probablemente relacionados con LCDC, BGP, SCY, SCX).</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Game Boy Pan Docs</a> - Documentación general sobre el proceso de inicialización del Game Boy.</li>
+                    <li>GBEDG: <a href="https://gbdev.io/gb-opcodes/optables/">Game Boy Opcode Table</a> - Referencia para identificar opcodes en la traza.</li>
+                </ul>
+                <p>
+                    <em>Nota: El conocimiento sobre las rutinas de inicialización proviene de la observación empírica de trazas anteriores y del conocimiento general de arquitectura de sistemas embebidos.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Rutinas de inicialización:</strong> Los juegos de Game Boy ejecutan rutinas de limpieza de memoria muy largas antes de configurar el hardware. Estas rutinas pueden consumir miles de ciclos de CPU.</li>
+                        <li><strong>Trazado dirigido:</strong> En lugar de capturar todas las instrucciones desde el inicio, es más eficiente usar un sistema de "breakpoint" que se active solo cuando el PC alcanza una dirección específica.</li>
+                        <li><strong>Optimización de depuración:</strong> Reducir el ruido en las trazas nos permite identificar más rápidamente los problemas reales.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Dirección óptima del trigger:</strong> 0x0300 es una estimación. Podría necesitar ajustarse si las ROMs tienen rutinas de limpieza más largas o más cortas.</li>
+                        <li><strong>Opcodes no implementados:</strong> La nueva traza revelará qué opcodes faltan por implementar que están bloqueando el renderizado de gráficos.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> La dirección 0x0300 está lo suficientemente lejos de las rutinas de limpieza para capturar el código de configuración de hardware, pero lo suficientemente cerca para no perder información relevante.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Las ROMs de prueba (Tetris, Mario) siguen un patrón similar de inicialización, por lo que 0x0300 debería funcionar para todas ellas.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con <code>.\rebuild_cpp.ps1</code></li>
+                    <li>[ ] Ejecutar el emulador con <code>python main.py roms/tetris.gb</code> y analizar la nueva traza</li>
+                    <li>[ ] Identificar los opcodes de configuración de hardware en la traza (LCDC, BGP, SCY, SCX, etc.)</li>
+                    <li>[ ] Implementar los opcodes faltantes que están bloqueando el renderizado</li>
+                    <li>[ ] Verificar que el emulador avance más allá de las rutinas de inicialización</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

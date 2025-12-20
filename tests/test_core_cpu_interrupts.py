@@ -167,6 +167,10 @@ class TestHALT:
         mmu.write(IO_IF, 0x01)  # V-Blank flag
         mmu.write(IO_IE, 0x01)  # Habilitar V-Blank en IE
         
+        # Poner un NOP en la dirección actual (después de HALT, PC está en 0x0101)
+        # Cuando la CPU despierta, ejecutará esta instrucción
+        mmu.write(regs.pc, 0x00)  # NOP
+        
         # Ejecutar step() (debe despertar la CPU)
         initial_pc = regs.pc
         cycles = cpu.step()
@@ -175,8 +179,10 @@ class TestHALT:
         assert cpu.get_halted() == 0, "CPU debe despertar cuando hay interrupción pendiente"
         
         # Verificar que la interrupción NO se procesó (IME está desactivado)
-        # PC no debe cambiar (no saltó al vector)
-        assert regs.pc == initial_pc, "PC no debe cambiar si IME está desactivado"
+        # Cuando la CPU despierta del HALT sin procesar la interrupción, ejecuta la siguiente instrucción
+        # Por lo tanto, el PC debe avanzar (no saltó al vector, pero ejecutó la siguiente instrucción)
+        assert regs.pc == initial_pc + 1, "PC debe avanzar (ejecutó la siguiente instrucción después de despertar)"
+        assert cycles == 1, "Debe consumir 1 M-Cycle (NOP), no ciclos de interrupción"
         
         # Verificar que IF sigue activo (no se limpió)
         assert (mmu.read(IO_IF) & 0x01) == 0x01, "IF debe seguir activo si IME está desactivado"

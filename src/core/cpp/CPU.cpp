@@ -5,12 +5,12 @@
 #include <cstdlib>
 
 // Variables estáticas para logging de diagnóstico con sistema "disparado" (triggered)
-// Cambiamos el trigger al inicio del programa para ver el bucle oculto
-static const uint16_t DEBUG_TRIGGER_PC = 0x0100; // Dirección de activación del trazado (inicio del programa)
+// El trigger se activa después de las rutinas de limpieza de memoria (0x0300)
+// para capturar el código crítico de configuración de hardware
+static const uint16_t DEBUG_TRIGGER_PC = 0x0300; // Dirección de activación del trazado (después de limpieza)
 static bool debug_trace_activated = false;      // Bandera de activación
 static int debug_instruction_counter = 0;       // Contador post-activación
-// Aumentamos un poco el límite para ver el patrón del bucle
-static const int DEBUG_INSTRUCTION_LIMIT = 200; // Límite post-activación (aumentado para capturar bucles)
+static const int DEBUG_INSTRUCTION_LIMIT = 100;  // Límite post-activación (dirigido, más corto)
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {

@@ -32,6 +32,38 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0166: Debug: Reimplementación del Trazado Disparado para Superar Bucles de Inicialización
+**Estado**: 🔍 DRAFT
+
+El análisis de la traza del Step 0165 confirmó que la CPU no está en un bucle infinito por un bug, sino que está ejecutando correctamente una rutina de inicialización de limpieza de memoria muy larga. Nuestro método de trazado de longitud fija (200 instrucciones desde PC=0x0100) es ineficiente para ver el código que se ejecuta después de esta rutina. Este Step reimplementa el sistema de trazado "disparado" (triggered) para que se active automáticamente solo cuando el Program Counter (PC) supere la dirección 0x0300, permitiéndonos capturar el código crítico de configuración de hardware que ocurre después de las rutinas de limpieza.
+
+**Objetivo:**
+- Modificar el sistema de trazado disparado para activarse en PC=0x0300 en lugar de PC=0x0100.
+- Reducir el límite de instrucciones registradas de 200 a 100, ya que ahora capturamos código más relevante.
+- Permitir que la CPU ejecute silenciosamente las rutinas de limpieza y comenzar a registrar solo cuando se alcance el código de configuración de hardware.
+
+**Concepto de Hardware:**
+Antes de que cualquier juego pueda mostrar gráficos, debe ejecutar una secuencia de inicialización que incluye:
+1. Desactivar interrupciones
+2. Configurar el puntero de pila
+3. Limpiar la RAM (WRAM, HRAM) con bucles anidados que pueden consumir miles de ciclos
+4. Configurar los registros de hardware (PPU, APU, Timer)
+5. Copiar datos gráficos a VRAM
+6. Activar la pantalla y las interrupciones
+
+Nuestro emulador está ejecutando correctamente el paso 3. La nueva estrategia es dejar que la CPU corra a toda velocidad a través de estas rutinas y empezar a grabar en el paso 4.
+
+**Implementación:**
+- Se modificaron las constantes de trazado en `src/core/cpp/CPU.cpp`:
+  - `DEBUG_TRIGGER_PC`: Cambiado de `0x0100` a `0x0300`
+  - `DEBUG_INSTRUCTION_LIMIT`: Reducido de `200` a `100`
+- La lógica del trazado disparado ya estaba implementada correctamente, solo se ajustaron los parámetros.
+
+**Resultado Esperado:**
+Al ejecutar el emulador, la consola debería permanecer en silencio mientras la CPU ejecuta los bucles de limpieza. Cuando el PC alcance 0x0300, aparecerá el mensaje de activación seguido de las 100 instrucciones que se ejecutan a partir de ese punto. Esta nueva traza debería revelar los opcodes de configuración de hardware (LCDC, BGP, SCY, SCX) y el siguiente opcode no implementado que está bloqueando el renderizado.
+
+---
+
 ### 2025-12-20 - Step 0165: Fix Crítico: Gestión Correcta del Flag Cero (Z) en la Instrucción DEC
 **Estado**: ✅ VERIFIED
 

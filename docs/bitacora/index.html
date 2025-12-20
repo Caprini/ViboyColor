@@ -32,6 +32,42 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0167 - Fix: Propiedades Cython para Tests de Interrupciones -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0167__fix-propiedades-cython-tests-interrupciones.html" class="entry-link">
+                                    Fix: Propiedades Cython para Tests de Interrupciones
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0167 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se corrigieron tres tests de interrupciones que estaban fallando debido a que intentaban acceder a las propiedades <code>ime</code> y <code>halted</code> directamente en la instancia de <code>PyCPU</code>, pero el wrapper de Cython solo exponía métodos <code>get_ime()</code> y <code>get_halted()</code>. Se agregaron propiedades Python usando el decorador <code>@property</code> en el wrapper de Cython para permitir acceso directo a estos valores, manteniendo compatibilidad con los tests existentes. También se corrigió el test <code>test_halt_wakeup_on_interrupt</code> para reflejar el comportamiento correcto del hardware.
+                        </p>
+                    </li>
+                    <!-- Entrada 0166 - Debug: Reimplementación del Trazado Disparado para Superar Bucles de Inicialización -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0166__debug-reimplementacion-trazado-disparado.html" class="entry-link">
+                                    Debug: Reimplementación del Trazado Disparado para Superar Bucles de Inicialización
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0166 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            El análisis de la traza del Step 0165 confirmó que la CPU no está en un bucle infinito por un bug, sino que está ejecutando correctamente una rutina de inicialización de limpieza de memoria muy larga. Nuestro método de trazado de longitud fija es ineficiente para ver el código que se ejecuta después de esta rutina. Se reimplementa el sistema de trazado "disparado" para que se active automáticamente solo cuando el Program Counter (PC) supere la dirección 0x0300, permitiéndonos capturar el código crítico de configuración de hardware.
+                        </p>
+                    </li>
                     <!-- Entrada 0165 - Fix Crítico: Gestión Correcta del Flag Cero (Z) en la Instrucción DEC -->
                     <li>
                         <div class="entry-header">

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix: Propiedades Cython para Tests de Interrupciones - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Fix: Propiedades Cython para Tests de Interrupciones</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0167
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0166__debug-reimplementacion-trazado-disparado.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se corrigieron tres tests de interrupciones que estaban fallando debido a que intentaban acceder a las propiedades <code>ime</code> y <code>halted</code> directamente en la instancia de <code>PyCPU</code>, pero el wrapper de Cython solo exponía métodos <code>get_ime()</code> y <code>get_halted()</code>. Se agregaron propiedades Python usando el decorador <code>@property</code> en el wrapper de Cython para permitir acceso directo a estos valores, manteniendo compatibilidad con los tests existentes.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El wrapper de Cython actúa como un puente entre Python y C++, permitiendo que el código Python acceda a funcionalidades implementadas en C++ de manera eficiente. En Python, es común acceder a propiedades de objetos usando la sintaxis de atributos (ej: <code>cpu.ime</code>) en lugar de métodos (ej: <code>cpu.get_ime()</code>), especialmente en tests donde se busca una API más natural y legible.
+                </p>
+                <p>
+                    El decorador <code>@property</code> de Python permite convertir métodos en propiedades, permitiendo que el código acceda a valores como si fueran atributos, pero manteniendo la lógica de acceso encapsulada. Esto es especialmente útil en wrappers de Cython donde queremos exponer valores de C++ de manera natural desde Python.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se agregaron dos propiedades al wrapper de Cython <code>PyCPU</code> en <code>src/core/cython/cpu.pyx</code>:
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cython/cpu.pyx</code>: Se agregaron las propiedades <code>ime</code> y <code>halted</code> usando el decorador <code>@property</code>.</li>
+                    <li><code>tests/test_core_cpu_interrupts.py</code>: Se corrigió el test <code>test_halt_wakeup_on_interrupt</code> para reflejar el comportamiento correcto del hardware cuando la CPU despierta del HALT sin procesar la interrupción.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se decidió mantener tanto los métodos <code>get_ime()</code> y <code>get_halted()</code> como las propiedades <code>ime</code> y <code>halted</code> para mantener compatibilidad con código existente y permitir una API más natural en los tests. Las propiedades simplemente llaman a los métodos getter subyacentes, manteniendo la lógica centralizada.
+                </p>
+                <p>
+                    Además, se corrigió el test <code>test_halt_wakeup_on_interrupt</code> para reflejar el comportamiento correcto del hardware: cuando la CPU despierta del HALT sin procesar la interrupción (porque IME está desactivado), la CPU ejecuta la siguiente instrucción, por lo que el PC debe avanzar. Esto coincide con el comportamiento documentado en Pan Docs y con el test antiguo de Python.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cython/cpu.pyx</code> - Agregadas propiedades <code>ime</code> y <code>halted</code></li>
+                    <li><code>tests/test_core_cpu_interrupts.py</code> - Corregido test <code>test_halt_wakeup_on_interrupt</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron todos los tests de interrupciones para verificar que el fix funciona correctamente:
+                </p>
+                <pre><code>pytest tests/test_core_cpu_interrupts.py -v</code></pre>
+                <p><strong>Resultado:</strong> 7 tests pasaron correctamente:</p>
+                <ul>
+                    <li>✅ <code>test_di_disables_ime</code> - PASSED</li>
+                    <li>✅ <code>test_ei_delayed_activation</code> - PASSED</li>
+                    <li>✅ <code>test_halt_stops_execution</code> - PASSED</li>
+                    <li>✅ <code>test_halt_wakeup_on_interrupt</code> - PASSED</li>
+                    <li>✅ <code>test_interrupt_dispatch_vblank</code> - PASSED</li>
+                    <li>✅ <code>test_interrupt_priority</code> - PASSED</li>
+                    <li>✅ <code>test_all_interrupt_vectors</code> - PASSED</li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El módulo se recompiló exitosamente después de agregar las propiedades, confirmando que la sintaxis de Cython es correcta y que las propiedades se exponen correctamente desde C++.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Cython Documentation: <a href="https://cython.readthedocs.io/">https://cython.readthedocs.io/</a> - Decorador @property en clases Cython</li>
+                    <li>Python Documentation: <a href="https://docs.python.org/3/library/functions.html#property">https://docs.python.org/3/library/functions.html#property</a> - Decorador @property</li>
+                    <li>Pan Docs: Comportamiento de HALT cuando hay interrupciones pendientes pero IME está desactivado</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Propiedades en Cython:</strong> El decorador <code>@property</code> funciona igual en Cython que en Python puro, permitiendo crear propiedades que acceden a valores de C++ de manera natural.</li>
+                        <li><strong>Comportamiento de HALT:</strong> Cuando la CPU está en HALT y hay una interrupción pendiente pero IME está desactivado, la CPU despierta y ejecuta la siguiente instrucción, por lo que el PC avanza normalmente.</li>
+                        <li><strong>Compatibilidad de API:</strong> Es importante mantener tanto métodos como propiedades cuando se expone código C++ a Python, para mantener compatibilidad con diferentes estilos de código.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>Nada pendiente - todos los tests pasan y el comportamiento coincide con la documentación.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        No hay suposiciones - el comportamiento está documentado y validado por tests.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Continuar con el análisis del trazado disparado para identificar opcodes no implementados</li>
+                    <li>[ ] Implementar los opcodes faltantes que bloquean el renderizado de gráficos</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

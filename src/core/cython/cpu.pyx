@@ -92,4 +92,25 @@ cdef class PyCPU:
             return 1
         else:
             return 0
+    
+    # Propiedades para acceso directo (compatibilidad con tests)
+    @property
+    def ime(self):
+        """
+        Propiedad para acceder al estado de IME.
+        
+        Returns:
+            True si las interrupciones están habilitadas, False en caso contrario
+        """
+        return self._cpu.get_ime()
+    
+    @property
+    def halted(self):
+        """
+        Propiedad para acceder al estado de HALT.
+        
+        Returns:
+            True si la CPU está en estado HALT, False en caso contrario
+        """
+        return self._cpu.get_halted()
 
