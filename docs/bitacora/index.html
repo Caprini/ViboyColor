@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0150 - Debug: Aislamiento de la Traza de la CPU -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-19__0150__debug-aislamiento-traza-cpu.html" class="entry-link">
+                                    Debug: Aislamiento de la Traza de la CPU
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-19 | 
+                            <strong>Step ID:</strong> 0150 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            El emulador es estable y corre a 60 FPS, pero muestra una pantalla en blanco, lo que indica que la VRAM está vacía. La traza de la CPU implementada en el Step 0149 está siendo ocultada por los logs repetitivos del bucle principal en Python. Se silenciaron los logs de depuración del bucle principal en src/viboy.py para aislar y analizar la traza de la CPU en C++, permitiendo diagnosticar el problema de la VRAM vacía.
+                        </p>
+                    </li>
                     <!-- Entrada 0149 - Debug: Trazado de la CPU para Diagnosticar VRAM Vacía -->
                     <li>
                         <div class="entry-header">

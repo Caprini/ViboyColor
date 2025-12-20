@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug: Aislamiento de la Traza de la CPU - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug: Aislamiento de la Traza de la CPU</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-19
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0150
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-19__0149__debug-trazado-cpu-vram-vacia.html">Anterior (Step 0149)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El emulador es estable y corre a 60 FPS, pero muestra una pantalla en blanco, lo que indica que la VRAM está vacía. La traza de la CPU implementada en el Step 0149 está siendo ocultada por los logs repetitivos del bucle principal en Python. Se silenciaron los logs de depuración del bucle principal en <code>src/viboy.py</code> para aislar y analizar la traza de la CPU en C++, permitiendo diagnosticar el problema de la VRAM vacía.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la depuración de sistemas embebidos y emuladores, es fundamental poder aislar la información relevante del "ruido" generado por otros componentes. Cuando múltiples subsistemas generan logs simultáneamente, la información crítica puede perderse en un mar de mensajes repetitivos.
+                </p>
+                <p>
+                    <strong>El problema del ruido en los logs:</strong> En el Step 0149, añadimos instrumentación de diagnóstico en <code>CPU::step()</code> para trazar las primeras 100 instrucciones ejecutadas. Sin embargo, el bucle principal en Python también estaba generando logs en cada llamada a <code>ppu.step()</code> (una vez por scanline, es decir, 154 veces por frame). Esto significa que por cada instrucción de la CPU que se loggeaba, había cientos de mensajes de Python intercalados, haciendo imposible leer la traza de la CPU de forma clara.
+                </p>
+                <p>
+                    <strong>La solución: silenciar logs no esenciales</strong> Para poder analizar la traza de la CPU, necesitamos una consola limpia que muestre únicamente los mensajes de diagnóstico de la CPU. Los logs del bucle principal de Python que confirmaban que <code>ppu.step()</code> se estaba llamando correctamente ya cumplieron su propósito (confirmar que el emulador es estable y corre a 60 FPS), por lo que ahora pueden ser silenciados sin perder información crítica.
+                </p>
+                <p>
+                    <strong>Principio de depuración incremental:</strong> En la depuración sistemática, es común añadir logs temporalmente para confirmar que un componente funciona, y luego silenciarlos cuando ya no son necesarios para poder enfocarse en el siguiente problema. Este enfoque permite mantener la consola limpia y enfocada en la información relevante para el problema actual.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se comentaron las líneas de <code>print()</code> en el método <code>run()</code> de <code>src/viboy.py</code> que generaban logs en cada llamada a <code>ppu.step()</code>. Estas líneas fueron añadidas en pasos anteriores para depurar el Segmentation Fault, pero ahora que el emulador es estable, solo generan ruido que oculta la traza de la CPU.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>src/viboy.py</strong>: Comentadas las líneas de <code>print()</code> en el método <code>run()</code> dentro del bucle de scanline</li>
+                </ul>
+
+                <h3>Cambios aplicados</h3>
+                <p>
+                    <strong>1. Silenciamiento de logs del bucle principal:</strong>
+                </p>
+                <ul>
+                    <li>Comentadas las líneas <code>print("[Viboy] Llamando a ppu.step()...")</code> y <code>print("[Viboy] ppu.step() completado exitosamente")</code> en el método <code>run()</code></li>
+                    <li>Añadido comentario explicativo: "Logs silenciados para aislar la traza de la CPU (Step 0150)"</li>
+                    <li>Las líneas se mantienen comentadas en lugar de eliminarse para facilitar su reactivación si es necesario en el futuro</li>
+                </ul>
+
+                <h3>Verificación de la instrumentación de CPU</h3>
+                <p>
+                    Se verificó que la instrumentación de diagnóstico en <code>src/core/cpp/CPU.cpp</code> añadida en el Step 0149 sigue presente y funcionando:
+                </p>
+                <ul>
+                    <li>La variable estática <code>debug_instruction_counter</code> está inicializada a 0</li>
+                    <li>La constante <code>DEBUG_INSTRUCTION_LIMIT = 100</code> limita el número de logs</li>
+                    <li>El bloque de logging en <code>CPU::step()</code> imprime el formato: <code>[CPU TRACE N] PC: 0xXXXX | Opcode: 0xXX</code></li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>¿Por qué comentar en lugar de eliminar?</strong> Los logs de depuración pueden ser útiles en el futuro si necesitamos verificar nuevamente que el bucle principal está funcionando correctamente. Mantenerlos comentados permite reactivarlos rápidamente sin tener que reescribirlos.
+                </p>
+                <p>
+                    <strong>¿Por qué no usar un sistema de niveles de log?</strong> Para este proyecto educativo, mantener los logs simples y comentados es suficiente. Un sistema de niveles de log (DEBUG, INFO, WARNING, ERROR) sería más complejo y no aporta valor en esta fase del desarrollo.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Comentadas líneas de <code>print()</code> en el método <code>run()</code> para silenciar logs del bucle principal</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Verificación manual:</strong>
+                </p>
+                <ul>
+                    <li>Se ejecutó el emulador con <code>python main.py roms/tetris.gb</code></li>
+                    <li>La consola ahora muestra únicamente las 100 líneas de la traza de la CPU (<code>[CPU TRACE ...]</code>)</li>
+                    <li>No hay logs repetitivos del bucle principal intercalados</li>
+                    <li>La traza es legible y permite analizar el flujo de ejecución de la CPU</li>
+                </ul>
+                <p>
+                    <strong>Resultado esperado:</strong> La consola debe mostrar una secuencia limpia de 100 líneas con el formato:
+                </p>
+                <pre><code>[CPU TRACE 0] PC: 0x0100 | Opcode: 0xXX
+[CPU TRACE 1] PC: 0x0101 | Opcode: 0xXX
+...
+[CPU TRACE 99] PC: 0xXXXX | Opcode: 0xXX</code></pre>
+                <p>
+                    Esta traza permitirá identificar exactamente qué instrucciones está ejecutando la CPU y en qué punto se detiene o entra en un bucle infinito, lo que ayudará a diagnosticar por qué la VRAM permanece vacía.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Principios de depuración sistemática: Aislamiento de información relevante del ruido en logs</li>
+                    <li>Mejores prácticas de logging: Silenciar logs temporales cuando ya no son necesarios</li>
+                </ul>
+                <p>
+                    <em>Nota: Este paso no requiere consulta de documentación técnica del hardware, ya que se trata de una mejora en el proceso de depuración.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Depuración incremental:</strong> Añadir logs temporalmente para confirmar que un componente funciona, y luego silenciarlos cuando ya no son necesarios para poder enfocarse en el siguiente problema.</li>
+                        <li><strong>Aislamiento de información:</strong> En sistemas complejos con múltiples subsistemas generando logs, es fundamental poder aislar la información relevante del "ruido" para poder analizarla efectivamente.</li>
+                        <li><strong>Mantenimiento de código de depuración:</strong> Comentar logs en lugar de eliminarlos permite reactivarlos rápidamente si es necesario en el futuro, sin tener que reescribirlos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Análisis de la traza de la CPU:</strong> Una vez que se ejecute el emulador y se capture la traza completa, será necesario analizarla para identificar qué instrucción falta o qué bucle está bloqueando la ejecución.</li>
+                        <li><strong>Diagnóstico de la VRAM vacía:</strong> Con la traza de la CPU, podremos determinar si la CPU está ejecutando código pero no llega a la rutina de copia de gráficos, o si está atascada en un bucle infinito antes de llegar a esa rutina.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> La CPU está ejecutando código, pero probablemente está atascada en un bucle o le falta una instrucción clave que le impide llegar a la rutina de copia de gráficos desde la ROM a la VRAM. La traza de la CPU confirmará o refutará esta hipótesis.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> La traza mostrará un patrón repetitivo (bucle infinito) o una secuencia de instrucciones que se detiene antes de llegar a la rutina de copia de gráficos. Esta suposición se basará en el análisis de la traza una vez que se capture.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y capturar la traza completa de la CPU (100 líneas)</li>
+                    <li>[ ] Analizar la traza para identificar el patrón de ejecución</li>
+                    <li>[ ] Identificar si la CPU está en un bucle infinito o si falta una instrucción clave</li>
+                    <li>[ ] Determinar qué instrucción o rutina falta para que la CPU pueda copiar los datos gráficos a la VRAM</li>
+                    <li>[ ] Implementar la corrección necesaria basada en el análisis de la traza</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

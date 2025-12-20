@@ -32,6 +32,44 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-19 - Step 0150: Debug: Aislamiento de la Traza de la CPU
+**Estado**: 🔍 En depuración
+
+El emulador es estable y corre a 60 FPS, pero muestra una pantalla en blanco, lo que indica que la VRAM está vacía. La traza de la CPU implementada en el Step 0149 está siendo ocultada por los logs repetitivos del bucle principal en Python.
+
+**Problema identificado:**
+- El emulador corre a 60 FPS sólidos (confirmado visualmente)
+- La pantalla está completamente en blanco (VRAM vacía)
+- La traza de la CPU implementada en el Step 0149 no es visible porque está oculta por cientos de mensajes del bucle principal
+- Los logs `[Viboy] Llamando a ppu.step()...` y `[Viboy] ppu.step() completado exitosamente` se generan 154 veces por frame (una vez por scanline)
+
+**Análisis del problema:**
+- Los logs del bucle principal cumplieron su propósito: confirmar que el emulador es estable y que `ppu.step()` se llama correctamente
+- Ahora estos logs solo generan "ruido" que impide ver la traza de la CPU
+- Para diagnosticar por qué la VRAM está vacía, necesitamos ver la traza limpia de las primeras 100 instrucciones de la CPU
+
+**Implementación de aislamiento:**
+- ✅ Comentadas las líneas `print("[Viboy] Llamando a ppu.step()...")` y `print("[Viboy] ppu.step() completado exitosamente")` en `src/viboy.py`
+- ✅ Añadido comentario explicativo: "Logs silenciados para aislar la traza de la CPU (Step 0150)"
+- ✅ Verificado que la instrumentación de CPU en `CPU.cpp` sigue presente y funcionando
+
+**Resultado esperado:**
+- La consola ahora mostrará únicamente las 100 líneas de la traza de la CPU (`[CPU TRACE ...]`)
+- No habrá logs repetitivos del bucle principal intercalados
+- La traza será legible y permitirá analizar el flujo de ejecución de la CPU
+
+**Próximos pasos:**
+1. Ejecutar el emulador y capturar la traza completa de la CPU (100 líneas)
+2. Analizar la traza para identificar el patrón de ejecución
+3. Identificar si la CPU está en un bucle infinito o si falta una instrucción clave
+4. Determinar qué instrucción o rutina falta para que la CPU pueda copiar los datos gráficos a la VRAM
+5. Implementar la corrección necesaria basada en el análisis de la traza
+
+**Archivos modificados:**
+- `src/viboy.py` - Comentadas líneas de `print()` en el método `run()` para silenciar logs del bucle principal
+
+---
+
 ### 2025-12-19 - Step 0149: Debug: Trazado de la CPU para Diagnosticar VRAM Vacía
 **Estado**: 🔍 En depuración
 
