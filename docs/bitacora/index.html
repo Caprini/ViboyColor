@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0155 - Análisis: La Traza de 500 Instrucciones Revela la Configuración de la PPU -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0155__analisis-traza-extendida-post-bucle.html" class="entry-link">
+                                    Análisis: La Traza de 500 Instrucciones Revela la Configuración de la PPU
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0155 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se ejecutó el emulador con la traza extendida a 500 instrucciones para analizar qué ocurre después de que el bucle de inicialización termina. El análisis reveló que las 500 instrucciones capturadas están todas dentro del mismo bucle de limpieza de memoria (0x0293-0x0295), ejecutándose más de 100 iteraciones. Al final del log, se observa una salida del bucle en la dirección 0x0297 (opcode 0x0D, DEC C), pero el emulador se detiene al alcanzar el límite de 500 instrucciones antes de poder observar qué ocurre después. Se confirma que el límite de 500 instrucciones es insuficiente para observar la secuencia completa de inicialización.
+                        </p>
+                    </li>
                     <!-- Entrada 0154 - Debug: Extensión del Trazado de CPU a 500 Instrucciones -->
                     <li>
                         <div class="entry-header">

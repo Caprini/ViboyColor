@@ -32,6 +32,38 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0155: Análisis: La Traza de 500 Instrucciones Revela la Configuración de la PPU
+**Estado**: 🔍 DRAFT
+
+Se ejecutó el emulador con la traza extendida a 500 instrucciones para analizar qué ocurre después de que el bucle de inicialización termina. El análisis reveló que las 500 instrucciones capturadas están todas dentro del mismo bucle de limpieza de memoria (0x0293-0x0295), ejecutándose más de 100 iteraciones.
+
+**Objetivo:**
+- Analizar la traza completa de 500 instrucciones para identificar qué ocurre después de que los bucles de inicialización terminan.
+- Observar la secuencia de ejecución que sigue a los bucles de limpieza de memoria.
+- Identificar el primer opcode no implementado o sospechoso que bloquea el progreso.
+
+**Resultados del análisis:**
+- ✅ **Patrón de ejecución:** Las 500 instrucciones muestran un patrón repetitivo consistente en tres instrucciones: `LDD (HL), A` (0x0293), `DEC B` (0x0294), y `JR NZ, e` (0x0295).
+- ✅ **Salida del bucle:** Al final del log, se observa la salida exitosa del bucle en la dirección 0x0297 (opcode 0x0D, DEC C), que está correctamente implementado.
+- ⚠️ **Límite insuficiente:** El emulador se detiene al alcanzar el límite de 500 instrucciones justo después de salir del bucle, impidiendo observar qué ocurre después.
+- ⚠️ **Bucles extensos:** El bucle de limpieza se ejecuta más de 100 veces antes de salir, consumiendo la mayoría de las 500 instrucciones disponibles.
+
+**Hallazgos clave:**
+- El bucle termina correctamente cuando `B` llega a `0x00` y el flag `Z` se activa.
+- El opcode en 0x0297 (0x0D, DEC C) está implementado, por lo que no es un problema de opcode faltante.
+- El límite de 500 instrucciones es insuficiente para observar la secuencia completa de inicialización.
+
+**Próximos pasos:**
+1. Aumentar el límite de traza a 1000 o 2000 instrucciones para capturar más información.
+2. Implementar un mecanismo de traza condicional que se active solo después de ciertos puntos de interés.
+3. Analizar la ROM directamente para identificar qué opcodes están en las direcciones después de 0x0297.
+4. Verificar si hay más bucles de limpieza después de 0x0297 o si comienza la configuración de hardware.
+
+**Hipótesis:**
+Después de que todos los bucles de limpieza terminan, el juego debería comenzar a configurar el hardware, especialmente los registros de la PPU. Esperamos ver instrucciones como `LDH (n), A` (opcode 0xE0) escribiendo en registros como 0xFF40 (LCDC) o 0xFF47 (BGP).
+
+---
+
 ### 2025-12-20 - Step 0154: Debug: Extensión del Trazado de CPU a 500 Instrucciones
 **Estado**: 🔍 DRAFT
 

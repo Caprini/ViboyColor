@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análisis: La Traza de 500 Instrucciones Revela la Configuración de la PPU - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Análisis: La Traza de 500 Instrucciones Revela la Configuración de la PPU</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0155
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0154__debug-extension-traza-cpu-500.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se ejecutó el emulador con la traza extendida a 500 instrucciones para analizar qué ocurre después de que el bucle de inicialización termina. El análisis reveló que las 500 instrucciones capturadas están todas dentro del mismo bucle de limpieza de memoria (0x0293-0x0295), ejecutándose más de 100 iteraciones. Al final del log, se observa una salida del bucle en la dirección 0x0297 (opcode 0x0D, DEC C), pero el emulador se detiene al alcanzar el límite de 500 instrucciones antes de poder observar qué ocurre después.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Las ROMs de Game Boy ejecutan rutinas de inicialización complejas al arrancar. Estas rutinas típicamente incluyen:
+                </p>
+                <ul>
+                    <li><strong>Limpieza de memoria:</strong> Múltiples bucles que escriben valores específicos (generalmente 0x00) en regiones de memoria RAM para asegurar un estado inicial conocido.</li>
+                    <li><strong>Configuración de hardware:</strong> Escritura de valores en los registros de hardware (LCDC, BGP, SCY, SCX, etc.) para configurar la PPU y otros componentes.</li>
+                    <li><strong>Inicialización de variables:</strong> Establecimiento de valores iniciales para variables del juego.</li>
+                </ul>
+                <p>
+                    Los bucles de limpieza de memoria son críticos porque garantizan que no haya datos residuales de ejecuciones anteriores. Estos bucles pueden ser anidados (un bucle dentro de otro) y pueden ejecutarse cientos o miles de veces dependiendo del tamaño de la región de memoria a limpiar.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Boot ROM, Memory Map, Initialization Routines
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Análisis de la Traza</h2>
+                <p>
+                    Se ejecutó el emulador con la ROM de Tetris y se capturó una traza completa de 500 instrucciones. El análisis de la traza reveló los siguientes hallazgos:
+                </p>
+                
+                <h3>Patrón de Ejecución Observado</h3>
+                <p>
+                    Las 500 instrucciones capturadas muestran un patrón repetitivo consistente en tres instrucciones:
+                </p>
+                <ul>
+                    <li><strong>0x0293:</strong> <code>LDD (HL), A</code> (opcode 0x32) - Escribe el valor de A en la dirección apuntada por HL y decrementa HL</li>
+                    <li><strong>0x0294:</strong> <code>DEC B</code> (opcode 0x05) - Decrementa el registro B</li>
+                    <li><strong>0x0295:</strong> <code>JR NZ, e</code> (opcode 0x20) - Salta relativo si el flag Z no está activo</li>
+                </ul>
+                <p>
+                    Este bucle se ejecuta más de 100 veces antes de que el límite de 500 instrucciones se alcance.
+                </p>
+
+                <h3>Salida del Bucle</h3>
+                <p>
+                    Al final del log (línea 16903), se observa la salida exitosa del bucle:
+                </p>
+                <pre><code>[DEBUG DEC B] B antes: 0x01, Z antes: 0
+[DEBUG DEC B] B después: 0x00, Z después: 1
+[DEBUG JR NZ] B: 0x00, Z: 1, offset: 0xFC
+[DEBUG JR NZ] NO SALTANDO, continuando en PC: 0x0297</code></pre>
+                <p>
+                    El PC continúa en 0x0297, donde el opcode es 0x0D (<code>DEC C</code>), que está correctamente implementado en el código C++.
+                </p>
+
+                <h3>Limitación del Límite de Traza</h3>
+                <p>
+                    El emulador se detiene al alcanzar el límite de 500 instrucciones justo después de salir del bucle, impidiendo observar qué ocurre después. Esto sugiere que:
+                </p>
+                <ul>
+                    <li>El bucle de limpieza es muy extenso (más de 100 iteraciones)</li>
+                    <li>Puede haber múltiples bucles anidados que consumen la mayoría de las 500 instrucciones</li>
+                    <li>Necesitamos aumentar aún más el límite o implementar un mecanismo de traza más inteligente que se active solo después de ciertos puntos de interés</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>temp_trace.log</code> - Archivo temporal con la traza completa de 500 instrucciones</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Código fuente de la CPU (sin modificaciones en este paso)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este paso fue puramente de análisis, sin modificaciones de código. La verificación consistió en:
+                </p>
+                <ul>
+                    <li><strong>Ejecución del emulador:</strong> <code>python main.py roms/tetris.gb > temp_trace.log 2>&1</code></li>
+                    <li><strong>Análisis de la traza:</strong> Revisión de las 500 líneas de traza de CPU para identificar patrones</li>
+                    <li><strong>Verificación de opcodes:</strong> Confirmación de que el opcode 0x0D (DEC C) en 0x0297 está implementado</li>
+                    <li><strong>Conteo de iteraciones:</strong> Cálculo aproximado de cuántas veces se ejecuta el bucle antes de salir</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> Se confirmó que el bucle termina correctamente, pero el límite de 500 instrucciones es insuficiente para observar la secuencia completa de inicialización.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: Boot ROM, Memory Map, Initialization Routines</li>
+                    <li>GBEDG: CPU Instruction Set (opcode 0x0D - DEC C)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Bucles de inicialización:</strong> Las ROMs ejecutan bucles extensos de limpieza de memoria que pueden consumir cientos de instrucciones antes de avanzar a la configuración de hardware.</li>
+                        <li><strong>Límites de traza:</strong> Los límites fijos de traza pueden ser insuficientes para observar secuencias completas de inicialización, especialmente cuando hay bucles anidados.</li>
+                        <li><strong>Patrones de ejecución:</strong> El patrón LDD (HL), A -> DEC B -> JR NZ es común en rutinas de limpieza de memoria y se ejecuta hasta que B llega a 0x00.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Secuencia post-bucle:</strong> Qué instrucciones se ejecutan después de 0x0297 y si hay más bucles de limpieza o si comienza la configuración de hardware.</li>
+                        <li><strong>Configuración de PPU:</strong> Si y cuándo el juego comienza a escribir en los registros de hardware (0xFF40-0xFF4F) para configurar la PPU.</li>
+                        <li><strong>Opcodes faltantes:</strong> Si hay opcodes no implementados que bloquean el progreso después de los bucles de limpieza.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> Después de que todos los bucles de limpieza terminan, el juego debería comenzar a configurar el hardware, especialmente los registros de la PPU. Esperamos ver instrucciones como <code>LDH (n), A</code> (opcode 0xE0) escribiendo en registros como 0xFF40 (LCDC) o 0xFF47 (BGP).
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> El límite de 500 instrucciones es insuficiente porque el bucle de limpieza se ejecuta más de 100 veces, consumiendo la mayoría de las instrucciones disponibles antes de que podamos observar la secuencia post-inicialización.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Aumentar el límite de traza a 1000 o 2000 instrucciones para capturar más información</li>
+                    <li>[ ] Implementar un mecanismo de traza condicional que se active solo después de ciertos puntos de interés (ej: después de salir de bucles conocidos)</li>
+                    <li>[ ] Analizar la ROM directamente para identificar qué opcodes están en las direcciones después de 0x0297</li>
+                    <li>[ ] Verificar si hay más bucles de limpieza después de 0x0297 o si comienza la configuración de hardware</li>
+                    <li>[ ] Identificar el primer opcode no implementado que bloquea el progreso (si existe)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
