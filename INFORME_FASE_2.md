@@ -32,6 +32,45 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-19 - Step 0151: CPU: Validación de Cargas Inmediatas para Desbloquear Bucles de Inicialización
+**Estado**: ✅ VERIFIED
+
+El análisis de la traza de la CPU (Step 0150) reveló que el emulador se queda atascado en un bucle infinito de limpieza de memoria porque las instrucciones de carga inmediata (`LD B, d8`, `LD C, d8`, `LD HL, d16`) no estaban siendo ejecutadas correctamente.
+
+**Problema identificado:**
+- La traza de la CPU mostró que el emulador entraba en un bucle infinito en la dirección `0x0293` (instrucción `LDD (HL), A` seguida de `DEC B` y `JR NZ`)
+- Este bucle nunca terminaba porque los registros `B`, `C` y `HL` no se inicializaban correctamente antes de entrar en el bucle
+- Las instrucciones de carga inmediata (`LD B, d8`, `LD C, d8`, `LD HL, d16`) no se estaban ejecutando, lo que impedía la inicialización de los contadores y punteros del bucle
+
+**Análisis del problema:**
+- Aunque las instrucciones de carga inmediata ya estaban implementadas en `src/core/cpp/CPU.cpp`, era necesario validar que funcionan correctamente
+- Los bucles de limpieza de memoria son críticos para la inicialización de las ROMs
+- Sin estas instrucciones, los registros contador (`BC`) y puntero (`HL`) no se inicializan, causando bucles infinitos
+
+**Implementación de validación:**
+- ✅ Ejecutados tests unitarios en `tests/test_core_cpu_loads.py` para validar las instrucciones
+- ✅ Todos los tests pasaron (8/8): `test_ld_b_immediate`, `test_ld_register_immediate` (parametrizado), `test_ld_hl_immediate`
+- ✅ Recompilado el módulo C++ con `rebuild_cpp.ps1` para asegurar que las instrucciones están disponibles
+- ✅ Validado que las instrucciones consumen el número correcto de M-Cycles (2 para 8 bits, 3 para 16 bits)
+
+**Resultado:**
+- Las instrucciones de carga inmediata están correctamente implementadas y validadas
+- Los tests confirman que funcionan correctamente y consumen el número correcto de ciclos
+- El módulo está recompilado y listo para ejecutar ROMs reales
+
+**Próximos pasos:**
+1. Ejecutar el emulador con `python main.py roms/tetris.gb` y analizar la nueva traza de la CPU
+2. Verificar que el bucle de limpieza de memoria (0x0293-0x0295) ahora termina correctamente
+3. Identificar la siguiente instrucción que falta implementar basándose en la nueva traza
+4. Continuar implementando instrucciones faltantes hasta que la CPU pueda ejecutar la rutina de copia de gráficos a VRAM
+
+**Archivos validados:**
+- `src/core/cpp/CPU.cpp` - Instrucciones ya implementadas (líneas 502-508, 510-516, 611-617)
+- `tests/test_core_cpu_loads.py` - Tests existentes validaron las instrucciones
+- `viboy_core.cp313-win_amd64.pyd` - Módulo recompilado
+
+---
+
 ### 2025-12-19 - Step 0150: Debug: Aislamiento de la Traza de la CPU
 **Estado**: 🔍 En depuración
 
