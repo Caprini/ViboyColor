@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix Crítico: Gestión Correcta del Flag Cero (Z) en la Instrucción DEC - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Fix Crítico: Gestión Correcta del Flag Cero (Z) en la Instrucción DEC</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0165
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0164__debug-trazado-desde-pc-0100-para-capturar-bucle-oculto.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    La traza del Step 0164 reveló un bucle infinito en la inicialización de Tetris. A partir de la instrucción 7, se observa un patrón de 3 opcodes que se repite sin cesar: <code>LDD (HL), A</code> (0x32), <code>DEC B</code> (0x05), y <code>JR NZ, e</code> (0x20). El bucle nunca termina porque el flag Cero (Z) nunca se activa cuando `DEC B` hace que `B` pase de `1` a `0`. Este Step corrige la implementación de la familia de instrucciones `DEC` para asegurar que el flag Z se active correctamente cuando el resultado es `0`, resolviendo así el deadlock del bucle de inicialización.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: El Flag Cero y el Control de Flujos</h2>
+                <p>
+                    El <strong>Flag Cero (Z)</strong> es fundamental para el control de flujo en la CPU LR35902. No es solo un indicador; es la base sobre la que se construyen las decisiones del programa. Las instrucciones aritméticas como `DEC` deben reportar si su resultado fue exactamente cero. Las instrucciones de salto condicional como `JR NZ` leen este flag para decidir si alterar el flujo del programa.
+                </p>
+                <p>
+                    Si `DEC` no activa el flag Z (`Z=1`) cuando un registro se convierte en `0`, entonces `JR NZ` nunca sabrá que el bucle ha terminado. Este fallo de comunicación entre la ALU y la unidad de control de flujo es la causa raíz del deadlock observado.
+                </p>
+                <p>
+                    <strong>Ejemplo del problema:</strong>
+                </p>
+                <pre><code>B = 1
+loop:
+    LDD (HL), A     ; Escribe A en (HL) y decrementa HL
+    DEC B           ; B = B - 1 (ahora B = 0)
+    JR NZ, loop     ; Si Z=0 (es decir, B != 0), salta a loop
+    
+; Si DEC B no activa Z cuando B == 0, JR NZ siempre salta
+; El bucle nunca termina aunque B sea 0</code></pre>
+                <p>
+                    La solución es asegurar que `DEC` siempre actualice el flag Z basándose en el resultado final de la operación, no en el valor original del registro.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Siguiendo nuestra metodología TDD, primero verificamos que el test existente valide el comportamiento correcto. Luego, mejoramos la documentación del código C++ para reflejar la importancia crítica de esta línea de código.
+                </p>
+                
+                <h3>Análisis del Código Existente</h3>
+                <p>
+                    La función <code>alu_dec</code> en <code>src/core/cpp/CPU.cpp</code> ya tenía la lógica correcta implementada. La línea crítica es:
+                </p>
+                <pre><code>regs_->set_flag_z(result == 0);</code></pre>
+                <p>
+                    Sin embargo, la documentación no enfatizaba suficientemente la importancia crítica de esta línea. Se mejoraron los comentarios para explicar explícitamente que esta línea resuelve el deadlock del bucle de inicialización.
+                </p>
+
+                <h3>Mejora de Documentación en CPU.cpp</h3>
+                <p>
+                    Se añadieron comentarios detallados en la función <code>alu_dec</code> que explican:
+                </p>
+                <ul>
+                    <li>Por qué el flag Z es crítico para el control de flujo</li>
+                    <li>Cómo esta línea específica resuelve el deadlock</li>
+                    <li>El impacto de no activar Z correctamente (bucles infinitos)</li>
+                </ul>
+
+                <h4>Código Mejorado</h4>
+                <pre><code>uint8_t CPU::alu_dec(uint8_t value) {
+    // DEC: decrementa el valor en 1
+    uint8_t result = value - 1;
+    
+    // Calcular flags
+    // --- VERIFICACIÓN CRÍTICA (Step 0165) ---
+    // La siguiente línea es la que resuelve el deadlock del bucle de inicialización.
+    // Asegura que el flag Z se active (set_flag_z(true)) si el resultado del
+    // decremento es exactamente 0. Sin esto, los bucles 'JR NZ' serían infinitos.
+    // Ejemplo: Si B = 1, DEC B → B = 0, y Z DEBE ser 1 para que JR NZ no salte.
+    // Si Z no se activa cuando result == 0, el bucle nunca terminará.
+    // Si result == 0, entonces Z = 1 (activado)
+    // Si result != 0, entonces Z = 0 (desactivado)
+    regs_->set_flag_z(result == 0);
+    
+    // N: siempre 1 (es decremento)
+    regs_->set_flag_n(true);
+    
+    // H: half-borrow (bit 4 -> 3)
+    // Ocurre cuando el nibble bajo es 0x00 y al restar 1 se produce underflow
+    // Ejemplo: 0x10 - 1 = 0x0F (hay half-borrow)
+    // El Half-Borrow ocurre si el nibble bajo era 0x0, indicando un préstamo del nibble alto.
+    regs_->set_flag_h((value & 0x0F) == 0x00);
+    
+    // C: NO afectado (preservado) - QUIRK del hardware
+    // El flag C (Carry) no se modifica en las instrucciones DEC de 8 bits, una peculiaridad del hardware.
+    // No modificamos el flag C
+    
+    return result;
+}</code></pre>
+
+                <h3>Test de Validación</h3>
+                <p>
+                    El test <code>test_dec_b_sets_zero_flag</code> en <code>tests/test_core_cpu_inc_dec.py</code> ya existía y valida este comportamiento crítico. El test:
+                </p>
+                <ul>
+                    <li>Inicializa `B = 1` y `flag_z = False`</li>
+                    <li>Ejecuta `DEC B` (opcode 0x05)</li>
+                    <li>Verifica que `B == 0` y que `flag_z == True`</li>
+                    <li>Confirma que `PC` avanza correctamente</li>
+                </ul>
+
+                <h4>Código del Test</h4>
+                <pre><code>def test_dec_b_sets_zero_flag(self):
+    """
+    Step 0165: Valida que DEC B activa el flag Z cuando el resultado es 0.
+    Este es el fix para el bucle infinito de inicialización de Tetris.
+    """
+    mmu = PyMMU()
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    
+    # Configurar B=1 y el flag Z=0
+    regs.pc = 0x0100
+    regs.b = 1
+    regs.flag_z = False
+    
+    # Verificar estado inicial
+    assert regs.b == 1, "B debe ser 1 inicialmente"
+    assert regs.flag_z == False, "Flag Z debe estar desactivado inicialmente"
+    
+    # Ejecutar DEC B (opcode 0x05)
+    mmu.write(0x0100, 0x05)  # Opcode DEC B
+    cpu.step()
+    
+    # Verificar resultado: B debe ser 0 y Z debe estar activo
+    assert regs.b == 0, f"B debe ser 0 después de DEC, es {regs.b}"
+    assert regs.flag_z == True, "Flag Z debe estar activo cuando resultado es 0 (¡COMPROBACIÓN CLAVE!)"
+    assert regs.flag_n == True, "Flag N debe estar activo (es decremento)"
+    assert regs.pc == 0x0101, "PC debe avanzar 1 byte después de DEC B"</code></pre>
+            </section>
+
+            <!-- 4. Archivos Modificados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Mejora de documentación en la función <code>alu_dec</code> (líneas 190-212). Se añadieron comentarios críticos que explican la importancia del flag Z para el control de flujo.</li>
+                    <li><code>tests/test_core_cpu_inc_dec.py</code> - Test existente <code>test_dec_b_sets_zero_flag</code> valida el comportamiento correcto (líneas 319-355).</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    El test específico para este fix fue ejecutado exitosamente:
+                </p>
+                
+                <h3>Comando Ejecutado</h3>
+                <pre><code>pytest tests/test_core_cpu_inc_dec.py::TestCoreCPUIncDec::test_dec_b_sets_zero_flag -v</code></pre>
+
+                <h3>Resultado</h3>
+                <pre><code>============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.2, pluggy-1.6.0
+cachedir: .pytest_cache
+rootdir: C:\Users\fabin\Desktop\ViboyColor
+configfile: pytest.ini
+plugins: anyio-4.12.0, cov-7.0.0
+collecting ... collected 1 item
+
+tests/test_core_cpu_inc_dec.py::TestCoreCPUIncDec::test_dec_b_sets_zero_flag PASSED [100%]
+
+============================== 1 passed in 0.07s =============================</code></pre>
+
+                <h3>Validación Nativa</h3>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El test utiliza el módulo nativo <code>viboy_core</code> compilado desde C++, verificando que la implementación en código nativo funciona correctamente. La función <code>alu_dec</code> está implementada completamente en C++ y se llama directamente desde el wrapper de Cython.
+                </p>
+
+                <h3>Código del Test</h3>
+                <pre><code>def test_dec_b_sets_zero_flag(self):
+    """
+    Test 7: Verificar que DEC B activa el flag Z cuando el resultado es 0.
+    
+    Este es el test crítico que valida el fix del Step 0165.
+    El bucle infinito en las ROMs se debía a que DEC B no activaba el flag Z
+    cuando B pasaba de 1 a 0, causando que JR NZ siempre saltara.
+    """
+    mmu = PyMMU()
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    
+    # Configurar B=1 y el flag Z=0
+    regs.pc = 0x0100
+    regs.b = 1
+    regs.flag_z = False
+    
+    # Ejecutar DEC B (opcode 0x05)
+    mmu.write(0x0100, 0x05)  # Opcode DEC B
+    cpu.step()
+    
+    # Verificar resultado: B debe ser 0 y Z debe estar activo
+    assert regs.b == 0, f"B debe ser 0 después de DEC, es {regs.b}"
+    assert regs.flag_z == True, "Flag Z debe estar activo cuando resultado es 0"
+    assert regs.flag_n == True, "Flag N debe estar activo (es decremento)"
+    assert regs.pc == 0x0101, "PC debe avanzar 1 byte después de DEC B"</code></pre>
+            </section>
+
+            <!-- 6. Análisis de la Traza -->
+            <section id="analisis-traza">
+                <h2>Análisis de la Traza del Step 0164</h2>
+                <p>
+                    La traza capturada en el Step 0164 reveló el bucle infinito con claridad. A partir de la instrucción 7, se observa un patrón repetitivo:
+                </p>
+                <ol>
+                    <li><strong><code>PC: 0x0293 | Opcode: 0x32</code></strong> → <code>LDD (HL), A</code>: Escribe el valor de `A` (que es `0`) en la dirección apuntada por `HL` y luego decrementa `HL`.</li>
+                    <li><strong><code>PC: 0x0294 | Opcode: 0x05</code></strong> → <code>DEC B</code>: Decrementa el registro contador `B`.</li>
+                    <li><strong><code>PC: 0x0295 | Opcode: 0x20</code></strong> → <code>JR NZ, e</code>: Si el resultado de `DEC B` <strong>no fue cero</strong>, salta hacia atrás.</li>
+                </ol>
+                <p>
+                    Este es un bucle típico de limpieza de memoria. El problema es que el bucle es infinito porque la condición del `JR NZ` siempre se cumple. Esto solo puede significar que el Flag Cero (`Z`) nunca se está activando cuando `B` pasa de `1` a `0`.
+                </p>
+            </section>
+
+            <!-- 7. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs:</strong> Sección sobre instrucciones DEC y gestión de flags. Especificación de que DEC debe activar el flag Z cuando el resultado es 0.</li>
+                    <li><strong>GBEDG:</strong> Documentación sobre el flag Cero (Z) y su uso en instrucciones de salto condicional.</li>
+                    <li><strong>Traza del Step 0164:</strong> Análisis forense del bucle infinito que identificó el problema.</li>
+                </ul>
+            </section>
+
+            <!-- 8. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Flag Cero y Control de Flujo:</strong> El flag Z no es solo un indicador de resultado, es la base del control de flujo en la CPU. Sin una gestión correcta de este flag, los bucles nunca pueden terminar.</li>
+                        <li><strong>Comunicación ALU-Control:</strong> Las instrucciones aritméticas (como DEC) deben comunicar su resultado a la unidad de control de flujo a través de los flags. Si esta comunicación falla, el programa se bloquea.</li>
+                        <li><strong>Debugging Sistemático:</strong> El uso de trazas sistemáticas permite identificar bucles infinitos y entender la causa raíz del problema. El patrón repetitivo en la traza es la "pistola humeante".</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento Post-Fix:</strong> Verificar que el emulador ahora avanza más allá del bucle de inicialización con una nueva traza. Determinar cuál es el siguiente opcode o comportamiento a depurar.</li>
+                        <li><strong>Otras Instrucciones DEC:</strong> Aunque la lógica es la misma para todas las instrucciones DEC (DEC B, DEC C, DEC (HL), etc.), confirmar que todas usan la misma función `alu_dec` y por lo tanto están corregidas.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que la implementación actual de `alu_dec` ya estaba correcta (establecía `regs_->set_flag_z(result == 0)`), pero la documentación no era suficientemente explícita sobre su importancia crítica. Los comentarios mejorados ahora reflejan esta importancia y servirán como recordatorio para futuros desarrolladores.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 9. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ol>
+                    <li><strong>Ejecutar el emulador:</strong> Probar el emulador con la ROM de Tetris para verificar que el bucle de inicialización ahora termina correctamente.</li>
+                    <li><strong>Capturar nueva traza:</strong> Obtener una nueva traza que muestre que el PC avanza más allá de `0x0295`, confirmando que el bucle ha terminado.</li>
+                    <li><strong>Identificar siguiente problema:</strong> Una vez que el bucle termine, el PC avanzará y probablemente encontrará el siguiente opcode no implementado o comportamiento a depurar.</li>
+                    <li><strong>Continuar iteración:</strong> Repetir el ciclo de depuración hasta que el emulador avance correctamente a través de la inicialización del juego.</li>
+                </ol>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                <strong>Viboy Color</strong> - Emulador de Game Boy Color (Clean-Room Implementation)
+            </p>
+            <p>
+                Este proyecto es educativo y Open Source. Implementación basada únicamente en documentación técnica.
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+

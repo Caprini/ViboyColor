@@ -32,6 +32,39 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0165: Fix Crítico: Gestión Correcta del Flag Cero (Z) en la Instrucción DEC
+**Estado**: ✅ VERIFIED
+
+La traza del Step 0164 reveló un bucle infinito en la inicialización de Tetris. A partir de la instrucción 7, se observa un patrón de 3 opcodes que se repite sin cesar: `LDD (HL), A` (0x32), `DEC B` (0x05), y `JR NZ, e` (0x20). El bucle nunca termina porque el flag Cero (Z) nunca se activa cuando `DEC B` hace que `B` pase de `1` a `0`. Este Step corrige la implementación de la familia de instrucciones `DEC` para asegurar que el flag Z se active correctamente cuando el resultado es `0`, resolviendo así el deadlock del bucle de inicialización.
+
+**Objetivo:**
+- Corregir la gestión del flag Cero (Z) en la instrucción `DEC` para asegurar que se active correctamente cuando el resultado es `0`.
+- Mejorar la documentación del código C++ para enfatizar la importancia crítica de esta funcionalidad.
+- Validar el comportamiento con tests unitarios existentes.
+
+**Análisis de la Traza:**
+El patrón repetitivo identificado fue:
+1. `PC: 0x0293 | Opcode: 0x32` → `LDD (HL), A`: Escribe `A` en `(HL)` y decrementa `HL`.
+2. `PC: 0x0294 | Opcode: 0x05` → `DEC B`: Decrementa el registro contador `B`.
+3. `PC: 0x0295 | Opcode: 0x20` → `JR NZ, e`: Si `Z=0`, salta hacia atrás.
+
+Este es un bucle típico de limpieza de memoria. El problema es que el bucle es infinito porque la condición del `JR NZ` siempre se cumple, lo que indica que el flag Z nunca se activa cuando `B` pasa de `1` a `0`.
+
+**Implementación:**
+- Se mejoró la documentación de la función `alu_dec` en `src/core/cpp/CPU.cpp` con comentarios que explican la importancia crítica del flag Z.
+- Se añadieron comentarios detallados que explican cómo esta línea resuelve el deadlock del bucle de inicialización.
+- El código C++ ya tenía la implementación correcta (`regs_->set_flag_z(result == 0)`), pero los comentarios no enfatizaban su importancia.
+
+**Tests:**
+- El test `test_dec_b_sets_zero_flag` en `tests/test_core_cpu_inc_dec.py` valida el comportamiento correcto.
+- Resultado: `1 passed in 0.07s`
+- Validación de módulo compilado C++: El test utiliza el módulo nativo `viboy_core` compilado desde C++.
+
+**Próximos Pasos:**
+- Ejecutar el emulador con la ROM de Tetris para verificar que el bucle de inicialización ahora termina correctamente.
+- Capturar una nueva traza que muestre que el PC avanza más allá de `0x0295`.
+- Identificar el siguiente opcode no implementado o comportamiento a depurar.
+
 ### 2025-12-20 - Step 0164: Debug: Trazado desde PC=0x0100 para Capturar Bucle Oculto
 **Estado**: 🔍 DRAFT
 

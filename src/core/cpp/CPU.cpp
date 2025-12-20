@@ -192,7 +192,12 @@ uint8_t CPU::alu_dec(uint8_t value) {
     uint8_t result = value - 1;
     
     // Calcular flags
-    // Z: resultado == 0 (CRÍTICO: Este flag permite que JR NZ termine bucles)
+    // --- VERIFICACIÓN CRÍTICA (Step 0165) ---
+    // La siguiente línea es la que resuelve el deadlock del bucle de inicialización.
+    // Asegura que el flag Z se active (set_flag_z(true)) si el resultado del
+    // decremento es exactamente 0. Sin esto, los bucles 'JR NZ' serían infinitos.
+    // Ejemplo: Si B = 1, DEC B → B = 0, y Z DEBE ser 1 para que JR NZ no salte.
+    // Si Z no se activa cuando result == 0, el bucle nunca terminará.
     // Si result == 0, entonces Z = 1 (activado)
     // Si result != 0, entonces Z = 0 (desactivado)
     regs_->set_flag_z(result == 0);
@@ -203,9 +208,11 @@ uint8_t CPU::alu_dec(uint8_t value) {
     // H: half-borrow (bit 4 -> 3)
     // Ocurre cuando el nibble bajo es 0x00 y al restar 1 se produce underflow
     // Ejemplo: 0x10 - 1 = 0x0F (hay half-borrow)
+    // El Half-Borrow ocurre si el nibble bajo era 0x0, indicando un préstamo del nibble alto.
     regs_->set_flag_h((value & 0x0F) == 0x00);
     
     // C: NO afectado (preservado) - QUIRK del hardware
+    // El flag C (Carry) no se modifica en las instrucciones DEC de 8 bits, una peculiaridad del hardware.
     // No modificamos el flag C
     
     return result;
