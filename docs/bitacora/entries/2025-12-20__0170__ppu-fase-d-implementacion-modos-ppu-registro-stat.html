@@ -128,26 +128,33 @@
                 <pre><code>uint8_t MMU::read(uint16_t addr) const {
     if (addr == 0xFF41) {  // Registro STAT
         if (ppu_ != nullptr) {
-            // Leer el valor base de STAT (bits escribibles) de la memoria
+            // Leer el valor base de STAT (bits escribibles 3-7) de la memoria
+            // Los bits 0-2 son de solo lectura y se actualizan dinámicamente
             uint8_t stat_base = memory_[addr];
             
             // Obtener el modo actual de la PPU (bits 0-1)
-            uint8_t mode = static_cast&lt;uint8_t&gt;(ppu_-&gt;get_mode());
+            uint8_t mode = static_cast&lt;uint8_t&gt;(ppu_-&gt;get_mode()) &amp; 0x03;
             
             // Calcular LYC=LY Coincidence Flag (bit 2)
             uint8_t ly = ppu_-&gt;get_ly();
             uint8_t lyc = ppu_-&gt;get_lyc();
             uint8_t lyc_match = ((ly &amp; 0xFF) == (lyc &amp; 0xFF)) ? 0x04 : 0x00;
             
-            // Combinar: bits escribibles (3-7) | modo actual (0-1) | LYC match (2) | bit 7 siempre 1
-            uint8_t result = (stat_base &amp; 0xF8) | mode | lyc_match | 0x80;
+            // Combinar: bits escribibles (3-7) | modo actual (0-1) | LYC match (2)
+            // Preservamos los bits 3-7 de la memoria (configurables por el software)
+            // y actualizamos los bits 0-2 dinámicamente desde la PPU
+            uint8_t result = (stat_base &amp; 0xF8) | mode | lyc_match;
             
             return result;
         }
-        return 0x80;  // Valor por defecto si PPU no está conectada
+        return 0x02;  // Valor por defecto (modo 2 = OAM Search)
     }
     return memory_[addr];
 }</code></pre>
+                
+                <p>
+                    <strong>Corrección Importante:</strong> Se eliminó el forzado del bit 7 a 1. Según Pan Docs, el bit 7 no siempre es 1 y debe preservarse desde la memoria. El valor por defecto cuando la PPU no está conectada es 0x02 (modo 2 = OAM Search).
+                </p>
 
                 <h3>Conexión PPU-MMU</h3>
                 <p>
@@ -171,7 +178,7 @@ self._mmu.set_ppu(self._ppu)</code></pre>
                     <li><code>src/core/cython/mmu.pyx</code> - Wrapper set_ppu() para Python</li>
                     <li><code>src/core/cython/ppu.pyx</code> - Propiedad mode para acceso Pythonic</li>
                     <li><code>src/viboy.py</code> - Conexión automática PPU-MMU en constructor</li>
-                    <li><code>tests/test_core_ppu_modes.py</code> - Tests completos de modos PPU y STAT</li>
+                    <li><code>tests/test_core_ppu_modes.py</code> - Tests completos de modos PPU y STAT (actualizado para quitar verificación del bit 7)</li>
                 </ul>
             </section>
 
@@ -251,8 +258,9 @@ tests/test_core_ppu_modes.py::TestPPUModes::test_ppu_stat_lyc_coincidence PASSED
 
                     <h3>Lo que Falta Confirmar</h3>
                     <ul>
-                        <li><strong>Ruptura del Deadlock:</strong> Aunque los tests pasan, necesitamos ejecutar el emulador con una ROM real para confirmar que el bucle de polling identificado en el Step 0169 ahora se rompe correctamente.</li>
+                        <li><strong>Ruptura del Deadlock:</strong> Aunque los tests pasan, el bucle de polling identificado en el Step 0169 aún persiste. El heartbeat muestra `LY=0 | Mode=2` constantemente, lo que sugiere que la PPU no está avanzando o que el modo no cambia lo suficiente durante el bucle de polling. Se necesita más investigación para identificar por qué el modo no cambia durante la ejecución real.</li>
                         <li><strong>Interrupciones STAT:</strong> Los bits 3-6 de STAT permiten generar interrupciones cuando la PPU entra en ciertos modos. Esta funcionalidad está implementada pero necesita validación con ROMs reales.</li>
+                        <li><strong>Actualización del Modo:</strong> El modo se actualiza al inicio y al final de `step()`, pero si el bucle de polling ejecuta muchas instrucciones pequeñas, el modo podría no cambiar lo suficiente para que el juego lo detecte. Se necesita verificar si el modo se actualiza con suficiente frecuencia.</li>
                     </ul>
 
                     <h3>Hipótesis y Suposiciones</h3>
@@ -269,9 +277,13 @@ tests/test_core_ppu_modes.py::TestPPUModes::test_ppu_stat_lyc_coincidence PASSED
             <section id="proximos-pasos">
                 <h2>Próximos Pasos</h2>
                 <ul>
-                    <li>[ ] Ejecutar el emulador con una ROM real (ej: tetris.gb) para confirmar que el deadlock de polling se rompe</li>
-                    <li>[ ] Verificar que LY avanza correctamente más allá de 0</li>
-                    <li>[ ] Validar que las interrupciones STAT se generan correctamente cuando los bits de habilitación están activos</li>
+                    <li>[✅] Corrección del registro STAT: eliminado el forzado del bit 7 a 1</li>
+                    <li>[✅] Actualización del test: quitada la verificación del bit 7</li>
+                    <li>[✅] Tests pasan correctamente: validación de modos PPU y STAT funcionando</li>
+                    <li>[⚠️] <strong>Problema Identificado:</strong> El bucle de polling sigue siendo infinito. El heartbeat muestra `LY=0 | Mode=2` constantemente, lo que sugiere que la PPU no avanza o que el modo no cambia lo suficiente durante el bucle de polling.</li>
+                    <li>[ ] Investigar por qué la PPU no avanza durante el bucle de polling (verificar si recibe ciclos correctamente)</li>
+                    <li>[ ] Agregar logs temporales para ver qué valor está leyendo el juego del STAT y qué está comparando</li>
+                    <li>[ ] Verificar si el modo se actualiza con suficiente frecuencia durante el bucle de polling</li>
                     <li>[ ] Si el deadlock persiste, analizar la traza para identificar qué valor específico del STAT está esperando el juego</li>
                 </ul>
             </section>
