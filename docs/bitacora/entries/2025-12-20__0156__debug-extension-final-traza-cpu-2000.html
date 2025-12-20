@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug: Extensión Final del Trazado de CPU a 2000 Instrucciones - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug: Extensión Final del Trazado de CPU a 2000 Instrucciones</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0156
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0155__analisis-traza-extendida-post-bucle.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El análisis de la traza de 500 instrucciones (Step 0155) confirmó que los bucles de limpieza de memoria de la ROM de Tetris son extremadamente largos y consumen toda la ventana de depuración actual. Se aumentó el límite de traza de la CPU de 500 a 2000 instrucciones para garantizar la captura de la secuencia de código que se ejecuta después de que todos los bucles de inicialización hayan finalizado. Sin embargo, el análisis de la nueva traza reveló que incluso con 2000 instrucciones, todavía estamos dentro de los bucles de inicialización, lo que indica que estos bucles son aún más extensos de lo esperado.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Las rutinas de inicialización de las ROMs de Game Boy pueden ser extremadamente complejas y extensas. Los bucles de limpieza de memoria no solo limpian una única región, sino que pueden limpiar múltiples regiones de memoria en secuencia:
+                </p>
+                <ul>
+                    <li><strong>WRAM (0xC000-0xDFFF):</strong> Memoria de trabajo de 8 KB que debe ser inicializada a cero.</li>
+                    <li><strong>HRAM (0xFF80-0xFFFE):</strong> Memoria de alta velocidad de 127 bytes.</li>
+                    <li><strong>OAM (0xFE00-0xFE9F):</strong> Memoria de atributos de objetos (sprites).</li>
+                    <li><strong>Otras regiones:</strong> Dependiendo del juego, pueden limpiarse otras áreas de memoria.</li>
+                </ul>
+                <p>
+                    Cada región puede requerir cientos o miles de iteraciones de un bucle, y estos bucles pueden estar anidados (un bucle externo que controla múltiples bucles internos). Esto explica por qué incluso 2000 instrucciones pueden no ser suficientes para observar el final completo de la inicialización.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Memory Map, Boot ROM, Initialization Routines
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó la constante <code>DEBUG_INSTRUCTION_LIMIT</code> en el archivo <code>src/core/cpp/CPU.cpp</code> para aumentar el límite de instrucciones trazadas de 500 a 2000.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>CPU.cpp:</strong> Aumento de <code>DEBUG_INSTRUCTION_LIMIT</code> de 500 a 2000.</li>
+                </ul>
+
+                <h3>Cambio realizado</h3>
+                <pre><code>// Variables estáticas para logging de diagnóstico
+static int debug_instruction_counter = 0;
+// Aumentamos el límite drásticamente a 2000 para superar todos los bucles de inicialización.
+static const int DEBUG_INSTRUCTION_LIMIT = 2000;</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Aumento de <code>DEBUG_INSTRUCTION_LIMIT</code> de 500 a 2000.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este cambio no requiere tests unitarios específicos, ya que solo modifica el límite de logging de diagnóstico. La validación se realizó mediante:
+                </p>
+                <ul>
+                    <li><strong>Recompilación del módulo C++:</strong> Ejecutado <code>.\rebuild_cpp.ps1</code> exitosamente.</li>
+                    <li><strong>Ejecución del emulador:</strong> Ejecutado <code>python main.py roms/tetris.gb</code> para generar la nueva traza extendida.</li>
+                    <li><strong>Análisis de la traza:</strong> Se capturaron exactamente 2000 instrucciones.</li>
+                </ul>
+                
+                <h3>Resultados del Análisis</h3>
+                <p>
+                    <strong>Estadísticas de la traza:</strong>
+                </p>
+                <ul>
+                    <li><strong>Total de instrucciones capturadas:</strong> 2000</li>
+                    <li><strong>Bucle principal (0x0293-0x0295):</strong> Cada dirección se ejecuta 663 veces</li>
+                    <li><strong>Instrucciones fuera del bucle principal:</strong> Solo 2 apariciones de 0x0297 y 0x0298</li>
+                    <li><strong>Últimas 20 instrucciones:</strong> Todas están dentro del bucle (0x0293-0x0295)</li>
+                </ul>
+                
+                <h3>Hallazgos Clave</h3>
+                <p>
+                    El análisis reveló que incluso con 2000 instrucciones, todavía estamos dentro de los bucles de inicialización:
+                </p>
+                <ul>
+                    <li>El bucle principal (0x0293-0x0295) se ejecuta más de 660 veces, consumiendo aproximadamente 1989 instrucciones de las 2000 disponibles.</li>
+                    <li>Hay evidencia de bucles anidados: se observan instrucciones en 0x0297 (DEC C) y 0x0298 (JR NZ), sugiriendo que hay un bucle externo que controla el bucle interno.</li>
+                    <li>No se observaron opcodes de configuración de hardware (0xE0, 0xEA, 0xCD) en la traza, lo que indica que todavía no hemos llegado a la fase de configuración de la PPU.</li>
+                </ul>
+                
+                <h3>Fragmento de la Traza Final</h3>
+                <pre><code>[CPU TRACE 1995] PC: 0x0294 | Opcode: 0x05
+[CPU TRACE 1996] PC: 0x0295 | Opcode: 0x20
+[CPU TRACE 1997] PC: 0x0293 | Opcode: 0x32
+[CPU TRACE 1998] PC: 0x0294 | Opcode: 0x05
+[CPU TRACE 1999] PC: 0x0295 | Opcode: 0x20</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Análisis del Step 0155: Confirmación de que 500 instrucciones son insuficientes.</li>
+                    <li>Pan Docs - Memory Map: Descripción de las regiones de memoria que deben limpiarse durante la inicialización.</li>
+                    <li>Comportamiento observado en trazas de CPU: Los bucles de inicialización pueden ser extremadamente largos.</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Bucles de inicialización extensos:</strong> Los bucles de limpieza de memoria pueden ejecutarse cientos o miles de veces, consumiendo miles de instrucciones.</li>
+                        <li><strong>Bucles anidados:</strong> Puede haber múltiples niveles de bucles anidados, donde un bucle externo controla varios bucles internos.</li>
+                        <li><strong>Límites de traza:</strong> Incluso límites aparentemente grandes (2000 instrucciones) pueden ser insuficientes para capturar rutinas de inicialización completas.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Punto de salida completo:</strong> Necesitamos identificar cuántas iteraciones más se requieren para salir completamente de todos los bucles de inicialización.</li>
+                        <li><strong>Estrategia alternativa:</strong> Podríamos necesitar implementar un mecanismo de traza condicional que se active solo después de ciertos puntos de interés, en lugar de trazar todas las instrucciones desde el inicio.</li>
+                        <li><strong>Configuración de hardware:</strong> Una vez que salgamos de los bucles, necesitamos identificar qué opcodes se usan para configurar la PPU y otros componentes de hardware.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> Los bucles de inicialización de Tetris son extremadamente largos, posiblemente limpiando múltiples regiones de memoria de 8 KB cada una. Es posible que necesitemos aumentar el límite aún más (a 5000 o 10000) o implementar una estrategia de traza condicional para poder observar qué ocurre después de la inicialización.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Evaluar si es necesario aumentar el límite aún más (a 5000 o 10000 instrucciones).</li>
+                    <li>[ ] Considerar implementar un mecanismo de traza condicional que se active solo después de ciertos puntos de interés.</li>
+                    <li>[ ] Analizar la ROM directamente para identificar qué opcodes están en las direcciones después de los bucles de inicialización.</li>
+                    <li>[ ] Verificar si hay más bucles de limpieza después de 0x0298 o si comienza la configuración de hardware.</li>
+                    <li>[ ] Una vez que identifiquemos el final de los bucles, implementar los opcodes faltantes para que el juego pueda continuar su ejecución.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

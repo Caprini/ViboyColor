@@ -5,8 +5,8 @@
 
 // Variables estáticas para logging de diagnóstico
 static int debug_instruction_counter = 0;
-// Aumentamos el límite para ver más allá de los bucles de limpieza
-static const int DEBUG_INSTRUCTION_LIMIT = 500;
+// Aumentamos el límite drásticamente a 2000 para superar todos los bucles de inicialización.
+static const int DEBUG_INSTRUCTION_LIMIT = 2000;
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {

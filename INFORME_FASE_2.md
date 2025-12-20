@@ -32,6 +32,43 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0156: Debug: Extensión Final del Trazado de CPU a 2000 Instrucciones
+**Estado**: 🔍 DRAFT
+
+El análisis de la traza de 500 instrucciones (Step 0155) confirmó que los bucles de limpieza de memoria de la ROM de Tetris son extremadamente largos y consumen toda la ventana de depuración actual.
+
+**Objetivo:**
+- Aumentar el límite de traza de la CPU de 500 a 2000 instrucciones para garantizar la captura de la secuencia de código que se ejecuta después de que todos los bucles de inicialización hayan finalizado.
+- Observar qué instrucciones ejecuta el juego una vez que ha terminado de limpiar todas las áreas de memoria.
+- Identificar el siguiente opcode que debemos implementar para que el juego pueda continuar su ejecución.
+
+**Modificaciones realizadas:**
+- Aumentado `DEBUG_INSTRUCTION_LIMIT` de 500 a 2000 en `src/core/cpp/CPU.cpp`.
+- Agregado comentario explicativo sobre el propósito del aumento drástico del límite.
+
+**Resultados del análisis:**
+- ✅ **Total de instrucciones capturadas:** 2000 (todas las instrucciones disponibles)
+- ✅ **Bucle principal (0x0293-0x0295):** Cada dirección se ejecuta 663 veces
+- ⚠️ **Instrucciones fuera del bucle principal:** Solo 2 apariciones de 0x0297 y 0x0298
+- ⚠️ **Últimas 20 instrucciones:** Todas están dentro del bucle (0x0293-0x0295)
+- ⚠️ **No se observaron opcodes de configuración:** No se encontraron opcodes como 0xE0 (LDH), 0xEA (LD), o 0xCD (CALL) en la traza
+
+**Hallazgos clave:**
+- El bucle principal (0x0293-0x0295) se ejecuta más de 660 veces, consumiendo aproximadamente 1989 instrucciones de las 2000 disponibles.
+- Hay evidencia de bucles anidados: se observan instrucciones en 0x0297 (DEC C) y 0x0298 (JR NZ), sugiriendo que hay un bucle externo que controla el bucle interno.
+- Incluso con 2000 instrucciones, todavía estamos dentro de los bucles de inicialización, lo que indica que estos bucles son aún más extensos de lo esperado.
+
+**Próximos pasos:**
+- Evaluar si es necesario aumentar el límite aún más (a 5000 o 10000 instrucciones).
+- Considerar implementar un mecanismo de traza condicional que se active solo después de ciertos puntos de interés.
+- Analizar la ROM directamente para identificar qué opcodes están en las direcciones después de los bucles de inicialización.
+- Verificar si hay más bucles de limpieza después de 0x0298 o si comienza la configuración de hardware.
+
+**Hipótesis:**
+Los bucles de inicialización de Tetris son extremadamente largos, posiblemente limpiando múltiples regiones de memoria de 8 KB cada una. Es posible que necesitemos aumentar el límite aún más o implementar una estrategia de traza condicional para poder observar qué ocurre después de la inicialización.
+
+---
+
 ### 2025-12-20 - Step 0155: Análisis: La Traza de 500 Instrucciones Revela la Configuración de la PPU
 **Estado**: 🔍 DRAFT
 
