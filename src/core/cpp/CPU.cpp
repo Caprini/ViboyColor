@@ -1549,7 +1549,8 @@ int CPU::step() {
             // Fail-fast: Si encontramos un opcode desconocido, lo reportamos
             // y terminamos la ejecución inmediatamente. Esto es mucho mejor que
             // devolver 0 ciclos y causar un deadlock silencioso.
-            printf("[CPU FATAL] Unimplemented opcode: 0x%02X at PC: 0x%04X\n", opcode, current_pc);
+            std::fprintf(stderr, "[CPU FATAL] Unimplemented opcode: 0x%02X at PC: 0x%04X\n", opcode, current_pc);
+            std::fflush(stderr); // Asegurar que el mensaje se muestre antes de salir
             exit(1); // Termina el programa con un código de error.
             return 0; // No se alcanzará, pero mantiene la lógica del compilador.
     }

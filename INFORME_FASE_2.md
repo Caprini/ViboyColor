@@ -64,6 +64,66 @@ Al ejecutar el emulador, la consola debería permanecer en silencio mientras la 
 
 ---
 
+### 2025-12-20 - Step 0168: Debug: Instrumentar Default Case para Capturar Opcodes Desconocidos
+**Estado**: 🔍 DRAFT
+
+El deadlock de `LY=0` persiste a pesar de que los tests de interrupciones y la lógica de `DEC` son correctos. El análisis de la ejecución muestra que el bucle principal de Python funciona, pero el tiempo emulado no avanza. La causa raíz es que `cpu.step()` está devolviendo 0 ciclos repetidamente, lo que solo ocurre cuando encuentra un opcode no implementado y cae en el `default` case del `switch`.
+
+**Objetivo:**
+- Instrumentar el caso `default` en la CPU de C++ para que el emulador falle de forma inmediata y explícita ("fail-fast"), reportando el PC y el opcode exactos que causan el `deadlock`.
+
+**Concepto de Hardware: Depuración "Fail-Fast":**
+En el desarrollo de emuladores, es una práctica estándar hacer que el núcleo falle de manera ruidosa y temprana cuando encuentra una condición inesperada, como un opcode desconocido. En lugar de permitir que el emulador continúe en un estado indefinido (como nuestro deadlock de `LY=0`), lo forzamos a detenerse inmediatamente, mostrándonos la causa exacta del problema. Esto acelera drásticamente el ciclo de depuración porque:
+- **Identificación Inmediata**: El programa termina en el momento exacto en que encuentra el problema, no después de ejecutar miles de instrucciones en un estado corrupto.
+- **Información Precisa**: Reporta el opcode exacto y la dirección de memoria (PC) donde ocurre el fallo, permitiendo una investigación directa y eficiente.
+- **Evita Estados Indefinidos**: Previene que el emulador entre en bucles infinitos o estados corruptos que son difíciles de depurar retrospectivamente.
+
+**Implementación:**
+- Se modificó el caso `default` en el método `CPU::step()` en `src/core/cpp/CPU.cpp` para que, en lugar de imprimir un warning y devolver 0 ciclos, imprima un mensaje fatal y termine la ejecución con `exit(1)`.
+- Se utilizó `fprintf(stderr, ...)` y `fflush(stderr)` para asegurar que el mensaje se muestre antes de que el programa termine.
+- El código anterior solo imprimía un warning y devolvía 0 ciclos, causando un deadlock silencioso. El nuevo código implementa fail-fast con `exit(1)`.
+
+**Resultado Esperado:**
+Al ejecutar el emulador, debería terminar casi instantáneamente y mostrar un mensaje de error fatal en la consola con el formato:
+```
+[CPU FATAL] Unimplemented opcode: 0xXX at PC: 0xXXXX
+```
+Este mensaje identificará exactamente qué opcode falta implementar y en qué dirección de memoria se encuentra, permitiendo una corrección rápida y precisa.
+
+**Próximos Pasos:**
+- Recompilar el módulo C++ con la nueva instrumentación.
+- Ejecutar el emulador con una ROM para identificar el opcode faltante.
+- Implementar el opcode identificado según Pan Docs.
+- Repetir el proceso hasta que la emulación avance correctamente.
+
+---
+
+### 2025-12-20 - Step 0167: Fix: Propiedades Cython para Tests de Interrupciones
+**Estado**: ✅ VERIFIED
+
+Se corrigieron tres tests de interrupciones que estaban fallando debido a que intentaban acceder a las propiedades `ime` y `halted` directamente en la instancia de `PyCPU`, pero el wrapper de Cython solo exponía métodos `get_ime()` y `get_halted()`. Se agregaron propiedades Python usando el decorador `@property` en el wrapper de Cython para permitir acceso directo a estos valores, manteniendo compatibilidad con los tests existentes.
+
+**Objetivo:**
+- Agregar propiedades Python al wrapper de Cython para permitir acceso directo a `ime` y `halted` desde los tests.
+- Corregir el test `test_halt_wakeup_on_interrupt` para reflejar el comportamiento correcto del hardware.
+
+**Concepto de Hardware:**
+El wrapper de Cython actúa como un puente entre Python y C++, permitiendo que el código Python acceda a funcionalidades implementadas en C++ de manera eficiente. En Python, es común acceder a propiedades de objetos usando la sintaxis de atributos (ej: `cpu.ime`) en lugar de métodos (ej: `cpu.get_ime()`), especialmente en tests donde se busca una API más natural y legible. El decorador `@property` de Python permite convertir métodos en propiedades, manteniendo la lógica de acceso encapsulada.
+
+**Implementación:**
+- Se agregaron dos propiedades al wrapper de Cython `PyCPU` en `src/core/cython/cpu.pyx`: `ime` y `halted` usando el decorador `@property`.
+- Se corrigió el test `test_halt_wakeup_on_interrupt` en `tests/test_core_cpu_interrupts.py` para reflejar el comportamiento correcto del hardware cuando la CPU despierta del HALT sin procesar la interrupción.
+
+**Tests:**
+- Se ejecutaron todos los tests de interrupciones: 7 tests pasaron correctamente.
+- Validación de módulo compilado C++: El módulo se recompiló exitosamente después de agregar las propiedades.
+
+**Próximos Pasos:**
+- Continuar con el análisis del trazado disparado para identificar opcodes no implementados.
+- Implementar los opcodes faltantes que bloquean el renderizado de gráficos.
+
+---
+
 ### 2025-12-20 - Step 0165: Fix Crítico: Gestión Correcta del Flag Cero (Z) en la Instrucción DEC
 **Estado**: ✅ VERIFIED
 
