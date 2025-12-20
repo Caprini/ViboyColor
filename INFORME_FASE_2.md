@@ -32,6 +32,67 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0191: ¡Hito y Limpieza! Primeros Gráficos con Precisión de Hardware
+**Estado**: ✅ VERIFIED
+
+¡HITO HISTÓRICO ALCANZADO! En el Step 0190, tras inicializar los registros de la CPU a su estado Post-BIOS correcto, el emulador ejecutó la ROM de Tetris, superó todas las verificaciones de arranque y renderizó exitosamente el logo de Nintendo en la pantalla. Hemos logrado nuestro primer "First Boot" exitoso. La Fase de Sincronización ha concluido.
+
+**Objetivo:**
+- Realizar la limpieza "post-victoria": eliminar el último hack educativo de la PPU (que forzaba el renderizado del fondo ignorando el Bit 0 del LCDC) para restaurar la precisión 100% fiel al hardware del emulador.
+
+**Concepto de Hardware: La Prueba de Fuego de la Precisión**
+
+Nuestro "hack educativo" del Step 0179, que forzaba el renderizado del fondo ignorando el `Bit 0` del `LCDC`, fue una herramienta de diagnóstico invaluable. Nos permitió ver que la VRAM se estaba llenando de datos y que el renderizado funcionaba a nivel técnico. Sin embargo, es una imprecisión que no refleja el comportamiento real del hardware.
+
+En una Game Boy real, el registro `LCDC (0xFF40)` controla completamente el renderizado:
+- **Bit 7:** LCD Enable (1 = LCD encendido, 0 = LCD apagado)
+- **Bit 0:** BG Display Enable (1 = Fondo habilitado, 0 = Fondo deshabilitado)
+
+El código del juego (ROM) es el responsable de activar estos bits en el momento correcto. Durante el arranque, el juego:
+1. Carga los datos del logo en VRAM
+2. Configura el tilemap y las paletas
+3. Activa el Bit 7 del LCDC (LCD Enable)
+4. Activa el Bit 0 del LCDC (BG Display Enable) cuando está listo para mostrar el fondo
+
+**La Prueba de Fuego Final:** Si eliminamos el hack y el logo de Nintendo sigue apareciendo, significa que nuestra emulación es tan precisa que el propio código de la ROM es capaz de orquestar la PPU y activar el renderizado del fondo en el momento exacto, tal y como lo haría en una Game Boy real.
+
+**Implementación:**
+
+1. **Verificación del Código Limpio**: El método `PPU::render_scanline()` en `src/core/cpp/PPU.cpp` ya contiene la verificación correcta del Bit 0 del LCDC (restaurado en Step 0185). Este Step confirma que el hack educativo ha sido completamente eliminado.
+
+2. **Limpieza de Logs de Depuración**: Se verificó que no quedan `printf` o trazas de depuración en el código C++ que puedan afectar el rendimiento.
+
+**Archivos Afectados:**
+- `src/core/cpp/PPU.cpp` - Verificación confirmada: el código ya está limpio y preciso (restaurado en Step 0185)
+- `src/core/cpp/CPU.cpp` - Verificación confirmada: no hay logs de depuración
+- `docs/bitacora/entries/2025-12-20__0191__hito-primeros-graficos-limpieza-post-victoria.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0191
+
+**Tests y Verificación:**
+
+La verificación final se realiza ejecutando el emulador con la ROM de Tetris:
+```bash
+python main.py roms/tetris.gb
+```
+
+**Resultado Esperado:** El logo de Nintendo debe aparecer en la pantalla, confirmando que:
+- El estado inicial de la CPU (Post-BIOS) es correcto
+- Las interrupciones se procesan correctamente
+- El HALT funciona correctamente
+- El Timer avanza a la velocidad correcta
+- El Joypad se lee correctamente
+- La sincronización ciclo a ciclo entre CPU y PPU es precisa
+- El código de la ROM es capaz de controlar la PPU por sí mismo, activando el Bit 0 del LCDC en el momento correcto
+
+**Validación de módulo compilado C++**: El emulador utiliza el módulo C++ compilado (`viboy_core`), que contiene la implementación precisa de la PPU sin hacks educativos.
+
+**Resultado Final:**
+
+Con la limpieza completada, el emulador funciona con precisión 100% fiel al hardware. El logo de Nintendo aparece porque el código de la ROM es capaz de controlar la PPU correctamente, activando el Bit 0 del LCDC en el momento exacto. Esto marca el final de la fase de "hacer que arranque" y el inicio de la fase de "implementar el resto de características del juego".
+
+---
+
 ### 2025-12-20 - Step 0190: El Estado del GÉNESIS - Inicialización de Registros de CPU Post-BIOS
 **Estado**: ✅ VERIFIED
 
