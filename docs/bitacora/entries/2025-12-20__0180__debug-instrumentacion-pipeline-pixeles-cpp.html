@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug: Instrumentación del Pipeline de Píxeles en C++ - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug: Instrumentación del Pipeline de Píxeles en C++</h1>
+            <!-- Entrada 0180 - Debug: Instrumentación del Pipeline de Píxeles en C++ -->
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0180
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0179__hack-educativo-forzar-renderizado-fondo-diagnostico-visual.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    <strong>¡Hito alcanzado!</strong> La arquitectura de bucle nativo ha resuelto todos los <code>deadlocks</code> y el emulador funciona a 60 FPS con <code>LY</code> ciclando correctamente. Sin embargo, la pantalla permanece en blanco porque el método <code>render_scanline()</code> de la PPU en C++ está generando un framebuffer lleno de ceros.
+                </p>
+                <p>
+                    Este Step instrumenta el pipeline de renderizado de píxeles dentro de <code>PPU::render_scanline()</code> con logs de diagnóstico detallados para identificar por qué no se están leyendo los datos de los tiles desde la VRAM. El diagnóstico del "renderizador ciego" sugiere que el método se ejecuta correctamente pero falla en algún punto de la cadena de renderizado (cálculo de direcciones, lectura de memoria, decodificación de bits).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: El Pipeline de Renderizado de un Píxel</h2>
+                <p>
+                    Para dibujar un solo píxel en la pantalla, la PPU realiza una compleja cadena de cálculos y lecturas de memoria. Cada paso de esta cadena es crítico y cualquier fallo resultará en un píxel incorrecto o en blanco:
+                </p>
+                <ol>
+                    <li><strong>Cálculo de Coordenadas en el Tilemap:</strong> Calcula la coordenada <code>(map_x, map_y)</code> en el mapa de fondo de 256x256 píxeles, aplicando el scroll (<code>SCX</code>, <code>SCY</code>).</li>
+                    <li><strong>Búsqueda del Tile en el Tilemap:</strong> Usa <code>(map_x, map_y)</code> para encontrar la posición del tile correspondiente en el <strong>tilemap</strong> (<code>0x9800</code> o <code>0x9C00</code>).</li>
+                    <li><strong>Lectura del ID del Tile:</strong> Lee el <strong>ID del tile</strong> (<code>tile_id</code>) de esa posición del tilemap.</li>
+                    <li><strong>Cálculo de la Dirección del Tile:</strong> Usa el <code>tile_id</code> para calcular la dirección base de los datos del tile en la <strong>tabla de tiles</strong> (<code>0x8000</code> o <code>0x8800</code>).</li>
+                    <li><strong>Lectura de los Datos del Píxel:</strong> Lee los <strong>2 bytes</strong> que corresponden a la línea de píxeles correcta dentro de ese tile.</li>
+                    <li><strong>Decodificación del Índice de Color:</strong> Decodifica esos 2 bytes para obtener el <strong>índice de color (0-3)</strong> del píxel final.</li>
+                </ol>
+                <p>
+                    Si cualquier paso de esta cadena falla (un cálculo de dirección incorrecto, una lectura de memoria que devuelve 0, una decodificación errónea), el resultado final será un píxel de color 0 (blanco). El framebuffer lleno de ceros que observamos sugiere que uno de estos pasos está fallando sistemáticamente.
+                </p>
+                <p>
+                    Según <strong>Pan Docs</strong>, el formato de datos de un tile es:
+                </p>
+                <ul>
+                    <li>Cada tile ocupa 16 bytes (8 líneas × 2 bytes por línea).</li>
+                    <li>Cada línea del tile ocupa 2 bytes consecutivos en VRAM.</li>
+                    <li>El byte bajo contiene el bit menos significativo de cada píxel (bit 7 = píxel 0, bit 6 = píxel 1, ...).</li>
+                    <li>El byte alto contiene el bit más significativo de cada píxel (bit 7 = píxel 0, bit 6 = píxel 1, ...).</li>
+                    <li>El índice de color final se calcula como: <code>color_index = (byte_high_bit << 1) | byte_low_bit</code>.</li>
+                </ul>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se instrumentó el método <code>render_scanline()</code> con logs de depuración detallados que muestran los valores intermedios del pipeline de renderizado para los primeros píxeles de las primeras dos líneas.
+                </p>
+                
+                <h3>Modificación en PPU.cpp</h3>
+                <p>
+                    Se agregó <code>#include &lt;cstdio&gt;</code> al principio del archivo y se añadieron logs de depuración dentro del bucle de renderizado:
+                </p>
+                <pre><code>#include "PPU.hpp"
+#include "MMU.hpp"
+#include &lt;cstdio&gt;
+
+// ... dentro de render_scanline() ...
+
+// --- LOGS DE DEPURACIÓN (Step 0180) ---
+// Variable estática para imprimir logs solo una vez (primeras dos líneas, primeros 8 píxeles)
+static bool debug_printed = false;
+
+// ... código de renderizado ...
+
+// --- LOGS DE DEPURACIÓN (Step 0180) ---
+// Imprimir logs detallados para los primeros píxeles de las primeras dos líneas
+if (!debug_printed && ly_ &lt; 2 && x &lt; 8) {
+    // Mostrar tile_id como signed si estamos en modo signed, unsigned si estamos en modo unsigned
+    int display_tile_id = signed_addressing ? static_cast&lt;int8_t&gt;(tile_id) : static_cast&lt;int&gt;(tile_id);
+    printf("[PPU DEBUG] ly=%d, x=%d | map_x=%d, map_y=%d | tile_map_addr=0x%04X | tile_id=%d | tile_addr=0x%04X | byte1=0x%02X, byte2=0x%02X | color=%d\n",
+        ly_, x, map_x, map_y, tile_map_addr, display_tile_id, tile_addr, byte1, byte2, color_index);
+}
+
+// Marcar que ya imprimimos los logs (solo una vez, después de la línea 1)
+if (ly_ == 1) {
+    debug_printed = true;
+}</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Logs Limitados:</strong> Los logs solo se imprimen para los primeros 8 píxeles de las primeras 2 líneas para evitar saturar la consola. Una vez impresos, se desactivan automáticamente.</li>
+                    <li><strong>Información Completa:</strong> Cada log muestra todos los valores intermedios del pipeline: coordenadas, direcciones, IDs, bytes leídos y color final.</li>
+                    <li><strong>Modo Signed/Unsigned:</strong> El <code>tile_id</code> se muestra correctamente según el modo de direccionamiento (signed o unsigned) para facilitar el diagnóstico.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Agregado <code>#include &lt;cstdio&gt;</code> e instrumentación con logs de depuración en <code>render_scanline()</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este cambio requiere recompilación del módulo C++ y ejecución del emulador para capturar los logs de depuración:
+                </p>
+                <ol>
+                    <li><strong>Recompilación del Módulo C++:</strong>
+                        <pre><code>.\rebuild_cpp.ps1</code></pre>
+                    </li>
+                    <li><strong>Ejecución del Emulador:</strong>
+                        <pre><code>python main.py roms/tetris.gb</code></pre>
+                    </li>
+                    <li><strong>Análisis de la Salida:</strong>
+                        <p>
+                            La consola mostrará un log detallado para los primeros píxeles. Estaremos buscando:
+                        </p>
+                        <ul>
+                            <li><strong>Si <code>byte1</code> y <code>byte2</code> son siempre <code>0x00</code>:</strong> El problema está en el cálculo de <code>tile_addr</code> o <code>tile_line_addr</code>. Estamos apuntando a una zona vacía de la VRAM.</li>
+                            <li><strong>Si <code>tile_id</code> es siempre <code>0</code>:</strong> El problema está en el cálculo de <code>tile_map_addr</code>. No estamos leyendo el mapa de tiles correctamente.</li>
+                            <li><strong>Si <code>byte1</code> y <code>byte2</code> tienen valores correctos pero <code>color_index</code> es <code>0</code>:</strong> El problema está en la decodificación final de los bits.</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Validación de Módulo Compilado C++:</strong> Los logs se generan directamente desde el código C++ compilado, confirmando que el pipeline de renderizado se está ejecutando en el código nativo.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs:</strong> Sección sobre el formato de datos de tiles y el pipeline de renderizado de la PPU</li>
+                    <li><strong>Diagnóstico del Renderizador Ciego:</strong> Análisis del framebuffer lleno de ceros y el comportamiento del método <code>render_scanline()</code></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Pipeline de Renderizado:</strong> El renderizado de un píxel es un proceso complejo que involucra múltiples pasos: cálculo de coordenadas, lectura del tilemap, cálculo de direcciones, lectura de VRAM y decodificación de bits. Cualquier fallo en cualquier paso resultará en un píxel incorrecto.</li>
+                        <li><strong>Instrumentación Quirúrgica:</strong> Los logs de depuración deben ser limitados y específicos para evitar saturar la consola, pero deben mostrar suficiente información para diagnosticar el problema.</li>
+                        <li><strong>Diagnóstico del Renderizador Ciego:</strong> El framebuffer lleno de ceros sugiere que el método se ejecuta pero falla en algún punto del pipeline. Los logs nos permitirán identificar exactamente dónde.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Punto de Fallo en el Pipeline:</strong> Necesitamos ejecutar el emulador y analizar los logs para identificar exactamente dónde falla el pipeline de renderizado.</li>
+                        <li><strong>Estado de la VRAM:</strong> Necesitamos confirmar si los datos de tiles están realmente en VRAM o si el problema es que no se han copiado aún.</li>
+                        <li><strong>Cálculo de Direcciones:</strong> Necesitamos verificar si las direcciones calculadas (<code>tile_map_addr</code>, <code>tile_addr</code>, <code>tile_line_addr</code>) son correctas.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> El pipeline de renderizado se está ejecutando, pero falla en algún paso específico (cálculo de direcciones, lectura de memoria, decodificación). Los logs nos permitirán identificar exactamente dónde.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Asumimos que los datos de tiles están en VRAM (la CPU ha ejecutado las rutinas de inicialización). Si los logs muestran que <code>byte1</code> y <code>byte2</code> son siempre <code>0x00</code>, esto sugeriría que estamos apuntando a una zona vacía de VRAM o que el cálculo de direcciones es incorrecto.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con la instrumentación de depuración</li>
+                    <li>[ ] Ejecutar el emulador y capturar los logs de depuración</li>
+                    <li>[ ] Analizar los logs para identificar el punto de fallo en el pipeline</li>
+                    <li>[ ] Si <code>byte1</code> y <code>byte2</code> son <code>0x00</code>: Investigar el cálculo de direcciones de tiles</li>
+                    <li>[ ] Si <code>tile_id</code> es siempre <code>0</code>: Investigar el cálculo de direcciones del tilemap</li>
+                    <li>[ ] Si los bytes son correctos pero <code>color_index</code> es <code>0</code>: Investigar la decodificación de bits</li>
+                    <li>[ ] Corregir el problema identificado y verificar que el framebuffer se llena correctamente</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0180 - Debug: Instrumentación del Pipeline de Píxeles en C++ -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0180__debug-instrumentacion-pipeline-pixeles-cpp.html" class="entry-link">
+                                    Debug: Instrumentación del Pipeline de Píxeles en C++
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0180 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            ¡Hito alcanzado! La arquitectura de bucle nativo ha resuelto todos los deadlocks y el emulador funciona a 60 FPS con LY ciclando correctamente. Sin embargo, la pantalla permanece en blanco porque el método render_scanline() de la PPU en C++ está generando un framebuffer lleno de ceros. Este Step instrumenta el pipeline de renderizado de píxeles con logs de diagnóstico detallados para identificar por qué no se están leyendo los datos de los tiles desde la VRAM.
+                        </p>
+                    </li>
                     <!-- Entrada 0179 - Hack Educativo: Forzar Renderizado del Fondo para Diagnóstico Visual -->
                     <li>
                         <div class="entry-header">

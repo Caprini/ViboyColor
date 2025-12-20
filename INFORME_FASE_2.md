@@ -32,6 +32,54 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0180: Debug: Instrumentación del Pipeline de Píxeles en C++
+**Estado**: 🔍 DRAFT
+
+¡Hito alcanzado! La arquitectura de bucle nativo ha resuelto todos los `deadlocks` y el emulador funciona a 60 FPS con `LY` ciclando correctamente. Sin embargo, la pantalla permanece en blanco porque el método `render_scanline()` de la PPU en C++ está generando un framebuffer lleno de ceros.
+
+Este Step instrumenta el pipeline de renderizado de píxeles dentro de `PPU::render_scanline()` con logs de diagnóstico detallados para identificar por qué no se están leyendo los datos de los tiles desde la VRAM. El diagnóstico del "renderizador ciego" sugiere que el método se ejecuta correctamente pero falla en algún punto de la cadena de renderizado (cálculo de direcciones, lectura de memoria, decodificación de bits).
+
+**Objetivo:**
+- Instrumentar el método `render_scanline()` con logs de depuración que muestren los valores intermedios del pipeline de renderizado.
+- Identificar el punto exacto donde falla la cadena de renderizado (cálculo de direcciones, lectura de VRAM, decodificación de bits).
+- Diagnosticar por qué el framebuffer está lleno de ceros a pesar de que el método se ejecuta correctamente.
+
+**Concepto de Hardware:**
+Para dibujar un solo píxel en la pantalla, la PPU realiza una compleja cadena de cálculos y lecturas de memoria:
+
+1. Calcula la coordenada `(map_x, map_y)` en el mapa de fondo de 256x256, aplicando el scroll (`SCX`, `SCY`).
+2. Usa `(map_x, map_y)` para encontrar la posición del tile correspondiente en el **tilemap** (`0x9800` o `0x9C00`).
+3. Lee el **ID del tile** (`tile_id`) de esa posición del tilemap.
+4. Usa el `tile_id` para calcular la dirección base de los datos del tile en la **tabla de tiles** (`0x8000` o `0x8800`).
+5. Lee los **2 bytes** que corresponden a la línea de píxeles correcta dentro de ese tile.
+6. Decodifica esos 2 bytes para obtener el **índice de color (0-3)** del píxel final.
+
+Si cualquier paso de esta cadena falla (un cálculo de dirección incorrecto, una lectura de memoria que devuelve 0), el resultado final será un píxel de color 0 (blanco).
+
+**Implementación:**
+- Agregado `#include <cstdio>` al principio de `PPU.cpp`.
+- Instrumentado el método `render_scanline()` con logs de depuración que muestran:
+  - Coordenadas `(map_x, map_y)` en el tilemap.
+  - Dirección del tilemap (`tile_map_addr`).
+  - ID del tile (`tile_id`).
+  - Dirección del tile en VRAM (`tile_addr`).
+  - Bytes leídos desde VRAM (`byte1`, `byte2`).
+  - Índice de color final (`color_index`).
+- Los logs solo se imprimen para los primeros 8 píxeles de las primeras 2 líneas para evitar saturar la consola.
+
+**Archivos Afectados:**
+- `src/core/cpp/PPU.cpp` - Agregado `#include <cstdio>` e instrumentación con logs de depuración en `render_scanline()`
+
+**Próximos Pasos:**
+- Recompilar el módulo C++ con la instrumentación de depuración.
+- Ejecutar el emulador y capturar los logs de depuración.
+- Analizar los logs para identificar el punto de fallo en el pipeline:
+  - Si `byte1` y `byte2` son siempre `0x00`: El problema está en el cálculo de direcciones de tiles.
+  - Si `tile_id` es siempre `0`: El problema está en el cálculo de direcciones del tilemap.
+  - Si los bytes son correctos pero `color_index` es `0`: El problema está en la decodificación de bits.
+
+---
+
 ### 2025-12-20 - Step 0179: Hack Educativo: Forzar Renderizado del Fondo para Diagnóstico Visual
 **Estado**: ✅ VERIFIED
 
