@@ -32,6 +32,26 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0164: Debug: Trazado desde PC=0x0100 para Capturar Bucle Oculto
+**Estado**: 🔍 DRAFT
+
+El deadlock de `LY=0` persiste, pero no hay warnings de opcodes no implementados, lo que indica que la CPU está en un bucle infinito de instrucciones válidas. El trazado disparado en `PC=0x0300` no se activa porque el PC está atascado antes. Se modifica el sistema de trazado para activarse desde el inicio de la ejecución (`PC=0x0100`) y capturar el bucle infinito en acción.
+
+**Objetivo:**
+- Modificar el sistema de trazado de la CPU para que se active desde el inicio de la ejecución (`PC=0x0100`).
+- Capturar las primeras 200 instrucciones para identificar el patrón del bucle infinito.
+- Determinar qué registro de hardware está esperando el juego y por qué no cambia.
+
+**Implementación:**
+- Cambio de `DEBUG_TRIGGER_PC` de `0x0300` a `0x0100` (inicio del programa).
+- Aumento de `DEBUG_INSTRUCTION_LIMIT` de `100` a `200` instrucciones.
+- El trazado ahora capturará el bucle desde el primer momento de ejecución.
+
+**Próximos Pasos:**
+- Recompilar y ejecutar el emulador para obtener la traza completa.
+- Analizar la traza para encontrar el patrón repetitivo al final.
+- Determinar la causa del deadlock (registro de hardware no implementado, flag de interrupción, o problema de sincronización).
+
 ### 2025-12-20 - Step 0163: Verificación: Ejecución Post-Saltos Condicionales
 **Estado**: 🔍 DRAFT
 

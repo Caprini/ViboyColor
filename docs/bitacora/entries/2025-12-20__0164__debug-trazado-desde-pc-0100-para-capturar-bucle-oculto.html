@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug: Trazado desde PC=0x0100 para Capturar Bucle Oculto - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug: Trazado desde PC=0x0100 para Capturar Bucle Oculto</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0164
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0163__verificacion-ejecucion-post-saltos-condicionales.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El deadlock de `LY=0` persiste, pero no hay warnings de opcodes no implementados, lo que indica que la CPU está en un bucle infinito de instrucciones válidas. El trazado disparado en `PC=0x0300` no se activa porque el PC está atascado antes. Se modifica el sistema de trazado para activarse desde el inicio de la ejecución (`PC=0x0100`) y capturar el bucle infinito en acción.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En un emulador de Game Boy, cuando la CPU está atrapada en un bucle infinito, el contador de líneas de escaneo (LY) no puede avanzar porque la CPU no está generando suficientes ciclos para que la PPU progrese. Este es un clásico <strong>deadlock del huevo y la gallina</strong>:
+                </p>
+                <ul>
+                    <li><strong>El juego espera:</strong> El código del juego está esperando que la PPU haga algo (ej. entrar en V-Blank, cambiar el estado de STAT).</li>
+                    <li><strong>La PPU no puede avanzar:</strong> La PPU no puede hacer nada porque `LY` no avanza.</li>
+                    <li><strong>LY no avanza:</strong> `LY` no avanza porque la CPU está atrapada y no le da suficientes ciclos.</li>
+                </ul>
+                <p>
+                    Si la CPU está ejecutando instrucciones válidas (sin warnings de opcodes desconocidos), pero el sistema no avanza, la única explicación lógica es que la CPU está ejecutando un pequeño bucle de código una y otra vez, tan rápido que el acumulador de ciclos en `viboy.py` nunca llega a los 456 necesarios para avanzar una sola línea de la PPU.
+                </p>
+                <p>
+                    Para identificar este bucle, necesitamos ver qué está haciendo la CPU desde el primer momento. El trazado "disparado" en `PC=0x0300` es inútil si el PC nunca llega allí. Por lo tanto, movemos el trigger al inicio del programa (`PC=0x0100`), que es donde comienza la ejecución de la ROM después del boot.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modifica el sistema de trazado en `CPU.cpp` para activarse desde el inicio de la ejecución y capturar un mayor número de instrucciones para identificar el patrón del bucle.
+                </p>
+                
+                <h3>Modificaciones en CPU.cpp</h3>
+                <p>
+                    Se cambian las constantes de trazado:
+                </p>
+                <ul>
+                    <li><strong>DEBUG_TRIGGER_PC:</strong> De `0x0300` a `0x0100` (inicio del programa).</li>
+                    <li><strong>DEBUG_INSTRUCTION_LIMIT:</strong> De `100` a `200` (para ver más instrucciones y capturar el patrón del bucle).</li>
+                </ul>
+
+                <h4>Código Modificado</h4>
+                <pre><code>// Variables estáticas para logging de diagnóstico con sistema "disparado" (triggered)
+// Cambiamos el trigger al inicio del programa para ver el bucle oculto
+static const uint16_t DEBUG_TRIGGER_PC = 0x0100; // Dirección de activación del trazado (inicio del programa)
+static bool debug_trace_activated = false;      // Bandera de activación
+static int debug_instruction_counter = 0;       // Contador post-activación
+// Aumentamos un poco el límite para ver el patrón del bucle
+static const int DEBUG_INSTRUCTION_LIMIT = 200; // Límite post-activación (aumentado para capturar bucles)</code></pre>
+
+                <h3>Proceso de Compilación y Ejecución</h3>
+                <p>
+                    Para aplicar los cambios:
+                </p>
+                <ol>
+                    <li><strong>Recompilar el módulo C++:</strong> Ejecutar `.\rebuild_cpp.ps1` o `python setup.py build_ext --inplace`.</li>
+                    <li><strong>Ejecutar el emulador:</strong> `python main.py roms/tetris.gb` (o cualquier ROM).</li>
+                    <li><strong>Analizar la traza:</strong> La consola mostrará las primeras 200 instrucciones desde el inicio del programa.</li>
+                </ol>
+
+                <h3>Análisis Esperado</h3>
+                <p>
+                    Al final de la traza, deberíamos ver un patrón repetitivo de 2 o 3 opcodes/PCs que se repiten una y otra vez. Este será nuestro bucle infinito. Un ejemplo típico sería:
+                </p>
+                <pre><code>...
+[CPU TRACE 195] PC: 0x02B4 | Opcode: 0xFE (CP d8)
+[CPU TRACE 196] PC: 0x02B6 | Opcode: 0x28 (JR Z, e)
+[CPU TRACE 197] PC: 0x02B4 | Opcode: 0xFE (CP d8)
+[CPU TRACE 198] PC: 0x02B6 | Opcode: 0x28 (JR Z, e)
+[CPU TRACE 199] PC: 0x02B4 | Opcode: 0xFE (CP d8)</code></pre>
+                <p>
+                    Este patrón nos dirá exactamente qué está esperando el juego. Probablemente está haciendo un `CP` (Compare) contra un registro de hardware (como `STAT`) y esperando que cambie de valor, pero como la PPU está parada, ese valor nunca cambia.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Modificados -->
+            <section id="archivos">
+                <h2>Archivos Modificados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Modificación de constantes de trazado (líneas 8-11).</li>
+                </ul>
+            </section>
+
+            <!-- 5. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ol>
+                    <li><strong>Recompilar y ejecutar:</strong> Aplicar los cambios y ejecutar el emulador para obtener la traza completa.</li>
+                    <li><strong>Identificar el bucle:</strong> Analizar la traza para encontrar el patrón repetitivo al final.</li>
+                    <li><strong>Determinar la causa:</strong> Entender qué registro de hardware está esperando el juego y por qué no cambia.</li>
+                    <li><strong>Implementar la solución:</strong> Corregir el problema identificado (puede ser un registro de hardware no implementado, un flag de interrupción, o un problema de sincronización).</li>
+                </ol>
+            </section>
+
+            <!-- 6. Referencias -->
+            <section id="referencias">
+                <h2>Referencias</h2>
+                <ul>
+                    <li><strong>Pan Docs:</strong> Sección sobre el contador de líneas de escaneo (LY) y sincronización CPU-PPU.</li>
+                    <li><strong>GBEDG:</strong> Documentación sobre el registro STAT y flags de interrupción.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                <strong>Viboy Color</strong> - Emulador de Game Boy Color (Clean-Room Implementation)
+            </p>
+            <p>
+                Este proyecto es educativo y Open Source. Implementación basada únicamente en documentación técnica.
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+

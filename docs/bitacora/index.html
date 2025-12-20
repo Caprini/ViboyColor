@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0164 - Debug: Trazado desde PC=0x0100 para Capturar Bucle Oculto -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0164__debug-trazado-desde-pc-0100-para-capturar-bucle-oculto.html" class="entry-link">
+                                    Debug: Trazado desde PC=0x0100 para Capturar Bucle Oculto
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0164 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            El deadlock de `LY=0` persiste, pero no hay warnings de opcodes no implementados, lo que indica que la CPU está en un bucle infinito de instrucciones válidas. El trazado disparado en `PC=0x0300` no se activa porque el PC está atascado antes. Se modifica el sistema de trazado para activarse desde el inicio de la ejecución (`PC=0x0100`) y capturar el bucle infinito en acción.
+                        </p>
+                    </li>
                     <!-- Entrada 0163 - Verificación: Ejecución Post-Saltos Condicionales -->
                     <li>
                         <div class="entry-header">
