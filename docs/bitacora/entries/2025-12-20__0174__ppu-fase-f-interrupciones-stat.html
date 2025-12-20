@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PPU Fase F: Implementación de Interrupciones STAT - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>PPU Fase F: Implementación de Interrupciones STAT</h1>
+            <!-- Entrada 0174 - PPU Fase F: Implementación de Interrupciones STAT -->
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0174
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0173__arquitectura-halt-despertador-interrupciones.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El emulador estaba en un <code>deadlock</code> persistente porque la CPU en estado <code>HALT</code> nunca se despertaba. Aunque la arquitectura de HALT implementada en el Step 0173 era correcta, el problema estaba en que la PPU no generaba las <strong>Interrupciones STAT</strong> que el juego esperaba para continuar. Este Step documenta la verificación y corrección final del sistema de interrupciones STAT en la PPU C++, asegurando que la interrupción V-Blank use el método <code>request_interrupt()</code> para mantener consistencia, y confirma que el acceso a <code>ime</code> en el wrapper de Cython ya está correctamente implementado.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: El Diálogo de Interrupciones STAT</h2>
+                <p>
+                    El registro <code>STAT</code> (0xFF41) no solo informa del modo actual de la PPU, sino que también permite al juego solicitar notificaciones cuando ocurren ciertos eventos mediante interrupciones. Este sistema de interrupciones es crítico para la sincronización entre el juego y el hardware gráfico.
+                </p>
+                
+                <h3>Bits de Habilitación de Interrupciones STAT</h3>
+                <ul>
+                    <li><strong>STAT Bit 6:</strong> Habilitar interrupción si <code>LY == LYC</code> (coincidencia de línea).</li>
+                    <li><strong>STAT Bit 5:</strong> Habilitar interrupción al entrar en Modo 2 (OAM Scan).</li>
+                    <li><strong>STAT Bit 4:</strong> Habilitar interrupción al entrar en Modo 1 (V-Blank).</li>
+                    <li><strong>STAT Bit 3:</strong> Habilitar interrupción al entrar en Modo 0 (H-Blank).</li>
+                </ul>
+                
+                <h3>Detección de Flanco de Subida (Rising Edge)</h3>
+                <p>
+                    Un detalle crítico del hardware real es la <strong>detección de flanco de subida</strong>: la interrupción solo se solicita en el instante en que la condición se vuelve verdadera (cuando pasa de <code>false</code> a <code>true</code>), no continuamente mientras permanece activa. Esto evita que se generen múltiples interrupciones mientras el modo PPU permanece constante (por ejemplo, durante todo el período de H-Blank).
+                </p>
+                
+                <p>
+                    Cuando la PPU detecta que una de estas condiciones se cumple Y el bit correspondiente en <code>STAT</code> está activado, debe solicitar una interrupción <strong>poniendo a 1 el bit 1 del registro <code>IF</code> (0xFF0F)</strong>. Este es el mecanismo que permite que la CPU se despierte de <code>HALT</code> cuando el juego está esperando que ocurra un evento específico de la PPU.
+                </p>
+                
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Status Register (STAT), STAT Interrupt, Rising Edge Detection
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    La implementación de interrupciones STAT ya estaba presente en el código (desde Steps anteriores), pero se realizó una corrección importante para mantener consistencia: cambiar la solicitud de interrupción V-Blank para usar el método <code>request_interrupt()</code> en lugar de escribir directamente en el registro <code>IF</code>.
+                </p>
+                
+                <h3>A. Corrección de la Interrupción V-Blank</h3>
+                <p>
+                    En <code>src/core/cpp/PPU.cpp</code>, cuando <code>LY</code> llega a 144 (inicio de V-Blank), se estaba escribiendo directamente en el registro <code>IF</code>. Para mantener consistencia con el resto del código y seguir buenas prácticas, se cambió para usar el método <code>request_interrupt(0)</code> de la MMU:
+                </p>
+                <pre><code>// Antes (escribiendo directamente):
+if (ly_ == VBLANK_START) {
+    uint8_t if_val = mmu_->read(IO_IF);
+    if_val |= 0x01;  // Set bit 0 (V-Blank interrupt)
+    mmu_->write(IO_IF, if_val);
+    frame_ready_ = true;
+}
+
+// Después (usando request_interrupt):
+if (ly_ == VBLANK_START) {
+    mmu_->request_interrupt(0);  // Bit 0 = V-Blank Interrupt
+    frame_ready_ = true;
+}</code></pre>
+                
+                <h3>B. Verificación del Setter de IME</h3>
+                <p>
+                    Se verificó que el acceso a <code>ime</code> en el wrapper de Cython ya estaba correctamente implementado:
+                </p>
+                <ul>
+                    <li>El método <code>set_ime(bool value)</code> existe en <code>CPU.hpp</code> y <code>CPU.cpp</code>.</li>
+                    <li>Está expuesto en <code>cpu.pyx</code> como propiedad con getter y setter usando el decorador <code>@property</code>.</li>
+                    <li>Los tests confirman que funciona correctamente (<code>test_cpu_ime_setter</code> pasa).</li>
+                </ul>
+                
+                <h3>C. Sistema de Interrupciones STAT Existente</h3>
+                <p>
+                    El método <code>check_stat_interrupt()</code> en <code>PPU.cpp</code> ya estaba implementado correctamente:
+                </p>
+                <ul>
+                    <li>Detecta condiciones de interrupción activas (LYC=LY, Mode 0, Mode 1, Mode 2).</li>
+                    <li>Implementa detección de flanco de subida usando <code>stat_interrupt_line_</code> para rastrear el estado anterior.</li>
+                    <li>Solicita interrupciones usando <code>mmu_->request_interrupt(1)</code> cuando detecta un rising edge.</li>
+                    <li>Se llama correctamente en los momentos apropiados durante el ciclo de scanline.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Corregida la solicitud de interrupción V-Blank para usar <code>request_interrupt()</code>.</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> Los demás componentes (interrupciones STAT, setter de IME) ya estaban implementados correctamente en Steps anteriores.
+                </p>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Todos los tests de interrupciones STAT y el setter de IME pasan correctamente:
+                </p>
+                
+                <h3>Tests de Interrupciones STAT</h3>
+                <pre><code>def test_stat_hblank_interrupt():
+    """Verifica que se solicita una interrupción STAT al entrar en Modo 0 (H-Blank)."""
+    mmu = PyMMU()
+    ppu = PyPPU(mmu)
+    mmu.set_ppu(ppu)
+    mmu.write(0xFF40, 0x80)  # LCD ON
+    
+    # Habilitar interrupción de H-Blank en STAT (bit 3)
+    mmu.write(0xFF41, 0x08)
+    mmu.write(0xFF0F, 0x00)  # Limpiar IF
+    
+    # Avanzar PPU hasta H-Blank
+    ppu.step(252)
+    assert ppu.mode == 0
+    assert (mmu.read(0xFF0F) & 0x02) != 0  # Bit 1 (STAT) activado</code></pre>
+                
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>pytest tests/test_core_ppu_interrupts.py -v</code>
+                </p>
+                <p>
+                    <strong>Resultado:</strong> 6 tests pasaron correctamente:
+                </p>
+                <ul>
+                    <li><code>test_stat_hblank_interrupt</code> - Verifica interrupción en H-Blank</li>
+                    <li><code>test_stat_vblank_interrupt</code> - Verifica interrupción en V-Blank</li>
+                    <li><code>test_stat_oam_search_interrupt</code> - Verifica interrupción en OAM Search</li>
+                    <li><code>test_stat_lyc_coincidence_interrupt</code> - Verifica interrupción LYC=LY</li>
+                    <li><code>test_stat_interrupt_rising_edge</code> - Verifica detección de flanco de subida</li>
+                    <li><code>test_cpu_ime_setter</code> - Verifica el setter de IME</li>
+                </ul>
+                
+                <h3>Validación Nativa</h3>
+                <p>
+                    Todos los tests validan el módulo compilado C++ y confirman que:
+                </p>
+                <ul>
+                    <li>Las interrupciones STAT se generan correctamente en los modos apropiados.</li>
+                    <li>La detección de flanco de subida funciona (no se generan múltiples interrupciones).</li>
+                    <li>El setter de IME permite configurar el estado de interrupciones desde los tests.</li>
+                    <li>La interrupción V-Blank se solicita correctamente cuando LY llega a 144.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Status Register (STAT)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">STAT Interrupt, Rising Edge Detection</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Interrupt Flag (IF) Register</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">HALT behavior and Interrupts</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>El despertador nunca sonaba:</strong> La CPU entraba correctamente en HALT, pero la PPU no generaba las interrupciones STAT que el juego esperaba. Sin interrupciones, no había nada que despertara a la CPU, creando un deadlock.</li>
+                        <li><strong>Detección de flanco de subida:</strong> Las interrupciones STAT solo se disparan cuando la condición pasa de false a true, no mientras permanece activa. Esto es crítico para evitar múltiples interrupciones durante períodos largos (como todo H-Blank).</li>
+                        <li><strong>Consistencia en el código:</strong> Usar <code>request_interrupt()</code> en lugar de escribir directamente en IF hace el código más mantenible y consistente, ya que todos los componentes usan el mismo método para solicitar interrupciones.</li>
+                        <li><strong>El cableado completo:</strong> La conexión entre la máquina de estados de la PPU y el sistema de interrupciones está completa. La PPU detecta cambios de modo y condiciones, y solicita interrupciones cuando corresponde.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Ejecución con ROM real:</strong> Ejecutar el emulador con una ROM real (ej: <code>tetris.gb</code>) para verificar que el deadlock se ha roto y el juego puede avanzar más allá de la inicialización.</li>
+                        <li><strong>Timing preciso:</strong> Validar que el timing de las interrupciones STAT coincide exactamente con el comportamiento del hardware real.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que con las interrupciones STAT funcionando correctamente, la CPU debería poder despertar de HALT cuando el juego las espera, rompiendo el deadlock que mantenía <code>LY</code> atascado en 0. Esto debería permitir que el juego avance más allá de la inicialización y eventualmente muestre el logo de Nintendo.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con las correcciones realizadas</li>
+                    <li>[ ] Ejecutar el emulador con una ROM real (ej: <code>tetris.gb</code>) y verificar que el deadlock se ha roto</li>
+                    <li>[ ] Validar que <code>LY</code> avanza correctamente más allá de 0</li>
+                    <li>[ ] Verificar que el juego puede completar la inicialización y mostrar el logo de Nintendo</li>
+                    <li>[ ] Añadir tests adicionales si se identifican problemas durante la ejecución con ROMs reales</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

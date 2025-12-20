@@ -170,6 +170,7 @@ class TestCorePPUTiming:
         """
         mmu = PyMMU()
         ppu = PyPPU(mmu)
+        mmu.set_ppu(ppu)  # Necesario para que MMU pueda actualizar STAT correctamente
         
         # Habilitar LCD
         mmu.write(0xFF40, 0x80)

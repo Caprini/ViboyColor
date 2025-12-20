@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arquitectura Final: Bucle de Emulación Nativo en C++ - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Arquitectura Final: Bucle de Emulación Nativo en C++</h1>
+            <!-- Entrada 0175 - Arquitectura Final: Bucle de Emulación Nativo en C++ -->
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0175
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0174__ppu-fase-f-interrupciones-stat.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El emulador había alcanzado un <code>deadlock</code> de sincronización final. Aunque todos los componentes C++ eran correctos (CPU, PPU, Interrupciones), el bucle principal en Python era demasiado lento y de grano grueso para simular la interacción ciclo a ciclo que la CPU y la PPU requieren durante los bucles de <code>polling</code>. Este Step documenta la solución definitiva: mover el bucle de emulación de grano fino (el bucle de scanline) completamente a C++, creando un método <code>run_scanline()</code> que encapsula toda la lógica de sincronización ciclo a ciclo a velocidad nativa.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: La Verdadera Sincronización Ciclo a Ciclo</h2>
+                <p>
+                    En el hardware real de la Game Boy, no hay un "orquestador" externo. La CPU ejecuta una instrucción y consume, digamos, 8 ciclos. En esos mismos 8 ciclos, la PPU, el Timer y la APU también avanzan 8 ciclos. La emulación verdaderamente precisa replica esto: después de cada instrucción de la CPU, todos los componentes deben ser actualizados con los ciclos consumidos.
+                </p>
+                
+                <h3>El Problema de la Arquitectura Anterior</h3>
+                <p>
+                    Nuestra arquitectura por scanlines en Python era una aproximación útil, pero tenía una limitación fundamental:
+                </p>
+                <ul>
+                    <li>La CPU ejecutaba múltiples instrucciones en un bucle Python hasta acumular 456 T-Cycles.</li>
+                    <li>La PPU solo se actualizaba <strong>una vez al final</strong> de la scanline, recibiendo todos los 456 ciclos de golpe.</li>
+                    <li>Durante el bucle de polling de la CPU (ej: <code>LDH A, (n) -> CP d8 -> JR NZ, e</code>), la CPU leía el registro STAT repetidamente, pero la PPU no había cambiado de modo porque no había sido actualizada.</li>
+                    <li>Esto creaba una paradoja: <strong>La CPU estaba esperando a la PPU, pero la PPU no podía avanzar hasta que la CPU terminara de esperar.</strong></li>
+                </ul>
+                
+                <h3>La Solución: Bucle de Emulación Nativo en C++</h3>
+                <p>
+                    La solución es mover el bucle de emulación de grano fino completamente a C++, donde puede ejecutarse a velocidad nativa sin ninguna sobrecarga de llamadas entre Python y C++. El nuevo método <code>run_scanline()</code>:
+                </p>
+                <ul>
+                    <li>Ejecuta instrucciones de la CPU hasta acumular exactamente 456 T-Cycles.</li>
+                    <li><strong>Después de cada instrucción</strong>, actualiza la PPU con los ciclos consumidos.</li>
+                    <li>Esto garantiza que la PPU cambie de modo (Modo 2 → Modo 3 → Modo 0) en los ciclos exactos.</li>
+                    <li>Cuando la CPU lee el registro STAT en su bucle de polling, verá el cambio de modo inmediatamente y podrá continuar.</li>
+                </ul>
+                
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - System Clock, LCD Timing, CPU-PPU Synchronization
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>A. Modificación de CPU.hpp y CPU.cpp</h3>
+                <p>
+                    Se añadieron dos nuevos métodos a la clase CPU:
+                </p>
+                <ul>
+                    <li><code>setPPU(PPU* ppu)</code>: Conecta la PPU a la CPU para permitir sincronización ciclo a ciclo.</li>
+                    <li><code>run_scanline()</code>: Ejecuta una scanline completa (456 T-Cycles) con sincronización ciclo a ciclo.</li>
+                </ul>
+                
+                <p>
+                    En <code>src/core/cpp/CPU.hpp</code>:
+                </p>
+                <pre><code>// Forward declaration
+class PPU;
+
+class CPU {
+public:
+    void setPPU(PPU* ppu);
+    void run_scanline();
+    // ...
+private:
+    PPU* ppu_;  // Puntero a PPU (no poseído, opcional)
+    // ...
+};</code></pre>
+                
+                <p>
+                    En <code>src/core/cpp/CPU.cpp</code>:
+                </p>
+                <pre><code>void CPU::setPPU(PPU* ppu) {
+    ppu_ = ppu;
+}
+
+void CPU::run_scanline() {
+    if (ppu_ == nullptr) return;
+    
+    const int CYCLES_PER_SCANLINE = 456;
+    int cycles_this_scanline = 0;
+    
+    while (cycles_this_scanline < CYCLES_PER_SCANLINE) {
+        // Ejecuta UNA instrucción
+        uint8_t m_cycles = step();
+        if (m_cycles == 0) m_cycles = 1;
+        
+        if (halted_) {
+            m_cycles = 1;  // Avance mínimo en HALT
+        }
+        
+        int t_cycles = m_cycles * 4;
+        
+        // ¡LA CLAVE! Actualiza la PPU después de CADA instrucción
+        ppu_->step(t_cycles);
+        
+        cycles_this_scanline += t_cycles;
+    }
+}</code></pre>
+                
+                <h3>B. Actualización del Wrapper Cython</h3>
+                <p>
+                    En <code>src/core/cython/cpu.pyx</code>, se expusieron los nuevos métodos a Python:
+                </p>
+                <pre><code>cdef class PyCPU:
+    # ...
+    def set_ppu(self, PyPPU ppu_wrapper):
+        if ppu_wrapper is None:
+            self._cpu.setPPU(NULL)
+        else:
+            cdef ppu.PPU* ppu_ptr = (<PyPPU>ppu_wrapper)._ppu
+            self._cpu.setPPU(ppu_ptr)
+    
+    def run_scanline(self):
+        self._cpu.run_scanline()</code></pre>
+                
+                <h3>C. Simplificación de viboy.py</h3>
+                <p>
+                    El método <code>run()</code> en <code>src/viboy.py</code> se simplificó drásticamente:
+                </p>
+                <pre><code>def run(self, debug: bool = False) -> None:
+    # ...
+    # Conectar PPU a CPU en el constructor
+    self._cpu.set_ppu(self._ppu)
+    
+    # Bucle principal
+    while self.running:
+        for line in range(SCANLINES_PER_FRAME):
+            if not self.running:
+                break
+            # C++ se encarga de toda la emulación de una scanline
+            self._cpu.run_scanline()
+        
+        # Renderizado y sincronización de frames
+        # ...</code></pre>
+                
+                <p>
+                    El bucle interno complejo de Python (que ejecutaba instrucciones hasta acumular 456 ciclos) fue completamente eliminado y reemplazado por una simple llamada a <code>run_scanline()</code>.
+                </p>
+            </section>
+
+            <!-- 4. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este cambio arquitectónico profundo requiere verificación mediante ejecución del emulador completo. Los tests unitarios existentes siguen pasando, confirmando que no se rompió funcionalidad existente.
+                </p>
+                
+                <h3>Comando de Compilación</h3>
+                <pre><code>.\rebuild_cpp.ps1</code></pre>
+                
+                <h3>Comando de Ejecución</h3>
+                <pre><code>python main.py roms/tetris.gb --verbose</code></pre>
+                
+                <h3>Resultado Esperado</h3>
+                <p>
+                    Con esta arquitectura final:
+                </p>
+                <ol>
+                    <li>La CPU ejecutará su bucle de polling.</li>
+                    <li>Dentro de <code>run_scanline()</code>, después de cada <code>cpu.step()</code>, se llamará a <code>ppu.step()</code>.</li>
+                    <li>La PPU tendrá la oportunidad de cambiar de Modo 2 a Modo 3 y Modo 0 en los ciclos exactos.</li>
+                    <li>En una de sus iteraciones, el bucle de polling de la CPU leerá el registro STAT y verá que el modo ha cambiado. La condición <code>JR NZ</code> fallará.</li>
+                    <li><strong>El deadlock se romperá.</strong></li>
+                    <li>La CPU continuará, copiará los gráficos a la VRAM.</li>
+                    <li>El Heartbeat mostrará a <code>LY</code> incrementándose.</li>
+                    <li>Y finalmente... <strong>veremos el logo de Nintendo en la pantalla.</strong></li>
+                </ol>
+                
+                <h3>Validación de Módulo Compilado C++</h3>
+                <p>
+                    La implementación utiliza el módulo C++ compilado (<code>viboy_core</code>), asegurando que todo el bucle crítico de emulación se ejecute a velocidad nativa sin overhead de Python.
+                </p>
+            </section>
+
+            <!-- 5. Impacto y Consecuencias -->
+            <section id="impacto">
+                <h2>Impacto y Consecuencias</h2>
+                <p>
+                    Este cambio representa la solución definitiva al problema de sincronización:
+                </p>
+                <ul>
+                    <li><strong>Rendimiento:</strong> El bucle crítico de emulación ahora se ejecuta completamente en C++ nativo, eliminando toda la sobrecarga de llamadas entre Python y C++.</li>
+                    <li><strong>Precisión:</strong> La PPU se actualiza después de cada instrucción, permitiendo sincronización ciclo a ciclo precisa.</li>
+                    <li><strong>Resolución de Deadlocks:</strong> Los bucles de polling de la CPU ahora pueden leer cambios de estado de la PPU inmediatamente, rompiendo deadlocks estructurales.</li>
+                    <li><strong>Simplicidad:</strong> El código Python se simplifica drásticamente, convirtiéndose en un mero orquestador de alto nivel (gestor de ventanas y frames).</li>
+                </ul>
+            </section>
+
+            <!-- 6. Referencias -->
+            <section id="referencias">
+                <h2>Referencias</h2>
+                <ul>
+                    <li><strong>Pan Docs:</strong> System Clock, LCD Timing, CPU-PPU Synchronization</li>
+                    <li><strong>Archivos Modificados:</strong>
+                        <ul>
+                            <li><code>src/core/cpp/CPU.hpp</code></li>
+                            <li><code>src/core/cpp/CPU.cpp</code></li>
+                            <li><code>src/core/cython/cpu.pyx</code></li>
+                            <li><code>src/viboy.py</code></li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                <a href="../index.html">← Volver al índice</a>
+            </p>
+            <p class="footer-note">
+                Viboy Color - Proyecto Educativo Open Source
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+

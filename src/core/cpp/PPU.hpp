@@ -212,10 +212,16 @@ private:
     uint8_t lyc_;
     
     /**
-     * Flag para evitar disparar múltiples interrupciones STAT en la misma línea.
+     * Máscara de bits para rastrear condiciones de interrupción STAT activas.
      * Se usa para implementar "rising edge" detection.
+     * 
+     * Bits:
+     * - Bit 0: LYC=LY Coincidence activa
+     * - Bit 1: Mode 0 (H-Blank) activa
+     * - Bit 2: Mode 1 (V-Blank) activa
+     * - Bit 3: Mode 2 (OAM Search) activa
      */
-    bool stat_interrupt_line_;
+    uint8_t stat_interrupt_line_;
     
     /**
      * Flag para evitar renderizar múltiples veces la misma línea.

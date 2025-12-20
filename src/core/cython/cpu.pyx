@@ -14,10 +14,16 @@ from libcpp cimport bool
 cimport cpu
 cimport mmu
 cimport registers
+cimport ppu
 
 # NOTA: PyMMU y PyRegisters están definidos en mmu.pyx y registers.pyx,
 # que están incluidos en native_core.pyx. Los métodos get_c_mmu() y get_c_regs()
 # son cpdef, por lo que son accesibles desde aquí.
+# PyPPU se define en ppu.pyx, pero como native_core.pyx incluye ambos módulos,
+# PyPPU estará disponible en tiempo de ejecución. Para evitar dependencia circular,
+# declaramos PyPPU como forward declaration aquí.
+cdef class PyPPU:
+    cdef ppu.PPU* _ppu
 
 cdef class PyCPU:
     """
@@ -104,6 +110,16 @@ cdef class PyCPU:
         """
         return self._cpu.get_ime()
     
+    @ime.setter
+    def ime(self, bint value):
+        """
+        Propiedad para establecer el estado de IME.
+        
+        Args:
+            value: True para habilitar interrupciones, False para deshabilitarlas
+        """
+        self._cpu.set_ime(value)
+    
     @property
     def halted(self):
         """
@@ -113,4 +129,34 @@ cdef class PyCPU:
             True si la CPU está en estado HALT, False en caso contrario
         """
         return self._cpu.get_halted()
+    
+    def set_ppu(self, PyPPU ppu_wrapper):
+        """
+        Conecta la PPU a la CPU para permitir sincronización ciclo a ciclo.
+        
+        Este método permite que run_scanline() actualice la PPU después de cada
+        instrucción, resolviendo deadlocks de polling mediante sincronización precisa.
+        
+        Args:
+            ppu_wrapper: Instancia de PyPPU (debe tener un atributo _ppu válido)
+        """
+        if ppu_wrapper is None:
+            # Si se pasa None, desconectamos la PPU
+            self._cpu.setPPU(NULL)
+        else:
+            # Extraer el puntero C++ subyacente desde el wrapper
+            cdef ppu.PPU* ppu_ptr = (<PyPPU>ppu_wrapper)._ppu
+            self._cpu.setPPU(ppu_ptr)
+    
+    def run_scanline(self):
+        """
+        Ejecuta una scanline completa (456 T-Cycles) con sincronización ciclo a ciclo.
+        
+        Este método encapsula el bucle de emulación de grano fino que ejecuta
+        instrucciones de la CPU y actualiza la PPU después de cada instrucción.
+        Esto permite una sincronización precisa que resuelve deadlocks de polling.
+        
+        CRÍTICO: La PPU debe estar conectada previamente mediante set_ppu().
+        """
+        self._cpu.run_scanline()
 

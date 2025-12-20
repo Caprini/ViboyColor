@@ -8,6 +8,7 @@
 // Forward declarations (evitar includes circulares)
 class MMU;
 class CoreRegisters;
+class PPU;
 
 /**
  * CPU - Procesador LR35902 de la Game Boy
@@ -52,6 +53,35 @@ public:
     int step();
 
     /**
+     * Establece el puntero a la PPU para permitir sincronización ciclo a ciclo.
+     * 
+     * Este método permite conectar la PPU a la CPU, permitiendo que run_scanline()
+     * actualice la PPU después de cada instrucción.
+     * 
+     * @param ppu Puntero a la instancia de PPU (puede ser nullptr)
+     */
+    void setPPU(PPU* ppu);
+
+    /**
+     * Ejecuta una scanline completa (456 T-Cycles) con sincronización ciclo a ciclo.
+     * 
+     * Este método encapsula el bucle de emulación de grano fino que ejecuta
+     * instrucciones de la CPU y actualiza la PPU después de cada instrucción.
+     * Esto permite una sincronización precisa que resuelve deadlocks de polling.
+     * 
+     * El método:
+     * 1. Ejecuta instrucciones de la CPU hasta acumular 456 T-Cycles
+     * 2. Después de cada instrucción, actualiza la PPU con los ciclos consumidos
+     * 3. Esto garantiza que la PPU cambie de modo en los ciclos exactos
+     * 
+     * CRÍTICO: Este método debe ser llamado desde Python para cada scanline.
+     * La PPU debe estar conectada previamente mediante setPPU().
+     * 
+     * Fuente: Pan Docs - LCD Timing, System Clock
+     */
+    void run_scanline();
+
+    /**
      * Obtiene el contador de ciclos acumulados.
      * 
      * @return Total de M-Cycles ejecutados desde la creación
@@ -64,6 +94,15 @@ public:
      * @return true si las interrupciones están habilitadas, false en caso contrario
      */
     bool get_ime() const;
+
+    /**
+     * Establece el estado de IME (Interrupt Master Enable).
+     * 
+     * Este método permite modificar IME desde el exterior (útil para tests).
+     * 
+     * @param value true para habilitar interrupciones, false para deshabilitarlas
+     */
+    void set_ime(bool value);
 
     /**
      * Obtiene el estado de HALT.
@@ -447,6 +486,7 @@ private:
     // Punteros a componentes (inyección de dependencias)
     MMU* mmu_;              // Puntero a MMU (no poseído)
     CoreRegisters* regs_;   // Puntero a Registros (no poseído)
+    PPU* ppu_;              // Puntero a PPU (no poseído, opcional)
 
     // Contador de ciclos acumulados
     uint32_t cycles_;

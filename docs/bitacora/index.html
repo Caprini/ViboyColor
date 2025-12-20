@@ -32,6 +32,42 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0175 - Arquitectura Final: Bucle de Emulación Nativo en C++ -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0175__arquitectura-final-bucle-emulacion-nativo-cpp.html" class="entry-link">
+                                    Arquitectura Final: Bucle de Emulación Nativo en C++
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0175 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            El emulador había alcanzado un deadlock de sincronización final. Aunque todos los componentes C++ eran correctos (CPU, PPU, Interrupciones), el bucle principal en Python era demasiado lento y de grano grueso para simular la interacción ciclo a ciclo que la CPU y la PPU requieren durante los bucles de polling. Este Step documenta la solución definitiva: mover el bucle de emulación de grano fino (el bucle de scanline) completamente a C++, creando un método run_scanline() que encapsula toda la lógica de sincronización ciclo a ciclo a velocidad nativa.
+                        </p>
+                    </li>
+                    <!-- Entrada 0174 - PPU Fase F: Implementación de Interrupciones STAT -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0174__ppu-fase-f-interrupciones-stat.html" class="entry-link">
+                                    PPU Fase F: Implementación de Interrupciones STAT
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0174 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            El emulador estaba en un deadlock persistente porque la CPU en estado HALT nunca se despertaba. Aunque la arquitectura de HALT implementada en el Step 0173 era correcta, el problema estaba en que la PPU no generaba las Interrupciones STAT que el juego esperaba para continuar. Este Step documenta la verificación y corrección final del sistema de interrupciones STAT en la PPU C++, asegurando que la interrupción V-Blank use el método request_interrupt() para mantener consistencia, y confirma que el acceso a ime en el wrapper de Cython ya está correctamente implementado.
+                        </p>
+                    </li>
                     <!-- Entrada 0173 - Arquitectura de HALT (Fase 2): El Despertador de Interrupciones -->
                     <li>
                         <div class="entry-header">

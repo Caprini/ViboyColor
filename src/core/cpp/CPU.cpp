@@ -1,6 +1,7 @@
 #include "CPU.hpp"
 #include "MMU.hpp"
 #include "Registers.hpp"
+#include "PPU.hpp"
 #include <cstdio>
 
 // Variables estáticas para logging de diagnóstico con sistema "disparado" (triggered)
@@ -12,7 +13,7 @@ static int debug_instruction_counter = 0;       // Contador post-activación
 static const int DEBUG_INSTRUCTION_LIMIT = 200;  // Límite post-activación (Step 0169: aumentado para capturar bucles)
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
-    : mmu_(mmu), regs_(registers), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
+    : mmu_(mmu), regs_(registers), ppu_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
     // Validación básica (en producción, podríamos usar assert)
     // Por ahora, confiamos en que Python pasa punteros válidos
     // IME inicia en false por seguridad (el juego lo activará si lo necesita)
@@ -1565,6 +1566,10 @@ bool CPU::get_ime() const {
     return ime_;
 }
 
+void CPU::set_ime(bool value) {
+    ime_ = value;
+}
+
 bool CPU::get_halted() const {
     return halted_;
 }
@@ -1783,5 +1788,60 @@ int CPU::handle_cb() {
     
     // Timing: (HL) consume 4 M-Cycles, registros consumen 2
     return is_memory ? 4 : 2;
+}
+
+// ========== Implementación de Métodos de Sincronización ==========
+
+void CPU::setPPU(PPU* ppu) {
+    ppu_ = ppu;
+}
+
+void CPU::run_scanline() {
+    // Si la PPU no está conectada, no podemos ejecutar el bucle de scanline
+    if (ppu_ == nullptr) {
+        return;
+    }
+    
+    // Constante: 456 T-Cycles por scanline
+    // Fuente: Pan Docs - LCD Timing
+    const int CYCLES_PER_SCANLINE = 456;
+    
+    int cycles_this_scanline = 0;
+    
+    // Bucle de emulación de grano fino: ejecuta instrucciones hasta acumular 456 T-Cycles
+    while (cycles_this_scanline < CYCLES_PER_SCANLINE) {
+        // Ejecuta UNA instrucción y obtiene los M-Cycles consumidos
+        uint8_t m_cycles = step();
+        
+        // Si step() devuelve 0, hay un error (opcode no implementado o similar)
+        // En este caso, forzamos un avance mínimo para evitar bucles infinitos
+        if (m_cycles == 0) {
+            m_cycles = 1;  // Forzar avance mínimo (1 M-Cycle = 4 T-Cycles)
+        }
+        
+        // Verificar si la CPU está en HALT
+        if (halted_) {
+            // Si la CPU está en HALT, no consumió ciclos de instrucción,
+            // pero el tiempo debe avanzar. Avanzamos en la unidad mínima
+            // de tiempo (1 M-Cycle = 4 T-Cycles).
+            // step() ya se ha encargado de comprobar si debe despertar.
+            m_cycles = 1;
+        }
+        
+        // Convertir M-Cycles a T-Cycles (1 M-Cycle = 4 T-Cycles)
+        int t_cycles = m_cycles * 4;
+        
+        // ¡LA CLAVE! Actualiza la PPU después de CADA instrucción
+        // Esto permite que la PPU cambie de modo en los ciclos exactos
+        // y resuelve los deadlocks de polling
+        ppu_->step(t_cycles);
+        
+        // Acumular ciclos para esta scanline
+        cycles_this_scanline += t_cycles;
+    }
+    
+    // Al final de la scanline, hemos acumulado exactamente 456 T-Cycles
+    // La PPU ya ha sido actualizada después de cada instrucción, por lo que
+    // está sincronizada correctamente con la CPU
 }
 

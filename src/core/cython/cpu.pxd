@@ -33,6 +33,9 @@ cdef extern from "CPU.hpp":
         # Obtiene el estado de IME (Interrupt Master Enable)
         bool get_ime()
         
+        # Establece el estado de IME (Interrupt Master Enable)
+        void set_ime(bool value)
+        
         # Obtiene el estado de HALT
         bool get_halted()
 

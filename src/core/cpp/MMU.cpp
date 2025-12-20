@@ -76,3 +76,19 @@ void MMU::setPPU(PPU* ppu) {
     ppu_ = ppu;
 }
 
+void MMU::request_interrupt(uint8_t bit) {
+    // Validar que el bit esté en el rango válido (0-4)
+    if (bit > 4) {
+        return;  // Bit inválido, ignorar
+    }
+    
+    // Leer el valor actual del registro IF (0xFF0F)
+    uint8_t if_reg = read(0xFF0F);
+    
+    // Activar el bit correspondiente (OR bitwise)
+    if_reg |= (1 << bit);
+    
+    // Escribir el valor actualizado de vuelta a memoria
+    write(0xFF0F, if_reg);
+}
+

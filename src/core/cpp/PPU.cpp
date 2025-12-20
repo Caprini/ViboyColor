@@ -8,7 +8,7 @@ PPU::PPU(MMU* mmu)
     , mode_(MODE_2_OAM_SEARCH)
     , frame_ready_(false)
     , lyc_(0)
-    , stat_interrupt_line_(false)
+    , stat_interrupt_line_(0)
     , scanline_rendered_(false)
     , framebuffer_(FRAMEBUFFER_SIZE, 0)  // Inicializar a índice 0 (blanco por defecto con paleta estándar)
 {
@@ -64,13 +64,14 @@ void PPU::step(int cpu_cycles) {
     // Acumular ciclos en el clock interno (solo si el LCD está encendido)
     clock_ += cpu_cycles;
     
+    // Guardar LY y modo anteriores para detectar cambios
+    // CRÍTICO: Guardar ANTES de actualizar el modo para detectar cambios correctamente
+    uint16_t old_ly = ly_;
+    uint8_t old_mode = mode_;
+    
     // Actualizar el modo PPU según el punto actual en la línea
     // Esto debe hacerse ANTES de procesar líneas completas
     update_mode();
-    
-    // Guardar LY y modo anteriores para detectar cambios
-    uint16_t old_ly = ly_;
-    uint8_t old_mode = mode_;
     
     // Mientras tengamos suficientes ciclos para completar una línea (456 T-Cycles)
     while (clock_ >= CYCLES_PER_SCANLINE) {
@@ -85,6 +86,10 @@ void PPU::step(int cpu_cycles) {
         // Restar los ciclos de una línea completa
         clock_ -= CYCLES_PER_SCANLINE;
         
+        // CRÍTICO: Verificar interrupciones STAT ANTES de cambiar a la nueva línea
+        // Esto asegura que se detecte el rising edge de H-Blank (Mode 0)
+        check_stat_interrupt();
+        
         // Avanzar a la siguiente línea
         ly_ += 1;
         
@@ -95,19 +100,18 @@ void PPU::step(int cpu_cycles) {
         // CRÍTICO: Cuando LY cambia, reiniciar los flags de interrupción y renderizado
         // Esto permite que se dispare una nueva interrupción y renderizado si las condiciones
         // se cumplen en la nueva línea
-        stat_interrupt_line_ = false;
+        stat_interrupt_line_ = 0;
         scanline_rendered_ = false;
         
         // Si llegamos a V-Blank (línea 144), solicitar interrupción y marcar frame listo
         if (ly_ == VBLANK_START) {
-            // CRÍTICO: Activar bit 0 del registro IF (Interrupt Flag) en 0xFF0F
-            // Este bit corresponde a la interrupción V-Blank.
+            // CRÍTICO: Solicitar interrupción V-Blank usando el método de MMU
+            // Este bit corresponde a la interrupción V-Blank (bit 0 de IF).
             //
             // IMPORTANTE: IF se actualiza SIEMPRE cuando ocurre V-Blank,
             // INDEPENDIENTEMENTE del estado de IME (Interrupt Master Enable).
-            uint8_t if_val = mmu_->read(IO_IF);
-            if_val |= 0x01;  // Set bit 0 (V-Blank interrupt)
-            mmu_->write(IO_IF, if_val);
+            // Usamos request_interrupt() para mantener consistencia con otras interrupciones.
+            mmu_->request_interrupt(0);  // Bit 0 = V-Blank Interrupt
             
             // CRÍTICO: Marcar frame como listo para renderizar
             frame_ready_ = true;
@@ -117,7 +121,7 @@ void PPU::step(int cpu_cycles) {
         if (ly_ > 153) {
             ly_ = 0;
             // Reiniciar flag de interrupción STAT al cambiar de frame
-            stat_interrupt_line_ = false;
+            stat_interrupt_line_ = 0;
         }
     }
     
@@ -160,53 +164,81 @@ void PPU::check_stat_interrupt() {
         return;
     }
     
-    // Leer el registro STAT directamente de memoria
-    // Solo leemos los bits configurables (3-7), los bits 0-2 se actualizan dinámicamente
-    uint8_t stat_value = mmu_->read(IO_STAT);
+    // Leer el registro STAT directamente de memoria (sin pasar por MMU::read que combina bits)
+    // Necesitamos acceder directamente a la memoria para obtener solo los bits escribibles (3-7)
+    // La MMU::read() combina bits escribibles con bits de solo lectura, pero nosotros necesitamos
+    // solo los bits escribibles para verificar las condiciones de interrupción.
+    // 
+    // NOTA: Esto es un acceso directo a la memoria interna de la MMU. En una implementación
+    // más robusta, podríamos añadir un método MMU::read_raw() para este propósito.
+    // Por ahora, usamos read() y extraemos los bits configurables con la máscara.
+    uint8_t stat_full = mmu_->read(IO_STAT);
     
-    // Inicializar señal de interrupción
-    bool signal = false;
+    // Extraer solo los bits configurables (3-7) del valor completo
+    // Cuando escribimos 0x08 en STAT, la MMU lo guarda en memoria[0xFF41] = 0x08
+    // Cuando leemos STAT, la MMU combina: (0x08 & 0xF8) | modo | lyc_match
+    // Entonces stat_full = 0x08 | modo | lyc_match
+    // Y stat_configurable = stat_full & 0xF8 = 0x08 (correcto)
+    uint8_t stat_configurable = stat_full & 0xF8;  // Máscara para bits 3-7
+    
+    // Calcular condiciones actuales de interrupción
+    // Cada bit representa una condición que puede generar interrupción
+    uint8_t current_conditions = 0;
     
     // Verificar LYC=LY Coincidence (bit 2 y bit 6)
     bool lyc_match = (ly_ & 0xFF) == (lyc_ & 0xFF);
     
-    // Actualizar bit 2 de STAT dinámicamente (LYC=LY Coincidence Flag)
-    // Preservamos los bits configurables (3-7) y actualizamos bits 0-2
+    // Construir el valor completo de STAT con bits de solo lectura actualizados
+    uint8_t stat_value;
     if (lyc_match) {
         // Set bit 2 de STAT (LYC=LY Coincidence Flag)
-        stat_value = (stat_value & 0xF8) | mode_ | 0x04;  // Set bit 2
-        mmu_->write(IO_STAT, stat_value);
-        
-        // Si el bit 6 (LYC Int Enable) está activo, solicitar interrupción
-        if ((stat_value & 0x40) != 0) {  // Bit 6 activo
-            signal = true;
-        }
+        stat_value = stat_configurable | mode_ | 0x04;  // Set bit 2
     } else {
         // Si LY != LYC, el bit 2 debe estar limpio
-        stat_value = (stat_value & 0xF8) | mode_;  // Clear bit 2
-        mmu_->write(IO_STAT, stat_value);
+        stat_value = stat_configurable | mode_;  // Clear bit 2
     }
     
-    // Verificar interrupciones por modo PPU
-    if (mode_ == MODE_0_HBLANK && (stat_value & 0x08) != 0) {  // Bit 3 activo
-        signal = true;
-    } else if (mode_ == MODE_1_VBLANK && (stat_value & 0x10) != 0) {  // Bit 4 activo
-        signal = true;
-    } else if (mode_ == MODE_2_OAM_SEARCH && (stat_value & 0x20) != 0) {  // Bit 5 activo
-        signal = true;
+    // Escribir el valor actualizado de STAT (solo los bits configurables se escriben)
+    // La MMU manejará la combinación con los bits de solo lectura en la lectura
+    mmu_->write(IO_STAT, stat_configurable);
+    
+    // Verificar interrupciones por modo PPU usando stat_configurable (bits escribibles)
+    // Cada condición se marca con un bit diferente en current_conditions
+    if (mode_ == MODE_0_HBLANK && (stat_configurable & 0x08) != 0) {  // Bit 3 activo
+        current_conditions |= 0x02;  // Bit 1: Mode 0 (H-Blank)
+    }
+    if (mode_ == MODE_1_VBLANK && (stat_configurable & 0x10) != 0) {  // Bit 4 activo
+        current_conditions |= 0x04;  // Bit 2: Mode 1 (V-Blank)
+    }
+    if (mode_ == MODE_2_OAM_SEARCH && (stat_configurable & 0x20) != 0) {  // Bit 5 activo
+        current_conditions |= 0x08;  // Bit 3: Mode 2 (OAM Search)
     }
     
-    // Disparar interrupción en rising edge (solo si signal es True y antes era False)
-    if (signal && !stat_interrupt_line_) {
-        // Activar bit 1 del registro IF (Interrupt Flag) en 0xFF0F
-        // Este bit corresponde a la interrupción LCD STAT
-        uint8_t if_val = mmu_->read(IO_IF);
-        if_val |= 0x02;  // Set bit 1 (LCD STAT interrupt)
-        mmu_->write(IO_IF, if_val);
+    // Verificar interrupción LYC=LY si está habilitada
+    if (lyc_match && (stat_configurable & 0x40) != 0) {  // Bit 6 activo
+        current_conditions |= 0x01;  // Bit 0: LYC=LY coincidence
     }
     
-    // Actualizar flag de interrupción STAT
-    stat_interrupt_line_ = signal;
+    // Detectar flanco de subida (rising edge): si una condición está activa ahora
+    // y no lo estaba antes, solicitar interrupción
+    // Usamos stat_interrupt_line_ como máscara de bits para rastrear el estado anterior
+    // 
+    // CRÍTICO: stat_interrupt_line_ rastrea qué condiciones estaban activas en la última
+    // llamada a check_stat_interrupt(). Si una condición está activa ahora (current_conditions)
+    // pero no lo estaba antes (stat_interrupt_line_), entonces es un rising edge.
+    uint8_t new_triggers = current_conditions & ~stat_interrupt_line_;
+    
+    if (new_triggers != 0) {
+        // Hay al menos una condición nueva que se activó (rising edge)
+        // Solicitar interrupción STAT usando el método de MMU
+        mmu_->request_interrupt(1);  // Bit 1 = LCD STAT Interrupt
+    }
+    
+    // Actualizar flag de interrupción STAT con las condiciones actuales
+    // Esto permite detectar rising edges en la próxima llamada
+    // CRÍTICO: Actualizamos stat_interrupt_line_ DESPUÉS de verificar rising edge
+    // para que en la próxima llamada podamos detectar si una condición se desactivó y reactivó
+    stat_interrupt_line_ = current_conditions;
 }
 
 uint8_t PPU::get_ly() const {

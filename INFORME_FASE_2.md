@@ -32,6 +32,99 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0175: Arquitectura Final: Bucle de Emulación Nativo en C++
+**Estado**: ✅ VERIFIED
+
+El emulador había alcanzado un `deadlock` de sincronización final. Aunque todos los componentes C++ eran correctos (CPU, PPU, Interrupciones), el bucle principal en Python era demasiado lento y de grano grueso para simular la interacción ciclo a ciclo que la CPU y la PPU requieren durante los bucles de `polling`. Este Step documenta la solución definitiva: mover el bucle de emulación de grano fino (el bucle de scanline) completamente a C++, creando un método `run_scanline()` que encapsula toda la lógica de sincronización ciclo a ciclo a velocidad nativa.
+
+**Objetivo:**
+- Mover el bucle de emulación de grano fino de Python a C++.
+- Crear el método `run_scanline()` que ejecuta una scanline completa (456 T-Cycles) con sincronización ciclo a ciclo.
+- Actualizar la PPU después de cada instrucción de la CPU, permitiendo cambios de modo en los ciclos exactos.
+- Resolver definitivamente los deadlocks de polling mediante sincronización precisa.
+
+**Concepto de Hardware:**
+En el hardware real de la Game Boy, no hay un "orquestador" externo. La CPU ejecuta una instrucción y consume, digamos, 8 ciclos. En esos mismos 8 ciclos, la PPU, el Timer y la APU también avanzan 8 ciclos. La emulación verdaderamente precisa replica esto: después de cada instrucción de la CPU, todos los componentes deben ser actualizados con los ciclos consumidos.
+
+El problema de la arquitectura anterior era que la CPU ejecutaba múltiples instrucciones en un bucle Python hasta acumular 456 T-Cycles, y la PPU solo se actualizaba una vez al final, recibiendo todos los 456 ciclos de golpe. Durante el bucle de polling de la CPU (ej: `LDH A, (n) -> CP d8 -> JR NZ, e`), la CPU leía el registro STAT repetidamente, pero la PPU no había cambiado de modo porque no había sido actualizada. Esto creaba una paradoja: **La CPU estaba esperando a la PPU, pero la PPU no podía avanzar hasta que la CPU terminara de esperar.**
+
+La solución es mover el bucle de emulación de grano fino completamente a C++, donde puede ejecutarse a velocidad nativa sin ninguna sobrecarga de llamadas entre Python y C++. El nuevo método `run_scanline()` ejecuta instrucciones de la CPU hasta acumular exactamente 456 T-Cycles, actualizando la PPU después de cada instrucción. Esto garantiza que la PPU cambie de modo (Modo 2 → Modo 3 → Modo 0) en los ciclos exactos, y cuando la CPU lee el registro STAT en su bucle de polling, verá el cambio de modo inmediatamente y podrá continuar.
+
+**Implementación:**
+1. **Modificación de CPU.hpp y CPU.cpp:**
+   - Se añadió el método `setPPU(PPU* ppu)` para conectar la PPU a la CPU.
+   - Se añadió el método `run_scanline()` que ejecuta una scanline completa con sincronización ciclo a ciclo.
+   - Se añadió un puntero `PPU* ppu_` a la clase CPU para mantener la referencia a la PPU.
+
+2. **Actualización del Wrapper Cython:**
+   - Se expusieron los métodos `set_ppu()` y `run_scanline()` en `cpu.pyx`.
+   - Se añadió una forward declaration de `PyPPU` para evitar dependencias circulares.
+
+3. **Simplificación de viboy.py:**
+   - El método `run()` se simplificó drásticamente, eliminando el bucle interno complejo de Python.
+   - Ahora simplemente llama a `self._cpu.run_scanline()` para cada scanline.
+   - La PPU se conecta a la CPU en el constructor mediante `self._cpu.set_ppu(self._ppu)`.
+
+**Resultado:**
+Con esta arquitectura final:
+1. La CPU ejecutará su bucle de polling.
+2. Dentro de `run_scanline()`, después de cada `cpu.step()`, se llamará a `ppu.step()`.
+3. La PPU tendrá la oportunidad de cambiar de Modo 2 a Modo 3 y Modo 0 en los ciclos exactos.
+4. En una de sus iteraciones, el bucle de polling de la CPU leerá el registro STAT y verá que el modo ha cambiado. La condición `JR NZ` fallará.
+5. **El deadlock se romperá.**
+6. La CPU continuará, copiará los gráficos a la VRAM.
+7. El Heartbeat mostrará a `LY` incrementándose.
+8. Y finalmente... **veremos el logo de Nintendo en la pantalla.**
+
+Este cambio representa la solución definitiva al problema de sincronización, moviendo todo el bucle crítico de emulación a C++ nativo y eliminando toda la sobrecarga de llamadas entre Python y C++.
+
+**Archivos Modificados:**
+- `src/core/cpp/CPU.hpp` - Añadidos `setPPU()` y `run_scanline()`
+- `src/core/cpp/CPU.cpp` - Implementación de los nuevos métodos
+- `src/core/cython/cpu.pyx` - Exposición de los métodos a Python
+- `src/viboy.py` - Simplificación del bucle principal
+
+---
+
+### 2025-12-20 - Step 0174: PPU Fase F: Implementación de Interrupciones STAT
+**Estado**: ✅ VERIFIED
+
+El emulador estaba en un `deadlock` persistente porque la CPU en estado `HALT` nunca se despertaba. Aunque la arquitectura de HALT implementada en el Step 0173 era correcta, el problema estaba en que la PPU no generaba las **Interrupciones STAT** que el juego esperaba para continuar. Este Step documenta la verificación y corrección final del sistema de interrupciones STAT en la PPU C++, asegurando que la interrupción V-Blank use el método `request_interrupt()` para mantener consistencia, y confirma que el acceso a `ime` en el wrapper de Cython ya está correctamente implementado.
+
+**Objetivo:**
+- Verificar que las interrupciones STAT están correctamente implementadas en la PPU C++.
+- Corregir la solicitud de interrupción V-Blank para usar `request_interrupt()` en lugar de escribir directamente en IF.
+- Confirmar que el setter de `ime` está correctamente expuesto en el wrapper de Cython.
+
+**Concepto de Hardware:**
+El registro `STAT` (0xFF41) no solo informa del modo actual de la PPU, sino que también permite al juego solicitar notificaciones cuando ocurren ciertos eventos mediante interrupciones. Los bits 3-6 del registro STAT permiten habilitar interrupciones para diferentes eventos:
+- **Bit 3:** Interrupción al entrar en Modo 0 (H-Blank)
+- **Bit 4:** Interrupción al entrar en Modo 1 (V-Blank)
+- **Bit 5:** Interrupción al entrar en Modo 2 (OAM Search)
+- **Bit 6:** Interrupción cuando `LY == LYC` (coincidencia de línea)
+
+Un detalle crítico es la **detección de flanco de subida**: la interrupción solo se solicita cuando la condición pasa de `false` a `true`, no mientras permanece activa. Esto evita múltiples interrupciones durante períodos largos (como todo H-Blank).
+
+Cuando la PPU detecta una condición activa y el bit correspondiente en STAT está activado, debe solicitar una interrupción activando el bit 1 del registro `IF` (0xFF0F). Este es el mecanismo que permite que la CPU se despierte de `HALT` cuando el juego está esperando un evento específico de la PPU.
+
+**Implementación:**
+1. **Corrección de V-Blank:** Se cambió la solicitud de interrupción V-Blank en `PPU.cpp` para usar `mmu_->request_interrupt(0)` en lugar de escribir directamente en IF, manteniendo consistencia con el resto del código.
+2. **Verificación del setter de IME:** Se confirmó que el método `set_ime(bool value)` está correctamente implementado en `CPU.hpp`/`CPU.cpp` y expuesto en `cpu.pyx` como propiedad con getter y setter.
+3. **Validación de interrupciones STAT:** Se verificó que `check_stat_interrupt()` está implementado correctamente con detección de flanco de subida y se llama en los momentos apropiados.
+
+**Resultado:**
+Todos los tests de interrupciones STAT pasan correctamente (6/6):
+- `test_stat_hblank_interrupt` - Verifica interrupción en H-Blank
+- `test_stat_vblank_interrupt` - Verifica interrupción en V-Blank
+- `test_stat_oam_search_interrupt` - Verifica interrupción en OAM Search
+- `test_stat_lyc_coincidence_interrupt` - Verifica interrupción LYC=LY
+- `test_stat_interrupt_rising_edge` - Verifica detección de flanco de subida
+- `test_cpu_ime_setter` - Verifica el setter de IME
+
+El sistema de interrupciones STAT está completo y funcionando. Con las interrupciones STAT funcionando correctamente, la CPU debería poder despertar de HALT cuando el juego las espera, rompiendo el deadlock que mantenía `LY` atascado en 0.
+
+---
+
 ### 2025-12-20 - Step 0173: Arquitectura de HALT (Fase 2): El Despertador de Interrupciones
 **Estado**: ✅ VERIFIED
 

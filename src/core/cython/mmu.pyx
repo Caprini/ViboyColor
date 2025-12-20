@@ -175,6 +175,24 @@ cdef class PyMMU:
         # Llama al método C++ con el puntero C++ correcto
         self._mmu.setPPU(ppu_ptr)
     
+    def request_interrupt(self, uint8_t bit):
+        """
+        Solicita una interrupción activando el bit correspondiente en el registro IF (0xFF0F).
+        
+        Este método permite que componentes del hardware (PPU, Timer, etc.) soliciten
+        interrupciones escribiendo en el registro IF. La CPU procesará estas interrupciones
+        cuando IME esté activo y haya bits activos en IE & IF.
+        
+        Args:
+            bit: Número de bit a activar (0-4):
+                - 0: V-Blank Interrupt
+                - 1: LCD STAT Interrupt
+                - 2: Timer Interrupt
+                - 3: Serial Interrupt
+                - 4: Joypad Interrupt
+        """
+        self._mmu.request_interrupt(bit)
+    
     # NOTA: El miembro _mmu es accesible desde otros módulos Cython
     # que incluyan este archivo (como cpu.pyx)
 

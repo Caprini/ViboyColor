@@ -145,6 +145,8 @@ class Viboy:
                 self._ppu = PyPPU(self._mmu)
                 # CRÍTICO: Conectar PPU a MMU para lectura dinámica del registro STAT (0xFF41)
                 self._mmu.set_ppu(self._ppu)
+                # CRÍTICO: Conectar PPU a CPU para sincronización ciclo a ciclo
+                self._cpu.set_ppu(self._ppu)
             else:
                 # Usar componentes Python (fallback)
                 self._mmu = MMU(None)
@@ -209,6 +211,8 @@ class Viboy:
             self._ppu = PyPPU(self._mmu)
             # CRÍTICO: Conectar PPU a MMU para lectura dinámica del registro STAT (0xFF41)
             self._mmu.set_ppu(self._ppu)
+            # CRÍTICO: Conectar PPU a CPU para sincronización ciclo a ciclo
+            self._cpu.set_ppu(self._ppu)
         else:
             # Usar componentes Python (fallback)
             self._mmu = MMU(self._cartridge)
@@ -656,26 +660,26 @@ class Viboy:
         """
         Ejecuta el bucle principal del emulador (Game Loop).
         
-        VERSIÓN 0.0.2: ARQUITECTURA POR SCANLINES (SINCRONIZACIÓN PERFECTA)
+        VERSIÓN 0.0.2: ARQUITECTURA FINAL - BUCLE DE EMULACIÓN NATIVO EN C++
         
-        Esta arquitectura garantiza sincronización perfecta entre CPU y PPU mediante
-        un diseño estricto basado en scanlines. El tiempo emulado siempre avanza
-        correctamente, rompiendo estructuralmente cualquier deadlock de polling.
+        Esta arquitectura mueve el bucle de emulación de grano fino completamente a C++,
+        eliminando la sobrecarga de llamadas entre Python y C++ y permitiendo sincronización
+        ciclo a ciclo precisa. La PPU se actualiza después de cada instrucción de la CPU,
+        resolviendo definitivamente los deadlocks de polling.
         
         ARQUITECTURA:
         1. Bucle Externo (por Frame): Se repite mientras el emulador esté corriendo.
         2. Bucle Medio (por Scanline): Se repite 154 veces (número total de líneas).
-        3. Bucle Interno (de CPU): Ejecuta la CPU repetidamente hasta consumir
-           exactamente 456 T-Cycles por scanline.
-        4. Actualización PPU: Una vez consumidos los 456 ciclos, se llama a
-           ppu.step(456) una sola vez.
+        3. Llamada a C++: Para cada scanline, se llama a cpu.run_scanline() que ejecuta
+           el bucle completo de 456 T-Cycles en C++ nativo, actualizando la PPU después
+           de cada instrucción.
         
         Este diseño garantiza que:
-        - Por cada "paso" de la PPU (una scanline), la CPU haya ejecutado la cantidad
-          correcta de instrucciones (exactamente 456 T-Cycles).
-        - El deadlock de polling se vuelve imposible, porque el tiempo emulado siempre
-          avanza de manera sincronizada.
-        - La PPU siempre tiene suficientes ciclos para cambiar de estado (Modo 2 -> 3 -> 0).
+        - La PPU se actualiza después de cada instrucción, permitiendo cambios de modo
+          en los ciclos exactos.
+        - Los bucles de polling de la CPU pueden leer cambios de estado de la PPU
+          inmediatamente, rompiendo deadlocks.
+        - El rendimiento es máximo al ejecutarse todo el bucle crítico en C++ nativo.
         
         Args:
             debug: Si es True, activa el modo debug con trazas detalladas (no implementado aún)
@@ -691,9 +695,7 @@ class Viboy:
         
         # Constantes de timing
         # Fuente: Pan Docs - LCD Timing
-        CYCLES_PER_SCANLINE = 456  # T-Cycles por scanline
         SCANLINES_PER_FRAME = 154  # Total de líneas por frame (144 visibles + 10 V-Blank)
-        CYCLES_PER_FRAME = CYCLES_PER_SCANLINE * SCANLINES_PER_FRAME  # 70,224 T-Cycles
         
         # Configuración de rendimiento
         TARGET_FPS = 60
@@ -703,83 +705,42 @@ class Viboy:
         self.running = True
         self.verbose = True  # Para heartbeat
         
-        print("🚀 Ejecutando el núcleo C++ con arquitectura por scanlines...")
+        print("🚀 Ejecutando el núcleo C++ con bucle de emulación nativo...")
         
         try:
             # Bucle principal del emulador
             while self.running:
-                # --- Bucle de Frame Completo (70224 ciclos) ---
+                # --- Bucle de Frame Completo (154 scanlines) ---
                 for line in range(SCANLINES_PER_FRAME):
                     # ✅ PROTECCIÓN: Verificar running antes de cada scanline
                     if not self.running:
                         break
                     
-                    # --- Bucle de Scanline (456 ciclos) ---
-                    cycles_this_scanline = 0
-                    safety_counter = 0  # ✅ PROTECCIÓN: Contador de seguridad
-                    MAX_ITERATIONS_PER_SCANLINE = 1000  # Límite de iteraciones
-                    
-                    while cycles_this_scanline < CYCLES_PER_SCANLINE:
-                        # ✅ PROTECCIÓN: Verificar running dentro del bucle interno
-                        if not self.running:
-                            break
-                        
-                        # ✅ PROTECCIÓN: Detectar bucles infinitos
-                        safety_counter += 1
-                        if safety_counter > MAX_ITERATIONS_PER_SCANLINE:
-                            logger.error(
-                                f"⚠️ BUCLE INFINITO DETECTADO en scanline {line}: "
-                                f"ciclos acumulados={cycles_this_scanline}/{CYCLES_PER_SCANLINE}, "
-                                f"iteraciones={safety_counter}"
-                            )
-                            # Forzar avance del scanline completo
-                            remaining_cycles = CYCLES_PER_SCANLINE - cycles_this_scanline
-                            cycles_this_scanline = CYCLES_PER_SCANLINE
-                            # Actualizar Timer si está disponible
-                            if not self._use_cpp and self._timer is not None:
-                                self._timer.tick(remaining_cycles)
-                            break
-                        
-                        # Siempre llamamos a step() para que la CPU pueda procesar interrupciones y despertar.
-                        # Esto es crítico: incluso si la CPU está en HALT, debe seguir "despertando" cada ciclo
-                        # para comprobar si hay interrupciones pendientes.
-                        m_cycles = self._cpu.step()
-                        
-                        # ✅ PROTECCIÓN: Verificar que m_cycles es válido
-                        if m_cycles == 0:
-                            logger.warning(f"⚠️ CPU devolvió 0 ciclos en scanline {line}, forzando avance mínimo")
-                            m_cycles = 1  # Forzar avance mínimo (1 M-Cycle = 4 T-Cycles)
-                        
-                        # Verificar si la CPU está en HALT usando el flag (no el código de retorno)
-                        if self._use_cpp:
-                            is_halted = self._cpu.get_halted()
-                        else:
+                    # C++ se encarga de toda la emulación de una scanline
+                    # El método run_scanline() ejecuta instrucciones hasta acumular
+                    # 456 T-Cycles, actualizando la PPU después de cada instrucción
+                    if self._use_cpp:
+                        self._cpu.run_scanline()
+                    else:
+                        # Fallback para modo Python (arquitectura antigua)
+                        # Este código se mantiene por compatibilidad pero no debería usarse
+                        CYCLES_PER_SCANLINE = 456
+                        cycles_this_scanline = 0
+                        while cycles_this_scanline < CYCLES_PER_SCANLINE:
+                            if not self.running:
+                                break
+                            m_cycles = self._cpu.step()
+                            if m_cycles == 0:
+                                m_cycles = 1
                             is_halted = self._cpu.halted
-                        
-                        if is_halted:
-                            # Si la CPU está en HALT, no consumió ciclos de instrucción,
-                            # pero el tiempo debe avanzar. Avanzamos en la unidad mínima
-                            # de tiempo (1 M-Cycle = 4 T-Cycles).
-                            # cpu.step() ya se ha encargado de comprobar si debe despertar.
-                            t_cycles = 4
-                        else:
-                            # Si no está en HALT, la instrucción consumió ciclos reales.
-                            # Convertir M-Cycles a T-Cycles
-                            t_cycles = m_cycles * 4
-                            
-                            # ✅ PROTECCIÓN: Verificar que t_cycles es positivo
-                            if t_cycles <= 0:
-                                logger.warning(f"⚠️ t_cycles <= 0 ({t_cycles}), forzando avance mínimo")
-                                t_cycles = 4  # Forzar avance mínimo (1 M-Cycle)
-                        
-                        cycles_this_scanline += t_cycles
-                        
-                        # Actualizar Timer si está disponible (solo en modo Python por ahora)
-                        if not self._use_cpp and self._timer is not None:
-                            self._timer.tick(t_cycles)
-                    
-                    # Al final de la scanline, actualizamos la PPU una sola vez
-                    self._ppu.step(CYCLES_PER_SCANLINE)
+                            if is_halted:
+                                t_cycles = 4
+                            else:
+                                t_cycles = m_cycles * 4
+                            cycles_this_scanline += t_cycles
+                            if self._timer is not None:
+                                self._timer.tick(t_cycles)
+                        self._ppu.step(CYCLES_PER_SCANLINE)
                 
                 # --- Fin del Frame ---
                 # En este punto, se ha dibujado un frame completo (154 scanlines)

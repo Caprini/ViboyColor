@@ -21,4 +21,5 @@ cdef extern from "MMU.hpp":
         void write(uint16_t addr, uint8_t value)
         void load_rom(const uint8_t* data, size_t size)
         void setPPU(PPU* ppu)
+        void request_interrupt(uint8_t bit)
 
