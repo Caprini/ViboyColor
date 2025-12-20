@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0184 - Fix: Corregir Nombres de Métodos del Joypad en el Puente Cython-Python -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0184__fix-corregir-nombres-metodos-joypad-puente-cython-python.html" class="entry-link">
+                                    Fix: Corregir Nombres de Métodos del Joypad en el Puente Cython-Python
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0184 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            La ejecución del emulador con el Joypad integrado falló con un AttributeError, revelando una discrepancia de nombres entre los métodos llamados por Python y los expuestos por el wrapper de Cython. El núcleo del emulador funciona correctamente, pero la capa de comunicación (el "puente") tenía un error de nomenclatura. Este Step corrige el código de manejo de eventos en Python para que utilice los nombres de método correctos (press_button y release_button) expuestos por el wrapper PyJoypad.
+                        </p>
+                    </li>
                     <!-- Entrada 0183 - ¡Hito! Primeros Gráficos - Limpieza Post-Victoria y Restauración de la Precisión -->
                     <li>
                         <div class="entry-header">

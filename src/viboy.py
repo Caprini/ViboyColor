@@ -913,6 +913,20 @@ class Viboy:
                 pygame.K_RSHIFT: "select",
             }
             
+            # Mapeo de nombres de botones (strings) a índices numéricos para PyJoypad C++
+            # El wrapper Cython espera índices: 0-3 (dirección), 4-7 (acción)
+            # 0=Derecha, 1=Izquierda, 2=Arriba, 3=Abajo, 4=A, 5=B, 6=Select, 7=Start
+            button_index_map: dict[str, int] = {
+                "right": 0,
+                "left": 1,
+                "up": 2,
+                "down": 3,
+                "a": 4,
+                "b": 5,
+                "select": 6,
+                "start": 7,
+            }
+            
             # Obtener todos los eventos pendientes
             for event in pygame.event.get():
                 # Manejar cierre de ventana
@@ -925,12 +939,26 @@ class Viboy:
                         button = key_mapping.get(event.key)
                         if button:
                             logger.debug(f"KEY PRESS: {event.key} -> button '{button}'")
-                            self._joypad.press(button)
+                            # CORRECCIÓN: Convertir string a índice y usar press_button()
+                            if isinstance(self._joypad, PyJoypad):
+                                button_index = button_index_map.get(button)
+                                if button_index is not None:
+                                    self._joypad.press_button(button_index)
+                            else:
+                                # Fallback para Joypad Python (usa strings)
+                                self._joypad.press(button)
                     elif event.type == pygame.KEYUP:
                         button = key_mapping.get(event.key)
                         if button:
                             logger.debug(f"KEY RELEASE: {event.key} -> button '{button}'")
-                            self._joypad.release(button)
+                            # CORRECCIÓN: Convertir string a índice y usar release_button()
+                            if isinstance(self._joypad, PyJoypad):
+                                button_index = button_index_map.get(button)
+                                if button_index is not None:
+                                    self._joypad.release_button(button_index)
+                            else:
+                                # Fallback para Joypad Python (usa strings)
+                                self._joypad.release(button)
             
             return True
         except ImportError:

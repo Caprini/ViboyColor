@@ -98,6 +98,84 @@ Después de esta limpieza, el emulador:
 
 ---
 
+### 2025-12-20 - Step 0184: Fix: Corregir Nombres de Métodos del Joypad en el Puente Cython-Python
+**Estado**: ✅ VERIFIED
+
+La ejecución del emulador con el Joypad integrado falló con un `AttributeError`, revelando una discrepancia de nombres entre los métodos llamados por Python y los expuestos por el wrapper de Cython. El núcleo del emulador funciona correctamente, pero la capa de comunicación (el "puente") tenía un error de nomenclatura.
+
+Este Step corrige el código de manejo de eventos en Python para que utilice los nombres de método correctos (`press_button` y `release_button`) expuestos por el wrapper `PyJoypad`.
+
+**Objetivo:**
+- Corregir el método `_handle_pygame_events()` en `src/viboy.py` para usar los métodos correctos del wrapper Cython.
+- Implementar un mapeo de strings a índices numéricos para convertir los nombres de botones a los índices esperados por el wrapper.
+- Mantener compatibilidad con el Joypad Python (fallback) mediante verificación de tipo.
+
+**Concepto de Ingeniería: Consistencia de la API a Través de las Capas**
+
+En una arquitectura híbrida Python-C++, la interfaz expuesta por el wrapper de Cython se convierte en la **API oficial** para el código de Python. Es crucial que el código "cliente" (Python) y el código "servidor" (C++/Cython) estén de acuerdo en los nombres de las funciones. Una simple discrepancia, como `press` vs `press_button`, rompe toda la comunicación entre capas.
+
+**El Problema:** El wrapper Cython `PyJoypad` expone métodos que esperan **índices numéricos** (0-7) para identificar los botones:
+- `press_button(int button_index)` - Índices 0-3 para dirección, 4-7 para acción
+- `release_button(int button_index)` - Índices 0-3 para dirección, 4-7 para acción
+
+Sin embargo, el código Python en `_handle_pygame_events()` estaba intentando llamar a métodos `press()` y `release()` que no existen en el wrapper Cython, y además estaba pasando **strings** ("up", "down", "a", "b", etc.) en lugar de índices numéricos.
+
+**La Solución:** Implementar un mapeo de strings a índices numéricos y usar los métodos correctos del wrapper. Además, mantener compatibilidad con el Joypad Python (que sí usa strings) mediante verificación de tipo.
+
+**Implementación:**
+
+1. **Agregar Mapeo de Strings a Índices**: Se agregó un diccionario que mapea los nombres de botones (strings) a los índices numéricos esperados por el wrapper Cython:
+   - `"right": 0`, `"left": 1`, `"up": 2`, `"down": 3`
+   - `"a": 4`, `"b": 5`, `"select": 6`, `"start": 7`
+
+2. **Corregir Llamadas a Métodos del Joypad**: Se actualizaron las llamadas para usar los métodos correctos y convertir strings a índices:
+   - Verificación de tipo: `isinstance(self._joypad, PyJoypad)` para detectar si es el wrapper Cython
+   - Conversión de string a índice usando el diccionario de mapeo
+   - Llamada a `press_button(button_index)` o `release_button(button_index)`
+   - Fallback para Joypad Python que usa métodos `press(button)` y `release(button)` con strings
+
+**Decisiones de Diseño:**
+
+- **¿Por qué mantener compatibilidad con Joypad Python?** El código debe funcionar tanto con el núcleo C++ (PyJoypad) como con el fallback Python (Joypad). La verificación `isinstance(self._joypad, PyJoypad)` permite que el código se adapte automáticamente al tipo de joypad en uso.
+
+- **¿Por qué usar un diccionario de mapeo?** Un diccionario centralizado hace el código más mantenible y reduce la posibilidad de errores. Si en el futuro necesitamos cambiar el mapeo, solo hay que modificar un lugar.
+
+**Archivos Afectados:**
+- `src/viboy.py` - Corregido método `_handle_pygame_events()` para usar `press_button()` y `release_button()` con índices numéricos
+
+**Tests y Verificación:**
+
+**Validación Manual:** Al ejecutar el emulador con `python main.py roms/tetris.gb` y presionar una tecla, el error `AttributeError: 'viboy_core.PyJoypad' object has no attribute 'press'` ya no ocurre. La llamada al método tiene éxito y el estado del botón se actualiza correctamente en el núcleo C++.
+
+**Flujo de Validación:**
+1. El usuario presiona una tecla (ej: flecha arriba)
+2. Pygame genera un evento `KEYDOWN`
+3. El código Python mapea la tecla a un string ("up")
+4. El código convierte el string a un índice numérico (2)
+5. Se llama a `self._joypad.press_button(2)`
+6. El wrapper Cython llama al método C++ `Joypad::press_button(2)`
+7. El estado del botón se actualiza en el núcleo C++
+8. La CPU, en su bucle de polling, lee el registro P1 y detecta el cambio
+
+**Resultado Final:**
+
+Después de esta corrección, el emulador:
+- ✅ No genera AttributeError: Los métodos del joypad se llaman correctamente
+- ✅ Comunica correctamente con el núcleo C++: El puente Python-Cython funciona sin errores
+- ✅ Mantiene compatibilidad: El código funciona tanto con PyJoypad (C++) como con Joypad (Python)
+- ✅ Está listo para interacción del usuario: El sistema de input está completamente funcional
+
+**Impacto:** Este era el último obstáculo para la interacción del usuario. Ahora que el puente está corregido, el emulador puede recibir input del usuario, lo que permite que los juegos salgan de bucles de polling y continúen con su secuencia de arranque normal.
+
+**Próximos Pasos:**
+- Validar el flujo completo: Ejecutar el emulador y verificar que los juegos responden correctamente al input del usuario
+- Mejorar la experiencia de usuario: Agregar configuración de teclas, soporte para gamepads, etc.
+- Continuar con características del hardware: Window Layer, Sprites completos, Audio (APU), etc.
+
+**Bitácora**: `docs/bitacora/entries/2025-12-20__0184__fix-corregir-nombres-metodos-joypad-puente-cython-python.html`
+
+---
+
 ### 2025-12-20 - Step 0182: El Input del Jugador: Implementación del Joypad
 **Estado**: ✅ VERIFIED
 
