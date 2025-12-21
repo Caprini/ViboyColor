@@ -13,7 +13,8 @@ temp_*.txt
 test_emulator_log_*.txt
 
 # Archivos de documentación HTML (muchos archivos - 200+)
-docs/bitacora/entries/
+# docs/bitacora/entries/ - Comentado temporalmente para permitir edición del index.html
+# Nota: El index.html está en docs/bitacora/ y debe ser editable
 
 # Archivos compilados
 *.obj

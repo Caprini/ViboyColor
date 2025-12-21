@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0204 - El Sensor de VRAM: Monitoreo de Escrituras en Tiempo Real -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-21__0204__sensor-vram-monitoreo-escrituras-tiempo-real.html" class="entry-link">
+                                    El Sensor de VRAM: Monitoreo de Escrituras en Tiempo Real
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-21 | 
+                            <strong>Step ID:</strong> 0204 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔧 DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            El "Test del Checkerboard" del Step 0202 ha validado definitivamente nuestro pipeline de renderizado: la pantalla en blanco no es un problema de hardware gráfico, sino que la VRAM está vacía. Para determinar si la CPU intenta escribir en la VRAM, implementamos un "sensor de VRAM" en el punto único de verdad de todas las escrituras de memoria: el método MMU::write(). Este sensor detectará y reportará la primera escritura en el rango de VRAM (0x8000-0x9FFF), proporcionando una respuesta binaria y definitiva a la pregunta: ¿la CPU está atrapada en un bucle antes de copiar los datos del logo, o sí está escribiendo pero con datos incorrectos?
+                        </p>
+                    </li>
                     <!-- Entrada 0203 - Limpieza Post-Diagnóstico: Revertir el "Test del Checkerboard" -->
                     <li>
                         <div class="entry-header">
