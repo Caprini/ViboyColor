@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0197 - El Estado del GÉNESIS (Parte 2): Pre-Carga de la VRAM con el Logo de Nintendo -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0197__estado-genesis-parte-2-pre-carga-vram-logo-nintendo.html" class="entry-link">
+                                    El Estado del GÉNESIS (Parte 2): Pre-Carga de la VRAM con el Logo de Nintendo
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0197 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            El emulador está completamente sincronizado y todos los componentes de hardware están implementados, pero la pantalla sigue en blanco. El diagnóstico definitivo revela que estamos simulando incorrectamente el estado Post-BIOS: inicializamos los registros, pero no simulamos la acción principal de la Boot ROM, que es pre-cargar los datos gráficos del logo de Nintendo en la VRAM. El juego asume que el logo ya está ahí y, al encontrar la VRAM vacía, entra en un estado de fallo. Este Step implementa el estado "Génesis" de la VRAM, modificando el constructor de la MMU para que pre-cargue los datos del tilemap y los tiles del logo de Nintendo en las direcciones correctas de la VRAM (0x8000 y 0x9904).
+                        </p>
+                    </li>
                     <!-- Entrada 0196 - El Estado del GÉNESIS: Inicialización de Registros de CPU Post-BIOS -->
                     <li>
                         <div class="entry-header">

@@ -5,6 +5,30 @@
 #include <cstring>
 #include <cstdio>
 
+// --- Step 0197: Datos del Logo de Nintendo (Post-BIOS) ---
+// La Boot ROM copia los datos del logo desde el encabezado del cartucho (0x0104-0x0133)
+// a la VRAM. Estos son los 48 bytes estándar del logo de Nintendo que se encuentran
+// en el encabezado de todos los cartuchos de Game Boy.
+// Fuente: Pan Docs - "Nintendo Logo", Cart Header (0x0104-0x0133)
+static const uint8_t NINTENDO_LOGO_DATA[48] = {
+    0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B,
+    0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
+    0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E,
+    0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
+    0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC,
+    0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E
+};
+
+// Tilemap del logo de Nintendo en la pantalla (0x9904-0x9927)
+// La Boot ROM configura el tilemap para mostrar el logo centrado en la parte superior.
+// 12 tiles en una fila (0x01 a 0x0C) seguidos de tiles vacíos (0x00).
+// Fuente: Pan Docs - "Boot ROM Behavior", Tile Map Layout
+static const uint8_t NINTENDO_LOGO_TILEMAP[36] = {
+    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, // Fila 1: Logo tiles
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Fila 2: Vacío
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // Fila 3: Vacío
+};
+
 MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nullptr) {
     // Inicializar memoria a 0
     // --- Step 0189: Inicialización de Registros de Hardware (Post-BIOS) ---
@@ -56,6 +80,24 @@ MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nu
     // - 0xFF06 (TMA): Controlado por Timer
     // - 0xFF07 (TAC): Controlado por Timer
     // - 0xFF00 (P1): Controlado por Joypad
+    
+    // --- Step 0197: Pre-cargar VRAM con el logo de Nintendo (Post-BIOS) ---
+    // La Boot ROM copia los datos del logo desde el encabezado del cartucho (0x0104-0x0133)
+    // a la VRAM. Estos 48 bytes forman 3 tiles (16 bytes cada uno).
+    // La Boot ROM también configura el tilemap para mostrar el logo centrado.
+    // Fuente: Pan Docs - "Boot ROM Behavior", "Nintendo Logo"
+    
+    // Copiar los datos del logo a la VRAM (0x8000-0x802F)
+    // Los 48 bytes del logo se organizan como 3 tiles consecutivos
+    for (size_t i = 0; i < sizeof(NINTENDO_LOGO_DATA); ++i) {
+        memory_[0x8000 + i] = NINTENDO_LOGO_DATA[i];
+    }
+    
+    // Copiar el tilemap a la VRAM (0x9904-0x9927)
+    // El tilemap configura qué tiles mostrar en la pantalla (12 tiles del logo en la primera fila)
+    for (size_t i = 0; i < sizeof(NINTENDO_LOGO_TILEMAP); ++i) {
+        memory_[0x9904 + i] = NINTENDO_LOGO_TILEMAP[i];
+    }
 }
 
 MMU::~MMU() {

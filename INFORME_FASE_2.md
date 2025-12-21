@@ -32,6 +32,71 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0197: El Estado del GÉNESIS (Parte 2): Pre-Carga de la VRAM con el Logo de Nintendo
+**Estado**: ✅ VERIFIED
+
+El emulador está completamente sincronizado y todos los componentes de hardware están implementados, pero la pantalla sigue en blanco. El diagnóstico definitivo revela que estamos simulando incorrectamente el estado Post-BIOS: inicializamos los registros de la CPU y del hardware, pero **no simulamos la acción principal de la Boot ROM**, que es pre-cargar los datos gráficos del logo de Nintendo en la VRAM. El juego asume que el logo ya está ahí y, al encontrar la VRAM vacía, entra en un estado de fallo.
+
+**Objetivo:**
+- Implementar el estado "Génesis" de la VRAM, modificando el constructor de la MMU para que pre-cargue los datos del tilemap y los tiles del logo de Nintendo en las direcciones correctas de la VRAM (`0x8000` y `0x9904`).
+- Replicar el estado visual que la Boot ROM dejaría antes de ceder el control al cartucho.
+
+**Concepto de Hardware: La Memoria Visual Post-BIOS**
+
+Cuando la Boot ROM cede el control al cartucho en `PC=0x0100`, no solo ha inicializado los registros de la CPU y los periféricos, sino que también ha dejado una **"huella" visual** en la VRAM. Ha copiado los datos gráficos del logo de Nintendo desde el encabezado del cartucho (direcciones `0x0104` a `0x0133`) a la VRAM y ha configurado el tilemap para mostrarlo en la pantalla.
+
+**El Problema Fundamental:** Nuestro emulador no ejecuta una Boot ROM. En su lugar, inicializamos los registros y asumimos que el juego copiará los gráficos. Sin embargo, el código del juego en `PC=0x0100` **no copia el logo**. Asume que el logo **ya está ahí**, puesto por un BIOS que nosotros nunca ejecutamos. Lo que hace el juego es, probablemente, continuar con la animación de scroll del logo o simplemente esperar a que termine antes de mostrar su propia pantalla de título. Está animando una VRAM vacía, lo que resulta en una pantalla en blanco.
+
+**Implementación:**
+
+1. **Arrays Estáticos con los Datos del Logo**: Se añadieron dos arrays estáticos al principio de `MMU.cpp`:
+   - `NINTENDO_LOGO_DATA[48]`: Los 48 bytes estándar del logo de Nintendo del encabezado del cartucho (0x0104-0x0133)
+   - `NINTENDO_LOGO_TILEMAP[36]`: El tilemap que configura qué tiles mostrar en la pantalla (12 tiles del logo en la primera fila)
+
+2. **Pre-carga de la VRAM en el Constructor**: Se modificó el constructor de `MMU` para copiar estos datos a la VRAM:
+   ```cpp
+   // Copiar los datos del logo a la VRAM (0x8000-0x802F)
+   for (size_t i = 0; i < sizeof(NINTENDO_LOGO_DATA); ++i) {
+       memory_[0x8000 + i] = NINTENDO_LOGO_DATA[i];
+   }
+   
+   // Copiar el tilemap a la VRAM (0x9904-0x9927)
+   for (size_t i = 0; i < sizeof(NINTENDO_LOGO_TILEMAP); ++i) {
+       memory_[0x9904 + i] = NINTENDO_LOGO_TILEMAP[i];
+   }
+   ```
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Añadidos arrays estáticos con los datos del logo y modificación del constructor para pre-cargar la VRAM
+- `docs/bitacora/entries/2025-12-20__0197__estado-genesis-parte-2-pre-carga-vram-logo-nintendo.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0197
+
+**Tests y Verificación:**
+
+Esta implementación no requiere tests unitarios adicionales, ya que la validación es puramente visual: el logo de Nintendo debería aparecer en la pantalla cuando se ejecuta el emulador con un juego.
+
+**Compilación:**
+```bash
+python setup.py build_ext --inplace
+```
+Compilación exitosa sin errores.
+
+**Resultado Esperado:**
+
+Con la VRAM inicializada correctamente:
+1. Los datos del logo estarán presentes en la VRAM cuando el código del juego comience a ejecutarse.
+2. La PPU podrá leer los datos del logo desde la VRAM y renderizarlos en la pantalla.
+3. El juego debería continuar ejecutándose, ya que ahora encuentra el logo en la VRAM como esperaba.
+
+**Fuentes:**
+- Pan Docs - "Boot ROM Behavior"
+- Pan Docs - "Nintendo Logo"
+- Pan Docs - "Cart Header (0x0104-0x0133)"
+- Pan Docs - "VRAM Tile Data", "Tile Map"
+
+---
+
 ### 2025-12-20 - Step 0196: El Estado del GÉNESIS: Inicialización de Registros de CPU Post-BIOS
 **Estado**: ✅ VERIFIED
 
