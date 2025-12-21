@@ -332,3 +332,4 @@ Solicitamos al equipo de Cursor que:
 **Última actualización:** 2024-12-20  
 **Estado:** Pendiente de respuesta del equipo de Cursor
 
+

@@ -123,6 +123,12 @@ void PPU::step(int cpu_cycles) {
             ly_ = 0;
             // Reiniciar flag de interrupción STAT al cambiar de frame
             stat_interrupt_line_ = 0;
+            // --- Step 0200: Limpieza Sincrónica del Framebuffer ---
+            // Limpiar el framebuffer justo cuando empieza el nuevo fotograma (LY=0).
+            // Esto elimina la condición de carrera: la limpieza ocurre dentro del mismo
+            // "tick" de hardware que inicia el dibujo, garantizando que el lienzo esté
+            // siempre limpio justo antes de que el primer píxel del nuevo fotograma sea dibujado.
+            clear_framebuffer();
         }
     }
     

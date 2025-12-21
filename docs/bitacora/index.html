@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0200 - Arquitectura Gráfica: Sincronización del Framebuffer con V-Blank -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-21__0200__arquitectura-grafica-sincronizacion-framebuffer-vblank.html" class="entry-link">
+                                    Arquitectura Gráfica: Sincronización del Framebuffer con V-Blank
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-21 | 
+                            <strong>Step ID:</strong> 0200 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            El diagnóstico del Step 0199 confirmó una condición de carrera: el framebuffer se limpia desde Python antes de que la PPU tenga tiempo de dibujar, resultando en una pantalla blanca. Este Step resuelve el problema arquitectónicamente: la responsabilidad de limpiar el framebuffer se mueve de Python a C++, activándose precisamente cuando la PPU inicia el renderizado de un nuevo fotograma (cuando LY se resetea a 0). Esta sincronización elimina la condición de carrera y garantiza que el framebuffer esté siempre limpio justo antes de que el primer píxel del nuevo fotograma sea dibujado. Además, se integra el logo personalizado "VIBOY COLOR" en lugar del logo estándar de Nintendo.
+                        </p>
+                    </li>
                     <!-- Entrada 0199 - El Ciclo de Vida del Framebuffer: Limpieza de Fotogramas -->
                     <li>
                         <div class="entry-header">

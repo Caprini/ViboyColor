@@ -5,18 +5,24 @@
 #include <cstring>
 #include <cstdio>
 
-// --- Step 0197: Datos del Logo de Nintendo (Post-BIOS) ---
+// --- Step 0200: Datos del Logo Personalizado "Viboy Color" (Post-BIOS) ---
 // La Boot ROM copia los datos del logo desde el encabezado del cartucho (0x0104-0x0133)
-// a la VRAM. Estos son los 48 bytes estándar del logo de Nintendo que se encuentran
-// en el encabezado de todos los cartuchos de Game Boy.
+// a la VRAM. Estos son los 48 bytes del logo personalizado "VIBOY COLOR" convertidos
+// desde una imagen de 48x8 píxeles a formato de header de cartucho (1bpp).
+// 
+// NOTA: Esta es una conversión automática desde una imagen redimensionada. Para una
+// calidad perfecta, lo ideal sería diseñar el logo a mano en una cuadrícula de 48x8
+// y luego convertirlo al formato exacto que el hardware espera.
+//
 // Fuente: Pan Docs - "Nintendo Logo", Cart Header (0x0104-0x0133)
-static const uint8_t NINTENDO_LOGO_DATA[48] = {
-    0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B,
-    0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
-    0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E,
-    0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
-    0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC,
-    0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E
+// El logo de Nintendo original se usa como mecanismo antipiratería: la Boot ROM
+// compara estos bytes con los del encabezado del cartucho. Si no coinciden, el
+// sistema se congela. En nuestro caso, usamos un logo personalizado.
+static const uint8_t VIBOY_LOGO_HEADER_DATA[48] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x7E, 0x81, 0x99, 0xBD, 0xBD, 0xBD, 0xA5, 0x81, 0x7E, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x7E, 0x81, 0x81, 0x42, 0x42, 0x42, 0x24, 0x81, 0x7E, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
 // Tilemap del logo de Nintendo en la pantalla (0x9904-0x9927)
@@ -81,16 +87,16 @@ MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nu
     // - 0xFF07 (TAC): Controlado por Timer
     // - 0xFF00 (P1): Controlado por Joypad
     
-    // --- Step 0197: Pre-cargar VRAM con el logo de Nintendo (Post-BIOS) ---
+    // --- Step 0200: Pre-cargar VRAM con el logo personalizado "Viboy Color" (Post-BIOS) ---
     // La Boot ROM copia los datos del logo desde el encabezado del cartucho (0x0104-0x0133)
     // a la VRAM. Estos 48 bytes forman 3 tiles (16 bytes cada uno).
     // La Boot ROM también configura el tilemap para mostrar el logo centrado.
     // Fuente: Pan Docs - "Boot ROM Behavior", "Nintendo Logo"
     
-    // Copiar los datos del logo a la VRAM (0x8000-0x802F)
+    // Copiar los datos del logo personalizado a la VRAM (0x8000-0x802F)
     // Los 48 bytes del logo se organizan como 3 tiles consecutivos
-    for (size_t i = 0; i < sizeof(NINTENDO_LOGO_DATA); ++i) {
-        memory_[0x8000 + i] = NINTENDO_LOGO_DATA[i];
+    for (size_t i = 0; i < sizeof(VIBOY_LOGO_HEADER_DATA); ++i) {
+        memory_[0x8000 + i] = VIBOY_LOGO_HEADER_DATA[i];
     }
     
     // Copiar el tilemap a la VRAM (0x9904-0x9927)

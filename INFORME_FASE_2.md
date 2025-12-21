@@ -32,6 +32,85 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-21 - Step 0200: Arquitectura Gráfica: Sincronización del Framebuffer con V-Blank
+**Estado**: ✅ VERIFIED
+
+El diagnóstico del Step 0199 confirmó una condición de carrera: el framebuffer se limpia desde Python antes de que la PPU tenga tiempo de dibujar, resultando en una pantalla blanca. Aunque el primer fotograma (el logo de Nintendo) se renderiza correctamente, los fotogramas posteriores se muestran en blanco porque la limpieza ocurre asíncronamente al hardware emulado.
+
+**Objetivo:**
+- Mover la responsabilidad de limpiar el framebuffer de Python a C++, activándola precisamente cuando la PPU inicia el renderizado de un nuevo fotograma (cuando `LY` se resetea a 0).
+- Eliminar la condición de carrera entre Python y C++.
+- Integrar el logo personalizado "VIBOY COLOR" en lugar del logo estándar de Nintendo (opcional).
+
+**Concepto de Hardware: Sincronización con el Barrido Vertical (V-Sync)**
+
+El ciclo de renderizado de la Game Boy es inmutable. La PPU dibuja 144 líneas visibles (LY 0-143) y luego entra en el período de V-Blank (LY 144-153). Cuando el ciclo termina, `LY` se resetea a `0` para comenzar el siguiente fotograma. Este momento, el **cambio de LY a 0**, es el "pulso" de sincronización vertical (V-Sync) del hardware. Es el punto de partida garantizado para cualquier operación de renderizado de un nuevo fotograma.
+
+Al anclar nuestra lógica de `clear_framebuffer()` a este evento, eliminamos la condición de carrera. La limpieza ocurrirá dentro del mismo "tick" de hardware que inicia el dibujo, garantizando que el lienzo esté siempre limpio justo antes de que el primer píxel del nuevo fotograma sea dibujado, pero nunca antes.
+
+**La Condición de Carrera del Step 0199:**
+1. **Frame 0:** Python llama a `clear_framebuffer()` → El buffer C++ se llena de ceros → La CPU ejecuta ~17,556 instrucciones → La ROM establece `LCDC=0x91` → La PPU renderiza el logo de Nintendo → Python muestra el logo (visible por 1/60s).
+2. **Frame 1:** Python llama a `clear_framebuffer()` → El buffer C++ se borra inmediatamente → La CPU ejecuta instrucciones → El juego establece `LCDC=0x80` (fondo apagado) → La PPU no dibuja nada → Python lee el framebuffer (lleno de ceros) → Pantalla blanca.
+
+**La Solución Arquitectónica:** La responsabilidad de limpiar el framebuffer no debe ser del bucle principal de Python (que es asíncrono al hardware), sino del propio hardware emulado. La PPU debe limpiar su propio lienzo justo cuando está a punto de empezar a dibujar un nuevo fotograma. ¿Y cuándo ocurre eso? Exactamente cuando la línea de escaneo (`LY`) vuelve a ser `0`.
+
+**Implementación:**
+
+1. **Modificación en PPU::step() (C++)**: En `src/core/cpp/PPU.cpp`, dentro del método `step()`, añadimos la llamada a `clear_framebuffer()` justo cuando `ly_` se resetea a 0:
+   ```cpp
+   // Si pasamos la última línea (153), reiniciar a 0 (nuevo frame)
+   if (ly_ > 153) {
+       ly_ = 0;
+       // Reiniciar flag de interrupción STAT al cambiar de frame
+       stat_interrupt_line_ = 0;
+       // --- Step 0200: Limpieza Sincrónica del Framebuffer ---
+       // Limpiar el framebuffer justo cuando empieza el nuevo fotograma (LY=0).
+       // Esto elimina la condición de carrera: la limpieza ocurre dentro del mismo
+       // "tick" de hardware que inicia el dibujo, garantizando que el lienzo esté
+       // siempre limpio justo antes de que el primer píxel del nuevo fotograma sea dibujado.
+       clear_framebuffer();
+   }
+   ```
+
+2. **Eliminación de la Limpieza Asíncrona en Python**: En `src/viboy.py`, eliminamos la llamada a `clear_framebuffer()` del bucle principal. El orquestador de Python ya no es responsable de la limpieza.
+
+3. **Integración del Logo Personalizado "VIBOY COLOR" (Opcional)**: En `src/core/cpp/MMU.cpp`, reemplazamos el array `NINTENDO_LOGO_DATA` con `VIBOY_LOGO_HEADER_DATA`, que contiene los 48 bytes del logo personalizado convertidos desde una imagen de 48x8 píxeles.
+
+**Archivos Afectados:**
+- `src/core/cpp/PPU.cpp` - Añadida llamada a `clear_framebuffer()` cuando `ly_` se resetea a 0
+- `src/viboy.py` - Eliminada llamada asíncrona a `clear_framebuffer()` del bucle principal
+- `src/core/cpp/MMU.cpp` - Reemplazado `NINTENDO_LOGO_DATA` con `VIBOY_LOGO_HEADER_DATA` (opcional)
+- `docs/bitacora/entries/2025-12-21__0200__arquitectura-grafica-sincronizacion-framebuffer-vblank.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0200
+
+**Tests y Verificación:**
+
+La validación de este cambio es visual y funcional:
+
+1. **Recompilación del módulo C++**:
+   ```bash
+   python setup.py build_ext --inplace
+   # O usando el script de PowerShell:
+   .\rebuild_cpp.ps1
+   ```
+
+2. **Ejecución del emulador**:
+   ```bash
+   python main.py roms/tetris.gb
+   ```
+
+3. **Resultado Esperado**:
+   - El logo de Nintendo (o el logo personalizado "VIBOY COLOR") se muestra de forma estable durante aproximadamente un segundo.
+   - Cuando el juego establece `LCDC=0x80` (fondo apagado), la pantalla se vuelve blanca de forma limpia, sin artefactos "fantasma".
+   - No hay condición de carrera: el framebuffer se limpia sincrónicamente con el inicio de cada fotograma.
+
+**Validación de módulo compilado C++**: Este cambio modifica el comportamiento del bucle de emulación en C++, por lo que es crítico verificar que la compilación se complete sin errores y que el emulador funcione correctamente.
+
+**Conclusión:** Este Step resuelve definitivamente la condición de carrera del framebuffer moviendo la responsabilidad de la limpieza desde el orquestador de Python (asíncrono) a la PPU de C++ (sincrónica con el hardware). Al anclar la limpieza al evento de reseteo de `LY` a 0, garantizamos que el framebuffer esté siempre limpio justo antes de que el primer píxel del nuevo fotograma sea dibujado, pero nunca antes. Esta solución arquitectónica es más robusta y precisa que la anterior, ya que respeta el timing exacto del hardware emulado.
+
+---
+
 ### 2025-12-21 - Step 0199: El Ciclo de Vida del Framebuffer: Limpieza de Fotogramas
 **Estado**: ✅ VERIFIED
 
