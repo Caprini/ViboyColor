@@ -278,122 +278,26 @@ uint8_t* PPU::get_framebuffer_ptr() {
 }
 
 void PPU::render_scanline() {
-    // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
-    // Si mmu_ es nullptr, no podemos renderizar (esto no debería ocurrir si la PPU se creó correctamente)
-    if (this->mmu_ == nullptr) {
-        return;
-    }
+    // --- TEST DEL CHECKERBOARD (Step 0192) ---
+    // Ignoramos toda la lógica de la PPU (LCDC, VRAM, tiles, etc.)
+    // y escribimos un patrón de tablero de ajedrez directamente en el framebuffer.
+    // Esto valida la tubería de datos C++ -> Cython -> Python.
     
-    // Solo renderizar si estamos en una línea visible (0-143)
     if (ly_ >= VISIBLE_LINES) {
-        return;
+        return; // No dibujar durante V-Blank
     }
-    
-    // FASE C: Renderizado real de Background desde VRAM
-    // Este método lee los datos de tiles desde la VRAM que la CPU del juego
-    // ha escrito y los renderiza en el framebuffer.
-    
-    // Leer registro LCDC para verificar si el LCD está habilitado y configuraciones
-    uint8_t lcdc = mmu_->read(IO_LCDC);
-    if (!(lcdc & 0x80)) {  // Bit 7: LCD Display Enable
-        return;
-    }
-    
-    // --- PRECISIÓN 100% DEL HARDWARE (Step 0185) ---
-    // Verificación del Bit 0 del LCDC restaurada.
-    // El emulador es ahora lo suficientemente preciso como para que el juego
-    // controle la pantalla por sí mismo, tal como lo haría en hardware real.
-    if ((lcdc & 0x01) == 0) {
-        // Fondo deshabilitado, no renderizamos nada.
-        return;
-    }
-    
-    // Leer registros de scroll
-    uint8_t scy = mmu_->read(IO_SCY);
-    uint8_t scx = mmu_->read(IO_SCX);
-    
-    // Determinar base de tilemap (Bit 3 de LCDC)
-    uint16_t tile_map_base = (lcdc & 0x08) ? 0x9C00 : 0x9800;
-    
-    // Determinar base de tile data (Bit 4 de LCDC)
-    // 1 = 0x8000 (unsigned addressing: tile IDs 0-255)
-    // 0 = 0x8800 (signed addressing: tile IDs -128 a 127, tile 0 en 0x9000)
-    uint16_t tile_data_base = (lcdc & 0x10) ? 0x8000 : 0x8800;
-    bool signed_addressing = !(lcdc & 0x10);
     
     // Índice base en el framebuffer para esta línea
     int line_start_index = static_cast<int>(ly_) * SCREEN_WIDTH;
     
-    // Calcular posición Y en el tilemap (con scroll)
-    uint8_t map_y = static_cast<uint8_t>((ly_ + scy) & 0xFF);
-    uint8_t tile_y_offset = map_y % 8;
-    
-    // Renderizar 160 píxeles (una línea completa)
     for (int x = 0; x < SCREEN_WIDTH; ++x) {
-        // Calcular posición X en el tilemap (con scroll)
-        uint8_t map_x = static_cast<uint8_t>((x + scx) & 0xFF);
+        // Genera un patrón de checkerboard de 8x8
+        bool is_dark = ((ly_ / 8) % 2) == ((x / 8) % 2);
         
-        // Calcular dirección en el tilemap (32 tiles por línea)
-        uint16_t tile_map_addr = tile_map_base + (map_y / 8) * 32 + (map_x / 8);
+        // Usamos color 3 (negro) y 0 (blanco)
+        uint8_t color_index = is_dark ? 3 : 0;
         
-        // Leer tile ID del tilemap
-        uint8_t tile_id = mmu_->read(tile_map_addr);
-        
-        // Calcular dirección del tile en VRAM
-        uint16_t tile_addr;
-        if (signed_addressing) {
-            // Signed: tile_id como int8_t, tile 0 está en 0x9000
-            // NOTA: Cuando signed_addressing es true, tile_data_base es 0x8800,
-            // pero el tile 0 está en 0x9000, no en 0x8800.
-            // Fórmula: 0x9000 + (signed_tile_id * 16)
-            int8_t signed_tile_id = static_cast<int8_t>(tile_id);
-            tile_addr = 0x9000 + (static_cast<int16_t>(signed_tile_id) * 16);
-        } else {
-            // Unsigned: tile_id directamente (0-255), base en 0x8000
-            tile_addr = tile_data_base + (tile_id * 16);
-        }
-        
-        // CRÍTICO: Validar que la dirección del tile esté dentro de VRAM (0x8000-0x9FFF)
-        // Esto previene Segmentation Faults por accesos fuera de límites
-        // En modo signed, tile_addr puede ser < 0x8000 si signed_tile_id es muy negativo
-        // En modo unsigned, tile_addr puede ser > 0x9FFF si tile_id es muy grande
-        if (tile_addr < VRAM_START || tile_addr > (VRAM_END - 15)) {
-            // Si la dirección está fuera de VRAM, usar color 0 (transparente)
-            // Restamos 15 porque un tile completo son 16 bytes (0-15)
-            framebuffer_[line_start_index + x] = 0;
-            continue;
-        }
-        
-        // Validar que la dirección de la línea del tile también esté dentro de VRAM
-        // Cada línea del tile ocupa 2 bytes, así que necesitamos verificar tile_line_addr y tile_line_addr+1
-        uint16_t tile_line_addr = tile_addr + tile_y_offset * 2;
-        // Verificar que tanto tile_line_addr como tile_line_addr+1 estén dentro de VRAM
-        if (tile_line_addr < VRAM_START || tile_line_addr > (VRAM_END - 1) || 
-            (tile_line_addr + 1) < VRAM_START || (tile_line_addr + 1) > VRAM_END) {
-            // Si la línea del tile está fuera de VRAM, usar color 0 (transparente)
-            framebuffer_[line_start_index + x] = 0;
-            continue;
-        }
-        
-        // Leer los dos bytes que forman la línea del tile
-        uint8_t byte1 = mmu_->read(tile_line_addr);
-        uint8_t byte2 = mmu_->read(tile_line_addr + 1);
-        
-        // Decodificar el píxel específico (bit position dentro del tile)
-        uint8_t bit_pos = 7 - (map_x % 8);
-        
-        uint8_t lsb = (byte1 >> bit_pos) & 1;
-        uint8_t msb = (byte2 >> bit_pos) & 1;
-        uint8_t color_index = (msb << 1) | lsb;  // Valor 0-3
-        
-        // Escribir índice de color en el framebuffer
         framebuffer_[line_start_index + x] = color_index;
-    }
-    
-    // Renderizar sprites después del Background (los sprites se dibujan encima)
-    // Verificar si los sprites están habilitados (LCDC bit 1)
-    if (lcdc & 0x02) {
-        render_sprites();
     }
 }
 

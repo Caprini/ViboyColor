@@ -32,6 +32,69 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0192: Debug Crítico: El "Test del Checkerboard" para Validar la Tubería de Datos
+**Estado**: 🔍 DRAFT
+
+Hemos llegado a un punto crítico. A pesar de tener un núcleo de emulación completamente sincronizado y funcional, la pantalla permanece en blanco. La hipótesis principal es que, aunque la PPU en C++ podría estar renderizando correctamente en su framebuffer interno, estos datos no están llegando a la capa de Python a través del puente de Cython (`memoryview`).
+
+**Objetivo:**
+- Implementar un "Test del Checkerboard": modificar temporalmente `PPU::render_scanline()` para que ignore toda la lógica de emulación y dibuje un patrón de tablero de ajedrez directamente en el framebuffer. Esto nos permitirá validar de forma inequívoca si la tubería de datos C++ → Cython → Python está funcionando.
+
+**Concepto de Ingeniería: Aislamiento y Prueba de la Tubería de Datos**
+
+Cuando un sistema complejo falla, la mejor estrategia de depuración es el **aislamiento**. Vamos a aislar la "tubería" de renderizado del resto del emulador. Si podemos escribir datos en un `std::vector` en C++ y leerlos en un `PixelArray` en Python, entonces la tubería funciona. Si no, la tubería está rota.
+
+El patrón de checkerboard es ideal porque es:
+- **Visualmente inconfundible:** Un tablero de ajedrez es imposible de confundir con cualquier otro patrón.
+- **Fácil de generar matemáticamente:** No requiere acceso a VRAM, tiles, o cualquier otro componente del emulador.
+- **Determinista:** Si la tubería funciona, veremos el patrón. Si no funciona, veremos pantalla blanca.
+
+Este test nos dará una respuesta binaria y definitiva sobre dónde está el problema:
+- **Si vemos el checkerboard:** La tubería funciona. El problema está en la VRAM (la CPU no está copiando los datos del logo).
+- **Si la pantalla sigue en blanco:** La tubería está rota. El problema está en el wrapper de Cython o en cómo se expone el framebuffer.
+
+**Implementación:**
+
+1. **Modificación de `PPU::render_scanline()`**: Reemplazamos toda la lógica de renderizado con un generador de patrón checkerboard simple. El patrón se genera línea por línea usando la fórmula:
+   ```cpp
+   bool is_dark = ((ly_ / 8) % 2) == ((x / 8) % 2);
+   uint8_t color_index = is_dark ? 3 : 0;
+   framebuffer_[line_start_index + x] = color_index;
+   ```
+
+2. **Ignorar toda la lógica de la PPU**: No leemos LCDC, VRAM, tiles, o cualquier otro registro. Esto elimina todas las variables posibles excepto la tubería de datos.
+
+**Archivos Afectados:**
+- `src/core/cpp/PPU.cpp` - Método `render_scanline()` reemplazado con test del checkerboard
+- `docs/bitacora/entries/2025-12-20__0192__debug-critico-test-checkerboard-validar-tuberia-datos.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0192
+
+**Tests y Verificación:**
+
+Este test es puramente visual. No requiere tests unitarios, ya que estamos validando la integración completa del sistema.
+
+**Proceso de Verificación:**
+1. Recompilar el módulo C++: `.\rebuild_cpp.ps1`
+2. Ejecutar el emulador: `python main.py roms/tetris.gb`
+3. Observar la ventana de Pygame: La ventana debería mostrar uno de dos resultados posibles.
+
+**Resultados Posibles:**
+
+**Resultado 1: Vemos un Tablero de Ajedrez**
+- **Significado:** ¡La tubería de datos funciona! C++ está escribiendo, Cython está exponiendo, y Python está leyendo y dibujando.
+- **Diagnóstico:** El problema, entonces, es 100% que la **VRAM está realmente vacía**. La CPU, por alguna razón que aún no entendemos, no está copiando los datos del logo.
+- **Siguiente Paso:** Volveríamos a instrumentar la CPU para entender por qué su camino de ejecución no llega a la rutina de copia de DMA/VRAM.
+
+**Resultado 2: La Pantalla Sigue en Blanco**
+- **Significado:** ¡La tubería de datos está rota! La PPU C++ está generando el patrón, pero este nunca llega a la pantalla.
+- **Diagnóstico:** El problema está en nuestro wrapper de Cython (`ppu.pyx`), específicamente en cómo exponemos el puntero del framebuffer y lo convertimos en un `memoryview`.
+- **Siguiente Paso:** Depuraríamos la interfaz de Cython, verificando los punteros, los tipos de datos y el ciclo de vida del `memoryview`.
+
+**Validación de módulo compilado C++**: El emulador utiliza el módulo C++ compilado (`viboy_core`), que contiene la implementación modificada de `PPU::render_scanline()` con el test del checkerboard.
+
+---
+
 ### 2025-12-20 - Step 0191: ¡Hito y Limpieza! Primeros Gráficos con Precisión de Hardware
 **Estado**: ✅ VERIFIED
 

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Crítico: El "Test del Checkerboard" para Validar la Tubería de Datos - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug Crítico: El "Test del Checkerboard" para Validar la Tubería de Datos</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0192
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0191__hito-primeros-graficos-limpieza-post-victoria.html">Anterior (0191)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Hemos llegado a un punto crítico. A pesar de tener un núcleo de emulación completamente sincronizado y funcional, la pantalla permanece en blanco. La hipótesis principal es que, aunque la PPU en C++ podría estar renderizando correctamente en su framebuffer interno, estos datos no están llegando a la capa de Python a través del puente de Cython (`memoryview`).
+                </p>
+                <p>
+                    Este Step implementa un "Test del Checkerboard": modifica temporalmente `PPU::render_scanline()` para que ignore toda la lógica de emulación y dibuje un patrón de tablero de ajedrez directamente en el framebuffer. Esto nos permitirá validar de forma inequívoca si la tubería de datos C++ → Cython → Python está funcionando.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Ingeniería: Aislamiento y Prueba de la Tubería de Datos</h2>
+                <p>
+                    Cuando un sistema complejo falla, la mejor estrategia de depuración es el <strong>aislamiento</strong>. Vamos a aislar la "tubería" de renderizado del resto del emulador. Si podemos escribir datos en un `std::vector` en C++ y leerlos en un `PixelArray` en Python, entonces la tubería funciona. Si no, la tubería está rota.
+                </p>
+                <p>
+                    El patrón de checkerboard es ideal porque es:
+                </p>
+                <ul>
+                    <li><strong>Visualmente inconfundible:</strong> Un tablero de ajedrez es imposible de confundir con cualquier otro patrón.</li>
+                    <li><strong>Fácil de generar matemáticamente:</strong> No requiere acceso a VRAM, tiles, o cualquier otro componente del emulador.</li>
+                    <li><strong>Determinista:</strong> Si la tubería funciona, veremos el patrón. Si no funciona, veremos pantalla blanca.</li>
+                </ul>
+                <p>
+                    Este test nos dará una respuesta binaria y definitiva sobre dónde está el problema:
+                </p>
+                <ul>
+                    <li><strong>Si vemos el checkerboard:</strong> La tubería funciona. El problema está en la VRAM (la CPU no está copiando los datos del logo).</li>
+                    <li><strong>Si la pantalla sigue en blanco:</strong> La tubería está rota. El problema está en el wrapper de Cython o en cómo se expone el framebuffer.</li>
+                </ul>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Modificamos temporalmente `PPU::render_scanline()` para reemplazar toda la lógica de renderizado con un generador de patrón checkerboard simple.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code>: Método <code>render_scanline()</code> reemplazado con lógica de checkerboard</li>
+                </ul>
+
+                <h3>Lógica del Checkerboard</h3>
+                <p>
+                    El patrón se genera línea por línea:
+                </p>
+                <pre><code>// Para cada píxel (x, y) en la línea actual:
+bool is_dark = ((ly_ / 8) % 2) == ((x / 8) % 2);
+uint8_t color_index = is_dark ? 3 : 0;
+framebuffer_[line_start_index + x] = color_index;</code></pre>
+                <p>
+                    Esta lógica divide la pantalla en bloques de 8x8 píxeles. Si tanto la fila como la columna del bloque son pares o impares, el bloque es oscuro (color 3). Si uno es par y el otro impar, el bloque es claro (color 0).
+                </p>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Ignorar toda la lógica de la PPU:</strong> No leemos LCDC, VRAM, tiles, o cualquier otro registro. Esto elimina todas las variables posibles excepto la tubería de datos.</li>
+                    <li><strong>Usar colores 0 y 3:</strong> Color 0 (blanco) y color 3 (negro) son los extremos de la paleta, lo que hace el patrón más visible.</li>
+                    <li><strong>Patrón de 8x8:</strong> Coincide con el tamaño de los tiles del Game Boy, lo que hace el patrón más reconocible para desarrolladores familiarizados con el hardware.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Método <code>render_scanline()</code> reemplazado con test del checkerboard</li>
+                    <li><code>docs/bitacora/entries/2025-12-20__0192__debug-critico-test-checkerboard-validar-tuberia-datos.html</code> - Nueva entrada de bitácora</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con la nueva entrada</li>
+                    <li><code>INFORME_FASE_2.md</code> - Actualizado con el Step 0192</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este test es puramente visual. No requiere tests unitarios, ya que estamos validando la integración completa del sistema.
+                </p>
+                
+                <h3>Proceso de Verificación</h3>
+                <ol>
+                    <li><strong>Recompilar el módulo C++:</strong>
+                        <pre><code>.\rebuild_cpp.ps1</code></pre>
+                    </li>
+                    <li><strong>Ejecutar el emulador:</strong>
+                        <pre><code>python main.py roms/tetris.gb</code></pre>
+                    </li>
+                    <li><strong>Observar la ventana de Pygame:</strong> La ventana debería mostrar uno de dos resultados posibles.</li>
+                </ol>
+
+                <h3>Resultados Posibles</h3>
+                
+                <h4>Resultado 1: Vemos un Tablero de Ajedrez</h4>
+                <p>
+                    <strong>Significado:</strong> ¡La tubería de datos funciona! C++ está escribiendo, Cython está exponiendo, y Python está leyendo y dibujando.
+                </p>
+                <p>
+                    <strong>Diagnóstico:</strong> El problema, entonces, es 100% que la <strong>VRAM está realmente vacía</strong>. La CPU, por alguna razón que aún no entendemos, no está copiando los datos del logo.
+                </p>
+                <p>
+                    <strong>Siguiente Paso:</strong> Volveríamos a instrumentar la CPU para entender por qué su camino de ejecución no llega a la rutina de copia de DMA/VRAM.
+                </p>
+
+                <h4>Resultado 2: La Pantalla Sigue en Blanco</h4>
+                <p>
+                    <strong>Significado:</strong> ¡La tubería de datos está rota! La PPU C++ está generando el patrón, pero este nunca llega a la pantalla.
+                </p>
+                <p>
+                    <strong>Diagnóstico:</strong> El problema está en nuestro wrapper de Cython (<code>ppu.pyx</code>), específicamente en cómo exponemos el puntero del framebuffer y lo convertimos en un <code>memoryview</code>.
+                </p>
+                <p>
+                    <strong>Siguiente Paso:</strong> Depuraríamos la interfaz de Cython, verificando:
+                </p>
+                <ul>
+                    <li>Los punteros del framebuffer</li>
+                    <li>Los tipos de datos del memoryview</li>
+                    <li>El ciclo de vida del memoryview (si se está invalidando entre frames)</li>
+                    <li>La sincronización entre la escritura en C++ y la lectura en Python</li>
+                </ul>
+
+                <h3>Validación de módulo compilado C++</h3>
+                <p>
+                    El emulador utiliza el módulo C++ compilado (<code>viboy_core</code>), que contiene la implementación modificada de <code>PPU::render_scanline()</code> con el test del checkerboard.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Documentación de Cython: <a href="https://cython.readthedocs.io/">Memoryviews y Zero-Copy</a></li>
+                    <li>Principios de depuración de sistemas complejos: Aislamiento y pruebas de integración</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Aislamiento de componentes:</strong> Cuando un sistema complejo falla, la mejor estrategia es aislar cada componente y probarlo individualmente.</li>
+                        <li><strong>Validación de la tubería de datos:</strong> En un sistema híbrido Python/C++, es crítico validar que los datos fluyen correctamente a través de las capas (C++ → Cython → Python).</li>
+                        <li><strong>Patrones de depuración:</strong> Un patrón visual simple y determinista (como un checkerboard) es más valioso para depuración que un patrón complejo que podría fallar por múltiples razones.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Estado de la tubería de datos:</strong> ¿El framebuffer de C++ está llegando correctamente a Python a través del memoryview de Cython?</li>
+                        <li><strong>Si la tubería funciona:</strong> ¿Por qué la CPU no está copiando los datos del logo a la VRAM?</li>
+                        <li><strong>Si la tubería está rota:</strong> ¿Dónde exactamente se rompe la conexión? ¿En el puntero, en el memoryview, o en la sincronización?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El problema está en la tubería de datos entre C++ y Python. Aunque la PPU podría estar renderizando correctamente en su framebuffer interno, estos datos no están llegando a la capa de Python.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Si el test del checkerboard funciona, entonces sabemos que la tubería está bien y el problema está en la emulación de la CPU/VRAM. Si no funciona, entonces sabemos que el problema está en el wrapper de Cython.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con el test del checkerboard</li>
+                    <li>[ ] Observar el resultado visual (checkerboard o pantalla blanca)</li>
+                    <li>[ ] <strong>Si vemos checkerboard:</strong> Instrumentar la CPU para entender por qué no copia datos a VRAM</li>
+                    <li>[ ] <strong>Si vemos pantalla blanca:</strong> Depurar el wrapper de Cython y el memoryview del framebuffer</li>
+                    <li>[ ] Restaurar la lógica original de <code>render_scanline()</code> una vez identificado el problema</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
