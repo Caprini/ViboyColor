@@ -13,6 +13,13 @@ PPU::PPU(MMU* mmu)
     , scanline_rendered_(false)
     , framebuffer_(FRAMEBUFFER_SIZE, 0)  // Inicializar a índice 0 (blanco por defecto con paleta estándar)
 {
+    // --- Step 0201: Garantizar estado inicial limpio (RAII) ---
+    // En C++, el principio de RAII (Resource Acquisition Is Initialization) dicta que
+    // un objeto debe estar en un estado completamente válido y conocido inmediatamente
+    // después de su construcción. El framebuffer debe estar limpio desde el momento
+    // en que la PPU nace, no en el primer ciclo de step().
+    clear_framebuffer();
+    
     // CRÍTICO: Inicializar registros de la PPU con valores seguros
     // Si estos registros están en 0, la pantalla estará negra/blanca
     // 
@@ -301,11 +308,10 @@ void PPU::render_scanline() {
         return;
     }
 
-    // --- RESTAURACIÓN DE LA PRECISIÓN DE HARDWARE (Step 0198) ---
-    // El hack educativo del Step 0179 ha cumplido su propósito. Ahora restauramos
-    // la precisión 100% fiel al hardware: el renderizado del fondo solo ocurre
-    // si el Bit 0 del LCDC está activo, tal como lo controla la ROM.
-    if ((lcdc & 0x01) == 0) { return; }
+    // --- Step 0201: HACK DE DIAGNÓSTICO TEMPORAL ---
+    // Se ignora el Bit 0 del LCDC para forzar el renderizado del fondo y poder
+    // verificar visualmente el logo. Debe ser eliminado una vez verificado.
+    // if (!is_set(mmu_->read(IO_LCDC), 0)) return;
 
     uint8_t scy = mmu_->read(IO_SCY);
     uint8_t scx = mmu_->read(IO_SCX);

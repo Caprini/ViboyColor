@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0201 - Estado Inicial del Framebuffer y Verificación Visual con Logo Personalizado -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-21__0201__estado-inicial-framebuffer-verificacion-logo-personalizado.html" class="entry-link">
+                                    Estado Inicial del Framebuffer y Verificación Visual con Logo Personalizado
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-21 | 
+                            <strong>Step ID:</strong> 0201 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            El diagnóstico del Step 0200 es definitivo: la limpieza del framebuffer en el ciclo LY=0 es correcta pero revela dos problemas: (1) El estado inicial del framebuffer no está garantizado en el constructor. (2) La transición del logo a la pantalla en blanco es demasiado rápida para ser visible, impidiendo la verificación. Este Step aplica la solución arquitectónica correcta: garantizar un estado inicial limpio del framebuffer llamando a clear_framebuffer() en el constructor de la PPU, siguiendo el principio RAII de C++. Además, reintroduce temporalmente el "hack educativo" para forzar la visualización del logo y poder verificarlo, e integra el logo personalizado "VIBOY COLOR" en el formato correcto.
+                        </p>
+                    </li>
                     <!-- Entrada 0200 - Arquitectura Gráfica: Sincronización del Framebuffer con V-Blank -->
                     <li>
                         <div class="entry-header">

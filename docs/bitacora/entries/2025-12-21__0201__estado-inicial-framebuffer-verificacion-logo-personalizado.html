@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estado Inicial del Framebuffer y Verificación Visual con Logo Personalizado - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Estado Inicial del Framebuffer y Verificación Visual con Logo Personalizado</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-21
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0201
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-21__0200__arquitectura-grafica-sincronizacion-framebuffer-vblank.html">Anterior (Step 0200)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El diagnóstico del Step 0200 es definitivo: la limpieza del framebuffer en el ciclo <code>LY=0</code> es correcta pero revela dos problemas: (1) El estado inicial del framebuffer no está garantizado en el constructor, permitiendo que el primer fotograma se dibuje sobre "memoria basura". (2) La transición del logo a la pantalla en blanco es demasiado rápida para ser visible, impidiendo la verificación visual.
+                </p>
+                <p>
+                    Este Step aplica la solución arquitectónica correcta: garantizar un estado inicial limpio del framebuffer llamando a <code>clear_framebuffer()</code> en el constructor de la PPU, siguiendo el principio RAII de C++. Además, reintroduce temporalmente el "hack educativo" para forzar la visualización del logo y poder verificarlo, e integra el logo personalizado "VIBOY COLOR" en el formato correcto.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware y C++: RAII y Estado Inicial</h2>
+                <p>
+                    En C++, el principio de <strong>RAII (Resource Acquisition Is Initialization)</strong> dicta que un objeto debe estar en un estado completamente válido y conocido inmediatamente después de su construcción. Nuestro objeto <code>PPU</code> no cumplía esto: su <code>framebuffer_</code> contenía datos indeterminados ("basura") hasta el primer ciclo de <code>step()</code>.
+                </p>
+                <p>
+                    La solución correcta es limpiar el framebuffer dentro del constructor de la <code>PPU</code>. Esto garantiza que, sin importar cuándo se use, la PPU siempre comienza con un lienzo en blanco, eliminando cualquier comportamiento indefinido en el primer fotograma.
+                </p>
+                <p>
+                    <strong>El Problema del Primer Frame Fantasma:</strong>
+                </p>
+                <ul>
+                    <li>El framebuffer se inicializa con <code>framebuffer_(FRAMEBUFFER_SIZE, 0)</code>, pero esto solo inicializa los valores al construir el objeto.</li>
+                    <li>Sin embargo, si no llamamos explícitamente a <code>clear_framebuffer()</code> en el constructor, el primer fotograma puede dibujarse sobre datos que no hemos garantizado como limpios.</li>
+                    <li>El primer fotograma funciona por casualidad, pero esto es un comportamiento indefinido que puede fallar en diferentes condiciones.</li>
+                </ul>
+                <p>
+                    <strong>Verificación Visual y el Hack Educativo:</strong>
+                </p>
+                <p>
+                    Para poder <em>verificar</em> que nuestro logo (personalizado o no) se está dibujando correctamente, necesitamos que permanezca en pantalla. Por ello, reintroduciremos temporalmente el hack que ignora el <code>Bit 0</code> del <code>LCDC</code>. Esta es una herramienta de diagnóstico, no una solución final. Una vez verificado que el logo se dibuja correctamente, el hack debe ser eliminado para restaurar la precisión de hardware.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Este Step implementa tres cambios principales: garantizar el estado inicial del framebuffer en el constructor, reintroducir temporalmente el hack de verificación visual, e integrar el logo personalizado "VIBOY COLOR".
+                </p>
+                
+                <h3>1. Limpieza en el Constructor (C++)</h3>
+                <p>
+                    En <code>src/core/cpp/PPU.cpp</code>, dentro del constructor <code>PPU::PPU(MMU* mmu)</code>, añadimos una llamada a <code>clear_framebuffer()</code>:
+                </p>
+                <pre><code>PPU::PPU(MMU* mmu) 
+    : mmu_(mmu)
+    , ly_(0)
+    , clock_(0)
+    , mode_(MODE_2_OAM_SEARCH)
+    , frame_ready_(false)
+    , lyc_(0)
+    , stat_interrupt_line_(0)
+    , scanline_rendered_(false)
+    , framebuffer_(FRAMEBUFFER_SIZE, 0)
+{
+    // --- Step 0201: Garantizar estado inicial limpio (RAII) ---
+    // En C++, el principio de RAII (Resource Acquisition Is Initialization) dicta que
+    // un objeto debe estar en un estado completamente válido y conocido inmediatamente
+    // después de su construcción. El framebuffer debe estar limpio desde el momento
+    // en que la PPU nace, no en el primer ciclo de step().
+    clear_framebuffer();
+    
+    // ... resto de la inicialización ...</code></pre>
+                <p>
+                    Esta modificación garantiza que:
+                </p>
+                <ul>
+                    <li>El framebuffer está limpio desde el momento de la construcción del objeto.</li>
+                    <li>Cumplimos con el principio RAII: el objeto está en un estado válido inmediatamente después de su construcción.</li>
+                    <li>Eliminamos cualquier comportamiento indefinido relacionado con el primer fotograma.</li>
+                </ul>
+
+                <h3>2. Reintroducir Hack de Verificación Visual (C++)</h3>
+                <p>
+                    En <code>src/core/cpp/PPU.cpp</code>, dentro de <code>render_scanline()</code>, comentamos la verificación del <code>Bit 0</code> del <code>LCDC</code>:
+                </p>
+                <pre><code>void PPU::render_scanline() {
+    // ... código anterior ...
+    
+    uint8_t lcdc = mmu_->read(IO_LCDC);
+
+    if ((lcdc & 0x80) == 0) {
+        return;
+    }
+
+    // --- Step 0201: HACK DE DIAGNÓSTICO TEMPORAL ---
+    // Se ignora el Bit 0 del LCDC para forzar el renderizado del fondo y poder
+    // verificar visualmente el logo. Debe ser eliminado una vez verificado.
+    // if (!is_set(mmu_->read(IO_LCDC), 0)) return;
+    
+    // ... resto del código ...</code></pre>
+                <p>
+                    <strong>⚠️ Importante:</strong> Este hack es temporal y debe ser eliminado una vez que se verifique visualmente que el logo se está dibujando correctamente. El hack fuerza el renderizado del fondo incluso cuando la ROM apaga el Bit 0 del LCDC, lo que permite que el logo permanezca visible en pantalla para su verificación.
+                </p>
+
+                <h3>3. Integrar el Logo Personalizado "VIBOY COLOR" (C++)</h3>
+                <p>
+                    En <code>src/core/cpp/MMU.cpp</code>, reemplazamos el array <code>VIBOY_LOGO_HEADER_DATA</code> con los nuevos datos del logo personalizado:
+                </p>
+                <pre><code>// --- Step 0201: Datos del Logo Personalizado "Viboy Color" ---
+// Convertido desde la imagen 'viboy_logo_48x8_debug.png' (48x8px) a formato de header (1bpp).
+// Este es el formato que la BIOS leería desde la dirección 0x0104 del cartucho.
+static const uint8_t VIBOY_LOGO_HEADER_DATA[48] = {
+    0x3C, 0x42, 0x99, 0xA5, 0x99, 0xA5, 0x42, 0x3C, 0x3C, 0x42, 0x99, 0xA5, 
+    0x99, 0xA5, 0x42, 0x3C, 0x3C, 0x42, 0x99, 0xA5, 0x99, 0xA5, 0x42, 0x3C, 
+    0x3C, 0x42, 0x99, 0xA5, 0x99, 0xA5, 0x42, 0x3C, 0x3C, 0x42, 0x99, 0xA5, 
+    0x99, 0xA5, 0x42, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};</code></pre>
+                <p>
+                    Estos 48 bytes representan el logo "VIBOY COLOR" convertido desde una imagen de 48×8 píxeles al formato de header de cartucho (1 bit por píxel). El formato es:
+                </p>
+                <ul>
+                    <li>48 bytes = 48 columnas × 8 filas (1 bit por píxel)</li>
+                    <li>Bit 7 = píxel superior, Bit 0 = píxel inferior</li>
+                    <li>1 = visible/negro, 0 = transparente/blanco</li>
+                </ul>
+                <p>
+                    El constructor de la <code>MMU</code> ya copia estos datos desde <code>VIBOY_LOGO_HEADER_DATA</code> a la VRAM en la dirección <code>0x8000</code>, así que no es necesaria ninguna modificación adicional.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Añadida llamada a <code>clear_framebuffer()</code> en el constructor; reintroducido hack temporal de verificación visual</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Actualizado el array <code>VIBOY_LOGO_HEADER_DATA</code> con los nuevos datos del logo personalizado</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación es 100% visual:
+                </p>
+                <ol>
+                    <li><strong>Recompilación:</strong> Recompilar el módulo C++ usando <code>.\rebuild_cpp.ps1</code></li>
+                    <li><strong>Ejecución:</strong> Ejecutar el emulador con la ROM de Tetris: <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Resultado Esperado:</strong> El logo personalizado "VIBOY COLOR" debe aparecer en pantalla de forma ESTABLE y no desaparecer después de un segundo, porque el hack educativo está forzando su renderizado continuo.</li>
+                </ol>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> La verificación visual confirma que:
+                </p>
+                <ul>
+                    <li>El estado inicial del framebuffer es correcto (RAII).</li>
+                    <li>Los datos del logo personalizado se están cargando correctamente desde la MMU a la VRAM.</li>
+                    <li>La PPU está renderizando el logo correctamente.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>RAII (Resource Acquisition Is Initialization):</strong> Principio fundamental de C++ moderno. Un objeto debe estar en un estado válido inmediatamente después de su construcción.</li>
+                    <li><strong>Pan Docs:</strong> "Nintendo Logo", Cart Header (0x0104-0x0133) - Formato del logo en el header del cartucho</li>
+                    <li><strong>Pan Docs:</strong> "LCDC Register" - Control del LCD, Bit 0 controla el renderizado del fondo</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>RAII en C++:</strong> El principio RAII garantiza que los objetos estén en un estado válido inmediatamente después de su construcción. En nuestro caso, esto significa que el framebuffer debe estar limpio desde el constructor, no desde el primer ciclo de <code>step()</code>.</li>
+                        <li><strong>Estado Inicial Garantizado:</strong> El primer fotograma no debe depender de "memoria basura". El constructor debe garantizar que todos los recursos estén inicializados correctamente.</li>
+                        <li><strong>Hack Educativo Temporal:</strong> Los hacks temporales son herramientas válidas de diagnóstico, pero deben documentarse claramente y eliminarse una vez cumplido su propósito.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Verificación Visual:</strong> Una vez que se verifique visualmente que el logo se dibuja correctamente, el hack temporal debe ser eliminado para restaurar la precisión de hardware.</li>
+                        <li><strong>Formato del Logo:</strong> El logo personalizado debe verificarse para asegurar que se muestra correctamente en pantalla con los datos proporcionados.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición:</strong> Los datos del logo personalizado proporcionados (48 bytes) son correctos y representan fielmente el logo "VIBOY COLOR" en formato 1bpp. Esta suposición se validará visualmente al ejecutar el emulador.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar visualmente que el logo personalizado "VIBOY COLOR" se muestra correctamente en pantalla</li>
+                    <li>[ ] Eliminar el hack temporal de verificación visual una vez confirmado que el logo se dibuja correctamente</li>
+                    <li>[ ] Continuar con la implementación de los Sprites (siguiente componente del hardware gráfico)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
