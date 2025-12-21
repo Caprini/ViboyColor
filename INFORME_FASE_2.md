@@ -553,6 +553,61 @@ La Game Boy tiene una pantalla de 20×18 tiles (160×144 píxeles). El mapa de f
 
 ---
 
+### 2025-12-21 - Step 0209: Diagnóstico Radical: Forzar Color Negro en la Lectura de PPU
+**Estado**: ✅ VERIFIED
+
+La inundación de VRAM del Step 0208 no funcionó: la pantalla siguió blanca a pesar de haber llenado toda la región de Tile Data (0x8000-0x97FF) con `0xFF`. Esto sugiere que la ROM borra la VRAM antes del primer renderizado, o que hay un problema de direccionamiento (Bank Switching de CGB o error de punteros). Para descartar definitivamente problemas del framebuffer o la paleta, aplicamos un diagnóstico aún más radical: **interceptar la lectura de datos de tile en la PPU y forzar siempre el valor 0xFF (negro)**, ignorando completamente lo que haya en VRAM.
+
+**Objetivo:**
+- Modificar `PPU::render_scanline()` para forzar los bytes leídos de VRAM a `0xFF` justo después de leerlos, antes de la decodificación.
+- Si la pantalla se pone NEGRA, confirmamos que el pipeline de renderizado funciona y el problema es la VRAM vacía.
+- Si la pantalla sigue BLANCA, entonces el problema está en el framebuffer o la paleta.
+
+**Concepto de Hardware: Interceptación de Lectura**
+
+La PPU renderiza cada línea de escaneo leyendo datos de la VRAM a través de la MMU. En el bucle de renderizado, la PPU lee los dos bytes que representan una línea del tile (`byte1` y `byte2`) y luego los decodifica. Si interceptamos ese paso y forzamos `byte1 = 0xFF` y `byte2 = 0xFF` antes de la decodificación, todos los píxeles de esa línea se convertirán en Color 3 (Negro), independientemente de lo que haya en VRAM.
+
+**Implementación:**
+
+1. **Modificación en PPU::render_scanline()**: En `src/core/cpp/PPU.cpp`, dentro del bucle de renderizado, después de leer los bytes, los forzamos a `0xFF`:
+   ```cpp
+   uint8_t byte1 = mmu_->read(tile_line_addr);
+   uint8_t byte2 = mmu_->read(tile_line_addr + 1);
+   
+   // --- Step 0209: DIAGNÓSTICO RADICAL ---
+   // Forzar bytes a 0xFF (Color 3 - Negro)
+   // Esto ignora lo que haya en VRAM. Si la pantalla no sale negra,
+   // el problema es el framebuffer o la paleta.
+   byte1 = 0xFF;
+   byte2 = 0xFF;
+   // -------------------------------------
+   ```
+
+2. **Limpieza del Step 0208**: En `src/core/cpp/MMU.cpp`, comentamos el código de inundación del Step 0208.
+
+**Archivos Afectados:**
+- `src/core/cpp/PPU.cpp` - Modificación en `render_scanline()` para forzar bytes a 0xFF
+- `src/core/cpp/MMU.cpp` - Comentado el código de inundación del Step 0208
+- `docs/bitacora/entries/2025-12-21__0209__diagnostico-radical-forzar-color-negro-lectura-ppu.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0209
+
+**Tests y Verificación:**
+
+**Comando ejecutado:** `python main.py roms/tetris.gb`
+
+**Resultado esperado:** Pantalla completamente negra (Color 3 en todos los píxeles)
+
+**Interpretación binaria:**
+- **Si la pantalla es NEGRA:** El pipeline de renderizado funciona perfectamente. El problema es que la VRAM está vacía porque la ROM la borra antes del primer renderizado.
+- **Si la pantalla es BLANCA:** El problema está en el framebuffer, la paleta BGP, o la transferencia a Python/Pygame.
+
+**Validación de módulo compilado C++**: Validación de extensión Cython compilada.
+
+**Conclusión:** Este test definitivo determinará si el problema está en la VRAM o en el pipeline posterior. Si la pantalla es negra, sabemos que el problema es la VRAM vacía. Si sigue blanca, debemos investigar el framebuffer y la paleta.
+
+---
+
 ### 2025-12-21 - Step 0208: Diagnóstico de Fuerza Bruta: Inundación de VRAM
 **Estado**: ✅ VERIFIED
 

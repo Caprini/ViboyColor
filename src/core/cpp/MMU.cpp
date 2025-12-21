@@ -123,6 +123,11 @@ MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nu
     */
     
     // --- Step 0208: DIAGNÓSTICO VRAM FLOOD (Inundación de VRAM) ---
+    // COMENTADO EN STEP 0209: El diagnóstico de inundación no funcionó (pantalla siguió blanca).
+    // Esto sugiere que la ROM borra la VRAM antes del primer renderizado o que hay un problema
+    // de direccionamiento. El Step 0209 prueba un enfoque más radical: interceptar la lectura
+    // en la PPU y forzar los bytes a 0xFF directamente.
+    //
     // TÉCNICA DE FUERZA BRUTA: Llenar toda el área de Tile Data (0x8000 - 0x97FF) con 0xFF.
     // Si la pantalla se vuelve negra, sabremos que la PPU SÍ lee la VRAM.
     // Si la pantalla sigue blanca, hay un error fundamental en el acceso a memoria de vídeo.
@@ -132,10 +137,12 @@ MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nu
     // si convertimos el Tile 0 en un bloque negro, toda la pantalla debería volverse negra.
     //
     // Fuente: Pan Docs - "Tile Data", "Tile Map"
+    /*
     printf("[MMU] INUNDANDO VRAM CON 0xFF (NEGRO) PARA DIAGNÓSTICO...\n");
     for (int i = 0x8000; i < 0x9800; ++i) {
         memory_[i] = 0xFF;
     }
+    */
     // -----------------------------------------
 }
 

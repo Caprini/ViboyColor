@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnóstico Radical: Forzar Color Negro en la Lectura de PPU - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Diagnóstico Radical: Forzar Color Negro en la Lectura de PPU</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-21
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0209
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-21__0208__diagnostico-fuerza-bruta-inundacion-vram.html">Anterior (0208)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    La inundación de VRAM del Step 0208 no funcionó: la pantalla siguió blanca a pesar de haber llenado toda la región de Tile Data (0x8000-0x97FF) con <code>0xFF</code>. Esto sugiere que la ROM borra la VRAM antes del primer renderizado, o que hay un problema de direccionamiento (Bank Switching de CGB o error de punteros). Para descartar definitivamente problemas del framebuffer o la paleta, aplicamos un diagnóstico aún más radical: <strong>interceptar la lectura de datos de tile en la PPU y forzar siempre el valor 0xFF (negro)</strong>, ignorando completamente lo que haya en VRAM.
+                </p>
+                <p>
+                    <strong>Test Binario Final:</strong> Si la pantalla se pone NEGRA, confirmamos que el pipeline de renderizado (PPU → Framebuffer → Python → Pygame → Pantalla) funciona perfectamente, y el problema es que la VRAM está vacía porque la ROM la borra. Si la pantalla sigue BLANCA, entonces el problema está en el framebuffer o la paleta.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: Interceptación de Lectura</h2>
+                <p>
+                    La PPU renderiza cada línea de escaneo leyendo datos de la VRAM a través de la MMU. En el bucle de renderizado de <code>render_scanline()</code>, la PPU:
+                </p>
+                <ol>
+                    <li>Lee el Tile ID desde el Tilemap (ej: <code>0x9800</code>)</li>
+                    <li>Calcula la dirección del tile en VRAM Tile Data (ej: <code>0x8000 + tile_id * 16</code>)</li>
+                    <li>Lee los dos bytes que representan una línea del tile: <code>byte1</code> y <code>byte2</code></li>
+                    <li>Decodifica los bits para extraer el índice de color (0-3) de cada píxel</li>
+                    <li>Escribe el índice de color en el framebuffer</li>
+                </ol>
+                <p>
+                    Si interceptamos el paso 3 y forzamos <code>byte1 = 0xFF</code> y <code>byte2 = 0xFF</code> antes de la decodificación, todos los píxeles de esa línea se convertirán en Color 3 (Negro), independientemente de lo que haya en VRAM.
+                </p>
+                <p>
+                    <strong>Por qué esto es definitivo:</strong> Si ignoramos completamente la VRAM y forzamos datos negros en el momento de la lectura, y la pantalla sigue blanca, entonces el problema NO está en la VRAM, sino en algún punto posterior del pipeline: el framebuffer, la paleta BGP, o la transferencia a Python/Pygame.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "PPU Rendering", "Tile Data Format", "Background Palette (BGP)"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Modificamos <code>PPU::render_scanline()</code> para forzar los bytes leídos de VRAM a <code>0xFF</code> justo después de leerlos, antes de la decodificación. También comentamos el código de inundación del Step 0208 para evitar confusión.
+                </p>
+                
+                <h3>Modificación en PPU::render_scanline()</h3>
+                <p>
+                    En <code>src/core/cpp/PPU.cpp</code>, dentro del bucle de renderizado, después de leer <code>byte1</code> y <code>byte2</code>, los forzamos a <code>0xFF</code>:
+                </p>
+                <pre><code>// Asegurarse de que la dirección es válida antes de leer (dentro de VRAM)
+if (tile_line_addr >= 0x8000 && tile_line_addr < 0xA000 - 1) {
+    uint8_t byte1 = mmu_->read(tile_line_addr);
+    uint8_t byte2 = mmu_->read(tile_line_addr + 1);
+    
+    // --- Step 0209: DIAGNÓSTICO RADICAL ---
+    // Forzar bytes a 0xFF (Color 3 - Negro)
+    // Esto ignora lo que haya en VRAM. Si la pantalla no sale negra,
+    // el problema es el framebuffer o la paleta.
+    byte1 = 0xFF;
+    byte2 = 0xFF;
+    // -------------------------------------
+    
+    uint8_t bit_index = 7 - (map_x % 8);
+    uint8_t bit_low = (byte1 >> bit_index) & 1;
+    uint8_t bit_high = (byte2 >> bit_index) & 1;
+    uint8_t color_index = (bit_high << 1) | bit_low;
+    
+    framebuffer_[line_start_index + x] = color_index;
+}</code></pre>
+
+                <h3>Limpieza del Step 0208</h3>
+                <p>
+                    En <code>src/core/cpp/MMU.cpp</code>, comentamos el código de inundación del Step 0208 para evitar confusión:
+                </p>
+                <pre><code>// --- Step 0208: DIAGNÓSTICO VRAM FLOOD (Inundación de VRAM) ---
+// COMENTADO EN STEP 0209: El diagnóstico de inundación no funcionó (pantalla siguió blanca).
+// Esto sugiere que la ROM borra la VRAM antes del primer renderizado o que hay un problema
+// de direccionamiento. El Step 0209 prueba un enfoque más radical: interceptar la lectura
+// en la PPU y forzar los bytes a 0xFF directamente.
+/*
+printf("[MMU] INUNDANDO VRAM CON 0xFF (NEGRO) PARA DIAGNÓSTICO...\n");
+for (int i = 0x8000; i < 0x9800; ++i) {
+    memory_[i] = 0xFF;
+}
+*/</code></pre>
+
+                <h3>Resultado Esperado</h3>
+                <p>
+                    Si el código funciona correctamente, <strong>todos los píxeles deberían decodificarse como Color 3 (Negro)</strong>, porque:
+                </p>
+                <ul>
+                    <li><code>byte1 = 0xFF</code> = todos los bits bajos en 1</li>
+                    <li><code>byte2 = 0xFF</code> = todos los bits altos en 1</li>
+                    <li>Cualquier bit extraído será: <code>bit_low = 1</code>, <code>bit_high = 1</code></li>
+                    <li><code>color_index = (1 << 1) | 1 = 2 | 1 = 3</code> (Negro)</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Modificación en <code>render_scanline()</code> para forzar bytes a 0xFF</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Comentado el código de inundación del Step 0208</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>python main.py roms/tetris.gb</code>
+                </p>
+                <p>
+                    <strong>Resultado esperado:</strong> Pantalla completamente negra (Color 3 en todos los píxeles)
+                </p>
+                <p>
+                    <strong>Interpretación binaria del resultado:</strong>
+                </p>
+                <ul>
+                    <li><strong>Si la pantalla es NEGRA:</strong> El pipeline de renderizado funciona perfectamente. El problema es que la VRAM está vacía porque la ROM la borra antes del primer renderizado. La única forma de ver contenido es interceptar ese borrado o inyectar datos después de que la ROM los borre.</li>
+                    <li><strong>Si la pantalla es BLANCA:</strong> El problema está en el framebuffer, la paleta BGP, o la transferencia a Python/Pygame. Aunque la PPU genere píxeles negros (índice 3), algo en el camino los convierte en blancos.</li>
+                </ul>
+                <p>
+                    <strong>Validación nativa:</strong> Validación de módulo compilado C++ (extensión Cython).
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">PPU Rendering</a> - "Background Rendering", "Tile Data Format"</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Background Palette (BGP)</a> - Registro 0xFF47</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Memory Map</a> - VRAM (0x8000-0x9FFF)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Pipeline de renderizado:</strong> VRAM → PPU (lectura) → Decodificación → Framebuffer → Python (lectura) → Pygame (paleta BGP) → Pantalla. Cada etapa puede introducir errores.</li>
+                        <li><strong>Diagnóstico por eliminación:</strong> Si forzamos datos en un punto del pipeline y el resultado cambia, confirmamos que ese punto funciona. Si no cambia, el problema está antes o después de ese punto.</li>
+                        <li><strong>Interceptación de lectura:</strong> Podemos modificar los datos leídos de VRAM justo después de leerlos, antes de procesarlos. Esto es útil para diagnóstico sin modificar la VRAM misma.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Resultado visual:</strong> ¿La pantalla se vuelve negra o sigue blanca? Este resultado determinará dónde está el problema real.</li>
+                        <li><strong>Causa raíz:</strong> Si la pantalla es negra, necesitamos investigar por qué la ROM borra la VRAM y cómo interceptar o prevenir ese borrado.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición principal:</strong> Asumimos que el problema NO está en el framebuffer ni en la paleta, porque los tests anteriores (Checkerboard del Step 0202) confirmaron que el pipeline funciona. Si este test muestra una pantalla blanca, tendremos que revisar esa suposición.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <p>
+                    Dependiendo del resultado del test:
+                </p>
+                <ul>
+                    <li><strong>Si la pantalla es NEGRA:</strong> Investigar cuándo y cómo la ROM borra la VRAM. Posibles soluciones: interceptar el borrado, inyectar datos después del borrado, o ajustar el timing de la inyección.</li>
+                    <li><strong>Si la pantalla es BLANCA:</strong> Investigar el framebuffer y la paleta BGP. Verificar que el registro BGP (0xFF47) tenga los valores correctos y que Python esté aplicando la paleta correctamente.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>

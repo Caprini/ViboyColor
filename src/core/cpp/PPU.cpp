@@ -351,6 +351,14 @@ void PPU::render_scanline() {
             uint8_t byte1 = mmu_->read(tile_line_addr);
             uint8_t byte2 = mmu_->read(tile_line_addr + 1);
             
+            // --- Step 0209: DIAGNÓSTICO RADICAL ---
+            // Forzar bytes a 0xFF (Color 3 - Negro)
+            // Esto ignora lo que haya en VRAM. Si la pantalla no sale negra,
+            // el problema es el framebuffer o la paleta.
+            byte1 = 0xFF;
+            byte2 = 0xFF;
+            // -------------------------------------
+            
             uint8_t bit_index = 7 - (map_x % 8);
             uint8_t bit_low = (byte1 >> bit_index) & 1;
             uint8_t bit_high = (byte2 >> bit_index) & 1;

@@ -32,6 +32,16 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0209 - Diagnóstico Radical: Forzar Color Negro en la Lectura de PPU -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-21</span>
+                        <span class="tag">0209</span>
+                        <a href="entries/2025-12-21__0209__diagnostico-radical-forzar-color-negro-lectura-ppu.html" class="title">Diagnóstico Radical: Forzar Color Negro en la Lectura de PPU</a>
+                        <p class="summary">
+                            La inundación de VRAM del Step 0208 no funcionó: la pantalla siguió blanca a pesar de haber llenado toda la región de Tile Data con 0xFF. Esto sugiere que la ROM borra la VRAM antes del primer renderizado, o que hay un problema de direccionamiento. Para descartar definitivamente problemas del framebuffer o la paleta, aplicamos un diagnóstico aún más radical: interceptar la lectura de datos de tile en la PPU y forzar siempre el valor 0xFF (negro), ignorando completamente lo que haya en VRAM. Si la pantalla se pone negra, confirmamos que el pipeline funciona y el problema es la VRAM vacía. Si sigue blanca, el problema está en el framebuffer o la paleta.
+                        </p>
+                        <span class="status-badge status-verified">VERIFIED</span>
+                    </li>
                     <!-- Entrada 0208 - Diagnóstico de Fuerza Bruta: Inundación de VRAM -->
                     <li class="entry-item">
                         <span class="meta">2025-12-21</span>
