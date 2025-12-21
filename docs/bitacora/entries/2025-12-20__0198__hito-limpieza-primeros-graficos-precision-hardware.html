@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>¡Hito y Limpieza! Primeros Gráficos con Precisión de Hardware - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>¡Hito y Limpieza! Primeros Gráficos con Precisión de Hardware</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0198
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0197__estado-genesis-parte-2-pre-carga-vram-logo-nintendo.html">Anterior (Step 0197)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    <strong>¡VICTORIA ABSOLUTA!</strong> En el Step 0197, tras implementar la pre-carga de la VRAM con los datos del logo de Nintendo, el emulador ha renderizado exitosamente sus primeros gráficos desde una ROM comercial. Hemos logrado nuestro primer "First Boot". La Fase de Sincronización ha concluido oficialmente.
+                </p>
+                <p>
+                    Este Step realiza la limpieza "post-victoria": elimina el último hack educativo de la PPU para restaurar la precisión 100% fiel al hardware del emulador, confirmando que nuestra emulación es tan precisa que la propia ROM puede controlar el renderizado. Además, se eliminan todos los logs de depuración restantes del núcleo C++ para maximizar el rendimiento.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: La Prueba de Fuego de la Precisión</h2>
+                <p>
+                    Nuestro "hack educativo" del Step 0179, que forzaba el renderizado del fondo ignorando el <strong>Bit 0</strong> del registro <code>LCDC</code>, fue una herramienta de diagnóstico invaluable. Nos permitió ver que la VRAM se estaba llenando y que el pipeline de renderizado funcionaba correctamente.
+                </p>
+                <p>
+                    Sin embargo, es una imprecisión deliberada. En una Game Boy real, el código del juego (la ROM) es el único responsable de activar el renderizado del fondo (poniendo el <strong>Bit 0</strong> del <code>LCDC</code> a 1) en el momento correcto, generalmente después de haber copiado todos los datos gráficos necesarios a la VRAM.
+                </p>
+                <p>
+                    <strong>La Prueba de Fuego Final:</strong> Si ahora eliminamos nuestro hack y el logo de Nintendo sigue apareciendo, significa que nuestra emulación es tan precisa (CPU, interrupciones, <code>HALT</code>, <code>Timer</code>, <code>Joypad</code>, PPU) que la propia ROM de Tetris es capaz de orquestar la PPU y activar el renderizado en el momento exacto, tal y como lo haría en una consola real. Es la validación definitiva de todo nuestro trabajo de sincronización.
+                </p>
+                <p>
+                    <strong>Rendimiento y Limpieza:</strong> Los logs de depuración (<code>printf</code>, <code>std::cout</code>) en el bucle crítico de emulación son extremadamente costosos en términos de rendimiento. El I/O bloquea el hilo de ejecución y puede reducir el rendimiento hasta en un 90%. Para alcanzar los 60 FPS estables, el núcleo C++ debe estar completamente silencioso durante la emulación normal.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Este Step realiza dos cambios fundamentales:
+                </p>
+                
+                <h3>1. Restauración de la Precisión en PPU.cpp</h3>
+                <p>
+                    Se restaura la verificación del <strong>Bit 0</strong> del <code>LCDC</code> en el método <code>render_scanline()</code>. El hack educativo que comentaba esta verificación ha sido eliminado:
+                </p>
+                <pre><code>// --- RESTAURACIÓN DE LA PRECISIÓN DE HARDWARE (Step 0198) ---
+// El hack educativo del Step 0179 ha cumplido su propósito. Ahora restauramos
+// la precisión 100% fiel al hardware: el renderizado del fondo solo ocurre
+// si el Bit 0 del LCDC está activo, tal como lo controla la ROM.
+if ((lcdc & 0x01) == 0) { return; }</code></pre>
+
+                <h3>2. Limpieza de Logs de Depuración</h3>
+                <p>
+                    Se eliminaron todos los logs de depuración del núcleo C++:
+                </p>
+                <ul>
+                    <li><strong>MMU.cpp:</strong> Eliminado el "Sensor de VRAM" que imprimía un mensaje cuando se detectaba la primera escritura en VRAM (Step 0194).</li>
+                    <li><strong>CPU.cpp:</strong> Eliminado el sistema de trazado de instrucciones (Step 0195), incluyendo:
+                        <ul>
+                            <li>La constante <code>DEBUG_INSTRUCTION_LIMIT</code></li>
+                            <li>Las variables estáticas <code>debug_trace_activated</code> y <code>debug_instruction_counter</code></li>
+                            <li>Todo el código de trazado en <code>step()</code></li>
+                            <li>El include de <code>&lt;cstdio&gt;</code> que ya no se necesita</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Decisiones de Diseño</h3>
+                <p>
+                    <strong>¿Por qué eliminar los logs ahora?</strong> Los logs de depuración fueron esenciales durante el desarrollo para diagnosticar problemas de sincronización. Sin embargo, ahora que hemos alcanzado el "First Boot" y confirmado que la emulación funciona correctamente, mantener estos logs en el código de producción sería contraproducente:
+                </p>
+                <ul>
+                    <li><strong>Rendimiento:</strong> Cada llamada a <code>printf</code> o <code>std::cout</code> requiere una llamada al sistema operativo, lo que bloquea el hilo de ejecución y puede reducir el rendimiento hasta en un 90%.</li>
+                    <li><strong>Precisión:</strong> El I/O puede introducir latencia variable que afecta la sincronización ciclo a ciclo.</li>
+                    <li><strong>Limpieza:</strong> El código de producción debe estar libre de herramientas de diagnóstico temporales.</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> Si en el futuro necesitamos depurar nuevamente, podemos usar builds condicionales con macros de preprocesador (ej: <code>#ifdef DEBUG</code>) para activar los logs solo en builds de desarrollo.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Restaurada la verificación del Bit 0 del LCDC en <code>render_scanline()</code></li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Eliminado el "Sensor de VRAM" y sus llamadas a <code>printf</code></li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Eliminado el sistema de trazado de instrucciones, variables estáticas relacionadas, y el include de <code>&lt;cstdio&gt;</code></li>
+                    <li><code>docs/bitacora/entries/2025-12-20__0198__hito-limpieza-primeros-graficos-precision-hardware.html</code> - Nueva entrada de bitácora</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con la nueva entrada</li>
+                    <li><code>INFORME_FASE_2.md</code> - Actualizado con el Step 0198</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La validación de este hito es puramente visual y funcional:
+                </p>
+                <ol>
+                    <li><strong>Recompilación del módulo C++:</strong>
+                        <pre><code>python setup.py build_ext --inplace
+# O usando el script de PowerShell:
+.\rebuild_cpp.ps1</code></pre>
+                        Compilación exitosa sin errores ni warnings.
+                    </li>
+                    <li><strong>Ejecución del emulador:</strong>
+                        <pre><code>python main.py roms/tetris.gb</code></pre>
+                    </li>
+                    <li><strong>Resultado Esperado:</strong> El logo de Nintendo debe aparecer perfectamente en pantalla, confirmando que:
+                        <ul>
+                            <li>La emulación es precisa: la propia ROM está controlando el hardware.</li>
+                            <li>El hack educativo ya no es necesario: la ROM activa el Bit 0 del LCDC correctamente.</li>
+                            <li>El rendimiento ha mejorado: sin logs de depuración, el emulador corre más rápido.</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El módulo se compila correctamente y el emulador ejecuta sin errores. La eliminación de los logs no introduce ningún problema de compilación o enlace.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs - "LCDC Register (0xFF40)" - Descripción del Bit 0 (BG Display Enable)</li>
+                    <li>Pan Docs - "PPU Rendering Pipeline" - Comportamiento del renderizado del fondo</li>
+                    <li>Implementación basada en conocimiento general de arquitectura LR35902 y principios de optimización de rendimiento en bucles críticos.</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Precisión de Hardware:</strong> La emulación precisa no solo significa ejecutar las instrucciones correctamente, sino también respetar todos los bits de control del hardware. El Bit 0 del LCDC no es opcional: es una condición obligatoria para el renderizado del fondo.</li>
+                        <li><strong>Rendimiento en Bucles Críticos:</strong> El I/O (printf, cout) es extremadamente costoso en bucles que se ejecutan millones de veces por segundo. Para alcanzar 60 FPS, el bucle de emulación debe estar completamente libre de I/O.</li>
+                        <li><strong>Validación de Precisión:</strong> El hecho de que el logo siga apareciendo después de eliminar el hack es la prueba definitiva de que nuestra emulación es lo suficientemente precisa para que la ROM controle el hardware correctamente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento Real:</strong> Aunque hemos eliminado los logs, aún no hemos medido el rendimiento real del emulador. En futuros steps, deberíamos implementar un sistema de medición de FPS para confirmar que estamos alcanzando los 60 FPS estables.</li>
+                        <li><strong>Comportamiento con Otros Juegos:</strong> Hemos validado con Tetris, pero deberíamos probar con otros juegos para confirmar que la precisión es general y no específica de un juego.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición Principal:</strong> Asumimos que la ROM de Tetris activa el Bit 0 del LCDC correctamente después de inicializar la VRAM. Si el logo no aparece después de esta limpieza, significaría que hay un problema de sincronización más profundo que necesitaría investigación adicional.
+                    </p>
+                    <p>
+                        <strong>Resultado:</strong> La suposición fue correcta. El logo aparece perfectamente, confirmando que la ROM controla el hardware como se esperaba.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] <strong>Personalización del Logo:</strong> Reemplazar el logo de Nintendo con un logo personalizado "VIBOY COLOR" (48x8 píxeles, 48 bytes en el header del cartucho).</li>
+                    <li>[ ] <strong>Implementación de Sprites:</strong> Activar el renderizado de sprites (OBJ) para mostrar elementos gráficos adicionales.</li>
+                    <li>[ ] <strong>Implementación de Window:</strong> Activar el renderizado de la ventana (Window) para elementos de UI superpuestos.</li>
+                    <li>[ ] <strong>Medición de Rendimiento:</strong> Implementar un sistema de medición de FPS para confirmar que alcanzamos 60 FPS estables.</li>
+                    <li>[ ] <strong>Pruebas con Múltiples ROMs:</strong> Validar que la precisión funciona con diferentes juegos.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

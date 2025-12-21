@@ -289,13 +289,11 @@ void PPU::render_scanline() {
         return;
     }
 
-    // --- RESTAURACIÓN DE LA LÓGICA DE RENDERIZADO (Step 0193) ---
-    // El 'Test del Checkerboard' ha sido un éxito. Ahora restauramos la
-    // lógica de renderizado original para que la PPU vuelva a leer desde la VRAM.
-    
-    // NOTA: Dejamos el hack del Step 0179 activo por ahora para poder ver algo
-    // en cuanto la VRAM tenga datos, sin depender de que el juego active el bit 0.
-    /* if ((lcdc & 0x01) == 0) { return; } */
+    // --- RESTAURACIÓN DE LA PRECISIÓN DE HARDWARE (Step 0198) ---
+    // El hack educativo del Step 0179 ha cumplido su propósito. Ahora restauramos
+    // la precisión 100% fiel al hardware: el renderizado del fondo solo ocurre
+    // si el Bit 0 del LCDC está activo, tal como lo controla la ROM.
+    if ((lcdc & 0x01) == 0) { return; }
 
     uint8_t scy = mmu_->read(IO_SCY);
     uint8_t scx = mmu_->read(IO_SCX);

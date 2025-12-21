@@ -3,23 +3,12 @@
 #include "Registers.hpp"
 #include "PPU.hpp"
 #include "Timer.hpp"
-#include <cstdio>  // Para printf (Step 0195)
-
-// --- Variables para el Trazado de CPU (Step 0195) ---
-static bool debug_trace_activated = false;
-static int debug_instruction_counter = 0;
-// Un límite de 200 es suficiente para ver un patrón de bucle.
-static const int DEBUG_INSTRUCTION_LIMIT = 200;
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
     // Validación básica (en producción, podríamos usar assert)
     // Por ahora, confiamos en que Python pasa punteros válidos
     // IME inicia en false por seguridad (el juego lo activará si lo necesita)
-    
-    // --- Inicialización del Trazado (Step 0195) ---
-    debug_trace_activated = false;
-    debug_instruction_counter = 0;
 }
 
 CPU::~CPU() {
@@ -472,22 +461,6 @@ int CPU::step() {
     
     // ========== FASE 4: Fetch-Decode-Execute ==========
     // Guardar PC actual antes de fetch para el trazado (Step 0195)
-    uint16_t current_pc = regs_->pc;
-    
-    // --- Lógica del Trazado (Step 0195) ---
-    // Empezamos a trazar desde el principio para cazar el bucle.
-    if (!debug_trace_activated && current_pc >= 0x0100) {
-        debug_trace_activated = true;
-        printf("--- [CPU TRACE ACTIVATED at PC: 0x%04X] ---\n", current_pc);
-    }
-
-    if (debug_trace_activated && debug_instruction_counter < DEBUG_INSTRUCTION_LIMIT) {
-        uint8_t opcode_for_trace = mmu_->read(current_pc);
-        printf("[CPU TRACE %d] PC: 0x%04X | Opcode: 0x%02X\n", debug_instruction_counter, current_pc, opcode_for_trace);
-        debug_instruction_counter++;
-    }
-    // --- Fin del Trazado ---
-    
     // Fetch: Leer opcode de memoria
     uint8_t opcode = fetch_byte();
 
