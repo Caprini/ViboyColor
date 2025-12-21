@@ -93,6 +93,8 @@ MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nu
     // - 0xFF00 (P1): Controlado por Joypad
     
     // --- Step 0206: Pre-cargar VRAM con el logo personalizado "Viboy Color" (Formato Tile 2bpp) ---
+    // TEMPORALMENTE COMENTADO PARA STEP 0208: Diagnóstico de Fuerza Bruta
+    /*
     // La Boot ROM real lee los datos del header (1bpp) y los descomprime a formato Tile (2bpp)
     // antes de copiarlos a la VRAM. Nosotros simulamos este proceso generando los datos
     // ya descomprimidos externamente.
@@ -118,6 +120,23 @@ MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nu
     for (size_t i = 0; i < sizeof(VIBOY_LOGO_MAP); ++i) {
         memory_[0x9904 + i] = VIBOY_LOGO_MAP[i];
     }
+    */
+    
+    // --- Step 0208: DIAGNÓSTICO VRAM FLOOD (Inundación de VRAM) ---
+    // TÉCNICA DE FUERZA BRUTA: Llenar toda el área de Tile Data (0x8000 - 0x97FF) con 0xFF.
+    // Si la pantalla se vuelve negra, sabremos que la PPU SÍ lee la VRAM.
+    // Si la pantalla sigue blanca, hay un error fundamental en el acceso a memoria de vídeo.
+    //
+    // Concepto: 0xFF en formato Tile (2bpp) = todos los píxeles en Color 3 (Negro).
+    // Como el Tilemap por defecto (0x9800) está inicializado a ceros (Tile ID 0),
+    // si convertimos el Tile 0 en un bloque negro, toda la pantalla debería volverse negra.
+    //
+    // Fuente: Pan Docs - "Tile Data", "Tile Map"
+    printf("[MMU] INUNDANDO VRAM CON 0xFF (NEGRO) PARA DIAGNÓSTICO...\n");
+    for (int i = 0x8000; i < 0x9800; ++i) {
+        memory_[i] = 0xFF;
+    }
+    // -----------------------------------------
 }
 
 MMU::~MMU() {

@@ -553,6 +553,88 @@ La Game Boy tiene una pantalla de 20×18 tiles (160×144 píxeles). El mapa de f
 
 ---
 
+### 2025-12-21 - Step 0208: Diagnóstico de Fuerza Bruta: Inundación de VRAM
+**Estado**: 🔧 DRAFT
+
+Después del Step 0207, con las coordenadas corregidas, la pantalla sigue mostrándose en blanco y los logs muestran ceros. Esto sugiere que la PPU no está "viendo" los datos que inyectamos en la VRAM. Para resolver esto definitivamente, aplicamos una técnica de diagnóstico agresiva: llenar toda la región de Tile Data (0x8000-0x97FF) con `0xFF` (píxeles negros).
+
+**Objetivo:**
+- Aplicar una técnica de diagnóstico de fuerza bruta: inundar toda la VRAM de Tile Data con `0xFF`
+- Determinar de forma binaria si la PPU está leyendo la VRAM correctamente
+- Si la pantalla se vuelve negra: confirmar que la PPU SÍ lee la VRAM (el problema es de coordenadas o formato)
+- Si la pantalla sigue blanca: confirmar que hay un error fundamental en el acceso a memoria de vídeo
+
+**Concepto de Hardware: Tile Data Inundado**
+
+La región de Tile Data de la VRAM (`0x8000` a `0x97FF`) contiene los patrones gráficos de todos los tiles que pueden ser renderizados. Cada tile ocupa 16 bytes en formato 2bpp (2 bits por píxel), lo que permite 384 tiles distintos.
+
+**El valor 0xFF en formato Tile (2bpp):**
+- Si llenamos toda la memoria de tiles con `0xFF`, cada byte se convierte en `0xFF`
+- En formato 2bpp, `0xFF` significa que ambos bits (alto y bajo) están activados para todos los píxeles
+- Esto convierte cada tile en un bloque sólido de Color 3 (Negro)
+- Como el Tilemap por defecto (`0x9800`) está inicializado a ceros (Tile ID 0), si convertimos el Tile 0 en un bloque negro, **toda la pantalla debería volverse negra**
+
+**Diagnóstico binario:**
+- **Pantalla NEGRA:** La PPU SÍ lee la VRAM correctamente. El problema anterior era de coordenadas, formato de datos o Tile IDs incorrectos.
+- **Pantalla BLANCA:** La PPU NO está leyendo la VRAM, o está leyendo de otro lugar. Esto indica un error fundamental en el acceso a memoria de vídeo (posiblemente VRAM Banking de CGB que devuelve ceros si no está configurada correctamente).
+
+**Implementación:**
+
+1. **Modificación en MMU.cpp:**
+   - En `src/core/cpp/MMU.cpp`, dentro del constructor `MMU::MMU()`, comentamos temporalmente la carga del logo (Steps 0206-0207) y añadimos un bucle de inundación:
+   ```cpp
+   // --- Step 0206: Pre-cargar VRAM con el logo personalizado "Viboy Color" (Formato Tile 2bpp) ---
+   // TEMPORALMENTE COMENTADO PARA STEP 0208: Diagnóstico de Fuerza Bruta
+   /*
+   // ... código del logo comentado ...
+   */
+   
+   // --- Step 0208: DIAGNÓSTICO VRAM FLOOD (Inundación de VRAM) ---
+   // TÉCNICA DE FUERZA BRUTA: Llenar toda el área de Tile Data (0x8000 - 0x97FF) con 0xFF.
+   // Si la pantalla se vuelve negra, sabremos que la PPU SÍ lee la VRAM.
+   // Si la pantalla sigue blanca, hay un error fundamental en el acceso a memoria de vídeo.
+   printf("[MMU] INUNDANDO VRAM CON 0xFF (NEGRO) PARA DIAGNÓSTICO...\n");
+   for (int i = 0x8000; i < 0x9800; ++i) {
+       memory_[i] = 0xFF;
+   }
+   ```
+
+**Rango de inundación:**
+- **Inicio:** `0x8000` (inicio de la región de Tile Data)
+- **Fin:** `0x9800` (inicio del Tilemap, exclusivo)
+- **Rango total:** `0x9800 - 0x8000 = 0x1800 = 6144 bytes = 384 tiles`
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Comentado código del logo (Steps 0206-0207) y añadido bucle de inundación de VRAM
+- `docs/bitacora/entries/2025-12-21__0208__diagnostico-fuerza-bruta-inundacion-vram.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada marcada como DRAFT
+- `INFORME_FASE_2.md` - Actualizado con el Step 0208
+
+**Tests y Verificación:**
+
+1. **Recompilar el módulo C++:**
+   ```bash
+   .\rebuild_cpp.ps1
+   ```
+   Resultado esperado: Compilación exitosa.
+
+2. **Ejecutar el emulador:**
+   ```bash
+   python main.py roms/tetris.gb
+   ```
+   Resultado esperado (Binario):
+   - **Pantalla NEGRA (o muy oscura):** ¡Éxito! La PPU lee correctamente la VRAM. El problema con el logo era que estábamos usando Tile IDs incorrectos, o escribiendo en un banco de VRAM equivocado, o el Tile 0 estaba dominando la pantalla.
+   - **Pantalla BLANCA:** Fallo crítico de acceso a memoria. Aunque escribimos en `memory_`, la PPU está leyendo de otro sitio, o la lectura es interceptada incorrectamente (quizás por lógica de VRAM Banking de CGB que devuelve ceros si no está configurada).
+
+3. **Log esperado:**
+   - El mensaje `[MMU] INUNDANDO VRAM CON 0xFF (NEGRO) PARA DIAGNÓSTICO...` debe aparecer en la consola al iniciar el emulador.
+
+**Validación de módulo compilado C++:** El módulo C++ se recompiló exitosamente. La inundación de VRAM está incrustada en el código C++ compilado.
+
+**Conclusión:** Este Step aplica una técnica de diagnóstico de fuerza bruta para determinar de forma binaria si la PPU está leyendo la VRAM correctamente. El resultado (pantalla negra o blanca) determinará el siguiente paso del diagnóstico. Si la pantalla se vuelve negra, sabremos que el problema era de coordenadas o formato. Si la pantalla sigue blanca, necesitaremos investigar el acceso a VRAM (posible VRAM Banking de CGB o lógica especial en `MMU::read()` para el rango 0x8000-0x9FFF).
+
+---
+
 ### 2025-12-21 - Step 0202: Test del Checkerboard: Validación del Pipeline de Renderizado
 **Estado**: 🔧 DRAFT
 

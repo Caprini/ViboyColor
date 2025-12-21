@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0208 - Diagnóstico de Fuerza Bruta: Inundación de VRAM -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-21__0208__diagnostico-fuerza-bruta-inundacion-vram.html" class="entry-link">
+                                    Diagnóstico de Fuerza Bruta: Inundación de VRAM
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-21 | 
+                            <strong>Step ID:</strong> 0208 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔧 DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Después del Step 0207, con las coordenadas corregidas, la pantalla sigue mostrándose en blanco y los logs muestran ceros. Esto sugiere que la PPU no está "viendo" los datos que inyectamos en la VRAM. Para resolver esto definitivamente, aplicamos una técnica de diagnóstico agresiva: llenar toda la región de Tile Data (0x8000-0x97FF) con `0xFF` (píxeles negros). Si la pantalla se vuelve negra, confirmamos que la PPU SÍ lee la VRAM y que el problema es de coordenadas o formato. Si la pantalla sigue blanca, hay un error fundamental en cómo la MMU o la PPU acceden a la memoria de vídeo.
+                        </p>
+                    </li>
                     <!-- Entrada 0207 - Ajuste de Coordenadas: Centrado del Logo -->
                     <li>
                         <div class="entry-header">
