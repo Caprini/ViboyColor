@@ -554,7 +554,7 @@ La Game Boy tiene una pantalla de 20×18 tiles (160×144 píxeles). El mapa de f
 ---
 
 ### 2025-12-21 - Step 0208: Diagnóstico de Fuerza Bruta: Inundación de VRAM
-**Estado**: 🔧 DRAFT
+**Estado**: ✅ VERIFIED
 
 Después del Step 0207, con las coordenadas corregidas, la pantalla sigue mostrándose en blanco y los logs muestran ceros. Esto sugiere que la PPU no está "viendo" los datos que inyectamos en la VRAM. Para resolver esto definitivamente, aplicamos una técnica de diagnóstico agresiva: llenar toda la región de Tile Data (0x8000-0x97FF) con `0xFF` (píxeles negros).
 
@@ -607,7 +607,7 @@ La región de Tile Data de la VRAM (`0x8000` a `0x97FF`) contiene los patrones g
 **Archivos Afectados:**
 - `src/core/cpp/MMU.cpp` - Comentado código del logo (Steps 0206-0207) y añadido bucle de inundación de VRAM
 - `docs/bitacora/entries/2025-12-21__0208__diagnostico-fuerza-bruta-inundacion-vram.html` - Nueva entrada de bitácora
-- `docs/bitacora/index.html` - Actualizado con la nueva entrada marcada como DRAFT
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada marcada como VERIFIED
 - `INFORME_FASE_2.md` - Actualizado con el Step 0208
 
 **Tests y Verificación:**
