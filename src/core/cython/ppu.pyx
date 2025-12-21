@@ -208,6 +208,22 @@ cdef class PyPPU:
         """
         return self.get_framebuffer()
     
+    def clear_framebuffer(self):
+        """
+        Limpia el framebuffer, estableciendo todos los píxeles a índice 0 (blanco por defecto).
+        
+        Este método debe llamarse al inicio de cada fotograma para asegurar que el
+        renderizado comienza desde un estado limpio. En hardware real, esto ocurre
+        implícitamente porque cada píxel se redibuja en cada ciclo, pero en nuestro
+        modelo de emulación, cuando el fondo está apagado (LCDC bit 0 = 0), no se
+        renderiza nada y el framebuffer conserva los datos del fotograma anterior.
+        
+        Fuente: Práctica estándar de gráficos por ordenador (Back Buffer Clearing).
+        """
+        if self._ppu == NULL:
+            return
+        self._ppu.clear_framebuffer()
+    
     # Método para obtener el puntero C++ como entero (DEPRECADO: usar get_cpp_ptr() en su lugar)
     def get_cpp_ptr_as_int(self):
         """Obtiene el puntero C++ interno como entero (para uso en otros módulos Cython)."""

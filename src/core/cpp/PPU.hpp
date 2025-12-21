@@ -174,6 +174,19 @@ public:
      * @return Puntero al primer elemento del framebuffer
      */
     uint8_t* get_framebuffer_ptr();
+    
+    /**
+     * Limpia el framebuffer, estableciendo todos los píxeles a índice 0 (blanco por defecto).
+     * 
+     * Este método debe llamarse al inicio de cada fotograma para asegurar que el
+     * renderizado comienza desde un estado limpio. En hardware real, esto ocurre
+     * implícitamente porque cada píxel se redibuja en cada ciclo, pero en nuestro
+     * modelo de emulación, cuando el fondo está apagado (LCDC bit 0 = 0), no se
+     * renderiza nada y el framebuffer conserva los datos del fotograma anterior.
+     * 
+     * Fuente: Práctica estándar de gráficos por ordenador (Back Buffer Clearing).
+     */
+    void clear_framebuffer();
 
 private:
     /**

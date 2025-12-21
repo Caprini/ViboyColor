@@ -1,5 +1,6 @@
 #include "PPU.hpp"
 #include "MMU.hpp"
+#include <algorithm>
 
 PPU::PPU(MMU* mmu) 
     : mmu_(mmu)
@@ -275,6 +276,11 @@ bool PPU::get_frame_ready_and_reset() {
 
 uint8_t* PPU::get_framebuffer_ptr() {
     return framebuffer_.data();
+}
+
+void PPU::clear_framebuffer() {
+    // Rellena el framebuffer con el índice de color 0 (blanco en la paleta por defecto)
+    std::fill(framebuffer_.begin(), framebuffer_.end(), 0);
 }
 
 void PPU::render_scanline() {

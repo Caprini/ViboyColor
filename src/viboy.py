@@ -729,6 +729,13 @@ class Viboy:
         try:
             # Bucle principal del emulador
             while self.running:
+                # --- Step 0199: Limpiar el framebuffer al inicio de cada fotograma ---
+                # Esto asegura que cada renderizado comienza desde un estado limpio.
+                # Cuando el juego apaga el fondo (LCDC bit 0 = 0), la PPU no dibuja nada
+                # pero el framebuffer debe estar limpio para evitar artefactos "fantasma".
+                if self._use_cpp and self._ppu is not None:
+                    self._ppu.clear_framebuffer()
+                
                 # --- Bucle de Frame Completo (154 scanlines) ---
                 for line in range(SCANLINES_PER_FRAME):
                     # ✅ PROTECCIÓN: Verificar running antes de cada scanline

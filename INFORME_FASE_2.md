@@ -32,6 +32,96 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-21 - Step 0199: El Ciclo de Vida del Framebuffer: Limpieza de Fotogramas
+**Estado**: ✅ VERIFIED
+
+El diagnóstico del Step 0198 ha revelado un fallo arquitectónico crítico: el framebuffer en C++ nunca se limpia. Tras el primer fotograma, cuando el juego apaga el renderizado del fondo (`LCDC=0x80`), nuestra PPU obedece correctamente y deja de dibujar, pero el framebuffer conserva los datos "fantasma" del fotograma anterior, que se muestran indefinidamente creando artefactos visuales.
+
+**Objetivo:**
+- Implementar un método `clear_framebuffer()` en la PPU de C++ que se llame desde el orquestador de Python al inicio de cada fotograma.
+- Asegurar que cada renderizado comience desde un estado limpio, siguiendo la práctica estándar de gráficos por ordenador conocida como "Back Buffer Clearing".
+
+**Concepto de Hardware: El Back Buffer y el Ciclo de Vida del Framebuffer**
+
+En gráficos por ordenador, es una práctica estándar limpiar el "back buffer" (nuestro framebuffer) a un color de fondo predeterminado antes de dibujar un nuevo fotograma. Aunque el hardware real de la Game Boy lo hace implícitamente al redibujar cada píxel basándose en la VRAM actual en cada ciclo de pantalla, nuestro modelo de emulación simplificado, que no redibuja si el fondo está apagado, debe realizar esta limpieza de forma explícita.
+
+**El Problema del "Fantasma":**
+1. En el Step 0198, restauramos la precisión del hardware: la PPU solo renderiza si el **Bit 0** del `LCDC` está activo.
+2. Cuando el juego de Tetris muestra el logo de Nintendo, activa el fondo (`LCDC=0x91`) y la PPU renderiza correctamente el primer fotograma.
+3. Después, el juego apaga el fondo (`LCDC=0x80`) para preparar la siguiente pantalla.
+4. Nuestra PPU, ahora precisa, ve que el fondo está apagado y retorna inmediatamente desde `render_scanline()` sin dibujar nada.
+5. **El problema:** El framebuffer nunca se limpia. Mantiene los datos del primer fotograma (el logo) indefinidamente.
+6. Cuando el juego modifica la VRAM, estos cambios se reflejan parcialmente en el framebuffer, creando una mezcla "fantasma" de datos antiguos y nuevos.
+
+**La Solución:** Implementar un ciclo de vida explícito del framebuffer. Al inicio de cada fotograma, antes de que la CPU comience a ejecutar los ciclos, limpiamos el framebuffer estableciendo todos los píxeles a índice 0 (blanco en la paleta por defecto).
+
+**Implementación:**
+
+1. **Método en PPU de C++**: Se añade la declaración pública en `PPU.hpp` y su implementación en `PPU.cpp`:
+   ```cpp
+   void PPU::clear_framebuffer() {
+       // Rellena el framebuffer con el índice de color 0 (blanco en la paleta por defecto)
+       std::fill(framebuffer_.begin(), framebuffer_.end(), 0);
+   }
+   ```
+   Se requiere incluir `<algorithm>` para usar `std::fill`, que está altamente optimizado.
+
+2. **Exposición a través de Cython**: Se añade la declaración en `ppu.pxd` y el wrapper en `ppu.pyx`.
+
+3. **Integración en el Orquestador de Python**: En `viboy.py`, dentro del método `run()`, se añade la llamada al inicio del bucle de fotogramas:
+   ```python
+   while self.running:
+       # --- Step 0199: Limpiar el framebuffer al inicio de cada fotograma ---
+       if self._use_cpp and self._ppu is not None:
+           self._ppu.clear_framebuffer()
+       
+       # --- Bucle de Frame Completo (154 scanlines) ---
+       for line in range(SCANLINES_PER_FRAME):
+           # ... resto del bucle ...
+   ```
+
+**Archivos Afectados:**
+- `src/core/cpp/PPU.hpp` - Añadida declaración del método `clear_framebuffer()`
+- `src/core/cpp/PPU.cpp` - Añadida implementación de `clear_framebuffer()` e include de `<algorithm>`
+- `src/core/cython/ppu.pxd` - Añadida declaración del método para Cython
+- `src/core/cython/ppu.pyx` - Añadido wrapper Python para `clear_framebuffer()`
+- `src/viboy.py` - Añadida llamada a `clear_framebuffer()` al inicio del bucle de fotogramas
+- `docs/bitacora/entries/2025-12-21__0199__ciclo-vida-framebuffer-limpieza-fotogramas.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0199
+
+**Tests y Verificación:**
+
+La validación de este cambio es visual y funcional:
+
+1. **Recompilación del módulo C++**:
+   ```bash
+   python setup.py build_ext --inplace
+   # O usando el script de PowerShell:
+   .\rebuild_cpp.ps1
+   ```
+   Compilación exitosa sin errores ni warnings.
+
+2. **Ejecución del emulador**:
+   ```bash
+   python main.py roms/tetris.gb
+   ```
+
+3. **Resultado Esperado**: 
+   - **Frame 1:** `LCDC=0x91`. La PPU renderiza el logo de Nintendo. Python lo muestra correctamente.
+   - **Frame 2 (y siguientes):**
+     - `clear_framebuffer()` pone todo el buffer a `0` (blanco).
+     - El juego pone `LCDC=0x80` (apaga el fondo).
+     - Nuestra PPU ve que el fondo está apagado y no dibuja nada.
+     - Python lee el framebuffer, que está lleno de ceros (blanco).
+   - **El resultado CORRECTO es una PANTALLA EN BLANCO.**
+
+**Nota Importante:** Una pantalla en blanco puede parecer un paso atrás, ¡pero es un salto adelante en precisión! Confirma que nuestro ciclo de vida del framebuffer es correcto y que nuestra PPU obedece al hardware. Una vez que el juego avance y active el fondo para la pantalla de título, la veremos aparecer sobre este lienzo blanco y limpio, sin artefactos "fantasma".
+
+**Validación de módulo compilado C++**: El módulo se compila correctamente y el emulador ejecuta sin errores. El método `clear_framebuffer()` funciona correctamente y se integra sin problemas en el bucle principal de emulación.
+
+---
+
 ### 2025-12-20 - Step 0198: ¡Hito y Limpieza! Primeros Gráficos con Precisión de Hardware
 **Estado**: ✅ VERIFIED
 

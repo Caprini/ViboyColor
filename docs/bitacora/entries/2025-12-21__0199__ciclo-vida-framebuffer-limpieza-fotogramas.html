@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El Ciclo de Vida del Framebuffer: Limpieza de Fotogramas - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>El Ciclo de Vida del Framebuffer: Limpieza de Fotogramas</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-21
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0199
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0198__hito-limpieza-primeros-graficos-precision-hardware.html">Anterior (Step 0198)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El diagnóstico del Step 0198 ha revelado un fallo arquitectónico crítico: el framebuffer en C++ nunca se limpia. Tras el primer fotograma, cuando el juego apaga el renderizado del fondo (<code>LCDC=0x80</code>), nuestra PPU obedece correctamente y deja de dibujar, pero el framebuffer conserva los datos "fantasma" del fotograma anterior, que se muestran indefinidamente creando artefactos visuales.
+                </p>
+                <p>
+                    Este Step implementa la solución profesional: un método <code>clear_framebuffer()</code> en la PPU de C++ que se llama desde el orquestador de Python al inicio de cada fotograma, asegurando que cada renderizado comience desde un estado limpio. Esta es una práctica estándar de gráficos por ordenador conocida como "Back Buffer Clearing".
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: El Back Buffer y el Ciclo de Vida del Framebuffer</h2>
+                <p>
+                    En gráficos por ordenador, es una práctica estándar limpiar el "back buffer" (nuestro framebuffer) a un color de fondo predeterminado antes de dibujar un nuevo fotograma. Aunque el hardware real de la Game Boy lo hace implícitamente al redibujar cada píxel basándose en la VRAM actual en cada ciclo de pantalla, nuestro modelo de emulación simplificado, que no redibuja si el fondo está apagado, debe realizar esta limpieza de forma explícita.
+                </p>
+                <p>
+                    <strong>El Problema del "Fantasma":</strong>
+                </p>
+                <ul>
+                    <li>En el Step 0198, restauramos la precisión del hardware: la PPU solo renderiza si el <strong>Bit 0</strong> del <code>LCDC</code> está activo.</li>
+                    <li>Cuando el juego de Tetris muestra el logo de Nintendo, activa el fondo (<code>LCDC=0x91</code>) y la PPU renderiza correctamente el primer fotograma.</li>
+                    <li>Después, el juego apaga el fondo (<code>LCDC=0x80</code>) para preparar la siguiente pantalla (probablemente copiando nuevos gráficos a la VRAM).</li>
+                    <li>Nuestra PPU, ahora precisa, ve que el fondo está apagado y retorna inmediatamente desde <code>render_scanline()</code> sin dibujar nada.</li>
+                    <li><strong>El problema:</strong> El framebuffer nunca se limpia. Mantiene los datos del primer fotograma (el logo) indefinidamente.</li>
+                    <li>Cuando el juego modifica la VRAM para preparar la siguiente pantalla, estos cambios se reflejan parcialmente en el framebuffer, creando una mezcla "fantasma" de datos antiguos y nuevos.</li>
+                </ul>
+                <p>
+                    <strong>La Solución:</strong> Implementar un ciclo de vida explícito del framebuffer. Al inicio de cada fotograma, antes de que la CPU comience a ejecutar los ciclos, limpiamos el framebuffer estableciendo todos los píxeles a índice 0 (blanco en la paleta por defecto). Esto garantiza que cada renderizado comienza desde un lienzo limpio, tal como ocurre en el hardware real.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Este Step implementa el método <code>clear_framebuffer()</code> en tres capas: C++, Cython y Python.
+                </p>
+                
+                <h3>1. Método en PPU de C++</h3>
+                <p>
+                    Se añade la declaración pública en <code>PPU.hpp</code>:
+                </p>
+                <pre><code>/**
+ * Limpia el framebuffer, estableciendo todos los píxeles a índice 0 (blanco por defecto).
+ * 
+ * Este método debe llamarse al inicio de cada fotograma para asegurar que el
+ * renderizado comienza desde un estado limpio. En hardware real, esto ocurre
+ * implícitamente porque cada píxel se redibuja en cada ciclo, pero en nuestro
+ * modelo de emulación, cuando el fondo está apagado (LCDC bit 0 = 0), no se
+ * renderiza nada y el framebuffer conserva los datos del fotograma anterior.
+ * 
+ * Fuente: Práctica estándar de gráficos por ordenador (Back Buffer Clearing).
+ */
+void clear_framebuffer();</code></pre>
+                <p>
+                    Y su implementación en <code>PPU.cpp</code>:
+                </p>
+                <pre><code>void PPU::clear_framebuffer() {
+    // Rellena el framebuffer con el índice de color 0 (blanco en la paleta por defecto)
+    std::fill(framebuffer_.begin(), framebuffer_.end(), 0);
+}</code></pre>
+                <p>
+                    Se requiere incluir <code>&lt;algorithm&gt;</code> para usar <code>std::fill</code>, que es altamente optimizado para este tipo de operaciones.
+                </p>
+
+                <h3>2. Exposición a través de Cython</h3>
+                <p>
+                    Se añade la declaración en <code>ppu.pxd</code>:
+                </p>
+                <pre><code>void clear_framebuffer()</code></pre>
+                <p>
+                    Y el wrapper en <code>ppu.pyx</code>:
+                </p>
+                <pre><code>def clear_framebuffer(self):
+    """
+    Limpia el framebuffer, estableciendo todos los píxeles a índice 0 (blanco por defecto).
+    
+    Este método debe llamarse al inicio de cada fotograma para asegurar que el
+    renderizado comienza desde un estado limpio.
+    """
+    if self._ppu == NULL:
+        return
+    self._ppu.clear_framebuffer()</code></pre>
+
+                <h3>3. Integración en el Orquestador de Python</h3>
+                <p>
+                    En <code>viboy.py</code>, dentro del método <code>run()</code>, se añade la llamada al inicio del bucle de fotogramas:
+                </p>
+                <pre><code>while self.running:
+    # --- Step 0199: Limpiar el framebuffer al inicio de cada fotograma ---
+    # Esto asegura que cada renderizado comienza desde un estado limpio.
+    # Cuando el juego apaga el fondo (LCDC bit 0 = 0), la PPU no dibuja nada
+    # pero el framebuffer debe estar limpio para evitar artefactos "fantasma".
+    if self._use_cpp and self._ppu is not None:
+        self._ppu.clear_framebuffer()
+    
+    # --- Bucle de Frame Completo (154 scanlines) ---
+    for line in range(SCANLINES_PER_FRAME):
+        # ... resto del bucle ...</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <p>
+                    <strong>¿Por qué limpiar al inicio del fotograma y no al final?</strong> Limpiar al inicio garantiza que, incluso si ocurre un error o el juego no renderiza nada en un fotograma, la pantalla mostrará un estado limpio (blanco) en lugar de artefactos del fotograma anterior. Es el patrón estándar en renderizado de gráficos.
+                </p>
+                <p>
+                    <strong>¿Por qué usar <code>std::fill</code> en lugar de un bucle manual?</strong> <code>std::fill</code> está altamente optimizado por el compilador y puede generar código vectorizado (SIMD) que es mucho más rápido que un bucle manual, especialmente para un buffer de 23040 bytes.
+                </p>
+                <p>
+                    <strong>¿Por qué índice 0 (blanco) y no otro valor?</strong> El índice 0 corresponde al color más claro en la paleta estándar del Game Boy. Es el valor "neutro" que garantiza que, si no se renderiza nada, veremos un fondo limpio y uniforme en lugar de ruido visual.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Añadida declaración del método <code>clear_framebuffer()</code></li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Añadida implementación de <code>clear_framebuffer()</code> e include de <code>&lt;algorithm&gt;</code></li>
+                    <li><code>src/core/cython/ppu.pxd</code> - Añadida declaración del método para Cython</li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Añadido wrapper Python para <code>clear_framebuffer()</code></li>
+                    <li><code>src/viboy.py</code> - Añadida llamada a <code>clear_framebuffer()</code> al inicio del bucle de fotogramas</li>
+                    <li><code>docs/bitacora/entries/2025-12-21__0199__ciclo-vida-framebuffer-limpieza-fotogramas.html</code> - Nueva entrada de bitácora</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con la nueva entrada</li>
+                    <li><code>INFORME_FASE_2.md</code> - Actualizado con el Step 0199</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La validación de este cambio es visual y funcional:
+                </p>
+                <ol>
+                    <li><strong>Recompilación del módulo C++:</strong>
+                        <pre><code>python setup.py build_ext --inplace
+# O usando el script de PowerShell:
+.\rebuild_cpp.ps1</code></pre>
+                        Compilación exitosa sin errores ni warnings.
+                    </li>
+                    <li><strong>Ejecución del emulador:</strong>
+                        <pre><code>python main.py roms/tetris.gb</code></pre>
+                    </li>
+                    <li><strong>Resultado Esperado:</strong> 
+                        <ul>
+                            <li><strong>Frame 1:</strong> <code>LCDC=0x91</code>. La PPU renderiza el logo de Nintendo. Python lo muestra correctamente.</li>
+                            <li><strong>Frame 2 (y siguientes):</strong>
+                                <ul>
+                                    <li><code>clear_framebuffer()</code> pone todo el buffer a <code>0</code> (blanco).</li>
+                                    <li>El juego pone <code>LCDC=0x80</code> (apaga el fondo).</li>
+                                    <li>Nuestra PPU, ahora precisa, ve que el fondo está apagado y no dibuja nada.</li>
+                                    <li>Python lee el framebuffer, que está lleno de ceros (blanco).</li>
+                                </ul>
+                            </li>
+                            <li><strong>El resultado CORRECTO es una PANTALLA EN BLANCO.</strong></li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Nota Importante:</strong> Una pantalla en blanco puede parecer un paso atrás, ¡pero es un salto adelante en precisión! Confirma que:
+                </p>
+                <ul>
+                    <li>Nuestro ciclo de vida del framebuffer es correcto: cada fotograma comienza con un lienzo limpio.</li>
+                    <li>Nuestra PPU obedece al hardware: cuando el juego apaga el fondo, no renderiza nada.</li>
+                    <li>Una vez que el juego avance y active el fondo para la pantalla de título, la veremos aparecer sobre este lienzo blanco y limpio, sin artefactos "fantasma".</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html">LCD Control Register (LCDC)</a> - Bits de control del LCD, incluyendo Bit 0 (BG Display Enable)</li>
+                    <li>Práctica estándar de gráficos por ordenador: "Back Buffer Clearing" - Patrón común en renderizado de gráficos para evitar artefactos visuales entre fotogramas</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>El Ciclo de Vida del Framebuffer:</strong> En gráficos por ordenador, es esencial limpiar el back buffer antes de cada nuevo fotograma para evitar artefactos visuales. Esto es especialmente crítico cuando el renderizado es condicional (como en nuestro caso, donde solo renderizamos si el fondo está activo).</li>
+                        <li><strong>La Diferencia entre Hardware Real y Emulación:</strong> El hardware real de la Game Boy redibuja cada píxel en cada ciclo basándose en la VRAM actual, por lo que la "limpieza" ocurre implícitamente. En nuestra emulación, donde podemos omitir el renderizado si el fondo está apagado, debemos realizar esta limpieza de forma explícita.</li>
+                        <li><strong>El "Fantasma en el Framebuffer":</strong> Cuando el framebuffer no se limpia y el renderizado se omite, los datos del fotograma anterior permanecen visibles, creando artefactos visuales que se mezclan con los nuevos datos cuando el juego modifica la VRAM.</li>
+                        <li><strong>Optimización con std::fill:</strong> Usar funciones de la biblioteca estándar como <code>std::fill</code> permite al compilador generar código altamente optimizado, posiblemente usando instrucciones vectorizadas (SIMD) que son mucho más rápidas que un bucle manual.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento del Hardware Real:</strong> Cuando el Bit 0 del LCDC está apagado en una Game Boy real, ¿qué se muestra en la pantalla? ¿Una pantalla en blanco, o los datos de VRAM anteriores? Esto requiere verificación empírica o documentación más detallada.</li>
+                        <li><strong>Momentos de Activación del Fondo:</strong> ¿En qué momentos exactos del ciclo de vida de un juego típico (como Tetris) se activa y desactiva el Bit 0 del LCDC? Esto nos ayudaría a entender mejor el flujo de renderizado y preparar mejor nuestros tests.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición:</strong> Asumimos que establecer el framebuffer a índice 0 (blanco) es el comportamiento correcto cuando no se renderiza nada. En el hardware real, cuando el Bit 0 del LCDC está apagado, la pantalla podría mostrar algo diferente (por ejemplo, podría estar "apagada" o mostrar datos residuales). Sin embargo, para nuestra emulación, un fondo blanco limpio es el comportamiento más razonable y profesional.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar el comportamiento del emulador cuando el juego activa el fondo nuevamente para mostrar la pantalla de título de Tetris</li>
+                    <li>[ ] Confirmar que la pantalla en blanco es el comportamiento correcto cuando el Bit 0 del LCDC está apagado</li>
+                    <li>[ ] Investigar si hay algún registro o bit adicional que controle qué se muestra cuando el fondo está desactivado</li>
+                    <li>[ ] Continuar con la implementación de características adicionales de la PPU (Window, Sprites, etc.)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

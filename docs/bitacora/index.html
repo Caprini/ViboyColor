@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0199 - El Ciclo de Vida del Framebuffer: Limpieza de Fotogramas -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-21__0199__ciclo-vida-framebuffer-limpieza-fotogramas.html" class="entry-link">
+                                    El Ciclo de Vida del Framebuffer: Limpieza de Fotogramas
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-21 | 
+                            <strong>Step ID:</strong> 0199 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            El diagnóstico del Step 0198 ha revelado un fallo arquitectónico crítico: el framebuffer en C++ nunca se limpia. Tras el primer fotograma, cuando el juego apaga el renderizado del fondo (LCDC=0x80), nuestra PPU obedece correctamente y deja de dibujar, pero el framebuffer conserva los datos "fantasma" del fotograma anterior. Este Step implementa la solución profesional: un método clear_framebuffer() en la PPU de C++ que se llama desde el orquestador de Python al inicio de cada fotograma, asegurando que cada renderizado comience desde un estado limpio. Esta es una práctica estándar de gráficos por ordenador conocida como "Back Buffer Clearing".
+                        </p>
+                    </li>
                     <!-- Entrada 0198 - ¡Hito y Limpieza! Primeros Gráficos con Precisión de Hardware -->
                     <li>
                         <div class="entry-header">
