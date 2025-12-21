@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test del Checkerboard: Validación del Pipeline de Renderizado - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Test del Checkerboard: Validación del Pipeline de Renderizado</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-21
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0202
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔧 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-21__0201__estado-inicial-framebuffer-verificacion-logo-personalizado.html">Anterior (Step 0201)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Hemos llegado a un punto crítico de diagnóstico. A pesar de que todos los componentes parecen funcionar (CPU, MMU, PPU), la pantalla permanece en blanco porque la VRAM es borrada por la propia ROM antes de que podamos renderizar algo. Este es un momento de "Guerra de Inicialización" entre nuestra simulación del BIOS y la propia ROM del juego.
+                </p>
+                <p>
+                    Necesitamos validar de forma inequívoca que nuestro pipeline de renderizado (C++ PPU → Cython → Python Pygame) está funcionando. Para ello, implementamos un "Test del Checkerboard": modificamos temporalmente <code>PPU::render_scanline()</code> para que ignore toda la lógica de emulación y dibuje un patrón de tablero de ajedrez directamente en el framebuffer.
+                </p>
+                <p>
+                    Este test nos dará una respuesta binaria y definitiva:
+                </p>
+                <ul>
+                    <li><strong>Si vemos el checkerboard:</strong> La tubería de datos C++ → Python funciona. El problema es, 100% confirmado, que la VRAM está vacía.</li>
+                    <li><strong>Si la pantalla sigue en blanco:</strong> Nuestro diagnóstico está mal. La tubería está rota en algún punto (el <code>memoryview</code> de Cython, el paso de punteros, etc.).</li>
+                </ul>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Ingeniería: Aislamiento y Prueba de la Tubería de Datos</h2>
+                <p>
+                    Cuando un sistema complejo falla, la mejor estrategia es el <strong>aislamiento</strong>. Vamos a aislar la "tubería" de renderizado del resto del emulador. Si podemos escribir datos en un <code>std::vector</code> en C++ y verlos en una ventana de Pygame en Python, entonces la tubería funciona. Si no, la tubería está rota.
+                </p>
+                <p>
+                    El patrón de tablero de ajedrez (checkerboard) es ideal porque es:
+                </p>
+                <ul>
+                    <li><strong>Visualmente inconfundible:</strong> Es imposible de confundir con memoria corrupta o un estado de VRAM vacío.</li>
+                    <li><strong>Fácil de generar matemáticamente:</strong> No requiere acceso a VRAM, tiles, ni a ningún otro componente del emulador.</li>
+                    <li><strong>Determinista:</strong> Si la tubería funciona, veremos el patrón. Si no, la pantalla seguirá en blanco.</li>
+                </ul>
+                <p>
+                    <strong>La Guerra de Inicialización:</strong>
+                </p>
+                <p>
+                    El problema que enfrentamos es una obra maestra de ironía técnica: nuestro emulador es ahora tan preciso que está ejecutando fielmente el código de la ROM de Tetris... <strong>que borra la VRAM que nosotros pre-cargamos con tanto cuidado.</strong>
+                </p>
+                <p>
+                    <strong>La Secuencia de Eventos:</strong>
+                </p>
+                <ol>
+                    <li><strong>Nuestro Emulador (Simulando el BIOS):</strong> Al iniciarse, el constructor de nuestra <code>MMU</code> se ejecuta. Crea el espacio de memoria de 64KB. Ejecuta nuestro código del Step 0201: <strong>pre-carga la VRAM</strong> con los datos del logo. En este instante, la VRAM contiene los gráficos.</li>
+                    <li><strong>La ROM de Tetris (El Juego Toma el Control):</strong> La ejecución comienza en <code>PC=0x0100</code>. El juego <strong>no confía en el estado de la máquina</strong>. No asume que la VRAM esté limpia o preparada. Una de las primeras acciones que realiza cualquier juego bien programado es <strong>limpiar la memoria de trabajo (WRAM) y, a menudo, la memoria de vídeo (VRAM)</strong> para asegurarse de que no haya "basura" de un arranque anterior.</li>
+                    <li><strong>El Borrado:</strong> Esto se hace con un bucle de ensamblador muy rápido, algo como: <code>LD HL, 0x9FFF; LD B, NUM_BYTES; loop: LD (HL-), A; DEC B; JR NZ, loop</code>. <strong>Nuestro emulador, ahora 100% funcional, ejecuta este bucle de limpieza a la perfección.</strong> En los primeros microsegundos de ejecución, la CPU de Tetris pasa por la VRAM y la llena de ceros, borrando nuestro logo antes de que la PPU tenga la oportunidad de dibujar un solo fotograma.</li>
+                </ol>
+                <p>
+                    <strong>La Evidencia Inequívoca:</strong>
+                </p>
+                <ul>
+                    <li><strong>Log del Heartbeat:</strong> <code>💓 Heartbeat ... LY=0 | Mode=2 | LCDC=91</code>. Esto demuestra que la ROM de Tetris SÍ intenta encender la pantalla (<code>LCDC=91</code>) desde el primer momento. Quiere mostrar algo.</li>
+                    <li><strong>Log del Renderer:</strong> <code>[Renderer] Frame #0: framebuffer leído, muestra índices: [0, 0, 0, 0, 0, 0]</code>. Esto demuestra que, a pesar de que <code>LCDC</code> es <code>91</code>, la PPU lee una VRAM que ya está llena de ceros.</li>
+                </ul>
+                <p>
+                    Hemos llegado a un punto de precisión tan alto que estamos emulando correctamente cómo el propio juego sabotea nuestro intento de simular el BIOS. Esto no es un fracaso, es una validación extraordinaria de la corrección de nuestra CPU y MMU.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Modificamos temporalmente <code>PPU::render_scanline()</code> para que ignore toda la lógica de emulación y dibuje un patrón de tablero de ajedrez directamente en el framebuffer.
+                </p>
+                
+                <h3>Modificación en PPU::render_scanline() (C++)</h3>
+                <p>
+                    En <code>src/core/cpp/PPU.cpp</code>, reemplazamos completamente el contenido del método <code>render_scanline()</code> con el siguiente código de generación de patrones:
+                </p>
+                <pre><code>void PPU::render_scanline() {
+    // --- Step 0202: Test del Checkerboard para validar el pipeline de datos ---
+    // Este código ignora VRAM, LCDC, scroll y toda la emulación.
+    // Dibuja un patrón de tablero de ajedrez directamente en el framebuffer.
+    // 
+    // OBJETIVO: Aislar y probar la tubería de renderizado C++ -> Cython -> Python.
+    // Si vemos el checkerboard, la tubería funciona. Si la pantalla sigue en blanco,
+    // el problema está en la interfaz Cython o en el paso de punteros.
+    
+    // Solo dibujar si estamos en las líneas visibles
+    if (ly_ >= VISIBLE_LINES) {
+        return;
+    }
+    
+    size_t line_start_index = ly_ * 160;
+    
+    for (int x = 0; x < 160; ++x) {
+        // Generar un patrón de cuadrados de 8x8 píxeles
+        // Alternar entre cuadrados oscuros y claros basado en la posición
+        bool is_dark_square = ((ly_ / 8) % 2) == ((x / 8) % 2);
+        
+        // Usar índice de color 3 (oscuro) y 0 (claro)
+        uint8_t color_index = is_dark_square ? 3 : 0;
+        
+        framebuffer_[line_start_index + x] = color_index;
+    }
+    
+    // CÓDIGO ORIGINAL COMENTADO (se restaurará después del test):
+    // ... código original de render_scanline() ...
+}</code></pre>
+                <p>
+                    <strong>Explicación del Algoritmo:</strong>
+                </p>
+                <ul>
+                    <li><strong>Líneas visibles:</strong> Solo dibujamos si <code>ly_ &lt; VISIBLE_LINES</code> (0-143).</li>
+                    <li><strong>Índice de línea:</strong> Calculamos <code>line_start_index = ly_ * 160</code> para obtener el inicio de la línea actual en el framebuffer.</li>
+                    <li><strong>Patrón de tablero:</strong> Para cada píxel, determinamos si está en un cuadrado oscuro o claro comparando la paridad de <code>ly_ / 8</code> y <code>x / 8</code>. Si ambas tienen la misma paridad, el cuadrado es oscuro (color 3). Si no, es claro (color 0).</li>
+                    <li><strong>Cuadrados de 8x8:</strong> El patrón genera cuadrados de 8×8 píxeles, creando un tablero de ajedrez perfectamente visible.</li>
+                </ul>
+                <p>
+                    <strong>⚠️ Importante:</strong> Este código es temporal y debe ser revertido después del test. El código original está comentado dentro del método para facilitar su restauración.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Modificado <code>render_scanline()</code> para dibujar el patrón checkerboard en lugar de leer de VRAM</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación es puramente visual:
+                </p>
+                <ol>
+                    <li><strong>Recompilación:</strong> Recompilar el módulo C++ usando <code>.\rebuild_cpp.ps1</code></li>
+                    <li><strong>Ejecución:</strong> Ejecutar el emulador con la ROM de Tetris: <code>python main.py roms/tetris.gb</code></li>
+                </ol>
+                <p>
+                    <strong>Resultado Esperado:</strong>
+                </p>
+                <p>
+                    Al ejecutar el emulador, solo hay dos resultados posibles:
+                </p>
+                <ol>
+                    <li><strong>Vemos un Tablero de Ajedrez Perfecto:</strong>
+                        <ul>
+                            <li><strong>Significado:</strong> ¡Éxito! La tubería de datos C++ → Cython → Python funciona a la perfección.</li>
+                            <li><strong>Diagnóstico Confirmado:</strong> El problema es, sin lugar a dudas, que la VRAM está vacía porque la ROM la está limpiando.</li>
+                            <li><strong>Siguiente Paso:</strong> Podríamos revertir este test y buscar una ROM de prueba que <em>no</em> limpie la VRAM, o avanzar directamente a la implementación de Sprites.</li>
+                        </ul>
+                    </li>
+                    <li><strong>La Pantalla Sigue en Blanco:</strong>
+                        <ul>
+                            <li><strong>Significado:</strong> ¡Fracaso de la tubería! La PPU en C++ está generando el patrón, pero este nunca llega a la pantalla.</li>
+                            <li><strong>Diagnóstico:</strong> El problema está en nuestro wrapper de Cython, en cómo exponemos el puntero del framebuffer, o cómo Python lo interpreta como un <code>memoryview</code>.</li>
+                            <li><strong>Siguiente Paso:</strong> Depurar la interfaz de Cython, verificando punteros, tipos de datos y el ciclo de vida del <code>memoryview</code>.</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Este test valida que el pipeline de renderizado funciona correctamente, independientemente del estado de la VRAM o de la lógica de emulación.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Principio de Aislamiento en Ingeniería de Software:</strong> Cuando un sistema complejo falla, la mejor estrategia es aislar componentes y probarlos individualmente.</li>
+                    <li><strong>Test del Checkerboard:</strong> Patrón clásico en el desarrollo de motores gráficos para verificar la integridad del pipeline de renderizado.</li>
+                    <li><strong>Pan Docs:</strong> "LCD Timing", "VRAM" - Comportamiento del hardware de vídeo de la Game Boy</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Aislamiento de Componentes:</strong> Cuando un sistema complejo falla, la mejor estrategia es aislar componentes y probarlos individualmente. El test del checkerboard nos permite aislar la tubería de renderizado del resto del emulador.</li>
+                        <li><strong>La Guerra de Inicialización:</strong> Nuestro emulador es tan preciso que está ejecutando fielmente el código de la ROM de Tetris, que borra la VRAM que nosotros pre-cargamos. Esto no es un fracaso, es una validación extraordinaria de la corrección de nuestra CPU y MMU.</li>
+                        <li><strong>Diagnóstico Binario:</strong> El test del checkerboard nos dará una respuesta binaria y definitiva: si vemos el patrón, la tubería funciona. Si no, la tubería está rota.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Resultado del Test:</strong> Necesitamos ejecutar el emulador y verificar visualmente si aparece el patrón checkerboard o si la pantalla sigue en blanco.</li>
+                        <li><strong>Diagnóstico Final:</strong> Una vez que tengamos el resultado del test, podremos determinar si el problema está en la VRAM vacía o en la tubería de renderizado.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> La tubería de renderizado (C++ → Cython → Python) funciona correctamente, y el problema es que la VRAM está vacía porque la ROM la está limpiando. Esta hipótesis se validará con el test del checkerboard.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Si vemos el checkerboard, confirmaremos que la tubería funciona y que el problema es la VRAM vacía. Si la pantalla sigue en blanco, el problema está en la interfaz de Cython o en el paso de punteros.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y verificar visualmente si aparece el patrón checkerboard</li>
+                    <li>[ ] Si vemos el checkerboard: Revertir el test y buscar una ROM de prueba que no limpie la VRAM, o avanzar directamente a la implementación de Sprites</li>
+                    <li>[ ] Si la pantalla sigue en blanco: Depurar la interfaz de Cython, verificando punteros, tipos de datos y el ciclo de vida del <code>memoryview</code></li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

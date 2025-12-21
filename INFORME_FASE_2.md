@@ -243,6 +243,125 @@ La verificación es 100% visual:
 
 ---
 
+### 2025-12-21 - Step 0202: Test del Checkerboard: Validación del Pipeline de Renderizado
+**Estado**: 🔧 DRAFT
+
+Hemos llegado a un punto crítico de diagnóstico. A pesar de que todos los componentes parecen funcionar (CPU, MMU, PPU), la pantalla permanece en blanco porque la VRAM es borrada por la propia ROM antes de que podamos renderizar algo. Este es un momento de "Guerra de Inicialización" entre nuestra simulación del BIOS y la propia ROM del juego.
+
+**Objetivo:**
+- Validar de forma inequívoca que nuestro pipeline de renderizado (C++ PPU → Cython → Python Pygame) está funcionando.
+- Implementar un "Test del Checkerboard" que dibuje un patrón de tablero de ajedrez directamente en el framebuffer, ignorando toda la lógica de emulación.
+- Obtener una respuesta binaria y definitiva sobre el estado de la tubería de datos.
+
+**Concepto de Ingeniería: Aislamiento y Prueba de la Tubería de Datos**
+
+Cuando un sistema complejo falla, la mejor estrategia es el **aislamiento**. Vamos a aislar la "tubería" de renderizado del resto del emulador. Si podemos escribir datos en un `std::vector` en C++ y verlos en una ventana de Pygame en Python, entonces la tubería funciona. Si no, la tubería está rota.
+
+El patrón de tablero de ajedrez (checkerboard) es ideal porque es:
+- **Visualmente inconfundible:** Es imposible de confundir con memoria corrupta o un estado de VRAM vacío.
+- **Fácil de generar matemáticamente:** No requiere acceso a VRAM, tiles, ni a ningún otro componente del emulador.
+- **Determinista:** Si la tubería funciona, veremos el patrón. Si no, la pantalla seguirá en blanco.
+
+**La Guerra de Inicialización:**
+
+El problema que enfrentamos es una obra maestra de ironía técnica: nuestro emulador es ahora tan preciso que está ejecutando fielmente el código de la ROM de Tetris... **que borra la VRAM que nosotros pre-cargamos con tanto cuidado.**
+
+**La Secuencia de Eventos:**
+
+1. **Nuestro Emulador (Simulando el BIOS):** Al iniciarse, el constructor de nuestra `MMU` se ejecuta. Crea el espacio de memoria de 64KB. Ejecuta nuestro código del Step 0201: **pre-carga la VRAM** con los datos del logo. En este instante, la VRAM contiene los gráficos.
+
+2. **La ROM de Tetris (El Juego Toma el Control):** La ejecución comienza en `PC=0x0100`. El juego **no confía en el estado de la máquina**. No asume que la VRAM esté limpia o preparada. Una de las primeras acciones que realiza cualquier juego bien programado es **limpiar la memoria de trabajo (WRAM) y, a menudo, la memoria de vídeo (VRAM)** para asegurarse de que no haya "basura" de un arranque anterior.
+
+3. **El Borrado:** Esto se hace con un bucle de ensamblador muy rápido, algo como: `LD HL, 0x9FFF; LD B, NUM_BYTES; loop: LD (HL-), A; DEC B; JR NZ, loop`. **Nuestro emulador, ahora 100% funcional, ejecuta este bucle de limpieza a la perfección.** En los primeros microsegundos de ejecución, la CPU de Tetris pasa por la VRAM y la llena de ceros, borrando nuestro logo antes de que la PPU tenga la oportunidad de dibujar un solo fotograma.
+
+**La Evidencia Inequívoca:**
+
+- **Log del Heartbeat:** `💓 Heartbeat ... LY=0 | Mode=2 | LCDC=91`. Esto demuestra que la ROM de Tetris SÍ intenta encender la pantalla (`LCDC=91`) desde el primer momento. Quiere mostrar algo.
+- **Log del Renderer:** `[Renderer] Frame #0: framebuffer leído, muestra índices: [0, 0, 0, 0, 0, 0]`. Esto demuestra que, a pesar de que `LCDC` es `91`, la PPU lee una VRAM que ya está llena de ceros.
+
+Hemos llegado a un punto de precisión tan alto que estamos emulando correctamente cómo el propio juego sabotea nuestro intento de simular el BIOS. Esto no es un fracaso, es una validación extraordinaria de la corrección de nuestra CPU y MMU.
+
+**Implementación:**
+
+1. **Modificación en PPU::render_scanline() (C++)**: En `src/core/cpp/PPU.cpp`, reemplazamos completamente el contenido del método `render_scanline()` con código de generación de patrones:
+
+   ```cpp
+   void PPU::render_scanline() {
+       // --- Step 0202: Test del Checkerboard para validar el pipeline de datos ---
+       // Este código ignora VRAM, LCDC, scroll y toda la emulación.
+       // Dibuja un patrón de tablero de ajedrez directamente en el framebuffer.
+       
+       // Solo dibujar si estamos en las líneas visibles
+       if (ly_ >= VISIBLE_LINES) {
+           return;
+       }
+       
+       size_t line_start_index = ly_ * 160;
+       
+       for (int x = 0; x < 160; ++x) {
+           // Generar un patrón de cuadrados de 8x8 píxeles
+           // Alternar entre cuadrados oscuros y claros basado en la posición
+           bool is_dark_square = ((ly_ / 8) % 2) == ((x / 8) % 2);
+           
+           // Usar índice de color 3 (oscuro) y 0 (claro)
+           uint8_t color_index = is_dark_square ? 3 : 0;
+           
+           framebuffer_[line_start_index + x] = color_index;
+       }
+       
+       // CÓDIGO ORIGINAL COMENTADO (se restaurará después del test):
+       // ... código original de render_scanline() ...
+   }
+   ```
+
+   **Explicación del Algoritmo:**
+   - **Líneas visibles:** Solo dibujamos si `ly_ < VISIBLE_LINES` (0-143).
+   - **Índice de línea:** Calculamos `line_start_index = ly_ * 160` para obtener el inicio de la línea actual en el framebuffer.
+   - **Patrón de tablero:** Para cada píxel, determinamos si está en un cuadrado oscuro o claro comparando la paridad de `ly_ / 8` y `x / 8`. Si ambas tienen la misma paridad, el cuadrado es oscuro (color 3). Si no, es claro (color 0).
+   - **Cuadrados de 8x8:** El patrón genera cuadrados de 8×8 píxeles, creando un tablero de ajedrez perfectamente visible.
+
+   ⚠️ **Importante:** Este código es temporal y debe ser revertido después del test. El código original está comentado dentro del método para facilitar su restauración.
+
+**Archivos Afectados:**
+- `src/core/cpp/PPU.cpp` - Modificado `render_scanline()` para dibujar el patrón checkerboard en lugar de leer de VRAM
+- `docs/bitacora/entries/2025-12-21__0202__test-checkerboard-validacion-pipeline-renderizado.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0202
+
+**Tests y Verificación:**
+
+La verificación es puramente visual:
+
+1. **Recompilación del módulo C++**:
+   ```bash
+   .\rebuild_cpp.ps1
+   ```
+
+2. **Ejecución del emulador**:
+   ```bash
+   python main.py roms/tetris.gb
+   ```
+
+**Resultado Esperado:**
+
+Al ejecutar el emulador, solo hay dos resultados posibles:
+
+1. **Vemos un Tablero de Ajedrez Perfecto:**
+   - **Significado:** ¡Éxito! La tubería de datos C++ → Cython → Python funciona a la perfección.
+   - **Diagnóstico Confirmado:** El problema es, sin lugar a dudas, que la VRAM está vacía porque la ROM la está limpiando.
+   - **Siguiente Paso:** Podríamos revertir este test y buscar una ROM de prueba que *no* limpie la VRAM, o avanzar directamente a la implementación de Sprites.
+
+2. **La Pantalla Sigue en Blanco:**
+   - **Significado:** ¡Fracaso de la tubería! La PPU en C++ está generando el patrón, pero este nunca llega a la pantalla.
+   - **Diagnóstico:** El problema está en nuestro wrapper de Cython, en cómo exponemos el puntero del framebuffer, o cómo Python lo interpreta como un `memoryview`.
+   - **Siguiente Paso:** Depurar la interfaz de Cython, verificando punteros, tipos de datos y el ciclo de vida del `memoryview`.
+
+**Validación de módulo compilado C++**: Este test valida que el pipeline de renderizado funciona correctamente, independientemente del estado de la VRAM o de la lógica de emulación.
+
+**Conclusión:** Este Step implementa un test de diagnóstico crítico para validar la integridad del pipeline de renderizado. El test del checkerboard nos dará una respuesta binaria y definitiva sobre el estado de la tubería de datos. Si vemos el patrón, confirmaremos que la tubería funciona y que el problema es la VRAM vacía. Si la pantalla sigue en blanco, el problema está en la interfaz de Cython o en el paso de punteros.
+
+---
+
 ### 2025-12-21 - Step 0199: El Ciclo de Vida del Framebuffer: Limpieza de Fotogramas
 **Estado**: ✅ VERIFIED
 

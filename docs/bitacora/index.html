@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0202 - Test del Checkerboard: Validación del Pipeline de Renderizado -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-21__0202__test-checkerboard-validacion-pipeline-renderizado.html" class="entry-link">
+                                    Test del Checkerboard: Validación del Pipeline de Renderizado
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-21 | 
+                            <strong>Step ID:</strong> 0202 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔧 DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Hemos llegado a un punto crítico de diagnóstico. A pesar de que todos los componentes parecen funcionar, la pantalla permanece en blanco porque la VRAM es borrada por la propia ROM antes de que podamos renderizar algo. Este es un momento de "Guerra de Inicialización" entre nuestra simulación del BIOS y la propia ROM del juego. Necesitamos validar de forma inequívoca que nuestro pipeline de renderizado (C++ PPU → Cython → Python Pygame) está funcionando. Para ello, implementamos un "Test del Checkerboard": modificamos temporalmente PPU::render_scanline() para que ignore toda la lógica de emulación y dibuje un patrón de tablero de ajedrez directamente en el framebuffer. Este test nos dará una respuesta binaria y definitiva: si vemos el checkerboard, la tubería funciona; si la pantalla sigue en blanco, el problema está en la interfaz Cython.
+                        </p>
+                    </li>
                     <!-- Entrada 0201 - Estado Inicial del Framebuffer y Verificación Visual con Logo Personalizado -->
                     <li>
                         <div class="entry-header">

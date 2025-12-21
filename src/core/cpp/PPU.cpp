@@ -297,6 +297,34 @@ void PPU::clear_framebuffer() {
 }
 
 void PPU::render_scanline() {
+    // --- Step 0202: Test del Checkerboard para validar el pipeline de datos ---
+    // Este código ignora VRAM, LCDC, scroll y toda la emulación.
+    // Dibuja un patrón de tablero de ajedrez directamente en el framebuffer.
+    // 
+    // OBJETIVO: Aislar y probar la tubería de renderizado C++ -> Cython -> Python.
+    // Si vemos el checkerboard, la tubería funciona. Si la pantalla sigue en blanco,
+    // el problema está en la interfaz Cython o en el paso de punteros.
+    
+    // Solo dibujar si estamos en las líneas visibles
+    if (ly_ >= VISIBLE_LINES) {
+        return;
+    }
+    
+    size_t line_start_index = ly_ * 160;
+    
+    for (int x = 0; x < 160; ++x) {
+        // Generar un patrón de cuadrados de 8x8 píxeles
+        // Alternar entre cuadrados oscuros y claros basado en la posición
+        bool is_dark_square = ((ly_ / 8) % 2) == ((x / 8) % 2);
+        
+        // Usar índice de color 3 (oscuro) y 0 (claro)
+        uint8_t color_index = is_dark_square ? 3 : 0;
+        
+        framebuffer_[line_start_index + x] = color_index;
+    }
+    
+    // CÓDIGO ORIGINAL COMENTADO (se restaurará después del test):
+    /*
     // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
     if (mmu_ == nullptr) {
         return;
@@ -352,6 +380,7 @@ void PPU::render_scanline() {
             framebuffer_[ly_ * 160 + x] = 0; // Color por defecto si la dirección es inválida
         }
     }
+    */
 }
 
 void PPU::render_bg() {
