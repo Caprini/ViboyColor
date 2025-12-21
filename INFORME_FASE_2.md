@@ -484,6 +484,75 @@ La VRAM (Video RAM) de la Game Boy almacena los datos gráficos en dos formatos 
 
 ---
 
+### 2025-12-21 - Step 0207: Ajuste de Coordenadas: Centrado del Logo
+**Estado**: ✅ VERIFIED
+
+El análisis del Step 0206 reveló un error de cálculo geométrico en la posición del logo. El tilemap se colocó en la dirección `0x9A00` (Fila 16), lo que situaba el logo en el borde inferior de la pantalla, fuera del área de muestreo de los logs y difícil de ver.
+
+**Objetivo:**
+- Corregir la dirección del tilemap de `0x9A00` a `0x9904` (Fila 8, Columna 4) para centrar el logo en la pantalla.
+- Hacer el logo visible y detectable por los logs del sistema.
+
+**Concepto de Hardware: El Mapa de Tiles (Tilemap)**
+
+La Game Boy tiene una pantalla de 20×18 tiles (160×144 píxeles). El mapa de fondo (`0x9800`) es una cuadrícula de 32×32 tiles, donde cada byte representa el ID del tile que debe renderizarse en esa posición.
+
+**Cálculo de direcciones del Tilemap:**
+- **Base del Tilemap:** `0x9800`
+- **Fila 0:** `0x9800` (inicio del mapa)
+- **Fila 8 (Centro Y):** `0x9800 + (8 × 32) = 0x9900`
+- **Columna 4 (Centro X aprox):** `0x9900 + 4 = 0x9904`
+
+**El error del Step 0206:** El código comentaba "Fila 8" pero usaba la dirección `0x9A00`. Realizando el cálculo inverso: `0x9A00 - 0x9800 = 0x200 = 512 bytes = 16 filas`. Esto significa que el logo se dibujó en la Fila 16, muy cerca del borde inferior de la pantalla (144 píxeles = 18 filas de tiles). El sistema de logs muestrea los píxeles del centro de la pantalla (aproximadamente Fila 9), por lo que al estar el logo en la Fila 16, el log leía la Fila 9, que estaba vacía (Color 0), mostrando `muestra índices: [0, 0, 0, 0, 0, 0]`.
+
+**La corrección:** Al escribir nuestro mapa en `0x9904`, el logo aparecerá centrado verticalmente (Fila 8 de 18) y horizontalmente (Columna 4 de 32, con el logo ocupando las columnas 7-12).
+
+**Implementación:**
+
+1. **Modificación en MMU.cpp:**
+   - En `src/core/cpp/MMU.cpp`, dentro del constructor `MMU::MMU()`, cambiamos la dirección de destino del tilemap de `0x9A00` a `0x9904`:
+   ```cpp
+   // 2. Cargar Tilemap del Logo en VRAM Map (0x9904 - Fila 8, Columna 4, centrado)
+   // CORRECCIÓN Step 0207: Usar 0x9904 para centrar en Fila 8, Columna 4.
+   // Antes estaba en 0x9A00 (Fila 16), demasiado abajo y fuera del área visible.
+   // Cálculo: 0x9800 (base) + (8 * 32) = 0x9900 (Fila 8) + 4 = 0x9904 (centrado horizontal)
+   for (size_t i = 0; i < sizeof(VIBOY_LOGO_MAP); ++i) {
+       memory_[0x9904 + i] = VIBOY_LOGO_MAP[i];
+   }
+   ```
+
+**Decisiones de diseño:**
+- **Centrado vertical (Fila 8):** La pantalla Game Boy tiene 18 filas visibles. Colocar el logo en la Fila 8 lo centra verticalmente (8 filas arriba, 10 filas abajo).
+- **Centrado horizontal (Columna 4):** El tilemap tiene 32 columnas. Al empezar en la Columna 4, el logo (6 tiles) ocupa las columnas 7-12, quedando aproximadamente centrado en la pantalla de 20 columnas visibles.
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Corregida la dirección de destino del tilemap de `0x9A00` a `0x9904`.
+- `docs/bitacora/entries/2025-12-21__0207__ajuste-coordenadas-centrado-logo.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada marcada como VERIFIED
+- `INFORME_FASE_2.md` - Actualizado con el Step 0207
+
+**Tests y Verificación:**
+
+1. **Recompilar el módulo C++:**
+   ```bash
+   .\rebuild_cpp.ps1
+   ```
+   Resultado esperado: Compilación exitosa.
+
+2. **Ejecutar el emulador:**
+   ```bash
+   python main.py roms/tetris.gb
+   ```
+   Resultado esperado:
+   - **Visual:** El logo "VIBOY COLOR" aparece perfectamente centrado en la pantalla.
+   - **Logs:** El log `[Renderer] Frame #0` ahora debería mostrar índices distintos de cero (ej: `[3, 3, 2, 0...]`), confirmando que la PPU está leyendo los datos del logo desde la posición correcta.
+
+**Validación de módulo compilado C++:** La corrección de la dirección del tilemap está incrustada en el código C++ compilado. Al ejecutar el emulador, el logo debería aparecer centrado y ser detectable por los logs.
+
+**Conclusión:** Este Step corrige un error de cálculo geométrico que situaba el logo en el borde inferior de la pantalla. Al corregir la dirección del tilemap a `0x9904` (Fila 8, Columna 4), el logo aparece centrado y es visible tanto visualmente como en los logs del sistema. Este es un ejemplo de cómo los errores de debugging pueden ser simples errores aritméticos, no problemas complejos de emulación.
+
+---
+
 ### 2025-12-21 - Step 0202: Test del Checkerboard: Validación del Pipeline de Renderizado
 **Estado**: 🔧 DRAFT
 

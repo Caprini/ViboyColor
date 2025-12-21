@@ -110,11 +110,13 @@ MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nu
         memory_[0x8010 + i] = VIBOY_LOGO_TILES[i];
     }
     
-    // 2. Cargar Tilemap del Logo en VRAM Map (0x9A00 - Fila 8, aproximadamente centro vertical)
-    // El logo suele estar centrado verticalmente. Usamos la fila 8 del tilemap (0x9A00).
+    // 2. Cargar Tilemap del Logo en VRAM Map (0x9904 - Fila 8, Columna 4, centrado)
+    // CORRECCIÓN Step 0207: Usar 0x9904 para centrar en Fila 8, Columna 4.
+    // Antes estaba en 0x9A00 (Fila 16), demasiado abajo y fuera del área visible.
+    // Cálculo: 0x9800 (base) + (8 * 32) = 0x9900 (Fila 8) + 4 = 0x9904 (centrado horizontal)
     // 32 bytes = 1 fila completa del mapa de tiles (32 tiles horizontales)
     for (size_t i = 0; i < sizeof(VIBOY_LOGO_MAP); ++i) {
-        memory_[0x9A00 + i] = VIBOY_LOGO_MAP[i];
+        memory_[0x9904 + i] = VIBOY_LOGO_MAP[i];
     }
 }
 
