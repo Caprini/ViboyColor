@@ -297,34 +297,12 @@ void PPU::clear_framebuffer() {
 }
 
 void PPU::render_scanline() {
-    // --- Step 0202: Test del Checkerboard para validar el pipeline de datos ---
-    // Este código ignora VRAM, LCDC, scroll y toda la emulación.
-    // Dibuja un patrón de tablero de ajedrez directamente en el framebuffer.
-    // 
-    // OBJETIVO: Aislar y probar la tubería de renderizado C++ -> Cython -> Python.
-    // Si vemos el checkerboard, la tubería funciona. Si la pantalla sigue en blanco,
-    // el problema está en la interfaz Cython o en el paso de punteros.
+    // --- Step 0203: Lógica de renderizado normal restaurada ---
+    // El "Test del Checkerboard" del Step 0202 confirmó que el pipeline de renderizado
+    // C++ -> Cython -> Python funciona perfectamente. Ahora restauramos la lógica
+    // de renderizado normal que lee desde la VRAM para poder investigar por qué
+    // la VRAM permanece vacía.
     
-    // Solo dibujar si estamos en las líneas visibles
-    if (ly_ >= VISIBLE_LINES) {
-        return;
-    }
-    
-    size_t line_start_index = ly_ * 160;
-    
-    for (int x = 0; x < 160; ++x) {
-        // Generar un patrón de cuadrados de 8x8 píxeles
-        // Alternar entre cuadrados oscuros y claros basado en la posición
-        bool is_dark_square = ((ly_ / 8) % 2) == ((x / 8) % 2);
-        
-        // Usar índice de color 3 (oscuro) y 0 (claro)
-        uint8_t color_index = is_dark_square ? 3 : 0;
-        
-        framebuffer_[line_start_index + x] = color_index;
-    }
-    
-    // CÓDIGO ORIGINAL COMENTADO (se restaurará después del test):
-    /*
     // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
     if (mmu_ == nullptr) {
         return;
@@ -332,14 +310,15 @@ void PPU::render_scanline() {
     
     uint8_t lcdc = mmu_->read(IO_LCDC);
 
+    // Verificar que el LCD esté encendido
     if ((lcdc & 0x80) == 0) {
         return;
     }
 
-    // --- Step 0201: HACK DE DIAGNÓSTICO TEMPORAL ---
-    // Se ignora el Bit 0 del LCDC para forzar el renderizado del fondo y poder
-    // verificar visualmente el logo. Debe ser eliminado una vez verificado.
-    // if (!is_set(mmu_->read(IO_LCDC), 0)) return;
+    // Renderizar fondo si está habilitado (LCDC bit 0)
+    if (!(lcdc & 0x01)) {
+        return;
+    }
 
     uint8_t scy = mmu_->read(IO_SCY);
     uint8_t scx = mmu_->read(IO_SCX);
@@ -347,6 +326,8 @@ void PPU::render_scanline() {
     uint16_t tile_map_base = (lcdc & 0x08) ? 0x9C00 : 0x9800;
     bool signed_addressing = (lcdc & 0x10) == 0;
     uint16_t tile_data_base = signed_addressing ? 0x9000 : 0x8000;
+
+    size_t line_start_index = ly_ * 160;
 
     for (int x = 0; x < 160; ++x) {
         uint8_t map_x = (x + scx) & 0xFF;
@@ -365,8 +346,8 @@ void PPU::render_scanline() {
         uint8_t line_in_tile = map_y % 8;
         uint16_t tile_line_addr = tile_addr + (line_in_tile * 2);
 
-        // Asegurarse de que la dirección es válida antes de leer
-        if (tile_line_addr >= 0x8000 && tile_line_addr < 0x9FFFu) {
+        // Asegurarse de que la dirección es válida antes de leer (dentro de VRAM)
+        if (tile_line_addr >= 0x8000 && tile_line_addr < 0xA000 - 1) {
             uint8_t byte1 = mmu_->read(tile_line_addr);
             uint8_t byte2 = mmu_->read(tile_line_addr + 1);
             
@@ -375,12 +356,11 @@ void PPU::render_scanline() {
             uint8_t bit_high = (byte2 >> bit_index) & 1;
             uint8_t color_index = (bit_high << 1) | bit_low;
 
-            framebuffer_[ly_ * 160 + x] = color_index;
+            framebuffer_[line_start_index + x] = color_index;
         } else {
-            framebuffer_[ly_ * 160 + x] = 0; // Color por defecto si la dirección es inválida
+            framebuffer_[line_start_index + x] = 0; // Color por defecto si la dirección es inválida
         }
     }
-    */
 }
 
 void PPU::render_bg() {

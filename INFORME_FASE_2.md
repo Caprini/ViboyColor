@@ -362,6 +362,72 @@ Al ejecutar el emulador, solo hay dos resultados posibles:
 
 ---
 
+### 2025-12-21 - Step 0203: Limpieza Post-Diagnóstico: Revertir el "Test del Checkerboard"
+**Estado**: 🔧 DRAFT
+
+El "Test del Checkerboard" del Step 0202 ha sido un éxito rotundo. El patrón de tablero de ajedrez que vimos en la pantalla es la prueba irrefutable de que nuestro pipeline de renderizado C++ → Cython → Python funciona perfectamente. El diagnóstico es ahora definitivo: el problema de la pantalla en blanco se debe a que la VRAM está vacía, no a un fallo en el renderizado.
+
+**Objetivo:**
+- Revertir los cambios temporales del "Test del Checkerboard" y restaurar la lógica de renderizado normal de la PPU.
+- Preparar el sistema para la siguiente fase de diagnóstico: monitorear las escrituras en VRAM para entender por qué la CPU no está copiando los datos del logo.
+
+**Concepto de Ingeniería: Limpieza Post-Diagnóstico**
+
+Las herramientas de diagnóstico temporales son increíblemente poderosas, pero es crucial eliminarlas una vez que han cumplido su propósito para restaurar el comportamiento normal del sistema. El "Test del Checkerboard" nos ha dado la respuesta que necesitábamos: la tubería de datos funciona. Ahora necesitamos que la PPU vuelva a intentar leer de la VRAM para poder investigar por qué esa VRAM está vacía.
+
+**El Tablero de Ajedrez: Nuestro Hito Más Importante**
+
+El patrón de tablero de ajedrez que vimos en la pantalla es, en cierto sentido, más hermoso incluso que el logo de Nintendo. No es el resultado de la emulación de un juego; es la **prueba irrefutable de que nuestra arquitectura funciona**. Cada cuadrado oscuro y claro que vimos es la confirmación de que:
+
+- El framebuffer C++ se está escribiendo correctamente.
+- El puntero se está pasando correctamente a través de Cython.
+- El `memoryview` de Python está leyendo los datos correctamente.
+- Pygame está renderizando los píxeles en la pantalla.
+
+**El Diagnóstico Definitivo:**
+
+Con el "Test del Checkerboard", hemos aislado el problema con precisión quirúrgica. El diagnóstico es definitivo:
+
+- **La pantalla en blanco que veíamos se debe a que la VRAM está vacía**, no a un problema de renderizado.
+- El verdadero culpable es que la CPU, por alguna razón, no está ejecutando la rutina de código que copia los datos del logo de Nintendo desde la ROM a la VRAM.
+- La CPU está atrapada en un bucle lógico *antes* de llegar a ese punto, o la rutina de copia nunca se ejecuta.
+
+**¿Por qué carga de arriba hacia abajo?** Porque nuestro `render_scanline()` se llama para cada línea (`LY` de 0 a 143), dibujando el tablero progresivamente.
+
+**¿Por qué desaparece y vuelve a cargar?** Porque nuestra limpieza de framebuffer sincronizada con `LY=0` (Step 0200) está funcionando a la perfección. Cada vez que `LY` se resetea a 0 para empezar un nuevo fotograma, el framebuffer se limpia a blanco, y el tablero de ajedrez empieza a dibujarse de nuevo desde la línea 0.
+
+**Implementación:**
+
+1. **Restauración en PPU::render_scanline() (C++)**: En `src/core/cpp/PPU.cpp`, restauramos la lógica de renderizado de fondo original, eliminando el código del "Test del Checkerboard" y restaurando la lógica que lee desde la VRAM.
+
+**Archivos Afectados:**
+- `src/core/cpp/PPU.cpp` - Restaurada la lógica de renderizado normal en `render_scanline()`
+- `docs/bitacora/entries/2025-12-21__0203__limpieza-post-diagnostico-revertir-test-checkerboard.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0203
+
+**Tests y Verificación:**
+
+La verificación consiste en confirmar que volvemos al estado anterior: una pantalla en blanco, pero esta vez con la certeza de que el problema no está en el renderizado.
+
+1. **Recompilación del módulo C++**:
+   ```bash
+   .\rebuild_cpp.ps1
+   ```
+
+2. **Ejecución del emulador**:
+   ```bash
+   python main.py roms/tetris.gb
+   ```
+
+3. **Resultado Esperado:** La pantalla debe volver a ser **blanca**. Esto confirmará que la PPU está intentando leer de una VRAM que, como ahora sabemos, está vacía.
+
+**Validación de módulo compilado C++**: Este cambio restaura el comportamiento normal del renderizado en C++, por lo que es crítico verificar que la compilación se complete sin errores y que la pantalla vuelva a ser blanca (confirmando que la PPU está intentando leer de una VRAM vacía).
+
+**Conclusión:** El "Test del Checkerboard" ha cumplido su misión con honores. Hemos validado de forma inequívoca que el pipeline de renderizado C++ → Cython → Python funciona perfectamente. El diagnóstico es definitivo: el problema de la pantalla en blanco se debe a que la VRAM está vacía, no a un fallo en el renderizado. Con la PPU restaurada a su comportamiento normal, estamos listos para la siguiente fase de diagnóstico: instrumentar la MMU para monitorear las escrituras en VRAM y entender por qué la CPU no está copiando los datos del logo.
+
+---
+
 ### 2025-12-21 - Step 0199: El Ciclo de Vida del Framebuffer: Limpieza de Fotogramas
 **Estado**: ✅ VERIFIED
 

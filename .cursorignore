@@ -1,0 +1,40 @@
+# Directorios grandes que no necesitan indexación
+venv/
+__pycache__/
+build/
+dist/
+*.pyd
+*.pyd_OLD_*
+
+# Archivos temporales y logs
+temp_*.log
+temp_*.txt
+*.log
+test_emulator_log_*.txt
+
+# Archivos de documentación HTML (muchos archivos - 200+)
+docs/bitacora/entries/
+
+# Archivos compilados
+*.obj
+*.exp
+*.lib
+*.dll
+*.so
+*.a
+
+# Archivos de ROM (pueden ser grandes)
+roms/
+*.gb
+*.gbc
+*.sav
+
+# Archivos de release
+release/
+
+# Archivos de test temporales
+*.tmp
+*.temp
+*.swp
+*.swo
+
