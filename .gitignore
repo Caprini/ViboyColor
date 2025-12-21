@@ -6,6 +6,7 @@ __pycache__/
 # C extensions
 *.so
 *.pyd
+*.pyd_OLD_*
 *.dll
 
 # Cython generated files

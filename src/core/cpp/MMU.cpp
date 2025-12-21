@@ -204,6 +204,17 @@ void MMU::write(uint16_t addr, uint8_t value) {
     // Enmascarar el valor a 8 bits
     value &= 0xFF;
     
+    // --- SENSOR DE VRAM (Step 0204) ---
+    // Variable estática para asegurar que el mensaje se imprima solo una vez.
+    static bool vram_write_detected = false;
+    if (!vram_write_detected && addr >= 0x8000 && addr <= 0x9FFF) {
+        printf("\n--- [VRAM WRITE DETECTED!] ---\n");
+        printf("Primera escritura en VRAM en Addr: 0x%04X | Valor: 0x%02X\n", addr, value);
+        printf("--------------------------------\n\n");
+        vram_write_detected = true;
+    }
+    // --- Fin del Sensor ---
+    
     // CRÍTICO: El registro DIV (0xFF04) tiene comportamiento especial
     // Cualquier escritura en 0xFF04 resetea el contador del Timer a 0
     // El valor escrito es ignorado

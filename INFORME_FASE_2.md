@@ -243,6 +243,92 @@ La verificación es 100% visual:
 
 ---
 
+### 2025-12-21 - Step 0204: El Sensor de VRAM: Monitoreo de Escrituras en Tiempo Real
+**Estado**: 🔧 DRAFT
+
+El "Test del Checkerboard" del Step 0202 ha validado definitivamente nuestro pipeline de renderizado: la pantalla en blanco no es un problema de hardware gráfico, sino que la VRAM está vacía. Para determinar si la CPU intenta escribir en la VRAM, implementamos un "sensor de VRAM" en el punto único de verdad de todas las escrituras de memoria: el método `MMU::write()`. Este sensor detectará y reportará la primera escritura en el rango de VRAM (0x8000-0x9FFF), proporcionando una respuesta binaria y definitiva a la pregunta: ¿la CPU está atrapada en un bucle antes de copiar los datos del logo, o sí está escribiendo pero con datos incorrectos?
+
+**Objetivo:**
+- Instrumentar el método `MMU::write()` con un sensor de diagnóstico que detecte la primera escritura en VRAM.
+- Obtener una respuesta binaria y definitiva: ¿la CPU intenta escribir en VRAM, sí o no?
+- Determinar el siguiente paso de debugging basado en el resultado del sensor.
+
+**Concepto de Hardware: El Punto Único de Verdad (Single Point of Truth)**
+
+En nuestra arquitectura híbrida Python/C++, cada escritura en memoria, sin importar qué instrucción de la CPU la origine (`LD (HL), A`, `LDD (HL), A`, `LD (BC), A`, etc.) o si es una futura transferencia DMA, debe pasar a través de un único método: `MMU::write()`. Este método es nuestro "punto único de verdad" (Single Point of Truth) para todas las operaciones de escritura en memoria.
+
+Al colocar un sensor de diagnóstico en este punto, podemos estar 100% seguros de que capturaremos cualquier intento de modificar la VRAM. No necesitamos registrar todas las escrituras (eso generaría demasiado ruido y afectaría el rendimiento); solo necesitamos saber si ocurre **al menos una**. La primera escritura es suficiente para darnos una respuesta definitiva.
+
+**Rango de VRAM:** La VRAM (Video RAM) de la Game Boy ocupa el rango de direcciones 0x8000-0x9FFF (8KB). Este espacio contiene:
+- **0x8000-0x97FF:** Tile Data (datos de los tiles/sprites)
+- **0x9800-0x9BFF:** Background Tile Map 1
+- **0x9C00-0x9FFF:** Background Tile Map 2
+
+Cualquier escritura en este rango, independientemente de su propósito específico, será detectada por nuestro sensor.
+
+**Los Dos Posibles Resultados (Diagnóstico Binario):**
+
+Al ejecutar el emulador, solo pueden ocurrir dos cosas:
+
+1. **NO aparece el mensaje `[VRAM WRITE DETECTED!]`:**
+   - **Significado:** Nuestra hipótesis es correcta. La CPU **NUNCA** intenta escribir en la VRAM. Está atrapada en un bucle lógico *antes* de la rutina de copia de gráficos.
+   - **Diagnóstico:** Hemos eliminado todas las posibles causas de hardware. El problema debe ser un bucle de software en la propia ROM, quizás esperando un registro de I/O que no hemos inicializado correctamente.
+   - **Siguiente Paso:** Volveríamos a activar la traza de la CPU, pero esta vez con la confianza de que estamos buscando un bucle de software puro, no un `deadlock` de hardware.
+
+2. **SÍ aparece el mensaje `[VRAM WRITE DETECTED!]`:**
+   - **Significado:** ¡Nuestra hipótesis principal era incorrecta! La CPU **SÍ** está escribiendo en la VRAM.
+   - **Diagnóstico:** Si la CPU está escribiendo en la VRAM, pero la pantalla sigue en blanco, solo puede significar una cosa: está escribiendo los datos equivocados (por ejemplo, ceros) o en el lugar equivocado.
+   - **Siguiente Paso:** Analizaríamos el valor y la dirección de la primera escritura que nos reporta el sensor para entender qué está haciendo la CPU. ¿Está limpiando la VRAM? ¿Está apuntando a una dirección incorrecta?
+
+**Implementación:**
+
+1. **Instrumentar `MMU::write()` en `MMU.cpp`**: Se añadió un bloque de código de diagnóstico al principio del método `write()`, justo después de validar y enmascarar los parámetros de entrada:
+
+   ```cpp
+   // --- SENSOR DE VRAM (Step 0204) ---
+   // Variable estática para asegurar que el mensaje se imprima solo una vez.
+   static bool vram_write_detected = false;
+   if (!vram_write_detected && addr >= 0x8000 && addr <= 0x9FFF) {
+       printf("\n--- [VRAM WRITE DETECTED!] ---\n");
+       printf("Primera escritura en VRAM en Addr: 0x%04X | Valor: 0x%02X\n", addr, value);
+       printf("--------------------------------\n\n");
+       vram_write_detected = true;
+   }
+   // --- Fin del Sensor ---
+   ```
+
+   El sensor utiliza una variable estática `vram_write_detected` para garantizar que el mensaje se imprima solo una vez, incluso si hay múltiples escrituras en VRAM. Esto es crucial porque durante el boot de una ROM, pueden ocurrir cientos o miles de escrituras en VRAM, y solo necesitamos confirmar que *al menos una* ocurre.
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Se añadió el sensor de VRAM al principio del método `write()`
+- `docs/bitacora/entries/2025-12-21__0204__sensor-vram-monitoreo-escrituras-tiempo-real.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0204
+
+**Tests y Verificación:**
+
+La verificación de este sensor es funcional, no unitaria. El test consiste en ejecutar el emulador con una ROM real (Tetris) y observar la consola para ver si aparece el mensaje de detección.
+
+1. **Recompilación del módulo C++**:
+   ```bash
+   .\rebuild_cpp.ps1
+   # O usando setup.py:
+   python setup.py build_ext --inplace
+   ```
+
+2. **Ejecución del emulador**:
+   ```bash
+   python main.py roms/tetris.gb
+   ```
+
+3. **Observación de la consola**: Durante los primeros segundos de ejecución, debemos observar atentamente la consola para ver si aparece el mensaje `[VRAM WRITE DETECTED!]`.
+
+**Validación de módulo compilado C++**: Este cambio añade código de diagnóstico en el bucle crítico de escritura de memoria. Aunque el sensor se ejecuta solo una vez (gracias a la variable estática), es importante verificar que la compilación se complete sin errores y que el emulador funcione correctamente.
+
+**Conclusión:** Este Step implementa un sensor de diagnóstico binario que nos permitirá determinar de forma definitiva si la CPU intenta escribir en la VRAM. El resultado de este test determinará el siguiente paso en nuestro proceso de debugging: si la CPU no escribe en VRAM, buscaremos un bucle de software; si sí escribe, analizaremos qué datos está escribiendo y por qué la pantalla sigue en blanco.
+
+---
+
 ### 2025-12-21 - Step 0202: Test del Checkerboard: Validación del Pipeline de Renderizado
 **Estado**: 🔧 DRAFT
 
