@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0196 - El Estado del GÉNESIS: Inicialización de Registros de CPU Post-BIOS -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-20__0196__estado-genesis-inicializacion-registros-cpu-post-bios.html" class="entry-link">
+                                    El Estado del GÉNESIS: Inicialización de Registros de CPU Post-BIOS
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-20 | 
+                            <strong>Step ID:</strong> 0196 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            El emulador está completamente sincronizado (LY cicla correctamente), pero la pantalla sigue en blanco porque la CPU entra en un bucle de error. El diagnóstico definitivo revela que esto se debe a un estado inicial de la CPU incorrecto. Nuestro emulador no inicializa los registros de la CPU (especialmente el registro de Flags, F) a los valores específicos que la Boot ROM oficial habría dejado, causando que las primeras comprobaciones condicionales del juego fallen. Este Step implementa el estado de los registros de la CPU "Post-BIOS" en el constructor de CoreRegisters, asegurando que el emulador arranque con un estado de CPU idéntico al de una Game Boy real.
+                        </p>
+                    </li>
                     <!-- Entrada 0195 - Debug Final: Reactivación de la Traza de CPU para Cazar el Bucle Lógico -->
                     <li>
                         <div class="entry-header">

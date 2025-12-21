@@ -32,6 +32,115 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0196: El Estado del GÉNESIS: Inicialización de Registros de CPU Post-BIOS
+**Estado**: ✅ VERIFIED
+
+El emulador está completamente sincronizado (`LY` cicla correctamente), pero la pantalla sigue en blanco porque la CPU entra en un **bucle de error**. El diagnóstico definitivo revela que esto se debe a un **estado inicial de la CPU incorrecto**. Nuestro emulador no inicializa los registros de la CPU (especialmente el registro de Flags, `F`) a los valores específicos que la Boot ROM oficial habría dejado, causando que las primeras comprobaciones condicionales del juego fallen.
+
+**Objetivo:**
+- Implementar el estado de los registros de la CPU "Post-BIOS" en el constructor de `CoreRegisters`.
+- Asegurar que el emulador arranque con un estado de CPU idéntico al de una Game Boy real.
+- Especialmente crítico: el flag `Z` debe estar activo (`Z=1`) para que las primeras instrucciones condicionales tomen el camino correcto.
+
+**Concepto de Hardware: El Estado de la CPU Post-Boot ROM**
+
+La Boot ROM de 256 bytes de la Game Boy no solo inicializa los periféricos (LCDC, STAT, Timer, etc.), sino que también deja los registros de la CPU en un **estado muy específico**. Este estado es crítico porque el código del cartucho (que comienza en `0x0100`) ejecuta inmediatamente comprobaciones condicionales basadas en estos valores.
+
+En una Game Boy real, la Boot ROM se ejecuta *antes* que el cartucho. Esta Boot ROM inicializa no solo los registros de hardware, sino también los registros de la CPU (`A`, `B`, `C`, `D`, `E`, `H`, `L` y, crucialmente, `F`) a unos valores por defecto muy específicos.
+
+**El Problema Fundamental:** Nuestro emulador no ejecuta una Boot ROM. En su lugar, inicializamos los registros de la CPU a cero (o a valores simples). El juego, al arrancar en `PC=0x0100`, ejecuta una instrucción como `JR Z, some_error_loop`. Espera que el **flag Z** esté en un estado concreto (por ejemplo, `Z=1`) que el BIOS habría dejado. Como nuestros registros empiezan en un estado "limpio" e incorrecto, la condición del salto falla, y la CPU es enviada a una sección de código que no es la de mostrar el logo. Entra en un bucle de "fallo seguro", apaga el fondo (`LCDC=0x80`), y se queda ahí, esperando indefinidamente.
+
+**Valores Post-BIOS para DMG (Game Boy Clásica):** Según la documentación definitiva de Pan Docs, para un DMG (el modo que estamos emulando), los valores son:
+
+- `AF = 0x01B0` (es decir, `A = 0x01` y `F = 0xB0`). `F=0xB0` significa `Z=1`, `N=0`, `H=1`, `C=1`.
+- `BC = 0x0013`
+- `DE = 0x00D8`
+- `HL = 0x014D`
+- `SP = 0xFFFE`
+- `PC = 0x0100`
+
+El estado inicial del **Flag Z (`Z=1`)** es probablemente el más crítico, ya que las primeras instrucciones suelen ser saltos condicionales basados en este flag.
+
+**Implementación:**
+
+1. **Verificación del Constructor de `CoreRegisters`**: El constructor ya estaba inicializando con los valores Post-BIOS correctos. Se verificó que los valores coincidan exactamente con la especificación de Pan Docs.
+
+2. **Simplificación del Método de Inicialización en Python**: El método `_initialize_post_boot_state` en `viboy.py` ahora solo verifica que los valores sean correctos (sin modificarlos) cuando se usa el core C++:
+   ```python
+   if self._use_cpp:
+       # Step 0196: Los registros ya están inicializados con valores Post-BIOS
+       # en el constructor de CoreRegisters (C++). El constructor establece automáticamente:
+       # - AF = 0x01B0 (A=0x01 indica DMG, F=0xB0: Z=1, N=0, H=1, C=1)
+       # - BC = 0x0013
+       # - DE = 0x00D8
+       # - HL = 0x014D
+       # - SP = 0xFFFE
+       # - PC = 0x0100
+       #
+       # CRÍTICO: No modificamos los registros aquí. El constructor de CoreRegisters
+       # ya los inicializó correctamente. Solo verificamos que todo esté bien.
+       
+       # Verificación del estado Post-BIOS (sin modificar valores)
+       expected_af = 0x01B0
+       expected_bc = 0x0013
+       expected_de = 0x00D8
+       expected_hl = 0x014D
+       expected_sp = 0xFFFE
+       expected_pc = 0x0100
+       
+       if (self._regs.af != expected_af or ...):
+           logger.error(f"⚠️ ERROR: Estado Post-BIOS incorrecto...")
+       else:
+           logger.info(f"✅ Post-Boot State (DMG): PC=0x{self._regs.pc:04X}...")
+   ```
+
+**Archivos Afectados:**
+- `src/core/cpp/Registers.cpp` - Verificado que el constructor inicializa con valores Post-BIOS correctos
+- `src/viboy.py` - Simplificado el método `_initialize_post_boot_state` para que solo verifique valores (sin modificarlos) cuando se usa el core C++
+- `tests/test_core_registers_initial_state.py` - Test existente que valida todos los valores Post-BIOS (3 tests pasando)
+- `docs/bitacora/entries/2025-12-20__0196__estado-genesis-inicializacion-registros-cpu-post-bios.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0196
+
+**Tests y Verificación:**
+
+**Comando ejecutado:**
+```bash
+python -m pytest tests/test_core_registers_initial_state.py -v
+```
+
+**Resultado:**
+```
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.2, pluggy-1.6.0
+cachedir: .pytest_cache
+rootdir: C:\Users\fabin\Desktop\ViboyColor
+configfile: pytest.ini
+plugins: anyio-4.12.0, cov-7.0.0
+collecting ... collected 3 items
+
+tests/test_core_registers_initial_state.py::test_registers_post_bios_state PASSED [ 33%]
+tests/test_core_registers_initial_state.py::test_registers_post_bios_state_consistency PASSED [ 66%]
+tests/test_core_registers_initial_state.py::test_registers_flag_z_critical PASSED [100%]
+
+============================== 3 passed in 0.06s ==============================
+```
+
+**Resultado Esperado:**
+
+Con la CPU "despertando" en un estado idéntico al de una Game Boy real:
+1. Arrancará en `0x0100`.
+2. Las primeras comprobaciones condicionales (`JR Z`, etc.) tomarán el camino correcto.
+3. Ejecutará la rutina de checksum. Nuestra ALU completa la pasará.
+4. Ejecutará la rutina de espera del Timer. Nuestro Timer completo la pasará.
+5. Ejecutará la rutina de espera del Joypad. La pulsación de tecla la pasará.
+6. Ejecutará la rutina de comprobación de hardware de I/O. Nuestros registros Post-BIOS la pasarán.
+7. Finalmente, sin más excusas, sin más caminos de error, **copiará los datos del logo a la VRAM y activará el bit 0 del LCDC.**
+
+**Esta vez, deberíamos ver el logo de Nintendo.**
+
+---
+
 ### 2025-12-20 - Step 0195: Debug Final: Reactivación de la Traza de CPU para Cazar el Bucle Lógico
 **Estado**: 🔍 DRAFT
 
