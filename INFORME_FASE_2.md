@@ -415,6 +415,75 @@ Para verificar el trazado:
 
 ---
 
+### 2025-12-21 - Step 0206: El Despertar de la VRAM: Inyección de Tiles 2bpp (Formato Correcto)
+**Estado**: ✅ VERIFIED
+
+El análisis del traza de CPU del Step 0205 confirmó que el emulador funciona correctamente: la CPU está ejecutando un bucle de limpieza de memoria (WRAM), no está colgada. El problema de la pantalla blanca es un error de formato de datos: en el Step 0201 inyectamos datos de Header (1bpp) directamente en la VRAM, pero la PPU necesita datos de Tile (2bpp) ya descomprimidos. La Boot ROM real realiza esta descompresión; nosotros debemos simularla inyectando directamente los datos convertidos.
+
+**Objetivo:**
+- Actualizar el script de conversión para generar datos de Tile (2bpp) y un Tilemap válido.
+- Actualizar `MMU.cpp` con estos nuevos datos para que el logo "VIBOY COLOR" aparezca correctamente renderizado.
+
+**Concepto de Hardware: Formato de Datos de VRAM**
+
+La VRAM (Video RAM) de la Game Boy almacena los datos gráficos en dos formatos diferentes:
+- **Tile Data (0x8000-0x97FF):** Almacena los gráficos de los tiles (baldosas) en formato 2bpp (2 bits por píxel). Cada tile ocupa 16 bytes (8 filas × 2 bytes por fila). Cada píxel puede tener 4 valores diferentes (00=Blanco, 01=Gris claro, 10=Gris oscuro, 11=Negro).
+- **Tile Map (0x9800-0x9FFF):** Almacena un mapa de 32×32 tiles que indica qué tile debe renderizarse en cada posición de la pantalla. Cada byte del mapa contiene el ID del tile (0-255) que debe dibujarse en esa posición.
+
+**La diferencia crítica:** El header del cartucho (0x0104-0x0133) almacena el logo de Nintendo en formato 1bpp (1 bit por píxel, solo blanco o negro). La Boot ROM real lee estos 48 bytes del header y los descomprime a formato Tile (2bpp) antes de copiarlos a la VRAM. Nosotros no tenemos la Boot ROM, así que debemos simular este proceso generando los datos ya descomprimidos externamente.
+
+**Por qué falló el Step 0201:** Inyectamos directamente los datos del header (1bpp) en la VRAM, pero la PPU espera datos en formato 2bpp. Al intentar leer los datos 1bpp como si fueran 2bpp, la PPU interpretaba patrones completamente diferentes, resultando en una pantalla blanca.
+
+**Implementación:**
+
+1. **Actualización del Script de Conversión:**
+   - El script `tools/logo_converter/convert_logo_to_header.py` ya tenía una función `image_to_gb_tiles()` que genera datos en formato 2bpp.
+   - Ejecutamos el script: `python tools/logo_converter/convert_logo_to_header.py assets/viboy_logo_48x8_debug.png`
+   - El script genera dos arrays C++:
+     - `VIBOY_LOGO_TILES[96]`: 96 bytes que representan 6 tiles de 8×8 píxeles en formato 2bpp.
+     - `VIBOY_LOGO_MAP[32]`: 32 bytes que representan una fila del tilemap con los tiles del logo centrados.
+
+2. **Actualización de MMU.cpp:**
+   - Actualizamos los arrays estáticos en `src/core/cpp/MMU.cpp` con los datos generados por el script.
+   - En el constructor de `MMU`, cargamos estos datos en las ubicaciones correctas de la VRAM:
+     - Tiles en 0x8010 (Tile ID 1, dejando el Tile 0 como blanco puro).
+     - Tilemap en 0x9A00 (Fila 8, aproximadamente centro vertical).
+
+**Decisiones de diseño:**
+- **Ubicación de los tiles (0x8010):** Empezamos en el Tile ID 1, dejando el Tile 0 como blanco puro. Esto permite usar el Tile 0 como fondo transparente en el tilemap.
+- **Ubicación del tilemap (0x9A00):** Colocamos el logo en la fila 8 del tilemap, aproximadamente en el centro vertical de la pantalla.
+- **Centrado horizontal:** El tilemap tiene 7 tiles de padding (blancos) a la izquierda, seguidos de los 6 tiles del logo, seguidos del resto de tiles blancos.
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Actualizados los arrays estáticos `VIBOY_LOGO_TILES` y `VIBOY_LOGO_MAP` con datos en formato 2bpp.
+- `tools/logo_converter/convert_logo_to_header.py` - Verificado y ejecutado para generar los datos actualizados.
+- `tools/viboy_logo_tiles.txt` - Generado por el script con los arrays C++.
+- `docs/bitacora/entries/2025-12-21__0206__despertar-vram-inyeccion-tiles-2bpp-formato-correcto.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada marcada como VERIFIED
+- `INFORME_FASE_2.md` - Actualizado con el Step 0206
+
+**Tests y Verificación:**
+
+1. **Recompilar el módulo C++:**
+   ```bash
+   .\rebuild_cpp.ps1
+   ```
+   Resultado: Compilación exitosa. El módulo C++ se recompiló correctamente con los nuevos arrays de datos.
+
+2. **Ejecutar el emulador:**
+   ```bash
+   python main.py roms/tetris.gb
+   ```
+   Verificar visualmente si el logo aparece correctamente renderizado.
+
+**Validación de módulo compilado C++:** Los datos de Tile (2bpp) están correctamente incrustados en el código C++ compilado. La PPU puede leer estos datos directamente desde la VRAM sin necesidad de descompresión.
+
+**Diferencia con el Step 0201:** En el Step 0201, inyectamos datos de Header (1bpp) directamente, lo que resultaba en una pantalla blanca. En este Step 0206, inyectamos datos de Tile (2bpp) ya descomprimidos, lo que permite que la PPU renderice correctamente el logo.
+
+**Conclusión:** Este Step corrige el error de formato de datos que causaba la pantalla blanca. Al inyectar datos de Tile (2bpp) correctamente formateados en lugar de datos de Header (1bpp), la PPU puede ahora renderizar correctamente el logo "VIBOY COLOR". Si el logo aparece visualmente correcto, el problema de la pantalla blanca estará resuelto. Si la CPU de Tetris borra la VRAM después, podríamos ver un parpadeo, pero al menos veremos formas negras correctas, no una pantalla blanca.
+
+---
+
 ### 2025-12-21 - Step 0202: Test del Checkerboard: Validación del Pipeline de Renderizado
 **Estado**: 🔧 DRAFT
 

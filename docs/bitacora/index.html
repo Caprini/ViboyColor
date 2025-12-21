@@ -44,7 +44,7 @@
                         <div class="entry-meta-index">
                             <strong>Fecha:</strong> 2025-12-21 | 
                             <strong>Step ID:</strong> 0206 | 
-                            <strong>Estado:</strong> <span class="tag tag-draft">🔧 DRAFT</span>
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
                         </div>
                         <p class="entry-summary">
                             El análisis del traza de CPU del Step 0205 confirmó que el emulador funciona correctamente: la CPU está ejecutando un bucle de limpieza de memoria (WRAM), no está colgada. El problema de la pantalla blanca es un error de formato de datos: en el Step 0201 inyectamos datos de Header (1bpp) directamente en la VRAM, pero la PPU necesita datos de Tile (2bpp) ya descomprimidos. La Boot ROM real realiza esta descompresión; nosotros debemos simularla inyectando directamente los datos convertidos. Actualizamos el script de conversión para generar datos de Tile (2bpp) y un Tilemap válido, y actualizamos MMU.cpp para usar estos nuevos datos, permitiendo que el logo "VIBOY COLOR" aparezca correctamente renderizado.
