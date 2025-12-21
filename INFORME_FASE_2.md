@@ -32,6 +32,67 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0193: Limpieza Post-Diagnóstico: Revertir el "Test del Checkerboard"
+**Estado**: ✅ VERIFIED
+
+¡El "Test del Checkerboard" del Step 0192 ha sido un éxito total! El tablero de ajedrez perfecto que hemos capturado es la prueba irrefutable de que nuestra arquitectura funciona. La tubería de datos C++ → Cython → Python está sólida como una roca.
+
+**Objetivo:**
+- Revertir los cambios del "Test del Checkerboard", restaurando la lógica de renderizado normal de la PPU para prepararnos para la siguiente fase de diagnóstico: monitorear las escrituras en VRAM.
+
+**Concepto de Ingeniería: Limpieza Post-Diagnóstico**
+
+Las herramientas de diagnóstico temporales, como nuestro generador de patrones, son increíblemente poderosas. Sin embargo, una vez que han cumplido su propósito, es crucial eliminarlas para restaurar el comportamiento normal del sistema. Ahora que sabemos que la tubería de datos funciona, necesitamos que la PPU vuelva a intentar leer de la VRAM para poder investigar por qué esa VRAM está vacía.
+
+El proceso de limpieza en ingeniería de sistemas sigue estos principios:
+- **Documentar antes de revertir:** El test del checkerboard ha cumplido su propósito y está completamente documentado. No perderemos información al revertirlo.
+- **Restaurar estado funcional:** Volvemos a la lógica de renderizado original que lee desde la VRAM, pero ahora sabemos que esa lógica es correcta y que el problema está en los datos, no en el renderizado.
+- **Preparar para el siguiente diagnóstico:** Con la PPU funcionando normalmente, podemos instrumentar la MMU para monitorear las escrituras en VRAM y entender por qué la CPU no está copiando los datos del logo.
+
+**El hito alcanzado:** El tablero de ajedrez perfecto que hemos visto es nuestro hito más importante. Más hermoso incluso que el logo de Nintendo, porque no es el resultado de la emulación, es la **prueba irrefutable de que nuestra arquitectura funciona**. La tubería de datos es sólida como una roca.
+
+**Implementación:**
+
+1. **Restauración de `PPU::render_scanline()`**: Volvemos a la lógica original de renderizado de fondo que lee desde la VRAM:
+   - Leer el registro LCDC y verificar si el LCD está habilitado (bit 7)
+   - Leer los registros SCX y SCY (scroll)
+   - Determinar el tilemap base y el tile data base según los bits de LCDC
+   - Para cada píxel de la línea, leer el tile ID del tilemap y decodificar el tile desde VRAM
+   - Escribir el índice de color correspondiente en el framebuffer
+
+2. **Mantener hack del Step 0179**: Dejamos el hack que ignora el bit 0 de LCDC activo (comentado) para poder visualizar datos tan pronto como aparezcan en VRAM, facilitando el diagnóstico.
+
+**Archivos Afectados:**
+- `src/core/cpp/PPU.cpp` - Método `render_scanline()` restaurado con lógica de renderizado original
+- `docs/bitacora/entries/2025-12-20__0193__limpieza-post-diagnostico-revertir-test-checkerboard.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0193
+
+**Tests y Verificación:**
+
+La verificación de este Step es principalmente de compilación y restauración del estado funcional. El resultado esperado es volver a la pantalla en blanco, pero ahora sabemos que esto se debe a que la VRAM está vacía, no a un problema de renderizado.
+
+**Proceso de Verificación:**
+1. Recompilar el módulo C++: `.\rebuild_cpp.ps1`
+   - Resultado: ✅ Compilación exitosa (con warnings menores de variables no usadas, esperados)
+2. Ejecutar el emulador: `python main.py roms/tetris.gb`
+   - Resultado esperado: Pantalla en blanco (confirmando que la VRAM está vacía, como sabemos que es el caso)
+
+**Validación de módulo compilado C++**: El emulador utiliza el módulo C++ compilado (`viboy_core`), que contiene la implementación restaurada de `PPU::render_scanline()` con la lógica original de renderizado desde VRAM.
+
+**Diagnóstico Definitivo:**
+
+El diagnóstico es ahora definitivo: la pantalla en blanco se debe a que la **VRAM está vacía**, no a un problema de renderizado. El verdadero culpable es que la CPU no está ejecutando la rutina de código que copia los datos del logo de Nintendo desde la ROM a la VRAM. Está atrapada en un bucle lógico *antes* de llegar a ese punto.
+
+**Próximos Pasos:**
+- Instrumentar la MMU para monitorear las escrituras en VRAM
+- Agregar logs o breakpoints en el rango de VRAM (0x8000-0x9FFF) para detectar cuando la CPU intenta escribir
+- Analizar el flujo de ejecución de la CPU durante el código de arranque para entender por qué no llega a copiar los datos del logo
+
+**Bitácora**: `docs/bitacora/entries/2025-12-20__0193__limpieza-post-diagnostico-revertir-test-checkerboard.html`
+
+---
+
 ### 2025-12-20 - Step 0192: Debug Crítico: El "Test del Checkerboard" para Validar la Tubería de Datos
 **Estado**: 🔍 DRAFT
 

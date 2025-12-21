@@ -278,26 +278,63 @@ uint8_t* PPU::get_framebuffer_ptr() {
 }
 
 void PPU::render_scanline() {
-    // --- TEST DEL CHECKERBOARD (Step 0192) ---
-    // Ignoramos toda la lógica de la PPU (LCDC, VRAM, tiles, etc.)
-    // y escribimos un patrón de tablero de ajedrez directamente en el framebuffer.
-    // Esto valida la tubería de datos C++ -> Cython -> Python.
-    
-    if (ly_ >= VISIBLE_LINES) {
-        return; // No dibujar durante V-Blank
+    // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
+    if (mmu_ == nullptr) {
+        return;
     }
     
-    // Índice base en el framebuffer para esta línea
-    int line_start_index = static_cast<int>(ly_) * SCREEN_WIDTH;
+    uint8_t lcdc = mmu_->read(IO_LCDC);
+
+    if ((lcdc & 0x80) == 0) {
+        return;
+    }
+
+    // --- RESTAURACIÓN DE LA LÓGICA DE RENDERIZADO (Step 0193) ---
+    // El 'Test del Checkerboard' ha sido un éxito. Ahora restauramos la
+    // lógica de renderizado original para que la PPU vuelva a leer desde la VRAM.
     
-    for (int x = 0; x < SCREEN_WIDTH; ++x) {
-        // Genera un patrón de checkerboard de 8x8
-        bool is_dark = ((ly_ / 8) % 2) == ((x / 8) % 2);
-        
-        // Usamos color 3 (negro) y 0 (blanco)
-        uint8_t color_index = is_dark ? 3 : 0;
-        
-        framebuffer_[line_start_index + x] = color_index;
+    // NOTA: Dejamos el hack del Step 0179 activo por ahora para poder ver algo
+    // en cuanto la VRAM tenga datos, sin depender de que el juego active el bit 0.
+    /* if ((lcdc & 0x01) == 0) { return; } */
+
+    uint8_t scy = mmu_->read(IO_SCY);
+    uint8_t scx = mmu_->read(IO_SCX);
+
+    uint16_t tile_map_base = (lcdc & 0x08) ? 0x9C00 : 0x9800;
+    bool signed_addressing = (lcdc & 0x10) == 0;
+    uint16_t tile_data_base = signed_addressing ? 0x9000 : 0x8000;
+
+    for (int x = 0; x < 160; ++x) {
+        uint8_t map_x = (x + scx) & 0xFF;
+        uint8_t map_y = (ly_ + scy) & 0xFF;
+
+        uint16_t tile_map_addr = tile_map_base + (map_y / 8) * 32 + (map_x / 8);
+        uint8_t tile_id = mmu_->read(tile_map_addr);
+
+        uint16_t tile_addr;
+        if (signed_addressing) {
+            tile_addr = tile_data_base + ((int8_t)tile_id * 16);
+        } else {
+            tile_addr = tile_data_base + (tile_id * 16);
+        }
+
+        uint8_t line_in_tile = map_y % 8;
+        uint16_t tile_line_addr = tile_addr + (line_in_tile * 2);
+
+        // Asegurarse de que la dirección es válida antes de leer
+        if (tile_line_addr >= 0x8000 && tile_line_addr < 0x9FFFu) {
+            uint8_t byte1 = mmu_->read(tile_line_addr);
+            uint8_t byte2 = mmu_->read(tile_line_addr + 1);
+            
+            uint8_t bit_index = 7 - (map_x % 8);
+            uint8_t bit_low = (byte1 >> bit_index) & 1;
+            uint8_t bit_high = (byte2 >> bit_index) & 1;
+            uint8_t color_index = (bit_high << 1) | bit_low;
+
+            framebuffer_[ly_ * 160 + x] = color_index;
+        } else {
+            framebuffer_[ly_ * 160 + x] = 0; // Color por defecto si la dirección es inválida
+        }
     }
 }
 

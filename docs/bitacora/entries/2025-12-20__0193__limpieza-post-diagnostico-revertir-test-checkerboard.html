@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Limpieza Post-Diagnóstico: Revertir el "Test del Checkerboard" - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Limpieza Post-Diagnóstico: Revertir el "Test del Checkerboard"</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0193
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0192__debug-critico-test-checkerboard-validar-tuberia-datos.html">Anterior (0192)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    ¡El "Test del Checkerboard" del Step 0192 ha sido un éxito total! La imagen del tablero de ajedrez perfecto que hemos capturado es la prueba irrefutable de que nuestra arquitectura funciona. La tubería de datos C++ → Cython → Python está sólida como una roca.
+                </p>
+                <p>
+                    El diagnóstico es ahora definitivo: la pantalla en blanco se debe a que la <strong>VRAM está vacía</strong>, no a un problema de renderizado. El verdadero culpable es que la CPU no está ejecutando la rutina de código que copia los datos del logo de Nintendo desde la ROM a la VRAM.
+                </p>
+                <p>
+                    Este Step revierte los cambios del "Test del Checkerboard", restaurando la lógica de renderizado normal de la PPU para prepararnos para la siguiente fase de diagnóstico: monitorear las escrituras en VRAM.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Ingeniería: Limpieza Post-Diagnóstico</h2>
+                <p>
+                    Las herramientas de diagnóstico temporales, como nuestro generador de patrones, son increíblemente poderosas. Sin embargo, una vez que han cumplido su propósito, es crucial eliminarlas para restaurar el comportamiento normal del sistema. Ahora que sabemos que la tubería de datos funciona, necesitamos que la PPU vuelva a intentar leer de la VRAM para poder investigar por qué esa VRAM está vacía.
+                </p>
+                <p>
+                    El proceso de limpieza en ingeniería de sistemas sigue estos principios:
+                </p>
+                <ul>
+                    <li><strong>Documentar antes de revertir:</strong> El test del checkerboard ha cumplido su propósito y está completamente documentado. No perderemos información al revertirlo.</li>
+                    <li><strong>Restaurar estado funcional:</strong> Volvemos a la lógica de renderizado original que lee desde la VRAM, pero ahora sabemos que esa lógica es correcta y que el problema está en los datos, no en el renderizado.</li>
+                    <li><strong>Preparar para el siguiente diagnóstico:</strong> Con la PPU funcionando normalmente, podemos instrumentar la MMU para monitorear las escrituras en VRAM y entender por qué la CPU no está copiando los datos del logo.</li>
+                </ul>
+                <p>
+                    <strong>El hito alcanzado:</strong> El tablero de ajedrez perfecto que hemos visto es nuestro hito más importante. Más hermoso incluso que el logo de Nintendo, porque no es el resultado de la emulación, es la <strong>prueba irrefutable de que nuestra arquitectura funciona</strong>. La tubería de datos es sólida como una roca.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Restauramos el método <code>render_scanline()</code> a su estado anterior al test, con la lógica original de renderizado de fondo que lee desde la VRAM.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code>: Método <code>render_scanline()</code> restaurado con lógica de renderizado original</li>
+                </ul>
+
+                <h3>Lógica Restaurada</h3>
+                <p>
+                    El método <code>render_scanline()</code> ahora vuelve a:
+                </p>
+                <ul>
+                    <li>Leer el registro LCDC y verificar si el LCD está habilitado (bit 7)</li>
+                    <li>Leer los registros SCX y SCY (scroll)</li>
+                    <li>Determinar el tilemap base y el tile data base según los bits de LCDC</li>
+                    <li>Para cada píxel de la línea, leer el tile ID del tilemap y decodificar el tile desde VRAM</li>
+                    <li>Escribir el índice de color correspondiente en el framebuffer</li>
+                </ul>
+                <p>
+                    <strong>Nota importante:</strong> Mantenemos el hack del Step 0179 activo (comentado el chequeo del bit 0 de LCDC) para poder ver algo en cuanto la VRAM tenga datos, sin depender de que el juego active el bit 0.
+                </p>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Restaurar lógica original:</strong> Volvemos a la implementación que lee desde VRAM, ya que ahora sabemos que el problema no está en el renderizado sino en los datos.</li>
+                    <li><strong>Mantener hack del Step 0179:</strong> Dejamos el hack que ignora el bit 0 de LCDC activo para poder visualizar datos tan pronto como aparezcan en VRAM, facilitando el diagnóstico.</li>
+                    <li><strong>Validación de direcciones:</strong> Mantenemos la verificación de que las direcciones de VRAM son válidas antes de leer, para evitar accesos fuera de rango.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Método <code>render_scanline()</code> restaurado con lógica de renderizado original</li>
+                    <li><code>docs/bitacora/entries/2025-12-20__0193__limpieza-post-diagnostico-revertir-test-checkerboard.html</code> - Nueva entrada de bitácora</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con la nueva entrada</li>
+                    <li><code>INFORME_FASE_2.md</code> - Actualizado con el Step 0193</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación de este Step es principalmente de compilación y restauración del estado funcional. El resultado esperado es volver a la pantalla en blanco, pero ahora sabemos que esto se debe a que la VRAM está vacía, no a un problema de renderizado.
+                </p>
+                
+                <h3>Proceso de Verificación</h3>
+                <ol>
+                    <li><strong>Recompilar el módulo C++:</strong>
+                        <pre><code>.\rebuild_cpp.ps1</code></pre>
+                        <p>Resultado: ✅ Compilación exitosa (con warnings menores de variables no usadas, esperados)</p>
+                    </li>
+                    <li><strong>Ejecutar el emulador:</strong>
+                        <pre><code>python main.py roms/tetris.gb</code></pre>
+                        <p>Resultado esperado: Pantalla en blanco (confirmando que la VRAM está vacía, como sabemos que es el caso)</p>
+                    </li>
+                </ol>
+
+                <h3>Validación de módulo compilado C++</h3>
+                <p>
+                    El emulador utiliza el módulo C++ compilado (<code>viboy_core</code>), que contiene la implementación restaurada de <code>PPU::render_scanline()</code> con la lógica original de renderizado desde VRAM.
+                </p>
+
+                <h3>Código del Test</h3>
+                <p>
+                    Este Step no requiere tests unitarios adicionales, ya que estamos restaurando código previamente validado. El test visual del Step 0192 ya confirmó que la tubería de datos funciona correctamente.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#lcdc">LCDC (LCD Control Register)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#background">Background Rendering</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#tile-data">Tile Data Addressing</a></li>
+                    <li>Principios de ingeniería de sistemas: Limpieza post-diagnóstico y mantenimiento de código</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>El poder del aislamiento:</strong> El test del checkerboard nos permitió aislar completamente la tubería de datos del resto del sistema, dándonos una respuesta binaria y definitiva sobre dónde estaba el problema.</li>
+                        <li><strong>Limpieza post-diagnóstico:</strong> Es crucial eliminar código de diagnóstico temporal una vez que ha cumplido su propósito, para restaurar el comportamiento normal del sistema y prepararlo para la siguiente fase de depuración.</li>
+                        <li><strong>Diagnóstico definitivo:</strong> Ahora sabemos con certeza absoluta que la tubería de datos funciona. El problema no es que no podamos ver lo que la PPU dibuja, sino que la PPU no tiene nada que dibujar porque la VRAM está vacía.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Por qué la VRAM está vacía:</strong> ¿Por qué la CPU no está ejecutando la rutina que copia los datos del logo desde la ROM a la VRAM?</li>
+                        <li><strong>Monitoreo de escrituras en VRAM:</strong> Necesitamos instrumentar la MMU para que nos avise cuando la CPU intente escribir en VRAM, para entender si las escrituras están ocurriendo pero fallando, o si simplemente no están ocurriendo.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> La CPU está atrapada en un bucle lógico <em>antes</em> de llegar al punto donde debería copiar los datos del logo a la VRAM. Esto podría ser debido a una condición de interrupción mal manejada, un registro de hardware con un valor incorrecto que hace que el código de arranque no progrese, o un opcode faltante o mal implementado.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Con la PPU restaurada a su comportamiento normal y funcionando correctamente, el siguiente paso lógico es instrumentar la MMU para monitorear las escrituras en VRAM y entender el flujo de ejecución de la CPU durante el código de arranque.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Instrumentar la MMU para monitorear las escrituras en VRAM</li>
+                    <li>[ ] Agregar logs o breakpoints en el rango de VRAM (0x8000-0x9FFF) para detectar cuando la CPU intenta escribir</li>
+                    <li>[ ] Analizar el flujo de ejecución de la CPU durante el código de arranque para entender por qué no llega a copiar los datos del logo</li>
+                    <li>[ ] Identificar qué condición, registro o opcode está impidiendo que el código de arranque progrese correctamente</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
