@@ -74,12 +74,40 @@ Al anclar nuestra lógica de `clear_framebuffer()` a este evento, eliminamos la 
 
 2. **Eliminación de la Limpieza Asíncrona en Python**: En `src/viboy.py`, eliminamos la llamada a `clear_framebuffer()` del bucle principal. El orquestador de Python ya no es responsable de la limpieza.
 
-3. **Integración del Logo Personalizado "VIBOY COLOR" (Opcional)**: En `src/core/cpp/MMU.cpp`, reemplazamos el array `NINTENDO_LOGO_DATA` con `VIBOY_LOGO_HEADER_DATA`, que contiene los 48 bytes del logo personalizado convertidos desde una imagen de 48x8 píxeles.
+3. **Integración del Logo Personalizado "VIBOY COLOR"**: En `src/core/cpp/MMU.cpp`, reemplazamos el array `NINTENDO_LOGO_DATA` con `VIBOY_LOGO_HEADER_DATA`, que contiene los 48 bytes del logo personalizado convertidos desde una imagen de 48x8 píxeles. Para facilitar esta conversión, se creó el script `tools/logo_converter/convert_logo_to_header.py` que convierte automáticamente imágenes PNG al formato de header de cartucho. El script está documentado en `tools/logo_converter/README.md` y está disponible en GitHub para que otros desarrolladores puedan usarlo.
+
+   **Script de Conversión de Logo:**
+   
+   El script `tools/logo_converter/convert_logo_to_header.py` realiza la siguiente conversión:
+   
+   1. **Redimensionamiento**: La imagen se redimensiona a 48×8 píxeles usando el algoritmo LANCZOS para mejor calidad.
+   2. **Escala de Grises**: Se convierte a escala de grises si no lo está.
+   3. **Binarización**: Se convierte a 1-bit usando un umbral de 128 (píxeles más oscuros = negro, más claros = blanco).
+   4. **Codificación**: Cada columna de 8 píxeles se codifica en un byte, donde el bit 7 representa el píxel superior y el bit 0 el inferior.
+   
+   **Uso del script:**
+   ```bash
+   # Usar la ruta por defecto (assets/svg viboycolor logo.png)
+   python tools/logo_converter/convert_logo_to_header.py
+   
+   # O especificar una imagen personalizada
+   python tools/logo_converter/convert_logo_to_header.py ruta/a/tu/imagen.png
+   ```
+   
+   El script genera:
+   - Un array C++ listo para usar en `MMU.cpp`
+   - Un archivo de texto con el array en `tools/viboy_logo_header.txt`
+   - Una imagen de debug en `assets/viboy_logo_48x8_debug.png` para verificación visual
+   
+   **Disponibilidad en GitHub:** El script está disponible en el directorio `tools/logo_converter/` del repositorio, junto con documentación completa en `README.md`, para que otros desarrolladores puedan usarlo para personalizar sus propios emuladores o proyectos relacionados con Game Boy.
 
 **Archivos Afectados:**
 - `src/core/cpp/PPU.cpp` - Añadida llamada a `clear_framebuffer()` cuando `ly_` se resetea a 0
 - `src/viboy.py` - Eliminada llamada asíncrona a `clear_framebuffer()` del bucle principal
-- `src/core/cpp/MMU.cpp` - Reemplazado `NINTENDO_LOGO_DATA` con `VIBOY_LOGO_HEADER_DATA` (opcional)
+- `src/core/cpp/MMU.cpp` - Reemplazado `NINTENDO_LOGO_DATA` con `VIBOY_LOGO_HEADER_DATA` generado desde la imagen
+- `tools/logo_converter/convert_logo_to_header.py` - Script de conversión de imágenes PNG a formato header de cartucho (NUEVO)
+- `tools/logo_converter/README.md` - Documentación completa del script (NUEVO)
+- `README.md` - Añadida sección de herramientas y utilidades con mención al Logo Converter (NUEVO)
 - `docs/bitacora/entries/2025-12-21__0200__arquitectura-grafica-sincronizacion-framebuffer-vblank.html` - Nueva entrada de bitácora
 - `docs/bitacora/index.html` - Actualizado con la nueva entrada
 - `INFORME_FASE_2.md` - Actualizado con el Step 0200

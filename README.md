@@ -407,6 +407,23 @@ El proyecto mantiene una **bitácora web estática** detallada documentando cada
 - **Bitácora de Desarrollo Fase 2**: `INFORME_FASE_2.md`
 - **Archivo Fase 1**: `docs/archive/INFORME_v0.0.1_FINAL.md`
 
+### Herramientas y Utilidades
+
+El proyecto incluye herramientas auxiliares para desarrollo y personalización:
+
+#### 🎨 Logo Converter
+
+**Ubicación**: [`tools/logo_converter/`](tools/logo_converter/)
+
+Script para convertir imágenes PNG a formato de header de cartucho de Game Boy (48 bytes, formato 1bpp). Útil para personalizar el logo de arranque del emulador.
+
+**Uso:**
+```bash
+python tools/logo_converter/convert_logo_to_header.py ruta/a/tu/imagen.png
+```
+
+**Documentación completa**: Ver [`tools/logo_converter/README.md`](tools/logo_converter/README.md)
+
 ### Contribuir
 
 - **Guía de Contribución**: [`CONTRIBUTING.md`](CONTRIBUTING.md) - Workflow completo de setup y desarrollo
