@@ -32,6 +32,93 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0195: Debug Final: Reactivación de la Traza de CPU para Cazar el Bucle Lógico
+**Estado**: 🔍 DRAFT
+
+El "Sensor de VRAM" del Step 0194 ha confirmado con certeza que la CPU **nunca intenta escribir en la VRAM**. A pesar de que el emulador corrió durante varios segundos y cientos de fotogramas, el mensaje `[VRAM WRITE DETECTED!]` **nunca apareció**.
+
+Dado que todos los `deadlocks` de hardware han sido resueltos (`LY` cicla correctamente), la única explicación posible es que la CPU está atrapada en un **bucle lógico infinito** en el propio código de la ROM, antes de llegar a la rutina que copia los gráficos a la VRAM.
+
+**Objetivo:**
+- Reactivar el sistema de trazado de la CPU en C++ para capturar la secuencia de instrucciones que componen el bucle infinito.
+- Identificar el patrón repetitivo de direcciones de `PC` que forman el bucle.
+- Deducir la condición de salida que no se está cumpliendo.
+
+**Concepto de Ingeniería: Aislamiento del Bucle de Software**
+
+Hemos pasado de depurar nuestro emulador a depurar la propia ROM que se ejecuta en él. Necesitamos ver el código ensamblador que está corriendo para entender su lógica. Una traza de las últimas instrucciones ejecutadas nos mostrará un patrón repetitivo de direcciones de `PC`.
+
+Al analizar los `opcodes` en esas direcciones, podremos deducir qué está comprobando el juego. ¿Está esperando un valor específico en un registro de I/O que no hemos inicializado correctamente? ¿Está comprobando un flag que nuestra ALU calcula de forma sutilmente incorrecta en un caso límite? La traza nos lo dirá.
+
+**Principio del Trazado Disparado:** En lugar de trazar desde el inicio (lo cual generaría demasiado ruido), activamos el trazado cuando el `PC` alcanza `0x0100` (inicio del código del cartucho). Esto nos da una ventana clara de la ejecución del código del juego, sin el ruido del código de inicialización de la BIOS.
+
+**Límite de Instrucciones:** Configuramos el trazado para capturar las primeras 200 instrucciones después de la activación. Esto es suficiente para ver un patrón de bucle claro. Si el bucle es más largo, podemos aumentar el límite, pero 200 suele ser suficiente para identificar el patrón.
+
+**Implementación:**
+
+1. **Añadido include `<cstdio>`** en `CPU.cpp` para usar `printf`.
+
+2. **Sistema de Trazado en `CPU::step()`**: Se añade lógica de trazado que se activa cuando el `PC` alcanza `0x0100` y captura las primeras 200 instrucciones:
+   ```cpp
+   // --- Variables para el Trazado de CPU (Step 0195) ---
+   static bool debug_trace_activated = false;
+   static int debug_instruction_counter = 0;
+   static const int DEBUG_INSTRUCTION_LIMIT = 200;
+
+   // En el método step(), antes de fetch_byte():
+   uint16_t current_pc = regs_->pc;
+
+   // --- Lógica del Trazado (Step 0195) ---
+   if (!debug_trace_activated && current_pc >= 0x0100) {
+       debug_trace_activated = true;
+       printf("--- [CPU TRACE ACTIVATED at PC: 0x%04X] ---\n", current_pc);
+   }
+
+   if (debug_trace_activated && debug_instruction_counter < DEBUG_INSTRUCTION_LIMIT) {
+       uint8_t opcode_for_trace = mmu_->read(current_pc);
+       printf("[CPU TRACE %d] PC: 0x%04X | Opcode: 0x%02X\n", debug_instruction_counter, current_pc, opcode_for_trace);
+       debug_instruction_counter++;
+   }
+   // --- Fin del Trazado ---
+   ```
+
+3. **Inicialización en el constructor**: El constructor de la CPU resetea el estado del trazado para asegurar que cada ejecución comience con un estado limpio.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Añadido include `<cstdio>` y sistema de trazado en el método `step()`
+- `docs/bitacora/entries/2025-12-20__0195__debug-final-reactivacion-traza-cpu-cazar-bucle-logico.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0195
+
+**Tests y Verificación:**
+
+La verificación de este Step es principalmente de compilación y ejecución del emulador. El resultado esperado es que la traza de la CPU muestre un patrón repetitivo de direcciones de `PC` que forman el bucle infinito.
+
+**Proceso de Verificación:**
+1. Recompilar el módulo C++: `.\rebuild_cpp.ps1`
+   - Resultado: ✅ Compilación exitosa (con warnings menores esperados)
+2. Ejecutar el emulador: `python main.py roms/tetris.gb`
+   - El emulador debe ejecutarse normalmente. El usuario debe presionar una tecla para pasar el bucle del Joypad.
+3. Observar la consola: La traza buscará el mensaje `[CPU TRACE ACTIVATED at PC: 0xXXXX]` seguido de las primeras 200 instrucciones ejecutadas.
+
+**Validación de módulo compilado C++**: El emulador utiliza el módulo C++ compilado (`viboy_core`), que contiene el sistema de trazado implementado en `CPU::step()`. Cada instrucción ejecutada pasará a través de este método y será trazada si corresponde.
+
+**Resultado Esperado:**
+
+La traza de la CPU nos mostrará el bucle. Por ejemplo, podríamos ver algo como:
+
+```
+[CPU TRACE 195] PC: 0x00A5 | Opcode: 0xE0
+[CPU TRACE 196] PC: 0x00A7 | Opcode: 0xE6
+[CPU TRACE 197] PC: 0x00A8 | Opcode: 0x20
+[CPU TRACE 198] PC: 0x00A5 | Opcode: 0xE0
+[CPU TRACE 199] PC: 0x00A7 | Opcode: 0xE6
+```
+
+Este patrón nos dirá que las instrucciones en `0x00A5`, `0x00A7` y `0x00A8` forman el bucle. Al mirar qué hacen esos opcodes (por ejemplo, `LDH`, `AND`, `JR NZ`), podremos deducir la condición exacta que está fallando y aplicar la corrección final.
+
+---
+
 ### 2025-12-20 - Step 0194: El Sensor de VRAM: Monitoreo de Escrituras en Tiempo Real
 **Estado**: 🔍 DRAFT
 

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Final: Reactivación de la Traza de CPU para Cazar el Bucle Lógico - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug Final: Reactivación de la Traza de CPU para Cazar el Bucle Lógico</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-20
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0195
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔍 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-20__0194__sensor-vram-monitoreo-escrituras-tiempo-real.html">Anterior (0194)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El "Sensor de VRAM" del Step 0194 ha confirmado con certeza que la CPU <strong>nunca intenta escribir en la VRAM</strong>. A pesar de que el emulador corrió durante varios segundos y cientos de fotogramas, el mensaje <code>[VRAM WRITE DETECTED!]</code> <strong>nunca apareció</strong>.
+                </p>
+                <p>
+                    Dado que todos los <code>deadlocks</code> de hardware han sido resueltos (<code>LY</code> cicla correctamente), la única explicación posible es que la CPU está atrapada en un <strong>bucle lógico infinito</strong> en el propio código de la ROM, antes de llegar a la rutina que copia los gráficos a la VRAM.
+                </p>
+                <p>
+                    Este Step reactiva el sistema de trazado de la CPU en C++ para capturar la secuencia de instrucciones que componen el bucle infinito, identificar el patrón y deducir la condición de salida que no se está cumpliendo.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Ingeniería: Aislamiento del Bucle de Software</h2>
+                <p>
+                    Hemos pasado de depurar nuestro emulador a depurar la propia ROM que se ejecuta en él. Necesitamos ver el código ensamblador que está corriendo para entender su lógica. Una traza de las últimas instrucciones ejecutadas nos mostrará un patrón repetitivo de direcciones de <code>PC</code>.
+                </p>
+                <p>
+                    Al analizar los <code>opcodes</code> en esas direcciones, podremos deducir qué está comprobando el juego. ¿Está esperando un valor específico en un registro de I/O que no hemos inicializado correctamente? ¿Está comprobando un flag que nuestra ALU calcula de forma sutilmente incorrecta en un caso límite? La traza nos lo dirá.
+                </p>
+                <p>
+                    <strong>Principio del Trazado Disparado:</strong> En lugar de trazar desde el inicio (lo cual generaría demasiado ruido), activamos el trazado cuando el <code>PC</code> alcanza <code>0x0100</code> (inicio del código del cartucho). Esto nos da una ventana clara de la ejecución del código del juego, sin el ruido del código de inicialización de la BIOS.
+                </p>
+                <p>
+                    <strong>Límite de Instrucciones:</strong> Configuramos el trazado para capturar las primeras 200 instrucciones después de la activación. Esto es suficiente para ver un patrón de bucle claro. Si el bucle es más largo, podemos aumentar el límite, pero 200 suele ser suficiente para identificar el patrón.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Hemos reintroducido la lógica de trazado que usamos en los Steps 0169-0170, pero esta vez configurada para activarse al inicio del código del cartucho y darnos una ventana clara de la ejecución.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code>: Añadido include <code>&lt;cstdio&gt;</code> y sistema de trazado en el método <code>step()</code></li>
+                </ul>
+
+                <h3>Código del Trazado</h3>
+                <p>
+                    El trazado utiliza variables estáticas para mantener el estado entre llamadas:
+                </p>
+                <pre><code>// --- Variables para el Trazado de CPU (Step 0195) ---
+static bool debug_trace_activated = false;
+static int debug_instruction_counter = 0;
+// Un límite de 200 es suficiente para ver un patrón de bucle.
+static const int DEBUG_INSTRUCTION_LIMIT = 200;
+
+// En el constructor de la CPU, resetea el estado del trazado
+CPU::CPU(MMU* mmu, CoreRegisters* registers) : /*...*/ {
+    debug_trace_activated = false;
+    debug_instruction_counter = 0;
+}
+
+// En el método step(), antes de fetch_byte():
+uint16_t current_pc = regs_->pc;
+
+// --- Lógica del Trazado (Step 0195) ---
+// Empezamos a trazar desde el principio para cazar el bucle.
+if (!debug_trace_activated && current_pc >= 0x0100) {
+    debug_trace_activated = true;
+    printf("--- [CPU TRACE ACTIVATED at PC: 0x%04X] ---\n", current_pc);
+}
+
+if (debug_trace_activated && debug_instruction_counter < DEBUG_INSTRUCTION_LIMIT) {
+    uint8_t opcode_for_trace = mmu_->read(current_pc);
+    printf("[CPU TRACE %d] PC: 0x%04X | Opcode: 0x%02X\n", debug_instruction_counter, current_pc, opcode_for_trace);
+    debug_instruction_counter++;
+}
+// --- Fin del Trazado ---</code></pre>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Activación en 0x0100:</strong> El código del cartucho comienza en <code>0x0100</code>. Activamos el trazado aquí para evitar el ruido del código de inicialización de la BIOS.</li>
+                    <li><strong>Límite de 200 instrucciones:</strong> Es suficiente para ver un patrón de bucle. Si el bucle es más largo, podemos aumentar el límite fácilmente.</li>
+                    <li><strong>Lectura del opcode antes de fetch:</strong> Leemos el opcode directamente de la memoria usando <code>mmu_-&gt;read(current_pc)</code> antes de que <code>fetch_byte()</code> lo consuma. Esto nos da el opcode exacto que se va a ejecutar.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido include <code>&lt;cstdio&gt;</code> y sistema de trazado en el método <code>step()</code></li>
+                    <li><code>docs/bitacora/entries/2025-12-20__0195__debug-final-reactivacion-traza-cpu-cazar-bucle-logico.html</code> - Nueva entrada de bitácora</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con la nueva entrada</li>
+                    <li><code>INFORME_FASE_2.md</code> - Actualizado con el Step 0195</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación de este Step es principalmente de compilación y ejecución del emulador. El resultado esperado es que la traza de la CPU muestre un patrón repetitivo de direcciones de <code>PC</code> que forman el bucle infinito.
+                </p>
+                
+                <h3>Proceso de Verificación</h3>
+                <ol>
+                    <li><strong>Recompilar el módulo C++:</strong> <code>.\rebuild_cpp.ps1</code>
+                        <ul>
+                            <li>Resultado: ✅ Compilación exitosa (con warnings menores esperados)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Ejecutar el emulador:</strong> <code>python main.py roms/tetris.gb</code>
+                        <ul>
+                            <li>El emulador debe ejecutarse normalmente. El usuario debe presionar una tecla para pasar el bucle del Joypad.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Observar la consola:</strong> La traza buscará el mensaje <code>[CPU TRACE ACTIVATED at PC: 0xXXXX]</code> seguido de las primeras 200 instrucciones ejecutadas.</li>
+                </ol>
+
+                <h3>Validación de módulo compilado C++</h3>
+                <p>
+                    El emulador utiliza el módulo C++ compilado (<code>viboy_core</code>), que contiene el sistema de trazado implementado en <code>CPU::step()</code>. Cada instrucción ejecutada pasará a través de este método y será trazada si corresponde.
+                </p>
+
+                <h3>Resultado Esperado</h3>
+                <p>
+                    La traza de la CPU nos mostrará el bucle. Por ejemplo, podríamos ver algo como:
+                </p>
+                <pre><code>[CPU TRACE 195] PC: 0x00A5 | Opcode: 0xE0
+[CPU TRACE 196] PC: 0x00A7 | Opcode: 0xE6
+[CPU TRACE 197] PC: 0x00A8 | Opcode: 0x20
+[CPU TRACE 198] PC: 0x00A5 | Opcode: 0xE0
+[CPU TRACE 199] PC: 0x00A7 | Opcode: 0xE6</code></pre>
+                <p>
+                    Este patrón nos dirá que las instrucciones en <code>0x00A5</code>, <code>0x00A7</code> y <code>0x00A8</code> forman el bucle. Al mirar qué hacen esos opcodes (por ejemplo, <code>LDH</code>, <code>AND</code>, <code>JR NZ</code>), podremos deducir la condición exacta que está fallando y aplicar la corrección final.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set</a></li>
+                    <li>Implementación basada en conocimiento general de arquitectura LR35902 y técnicas de depuración de emuladores.</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Trazado de CPU:</strong> El trazado de instrucciones es una herramienta fundamental para depurar emuladores. Nos permite ver exactamente qué instrucciones está ejecutando la CPU y en qué orden.</li>
+                        <li><strong>Patrones de Bucle:</strong> Los bucles infinitos en código de bajo nivel se manifiestan como patrones repetitivos de direcciones de <code>PC</code>. Identificar estos patrones es el primer paso para entender qué condición está fallando.</li>
+                        <li><strong>Aislamiento del Problema:</strong> Hemos eliminado todas las causas de hardware (deadlocks, sincronización, etc.). El problema restante es un bucle de software puro, que requiere análisis del código ensamblador.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Patrón del Bucle:</strong> Necesitamos ejecutar el emulador y analizar la traza para identificar el patrón exacto del bucle.</li>
+                        <li><strong>Condición de Salida:</strong> Una vez identificado el bucle, necesitamos deducir qué condición está esperando el juego y por qué no se está cumpliendo.</li>
+                        <li><strong>Corrección Final:</strong> Una vez identificada la condición, necesitaremos aplicar la corrección correspondiente (inicialización de registro, corrección de flag, etc.).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> El juego está esperando un valor específico en un registro de I/O que no hemos inicializado correctamente, o está comprobando un flag que nuestra ALU calcula de forma sutilmente incorrecta en un caso límite.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> El bucle es lo suficientemente corto (menos de 200 instrucciones) para que podamos capturarlo completamente con nuestro límite actual. Si el bucle es más largo, podemos aumentar el límite fácilmente.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y analizar la traza de la CPU</li>
+                    <li>[ ] Identificar el patrón repetitivo de direcciones de <code>PC</code> que forman el bucle</li>
+                    <li>[ ] Analizar los opcodes en esas direcciones para deducir qué condición está esperando el juego</li>
+                    <li>[ ] Aplicar la corrección correspondiente (inicialización de registro, corrección de flag, etc.)</li>
+                    <li>[ ] Verificar que el juego sale del bucle y comienza a escribir en la VRAM</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
