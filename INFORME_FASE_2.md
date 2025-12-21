@@ -32,6 +32,86 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-20 - Step 0194: El Sensor de VRAM: Monitoreo de Escrituras en Tiempo Real
+**Estado**: 🔍 DRAFT
+
+El "Test del Checkerboard" del Step 0192 validó que nuestra tubería de renderizado funciona perfectamente. El diagnóstico es definitivo: la pantalla en blanco se debe a que la **VRAM está vacía**, no a un problema de renderizado. La hipótesis actual es que la CPU nunca ejecuta el código que copia los datos del logo de Nintendo desde la ROM a la VRAM. Está atrapada en un bucle lógico *antes* de llegar a ese punto.
+
+**Objetivo:**
+- Implementar un "sensor de movimiento" en la MMU que detectará y reportará la primera vez que cualquier instrucción intente escribir un byte en la VRAM (0x8000-0x9FFF).
+- Obtener una respuesta binaria y definitiva: ¿la CPU intenta escribir en VRAM, sí o no?
+
+**Concepto de Ingeniería: El Punto Único de Verdad (Single Point of Truth)**
+
+En nuestra arquitectura, cada escritura en memoria, sin importar qué instrucción de la CPU la origine (`LD (HL), A`, `LDD (HL), A`, o una futura transferencia `DMA`), debe pasar a través de un único método: `MMU::write()`. Este método es nuestro "punto único de verdad" para todas las operaciones de escritura.
+
+Al colocar un sensor de diagnóstico en este punto, podemos estar 100% seguros de que capturaremos cualquier intento de modificar la VRAM, dándonos una respuesta definitiva: ¿la CPU intenta escribir, sí o no?
+
+Este sensor actúa como un "detector de mentiras" que nos dirá de una vez por todas si la CPU está cumpliendo con su parte del trato. No necesitamos capturar todas las escrituras (eso sería demasiado ruido), solo la primera. Eso es suficiente para responder a nuestra pregunta fundamental.
+
+**Implementación:**
+
+1. **Añadido include `<cstdio>`** en `MMU.cpp` para usar `printf`.
+
+2. **Sensor de VRAM en `MMU::write()`**: Se añade una comprobación simple que detecta la primera escritura en el rango de VRAM (0x8000-0x9FFF) y la reporta inmediatamente en la consola:
+   ```cpp
+   // --- SENSOR DE VRAM (Step 0194) ---
+   // Variable estática para asegurar que el mensaje se imprima solo una vez.
+   static bool vram_write_detected = false;
+   if (!vram_write_detected && addr >= 0x8000 && addr <= 0x9FFF) {
+       printf("\n--- [VRAM WRITE DETECTED!] ---\n");
+       printf("Primera escritura en VRAM en Addr: 0x%04X | Valor: 0x%02X\n", addr, value);
+       printf("--------------------------------\n\n");
+       vram_write_detected = true;
+   }
+   // --- Fin del Sensor ---
+   ```
+
+3. **Ubicación del sensor**: El sensor está colocado justo después de la validación inicial de dirección y valor, pero antes de cualquier otra lógica especial (registros de hardware, etc.). Esto asegura que capturamos todas las escrituras en VRAM, sin excepción.
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Añadido include `<cstdio>` y sensor de VRAM en método `write()`
+- `docs/bitacora/entries/2025-12-20__0194__sensor-vram-monitoreo-escrituras-tiempo-real.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0194
+
+**Tests y Verificación:**
+
+La verificación de este Step es principalmente de compilación y ejecución del emulador. El resultado esperado es que el sensor se active (o no) durante la ejecución, dándonos información definitiva sobre el comportamiento de la CPU.
+
+**Proceso de Verificación:**
+1. Recompilar el módulo C++: `.\rebuild_cpp.ps1`
+   - Resultado: ✅ Compilación exitosa (con warnings menores esperados)
+2. Ejecutar el emulador: `python main.py roms/tetris.gb`
+   - El emulador debe ejecutarse normalmente. El usuario debe presionar una tecla para pasar el bucle del Joypad.
+3. Observar la consola: El sensor buscará el mensaje `[VRAM WRITE DETECTED!]` en la salida de la consola.
+
+**Validación de módulo compilado C++**: El emulador utiliza el módulo C++ compilado (`viboy_core`), que contiene el sensor de VRAM implementado en `MMU::write()`. Cualquier escritura en VRAM pasará a través de este método y activará el sensor si corresponde.
+
+**Resultados Posibles:**
+
+Hay dos resultados posibles al ejecutar el emulador:
+
+1. **NO aparece el mensaje `[VRAM WRITE DETECTED!]`:**
+   - **Significado:** Nuestra hipótesis es correcta. La CPU **NUNCA** intenta escribir en la VRAM. Está atrapada en un bucle lógico *antes* de la rutina de copia de gráficos.
+   - **Diagnóstico:** Hemos eliminado todas las causas de hardware. El problema debe ser un bucle de software en la propia ROM que no hemos previsto, quizás esperando otro registro de I/O que no hemos inicializado correctamente.
+   - **Siguiente Paso:** Volveríamos a activar la traza de la CPU, pero esta vez con la confianza de que estamos buscando un bucle de software puro, no un deadlock de hardware.
+
+2. **SÍ aparece el mensaje `[VRAM WRITE DETECTED!]`:**
+   - **Significado:** ¡Nuestra hipótesis principal era incorrecta! La CPU **SÍ** está escribiendo en la VRAM.
+   - **Diagnóstico:** Si la CPU está escribiendo en la VRAM, pero la pantalla sigue en blanco, solo puede significar una cosa: está escribiendo los datos equivocados (por ejemplo, ceros) o en el lugar equivocado.
+   - **Siguiente Paso:** Analizaríamos el valor y la dirección de la primera escritura para entender qué está haciendo la CPU. ¿Está limpiando la VRAM antes de copiar? ¿Está apuntando a una dirección incorrecta?
+
+**Próximos Pasos:**
+- Ejecutar el emulador y observar si el sensor se activa
+- Si el sensor NO se activa: Analizar el flujo de ejecución de la CPU durante el código de arranque para identificar el bucle de software que impide el progreso
+- Si el sensor SÍ se activa: Analizar el valor y dirección de la primera escritura para entender qué está haciendo la CPU
+- Identificar la causa raíz del problema (bucle de software, registro mal inicializado, opcode faltante, etc.)
+
+**Bitácora**: `docs/bitacora/entries/2025-12-20__0194__sensor-vram-monitoreo-escrituras-tiempo-real.html`
+
+---
+
 ### 2025-12-20 - Step 0193: Limpieza Post-Diagnóstico: Revertir el "Test del Checkerboard"
 **Estado**: ✅ VERIFIED
 
