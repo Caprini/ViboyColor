@@ -5,36 +5,39 @@
 #include <cstring>
 #include <cstdio>
 
-// --- Step 0201: Datos del Logo Personalizado "Viboy Color" ---
-// Convertido desde la imagen 'viboy_logo_48x8_debug.png' (48x8px) a formato de header (1bpp).
-// Este es el formato que la BIOS leería desde la dirección 0x0104 del cartucho.
-// La Boot ROM copia los datos del logo desde el encabezado del cartucho (0x0104-0x0133)
-// a la VRAM. Estos son los 48 bytes del logo personalizado "VIBOY COLOR" convertidos
-// desde una imagen de 48x8 píxeles a formato de header de cartucho (1bpp).
+// --- Step 0206: Datos del Logo Personalizado "Viboy Color" en Formato Tile (2bpp) ---
+// Convertido desde la imagen 'viboy_logo_48x8_debug.png' (48x8px) a formato de Tile (2bpp).
+// 
+// DIFERENCIA CRÍTICA CON EL STEP 0201:
+// - Step 0201: Inyectamos datos de Header (1bpp) directamente en VRAM. Esto era incorrecto.
+// - Step 0206: Inyectamos datos de Tile (2bpp) ya descomprimidos, listos para la PPU.
 //
-// Formato: 48 bytes = 48 columnas x 8 filas (1 bit por píxel)
-// Bit 7 = píxel superior, Bit 0 = píxel inferior
-// 1 = visible/negro, 0 = transparente/blanco
+// La Boot ROM real lee los datos del header (1bpp) y los descomprime a formato Tile (2bpp)
+// antes de copiarlos a la VRAM. Nosotros simulamos este proceso generando los datos
+// ya descomprimidos externamente.
 //
-// Fuente: Pan Docs - "Nintendo Logo", Cart Header (0x0104-0x0133)
-// El logo de Nintendo original se usa como mecanismo antipiratería: la Boot ROM
-// compara estos bytes con los del encabezado del cartucho. Si no coinciden, el
-// sistema se congela. En nuestro caso, usamos un logo personalizado.
-static const uint8_t VIBOY_LOGO_HEADER_DATA[48] = {
-    0x3C, 0x42, 0x99, 0xA5, 0x99, 0xA5, 0x42, 0x3C, 0x3C, 0x42, 0x99, 0xA5, 
-    0x99, 0xA5, 0x42, 0x3C, 0x3C, 0x42, 0x99, 0xA5, 0x99, 0xA5, 0x42, 0x3C, 
-    0x3C, 0x42, 0x99, 0xA5, 0x99, 0xA5, 0x42, 0x3C, 0x3C, 0x42, 0x99, 0xA5, 
-    0x99, 0xA5, 0x42, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+// Formato Tile (2bpp):
+// - 48x8 píxeles = 6 tiles de 8x8
+// - Cada tile ocupa 16 bytes (2 bytes por fila, 8 filas)
+// - Total: 96 bytes para los 6 tiles
+// - Cada píxel usa 2 bits (4 colores posibles: 00=Blanco, 11=Negro)
+//
+// Fuente: Pan Docs - "Tile Data", "Tile Map"
+static const uint8_t VIBOY_LOGO_TILES[96] = {
+    0x07, 0x07, 0x38, 0x38, 0x60, 0x60, 0x42, 0x42, 0xC1, 0xC1, 0x40, 0x40, 0x30, 0x30, 0x0F, 0x0F, 
+    0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xAD, 0xAD, 0xAD, 0xAD, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 
+    0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x7C, 0x7C, 0x28, 0x28, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 
+    0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xCA, 0xCA, 0x8A, 0x8A, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 
+    0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x95, 0x95, 0x93, 0x93, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 
+    0xE0, 0xE0, 0x1C, 0x1C, 0x06, 0x06, 0xC3, 0xC3, 0xC3, 0xC3, 0x02, 0x02, 0x0C, 0x0C, 0xF0, 0xF0
 };
 
-// Tilemap del logo de Nintendo en la pantalla (0x9904-0x9927)
-// La Boot ROM configura el tilemap para mostrar el logo centrado en la parte superior.
-// 12 tiles en una fila (0x01 a 0x0C) seguidos de tiles vacíos (0x00).
-// Fuente: Pan Docs - "Boot ROM Behavior", Tile Map Layout
-static const uint8_t NINTENDO_LOGO_TILEMAP[36] = {
-    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, // Fila 1: Logo tiles
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Fila 2: Vacío
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // Fila 3: Vacío
+// --- Tilemap del Logo (32 bytes = 1 fila del mapa de tiles) ---
+// Centrado horizontalmente: 7 tiles de padding, 6 tiles del logo (IDs 1-6), resto padding
+// El tile 0 se deja como blanco puro. Los tiles 1-6 contienen el logo.
+static const uint8_t VIBOY_LOGO_MAP[32] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
 MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nullptr) {
@@ -89,22 +92,29 @@ MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nu
     // - 0xFF07 (TAC): Controlado por Timer
     // - 0xFF00 (P1): Controlado por Joypad
     
-    // --- Step 0200: Pre-cargar VRAM con el logo personalizado "Viboy Color" (Post-BIOS) ---
-    // La Boot ROM copia los datos del logo desde el encabezado del cartucho (0x0104-0x0133)
-    // a la VRAM. Estos 48 bytes forman 3 tiles (16 bytes cada uno).
-    // La Boot ROM también configura el tilemap para mostrar el logo centrado.
-    // Fuente: Pan Docs - "Boot ROM Behavior", "Nintendo Logo"
+    // --- Step 0206: Pre-cargar VRAM con el logo personalizado "Viboy Color" (Formato Tile 2bpp) ---
+    // La Boot ROM real lee los datos del header (1bpp) y los descomprime a formato Tile (2bpp)
+    // antes de copiarlos a la VRAM. Nosotros simulamos este proceso generando los datos
+    // ya descomprimidos externamente.
+    //
+    // DIFERENCIA CRÍTICA CON EL STEP 0201:
+    // - Step 0201: Inyectamos datos de Header (1bpp) directamente → PPU no podía interpretarlos.
+    // - Step 0206: Inyectamos datos de Tile (2bpp) ya descomprimidos → PPU puede renderizarlos.
+    //
+    // Fuente: Pan Docs - "Tile Data", "Tile Map", "Boot ROM Behavior"
     
-    // Copiar los datos del logo personalizado a la VRAM (0x8000-0x802F)
-    // Los 48 bytes del logo se organizan como 3 tiles consecutivos
-    for (size_t i = 0; i < sizeof(VIBOY_LOGO_HEADER_DATA); ++i) {
-        memory_[0x8000 + i] = VIBOY_LOGO_HEADER_DATA[i];
+    // 1. Cargar Tiles del Logo (96 bytes) en VRAM Tile Data (0x8010)
+    // Empezamos en 0x8010 (Tile ID 1) para dejar el Tile 0 como blanco puro.
+    // 6 tiles x 16 bytes = 96 bytes totales
+    for (size_t i = 0; i < sizeof(VIBOY_LOGO_TILES); ++i) {
+        memory_[0x8010 + i] = VIBOY_LOGO_TILES[i];
     }
     
-    // Copiar el tilemap a la VRAM (0x9904-0x9927)
-    // El tilemap configura qué tiles mostrar en la pantalla (12 tiles del logo en la primera fila)
-    for (size_t i = 0; i < sizeof(NINTENDO_LOGO_TILEMAP); ++i) {
-        memory_[0x9904 + i] = NINTENDO_LOGO_TILEMAP[i];
+    // 2. Cargar Tilemap del Logo en VRAM Map (0x9A00 - Fila 8, aproximadamente centro vertical)
+    // El logo suele estar centrado verticalmente. Usamos la fila 8 del tilemap (0x9A00).
+    // 32 bytes = 1 fila completa del mapa de tiles (32 tiles horizontales)
+    for (size_t i = 0; i < sizeof(VIBOY_LOGO_MAP); ++i) {
+        memory_[0x9A00 + i] = VIBOY_LOGO_MAP[i];
     }
 }
 

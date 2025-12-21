@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El Despertar de la VRAM: Inyección de Tiles 2bpp (Formato Correcto) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>El Despertar de la VRAM: Inyección de Tiles 2bpp (Formato Correcto)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-21
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0206
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔧 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-21__0205__debug-final-reactivacion-traza-cpu-cazar-bucle.html">Anterior (0205)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El análisis del traza de CPU del Step 0205 confirmó que el emulador funciona correctamente: la CPU está ejecutando un bucle de limpieza de memoria (WRAM), no está colgada. El problema de la pantalla blanca es un error de formato de datos: en el Step 0201 inyectamos datos de Header (1bpp) directamente en la VRAM, pero la PPU necesita datos de Tile (2bpp) ya descomprimidos. La Boot ROM real realiza esta descompresión; nosotros debemos simularla inyectando directamente los datos convertidos. Actualizamos el script de conversión para generar datos de Tile (2bpp) y un Tilemap válido, y actualizamos MMU.cpp para usar estos nuevos datos, permitiendo que el logo "VIBOY COLOR" aparezca correctamente renderizado.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: Formato de Datos en VRAM</h2>
+                <p>
+                    La Game Boy almacena los gráficos en la VRAM en formato de <strong>Tiles</strong> (baldosas). Cada tile es una imagen de 8x8 píxeles que ocupa 16 bytes en memoria. El formato es <strong>2bpp</strong> (2 bits por píxel), lo que permite 4 colores posibles por píxel (00, 01, 10, 11).
+                </p>
+                <p>
+                    <strong>Estructura de un Tile (2bpp):</strong>
+                </p>
+                <ul>
+                    <li>Cada fila de 8 píxeles ocupa 2 bytes consecutivos.</li>
+                    <li>El primer byte contiene los bits menos significativos (LSB) de cada píxel.</li>
+                    <li>El segundo byte contiene los bits más significativos (MSB) de cada píxel.</li>
+                    <li>8 filas × 2 bytes = 16 bytes por tile.</li>
+                </ul>
+                <p>
+                    <strong>Diferencia crítica con el Header del Cartucho:</strong>
+                </p>
+                <ul>
+                    <li><strong>Header (0x0104-0x0133):</strong> Formato 1bpp (1 bit por píxel), 48 bytes totales. La Boot ROM lee estos datos y los descomprime a formato Tile (2bpp) antes de copiarlos a la VRAM.</li>
+                    <li><strong>VRAM Tile Data (0x8000-0x97FF):</strong> Formato 2bpp (2 bits por píxel), 16 bytes por tile. Este es el formato que la PPU lee directamente para renderizar.</li>
+                </ul>
+                <p>
+                    <strong>El Error del Step 0201:</strong> Inyectamos datos de Header (1bpp) directamente en la VRAM. La PPU intentó leer estos datos como si fueran Tiles (2bpp), interpretando incorrectamente los bits y generando píxeles mayoritariamente blancos o basura invisible.
+                </p>
+                <p>
+                    <strong>La Solución del Step 0206:</strong> Generamos los datos ya descomprimidos en formato Tile (2bpp) externamente usando un script Python, simulando el trabajo de descompresión que haría la Boot ROM. Estos datos se inyectan directamente en la VRAM en el formato correcto que la PPU espera.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Tile Data", "Tile Map", "Boot ROM Behavior"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Actualizamos el script de conversión de logo para generar dos arrays C++: uno para los tiles (gráficos en formato 2bpp) y otro para el tilemap (posición en pantalla). Luego actualizamos MMU.cpp para usar estos nuevos datos en las direcciones correctas de la VRAM.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>tools/logo_converter/convert_logo_to_header.py</code>: Agregada función <code>image_to_gb_tiles()</code> que genera datos de Tile (2bpp) y Tilemap.</li>
+                    <li><code>src/core/cpp/MMU.cpp</code>: Reemplazados los arrays antiguos (Header 1bpp) por los nuevos arrays (Tile 2bpp y Tilemap). Actualizada la lógica de inicialización para cargar los tiles en 0x8010 y el tilemap en 0x9A00.</li>
+                </ul>
+
+                <h3>Algoritmo de Conversión a Tiles (2bpp)</h3>
+                <p>
+                    El script procesa la imagen de 48x8 píxeles (6 tiles de 8x8) y genera:
+                </p>
+                <ol>
+                    <li><strong>Tile Data (96 bytes):</strong> Para cada uno de los 6 tiles, para cada fila de 8 píxeles, genera 2 bytes:
+                        <ul>
+                            <li>Byte 1 (LSB): Bits menos significativos de cada píxel.</li>
+                            <li>Byte 2 (MSB): Bits más significativos de cada píxel.</li>
+                            <li>Píxel negro (0) → Color 3 (11 binary) → Ambos bits a 1.</li>
+                            <li>Píxel blanco (255) → Color 0 (00 binary) → Ambos bits a 0.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Tilemap (32 bytes):</strong> Array de 32 bytes (1 fila del mapa de tiles) que indica qué tiles mostrar en cada posición horizontal. Centrado: 7 tiles de padding (0x00), 6 tiles del logo (0x01-0x06), resto padding (0x00).</li>
+                </ol>
+
+                <h3>Direcciones de VRAM</h3>
+                <ul>
+                    <li><strong>Tile Data (0x8010-0x806F):</strong> 96 bytes (6 tiles × 16 bytes). Empezamos en 0x8010 (Tile ID 1) para dejar el Tile 0 como blanco puro.</li>
+                    <li><strong>Tilemap (0x9A00-0x9A1F):</strong> 32 bytes (1 fila del mapa de tiles). Usamos la fila 8 (0x9A00 = 0x9800 + 32 × 8) para centrar verticalmente el logo.</li>
+                </ul>
+
+                <h3>Código clave</h3>
+                <pre><code>// En MMU::MMU()
+
+// 1. Cargar Tiles del Logo (96 bytes) en VRAM Tile Data (0x8010)
+for (size_t i = 0; i < sizeof(VIBOY_LOGO_TILES); ++i) {
+    memory_[0x8010 + i] = VIBOY_LOGO_TILES[i];
+}
+
+// 2. Cargar Tilemap del Logo en VRAM Map (0x9A00)
+for (size_t i = 0; i < sizeof(VIBOY_LOGO_MAP); ++i) {
+    memory_[0x9A00 + i] = VIBOY_LOGO_MAP[i];
+}</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tools/logo_converter/convert_logo_to_header.py</code> - Agregada función <code>image_to_gb_tiles()</code> para generar datos de Tile (2bpp) y Tilemap.</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Reemplazados arrays antiguos (Header 1bpp) por nuevos arrays (Tile 2bpp y Tilemap). Actualizada lógica de inicialización.</li>
+                    <li><code>tools/viboy_logo_tiles.txt</code> - Archivo generado con los arrays C++ de Tile Data y Tilemap.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong>
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>.\rebuild_cpp.ps1</code></li>
+                    <li><strong>Resultado:</strong> Compilación exitosa sin errores. Módulo C++ recompilado correctamente.</li>
+                </ul>
+                <p>
+                    <strong>Próxima verificación:</strong> Ejecutar el emulador con <code>python main.py roms/tetris.gb</code> y verificar que:
+                </p>
+                <ul>
+                    <li>El logo "VIBOY COLOR" aparece correctamente renderizado en la pantalla (formas negras sobre fondo blanco).</li>
+                    <li>El logo está centrado horizontalmente (7 tiles de padding a cada lado).</li>
+                    <li>El logo está posicionado verticalmente en la fila 8 del tilemap (aproximadamente centro vertical).</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> Si la CPU de Tetris borra la VRAM después del arranque, podríamos ver un parpadeo, pero al menos veremos formas negras correctas, no una pantalla blanca.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Tile_Data.html">Tile Data</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Tile_Map.html">Tile Map</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Boot_ROM.html">Boot ROM Behavior</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Cartridge_Header.html#0104-0133--nintendo-logo">Nintendo Logo (Cart Header)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Formato Tile (2bpp):</strong> Cada tile de 8x8 píxeles ocupa 16 bytes en VRAM. Cada fila de 8 píxeles usa 2 bytes: uno para los bits LSB y otro para los bits MSB. Esto permite 4 colores por píxel (00, 01, 10, 11).</li>
+                        <li><strong>Diferencia Header vs VRAM:</strong> El header del cartucho (0x0104-0x0133) usa formato 1bpp (1 bit por píxel, 48 bytes totales). La Boot ROM descomprime estos datos a formato Tile (2bpp) antes de copiarlos a la VRAM. No podemos copiar los datos del header directamente a la VRAM.</li>
+                        <li><strong>Tilemap:</strong> El tilemap es un array de 32×32 bytes que indica qué tile mostrar en cada posición de la pantalla. Cada byte es un ID de tile (0x00-0xFF). El tilemap se almacena en 0x9800-0x9FFF.</li>
+                        <li><strong>Proceso de Descompresión:</strong> La Boot ROM lee los 48 bytes del header (1bpp), los descomprime a 96 bytes de Tile Data (2bpp), y luego los copia a la VRAM. Nosotros simulamos este proceso generando los datos ya descomprimidos externamente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Renderizado Visual:</strong> Verificar que el logo aparece correctamente en la pantalla al ejecutar el emulador. Si aparece, confirmamos que el formato de datos es correcto.</li>
+                        <li><strong>Posicionamiento:</strong> Verificar que el logo está centrado correctamente (horizontal y verticalmente) según nuestras expectativas.</li>
+                        <li><strong>Persistencia:</strong> Si la CPU de Tetris borra la VRAM después del arranque, el logo desaparecerá. Esto es comportamiento esperado, pero confirma que la inyección inicial funcionó.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición principal:</strong> Asumimos que la PPU lee el tilemap desde 0x9A00 (fila 8) y renderiza los tiles correctamente. Si el logo no aparece, podría ser que:
+                    </p>
+                    <ul>
+                        <li>La PPU no está leyendo el tilemap desde la dirección correcta.</li>
+                        <li>El registro LCDC no está configurado correctamente para mostrar el tilemap.</li>
+                        <li>El registro BGP (paleta de colores) no está configurado correctamente.</li>
+                    </ul>
+                    <p>
+                        Estas suposiciones se validarán al ejecutar el emulador y observar el resultado visual.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con <code>python main.py roms/tetris.gb</code> y verificar que el logo aparece correctamente.</li>
+                    <li>[ ] Si el logo aparece, confirmar que el formato de datos es correcto y documentar el éxito.</li>
+                    <li>[ ] Si el logo no aparece, investigar la configuración de la PPU (LCDC, BGP, direcciones de tilemap).</li>
+                    <li>[ ] Si la CPU de Tetris borra la VRAM, considerar proteger la VRAM o investigar por qué el juego la borra.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
+

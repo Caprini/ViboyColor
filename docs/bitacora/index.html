@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0206 - El Despertar de la VRAM: Inyección de Tiles 2bpp (Formato Correcto) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-21__0206__despertar-vram-inyeccion-tiles-2bpp-formato-correcto.html" class="entry-link">
+                                    El Despertar de la VRAM: Inyección de Tiles 2bpp (Formato Correcto)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-21 | 
+                            <strong>Step ID:</strong> 0206 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔧 DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            El análisis del traza de CPU del Step 0205 confirmó que el emulador funciona correctamente: la CPU está ejecutando un bucle de limpieza de memoria (WRAM), no está colgada. El problema de la pantalla blanca es un error de formato de datos: en el Step 0201 inyectamos datos de Header (1bpp) directamente en la VRAM, pero la PPU necesita datos de Tile (2bpp) ya descomprimidos. La Boot ROM real realiza esta descompresión; nosotros debemos simularla inyectando directamente los datos convertidos. Actualizamos el script de conversión para generar datos de Tile (2bpp) y un Tilemap válido, y actualizamos MMU.cpp para usar estos nuevos datos, permitiendo que el logo "VIBOY COLOR" aparezca correctamente renderizado.
+                        </p>
+                    </li>
                     <!-- Entrada 0205 - Debug Final: Reactivación de la Traza de CPU para Cazar el Bucle -->
                     <li>
                         <div class="entry-header">

@@ -470,7 +470,7 @@ int CPU::step() {
     if (debug_trace_counter < DEBUG_TRACE_LIMIT) {
         uint8_t opcode_preview = mmu_->read(regs_->pc);
         printf("[CPU TRACE %03d] PC: 0x%04X | Opcode: 0x%02X | AF: 0x%04X | BC: 0x%04X | DE: 0x%04X | HL: 0x%04X | SP: 0x%04X\n", 
-               debug_trace_counter, regs_->pc, opcode_preview, regs_->af, regs_->get_bc(), regs_->get_de(), regs_->get_hl(), regs_->sp);
+               debug_trace_counter, regs_->pc, opcode_preview, regs_->get_af(), regs_->get_bc(), regs_->get_de(), regs_->get_hl(), regs_->sp);
         debug_trace_counter++;
     }
     // --------------------------------
