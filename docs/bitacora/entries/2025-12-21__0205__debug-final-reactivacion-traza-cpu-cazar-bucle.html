@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Final: Reactivación de la Traza de CPU para Cazar el Bucle - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Debug Final: Reactivación de la Traza de CPU para Cazar el Bucle</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-21
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0205
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">🔧 DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-21__0204__sensor-vram-monitoreo-escrituras-tiempo-real.html">Anterior (0204)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El sensor de VRAM del Step 0204 ha confirmado que la CPU nunca intenta escribir en la memoria de vídeo. Esto significa que el emulador está atrapado en un bucle lógico de software (un "wait loop") al inicio de la ejecución de la ROM, antes de cualquier rutina gráfica. Para identificar este bucle, reactivamos el sistema de trazado de la CPU para capturar las primeras 200 instrucciones ejecutadas desde el arranque, revelando el patrón del bucle infinito y permitiéndonos entender qué condición de hardware no estamos cumpliendo.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: Análisis de Flujo de Control</h2>
+                <p>
+                    Si la CPU no avanza, es porque está ejecutando un salto condicional (<code>JR</code>, <code>JP</code>, <code>CALL</code>, <code>RET</code>) que siempre la lleva de vuelta al mismo punto. Al ver la secuencia de instrucciones, identificaremos el bucle (ej: "Lee registro X, Compara con Y, Salta si no es igual").
+                </p>
+                <p>
+                    Los bucles de espera comunes en el arranque de la Game Boy incluyen:
+                </p>
+                <ul>
+                    <li><strong>Bucle de Joypad:</strong> <code>LD A, (FF00)</code> → <code>BIT ...</code> → <code>JR ...</code> (Esperando que se suelte un botón).</li>
+                    <li><strong>Bucle de Timer:</strong> <code>LD A, (FF04)</code> → <code>CP ...</code> → <code>JR ...</code> (Esperando a que el timer avance).</li>
+                    <li><strong>Bucle de V-Blank:</strong> <code>LDH A, (44)</code> (Lee LY) → <code>CP 90</code> (Compara con 144) → <code>JR NZ</code> (Salta si no es VBlank).</li>
+                    <li><strong>Bucle de Checksum:</strong> Lectura de memoria y comparaciones matemáticas.</li>
+                </ul>
+                <p>
+                    El último patrón que se repita en la traza será nuestro culpable. Al ver la secuencia exacta de instrucciones, podremos identificar qué registro o flag está comprobando el juego y por qué falla.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Implementamos un sistema de trazado simple en <code>CPU::step()</code> que imprime las primeras 200 instrucciones ejecutadas. El trazado captura el estado de la CPU antes de ejecutar cada instrucción, incluyendo:
+                </p>
+                <ul>
+                    <li>Contador de instrucción (0-199)</li>
+                    <li>Program Counter (PC) actual</li>
+                    <li>Opcode que se va a ejecutar</li>
+                    <li>Estado de todos los registros principales (AF, BC, DE, HL, SP)</li>
+                </ul>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code>: Agregado sistema de trazado con variables estáticas para controlar el límite de instrucciones.</li>
+                </ul>
+
+                <h3>Código implementado</h3>
+                <p>
+                    El trazado se implementa justo antes del fetch del opcode, para capturar el PC antes de que se modifique:
+                </p>
+                <pre><code>// --- TRAZA DE CPU (Step 0205) ---
+// Variables estáticas para el control de la traza
+static int debug_trace_counter = 0;
+static const int DEBUG_TRACE_LIMIT = 200;
+
+// Imprimir las primeras N instrucciones para identificar el bucle de arranque
+if (debug_trace_counter < DEBUG_TRACE_LIMIT) {
+    uint8_t opcode_preview = mmu_->read(regs_->pc);
+    printf("[CPU TRACE %03d] PC: 0x%04X | Opcode: 0x%02X | AF: 0x%04X | BC: 0x%04X | DE: 0x%04X | HL: 0x%04X | SP: 0x%04X\n", 
+           debug_trace_counter, regs_->pc, opcode_preview, regs_->af, regs_->get_bc(), regs_->get_de(), regs_->get_hl(), regs_->sp);
+    debug_trace_counter++;
+}
+// --------------------------------</code></pre>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Límite de 200 instrucciones:</strong> Suficiente para capturar varios ciclos de un bucle repetitivo sin inundar la consola.</li>
+                    <li><strong>Variables estáticas:</strong> Permiten mantener el estado del contador entre llamadas a <code>step()</code> sin necesidad de modificar la interfaz de la clase.</li>
+                    <li><strong>Lectura previa del opcode:</strong> Leemos el opcode directamente de memoria antes de llamar a <code>fetch_byte()</code> para no modificar el PC antes de imprimir el estado.</li>
+                    <li><strong>Inclusión de todos los registros:</strong> El estado completo de los registros permite identificar qué valores está comparando el bucle.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Agregado sistema de trazado con <code>#include &lt;cstdio&gt;</code> y variables estáticas de control.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para verificar el trazado:
+                </p>
+                <ol>
+                    <li><strong>Recompilar el módulo C++:</strong> Ejecutar <code>.\rebuild_cpp.ps1</code> para compilar los cambios.</li>
+                    <li><strong>Ejecutar el emulador:</strong> Ejecutar <code>python main.py roms/tetris.gb &gt; cpu_trace.log</code> para redirigir la salida a un archivo.</li>
+                    <li><strong>Analizar la salida:</strong> Buscar patrones repetitivos en el log que indiquen el bucle infinito.</li>
+                </ol>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El trazado se ejecuta dentro del código C++ compilado, garantizando que capturamos el flujo de ejecución real de la CPU emulada.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set</a></li>
+                    <li>Implementación basada en conocimiento general de arquitectura LR35902 y técnicas de debugging de emuladores.</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Análisis de flujo de control:</strong> Los bucles infinitos en emulación suelen ser causados por saltos condicionales que nunca se cumplen, esperando una condición de hardware que no se está emulando correctamente.</li>
+                        <li><strong>Trazado de instrucciones:</strong> Capturar el estado de la CPU antes de cada instrucción permite identificar patrones repetitivos que revelan bucles de espera.</li>
+                        <li><strong>Limitación de salida:</strong> Es crítico limitar la cantidad de trazas para evitar saturar la consola y colgar el terminal, especialmente en bucles infinitos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Patrón del bucle:</strong> Una vez ejecutado el trazado, necesitamos analizar la salida para identificar qué instrucciones se repiten y qué condición están esperando.</li>
+                        <li><strong>Causa raíz:</strong> Después de identificar el bucle, necesitamos determinar qué componente de hardware no está funcionando correctamente (Timer, PPU, Joypad, etc.).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que el bucle es causado por una condición de hardware no cumplida, no por un error en la implementación de las instrucciones. El trazado nos permitirá confirmar o refutar esta hipótesis.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con el trazado activado y analizar la salida.</li>
+                    <li>[ ] Identificar el patrón repetitivo en las primeras 200 instrucciones.</li>
+                    <li>[ ] Determinar qué condición de hardware está esperando el bucle.</li>
+                    <li>[ ] Implementar la corrección del componente de hardware faltante o incorrecto.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

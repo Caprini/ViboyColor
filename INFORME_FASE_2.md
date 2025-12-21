@@ -329,6 +329,92 @@ La verificación de este sensor es funcional, no unitaria. El test consiste en e
 
 ---
 
+### 2025-12-21 - Step 0205: Debug Final: Reactivación de la Traza de CPU para Cazar el Bucle
+**Estado**: 🔧 DRAFT
+
+El sensor de VRAM del Step 0204 ha confirmado que la CPU nunca intenta escribir en la memoria de vídeo. Esto significa que el emulador está atrapado en un bucle lógico de software (un "wait loop") al inicio de la ejecución de la ROM, antes de cualquier rutina gráfica. Para identificar este bucle, reactivamos el sistema de trazado de la CPU para capturar las primeras 200 instrucciones ejecutadas desde el arranque, revelando el patrón del bucle infinito y permitiéndonos entender qué condición de hardware no estamos cumpliendo.
+
+**Objetivo:**
+- Reactivar el sistema de trazado de la CPU para capturar las primeras 200 instrucciones ejecutadas.
+- Identificar el patrón repetitivo que revela el bucle infinito.
+- Determinar qué registro o flag está comprobando el juego y por qué falla.
+
+**Concepto de Hardware: Análisis de Flujo de Control**
+
+Si la CPU no avanza, es porque está ejecutando un salto condicional (`JR`, `JP`, `CALL`, `RET`) que siempre la lleva de vuelta al mismo punto. Al ver la secuencia de instrucciones, identificaremos el bucle (ej: "Lee registro X, Compara con Y, Salta si no es igual").
+
+Los bucles de espera comunes en el arranque de la Game Boy incluyen:
+- **Bucle de Joypad:** `LD A, (FF00)` → `BIT ...` → `JR ...` (Esperando que se suelte un botón).
+- **Bucle de Timer:** `LD A, (FF04)` → `CP ...` → `JR ...` (Esperando a que el timer avance).
+- **Bucle de V-Blank:** `LDH A, (44)` (Lee LY) → `CP 90` (Compara con 144) → `JR NZ` (Salta si no es VBlank).
+- **Bucle de Checksum:** Lectura de memoria y comparaciones matemáticas.
+
+El último patrón que se repita en la traza será nuestro culpable. Al ver la secuencia exacta de instrucciones, podremos identificar qué registro o flag está comprobando el juego y por qué falla.
+
+**Implementación:**
+
+1. **Modificación en `CPU::step()` en `src/core/cpp/CPU.cpp`**:
+   - Se añadió `#include <cstdio>` para acceso a `printf`.
+   - Se implementó un sistema de trazado simple con variables estáticas para controlar el límite de instrucciones.
+   - El trazado captura el estado de la CPU antes de ejecutar cada instrucción, incluyendo:
+     - Contador de instrucción (0-199)
+     - Program Counter (PC) actual
+     - Opcode que se va a ejecutar
+     - Estado de todos los registros principales (AF, BC, DE, HL, SP)
+
+   ```cpp
+   // --- TRAZA DE CPU (Step 0205) ---
+   // Variables estáticas para el control de la traza
+   static int debug_trace_counter = 0;
+   static const int DEBUG_TRACE_LIMIT = 200;
+   
+   // Imprimir las primeras N instrucciones para identificar el bucle de arranque
+   if (debug_trace_counter < DEBUG_TRACE_LIMIT) {
+       uint8_t opcode_preview = mmu_->read(regs_->pc);
+       printf("[CPU TRACE %03d] PC: 0x%04X | Opcode: 0x%02X | AF: 0x%04X | BC: 0x%04X | DE: 0x%04X | HL: 0x%04X | SP: 0x%04X\n", 
+              debug_trace_counter, regs_->pc, opcode_preview, regs_->af, regs_->get_bc(), regs_->get_de(), regs_->get_hl(), regs_->sp);
+       debug_trace_counter++;
+   }
+   // --------------------------------
+   ```
+
+   **Decisiones de diseño:**
+   - **Límite de 200 instrucciones:** Suficiente para capturar varios ciclos de un bucle repetitivo sin inundar la consola.
+   - **Variables estáticas:** Permiten mantener el estado del contador entre llamadas a `step()` sin necesidad de modificar la interfaz de la clase.
+   - **Lectura previa del opcode:** Leemos el opcode directamente de memoria antes de llamar a `fetch_byte()` para no modificar el PC antes de imprimir el estado.
+   - **Inclusión de todos los registros:** El estado completo de los registros permite identificar qué valores está comparando el bucle.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Agregado sistema de trazado con `#include <cstdio>` y variables estáticas de control.
+- `docs/bitacora/entries/2025-12-21__0205__debug-final-reactivacion-traza-cpu-cazar-bucle.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0205
+
+**Tests y Verificación:**
+
+Para verificar el trazado:
+
+1. **Recompilar el módulo C++**:
+   ```bash
+   .\rebuild_cpp.ps1
+   # O usando setup.py:
+   python setup.py build_ext --inplace
+   ```
+
+2. **Ejecutar el emulador**:
+   ```bash
+   python main.py roms/tetris.gb > cpu_trace.log
+   ```
+   Redirigir la salida a un archivo es recomendable para facilitar el análisis.
+
+3. **Analizar la salida**: Buscar patrones repetitivos en el log que indiquen el bucle infinito.
+
+**Validación de módulo compilado C++**: El trazado se ejecuta dentro del código C++ compilado, garantizando que capturamos el flujo de ejecución real de la CPU emulada.
+
+**Conclusión:** Este Step reactiva el sistema de trazado de la CPU para identificar el bucle infinito que está bloqueando la ejecución. Al capturar las primeras 200 instrucciones, podremos ver el patrón repetitivo y determinar qué condición de hardware no estamos cumpliendo. El análisis de la traza revelará el componente faltante o incorrecto que está causando el deadlock.
+
+---
+
 ### 2025-12-21 - Step 0202: Test del Checkerboard: Validación del Pipeline de Renderizado
 **Estado**: 🔧 DRAFT
 

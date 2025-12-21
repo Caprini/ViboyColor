@@ -3,6 +3,7 @@
 #include "Registers.hpp"
 #include "PPU.hpp"
 #include "Timer.hpp"
+#include <cstdio>
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
@@ -460,7 +461,20 @@ int CPU::step() {
     }
     
     // ========== FASE 4: Fetch-Decode-Execute ==========
-    // Guardar PC actual antes de fetch para el trazado (Step 0195)
+    // --- TRAZA DE CPU (Step 0205) ---
+    // Variables estáticas para el control de la traza
+    static int debug_trace_counter = 0;
+    static const int DEBUG_TRACE_LIMIT = 200;
+    
+    // Imprimir las primeras N instrucciones para identificar el bucle de arranque
+    if (debug_trace_counter < DEBUG_TRACE_LIMIT) {
+        uint8_t opcode_preview = mmu_->read(regs_->pc);
+        printf("[CPU TRACE %03d] PC: 0x%04X | Opcode: 0x%02X | AF: 0x%04X | BC: 0x%04X | DE: 0x%04X | HL: 0x%04X | SP: 0x%04X\n", 
+               debug_trace_counter, regs_->pc, opcode_preview, regs_->af, regs_->get_bc(), regs_->get_de(), regs_->get_hl(), regs_->sp);
+        debug_trace_counter++;
+    }
+    // --------------------------------
+    
     // Fetch: Leer opcode de memoria
     uint8_t opcode = fetch_byte();
 
