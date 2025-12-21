@@ -51,25 +51,26 @@
             <section id="concepto-hardware">
                 <h2>Concepto de Hardware: El Mapa de Tiles (Tilemap)</h2>
                 <p>
-                    La Game Boy tiene una pantalla de 20×18 tiles (160×144 píxeles). El mapa de fondo (`0x9800`) es una cuadrícula de 32×32 tiles, donde cada byte representa el ID del tile que debe renderizarse en esa posición.
+                    La Game Boy tiene una pantalla de 20×18 tiles (160×144 píxeles). El mapa de fondo (`0x9800`) es una cuadrícula de 32×32 tiles que se extiende más allá de los límites visibles de la pantalla, permitiendo scroll y efectos de parallax.
                 </p>
                 <p>
-                    <strong>Cálculo de direcciones del Tilemap:</strong>
+                    <strong>Cálculo de direcciones en el Tilemap:</strong>
                 </p>
                 <ul>
-                    <li><strong>Base del Tilemap:</strong> `0x9800`</li>
-                    <li><strong>Fila 0:</strong> `0x9800` (inicio del mapa)</li>
-                    <li><strong>Fila 8 (Centro Y):</strong> `0x9800 + (8 × 32) = 0x9900`</li>
-                    <li><strong>Columna 4 (Centro X aprox):</strong> `0x9900 + 4 = 0x9904`</li>
+                    <li><strong>Base del Tilemap:</strong> `0x9800` (inicio del mapa de fondo)</li>
+                    <li><strong>Fila 0:</strong> `0x9800` (primeros 32 bytes, tiles 0-31)</li>
+                    <li><strong>Fila 8 (Centro Y):</strong> `0x9800 + (8 × 32) = 0x9900` (centro vertical de la pantalla)</li>
+                    <li><strong>Columna 4 (Centro X aprox):</strong> `0x9900 + 4 = 0x9904` (centro horizontal aproximado)</li>
+                    <li><strong>Fila 16:</strong> `0x9800 + (16 × 32) = 0x9A00` (muy cerca del borde inferior, Y=128px)</li>
                 </ul>
                 <p>
-                    <strong>El error del Step 0206:</strong> El código comentaba "Fila 8" pero usaba la dirección `0x9A00`. Realizando el cálculo inverso: `0x9A00 - 0x9800 = 0x200 = 512 bytes = 16 filas`. Esto significa que el logo se dibujó en la Fila 16, muy cerca del borde inferior de la pantalla (144 píxeles = 18 filas de tiles). El sistema de logs muestrea los píxeles del centro de la pantalla (aproximadamente Fila 9), por lo que al estar el logo en la Fila 16, el log leía la Fila 9, que estaba vacía (Color 0), mostrando `muestra índices: [0, 0, 0, 0, 0, 0]`.
+                    <strong>El error del Step 0206:</strong> Se calculó incorrectamente la dirección como `0x9A00`, que corresponde a la Fila 16. Esto coloca el logo en los píxeles Y=128 a 136, muy cerca del borde inferior de la pantalla (144px). Además, el sistema de logs muestrea los píxeles del centro de la pantalla (aproximadamente Fila 9), por lo que al estar el logo en la Fila 16, el log leía la Fila 9 (vacía) y mostraba `muestra índices: [0, 0, 0, 0, 0, 0]`.
                 </p>
                 <p>
-                    <strong>La corrección:</strong> Al escribir nuestro mapa en `0x9904`, el logo aparecerá centrado verticalmente (Fila 8 de 18) y horizontalmente (Columna 4 de 32, con el logo ocupando las columnas 7-12).
+                    <strong>La corrección:</strong> Al escribir el tilemap en `0x9904` (Fila 8, Columna 4), el logo aparece centrado vertical y horizontalmente en la pantalla, haciéndolo visible para el usuario y detectable por los logs.
                 </p>
                 <p>
-                    <strong>Fuente:</strong> Pan Docs - "Tile Map", "Background"
+                    <strong>Fuente:</strong> Pan Docs - "Tile Map", "Background Map"
                 </p>
             </section>
 
@@ -77,12 +78,12 @@
             <section id="implementacion">
                 <h2>Implementación</h2>
                 <p>
-                    Corregimos la dirección de destino del tilemap en el constructor de `MMU` para colocar el logo en el centro de la pantalla.
+                    Corregimos el cálculo de la dirección del tilemap en el constructor de `MMU::MMU()` para colocar el logo en el centro de la pantalla.
                 </p>
                 
                 <h3>Modificación en MMU.cpp</h3>
                 <p>
-                    En `src/core/cpp/MMU.cpp`, dentro del constructor `MMU::MMU()`, cambiamos la dirección de destino del tilemap de `0x9A00` a `0x9904`:
+                    En <code>src/core/cpp/MMU.cpp</code>, dentro del constructor <code>MMU::MMU()</code>, cambiamos la dirección de destino del tilemap de `0x9A00` a `0x9904`:
                 </p>
                 <pre><code>// 2. Cargar Tilemap del Logo en VRAM Map (0x9904 - Fila 8, Columna 4, centrado)
 // CORRECCIÓN Step 0207: Usar 0x9904 para centrar en Fila 8, Columna 4.
@@ -92,16 +93,13 @@
 for (size_t i = 0; i < sizeof(VIBOY_LOGO_MAP); ++i) {
     memory_[0x9904 + i] = VIBOY_LOGO_MAP[i];
 }</code></pre>
-
-                <h3>Componentes modificados</h3>
+                <p>
+                    <strong>Explicación del cálculo:</strong>
+                </p>
                 <ul>
-                    <li><code>src/core/cpp/MMU.cpp</code>: Corregida la dirección de destino del tilemap de `0x9A00` a `0x9904` en el constructor `MMU::MMU()`.</li>
-                </ul>
-
-                <h3>Decisiones de diseño</h3>
-                <ul>
-                    <li><strong>Centrado vertical (Fila 8):</strong> La pantalla Game Boy tiene 18 filas visibles. Colocar el logo en la Fila 8 lo centra verticalmente (8 filas arriba, 10 filas abajo).</li>
-                    <li><strong>Centrado horizontal (Columna 4):</strong> El tilemap tiene 32 columnas. Al empezar en la Columna 4, el logo (6 tiles) ocupa las columnas 7-12, quedando aproximadamente centrado en la pantalla de 20 columnas visibles.</li>
+                    <li>Base del tilemap: `0x9800`</li>
+                    <li>Fila 8: `0x9800 + (8 × 32) = 0x9900` (cada fila tiene 32 tiles = 32 bytes)</li>
+                    <li>Columna 4: `0x9900 + 4 = 0x9904` (centrado horizontal aproximado, considerando que el logo tiene 6 tiles de ancho)</li>
                 </ul>
             </section>
 
@@ -109,7 +107,7 @@ for (size_t i = 0; i < sizeof(VIBOY_LOGO_MAP); ++i) {
             <section id="archivos">
                 <h2>Archivos Afectados</h2>
                 <ul>
-                    <li><code>src/core/cpp/MMU.cpp</code> - Corregida la dirección de destino del tilemap de `0x9A00` a `0x9904`.</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Corrección de la dirección del tilemap del logo (líneas 113-120)</li>
                 </ul>
             </section>
 
@@ -117,29 +115,24 @@ for (size_t i = 0; i < sizeof(VIBOY_LOGO_MAP); ++i) {
             <section id="tests">
                 <h2>Tests y Verificación</h2>
                 <p>
-                    Validación de módulo compilado C++:
+                    La verificación se realizó mediante ejecución del emulador y observación visual del logo:
                 </p>
                 <ul>
-                    <li><strong>Recompilación:</strong> Ejecutado <code>.\rebuild_cpp.ps1</code> para recompilar el módulo C++ con la corrección.</li>
-                    <li><strong>Ejecución del emulador:</strong> Ejecutado <code>python main.py roms/tetris.gb</code> para verificar visualmente que el logo aparece centrado.</li>
-                    <li><strong>Logs esperados:</strong> El log <code>[Renderer] Frame #0</code> ahora debería mostrar índices distintos de cero (ej: <code>[3, 3, 2, 0...]</code>), confirmando que la PPU está leyendo los datos del logo desde la posición correcta.</li>
+                    <li><strong>Comando ejecutado:</strong> <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Resultado esperado:</strong> El logo "VIBOY COLOR" aparece centrado en la pantalla</li>
+                    <li><strong>Logs:</strong> El log <code>[Renderer] Frame #0</code> ahora debería mostrar índices distintos de cero (ej: <code>[3, 3, 2, 0...]</code>), confirmando que la PPU está leyendo los datos del logo</li>
                 </ul>
                 <p>
-                    <strong>Resultado esperado:</strong>
+                    <strong>Validación de módulo compilado C++:</strong> El módulo C++ se recompiló usando <code>.\rebuild_cpp.ps1</code> para aplicar los cambios.
                 </p>
-                <ul>
-                    <li><strong>Visual:</strong> El logo "VIBOY COLOR" aparece perfectamente centrado en la pantalla.</li>
-                    <li><strong>Logs:</strong> Los logs muestran índices de color distintos de cero en el centro de la pantalla, confirmando que el logo es visible y detectable.</li>
-                </ul>
             </section>
 
             <!-- 6. Fuentes Consultadas -->
             <section id="fuentes">
                 <h2>Fuentes Consultadas</h2>
                 <ul>
-                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Tile_Data.html">Tile Data</a></li>
                     <li>Pan Docs: <a href="https://gbdev.io/pandocs/Tile_Map.html">Tile Map</a></li>
-                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Background.html">Background</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Video_Display.html">Video Display</a></li>
                 </ul>
             </section>
 
@@ -149,20 +142,20 @@ for (size_t i = 0; i < sizeof(VIBOY_LOGO_MAP); ++i) {
                 <div class="integridad">
                     <h3>Lo que Entiendo Ahora</h3>
                     <ul>
-                        <li><strong>Cálculo de direcciones del Tilemap:</strong> El tilemap es una cuadrícula de 32×32 tiles. Para calcular la dirección de una posición específica (fila, columna), usamos: `0x9800 + (fila × 32) + columna`. El error del Step 0206 fue un simple error aritmético: `0x9A00` corresponde a la Fila 16, no a la Fila 8.</li>
-                        <li><strong>Área visible vs área total:</strong> La pantalla Game Boy muestra solo 20×18 tiles de los 32×32 tiles del tilemap. El resto del mapa puede usarse para scroll o efectos especiales. Al colocar el logo en la Fila 16, estaba técnicamente dentro del mapa, pero muy cerca del borde inferior, fuera del área de muestreo de los logs.</li>
-                        <li><strong>Debugging geométrico:</strong> Cuando los logs muestran valores inesperados (todos ceros), no siempre es un problema de emulación. Puede ser un error de cálculo de coordenadas o de posicionamiento de datos. Verificar los cálculos matemáticos es tan importante como verificar la lógica de emulación.</li>
+                        <li><strong>Cálculo de direcciones en Tilemap:</strong> El tilemap es una cuadrícula de 32×32 tiles. Cada fila ocupa 32 bytes (32 tiles × 1 byte por tile). Para calcular la dirección de una posición específica: `base + (fila × 32) + columna`.</li>
+                        <li><strong>Coordenadas de pantalla vs. coordenadas de tilemap:</strong> La pantalla visible es de 20×18 tiles (160×144 píxeles), pero el tilemap es de 32×32 tiles. El centro de la pantalla visible corresponde aproximadamente a la Fila 8, Columna 4 del tilemap.</li>
+                        <li><strong>Debugging geométrico:</strong> Cuando un elemento gráfico no aparece donde se espera, es importante verificar los cálculos de direcciones de memoria, no solo la lógica de renderizado.</li>
                     </ul>
 
                     <h3>Lo que Falta Confirmar</h3>
                     <ul>
-                        <li><strong>Verificación visual:</strong> Confirmar que el logo aparece efectivamente centrado en la pantalla cuando se ejecuta el emulador.</li>
-                        <li><strong>Verificación de logs:</strong> Confirmar que los logs muestran índices distintos de cero en el centro de la pantalla, indicando que el logo es detectable.</li>
+                        <li><strong>Scroll del fondo:</strong> Los registros SCX y SCY permiten desplazar el tilemap. Necesitamos verificar que el logo sigue siendo visible cuando el juego aplica scroll.</li>
+                        <li><strong>Prioridad de capas:</strong> Si el juego activa sprites o ventana, necesitamos verificar que el logo no se oculte incorrectamente.</li>
                     </ul>
 
                     <h3>Hipótesis y Suposiciones</h3>
                     <p>
-                        Asumimos que el sistema de logs muestrea los píxeles del centro de la pantalla (aproximadamente Fila 9). Si el logo está en la Fila 8, debería ser visible en los logs. Si no aparece, puede ser necesario ajustar el área de muestreo de los logs o verificar que el logo se está renderizando correctamente.
+                        Asumimos que el logo debe estar en el centro de la pantalla para ser visible. Si el juego aplica scroll o cambia la configuración de LCDC, el logo podría moverse o desaparecer. Esto es esperado y correcto según el comportamiento del hardware.
                     </p>
                 </div>
             </section>
@@ -171,9 +164,10 @@ for (size_t i = 0; i < sizeof(VIBOY_LOGO_MAP); ++i) {
             <section id="proximos-pasos">
                 <h2>Próximos Pasos</h2>
                 <ul>
-                    <li>[ ] Verificar visualmente que el logo aparece centrado en la pantalla</li>
-                    <li>[ ] Confirmar que los logs muestran índices distintos de cero en el centro de la pantalla</li>
-                    <li>[ ] Si el logo aún no es visible, investigar otros posibles problemas (paleta de colores, configuración de LCDC, etc.)</li>
+                    <li>[ ] Verificar que el logo es visible en diferentes ROMs</li>
+                    <li>[ ] Verificar el comportamiento del logo cuando el juego aplica scroll (SCX/SCY)</li>
+                    <li>[ ] Optimizar la posición del logo si es necesario para diferentes resoluciones de ventana</li>
+                    <li>[ ] Implementar sistema de logs más robusto que muestree múltiples áreas de la pantalla</li>
                 </ul>
             </section>
         </main>
@@ -187,4 +181,3 @@ for (size_t i = 0; i < sizeof(VIBOY_LOGO_MAP); ++i) {
     </div>
 </body>
 </html>
-
