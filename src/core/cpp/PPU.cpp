@@ -63,11 +63,22 @@ void PPU::step(int cpu_cycles) {
     uint8_t lcdc = mmu_->read(IO_LCDC);
     bool lcd_enabled = (lcdc & 0x80) != 0;
     
+    // --- Step 0227: FIX LCD DISABLE BEHAVIOR ---
+    // Pan Docs: When LCD is disabled (LCDC bit 7 = 0), the PPU stops immediately
+    // and the LY register is reset to 0 and remains fixed at 0. The internal clock
+    // is also reset. This is critical for proper synchronization when the game
+    // turns the LCD back on, as it expects LY to be 0.
     if (!lcd_enabled) {
-        // LCD apagado: PPU detenida, LY se mantiene en 0
+        // Resetear contadores y estado cuando el LCD está apagado
+        ly_ = 0;
+        clock_ = 0;
+        mode_ = MODE_0_HBLANK;  // H-Blank es el modo más seguro cuando está apagado
+        
         // No acumulamos ciclos ni avanzamos líneas
+        // La PPU está completamente detenida hasta que el LCD se vuelva a encender
         return;
     }
+    // -------------------------------------------
     
     // Acumular ciclos en el clock interno (solo si el LCD está encendido)
     clock_ += cpu_cycles;

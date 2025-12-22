@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hardware Fix: LCD Apagado y Reset de LY - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Hardware Fix: LCD Apagado y Reset de LY</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0227
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0226__testigo-ly-lectura.html">Anterior (0226)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    La autopsia del Step 0225 reveló un comportamiento crítico incorrecto: la PPU seguía incrementando `LY` (valor 97) a pesar de que el LCD estaba apagado (`LCDC Bit 7 = 0`). Según la especificación del hardware (Pan Docs), cuando el LCD se deshabilita, la PPU debe detenerse inmediatamente y el registro `LY` debe reiniciarse y mantenerse en 0. Este fix corrige la implementación para asegurar que los contadores internos (`ly_`, `clock_`, `mode_`) se reseteen correctamente cuando el LCD está apagado, permitiendo que los juegos sincronicen correctamente el reinicio de la pantalla.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El registro <strong>LCDC (LCD Control)</strong> en la dirección <code>0xFF40</code> controla el estado de la pantalla del Game Boy. El <strong>bit 7</strong> de este registro es especialmente crítico: cuando está en <strong>0</strong>, el LCD está completamente deshabilitado; cuando está en <strong>1</strong>, el LCD está encendido y la PPU opera normalmente.
+                </p>
+                <p>
+                    Según la documentación oficial (Pan Docs), cuando el LCD se deshabilita (bit 7 de LCDC = 0), ocurre lo siguiente:
+                </p>
+                <ul>
+                    <li><strong>La PPU se detiene inmediatamente:</strong> No se procesan líneas de escaneo, no se renderizan píxeles.</li>
+                    <li><strong>El registro LY se resetea a 0:</strong> El valor de LY (0xFF44) se establece en 0 y permanece fijo en ese valor mientras el LCD esté deshabilitado.</li>
+                    <li><strong>El reloj interno se detiene:</strong> Los contadores de ciclos de la PPU se resetean.</li>
+                </ul>
+                <p>
+                    Este comportamiento es crítico porque los juegos utilizan esta característica para sincronizar el reinicio de la pantalla. Un patrón típico es:
+                </p>
+                <ol>
+                    <li>El juego apaga el LCD (escribe 0x00 o similar en LCDC, con bit 7 = 0)</li>
+                    <li>El juego copia datos gráficos a la VRAM (tiles, mapas, etc.)</li>
+                    <li>El juego vuelve a encender el LCD (escribe en LCDC con bit 7 = 1)</li>
+                    <li>El juego asume que LY es 0 cuando el LCD se enciende</li>
+                </ol>
+                <p>
+                    Si LY no está en 0 cuando el LCD se vuelve a encender, el juego puede confundirse sobre en qué línea se encuentra y fallar al renderizar correctamente. En nuestra autopsia, detectamos `LY=97` con `LCDC=0x08` (bit 7 apagado), lo que indicaba que la PPU seguía "corriendo fantasma" aunque debería estar completamente detenida.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "LCD Control Register (LCDC)" y "LCD Y-Coordinate (LY)"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Modificamos el método `PPU::step()` para que cuando detecte que el LCD está apagado, no solo retorne sin procesar, sino que también resetee explícitamente los contadores internos de la PPU.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>PPU.cpp:</strong> Actualizado el bloque de verificación de LCD apagado en `step()` para resetear `ly_ = 0`, `clock_ = 0` y `mode_ = MODE_0_HBLANK` antes de retornar.</li>
+                </ul>
+
+                <h3>Cambio implementado</h3>
+                <p>
+                    En lugar de simplemente retornar cuando el LCD está apagado:
+                </p>
+                <pre><code>if (!lcd_enabled) {
+    // LCD apagado: PPU detenida, LY se mantiene en 0
+    // No acumulamos ciclos ni avanzamos líneas
+    return;
+}</code></pre>
+                <p>
+                    Ahora reseteamos explícitamente los contadores:
+                </p>
+                <pre><code>// --- Step 0227: FIX LCD DISABLE BEHAVIOR ---
+// Pan Docs: When LCD is disabled (LCDC bit 7 = 0), the PPU stops immediately
+// and the LY register is reset to 0 and remains fixed at 0. The internal clock
+// is also reset. This is critical for proper synchronization when the game
+// turns the LCD back on, as it expects LY to be 0.
+if (!lcd_enabled) {
+    // Resetear contadores y estado cuando el LCD está apagado
+    ly_ = 0;
+    clock_ = 0;
+    mode_ = MODE_0_HBLANK;  // H-Blank es el modo más seguro cuando está apagado
+    
+    // No acumulamos ciclos ni avanzamos líneas
+    // La PPU está completamente detenida hasta que el LCD se vuelva a encender
+    return;
+}
+// -------------------------------------------</code></pre>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Elegimos resetear `mode_` a `MODE_0_HBLANK` (H-Blank) porque es el modo más "neutro" cuando la PPU está apagada. En el hardware real, cuando el LCD se apaga, el modo técnicamente puede ser cualquiera, pero H-Blank es el más seguro y común. Lo importante es que `ly_` y `clock_` se reseteen a 0.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Modificado `step()` para resetear contadores cuando LCD está apagado</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para verificar que el fix funciona correctamente:
+                </p>
+                <ol>
+                    <li><strong>Recompilar:</strong> <code>.\rebuild_cpp.ps1</code> o <code>python setup.py build_ext --inplace</code></li>
+                    <li><strong>Ejecutar:</strong> <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Verificar en la autopsia:</strong> Cuando el LCD está apagado (LCDC bit 7 = 0), el valor de LY debe ser 0, no 97 ni ningún otro valor.</li>
+                </ol>
+                <p>
+                    <strong>Resultado esperado:</strong> La autopsia debería mostrar `LY: 0` cuando `LCDC: 0x08` (o cualquier valor con bit 7 = 0), indicando que la PPU respeta correctamente el estado de apagado del LCD.
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Este fix afecta directamente el comportamiento del módulo C++ de la PPU. La verificación se realiza mediante la autopsia del sistema, que lee directamente el estado interno de la PPU compilada.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html">LCD Control Register (LCDC)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html#lcd-status-register-stat-ff41">LCD Status Register (STAT)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html#lcd-y-coordinate-ly-ff44">LCD Y-Coordinate (LY)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Comportamiento del LCD Apagado:</strong> Cuando el bit 7 de LCDC es 0, la PPU se detiene completamente y LY se resetea a 0. Esto no es solo una optimización, sino un comportamiento crítico del hardware que los juegos utilizan para sincronización.</li>
+                        <li><strong>Importancia de LY=0:</strong> Los juegos asumen que cuando encienden el LCD, LY comienza en 0. Si LY tiene un valor diferente, puede causar problemas de renderizado o sincronización.</li>
+                        <li><strong>Reset de Contadores:</strong> No es suficiente con no procesar ciclos cuando el LCD está apagado; debemos resetear activamente los contadores para reflejar el estado real del hardware.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento del registro STAT:</strong> Cuando el LCD está apagado, ¿qué valor debe tener el registro STAT? La documentación no es completamente clara sobre esto, pero en nuestro caso, al resetear el modo a H-Blank, el STAT debería reflejar ese modo.</li>
+                        <li><strong>Efecto en otros registros:</strong> ¿Hay otros registros o estados de la PPU que deban resetearse cuando el LCD se apaga? Por ahora, solo reseteamos LY, clock y mode, pero podría haber más.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que resetear `mode_` a `MODE_0_HBLANK` es el comportamiento correcto cuando el LCD está apagado. La documentación no especifica explícitamente qué modo debe reportarse cuando el LCD está apagado, pero H-Blank es el modo más seguro y neutral. Si futuros tests revelan que esto causa problemas, podríamos necesitar ajustar esta decisión.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con el fix aplicado y verificar que LY=0 cuando LCD está apagado</li>
+                    <li>[ ] Verificar si el juego ahora puede reiniciar la pantalla correctamente</li>
+                    <li>[ ] Si sigue habiendo problemas, investigar el comportamiento del registro STAT cuando LCD está apagado</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

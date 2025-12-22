@@ -32,6 +32,31 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0227: Fix - Comportamiento de LCD Apagado (Reset LY)
+**Estado**: 🔧 EN PROCESO
+
+La autopsia del Step 0225 reveló que la PPU seguía incrementando `LY` (valor 97) a pesar de que el LCD estaba apagado (`LCDC Bit 7 = 0`). Esto viola la especificación del hardware (Pan Docs), que dicta que cuando el LCD se deshabilita, la PPU se detiene inmediatamente y el registro `LY` debe reiniciarse y mantenerse en 0. Este comportamiento errático puede desincronizar la lógica de reinicio de pantalla del juego.
+
+**Objetivo:**
+- Forzar `LY = 0`, `clock = 0` y `mode = 0` (H-Blank) en `PPU::step()` cuando el LCD está apagado.
+- Asegurar que cuando el juego vuelve a encender el LCD, encuentra `LY` en 0 como espera.
+
+**Implementación:**
+1. **Modificación en `PPU.cpp`**: Actualizado el bloque de verificación de LCD apagado en `step()` para resetear explícitamente los contadores internos (`ly_ = 0`, `clock_ = 0`, `mode_ = MODE_0_HBLANK`) en lugar de solo retornar. Esto garantiza que el estado interno de la PPU refleje correctamente que el LCD está deshabilitado.
+
+**Concepto de Hardware:**
+Según Pan Docs, cuando el bit 7 de LCDC (LCD Enable) es 0, la PPU se apaga inmediatamente. El registro LY (0xFF44) se resetea a 0 y permanece fijo en ese valor mientras el LCD esté deshabilitado. El reloj interno de la PPU también se detiene. Esta es una característica crítica del hardware que los juegos utilizan para sincronizar el reinicio de la pantalla. Si LY no está en 0 cuando el juego vuelve a encender el LCD, puede confundirse sobre en qué línea se encuentra y fallar al renderizar.
+
+**Archivos Afectados:**
+- `src/core/cpp/PPU.cpp` - Modificado `step()` para resetear contadores cuando LCD está apagado
+
+**Tests:**
+- Recompilar: `.\rebuild_cpp.ps1` o `python setup.py build_ext --inplace`
+- Ejecutar: `python main.py roms/tetris.gb`
+- Verificar en la autopsia que `LY` sea 0 cuando `LCDC` tiene el bit 7 apagado
+
+---
+
 ### 2025-12-22 - Step 0226: El Testigo de LY (Verificación de Lectura)
 **Estado**: 🔍 EN DEPURACIÓN
 
