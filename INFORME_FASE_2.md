@@ -77,53 +77,70 @@ En una arquitectura híbrida Python/C++, el flujo de datos del framebuffer sigue
 
 **Implementación:**
 
-1. **Modificación en `src/viboy.py`**: Se añadió un bloque de código que inspecciona el framebuffer justo cuando llega a Python:
+1. **Sondas en C++ (PPU.cpp)**: Se añadieron tres sondas para rastrear el framebuffer:
+   - `[C++ WRITE PROBE]`: Justo después de escribir en el framebuffer (confirma que se escribe correctamente).
+   - `[C++ BEFORE CLEAR PROBE]`: Justo antes de limpiar el framebuffer (verifica que contiene los datos correctos).
+   - `[C++ AFTER CLEAR PROBE]`: Justo después de limpiar (confirma que la limpieza funciona).
+
+2. **Modificación en `src/viboy.py`**: Se modificó el bucle principal para leer el framebuffer en el momento correcto:
    ```python
-   # --- Step 0213: SONDA DE DATOS PYTHON ---
-   if self._use_cpp and self._ppu is not None:
-       if not hasattr(self, '_debug_frame_printed'):
-           self._debug_frame_printed = False
-       
-       if not self._debug_frame_printed:
-           fb_data = self._ppu.framebuffer
-           p0 = fb_data[0]
-           p8 = fb_data[8]
-           mid = fb_data[23040 // 2]
-           print(f"\n--- [PYTHON DATA PROBE] ---")
-           print(f"Pixel 0 (0,0): {p0} (Esperado: 3)")
-           print(f"Pixel 8 (8,0): {p8}")
-           print(f"Pixel Center: {mid}")
-           print(f"---------------------------\n")
-           self._debug_frame_printed = True
+   # Leer el framebuffer cuando ly_ == 144 (inicio de V-Blank, frame completo)
+   if self._ppu is not None:
+       current_ly = self._ppu.ly
+       if current_ly == 144:  # Inicio de V-Blank, frame completo
+           # CRÍTICO: Hacer una COPIA del framebuffer porque el memoryview
+           # es una vista de la memoria. Si el framebuffer se limpia después,
+           # la vista reflejará los valores limpios.
+           fb_view = self._ppu.framebuffer
+           framebuffer_to_render = bytes(fb_view)  # Copia los datos
    ```
 
 **Archivos Afectados:**
-- `src/viboy.py` - Añadida sonda de datos en el método `run()` (línea ~777) para inspeccionar el framebuffer antes del renderizado
-- `docs/bitacora/entries/2025-12-22__0213__inspeccion-puente-data-probe.html` - Nueva entrada de bitácora
+- `src/core/cpp/PPU.cpp` - Añadidas tres sondas de diagnóstico para rastrear el framebuffer en C++
+- `src/viboy.py` - Modificado el bucle principal para leer el framebuffer cuando `ly_ == 144` y hacer una copia
+- `docs/bitacora/entries/2025-12-22__0213__inspeccion-puente-data-probe.html` - Entrada de bitácora actualizada con hallazgos
 - `docs/bitacora/index.html` - Actualizado con la nueva entrada
 - `INFORME_FASE_2.md` - Actualizado con el Step 0213
 
+**Resultados de las Sondas:**
+
+Las sondas revelaron el problema exacto:
+
+1. **`[C++ WRITE PROBE]`**: Valor escrito: 3, Valor leído: 3 ✅
+2. **`[C++ BEFORE CLEAR PROBE]`**: Pixel 0: 3, Pixel 8: 3, Pixel Center: 3 ✅
+3. **`[C++ AFTER CLEAR PROBE]`**: Pixel 0: 0 ✅ (limpieza correcta)
+4. **`[PYTHON DATA PROBE]`** (antes de la solución): Pixel 0: 0 ❌ (leído después de limpiar)
+5. **`[PYTHON DATA PROBE]`** (después de la solución): Pixel 0: 3 ✅ (leído en el momento correcto)
+
+**Conclusión:**
+- El problema NO está en el puente Cython. El `memoryview` funciona correctamente.
+- El problema es de **sincronización temporal**: Python leía el framebuffer después de que se limpiara.
+- La solución: Leer el framebuffer cuando `ly_ == 144` (inicio de V-Blank) y hacer una copia para preservar los datos.
+
 **Tests y Verificación:**
 
-1. **No requiere recompilación**: Este cambio es puramente en Python, por lo que no es necesario recompilar el módulo C++. Sin embargo, asegúrate de que el código C++ del Step 0212 (Test del Rotulador Negro) sigue activo.
+1. **Recompilación requerida**: Este cambio requiere recompilar el módulo C++ porque añadimos sondas en `PPU.cpp`:
+   ```bash
+   python setup.py build_ext --inplace
+   # O usando el script de PowerShell:
+   .\rebuild_cpp.ps1
+   ```
 
 2. **Ejecución del emulador**:
    ```bash
    python main.py roms/tetris.gb
    ```
 
-3. **Resultado esperado**: Deberías ver en la consola un mensaje como:
-   ```
-   --- [PYTHON DATA PROBE] ---
-   Pixel 0 (0,0): 3 (Esperado: 3)
-   Pixel 8 (8,0): 0
-   Pixel Center: 3
-   ---------------------------
-   ```
+3. **Resultado observado**: Las sondas confirman que:
+   - C++ escribe correctamente en el framebuffer (valor 3).
+   - El framebuffer mantiene los datos correctos hasta antes de limpiarse.
+   - La limpieza funciona correctamente (valor 0 después de limpiar).
+   - Python puede leer los datos correctos cuando se capturan en el momento adecuado (valor 3).
 
-4. **Interpretación**:
-   - **Si `Pixel 0: 3`**: Los datos están llegando correctamente desde C++ a Python. El problema está en `renderer.py`. Necesitamos revisar la conversión de índices de color a RGB, la aplicación de la paleta BGP, y la escritura en la superficie Pygame.
-   - **Si `Pixel 0: 0`**: Los datos NO están llegando correctamente. El problema está en el puente Cython. Necesitamos revisar si `get_framebuffer_ptr()` está devolviendo el puntero correcto, si el `memoryview` está apuntando a la memoria correcta, o si hay algún problema de sincronización.
+**Lecciones Aprendidas:**
+- Un `memoryview` en Python/Cython es una vista de la memoria actual, no una copia histórica.
+- En sistemas híbridos Python/C++, es crucial entender el momento exacto en que se leen y escriben los datos.
+- La depuración por sondas múltiples permite identificar exactamente dónde se pierden los datos.
 
 **Validación de éxito**: Este test nos dará una respuesta definitiva sobre dónde está el problema, permitiéndonos enfocar nuestros esfuerzos de depuración en el componente correcto.
 

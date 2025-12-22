@@ -128,6 +128,25 @@ void PPU::step(int cpu_cycles) {
         
         // Si pasamos la última línea (153), reiniciar a 0 (nuevo frame)
         if (ly_ > 153) {
+            // --- Step 0213: SONDA C++ - Verificar framebuffer ANTES de limpiar ---
+            // Verificar el framebuffer justo antes de limpiarlo para el siguiente frame
+            static bool cpp_before_clear_probe_printed = false;
+            if (!cpp_before_clear_probe_printed) {
+                uint8_t p0 = framebuffer_[0];
+                uint8_t p8 = framebuffer_[8];
+                uint16_t mid_idx = (SCREEN_HEIGHT * SCREEN_WIDTH) / 2;
+                uint8_t mid = framebuffer_[mid_idx];
+                printf("\n--- [C++ BEFORE CLEAR PROBE] ---\n");
+                printf("Justo ANTES de limpiar framebuffer (ly_ > 153):\n");
+                printf("Pixel 0 (0,0): %d (Esperado: 3)\n", p0);
+                printf("Pixel 8 (8,0): %d\n", p8);
+                printf("Pixel Center (%d): %d\n", mid_idx, mid);
+                printf("Framebuffer ptr: %p\n", (void*)framebuffer_.data());
+                printf("---------------------------\n\n");
+                cpp_before_clear_probe_printed = true;
+            }
+            // -------------------------------------------------
+            
             ly_ = 0;
             // Reiniciar flag de interrupción STAT al cambiar de frame
             stat_interrupt_line_ = 0;
@@ -137,6 +156,19 @@ void PPU::step(int cpu_cycles) {
             // "tick" de hardware que inicia el dibujo, garantizando que el lienzo esté
             // siempre limpio justo antes de que el primer píxel del nuevo fotograma sea dibujado.
             clear_framebuffer();
+            
+            // --- Step 0213: SONDA C++ - Verificar framebuffer DESPUÉS de limpiar ---
+            // Verificar que el framebuffer se limpió correctamente
+            static bool cpp_after_clear_probe_printed = false;
+            if (!cpp_after_clear_probe_printed) {
+                uint8_t p0 = framebuffer_[0];
+                printf("\n--- [C++ AFTER CLEAR PROBE] ---\n");
+                printf("Justo DESPUÉS de limpiar framebuffer:\n");
+                printf("Pixel 0 (0,0): %d (Esperado: 0)\n", p0);
+                printf("---------------------------\n\n");
+                cpp_after_clear_probe_printed = true;
+            }
+            // -------------------------------------------------
         }
     }
     
@@ -368,6 +400,22 @@ void PPU::render_scanline() {
         // Forzamos TODOS los píxeles a color 3 (Negro) para verificar si el problema
         // está en C++ (si esto no funciona) o en Python (si esto funciona pero la pantalla sigue blanca).
         framebuffer_[line_start_index + x] = 3; // FORZAR NEGRO (Índice 3) - SIN CONDICIONES
+        
+        // --- Step 0213: SONDA C++ - Verificar escritura inmediata ---
+        // Verificar que realmente escribimos el valor correcto
+        static bool cpp_write_probe_printed = false;
+        if (ly_ == 0 && x == 0 && !cpp_write_probe_printed) {
+            uint8_t written_value = framebuffer_[line_start_index + x];
+            printf("\n--- [C++ WRITE PROBE] ---\n");
+            printf("Después de escribir en framebuffer[%d]:\n", line_start_index + x);
+            printf("Valor escrito: 3\n");
+            printf("Valor leído: %d\n", written_value);
+            printf("Framebuffer ptr: %p\n", (void*)framebuffer_.data());
+            printf("Framebuffer size: %zu\n", framebuffer_.size());
+            printf("---------------------------\n\n");
+            cpp_write_probe_printed = true;
+        }
+        // -------------------------------------------------
         
         // --- Step 0210: CORRECCIÓN CRÍTICA DE VALIDACIÓN DE VRAM (TEMPORALMENTE DESHABILITADO) ---
         // ERROR ENCONTRADO: La condición `tile_line_addr < 0xA000 - 1` es incorrecta.

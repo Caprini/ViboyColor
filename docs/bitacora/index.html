@@ -62,10 +62,10 @@
                         <div class="entry-meta-index">
                             <strong>Fecha:</strong> 2025-12-22 | 
                             <strong>Step ID:</strong> 0213 | 
-                            <strong>Estado:</strong> <span class="tag tag-draft">🔧 DRAFT</span>
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
                         </div>
                         <p class="entry-summary">
-                            Diagnóstico crítico para verificar la integridad de los datos del framebuffer al cruzar de C++ a Python. A pesar de que la PPU en C++ reporta operaciones correctas y forzamos la escritura de píxeles negros, la pantalla permanece blanca. Implementamos una sonda en viboy.py para inspeccionar los valores crudos del framebuffer (memoryview) tal como llegan a Python, antes de que el renderizador los toque.
+                            Diagnóstico crítico que identificó un problema de sincronización temporal: Python leía el framebuffer después de que C++ lo limpiara. Implementamos sondas en C++ y Python que revelaron que el puente Cython funciona correctamente, pero el framebuffer se leía en el momento incorrecto. Solución: leer el framebuffer cuando ly_ == 144 (inicio de V-Blank) y hacer una copia para preservar los datos.
                         </p>
                     </li>
                     <!-- Entrada 0212 - Test del Rotulador Negro: Escritura Directa -->
