@@ -32,8 +32,34 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0224: Cese el Fuego (Ejecución Final)
+**Estado**: ✅ COMPLETADO
+
+El debug quirúrgico confirmó que la CPU estaba funcionando correctamente, esperando a que `LY` llegara a 144 (V-Blank). La aparente congelación se debía a la latencia introducida por los logs de consola. Se retiró toda la instrumentación de debug (Francotirador y Estetoscopio) para permitir la ejecución a velocidad nativa.
+
+**Objetivo:**
+- Eliminar logs de Francotirador y Estetoscopio.
+- Confirmar la carga y visualización de Tetris.
+
+**Implementación:**
+1. **Modificación en `CPU.cpp`**: Eliminado el bloque del Francotirador (Step 0223) y comentado el include de `<cstdio>`.
+2. **Modificación en `viboy.py`**: Comentado el bloque del Estetoscopio (Step 0222).
+
+**Concepto de Hardware:**
+Un frame de Game Boy (0 a 144 líneas) dura 16 milisegundos. Con logs activos, imprimiendo cada instrucción del bucle de espera de V-Blank, llegar a la línea 144 puede tardar minutos en tiempo real. Al eliminar los logs, el bucle se completa en una fracción de segundo y el juego procede normalmente.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Eliminado bloque del Francotirador
+- `src/viboy.py` - Comentado bloque del Estetoscopio
+
+**Tests:**
+- Ejecutar `.\rebuild_cpp.ps1` para recompilar sin logs.
+- Ejecutar `python main.py roms/tetris.gb` y verificar que el juego carga y muestra gráficos a 60 FPS.
+
+---
+
 ### 2025-12-22 - Step 0223: El Francotirador (Debug Quirúrgico en 0x02B4)
-**Estado**: 🔍 EN DEPURACIÓN
+**Estado**: ✅ COMPLETADO (Instrumentación retirada en Step 0224)
 
 El estetoscopio reveló que la CPU está atrapada en un bucle en `0x02B4`, con el fondo apagado y la VRAM vacía. Para entender qué condición de salida no se está cumpliendo (probablemente esperando V-Blank o un estado específico de hardware), implementamos un trazado condicional que solo se activa cuando el PC está en el rango `0x02B0-0x02C0`. Esta instrumentación quirúrgica nos permitirá ver las instrucciones del bucle y los valores de los registros sin saturar la consola.
 

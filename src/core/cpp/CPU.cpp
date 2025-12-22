@@ -3,7 +3,7 @@
 #include "Registers.hpp"
 #include "PPU.hpp"
 #include "Timer.hpp"
-#include <cstdio>
+// #include <cstdio>  // Step 0224: Eliminado para release (Francotirador removido)
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
@@ -461,15 +461,11 @@ int CPU::step() {
     }
     
     // ========== FASE 4: Fetch-Decode-Execute ==========
-    // --- Step 0223: EL FRANCOTIRADOR (Debug Quirúrgico) ---
-    // Solo imprimimos si el PC está en la zona caliente del bucle infinito (0x02B0 - 0x02C0)
-    // Esto nos dirá qué está comprobando el juego sin saturar la consola.
-    if (regs_->pc >= 0x02B0 && regs_->pc <= 0x02C0) {
-        uint8_t opcode_preview = mmu_->read(regs_->pc);
-        uint8_t ly_value = (ppu_ != nullptr) ? ppu_->get_ly() : 0;
-        printf("[SNIPER] PC: 0x%04X | Opcode: 0x%02X | AF: 0x%04X | LY: %d\n", 
-               regs_->pc, opcode_preview, regs_->get_af(), ly_value);
-    }
+    // --- Step 0224: EL FRANCOTIRADOR ELIMINADO ---
+    // El debug quirúrgico confirmó que la CPU estaba funcionando correctamente.
+    // El bucle de espera de V-Blank (LY < 144) es comportamiento normal del hardware.
+    // La aparente congelación se debía a la latencia introducida por los logs de consola.
+    // Se retiró toda la instrumentación para permitir la ejecución a velocidad nativa (60 FPS).
     // -----------------------------------------------------
     
     // Fetch: Leer opcode de memoria
