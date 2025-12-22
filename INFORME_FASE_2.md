@@ -32,6 +32,36 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0226: El Testigo de LY (Verificación de Lectura)
+**Estado**: 🔍 EN DEPURACIÓN
+
+La autopsia confirmó que la CPU está atascada esperando V-Blank (`LY=144`) con la VRAM vacía. Para entender por qué el bucle de espera nunca termina, instrumentamos `MMU::read` para verificar si la CPU está leyendo correctamente el registro `LY` y si este valor cambia con el tiempo.
+
+**Objetivo:**
+- Confirmar que la CPU lee la dirección `0xFF44`.
+- Verificar si el valor leído se incrementa hasta 144.
+- Determinar si hay una desincronización entre la CPU y la PPU.
+
+**Implementación:**
+1. **Modificación en `MMU.cpp`**: Añadido bloque de debug para LY (0xFF44) en el método `read()`. El código está comentado por defecto para evitar saturar la consola, pero puede activarse descomentando una línea.
+   - El debug imprime el valor de LY cada vez que la CPU lee el registro.
+   - Para activar: Descomentar el `printf` y redirigir la salida a un archivo: `python main.py roms/tetris.gb > ly_log.txt 2>&1`
+
+**Concepto de Hardware:**
+El registro LY (0xFF44) es de solo lectura y contiene la línea de escaneo actual (0-153). Los juegos esperan a que LY llegue a 144 (V-Blank) antes de copiar datos gráficos. Si la CPU nunca ve LY=144, el bucle de espera se ejecuta indefinidamente.
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Añadido bloque de debug para LY (0xFF44)
+
+**Tests:**
+- Recompilar: `.\rebuild_cpp.ps1` o `python setup.py build_ext --inplace`
+- Activar debug: Descomentar el `printf` en `MMU.cpp`
+- Ejecutar con redirección: `python main.py roms/tetris.gb > ly_log.txt 2>&1`
+- Interrumpir tras 2-3 segundos (Ctrl+C)
+- Buscar en `ly_log.txt` si aparece el valor 144
+
+---
+
 ### 2025-12-22 - Step 0225: La Autopsia de los 3 Segundos
 **Estado**: 🔍 EN PROCESO
 

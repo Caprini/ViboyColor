@@ -231,6 +231,26 @@ uint8_t MMU::read(uint16_t addr) const {
         return 0xCF;
     }
     
+    // --- Step 0226: DEBUG DE LY (Registro 0xFF44) ---
+    // Instrumentación para verificar si la CPU está leyendo correctamente el registro LY
+    // y si este valor cambia con el tiempo. Esto ayudará a diagnosticar por qué el
+    // bucle de espera de V-Blank nunca termina.
+    // 
+    // IMPORTANTE: Este printf generará MUCHAS líneas de salida. Para activarlo,
+    // descomenta la siguiente línea y redirige la salida a un archivo:
+    // python main.py roms/tetris.gb > ly_log.txt 2>&1
+    //
+    // Fuente: Pan Docs - "LCD Y-Coordinate (LY)"
+    if (addr == 0xFF44) {
+        if (ppu_ != nullptr) {
+            uint8_t val = ppu_->get_ly();
+            // DESCOMENTAR PARA ACTIVAR DEBUG:
+            // printf("[MMU] Read LY: %d\n", val);
+            return val;
+        }
+        return 0;
+    }
+    
     // Acceso directo al array: O(1), sin overhead de Python
     return memory_[addr];
 }

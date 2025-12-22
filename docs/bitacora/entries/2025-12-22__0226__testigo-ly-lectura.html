@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El Testigo de LY: ¿La CPU es ciega? - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>El Testigo de LY: ¿La CPU es ciega?</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0226
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0225__autopsia-3-segundos.html">Anterior (0225)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    La autopsia del Step 0225 confirmó que la CPU está atascada en el bucle de espera de V-Blank (`LY=144`) con la VRAM completamente vacía. Para entender por qué el bucle nunca termina, instrumentamos `MMU::read` para trazar todas las lecturas del registro `LY` (0xFF44). Esto nos permitirá verificar si la CPU está leyendo correctamente el registro y si el valor se incrementa hasta 144, o si hay una desincronización entre la CPU y la PPU.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El registro <strong>LY (LCD Y-Coordinate)</strong> en la dirección <code>0xFF44</code> contiene la línea de escaneo actual que la PPU está renderizando. Este registro es de <strong>solo lectura</strong> y es actualizado automáticamente por la PPU cada 456 ciclos de CPU (duración de una línea de escaneo).
+                </p>
+                <p>
+                    El registro LY tiene un rango de valores de 0 a 153:
+                </p>
+                <ul>
+                    <li><strong>0-143:</strong> Líneas visibles del frame (modo 3: Pixel Transfer)</li>
+                    <li><strong>144:</strong> Primera línea de V-Blank (modo 0: H-Blank/V-Blank)</li>
+                    <li><strong>145-153:</strong> Resto de V-Blank</li>
+                </ul>
+                <p>
+                    Los juegos de Game Boy típicamente esperan a que LY llegue a 144 antes de copiar datos gráficos a la VRAM, ya que durante V-Blank la PPU no está accediendo a la VRAM y es seguro escribir. El bucle de espera típico es:
+                </p>
+                <pre><code>.wait_vblank:
+  LDH A, (LY)   ; Lee LY (0xFF44)
+  CP 144        ; Compara con 144
+  JR NZ, .wait_vblank ; Si no es 144, repite</code></pre>
+                <p>
+                    Si la CPU nunca ve `LY=144`, el bucle se ejecuta indefinidamente y el juego no progresa. Esto puede ocurrir si:
+                </p>
+                <ul>
+                    <li>La PPU no está actualizando LY correctamente</li>
+                    <li>La CPU lee un valor incorrecto de LY (problema de mapeo de memoria)</li>
+                    <li>Hay una desincronización entre la CPU y la PPU (timing incorrecto)</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "LCD Y-Coordinate (LY)"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Añadimos instrumentación en `MMU::read` para trazar todas las lecturas del registro LY. El código está comentado inicialmente para evitar saturar la consola, pero puede activarse fácilmente descomentando una línea.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>MMU.cpp:</strong> Añadido bloque de debug para LY (0xFF44) que imprime el valor leído cada vez que la CPU accede al registro.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    El código de debug está <strong>comentado por defecto</strong> para evitar saturar la consola durante la ejecución normal. Cuando se necesita activar el debug, el usuario debe:
+                </p>
+                <ol>
+                    <li>Descomentar la línea del <code>printf</code></li>
+                    <li>Redirigir la salida a un archivo: <code>python main.py roms/tetris.gb > ly_log.txt 2>&1</code></li>
+                    <li>Ejecutar durante unos segundos y luego interrumpir con Ctrl+C</li>
+                    <li>Buscar en el log si aparece el valor 144</li>
+                </ol>
+                <p>
+                    Esta estrategia permite obtener evidencia forense sin afectar el rendimiento del emulador durante el desarrollo normal.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Añadido bloque de debug para LY (0xFF44) en el método <code>read()</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para verificar la instrumentación:
+                </p>
+                <ol>
+                    <li><strong>Recompilar:</strong> Ejecutar <code>.\rebuild_cpp.ps1</code> o <code>python setup.py build_ext --inplace</code></li>
+                    <li><strong>Activar debug:</strong> Descomentar la línea del <code>printf</code> en <code>MMU.cpp</code></li>
+                    <li><strong>Ejecutar con redirección:</strong> <code>python main.py roms/tetris.gb > ly_log.txt 2>&1</code></li>
+                    <li><strong>Interrumpir:</strong> Esperar 2-3 segundos y presionar Ctrl+C</li>
+                    <li><strong>Analizar log:</strong> Buscar en <code>ly_log.txt</code> si aparece el valor 144</li>
+                </ol>
+                <p>
+                    <strong>Interpretación de resultados:</strong>
+                </p>
+                <ul>
+                    <li><strong>Si aparece "Read LY: 144":</strong> La CPU SÍ está leyendo el valor correcto. El problema está en otro lugar (quizás el bucle de espera tiene un bug lógico).</li>
+                    <li><strong>Si nunca aparece 144:</strong> La PPU no está actualizando LY correctamente, o hay un problema de sincronización.</li>
+                    <li><strong>Si los valores se repiten mucho:</strong> La CPU está leyendo LY muchas veces dentro de la misma línea (comportamiento esperado en un bucle de espera).</li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El código se ejecuta directamente en C++, sin overhead de Python, garantizando que las lecturas se trazan en tiempo real.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html#lcd-y-coordinate-ly-ff44">LCD Y-Coordinate (LY) - 0xFF44</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>LY es un registro de solo lectura:</strong> La CPU no puede escribir en 0xFF44, solo la PPU lo actualiza automáticamente.</li>
+                        <li><strong>El bucle de espera de V-Blank es crítico:</strong> Si la CPU nunca ve LY=144, el juego no puede copiar datos gráficos y la pantalla permanece en blanco.</li>
+                        <li><strong>La instrumentación debe ser no intrusiva:</strong> Los logs masivos pueden afectar el rendimiento y distorsionar el comportamiento del emulador.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿La CPU realmente lee LY=144?</strong> Necesitamos ejecutar el debug y verificar si el valor 144 aparece en el log.</li>
+                        <li><strong>¿Hay una desincronización de timing?</strong> Si LY sí llega a 144 pero la CPU no lo ve, puede haber un problema de sincronización entre CPU y PPU.</li>
+                        <li><strong>¿El bucle de espera tiene un bug lógico?</strong> Si la CPU ve LY=144 pero el bucle no termina, el problema está en la lógica del bucle (quizás la comparación está mal implementada).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> La CPU está leyendo LY correctamente, pero el valor nunca llega a 144 porque la PPU no está actualizando LY correctamente, o hay una desincronización de timing que hace que la CPU "se pierda" el momento exacto en que LY vale 144.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> El mapeo de memoria de 0xFF44 en MMU es correcto. Si no lo fuera, la CPU leería un valor incorrecto o 0x00 constantemente.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Activar el debug de LY y ejecutar el emulador durante 2-3 segundos</li>
+                    <li>[ ] Analizar el log para verificar si aparece el valor 144</li>
+                    <li>[ ] Si aparece 144: Investigar por qué el bucle de espera no termina (bug lógico)</li>
+                    <li>[ ] Si no aparece 144: Investigar por qué la PPU no actualiza LY correctamente (bug de timing)</li>
+                    <li>[ ] Comparar el patrón de valores de LY con el comportamiento esperado (0→143→144→153→0)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
