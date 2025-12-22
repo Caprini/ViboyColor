@@ -32,6 +32,34 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0237: Francotirador Expandido (Retroceso)
+**Estado**: 🔍 EN DEPURACIÓN
+
+La traza del Step 0236 reveló un bucle infinito en `0x2B2A` donde el juego compara el acumulador `A` con `0xFD` mediante `CP 0xFD`. El valor de `A` es constantemente `0x00`, causando que la comparación falle y el salto condicional `JR NZ` se ejecute, creando un bucle infinito.
+
+**Objetivo:**
+- Identificar la instrucción que precede a `CP 0xFD` y carga el valor en `A`.
+- Determinar de dónde lee el valor (memoria, registro, pila).
+- Verificar si la memoria está inicializada correctamente o si el valor se escribió en una dirección diferente.
+
+**Implementación:**
+1. **Modificación en `CPU.cpp`**: Expandido el rango de trazado del Francotirador desde `0x2B2A-0x2B35` a `0x2B20-0x2B30`, moviendo el límite inferior hacia atrás para capturar las instrucciones que preceden a la comparación.
+2. **Salida simplificada**: Mostramos solo `A` y `HL` en los logs para facilitar la identificación de cargas desde memoria.
+
+**Concepto de Hardware:**
+Cuando un programa entra en un bucle infinito debido a una comparación que siempre falla, es crítico identificar qué instrucción carga el valor que se está comparando. Si el valor proviene de memoria (WRAM, VRAM, HRAM), puede indicar que la memoria no se ha inicializado correctamente, que una rutina de inicialización no se ejecutó, o que el valor esperado se escribió en una dirección diferente. En el caso de Tetris, la traza mostró que `HL` apunta a `0xE7F9` (WRAM) y que `DE` se incrementa de 2 en 2, sugiriendo un bucle de copia o verificación de memoria.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Expansión del rango de trazado del Francotirador (Step 0237)
+
+**Tests:**
+- Recompilar: `.\rebuild_cpp.ps1`
+- Ejecutar: `python main.py roms/tetris.gb`
+- Observar los logs `[SNIPER]` cuando el PC entre en la zona 0x2B20-0x2B30
+- Buscar instrucciones que carguen `A` antes de llegar a `0x2B2A` (LD A, (HL), LD A, (DE), POP AF, etc.)
+
+---
+
 ### 2025-12-22 - Step 0236: Francotirador II - El Bucle de la Muerte
 **Estado**: 🔍 EN DEPURACIÓN
 

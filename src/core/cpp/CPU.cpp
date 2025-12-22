@@ -461,16 +461,17 @@ int CPU::step() {
     }
     
     // ========== FASE 4: Fetch-Decode-Execute ==========
-    // --- Step 0236: FRANCOTIRADOR EN 0x2B30 ---
-    // Analizamos el nuevo punto de bloqueo.
-    if (regs_->pc >= 0x2B2A && regs_->pc <= 0x2B35) {
+    // --- Step 0237: FRANCOTIRADOR EXPANDIDO (RETROCESO) ---
+    // Ampliamos el rango hacia atrás (0x2B20) para identificar la instrucción
+    // que carga A antes de la comparación CP 0xFD en 0x2B2A.
+    if (regs_->pc >= 0x2B20 && regs_->pc <= 0x2B30) {
         uint8_t opcode = mmu_->read(regs_->pc);
         
         // Leemos el siguiente byte por si es un LDH (n) o CP n
         uint8_t next_byte = mmu_->read(regs_->pc + 1);
         
-        printf("[SNIPER] PC:%04X | OP:%02X %02X | AF:%04X | BC:%04X | DE:%04X | HL:%04X\n", 
-               regs_->pc, opcode, next_byte, regs_->af, regs_->get_bc(), regs_->get_de(), regs_->get_hl());
+        printf("[SNIPER] PC:%04X | OP:%02X %02X | A:%02X | HL:%04X\n", 
+               regs_->pc, opcode, next_byte, regs_->a, regs_->get_hl());
     }
     // ------------------------------------------
     

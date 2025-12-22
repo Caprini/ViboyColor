@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Francotirador Expandido: El Origen de A - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Francotirador Expandido: El Origen de A</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0237
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0236__francotirador-zona-muerta.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    La traza del Step 0236 reveló un bucle infinito en <code>0x2B2A</code> donde el juego compara
+                    el acumulador <code>A</code> con <code>0xFD</code> mediante <code>CP 0xFD</code>. El valor de
+                    <code>A</code> es constantemente <code>0x00</code>, causando que la comparación falle y el salto
+                    condicional <code>JR NZ</code> se ejecute, creando un bucle infinito.
+                </p>
+                <p>
+                    Para identificar el origen del valor incorrecto en <code>A</code>, expandimos el rango de trazado
+                    del Francotirador hacia atrás desde <code>0x2B2A</code> hasta <code>0x2B20</code>, permitiendo
+                    observar las instrucciones que preceden a la comparación y determinar qué operación carga el
+                    acumulador antes de la verificación.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En el Game Boy, el acumulador <code>A</code> es el registro principal para operaciones aritméticas
+                    y lógicas. Las instrucciones que cargan valores en <code>A</code> incluyen:
+                </p>
+                <ul>
+                    <li><strong>LD A, (HL)</strong> (0x7E): Lee un byte de memoria desde la dirección apuntada por HL.</li>
+                    <li><strong>LD A, (DE)</strong> (0x1A): Lee un byte de memoria desde la dirección apuntada por DE.</li>
+                    <li><strong>POP AF</strong> (0xF1): Recupera el valor de <code>A</code> desde la pila.</li>
+                    <li><strong>LD A, d8</strong> (0x3E): Carga un valor inmediato de 8 bits en <code>A</code>.</li>
+                </ul>
+                <p>
+                    Cuando un programa entra en un bucle infinito debido a una comparación que siempre falla, es
+                    crítico identificar <strong>qué instrucción carga el valor</strong> que se está comparando.
+                    Si el valor proviene de memoria (WRAM, VRAM, HRAM), puede indicar que:
+                </p>
+                <ul>
+                    <li>La memoria no se ha inicializado correctamente.</li>
+                    <li>Una rutina de inicialización no se ejecutó o falló.</li>
+                    <li>El valor esperado se escribió en una dirección diferente.</li>
+                </ul>
+                <p>
+                    En el caso de Tetris, la traza mostró que <code>HL</code> apunta a <code>0xE7F9</code> (WRAM - Work RAM)
+                    y que <code>DE</code> se incrementa de 2 en 2, sugiriendo un bucle de copia o verificación de memoria.
+                    Si el juego lee de <code>(HL)</code> y obtiene <code>0x00</code> en lugar de <code>0xFD</code>, significa
+                    que la memoria en esa dirección no contiene el valor esperado.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Expandimos el rango de trazado del Francotirador desde <code>0x2B2A-0x2B35</code> a
+                    <code>0x2B20-0x2B30</code>, moviendo el límite inferior hacia atrás para capturar las
+                    instrucciones que preceden a la comparación.
+                </p>
+                
+                <h3>Modificación en CPU.cpp</h3>
+                <p>
+                    Actualizamos el bloque de debug quirúrgico para incluir el nuevo rango y simplificamos
+                    la salida para mostrar solo <code>A</code> y <code>HL</code> (los registros más relevantes
+                    para identificar cargas desde memoria):
+                </p>
+                <pre><code>// --- Step 0237: FRANCOTIRADOR EXPANDIDO (RETROCESO) ---
+// Ampliamos el rango hacia atrás (0x2B20) para identificar la instrucción
+// que carga A antes de la comparación CP 0xFD en 0x2B2A.
+if (regs_->pc >= 0x2B20 && regs_->pc <= 0x2B30) {
+    uint8_t opcode = mmu_->read(regs_->pc);
+    uint8_t next_byte = mmu_->read(regs_->pc + 1);
+    
+    printf("[SNIPER] PC:%04X | OP:%02X %02X | A:%02X | HL:%04X\n", 
+           regs_->pc, opcode, next_byte, regs_->a, regs_->get_hl());
+}</code></pre>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Rango 0x2B20-0x2B30</strong>: Incluye 16 bytes antes de la comparación, suficiente para
+                        capturar varias instrucciones previas (la mayoría de instrucciones son de 1-3 bytes).</li>
+                    <li><strong>Salida simplificada</strong>: Mostramos solo <code>A</code> y <code>HL</code> para reducir
+                        el ruido en los logs y facilitar la identificación de cargas desde memoria.</li>
+                    <li><strong>Límite superior 0x2B30</strong>: Mantenemos el límite cerca de la comparación para evitar
+                        capturar instrucciones irrelevantes más adelante en el flujo.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Expansión del rango de trazado del Francotirador (Step 0237)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para validar la expansión del rango de trazado:
+                </p>
+                <ol>
+                    <li><strong>Recompilación</strong>: Ejecutar <code>.\rebuild_cpp.ps1</code> para recompilar la extensión C++.</li>
+                    <li><strong>Ejecución</strong>: Ejecutar <code>python main.py roms/tetris.gb</code> y observar los logs <code>[SNIPER]</code>.</li>
+                    <li><strong>Análisis</strong>: Buscar en los logs instrucciones que carguen <code>A</code> antes de llegar a <code>0x2B2A</code>:
+                        <ul>
+                            <li><code>LD A, (HL)</code> (0x7E): Si aparece, verificar qué valor hay en la dirección apuntada por <code>HL</code>.</li>
+                            <li><code>LD A, (DE)</code> (0x1A): Si aparece, verificar qué valor hay en la dirección apuntada por <code>DE</code>.</li>
+                            <li><code>POP AF</code> (0xF1): Si aparece, verificar qué valor se recuperó de la pila.</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Resultado esperado:</strong> Los logs deben mostrar la secuencia de instrucciones desde
+                    <code>0x2B20</code> hasta <code>0x2B2A</code>, revelando qué operación carga <code>A</code> antes
+                    de la comparación <code>CP 0xFD</code>.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set</a> - Instrucciones de carga (LD)</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Registers</a> - Acumulador A y registros HL/DE</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Búsqueda de origen de datos</strong>: Cuando un valor en un registro es incorrecto,
+                            es necesario rastrear hacia atrás en el flujo de ejecución para encontrar la instrucción que
+                            lo cargó.</li>
+                        <li><strong>Rango de trazado</strong>: Expandir el rango de debug hacia atrás permite capturar
+                            instrucciones previas que pueden ser la causa raíz del problema.</li>
+                        <li><strong>Patrones de memoria</strong>: Si <code>HL</code> y <code>DE</code> se incrementan
+                            sistemáticamente, sugiere un bucle de copia o verificación de memoria que puede fallar si
+                            la memoria no está inicializada correctamente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Instrucción que carga A</strong>: Necesitamos ver en los logs qué instrucción
+                            específica carga <code>A</code> antes de la comparación.</li>
+                        <li><strong>Valor en memoria</strong>: Si la carga es desde memoria (<code>LD A, (HL)</code>),
+                            necesitamos verificar qué valor hay realmente en esa dirección y por qué no es <code>0xFD</code>.</li>
+                        <li><strong>Rutina de inicialización</strong>: Determinar si una rutina de inicialización no se
+                            ejecutó o si escribió el valor en una dirección diferente.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego está leyendo de WRAM (<code>0xE7F9</code> y siguientes)
+                        esperando encontrar <code>0xFD</code>, pero la memoria contiene <code>0x00</code> porque:
+                    </p>
+                    <ul>
+                        <li>Una rutina de inicialización no se ejecutó (quizás bloqueada por una condición previa).</li>
+                        <li>El valor se escribió en una dirección diferente (error de offset o cálculo de dirección).</li>
+                        <li>La memoria se sobrescribió después de la inicialización (corrupción de memoria).</li>
+                    </ul>
+                    <p>
+                        La traza expandida nos permitirá confirmar o refutar esta hipótesis identificando la instrucción
+                        exacta que carga <code>A</code> y desde dónde lee.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y analizar los logs del Francotirador expandido.</li>
+                    <li>[ ] Identificar la instrucción que carga <code>A</code> antes de <code>CP 0xFD</code>.</li>
+                    <li>[ ] Si es una carga desde memoria, verificar qué valor hay realmente en esa dirección.</li>
+                    <li>[ ] Determinar por qué el valor esperado (<code>0xFD</code>) no está presente.</li>
+                    <li>[ ] Implementar el fix necesario (inicialización de memoria, corrección de offset, etc.).</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
