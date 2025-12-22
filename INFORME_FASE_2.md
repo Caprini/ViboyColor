@@ -32,6 +32,33 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0234: Paciencia y Puntería (Autopsia Mejorada)
+**Estado**: 🔍 EN DEPURACIÓN
+
+La autopsia anterior mostró que la CPU avanza (salió del bucle de arranque) y que el Timer funciona. Sin embargo, el LCD sigue apagado. Observamos que `LCDC` tiene el Bit 3 activado, lo que indica que el juego usa el segundo mapa de tiles (`0x9C00`), no el primero (`0x9800`) que estábamos inspeccionando. Ajustamos la autopsia para leer el mapa correcto según la configuración del juego y aumentamos el tiempo de espera a 10 segundos para descartar lentitud en la carga.
+
+**Objetivo:**
+- Inspeccionar la región de VRAM correcta según `LCDC` (Bit 3 determina 0x9800 vs 0x9C00).
+- Dar más tiempo al juego para arrancar (600 frames = 10 segundos).
+- Verificar si el Tile Map contiene datos válidos en la región correcta.
+
+**Implementación:**
+1. **Modificación en `viboy.py`**: La autopsia ahora lee `LCDC` (0xFF40) y verifica el Bit 3 para determinar qué región de Tile Map inspeccionar.
+2. **Tiempo de espera extendido**: Cambio de 180 frames (3 segundos) a 600 frames (10 segundos).
+
+**Concepto de Hardware:**
+El registro LCDC Bit 3 controla qué región de VRAM se usa como Tile Map base. Si el juego configura este bit y escribe en 0x9C00, pero nuestra herramienta lee siempre desde 0x9800, veremos datos vacíos aunque el juego funcione correctamente. Es crítico adaptar las herramientas de diagnóstico al estado actual del hardware emulado.
+
+**Archivos Afectados:**
+- `src/viboy.py` - Modificación de la función de autopsia (Step 0234)
+
+**Tests:**
+- Ejecutar: `python main.py roms/tetris.gb`
+- Esperar 10 segundos y observar la autopsia
+- Verificar si el Tile Map en la región correcta contiene datos válidos
+
+---
+
 ### 2025-12-22 - Step 0233: Limpieza Final y Arranque (Release)
 **Estado**: ✅ COMPLETADO
 

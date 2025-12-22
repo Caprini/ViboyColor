@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paciencia y Puntería: Buscando en el Mapa Correcto - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Paciencia y Puntería: Buscando en el Mapa Correcto</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0234
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0233__limpieza-final-release.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    La autopsia anterior mostró que la CPU avanza (salió del bucle de arranque) y que el Timer funciona. 
+                    Sin embargo, el LCD sigue apagado. Observamos que `LCDC` tiene el Bit 3 activado, lo que indica que 
+                    el juego usa el segundo mapa de tiles (`0x9C00`), no el primero (`0x9800`) que estábamos inspeccionando. 
+                    Ajustamos la autopsia para leer el mapa correcto según la configuración del juego y aumentamos el tiempo 
+                    de espera a 10 segundos para descartar lentitud en la carga.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El registro LCDC (LCDC Control, dirección 0xFF40) controla múltiples aspectos del sistema de vídeo 
+                    de la Game Boy. El Bit 3 de este registro determina qué región de VRAM se usa como mapa de tiles 
+                    (Tile Map) para el fondo (Background):
+                </p>
+                <ul>
+                    <li><strong>Bit 3 = 0:</strong> Tile Map Base = 0x9800 (rango 0x9800-0x9BFF)</li>
+                    <li><strong>Bit 3 = 1:</strong> Tile Map Base = 0x9C00 (rango 0x9C00-0x9FFF)</li>
+                </ul>
+                <p>
+                    Si el juego configura el Bit 3 en 1 y escribe datos en el mapa 0x9C00, pero nuestra herramienta de 
+                    diagnóstico lee siempre desde 0x9800, veremos datos vacíos aunque el juego haya escrito correctamente 
+                    en la región correcta. Esto es un error clásico de diagnóstico: inspeccionar la región de memoria incorrecta.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - LCD Control Register (LCDC), Tile Map Addressing
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó la función de autopsia en `viboy.py` para:
+                </p>
+                <ol>
+                    <li><strong>Leer LCDC dinámicamente:</strong> Antes de inspeccionar el Tile Map, leemos el registro 
+                        LCDC (0xFF40) y verificamos el Bit 3.</li>
+                    <li><strong>Seleccionar el mapa correcto:</strong> Si Bit 3 está activo, leemos desde 0x9C00; 
+                        si no, desde 0x9800.</li>
+                    <li><strong>Aumentar tiempo de espera:</strong> Cambiamos el trigger de la autopsia de 180 frames 
+                        (3 segundos) a 600 frames (10 segundos) para dar más tiempo al juego a completar su inicialización.</li>
+                </ol>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/viboy.py</code>: Función de autopsia mejorada con lectura inteligente del Tile Map</li>
+                </ul>
+
+                <h3>Cambios específicos</h3>
+                <pre><code># Antes (Step 0225):
+if not self._autopsy_done and self.frame_count >= 180:
+    # ...
+    print(f"\nVRAM Tile Map (0x9900 - Centro aprox):")
+    map_sample = [f"{self._mmu.read(0x9900 + i):02X}" for i in range(16)]
+
+# Después (Step 0234):
+if not self._autopsy_done and self.frame_count >= 600:
+    # ...
+    lcdc = self._mmu.read(0xFF40)
+    bg_map_base = 0x9C00 if (lcdc & 0x08) else 0x9800
+    print(f"\nVRAM Tile Map (Base 0x{bg_map_base:04X} - según LCDC Bit 3):")
+    map_sample = [f"{self._mmu.read(bg_map_base + i):02X}" for i in range(16)]
+</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Modificación de la función de autopsia (Step 0234)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizará ejecutando el emulador y observando la salida de la autopsia:
+                </p>
+                <ul>
+                    <li><strong>Comando:</strong> <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Resultado esperado:</strong> Tras 10 segundos (600 frames), la autopsia mostrará:
+                        <ul>
+                            <li>El valor de LCDC con indicación del mapa seleccionado</li>
+                            <li>Datos del Tile Map leídos desde la región correcta (0x9C00 si Bit 3 está activo)</li>
+                            <li>Estado de la CPU mostrando que el juego avanzó más allá del bucle inicial</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Validación:</strong> Si el Tile Map muestra datos no nulos en la región correcta, 
+                    confirmaremos que el juego está escribiendo correctamente y que el problema podría estar 
+                    en el encendido de la pantalla (LCDC Bit 7) o en la renderización.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html">LCDC Control Register</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Video_Display.html">Video Display - Tile Maps</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>LCDC Bit 3:</strong> Controla qué región de VRAM se usa como Tile Map base. 
+                            Es crítico leer esta configuración antes de inspeccionar la memoria, ya que el juego 
+                            puede usar cualquiera de las dos regiones disponibles.</li>
+                        <li><strong>Diagnóstico inteligente:</strong> Las herramientas de diagnóstico deben adaptarse 
+                            al estado actual del hardware emulado, no asumir valores fijos. Esto es especialmente 
+                            importante en sistemas con múltiples modos de operación o regiones de memoria alternativas.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Datos en el mapa correcto:</strong> Verificar si el Tile Map en 0x9C00 contiene 
+                            datos válidos después de 10 segundos de ejecución.</li>
+                        <li><strong>Estado del LCD:</strong> Confirmar si el LCDC Bit 7 (LCD Enable) se activa durante 
+                            la inicialización del juego o si permanece apagado por alguna razón.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego está escribiendo datos en el Tile Map correcto 
+                        (0x9C00), pero nuestra herramienta de diagnóstico anterior leía desde la región incorrecta (0x9800), 
+                        mostrando datos vacíos aunque el juego funcionara correctamente.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Si el Tile Map muestra datos válidos en la región correcta, 
+                        el problema podría estar en:
+                    </p>
+                    <ul>
+                        <li>El LCD no se enciende (LCDC Bit 7 permanece en 0)</li>
+                        <li>La renderización no está leyendo el Tile Map correcto</li>
+                        <li>El juego requiere más tiempo para completar la inicialización</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y observar la autopsia tras 10 segundos</li>
+                    <li>[ ] Verificar si el Tile Map en la región correcta contiene datos</li>
+                    <li>[ ] Si hay datos pero la pantalla sigue apagada, investigar el estado de LCDC Bit 7 (LCD Enable)</li>
+                    <li>[ ] Si el LCD está encendido pero no se renderiza, verificar la lógica de renderizado de la PPU</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

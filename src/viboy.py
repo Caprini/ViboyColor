@@ -818,15 +818,16 @@ class Viboy:
                             pass
                 
                 
-                # --- Step 0225: LA AUTOPSIA DE LOS 3 SEGUNDOS ---
-                # Volcado de estado completo tras 180 frames (3 segundos) para diagnóstico forense.
+                # --- Step 0234: LA AUTOPSIA INTELIGENTE (10 SEGUNDOS) ---
+                # Volcado de estado completo tras 600 frames (10 segundos) para diagnóstico forense.
                 # Esto nos dirá si el juego avanzó, si configuró los registros de vídeo y si escribió datos en VRAM.
+                # MEJORA: Lee el mapa de tiles correcto según LCDC (Bit 3 determina 0x9800 vs 0x9C00).
                 if not hasattr(self, '_autopsy_done'):
                     self._autopsy_done = False
                 
-                if not self._autopsy_done and self.frame_count >= 180:
+                if not self._autopsy_done and self.frame_count >= 600:
                     print("\n" + "=" * 40)
-                    print("💀 AUTOPSIA DEL SISTEMA (Frame 180)")
+                    print("💀 AUTOPSIA DEL SISTEMA (Frame 600 - 10 segundos)")
                     print("=" * 40)
                     
                     if self._use_cpp:
@@ -849,7 +850,7 @@ class Viboy:
                         ly = self._ppu.ly  # Propiedad directa
                         bgp = self._mmu.read(0xFF47)
                         print(f"\nVideo Registers:")
-                        print(f"  LCDC: 0x{lcdc:02X} (Bit 7={'ON' if lcdc & 0x80 else 'OFF'}, BG={'ON' if lcdc & 1 else 'OFF'})")
+                        print(f"  LCDC: 0x{lcdc:02X} (Bit 7={'ON' if lcdc & 0x80 else 'OFF'}, BG={'ON' if lcdc & 1 else 'OFF'}, Map={'0x9C00' if lcdc & 0x08 else '0x9800'})")
                         print(f"  STAT: 0x{stat:02X} | LY: {ly} (Decimal)")
                         print(f"  BGP:  0x{bgp:02X} (Palette)")
                         
@@ -858,10 +859,11 @@ class Viboy:
                         data_sample = [f"{self._mmu.read(0x8010 + i):02X}" for i in range(16)]
                         print(f"  {' '.join(data_sample)}")
                         
-                        # 4. Muestra de VRAM (Tile Map - 0x9900 - Centro de pantalla aprox)
-                        # Tetris suele escribir el copyright o logo en el mapa 0x9800-0x9BFF
-                        print(f"\nVRAM Tile Map (0x9900 - Centro aprox):")
-                        map_sample = [f"{self._mmu.read(0x9900 + i):02X}" for i in range(16)]
+                        # 4. Muestra de VRAM (Tile Map - Leer según LCDC Bit 3)
+                        # Step 0234: Leer el mapa correcto según la configuración del juego
+                        bg_map_base = 0x9C00 if (lcdc & 0x08) else 0x9800
+                        print(f"\nVRAM Tile Map (Base 0x{bg_map_base:04X} - según LCDC Bit 3):")
+                        map_sample = [f"{self._mmu.read(bg_map_base + i):02X}" for i in range(16)]
                         print(f"  {' '.join(map_sample)}")
                         
                         # 5. Estado de interrupciones
