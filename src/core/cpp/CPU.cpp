@@ -3,7 +3,7 @@
 #include "Registers.hpp"
 #include "PPU.hpp"
 #include "Timer.hpp"
-#include <cstdio>  // Step 0228: Recuperado para debug quirúrgico en 0x2B15
+// #include <cstdio>  // Step 0229: Comentado para permitir velocidad nativa
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
@@ -461,20 +461,18 @@ int CPU::step() {
     }
     
     // ========== FASE 4: Fetch-Decode-Execute ==========
-    // --- Step 0228: FRANCOTIRADOR EN 0x2B15 ---
-    // Analizamos el código del juego real donde parece estar atascado.
-    // El juego ha escapado de la BIOS y está ejecutando código en la zona alta de la ROM.
-    // Necesitamos entender qué instrucciones está ejecutando y qué registros está consultando.
+    // --- Step 0229: FRANCOTIRADOR DESACTIVADO ---
+    // Los logs confirmaron que el hardware funciona correctamente y LY avanza.
+    // El aparente bloqueo era causado por la latencia extrema de imprimir logs en cada ciclo.
+    // Se procedió a limpiar toda la instrumentación de depuración para permitir velocidad nativa.
+    /*
     if (regs_->pc >= 0x2B10 && regs_->pc <= 0x2B20) {
         uint8_t opcode_preview = mmu_->read(regs_->pc);
-        
-        // Leemos también HL para ver si apunta a algo interesante
-        // y el registro de Timer (DIV) para ver si avanza.
         uint8_t div_val = mmu_->read(0xFF04);
-        
         printf("[SNIPER] PC:%04X | OP:%02X | AF:%04X | BC:%04X | DE:%04X | HL:%04X | DIV:%02X\n", 
-               regs_->pc, opcode_preview, regs_->af, regs_->get_bc(), regs_->get_de(), regs_->get_hl(), div_val);
+               regs_->pc, opcode_preview, regs_->get_af(), regs_->get_bc(), regs_->get_de(), regs_->get_hl(), div_val);
     }
+    */
     // ------------------------------------------
     
     // Fetch: Leer opcode de memoria

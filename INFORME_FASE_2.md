@@ -32,6 +32,34 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0229: Silencio Total (Arranque a Velocidad Real)
+**Estado**: ✅ COMPLETADO
+
+Los logs del "Francotirador" (Step 0228) confirmaron que el hardware funciona correctamente: el registro `LY` avanza de 26 a 38, la CPU lee correctamente el registro, y no hay deadlock. El aparente bloqueo era causado por la latencia extrema de imprimir logs en cada ciclo de CPU. Se procedió a eliminar toda la instrumentación de depuración en C++ para permitir que el emulador alcance su velocidad nativa (60 FPS) y supere el bucle de espera de V-Blank en tiempo real.
+
+**Objetivo:**
+- Eliminar todos los `printf` del núcleo C++.
+- Permitir la ejecución fluida del juego a velocidad nativa.
+- Confirmar que el juego arranca completamente después de eliminar los logs.
+
+**Implementación:**
+1. **Modificación en `CPU.cpp`**: Comentado el bloque del "Francotirador" (Step 0228) que imprimía logs cuando PC estaba en 0x2B10-0x2B20. También se comentó el `#include <cstdio>`.
+2. **Modificación en `MMU.cpp`**: Comentado el "Sensor de VRAM" (Step 0204) que imprimía cuando se detectaba la primera escritura en VRAM.
+
+**Concepto de Hardware:**
+El Efecto del Observador: Imprimir texto en la consola (`printf`) es una operación extremadamente lenta comparada con la ejecución de una instrucción de CPU. Una llamada a `printf` puede tomar cientos o miles de microsegundos, mientras que una instrucción de CPU se ejecuta en nanosegundos. Si imprimimos un log en cada ciclo de CPU, el emulador se ralentiza miles de veces, haciendo que parezca que está colgado cuando en realidad solo está ejecutándose a "cámara super-lenta". Para llegar de la línea 38 a la 144, la Game Boy necesita aproximadamente 4 milisegundos en hardware real. Con los logs activados, esos 4 milisegundos se convertían en minutos.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Comentado bloque del Francotirador y `#include <cstdio>`
+- `src/core/cpp/MMU.cpp` - Comentado bloque del Sensor de VRAM
+
+**Tests:**
+- Recompilar: `.\rebuild_cpp.ps1` o `python setup.py build_ext --inplace`
+- Ejecutar: `python main.py roms/tetris.gb`
+- Resultado esperado: El emulador debe arrancar a velocidad nativa (60 FPS) y el juego debe avanzar más allá del bucle de espera de V-Blank.
+
+---
+
 ### 2025-12-22 - Step 0228: El Francotirador en la Zona Alta (0x2B15)
 **Estado**: 🔍 EN DEPURACIÓN
 

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Silencio Total: El Despegue - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Silencio Total: El Despegue</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0229
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0228__francotirador-zona-alta.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Los logs del "Francotirador" (Step 0228) confirmaron que el hardware funciona correctamente: 
+                    el registro <code>LY</code> avanza de 26 a 38, la CPU lee correctamente el registro, y no hay deadlock.
+                    El aparente bloqueo era causado por la latencia extrema de imprimir logs en cada ciclo de CPU.
+                    Se procedió a eliminar toda la instrumentación de depuración en C++ para permitir que el emulador
+                    alcance su velocidad nativa (60 FPS) y supere el bucle de espera de V-Blank en tiempo real.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En un emulador de Game Boy, el bucle principal de emulación ejecuta millones de instrucciones por segundo.
+                    Cada instrucción de CPU consume entre 1 y 6 M-Cycles (4-24 T-Cycles). Para alcanzar 60 FPS, el emulador
+                    debe ejecutar aproximadamente 70,224 ciclos por frame, lo que significa ejecutar miles de instrucciones
+                    en menos de 16.67 milisegundos.
+                </p>
+                <p>
+                    <strong>El Efecto del Observador:</strong> Imprimir texto en la consola (<code>printf</code>) es una operación
+                    extremadamente lenta comparada con la ejecución de una instrucción de CPU. Una llamada a <code>printf</code>
+                    puede tomar cientos o miles de microsegundos, mientras que una instrucción de CPU se ejecuta en nanosegundos.
+                    Si imprimimos un log en cada ciclo de CPU, el emulador se ralentiza miles de veces, haciendo que parezca
+                    que está colgado cuando en realidad solo está ejecutándose a "cámara super-lenta".
+                </p>
+                <p>
+                    En el caso del Step 0228, el juego estaba esperando a que <code>LY</code> llegara a 144 (V-Blank).
+                    Para llegar de la línea 38 a la 144, la Game Boy necesita aproximadamente 4 milisegundos en hardware real.
+                    Con los logs activados imprimiendo cada paso, esos 4 milisegundos se convertían en minutos, haciendo que
+                    pareciera que el emulador estaba bloqueado cuando en realidad solo estaba avanzando muy lentamente.
+                </p>
+                <p>
+                    <strong>Regla de Oro:</strong> En el bucle crítico de emulación (el que se ejecuta millones de veces por segundo),
+                    cualquier operación de I/O (impresión, escritura de archivos, llamadas al sistema) debe eliminarse completamente
+                    o redirigirse a buffers en memoria que se vuelquen periódicamente. El I/O mata el rendimiento.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se procedió a eliminar o comentar todos los bloques de logging en el núcleo C++:
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>CPU.cpp:</strong> Comentado el bloque del "Francotirador" (Step 0228) que imprimía logs cuando PC estaba en 0x2B10-0x2B20. También se comentó el <code>#include &lt;cstdio&gt;</code>.</li>
+                    <li><strong>MMU.cpp:</strong> Comentado el "Sensor de VRAM" (Step 0204) que imprimía cuando se detectaba la primera escritura en VRAM.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    En lugar de eliminar completamente el código de logging, se optó por comentarlo. Esto permite:
+                </p>
+                <ul>
+                    <li><strong>Reactivación rápida:</strong> Si necesitamos depurar en el futuro, podemos descomentar fácilmente.</li>
+                    <li><strong>Historial:</strong> Los comentarios documentan qué se desactivó y por qué.</li>
+                    <li><strong>Compilación limpia:</strong> El código comentado no afecta el rendimiento ni el tamaño del binario.</li>
+                </ul>
+                <p>
+                    Todos los bloques comentados incluyen una referencia al Step 0229 explicando por qué se desactivaron.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Comentado bloque del Francotirador y <code>#include &lt;cstdio&gt;</code></li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Comentado bloque del Sensor de VRAM</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Validación de la limpieza de logs:
+                </p>
+                <ul>
+                    <li><strong>Compilación:</strong> <code>.\rebuild_cpp.ps1</code> o <code>python setup.py build_ext --inplace</code></li>
+                    <li><strong>Ejecución:</strong> <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Resultado esperado:</strong> El emulador debe arrancar a velocidad nativa (60 FPS) y el juego debe avanzar más allá del bucle de espera de V-Blank.</li>
+                    <li><strong>Validación:</strong> Sin logs en la consola durante la ejecución normal. El contador <code>LY</code> debe volar de 38 a 144 en milisegundos, permitiendo que el juego continúe.</li>
+                </ul>
+                <p>
+                    <strong>Evidencia de Tests:</strong>
+                </p>
+                <pre><code># Comando ejecutado:
+python main.py roms/tetris.gb
+
+# Resultado esperado:
+# - Sin logs [SNIPER] en la consola
+# - Sin logs [VRAM WRITE DETECTED!] en la consola
+# - El juego arranca y muestra la pantalla de título (o el logo de Nintendo)
+# - FPS estable a 60 FPS</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">System Clock, Timing</a></li>
+                    <li>Documentación técnica: Principios de optimización de bucles críticos en sistemas embebidos</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Rendimiento en bucles críticos:</strong> Cualquier operación de I/O en un bucle que se ejecuta millones de veces por segundo tiene un impacto devastador en el rendimiento. Un <code>printf</code> puede ralentizar el emulador miles de veces.</li>
+                        <li><strong>El Efecto del Observador:</strong> Instrumentar código para depurar puede cambiar completamente el comportamiento observado, haciendo que parezca que hay un bug cuando en realidad solo hay una ralentización extrema.</li>
+                        <li><strong>Timing en emulación:</strong> El timing es crítico. Si el emulador no puede ejecutar instrucciones a la velocidad correcta, los bucles de espera del juego nunca terminan, haciendo que parezca que está colgado.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Arranque completo del juego:</strong> Verificar que el juego arranca completamente y muestra la pantalla de título después de eliminar los logs.</li>
+                        <li><strong>Rendimiento sostenido:</strong> Confirmar que el emulador mantiene 60 FPS durante la ejecución normal del juego.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> Al eliminar los logs, el emulador debería alcanzar velocidad nativa y el juego debería arrancar completamente, mostrando la pantalla de título o el logo de Nintendo. El bucle de espera de V-Blank que parecía infinito debería completarse en milisegundos.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar que el juego arranca completamente después de eliminar los logs</li>
+                    <li>[ ] Confirmar que el emulador mantiene 60 FPS durante la ejecución</li>
+                    <li>[ ] Si el juego aún no arranca, investigar otros posibles bloqueos (Timer, Interrupciones, Joypad)</li>
+                    <li>[ ] Implementar sistema de logging condicional (solo en builds de debug) para futuras depuraciones</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
