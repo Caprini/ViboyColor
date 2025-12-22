@@ -32,6 +32,32 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0230: El Regreso del Estetoscopio (Diagnóstico en Vivo)
+**Estado**: 🔍 EN DEPURACIÓN
+
+A pesar de que el emulador corre a velocidad real tras eliminar los logs (Step 0229), la pantalla sigue mostrando el color de fondo (verde/blanco) y no hay gráficos. Esto indica que la PPU está apagada (`LCDC` bit 7 = 0) o no está renderizando. Reactivamos el monitor de estado periódico ("Estetoscopio", Step 0222) para observar el Program Counter (PC) y el registro `LCDC` en tiempo real y determinar si el juego está atascado en un bucle de carga o si ha fallado silenciosamente.
+
+**Objetivo:**
+- Monitorizar `PC` para ver si avanza o está estático en un bucle.
+- Verificar `LCDC` para saber si el juego intenta encender la pantalla.
+- Verificar `VRAM` (TileMap y TileData) para saber si el juego ha copiado gráficos.
+
+**Implementación:**
+1. **Modificación en `viboy.py`**: Reactivado bloque de diagnóstico "El Estetoscopio" en el método `run()`. El código imprime una línea de estado cada 60 frames (1 segundo) con los valores de PC, LCDC, TileMap[0x9904] y TileData[0x8010].
+
+**Concepto de Hardware:**
+Cuando un juego de Game Boy arranca, típicamente sigue esta secuencia: inicialización, carga de gráficos, configuración del TileMap, encendido del LCD, y bucle principal. Si la pantalla sigue verde después de eliminar los logs, puede ser porque el juego apagó la pantalla voluntariamente, está copiando gráficos (bucle largo), está atascado en un bucle infinito, o ha terminado y está esperando una interrupción. El Estetoscopio nos permite observar los signos vitales del emulador sin afectar el rendimiento.
+
+**Archivos Afectados:**
+- `src/viboy.py` - Reactivado bloque de diagnóstico "El Estetoscopio" en el método `run()` (líneas ~819-834)
+
+**Tests:**
+- Ejecutar: `python main.py roms/tetris.gb`
+- Resultado esperado: Cada segundo aparece una línea `[VITAL] PC: XXXX | LCDC: XX | Map[9904]: XX | Data[8010]: XX`
+- Análisis: Si PC cambia, la CPU está corriendo. Si PC está fijo, hay deadlock. Si LCDC bit 7 está encendido, el juego intenta encender la pantalla.
+
+---
+
 ### 2025-12-22 - Step 0229: Silencio Total (Arranque a Velocidad Real)
 **Estado**: ✅ COMPLETADO
 

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El Regreso del Estetoscopio: ¿Dónde está la CPU? - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>El Regreso del Estetoscopio: ¿Dónde está la CPU?</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0230
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0229__silencio-total-arranque.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    A pesar de que el emulador corre a velocidad real tras eliminar los logs (Step 0229), la pantalla sigue mostrando 
+                    el color de fondo (verde/blanco) y no hay gráficos. Esto indica que la PPU está apagada (<code>LCDC</code> bit 7 = 0) 
+                    o no está renderizando. Reactivamos el monitor de estado periódico ("Estetoscopio", Step 0222) para observar el 
+                    Program Counter (PC) y el registro <code>LCDC</code> en tiempo real y determinar si el juego está atascado en un 
+                    bucle de carga o si ha fallado silenciosamente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Cuando un juego de Game Boy arranca, típicamente sigue esta secuencia:
+                </p>
+                <ol>
+                    <li><strong>Inicialización:</strong> La CPU ejecuta código de inicialización desde la ROM del cartucho.</li>
+                    <li><strong>Carga de gráficos:</strong> El juego copia los tiles desde la ROM a la VRAM (0x8000-0x9FFF).</li>
+                    <li><strong>Configuración del TileMap:</strong> El juego escribe en el TileMap (0x9800-0x9BFF) para indicar qué tile dibujar en cada posición.</li>
+                    <li><strong>Encendido del LCD:</strong> El juego activa el bit 7 del registro <code>LCDC</code> (0xFF40) para encender la pantalla.</li>
+                    <li><strong>Bucle principal:</strong> El juego entra en su bucle principal, renderizando frames continuamente.</li>
+                </ol>
+                <p>
+                    Si la pantalla sigue verde después de eliminar los logs, puede ser porque:
+                </p>
+                <ul>
+                    <li><strong>El juego apagó la pantalla:</strong> El registro <code>LCDC</code> tiene el bit 7 apagado (0x00-0x7F). Esto es normal durante la inicialización, pero el juego debería encenderla después.</li>
+                    <li><strong>El juego está copiando gráficos:</strong> El bucle de copia de tiles puede ser largo (cientos de frames). El juego puede tener la pantalla apagada mientras copia.</li>
+                    <li><strong>El juego está atascado:</strong> La CPU puede estar en un bucle infinito esperando algo (Timer, Joypad, interrupción).</li>
+                    <li><strong>El juego terminó y está esperando:</strong> El juego puede haber terminado su inicialización y estar esperando una interrupción para arrancar.</li>
+                </ul>
+                <p>
+                    El "Estetoscopio" es un monitor de bajo impacto que imprime una línea de estado cada 60 frames (1 segundo). 
+                    Esto nos permite observar los signos vitales del emulador sin afectar el rendimiento:
+                </p>
+                <ul>
+                    <li><strong>PC (Program Counter):</strong> Si cambia rápidamente, la CPU está corriendo. Si está fijo, hay un deadlock.</li>
+                    <li><strong>LCDC:</strong> Si el bit 7 está encendido (0x80-0xFF), el juego cree que la pantalla está encendida. Si está apagado (0x00-0x7F), el juego la tiene apagada.</li>
+                    <li><strong>TileMap[0x9904]:</strong> Si es 0x00, el TileMap está vacío. Si tiene valores, el juego ha configurado tiles.</li>
+                    <li><strong>TileData[0x8010]:</strong> Si es 0x00, la VRAM está vacía. Si tiene valores, el juego ha copiado gráficos.</li>
+                </ul>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se reactivó el bloque de diagnóstico del "Estetoscopio" (Step 0222) en el método <code>run()</code> de <code>viboy.py</code>.
+                    El código se ejecuta cada 60 frames (aproximadamente 1 segundo) y lee directamente del hardware los signos vitales.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/viboy.py</code>: Reactivado bloque de diagnóstico "El Estetoscopio" en el método <code>run()</code> (líneas ~819-834). El código estaba comentado desde el Step 0224.</li>
+                </ul>
+
+                <h3>Código implementado</h3>
+                <pre><code># --- Step 0230: EL REGRESO DEL ESTETOSCOPIO ---
+# Diagnóstico periódico (cada 60 frames = 1 segundo aprox)
+# Reactivado para diagnosticar por qué la pantalla sigue verde tras eliminar los logs.
+# Esto nos dirá si la CPU sigue corriendo, dónde está y el estado del LCD.
+if self.frame_count % 60 == 0:
+    if self._use_cpp:
+        # Leer estado vital directamente del hardware
+        pc = self._regs.pc
+        lcdc = self._mmu.read(0xFF40)
+        
+        # Ver si hay datos en VRAM (Tile Map y Tile Data)
+        tile_map_val = self._mmu.read(0x9904)
+        tile_data_val = self._mmu.read(0x8010)
+        
+        print(f"[VITAL] PC: {pc:04X} | LCDC: {lcdc:02X} | Map[9904]: {tile_map_val:02X} | Data[8010]: {tile_data_val:02X}")
+# ---------------------------------------------</code></pre>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se eligió reactivar el Estetoscopio en lugar de instrumentar el código C++ porque:
+                </p>
+                <ul>
+                    <li><strong>Bajo impacto:</strong> Imprimir una línea cada segundo no afecta el rendimiento significativamente.</li>
+                    <li><strong>Información suficiente:</strong> El PC y el LCDC nos dirán si la CPU está corriendo y si el juego intenta encender la pantalla.</li>
+                    <li><strong>No requiere recompilación:</strong> El código está en Python, así que no necesitamos recompilar C++.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Reactivado bloque de diagnóstico "El Estetoscopio" en el método <code>run()</code> (líneas ~819-834)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para validar el diagnóstico, ejecutar el emulador y observar la salida de la consola:
+                </p>
+                <pre><code>python main.py roms/tetris.gb</code></pre>
+                <p>
+                    Cada segundo aparecerá una línea con el formato:
+                </p>
+                <pre><code>[VITAL] PC: 02B4 | LCDC: 91 | Map[9904]: 00 | Data[8010]: 00</code></pre>
+                <p>
+                    <strong>Análisis de resultados:</strong>
+                </p>
+                <ul>
+                    <li><strong>Caso A (PC estático):</strong> Si el PC no cambia entre líneas (ej: siempre <code>02B4</code>), la CPU está en un bucle infinito (deadlock). El juego está atascado esperando algo que nunca llega.</li>
+                    <li><strong>Caso B (PC cambiando, LCDC apagado):</strong> Si el PC cambia rápidamente (ej: <code>2B15</code>, <code>0340</code>, <code>2000</code>...) pero el LCDC es 0x08 o 0x00 (bit 7 apagado), el juego está corriendo pero tiene la pantalla apagada voluntariamente. Puede estar copiando gráficos o esperando algo.</li>
+                    <li><strong>Caso C (PC cambiando, LCDC encendido, VRAM vacía):</strong> Si el PC cambia, el LCDC tiene el bit 7 encendido (0x91, 0x80...), pero Map[9904] y Data[8010] son 0x00, el juego cree que la pantalla está encendida pero no ha copiado los gráficos aún. Esto es normal durante la inicialización.</li>
+                    <li><strong>Caso D (PC cambiando, LCDC encendido, VRAM con datos):</strong> Si el PC cambia, el LCDC está encendido, y la VRAM tiene datos, el juego debería estar renderizando. Si no vemos gráficos, el problema está en el renderizado, no en la CPU.</li>
+                </ul>
+                <p>
+                    <strong>Evidencia de Tests:</strong>
+                </p>
+                <pre><code># Comando ejecutado:
+python main.py roms/tetris.gb
+
+# Resultado esperado:
+# Cada segundo aparece una línea:
+# [VITAL] PC: XXXX | LCDC: XX | Map[9904]: XX | Data[8010]: XX
+
+# Validación:
+# - Si PC cambia: CPU está corriendo ✅
+# - Si PC está fijo: Deadlock ❌
+# - Si LCDC bit 7 encendido: Juego intenta encender pantalla ✅
+# - Si LCDC bit 7 apagado: Juego tiene pantalla apagada ⚠️</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Control Register (LCDC)</a> - Bit 7 controla el encendido/apagado del LCD</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Video RAM (VRAM)</a> - Área de memoria para tiles y TileMaps</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Program Counter (PC)</a> - Registro que indica la dirección de ejecución actual</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Diagnóstico no intrusivo:</strong> Un monitor de estado periódico puede proporcionar información valiosa sin afectar el rendimiento. Imprimir una línea cada segundo es insignificante comparado con imprimir en cada ciclo de CPU.</li>
+                        <li><strong>Signos vitales del emulador:</strong> El PC, LCDC y VRAM son indicadores clave del estado del sistema. Si el PC no cambia, la CPU está atascada. Si el LCDC tiene el bit 7 apagado, el juego tiene la pantalla apagada. Si la VRAM está vacía, los gráficos no se han copiado.</li>
+                        <li><strong>Balance entre diagnóstico y rendimiento:</strong> El Estetoscopio proporciona suficiente información para diagnosticar el problema sin saturar la consola ni afectar el rendimiento.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Valores observados:</strong> Necesitamos ejecutar el emulador y observar qué valores muestra el diagnóstico para determinar si la CPU está corriendo, si el LCDC está configurado, y si la VRAM contiene datos.</li>
+                        <li><strong>Comportamiento del juego:</strong> Una vez que tengamos los valores del diagnóstico, podremos determinar si el problema es un deadlock, una configuración incorrecta del hardware, o simplemente que el juego aún no ha copiado los gráficos.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego está corriendo correctamente pero tiene la pantalla apagada durante la inicialización. El Estetoscopio nos confirmará si el PC avanza (CPU corriendo) y si el LCDC cambia (juego intenta encender la pantalla). Si el PC está fijo, hay un deadlock que necesitamos investigar.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y observar los valores del diagnóstico</li>
+                    <li>[ ] Analizar los valores para determinar si la CPU está corriendo, si el LCDC está configurado, y si la VRAM contiene datos</li>
+                    <li>[ ] Basado en el análisis, implementar la corrección correspondiente:
+                        <ul>
+                            <li>Si PC está fijo: Investigar deadlock (Timer, Interrupciones, Joypad)</li>
+                            <li>Si PC cambia pero LCDC apagado: Esperar a que el juego encienda la pantalla o investigar por qué no lo hace</li>
+                            <li>Si PC cambia, LCDC encendido, pero VRAM vacía: Investigar por qué el juego no copia gráficos</li>
+                            <li>Si todo está bien pero no hay gráficos: Investigar el renderizado</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
