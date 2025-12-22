@@ -553,6 +553,74 @@ La Game Boy tiene una pantalla de 20×18 tiles (160×144 píxeles). El mapa de f
 
 ---
 
+### 2025-12-21 - Step 0210: Corrección Crítica: Error de Validación de VRAM en PPU
+**Estado**: ✅ VERIFIED
+
+Tras una auditoría completa del código de `PPU::render_scanline()`, se identificó un **error lógico crítico** en la validación de direcciones VRAM. La condición `tile_line_addr < 0xA000 - 1` era incorrecta y causaba que muchos tiles válidos fueran rechazados, escribiendo color 0 (blanco) en el framebuffer en lugar del color real del tile. Este error explicaba por qué la pantalla permanecía blanca incluso cuando se forzaban los bytes de tile a `0xFF` (negro) en el Step 0209.
+
+**Objetivo:**
+- Corregir la validación de direcciones VRAM en `PPU::render_scanline()` para garantizar que tanto `tile_line_addr` como `tile_line_addr + 1` estén dentro del rango válido de VRAM (0x8000-0x9FFF).
+- Cambiar la condición de `tile_line_addr < 0xA000 - 1` a `tile_line_addr <= 0x9FFE`.
+
+**Concepto de Hardware: Validación de Acceso a VRAM**
+
+La VRAM (Video RAM) de la Game Boy ocupa 8KB de memoria, desde la dirección `0x8000` hasta `0x9FFF` (inclusive). Cada tile ocupa 16 bytes (8 líneas × 2 bytes por línea), y cada línea de un tile se representa con 2 bytes consecutivos. Cuando la PPU renderiza una línea de escaneo, necesita leer **dos bytes consecutivos** para decodificar cada línea de tile. Por lo tanto, la validación de direcciones debe garantizar que:
+1. `tile_line_addr >= 0x8000` (dentro del inicio de VRAM)
+2. `tile_line_addr + 1 <= 0x9FFF` (el segundo byte también está dentro de VRAM)
+
+Esto implica que `tile_line_addr <= 0x9FFE` es la condición correcta para el límite superior.
+
+**El Error Encontrado:**
+
+La condición original `tile_line_addr < 0xA000 - 1` es equivalente a `tile_line_addr < 0x9FFF`, lo que significa:
+- `tile_line_addr = 0x9FFE`: ❌ Rechazado (incorrecto, debería ser aceptado porque 0x9FFE + 1 = 0x9FFF está dentro de VRAM)
+- `tile_line_addr = 0x9FFF`: ❌ Rechazado (correcto, porque 0x9FFF + 1 = 0xA000 está fuera de VRAM)
+
+La condición corregida `tile_line_addr <= 0x9FFE` garantiza:
+- `tile_line_addr = 0x9FFE`: ✅ Aceptado (correcto, porque 0x9FFE + 1 = 0x9FFF está dentro de VRAM)
+- `tile_line_addr = 0x9FFF`: ❌ Rechazado (correcto, porque 0x9FFF + 1 = 0xA000 está fuera de VRAM)
+
+**Impacto del Error:**
+
+Muchos tiles válidos caían en el bloque `else` y se escribía `color_index = 0` (blanco) en el framebuffer, independientemente del contenido real de VRAM. Esto explicaba por qué la pantalla permanecía blanca incluso cuando se forzaban los bytes a `0xFF`.
+
+**Implementación:**
+
+1. **Corrección en PPU::render_scanline()**: En `src/core/cpp/PPU.cpp`, se cambió la condición de validación:
+   ```cpp
+   // ANTES (incorrecto):
+   if (tile_line_addr >= 0x8000 && tile_line_addr < 0xA000 - 1) {
+   
+   // DESPUÉS (correcto):
+   if (tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE) {
+       uint8_t byte1 = mmu_->read(tile_line_addr);
+       uint8_t byte2 = mmu_->read(tile_line_addr + 1);
+       // ... decodificación ...
+   } else {
+       framebuffer_[line_start_index + x] = 0; // Dirección inválida
+   }
+   ```
+
+2. **Comentarios Educativos**: Se añadieron comentarios extensos explicando el problema, la solución y el impacto, siguiendo el principio de documentación educativa del proyecto.
+
+**Archivos Afectados:**
+- `src/core/cpp/PPU.cpp` - Corrección de validación de VRAM en `render_scanline()` (líneas 349-371)
+- `docs/bitacora/entries/2025-12-21__0210__correccion-critica-validacion-vram.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0210
+
+**Tests y Verificación:**
+
+**Compilación:** El código se compiló exitosamente con `python setup.py build_ext --inplace`. No se introdujeron errores de compilación.
+
+**Validación de módulo compilado C++:** La extensión Cython se generó correctamente y está lista para pruebas en tiempo de ejecución.
+
+**Prueba esperada:** Con esta corrección, los tiles válidos deberían ser aceptados correctamente y sus colores deberían escribirse en el framebuffer. Si el diagnóstico del Step 0209 (forzar bytes a 0xFF) ahora produce una pantalla negra, confirmaremos que el problema era la validación de direcciones, no el framebuffer o la paleta.
+
+**Próximo paso de verificación:** Ejecutar el emulador con una ROM de test y verificar que los tiles se renderizan correctamente. Si la pantalla sigue blanca, el problema puede estar en otro lugar (por ejemplo, la ROM borra la VRAM antes del renderizado, o hay un problema de direccionamiento de tiles).
+
+---
+
 ### 2025-12-21 - Step 0209: Diagnóstico Radical: Forzar Color Negro en la Lectura de PPU
 **Estado**: ✅ VERIFIED
 

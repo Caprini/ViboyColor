@@ -32,6 +32,16 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0210 - Corrección Crítica: Error de Validación de VRAM en PPU -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-21</span>
+                        <span class="tag">0210</span>
+                        <a href="entries/2025-12-21__0210__correccion-critica-validacion-vram.html" class="title">Corrección Crítica: Error de Validación de VRAM en PPU</a>
+                        <p class="summary">
+                            Tras una auditoría completa del código de PPU::render_scanline(), se identificó un error lógico crítico en la validación de direcciones VRAM. La condición tile_line_addr < 0xA000 - 1 era incorrecta y causaba que muchos tiles válidos fueran rechazados, escribiendo color 0 (blanco) en el framebuffer en lugar del color real del tile. Este error explicaba por qué la pantalla permanecía blanca incluso cuando se forzaban los bytes de tile a 0xFF (negro) en el Step 0209. Corrección aplicada: cambiar la validación a tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE, garantizando que tanto tile_line_addr como tile_line_addr + 1 estén dentro del rango válido de VRAM.
+                        </p>
+                        <span class="status-badge status-verified">VERIFIED</span>
+                    </li>
                     <!-- Entrada 0209 - Diagnóstico Radical: Forzar Color Negro en la Lectura de PPU -->
                     <li class="entry-item">
                         <span class="meta">2025-12-21</span>

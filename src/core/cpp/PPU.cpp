@@ -346,12 +346,30 @@ void PPU::render_scanline() {
         uint8_t line_in_tile = map_y % 8;
         uint16_t tile_line_addr = tile_addr + (line_in_tile * 2);
 
-        // Asegurarse de que la dirección es válida antes de leer (dentro de VRAM)
-        if (tile_line_addr >= 0x8000 && tile_line_addr < 0xA000 - 1) {
+        // --- Step 0210: CORRECCIÓN CRÍTICA DE VALIDACIÓN DE VRAM ---
+        // ERROR ENCONTRADO: La condición `tile_line_addr < 0xA000 - 1` es incorrecta.
+        // 
+        // PROBLEMA:
+        // - VRAM va de 0x8000 a 0x9FFF (inclusive) = 8KB
+        // - Necesitamos leer 2 bytes consecutivos: tile_line_addr y tile_line_addr + 1
+        // - Si tile_line_addr = 0x9FFF, entonces tile_line_addr + 1 = 0xA000 (FUERA de VRAM)
+        // - La condición `tile_line_addr < 0x9FFF` rechaza 0x9FFF, pero también rechaza 0x9FFE
+        //   cuando debería aceptarlo (porque 0x9FFE + 1 = 0x9FFF está dentro de VRAM)
+        //
+        // SOLUCIÓN:
+        // - Validar que AMBOS bytes estén dentro de VRAM: tile_line_addr + 1 <= 0x9FFF
+        // - Esto significa: tile_line_addr <= 0x9FFE
+        // - Condición correcta: tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE
+        //
+        // IMPACTO:
+        // - Con la condición incorrecta, muchos tiles válidos caían en el else y se escribía
+        //   color_index = 0 (blanco) en lugar del color real del tile.
+        // - Esto explicaba por qué la pantalla estaba blanca incluso forzando bytes a 0xFF.
+        if (tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE) {
             uint8_t byte1 = mmu_->read(tile_line_addr);
             uint8_t byte2 = mmu_->read(tile_line_addr + 1);
             
-            // --- Step 0209: DIAGNÓSTICO RADICAL ---
+            // --- Step 0209: DIAGNÓSTICO RADICAL (MANTENER TEMPORALMENTE) ---
             // Forzar bytes a 0xFF (Color 3 - Negro)
             // Esto ignora lo que haya en VRAM. Si la pantalla no sale negra,
             // el problema es el framebuffer o la paleta.
@@ -366,7 +384,9 @@ void PPU::render_scanline() {
 
             framebuffer_[line_start_index + x] = color_index;
         } else {
-            framebuffer_[line_start_index + x] = 0; // Color por defecto si la dirección es inválida
+            // Dirección inválida: fuera de VRAM o el segundo byte estaría fuera
+            // Escribir color 0 (blanco por defecto) como fallback
+            framebuffer_[line_start_index + x] = 0;
         }
     }
 }

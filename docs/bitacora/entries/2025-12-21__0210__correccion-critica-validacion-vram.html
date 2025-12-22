@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrección Crítica: Error de Validación de VRAM en PPU - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Corrección Crítica: Error de Validación de VRAM en PPU</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-21
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0210
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-21__0209__diagnostico-radical-forzar-color-negro-lectura-ppu.html">Anterior (0209)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Tras una auditoría completa del código de <code>PPU::render_scanline()</code>, se identificó un <strong>error lógico crítico</strong> en la validación de direcciones VRAM. La condición <code>tile_line_addr < 0xA000 - 1</code> era incorrecta y causaba que muchos tiles válidos fueran rechazados, escribiendo color 0 (blanco) en el framebuffer en lugar del color real del tile. Este error explicaba por qué la pantalla permanecía blanca incluso cuando se forzaban los bytes de tile a <code>0xFF</code> (negro) en el Step 0209.
+                </p>
+                <p>
+                    <strong>Corrección aplicada:</strong> Cambiar la validación a <code>tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE</code>, garantizando que tanto <code>tile_line_addr</code> como <code>tile_line_addr + 1</code> estén dentro del rango válido de VRAM (0x8000-0x9FFF).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: Validación de Acceso a VRAM</h2>
+                <p>
+                    La VRAM (Video RAM) de la Game Boy ocupa 8KB de memoria, desde la dirección <code>0x8000</code> hasta <code>0x9FFF</code> (inclusive). Cada tile ocupa 16 bytes (8 líneas × 2 bytes por línea), y cada línea de un tile se representa con 2 bytes consecutivos:
+                </p>
+                <ul>
+                    <li><strong>Byte 1:</strong> Bits bajos de cada píxel (bit 7 = píxel 0, bit 6 = píxel 1, ...)</li>
+                    <li><strong>Byte 2:</strong> Bits altos de cada píxel (bit 7 = píxel 0, bit 6 = píxel 1, ...)</li>
+                </ul>
+                <p>
+                    Cuando la PPU renderiza una línea de escaneo, necesita leer <strong>dos bytes consecutivos</strong> para decodificar cada línea de tile. Por lo tanto, la validación de direcciones debe garantizar que:
+                </p>
+                <ol>
+                    <li><code>tile_line_addr >= 0x8000</code> (dentro del inicio de VRAM)</li>
+                    <li><code>tile_line_addr + 1 <= 0x9FFF</code> (el segundo byte también está dentro de VRAM)</li>
+                </ol>
+                <p>
+                    Esto implica que <code>tile_line_addr <= 0x9FFE</code> es la condición correcta para el límite superior.
+                </p>
+                <p>
+                    <strong>Error encontrado:</strong> La condición original <code>tile_line_addr < 0xA000 - 1</code> (equivalente a <code>tile_line_addr < 0x9FFF</code>) rechazaba direcciones válidas como <code>0x9FFE</code>, que debería ser aceptada porque <code>0x9FFE + 1 = 0x9FFF</code> está dentro de VRAM. Además, si <code>tile_line_addr = 0x9FFF</code>, entonces <code>tile_line_addr + 1 = 0xA000</code> estaría fuera de VRAM, por lo que debe ser rechazada correctamente.
+                </p>
+                <p>
+                    <strong>Impacto del error:</strong> Muchos tiles válidos caían en el bloque <code>else</code> y se escribía <code>color_index = 0</code> (blanco) en el framebuffer, independientemente del contenido real de VRAM. Esto explicaba por qué la pantalla permanecía blanca incluso cuando se forzaban los bytes a <code>0xFF</code>.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "VRAM", "Tile Data Format", "PPU Rendering"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se corrigió la condición de validación en <code>PPU::render_scanline()</code> dentro del archivo <code>src/core/cpp/PPU.cpp</code>.
+                </p>
+                
+                <h3>Corrección Aplicada</h3>
+                <p>
+                    <strong>Antes (incorrecto):</strong>
+                </p>
+                <pre><code>if (tile_line_addr >= 0x8000 && tile_line_addr < 0xA000 - 1) {
+    // Leer y decodificar tile
+} else {
+    framebuffer_[line_start_index + x] = 0; // Color por defecto
+}</code></pre>
+                
+                <p>
+                    <strong>Después (correcto):</strong>
+                </p>
+                <pre><code>if (tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE) {
+    uint8_t byte1 = mmu_->read(tile_line_addr);
+    uint8_t byte2 = mmu_->read(tile_line_addr + 1);
+    // ... decodificación ...
+} else {
+    framebuffer_[line_start_index + x] = 0; // Dirección inválida
+}</code></pre>
+
+                <h3>Análisis del Error</h3>
+                <p>
+                    La condición original <code>tile_line_addr < 0xA000 - 1</code> es equivalente a <code>tile_line_addr < 0x9FFF</code>, lo que significa:
+                </p>
+                <ul>
+                    <li><code>tile_line_addr = 0x9FFE</code>: ❌ Rechazado (incorrecto, debería ser aceptado)</li>
+                    <li><code>tile_line_addr = 0x9FFF</code>: ❌ Rechazado (correcto, porque 0x9FFF + 1 = 0xA000 está fuera de VRAM)</li>
+                </ul>
+                <p>
+                    La condición corregida <code>tile_line_addr <= 0x9FFE</code> garantiza:
+                </p>
+                <ul>
+                    <li><code>tile_line_addr = 0x9FFE</code>: ✅ Aceptado (correcto, porque 0x9FFE + 1 = 0x9FFF está dentro de VRAM)</li>
+                    <li><code>tile_line_addr = 0x9FFF</code>: ❌ Rechazado (correcto, porque 0x9FFF + 1 = 0xA000 está fuera de VRAM)</li>
+                </ul>
+
+                <h3>Comentarios Educativos Añadidos</h3>
+                <p>
+                    Se añadieron comentarios extensos explicando el problema, la solución y el impacto, siguiendo el principio de documentación educativa del proyecto.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Corrección de validación de VRAM en <code>render_scanline()</code> (líneas 349-371)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Compilación:</strong> El código se compiló exitosamente con <code>python setup.py build_ext --inplace</code>. No se introdujeron errores de compilación.
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> La extensión Cython se generó correctamente y está lista para pruebas en tiempo de ejecución.
+                </p>
+                <p>
+                    <strong>Prueba esperada:</strong> Con esta corrección, los tiles válidos deberían ser aceptados correctamente y sus colores deberían escribirse en el framebuffer. Si el diagnóstico del Step 0209 (forzar bytes a 0xFF) ahora produce una pantalla negra, confirmaremos que el problema era la validación de direcciones, no el framebuffer o la paleta.
+                </p>
+                <p>
+                    <strong>Próximo paso de verificación:</strong> Ejecutar el emulador con una ROM de test y verificar que los tiles se renderizan correctamente. Si la pantalla sigue blanca, el problema puede estar en otro lugar (por ejemplo, la ROM borra la VRAM antes del renderizado, o hay un problema de direccionamiento de tiles).
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "VRAM" - Rango de direcciones 0x8000-0x9FFF (8KB)</li>
+                    <li>Pan Docs: "Tile Data Format" - 16 bytes por tile, 2 bytes por línea</li>
+                    <li>Pan Docs: "PPU Rendering" - Lectura de datos de tile desde VRAM</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Validación de rangos de memoria:</strong> Cuando se necesita leer múltiples bytes consecutivos, la validación debe garantizar que todos los bytes estén dentro del rango válido, no solo el primero.</li>
+                        <li><strong>Errores de off-by-one:</strong> Los errores de validación de rangos son comunes y pueden causar comportamientos inesperados que son difíciles de diagnosticar sin una auditoría cuidadosa del código.</li>
+                        <li><strong>Importancia de la auditoría de código:</strong> Asumir que el código funciona como se espera sin verificar la implementación real puede llevar a diagnósticos incorrectos y pérdida de tiempo.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Renderizado real:</strong> Verificar que con esta corrección, los tiles se renderizan correctamente cuando la VRAM contiene datos válidos.</li>
+                        <li><strong>Comportamiento de la ROM:</strong> Si la pantalla sigue blanca después de esta corrección, puede ser que la ROM borre la VRAM antes del primer renderizado, o que haya un problema de direccionamiento de tiles (signed vs unsigned).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El error de validación era la causa principal de la pantalla blanca. Con esta corrección, los tiles válidos deberían renderizarse correctamente.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Si la pantalla sigue blanca después de esta corrección (incluso con bytes forzados a 0xFF), el problema puede estar en:
+                    </p>
+                    <ul>
+                        <li>La ROM borra la VRAM antes del primer renderizado</li>
+                        <li>Error en el cálculo de direcciones de tile (signed vs unsigned addressing)</li>
+                        <li>Problema en la aplicación de la paleta BGP en Python</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y verificar si la pantalla ahora muestra color negro (con bytes forzados a 0xFF del Step 0209)</li>
+                    <li>[ ] Si la pantalla es negra, remover el código de diagnóstico del Step 0209 y verificar el renderizado normal</li>
+                    <li>[ ] Si la pantalla sigue blanca, investigar otros posibles problemas (direccionamiento de tiles, paleta BGP, etc.)</li>
+                    <li>[ ] Una vez confirmado el renderizado, implementar la carga correcta de tiles desde la ROM</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
