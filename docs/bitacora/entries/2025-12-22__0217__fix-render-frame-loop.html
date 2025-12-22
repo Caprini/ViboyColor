@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El Eslabón Perdido: Arreglando render_frame - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>El Eslabón Perdido: Arreglando render_frame</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0217
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0216__fix-paleta-roja.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El diagnóstico del Step 0216 confirmó que el pipeline completo funciona correctamente:
+                    C++ escribe el valor `3` (Rojo en nuestra paleta debug), Python lo recibe correctamente,
+                    y la paleta tiene el `3` mapeado a `(255, 0, 0)` (Rojo). Sin embargo, la pantalla se ve
+                    <strong>VERDE CLARO</strong> (Color 0), lo que indica que el método `render_frame` está
+                    ignorando los datos del framebuffer o fallando silenciosamente al dibujarlos.
+                </p>
+                <p>
+                    Este paso implementa una versión robusta y explícita de `render_frame` que itera
+                    píxel a píxel sobre el buffer lineal 1D para garantizar que cada valor se procese
+                    correctamente. La implementación usa `pygame.PixelArray` con cierre explícito en lugar
+                    del context manager para mayor control y depuración.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El framebuffer de la PPU C++ es un array lineal 1D de 23040 bytes (160 × 144 píxeles),
+                    donde cada byte representa un índice de color (0-3). La organización es:
+                </p>
+                <pre><code>píxel (y, x) está en índice [y * 160 + x]</code></pre>
+                <p>
+                    El renderizador Python debe convertir estos índices a colores RGB usando la paleta
+                    BGP (Background Palette Register, 0xFF47) y dibujarlos en una superficie de Pygame
+                    de 160×144 píxeles, que luego se escala a la ventana principal.
+                </p>
+                <p>
+                    Si el método de renderizado falla silenciosamente o no procesa correctamente el buffer,
+                    la pantalla mostrará el color de fondo por defecto (verde claro, índice 0) en lugar
+                    de los datos reales del framebuffer.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se reemplazó la sección del método `render_frame` que procesa el framebuffer C++
+                    con una implementación explícita que usa un bucle doble (y, x) para iterar sobre
+                    cada píxel del buffer lineal.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code>: Método <code>render_frame()</code> - Reemplazo de la lógica de renderizado del framebuffer C++ con bucle explícito</li>
+                </ul>
+
+                <h3>Cambios técnicos</h3>
+                <p>
+                    <strong>Antes:</strong> Se usaba un context manager (`with pygame.PixelArray()`) que
+                    podría estar fallando silenciosamente o no aplicando los cambios correctamente.
+                </p>
+                <p>
+                    <strong>Después:</strong> Se usa `pygame.PixelArray` con cierre explícito mediante
+                    `px_array.close()`, garantizando que los cambios se apliquen a la superficie antes
+                    de escalarla y mostrarla.
+                </p>
+                <p>
+                    El bucle itera explícitamente sobre cada píxel (y, x), calcula el índice lineal,
+                    obtiene el índice de color del framebuffer, lo mapea a RGB usando la paleta, y
+                    escribe el píxel en la superficie. Esto es más lento que usar operaciones vectorizadas
+                    de NumPy, pero garantiza que cada píxel se procese correctamente.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Reemplazo de la lógica de renderizado del framebuffer C++ (líneas 508-530)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Validación Visual:</strong> Ejecutar <code>python main.py roms/tetris.gb</code>
+                    y verificar que la pantalla muestre <strong>ROJO SÓLIDO</strong> (o rayas rojas si se
+                    mantiene el código de debug del Step 0216).
+                </p>
+                <p>
+                    Si se ve la pantalla roja, confirma que:
+                </p>
+                <ul>
+                    <li>El framebuffer C++ se lee correctamente</li>
+                    <li>Los índices de color se mapean correctamente a RGB</li>
+                    <li>Los píxeles se escriben correctamente en la superficie de Pygame</li>
+                    <li>La superficie se escala y muestra correctamente</li>
+                </ul>
+                <p>
+                    <strong>Próximo paso:</strong> Una vez confirmado que la pantalla roja se muestra,
+                    eliminar los hacks de debug (forzado de color rojo, forzado de byte=0xFF en PPU.cpp)
+                    y restaurar la lógica normal de renderizado para ver los gráficos reales del juego.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pygame Documentation: <a href="https://www.pygame.org/docs/ref/pixelarray.html">PixelArray</a></li>
+                    <li>Pan Docs: LCD Control Register, Background Rendering</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Framebuffer Lineal:</strong> El framebuffer C++ es un array 1D donde el píxel (y, x) está en el índice [y * 160 + x]. Esta organización es estándar para buffers de video.</li>
+                        <li><strong>PixelArray y Cierre Explícito:</strong> `pygame.PixelArray` requiere un cierre explícito (`close()`) para aplicar los cambios a la superficie. El context manager debería hacerlo automáticamente, pero el cierre explícito garantiza el comportamiento.</li>
+                        <li><strong>Debugging Visual:</strong> Cuando el pipeline de datos funciona pero la visualización falla, el problema está en el renderizador. Un bucle explícito ayuda a aislar el problema.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento:</strong> El bucle explícito es lento en Python puro. Una vez confirmado que funciona, se puede optimizar con NumPy/Surfarray para mejor rendimiento.</li>
+                        <li><strong>Formato del Buffer:</strong> Verificar que el framebuffer C++ esté en el formato esperado (uint8_t, índices 0-3, organización lineal).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> El context manager `with pygame.PixelArray()`
+                        no estaba aplicando los cambios correctamente, o había un problema de sincronización
+                        entre el bloqueo de la superficie y la escritura de píxeles. El cierre explícito
+                        garantiza que los cambios se apliquen antes de escalar y mostrar la superficie.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Confirmar visualmente que la pantalla roja se muestra correctamente</li>
+                    <li>[ ] Eliminar los hacks de debug (forzado de color rojo en renderer.py, forzado de byte=0xFF en PPU.cpp)</li>
+                    <li>[ ] Restaurar la lógica normal de renderizado de VRAM en PPU.cpp</li>
+                    <li>[ ] Verificar que los gráficos reales del juego se muestren correctamente</li>
+                    <li>[ ] Optimizar el bucle de renderizado con NumPy/Surfarray para mejor rendimiento</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

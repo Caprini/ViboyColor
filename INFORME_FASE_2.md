@@ -32,6 +32,32 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0217: Fix - Implementación Robusta de render_frame
+**Estado**: 🔧 EN PROCESO
+
+El diagnóstico del Step 0216 confirmó que los datos llegan correctamente a Python (valor 3/Rojo), pero la pantalla mostraba el color de fondo (Verde). Esto indicaba que el método `render_frame` no estaba procesando el buffer correctamente. Se implementó una versión explícita de `render_frame` que itera el buffer 1D píxel a píxel para garantizar el dibujo en la superficie de Pygame.
+
+**Objetivo:**
+- Reemplazar la lógica de renderizado por un bucle explícito x/y.
+- Usar `pygame.PixelArray` con cierre explícito (`close()`) en lugar del context manager.
+- Confirmar visualmente la pantalla ROJA.
+
+**Implementación:**
+1. **Reemplazo de la sección de renderizado C++**: Se modificó el método `render_frame` en `src/gpu/renderer.py` para usar un bucle doble explícito (y, x) que itera sobre cada píxel del buffer lineal.
+2. **Cierre explícito de PixelArray**: Se reemplazó el context manager `with pygame.PixelArray()` por una instanciación explícita seguida de `px_array.close()` para garantizar que los cambios se apliquen.
+
+**Concepto de Hardware:**
+El framebuffer C++ es un array lineal 1D de 23040 bytes (160×144 píxeles), donde cada byte es un índice de color (0-3). El renderizador debe convertir estos índices a RGB usando la paleta BGP y dibujarlos en una superficie de Pygame. Si el método de renderizado falla silenciosamente, la pantalla mostrará el color de fondo por defecto.
+
+**Archivos Afectados:**
+- `src/gpu/renderer.py` - Reemplazo de la lógica de renderizado del framebuffer C++ (líneas 508-530)
+
+**Tests:**
+- Ejecutar `python main.py roms/tetris.gb` y verificar que se vea **PANTALLA ROJA SÓLIDA** (o rayas rojas si se mantiene el código de debug).
+- Si se ve rojo, confirmar que el pipeline funciona completo y proceder a eliminar los hacks de debug.
+
+---
+
 ### 2025-12-22 - Step 0216: Fix - Inversión de Paleta y Debug Visual
 **Estado**: 🔧 EN PROCESO
 

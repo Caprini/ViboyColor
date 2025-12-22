@@ -505,28 +505,38 @@ class Renderer:
                     self.debug_palette_printed = True
                 # ----------------------------------------
                 
+                # --- STEP 0217: IMPLEMENTACIÓN ROBUSTA DE RENDER_FRAME ---
                 # Crear superficie de Pygame para el frame (160x144)
                 frame_surface = pygame.Surface((GB_WIDTH, GB_HEIGHT))
                 
-                # Aplicar paleta: convertir índices de color a píxeles RGB
-                # Usar PixelArray para acceso rápido a píxeles
-                with pygame.PixelArray(frame_surface) as pixels:
-                    for y in range(GB_HEIGHT):
-                        for x in range(GB_WIDTH):
-                            # Calcular índice 1D: píxel (y, x) está en [y * 160 + x]
-                            idx = y * GB_WIDTH + x
-                            # Obtener índice de color del framebuffer C++
-                            color_index = frame_indices[idx] & 0x03  # Asegurar rango 0-3
-                            # Obtener color RGB de la paleta
-                            rgb_color = palette[color_index]
-                            # Escribir píxel en la superficie
-                            pixels[x, y] = rgb_color
+                # Bloquear la superficie para acceso rápido de píxeles
+                px_array = pygame.PixelArray(frame_surface)
                 
-                # Escalar y hacer blit a la pantalla
+                # Iterar sobre el buffer lineal
+                # Nota: Esto es lento en Python puro, pero seguro para verificar.
+                # Si funciona, veremos la pantalla roja.
+                for y in range(GB_HEIGHT):
+                    for x in range(GB_WIDTH):
+                        # Calcular índice lineal
+                        idx = y * GB_WIDTH + x
+                        
+                        # Obtener índice de color (0-3) del framebuffer
+                        # Manejamos el caso de que framebuffer sea un memoryview o lista
+                        color_index = frame_indices[idx] & 0x03  # Asegurar rango 0-3
+                        
+                        # Obtener color RGB de la paleta
+                        # Aseguramos que el índice esté en rango (seguridad)
+                        color_rgb = palette[color_index]
+                        
+                        # Escribir en la superficie (PixelArray usa coordenadas x, y)
+                        px_array[x, y] = color_rgb
+                
+                # Desbloquear superficie (CRÍTICO para que los cambios se apliquen)
+                px_array.close()
+                
+                # Escalar a la ventana principal
                 scaled_surface = pygame.transform.scale(frame_surface, (self.window_width, self.window_height))
                 self.screen.blit(scaled_surface, (0, 0))
-                
-                # Actualizar pantalla
                 pygame.display.flip()
                 return
             except Exception as e:
