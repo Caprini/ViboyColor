@@ -363,7 +363,13 @@ void PPU::render_scanline() {
         }
         // -------------------------------------------------
 
-        // --- Step 0210: CORRECCIÓN CRÍTICA DE VALIDACIÓN DE VRAM ---
+        // --- Step 0212: TEST AGRESIVO - FORZAR TODOS LOS PÍXELES A NEGRO ---
+        // Ignoramos completamente la validación y la lectura de VRAM.
+        // Forzamos TODOS los píxeles a color 3 (Negro) para verificar si el problema
+        // está en C++ (si esto no funciona) o en Python (si esto funciona pero la pantalla sigue blanca).
+        framebuffer_[line_start_index + x] = 3; // FORZAR NEGRO (Índice 3) - SIN CONDICIONES
+        
+        // --- Step 0210: CORRECCIÓN CRÍTICA DE VALIDACIÓN DE VRAM (TEMPORALMENTE DESHABILITADO) ---
         // ERROR ENCONTRADO: La condición `tile_line_addr < 0xA000 - 1` es incorrecta.
         // 
         // PROBLEMA:
@@ -382,6 +388,7 @@ void PPU::render_scanline() {
         // - Con la condición incorrecta, muchos tiles válidos caían en el else y se escribía
         //   color_index = 0 (blanco) en lugar del color real del tile.
         // - Esto explicaba por qué la pantalla estaba blanca incluso forzando bytes a 0xFF.
+        /*
         if (tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE) {
             
             // --- Step 0212: EL TEST DEL ROTULADOR NEGRO ---
@@ -409,6 +416,7 @@ void PPU::render_scanline() {
             // Escribir color 0 (blanco por defecto) como fallback
             framebuffer_[line_start_index + x] = 0;
         }
+        */
     }
 }
 

@@ -32,6 +32,84 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0213: La Inspección del Puente (Data Probe)
+**Estado**: 🔍 EN DEPURACIÓN
+
+A pesar de que la PPU en C++ reporta operaciones correctas y forzamos la escritura de píxeles negros (Step 0212), la pantalla permanece blanca. Esto sugiere que los datos no están cruzando correctamente el puente Cython hacia Python, o que el renderizador de Python los está interpretando mal. Implementamos una sonda en `viboy.py` para inspeccionar los valores crudos del framebuffer (`memoryview`) tal como llegan a Python.
+
+**Objetivo:**
+- Determinar si Python recibe `3` (Negro) o `0` (Blanco) en el framebuffer.
+- Aislar el fallo: ¿Es el puente C++ → Python (Cython) o el renderizado final (Pygame)?
+
+**Concepto de Hardware: El Puente de Datos**
+
+En una arquitectura híbrida Python/C++, el flujo de datos del framebuffer sigue esta ruta:
+1. **C++ (PPU.cpp):** Escribe índices de color (0-3) en un array `uint8_t[23040]`.
+2. **Cython (ppu.pyx):** Expone el array como un `memoryview` de Python usando `get_framebuffer_ptr()`.
+3. **Python (viboy.py):** Lee el `memoryview` y lo pasa al renderizador.
+4. **Python (renderer.py):** Convierte los índices de color a RGB usando la paleta BGP y dibuja en Pygame.
+
+**El problema del "crimen perfecto":** Tenemos evidencia de que:
+- C++ confiesa: La sonda `VALID CHECK: PASS` (Step 0211) confirma que la lógica interna de la PPU está funcionando y las direcciones son válidas.
+- La evidencia visual: La pantalla está **BLANCA**.
+- La deducción: Si C++ está escribiendo `3` (negro) en el framebuffer (como confirmamos con el Step 0212), pero Pygame dibuja `0` (blanco), entonces **los datos se están perdiendo o corrompiendo en el puente entre C++ y Python**.
+
+**La solución: Interrogar al mensajero.** Vamos a inspeccionar los datos justo cuando llegan a Python, antes de que el renderizador los toque. Si Python dice "Recibí un 3", entonces el problema está en `renderer.py` (la paleta o el dibujo). Si Python dice "Recibí un 0", entonces el problema está en **Cython** (estamos leyendo la memoria equivocada o una copia vacía).
+
+**Implementación:**
+
+1. **Modificación en `src/viboy.py`**: Se añadió un bloque de código que inspecciona el framebuffer justo cuando llega a Python:
+   ```python
+   # --- Step 0213: SONDA DE DATOS PYTHON ---
+   if self._use_cpp and self._ppu is not None:
+       if not hasattr(self, '_debug_frame_printed'):
+           self._debug_frame_printed = False
+       
+       if not self._debug_frame_printed:
+           fb_data = self._ppu.framebuffer
+           p0 = fb_data[0]
+           p8 = fb_data[8]
+           mid = fb_data[23040 // 2]
+           print(f"\n--- [PYTHON DATA PROBE] ---")
+           print(f"Pixel 0 (0,0): {p0} (Esperado: 3)")
+           print(f"Pixel 8 (8,0): {p8}")
+           print(f"Pixel Center: {mid}")
+           print(f"---------------------------\n")
+           self._debug_frame_printed = True
+   ```
+
+**Archivos Afectados:**
+- `src/viboy.py` - Añadida sonda de datos en el método `run()` (línea ~777) para inspeccionar el framebuffer antes del renderizado
+- `docs/bitacora/entries/2025-12-22__0213__inspeccion-puente-data-probe.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0213
+
+**Tests y Verificación:**
+
+1. **No requiere recompilación**: Este cambio es puramente en Python, por lo que no es necesario recompilar el módulo C++. Sin embargo, asegúrate de que el código C++ del Step 0212 (Test del Rotulador Negro) sigue activo.
+
+2. **Ejecución del emulador**:
+   ```bash
+   python main.py roms/tetris.gb
+   ```
+
+3. **Resultado esperado**: Deberías ver en la consola un mensaje como:
+   ```
+   --- [PYTHON DATA PROBE] ---
+   Pixel 0 (0,0): 3 (Esperado: 3)
+   Pixel 8 (8,0): 0
+   Pixel Center: 3
+   ---------------------------
+   ```
+
+4. **Interpretación**:
+   - **Si `Pixel 0: 3`**: Los datos están llegando correctamente desde C++ a Python. El problema está en `renderer.py`. Necesitamos revisar la conversión de índices de color a RGB, la aplicación de la paleta BGP, y la escritura en la superficie Pygame.
+   - **Si `Pixel 0: 0`**: Los datos NO están llegando correctamente. El problema está en el puente Cython. Necesitamos revisar si `get_framebuffer_ptr()` está devolviendo el puntero correcto, si el `memoryview` está apuntando a la memoria correcta, o si hay algún problema de sincronización.
+
+**Validación de éxito**: Este test nos dará una respuesta definitiva sobre dónde está el problema, permitiéndonos enfocar nuestros esfuerzos de depuración en el componente correcto.
+
+---
+
 ### 2025-12-22 - Step 0212: El Test del Rotulador Negro (Escritura Directa)
 **Estado**: 🔧 EN PROCESO
 

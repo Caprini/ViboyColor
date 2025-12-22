@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inspección del Puente: ¿Llegan los datos a Python? - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Inspección del Puente: ¿Llegan los datos a Python?</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0213
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0212__test-rotulador-negro.html">Anterior (0212)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    A pesar de que la PPU en C++ reporta operaciones correctas y forzamos la escritura de píxeles negros (Step 0212), la pantalla permanece blanca. Esto sugiere que los datos no están cruzando correctamente el puente Cython hacia Python, o que el renderizador de Python los está interpretando mal. Implementamos una sonda en <code>viboy.py</code> para inspeccionar los valores crudos del framebuffer (<code>memoryview</code>) tal como llegan a Python.
+                </p>
+                <p>
+                    <strong>Objetivo:</strong> Determinar si Python recibe <code>3</code> (Negro) o <code>0</code> (Blanco) en el framebuffer. Esto nos permitirá aislar el fallo: ¿Es el puente C++ → Python (Cython) o el renderizado final (Pygame)?
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: El Puente de Datos</h2>
+                <p>
+                    En una arquitectura híbrida Python/C++, el flujo de datos del framebuffer sigue esta ruta:
+                </p>
+                <ol>
+                    <li><strong>C++ (PPU.cpp):</strong> Escribe índices de color (0-3) en un array <code>uint8_t[23040]</code>.</li>
+                    <li><strong>Cython (ppu.pyx):</strong> Expone el array como un <code>memoryview</code> de Python usando <code>get_framebuffer_ptr()</code>.</li>
+                    <li><strong>Python (viboy.py):</strong> Lee el <code>memoryview</code> y lo pasa al renderizador.</li>
+                    <li><strong>Python (renderer.py):</strong> Convierte los índices de color a RGB usando la paleta BGP y dibuja en Pygame.</li>
+                </ol>
+                <p>
+                    <strong>El problema del "crimen perfecto":</strong> Tenemos evidencia de que:
+                </p>
+                <ul>
+                    <li>C++ confiesa: La sonda <code>VALID CHECK: PASS</code> (Step 0211) confirma que la lógica interna de la PPU está funcionando y las direcciones son válidas.</li>
+                    <li>La evidencia visual: La pantalla está <strong>BLANCA</strong>.</li>
+                    <li>La deducción: Si C++ está escribiendo <code>3</code> (negro) en el framebuffer (como confirmamos con el Step 0212), pero Pygame dibuja <code>0</code> (blanco), entonces <strong>los datos se están perdiendo o corrompiendo en el puente entre C++ y Python</strong>.</li>
+                </ul>
+                <p>
+                    <strong>La solución: Interrogar al mensajero.</strong> Vamos a inspeccionar los datos justo cuando llegan a Python, antes de que el renderizador los toque. Si Python dice "Recibí un 3", entonces el problema está en <code>renderer.py</code> (la paleta o el dibujo). Si Python dice "Recibí un 0", entonces el problema está en <strong>Cython</strong> (estamos leyendo la memoria equivocada o una copia vacía).
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Metodología de depuración de sistemas híbridos - "Data Probe" debugging en interfaces C++/Python.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió una sonda de diagnóstico en el método <code>run()</code> de <code>src/viboy.py</code>, justo antes de llamar a <code>render_frame()</code>. La sonda se ejecuta <strong>solo una vez</strong> para no saturar la consola.
+                </p>
+                
+                <h3>Modificación en <code>src/viboy.py</code></h3>
+                <p>
+                    Se añadió un bloque de código que inspecciona el framebuffer justo cuando llega a Python:
+                </p>
+                <pre><code># --- Step 0213: SONDA DE DATOS PYTHON ---
+# Inspeccionar el framebuffer justo cuando llega a Python, antes del renderizado
+if self._use_cpp and self._ppu is not None:
+    # Variable para el diagnóstico de un solo disparo
+    if not hasattr(self, '_debug_frame_printed'):
+        self._debug_frame_printed = False
+    
+    if not self._debug_frame_printed:
+        # Obtener el framebuffer desde C++
+        fb_data = self._ppu.framebuffer
+        
+        # Leemos el primer píxel (índice 0) y el píxel 8 (inicio del segundo tile)
+        # También leemos el píxel central para asegurar.
+        p0 = fb_data[0]
+        p8 = fb_data[8]
+        mid = fb_data[23040 // 2]
+        print(f"\n--- [PYTHON DATA PROBE] ---")
+        print(f"Pixel 0 (0,0): {p0} (Esperado: 3)")
+        print(f"Pixel 8 (8,0): {p8}")
+        print(f"Pixel Center: {mid}")
+        print(f"---------------------------\n")
+        self._debug_frame_printed = True
+# ----------------------------------------</code></pre>
+
+                <h3>Lógica de la Sonda</h3>
+                <p>
+                    La sonda lee tres píxeles estratégicos del framebuffer:
+                </p>
+                <ul>
+                    <li><strong>Pixel 0 (0,0):</strong> El primer píxel de la pantalla. Si el Step 0212 está activo, debería ser <code>3</code> (Negro).</li>
+                    <li><strong>Pixel 8 (8,0):</strong> El primer píxel del segundo tile. Si el patrón de rayas del Step 0212 está activo, debería ser <code>0</code> (Blanco) o <code>3</code> (Negro) dependiendo del patrón.</li>
+                    <li><strong>Pixel Center:</strong> Un píxel en el centro de la pantalla (índice 11520) para verificar que los datos están presentes en toda la pantalla.</li>
+                </ul>
+                <p>
+                    <strong>Análisis del resultado:</strong>
+                </p>
+                <ul>
+                    <li><strong>Si ves <code>Pixel 0: 3</code>:</strong> ¡Los datos llegan bien! El culpable es <code>src/gpu/renderer.py</code> (probablemente la paleta o la conversión a superficie Pygame).</li>
+                    <li><strong>Si ves <code>Pixel 0: 0</code>:</strong> ¡Houston, tenemos un problema en Cython! Estamos leyendo un buffer vacío o desconectado del real.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Añadida sonda de datos en el método <code>run()</code> (línea ~777) para inspeccionar el framebuffer antes del renderizado</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>No requiere recompilación:</strong> Este cambio es puramente en Python, por lo que no es necesario recompilar el módulo C++. Sin embargo, asegúrate de que el código C++ del Step 0212 (Test del Rotulador Negro) sigue activo.
+                </p>
+                <p>
+                    <strong>Ejecución del emulador:</strong>
+                </p>
+                <pre><code>python main.py roms/tetris.gb</code></pre>
+                <p>
+                    <strong>Resultado esperado:</strong> Deberías ver en la consola un mensaje como:
+                </p>
+                <pre><code>--- [PYTHON DATA PROBE] ---
+Pixel 0 (0,0): 3 (Esperado: 3)
+Pixel 8 (8,0): 0
+Pixel Center: 3
+---------------------------</code></pre>
+                <p>
+                    <strong>Interpretación:</strong>
+                </p>
+                <ul>
+                    <li><strong>Si <code>Pixel 0: 3</code>:</strong> Los datos están llegando correctamente desde C++ a Python. El problema está en <code>renderer.py</code>. Necesitamos revisar:
+                        <ul>
+                            <li>La conversión de índices de color a RGB.</li>
+                            <li>La aplicación de la paleta BGP.</li>
+                            <li>La escritura en la superficie Pygame.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Si <code>Pixel 0: 0</code>:</strong> Los datos NO están llegando correctamente. El problema está en el puente Cython. Necesitamos revisar:
+                        <ul>
+                            <li>Si <code>get_framebuffer_ptr()</code> está devolviendo el puntero correcto.</li>
+                            <li>Si el <code>memoryview</code> está apuntando a la memoria correcta.</li>
+                            <li>Si hay algún problema de sincronización (el framebuffer se limpia después de leer).</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Aunque este cambio no requiere recompilación, es importante verificar que el módulo C++ del Step 0212 sigue activo y está escribiendo píxeles negros en el framebuffer.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Metodología de depuración de sistemas híbridos: "Data Probe" debugging en interfaces C++/Python</li>
+                    <li>Cython Documentation: Memory Views and Zero-Copy Arrays</li>
+                    <li>Pan Docs: "PPU Framebuffer" - Estructura del buffer de píxeles</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>El puente de datos:</strong> En una arquitectura híbrida, los datos deben cruzar múltiples capas (C++ → Cython → Python). Cada capa puede introducir errores o pérdida de datos.</li>
+                        <li><strong>Depuración por inspección:</strong> A veces, la mejor forma de encontrar un problema es inspeccionar los datos en cada punto del pipeline. Esta sonda nos permite ver exactamente qué recibe Python.</li>
+                        <li><strong>Zero-Copy vs. Copia:</strong> El uso de <code>memoryview</code> en Cython permite acceso Zero-Copy a la memoria C++, pero si el puntero está mal configurado, podemos estar leyendo memoria incorrecta.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Resultado de la sonda:</strong> Ver qué valores recibe Python del framebuffer. Esto nos dirá si el problema está en Cython o en el renderizador.</li>
+                        <li><strong>Ubicación del problema:</strong> Una vez que sepamos qué valores recibe Python, podremos determinar si el problema está en el puente Cython o en el renderizador Python.</li>
+                        <li><strong>Próximos pasos:</strong> Basándonos en el resultado de la sonda, podremos enfocar nuestros esfuerzos de depuración en el componente correcto.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> Si Python recibe <code>0</code> cuando debería recibir <code>3</code>, entonces el problema está en el puente Cython. Esto podría ser:
+                    </p>
+                    <ul>
+                        <li>El puntero del framebuffer no está apuntando a la memoria correcta.</li>
+                        <li>El <code>memoryview</code> está leyendo una copia vacía o desactualizada del framebuffer.</li>
+                        <li>Hay un problema de sincronización (el framebuffer se limpia después de escribir pero antes de leer).</li>
+                    </ul>
+                    <p>
+                        <strong>Suposición:</strong> Si Python recibe <code>3</code> correctamente, entonces el problema está en el renderizador. Necesitaremos revisar la conversión de índices a RGB y la aplicación de la paleta.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador: <code>python main.py roms/tetris.gb</code></li>
+                    <li>[ ] Observar el resultado de la sonda en la consola</li>
+                    <li>[ ] Si <code>Pixel 0: 3</code>: Revisar <code>renderer.py</code> (conversión de colores, paleta, Pygame)</li>
+                    <li>[ ] Si <code>Pixel 0: 0</code>: Revisar el puente Cython (<code>ppu.pyx</code>, <code>get_framebuffer_ptr()</code>, <code>memoryview</code>)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

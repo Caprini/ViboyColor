@@ -775,6 +775,30 @@ class Viboy:
                         self.running = False
                         break
                     
+                    # --- Step 0213: SONDA DE DATOS PYTHON ---
+                    # Inspeccionar el framebuffer justo cuando llega a Python, antes del renderizado
+                    if self._use_cpp and self._ppu is not None:
+                        # Variable para el diagnóstico de un solo disparo
+                        if not hasattr(self, '_debug_frame_printed'):
+                            self._debug_frame_printed = False
+                        
+                        if not self._debug_frame_printed:
+                            # Obtener el framebuffer desde C++
+                            fb_data = self._ppu.framebuffer
+                            
+                            # Leemos el primer píxel (índice 0) y el píxel 8 (inicio del segundo tile)
+                            # También leemos el píxel central para asegurar.
+                            p0 = fb_data[0]
+                            p8 = fb_data[8]
+                            mid = fb_data[23040 // 2]
+                            print(f"\n--- [PYTHON DATA PROBE] ---")
+                            print(f"Pixel 0 (0,0): {p0} (Esperado: 3)")
+                            print(f"Pixel 8 (8,0): {p8}")
+                            print(f"Pixel Center: {mid}")
+                            print(f"---------------------------\n")
+                            self._debug_frame_printed = True
+                    # ----------------------------------------
+                    
                     # El renderizado ya no depende de "is_frame_ready" porque este bucle
                     # garantiza que se ha completado un frame.
                     self._renderer.render_frame()
