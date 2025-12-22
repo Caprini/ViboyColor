@@ -32,6 +32,35 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0232: Hard Reset del Binario (Verificación de Código)
+**Estado**: 🔧 EN PROCESO
+
+El análisis de logs demostró que el fix del Opcode 0x08 (Step 0231) no se aplicó en el binario ejecutado: el PC solo avanzaba 1 byte en lugar de 3, indicando que el código nuevo no se estaba ejecutando. Esto sugiere un problema de persistencia de DLLs antiguas en Windows, donde los archivos `.pyd` se bloquean en memoria mientras Python está activo.
+
+**Objetivo:**
+- Forzar la recompilación real del núcleo C++ mediante limpieza agresiva de binarios.
+- Confirmar visualmente que el código nuevo se está ejecutando mediante un "marcador radiactivo" (printf de debug).
+
+**Implementación:**
+1. **Modificación en `CPU.cpp`**: Añadido `printf("!!! EJECUTANDO OPCODE 0x08 EN C++ !!!\n")` dentro del `case 0x08` para confirmar su ejecución.
+2. **Limpieza manual**: Proceso crítico de eliminación de carpeta `build/` y archivos `.pyd` antes de recompilar.
+
+**Concepto de Hardware:**
+En Windows, cuando Python carga una extensión compilada (`.pyd`), el sistema bloquea el archivo en memoria. Si intentas recompilar mientras Python tiene el módulo cargado, el compilador puede fallar silenciosamente o escribir en otra ubicación, dejando el binario antiguo activo.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Añadido printf de debug en `case 0x08`
+
+**Tests:**
+- Cerrar todas las ventanas de Python/Viboy
+- Eliminar carpeta `build/` y archivos `.pyd`
+- Recompilar: `.\rebuild_cpp.ps1`
+- Ejecutar: `python main.py roms/tetris.gb`
+- Verificar: Buscar el mensaje `!!! EJECUTANDO OPCODE 0x08 EN C++ !!!` en la consola
+- Si aparece, el código nuevo está activo y el PC debería avanzar 3 bytes correctamente.
+
+---
+
 ### 2025-12-22 - Step 0231: Fix - Desalineamiento de CPU (Opcode 0x08)
 **Estado**: 🔧 EN PROCESO
 

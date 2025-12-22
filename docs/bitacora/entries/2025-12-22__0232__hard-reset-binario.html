@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hard Reset: Forzando la Realidad - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Hard Reset: Forzando la Realidad</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0232
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0231__fix-cpu-desync-opcode-08.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El análisis de logs demostró que el fix del Opcode 0x08 (Step 0231) no se aplicó en el binario ejecutado: 
+                    el PC solo avanzaba 1 byte en lugar de 3, indicando que el código nuevo no se estaba ejecutando. 
+                    Esto sugiere un problema de persistencia de DLLs antiguas en Windows. Procedemos a una limpieza 
+                    agresiva de los artefactos de compilación y añadimos un log de confirmación ("marcador radiactivo") 
+                    dentro del opcode para verificar su ejecución.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Este paso no trata sobre hardware del Game Boy, sino sobre el <strong>proceso de compilación y enlace 
+                    dinámico en Windows</strong>.
+                </p>
+                <p>
+                    <strong>El Problema de las DLLs Bloqueadas:</strong>
+                </p>
+                <p>
+                    En Windows, cuando Python carga una extensión compilada (archivo <code>.pyd</code>, que es una DLL 
+                    con extensión diferente), el sistema operativo bloquea el archivo en memoria mientras el proceso 
+                    Python esté activo. Si intentas recompilar mientras Python tiene el módulo cargado:
+                </p>
+                <ul>
+                    <li>El compilador puede fallar silenciosamente al sobrescribir el archivo.</li>
+                    <li>O puede escribir en una ubicación diferente, dejando el binario antiguo activo.</li>
+                    <li>O puede generar un error de "acceso denegado" que se ignora si no se verifica.</li>
+                </ul>
+                <p>
+                    <strong>El Marcador Radiactivo:</strong>
+                </p>
+                <p>
+                    Para confirmar que el código nuevo se está ejecutando, añadimos un <code>printf</code> muy visible 
+                    dentro del opcode. Si este mensaje aparece en la consola, sabemos con certeza que el código C++ 
+                    nuevo está activo. Si no aparece, el binario antiguo sigue ejecutándose.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Añadimos un log de confirmación dentro del <code>case 0x08</code> para verificar que el código se ejecuta.
+                </p>
+                
+                <h3>Modificación en CPU.cpp</h3>
+                <p>
+                    Añadimos un <code>printf</code> al inicio del <code>case 0x08</code>:
+                </p>
+                <pre><code>case 0x08:  // LD (nn), SP
+    {
+        // --- Step 0232: DEBUG DE VIDA ---
+        printf("!!! EJECUTANDO OPCODE 0x08 EN C++ !!!\n");
+        // --------------------------------
+        
+        uint16_t addr = fetch_word();
+        mmu_->write(addr, regs_->sp & 0xFF);
+        mmu_->write(addr + 1, (regs_->sp >> 8) & 0xFF);
+        cycles_ += 5;
+        return 5;
+    }</code></pre>
+
+                <h3>Limpieza Manual de Binarios</h3>
+                <p>
+                    <strong>Proceso crítico antes de recompilar:</strong>
+                </p>
+                <ol>
+                    <li><strong>Cerrar todas las ventanas de Python/Viboy</strong> para liberar los archivos bloqueados.</li>
+                    <li><strong>Eliminar la carpeta <code>build/</code></strong> que contiene artefactos de compilación antiguos.</li>
+                    <li><strong>Eliminar cualquier archivo <code>.pyd</code></strong> en la raíz o en <code>src/</code>.</li>
+                </ol>
+                <p>
+                    <strong>Comandos en PowerShell:</strong>
+                </p>
+                <pre><code># Cerrar procesos Python primero
+Get-Process python | Stop-Process -Force
+
+# Eliminar carpeta build
+Remove-Item -Recurse -Force build
+
+# Eliminar archivos .pyd
+Get-ChildItem -Recurse -Filter *.pyd | Remove-Item -Force</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido printf de debug en <code>case 0x08</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para validar que el código nuevo se está ejecutando:
+                </p>
+                <ol>
+                    <li><strong>Cerrar todas las ventanas de Python/Viboy</strong></li>
+                    <li><strong>Limpiar binarios:</strong> Eliminar carpeta <code>build/</code> y archivos <code>.pyd</code></li>
+                    <li><strong>Recompilar:</strong> <code>.\rebuild_cpp.ps1</code> (debería tardar más al reconstruir desde cero)</li>
+                    <li><strong>Ejecutar:</strong> <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Verificar:</strong> Buscar el mensaje <code>!!! EJECUTANDO OPCODE 0x08 EN C++ !!!</code> en la consola</li>
+                </ol>
+                <p>
+                    <strong>Resultado Esperado:</strong>
+                </p>
+                <ul>
+                    <li>Si ves el mensaje <code>!!! EJECUTANDO OPCODE 0x08 EN C++ !!!</code>, el código nuevo está activo.</li>
+                    <li>El "Francotirador" debería mostrar que el PC salta correctamente de <code>2B17</code> a <code>2B1A</code> (3 bytes de avance).</li>
+                    <li>Si no ves el mensaje, el binario antiguo sigue activo y necesitas repetir la limpieza.</li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El printf se ejecuta directamente en el núcleo C++, 
+                    confirmando que el código compilado es el correcto.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Documentación de Python sobre extensiones C/C++: <a href="https://docs.python.org/3/extending/building.html">Building C and C++ Extensions</a></li>
+                    <li>Conocimiento general sobre bloqueo de archivos DLL en Windows y problemas de compilación de extensiones Python.</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Bloqueo de DLLs en Windows:</strong> Los archivos .pyd (DLLs de Python) se bloquean en memoria mientras el proceso Python está activo, impidiendo su sobrescritura.</li>
+                        <li><strong>Marcadores Radiactivos:</strong> Añadir logs muy visibles dentro del código crítico permite confirmar que el binario nuevo se está ejecutando.</li>
+                        <li><strong>Limpieza Agresiva:</strong> Eliminar manualmente los artefactos de compilación fuerza una reconstrucción completa desde cero.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Confirmación Visual:</strong> Verificar que el mensaje de debug aparece en la consola.</li>
+                        <li><strong>Corrección del Desalineamiento:</strong> Verificar que el PC ahora avanza correctamente (3 bytes en lugar de 1).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> El binario antiguo estaba bloqueado en memoria y no se actualizó durante la recompilación. 
+                        Con la limpieza manual y el marcador radiactivo, podremos confirmar que el código nuevo se ejecuta y que el fix del opcode 0x08 
+                        funciona correctamente.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar la limpieza manual de binarios</li>
+                    <li>[ ] Recompilar desde cero</li>
+                    <li>[ ] Verificar que el mensaje de debug aparece en la consola</li>
+                    <li>[ ] Confirmar que el PC avanza correctamente (3 bytes) después del opcode 0x08</li>
+                    <li>[ ] Si el fix funciona, remover el printf de debug para limpiar el código</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
