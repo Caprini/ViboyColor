@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El Francotirador: Cazando el Bucle Infinito - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>El Francotirador: Cazando el Bucle Infinito</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0223
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0222__estetoscopio-diagnostico-vivo.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El "Estetoscopio" (Step 0222) reveló que la CPU está atrapada en un bucle infinito en la dirección de memoria <code>0x02B4</code>, con el fondo apagado (LCDC Bit 0 = 0) y la VRAM vacía. Para entender qué condición de salida no se está cumpliendo (probablemente esperando V-Blank o un estado específico de hardware), implementamos un trazado condicional que solo se activa cuando el PC está en el rango <code>0x02B0-0x02C0</code>. Esta instrumentación quirúrgica nos permitirá ver las instrucciones del bucle y los valores de los registros sin saturar la consola con logs masivos.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Cuando un juego de Game Boy se inicia, típicamente sigue este flujo:
+                </p>
+                <ol>
+                    <li><strong>Inicialización de hardware:</strong> Configura registros de I/O (LCDC, BGP, etc.)</li>
+                    <li><strong>Espera de V-Blank:</strong> Muchos juegos esperan el primer V-Blank antes de copiar gráficos a VRAM</li>
+                    <li><strong>Copia de gráficos:</strong> Transfiere tiles desde ROM a VRAM</li>
+                    <li><strong>Activación del fondo:</strong> Enciende el LCDC Bit 0 para mostrar el fondo</li>
+                </ol>
+                <p>
+                    El problema que estamos enfrentando es que el juego está atascado en el paso 2: está esperando V-Blank, pero nuestro emulador no está generando V-Blank correctamente, o el juego está leyendo un registro de hardware (como STAT o LY) que no está actualizándose como espera.
+                </p>
+                <p>
+                    El registro <strong>LY (Line Y)</strong> en la dirección <code>0xFF44</code> indica la línea de escaneo actual (0-153). Cuando LY alcanza 144, la PPU entra en modo V-Blank. Muchos juegos hacen polling de este registro en un bucle como:
+                </p>
+                <pre><code>wait_vblank:
+    LDH A, (0x44)    ; Lee LY
+    CP 0x90          ; Compara con 144 (0x90)
+    JR NZ, wait_vblank  ; Si no es 144, vuelve a esperar</code></pre>
+                <p>
+                    Si LY nunca alcanza 144 (porque la PPU no está avanzando), el juego se queda atascado en este bucle infinitamente. El "Francotirador" nos permitirá ver exactamente qué instrucciones se están ejecutando y qué valores están comparando.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Implementamos un bloque de debug condicional en el método <code>step()</code> de la CPU que solo imprime información cuando el PC está en el rango problemático (<code>0x02B0-0x02C0</code>). Esto nos permite ver:
+                </p>
+                <ul>
+                    <li><strong>PC:</strong> La dirección de memoria actual (para ver el flujo del bucle)</li>
+                    <li><strong>Opcode:</strong> La instrucción que se está ejecutando</li>
+                    <li><strong>AF:</strong> El registro AF (contiene flags y acumulador, útil para ver comparaciones)</li>
+                    <li><strong>LY:</strong> El valor actual de la línea de escaneo (crítico para detectar si V-Blank está funcionando)</li>
+                </ul>
+                
+                <h3>Modificación en CPU.cpp</h3>
+                <p>
+                    Se añadió un bloque condicional justo antes del fetch del opcode:
+                </p>
+                <pre><code>// --- Step 0223: EL FRANCOTIRADOR (Debug Quirúrgico) ---
+// Solo imprimimos si el PC está en la zona caliente del bucle infinito (0x02B0 - 0x02C0)
+// Esto nos dirá qué está comprobando el juego sin saturar la consola.
+if (regs_->pc >= 0x02B0 && regs_->pc <= 0x02C0) {
+    uint8_t opcode_preview = mmu_->read(regs_->pc);
+    uint8_t ly_value = (ppu_ != nullptr) ? ppu_->get_ly() : 0;
+    printf("[SNIPER] PC: 0x%04X | Opcode: 0x%02X | AF: 0x%04X | LY: %d\n", 
+           regs_->pc, opcode_preview, regs_->get_af(), ly_value);
+}
+// -----------------------------------------------------</code></pre>
+                
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Rango de memoria:</strong> Elegimos <code>0x02B0-0x02C0</code> porque el "Estetoscopio" detectó que el PC estaba en <code>0x02B4</code>. Incluimos un rango para capturar todo el bucle, no solo una instrucción.</li>
+                    <li><strong>Información mínima:</strong> Solo imprimimos PC, Opcode, AF y LY. Esto es suficiente para identificar el bucle sin saturar la consola.</li>
+                    <li><strong>Verificación de PPU:</strong> Verificamos que <code>ppu_</code> no sea <code>nullptr</code> antes de llamar a <code>get_ly()</code> para evitar crashes.</li>
+                    <li><strong>Sin límite de impresiones:</strong> A diferencia del trace anterior (Step 0205) que limitaba a 200 instrucciones, este no tiene límite porque solo se activa en un rango muy pequeño de memoria, por lo que no saturará la consola.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido bloque de debug quirúrgico "El Francotirador" en el método <code>step()</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para validar esta implementación:
+                </p>
+                <ol>
+                    <li><strong>Recompilar:</strong> Ejecutar <code>.\rebuild_cpp.ps1</code> para recompilar la extensión Cython con el nuevo código C++.</li>
+                    <li><strong>Ejecutar:</strong> <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Observar salida:</strong> La consola debería mostrar líneas como:
+                        <pre><code>[SNIPER] PC: 0x02B4 | Opcode: 0xE0 | AF: 0xXXXX | LY: XX
+[SNIPER] PC: 0x02B6 | Opcode: 0xFE | AF: 0xXXXX | LY: XX</code></pre>
+                    </li>
+                    <li><strong>Análisis esperado:</strong>
+                        <ul>
+                            <li>Si vemos <code>Opcode: 0xF0</code> (LDH A, (n)) seguido de <code>Opcode: 0xFE</code> (CP d8) con <code>LY</code> constante: El juego está esperando V-Blank pero LY no avanza.</li>
+                            <li>Si vemos <code>Opcode: 0xF3</code> (LDH A, (0x41)) seguido de comparaciones: El juego está esperando un modo específico de STAT.</li>
+                            <li>Si vemos que LY cambia pero el bucle continúa: El juego está esperando otra condición (posiblemente un flag de interrupción).</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El código se compila en la extensión Cython, por lo que cualquier error de compilación se detectará durante <code>rebuild_cpp.ps1</code>.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html">LCDC Register</a> - Registro de control del LCD</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/STAT.html">STAT Register</a> - Registro de estado del LCD</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Video_Display.html#ff44---ly---lcdc-y-coordinate-r">LY Register</a> - Registro de línea de escaneo Y</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">CPU Instruction Set</a> - Conjunto de instrucciones del LR35902</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Polling de hardware:</strong> Los juegos de Game Boy frecuentemente hacen polling de registros de hardware (LY, STAT) en bucles para sincronizar con eventos del hardware. Si estos registros no se actualizan correctamente, el juego se queda atascado.</li>
+                        <li><strong>Debug quirúrgico:</strong> En lugar de trazar todas las instrucciones (que satura la consola), podemos usar trazas condicionales que solo se activan en rangos específicos de memoria. Esto es más eficiente y permite identificar problemas localizados.</li>
+                        <li><strong>V-Blank como condición de salida:</strong> Muchos juegos esperan V-Blank antes de copiar gráficos porque es el único momento "seguro" en que la PPU no está leyendo VRAM. Si V-Blank nunca ocurre, el juego no puede proceder.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Valor de LY:</strong> Necesitamos verificar si LY está avanzando correctamente. Si LY está atascado en un valor (ej: 0 o 143), sabremos que la PPU no está actualizando el registro.</li>
+                        <li><strong>Instrucciones del bucle:</strong> Necesitamos ver qué instrucciones exactas conforman el bucle. Si vemos LDH A, (0x44) seguido de CP 0x90, confirmaremos que está esperando V-Blank.</li>
+                        <li><strong>Estado de AF:</strong> El registro AF contiene los flags. Si vemos que el flag Z cambia pero el bucle continúa, puede indicar que la condición de salida está mal implementada.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego está esperando V-Blank (LY = 144) pero la PPU no está actualizando LY correctamente, o la PPU no está entrando en modo V-Blank. El "Francotirador" nos confirmará si esta hipótesis es correcta mostrándonos el valor de LY durante el bucle.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y recopilar el log del "Francotirador"</li>
+                    <li>[ ] Analizar el patrón de instrucciones para identificar el bucle exacto</li>
+                    <li>[ ] Verificar si LY está avanzando o estático</li>
+                    <li>[ ] Si LY no avanza: Investigar por qué la PPU no actualiza LY</li>
+                    <li>[ ] Si LY avanza pero el bucle continúa: Investigar la condición de salida del bucle</li>
+                    <li>[ ] Implementar la corrección necesaria basada en los hallazgos</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -32,6 +32,31 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0223: El Francotirador (Debug Quirúrgico en 0x02B4)
+**Estado**: 🔍 EN DEPURACIÓN
+
+El estetoscopio reveló que la CPU está atrapada en un bucle en `0x02B4`, con el fondo apagado y la VRAM vacía. Para entender qué condición de salida no se está cumpliendo (probablemente esperando V-Blank o un estado específico de hardware), implementamos un trazado condicional que solo se activa cuando el PC está en el rango `0x02B0-0x02C0`. Esta instrumentación quirúrgica nos permitirá ver las instrucciones del bucle y los valores de los registros sin saturar la consola.
+
+**Objetivo:**
+- Identificar las instrucciones exactas del bucle en `0x02B4`.
+- Ver el estado de los registros (especialmente AF) y LY durante el bucle.
+- Determinar si el juego está esperando V-Blank (LY = 144) o algún otro estado de hardware.
+
+**Implementación:**
+1. **Modificación en `CPU.cpp`**: Añadido bloque de debug condicional en el método `step()` que solo imprime cuando `regs_->pc >= 0x02B0 && regs_->pc <= 0x02C0`. El log incluye: PC, Opcode, AF (flags y acumulador), y LY (línea de escaneo actual).
+
+**Concepto de Hardware:**
+Muchos juegos de Game Boy esperan V-Blank antes de copiar gráficos a VRAM porque es el único momento "seguro" en que la PPU no está leyendo VRAM. El juego típicamente hace polling del registro LY (0xFF44) en un bucle hasta que LY alcanza 144 (0x90), momento en que la PPU entra en modo V-Blank. Si LY nunca alcanza 144 (porque la PPU no está actualizando el registro o no está entrando en V-Blank), el juego se queda atascado en este bucle infinitamente. El "Francotirador" nos permitirá ver exactamente qué instrucciones se están ejecutando y qué valores están comparando.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Añadido bloque de debug quirúrgico "El Francotirador" en el método `step()`
+
+**Tests:**
+- Ejecutar `.\rebuild_cpp.ps1` para recompilar la extensión Cython.
+- Ejecutar `python main.py roms/tetris.gb` y observar la salida de la consola. Deberían aparecer líneas `[SNIPER] PC: 0x02B4 | Opcode: 0xXX | AF: 0xXXXX | LY: XX`. Analizar el patrón para identificar si el juego está esperando V-Blank (LDH A, (0x44) seguido de CP 0x90) o algún otro estado.
+
+---
+
 ### 2025-12-22 - Step 0222: El Estetoscopio (Diagnóstico de Estado en Vivo)
 **Estado**: 🔍 EN DEPURACIÓN
 

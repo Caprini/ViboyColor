@@ -461,19 +461,16 @@ int CPU::step() {
     }
     
     // ========== FASE 4: Fetch-Decode-Execute ==========
-    // --- TRAZA DE CPU (Step 0205) ---
-    // Variables estáticas para el control de la traza
-    static int debug_trace_counter = 0;
-    static const int DEBUG_TRACE_LIMIT = 200;
-    
-    // Imprimir las primeras N instrucciones para identificar el bucle de arranque
-    if (debug_trace_counter < DEBUG_TRACE_LIMIT) {
+    // --- Step 0223: EL FRANCOTIRADOR (Debug Quirúrgico) ---
+    // Solo imprimimos si el PC está en la zona caliente del bucle infinito (0x02B0 - 0x02C0)
+    // Esto nos dirá qué está comprobando el juego sin saturar la consola.
+    if (regs_->pc >= 0x02B0 && regs_->pc <= 0x02C0) {
         uint8_t opcode_preview = mmu_->read(regs_->pc);
-        printf("[CPU TRACE %03d] PC: 0x%04X | Opcode: 0x%02X | AF: 0x%04X | BC: 0x%04X | DE: 0x%04X | HL: 0x%04X | SP: 0x%04X\n", 
-               debug_trace_counter, regs_->pc, opcode_preview, regs_->get_af(), regs_->get_bc(), regs_->get_de(), regs_->get_hl(), regs_->sp);
-        debug_trace_counter++;
+        uint8_t ly_value = (ppu_ != nullptr) ? ppu_->get_ly() : 0;
+        printf("[SNIPER] PC: 0x%04X | Opcode: 0x%02X | AF: 0x%04X | LY: %d\n", 
+               regs_->pc, opcode_preview, regs_->get_af(), ly_value);
     }
-    // --------------------------------
+    // -----------------------------------------------------
     
     // Fetch: Leer opcode de memoria
     uint8_t opcode = fetch_byte();
