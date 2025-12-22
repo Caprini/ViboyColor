@@ -816,28 +816,53 @@ class Viboy:
                         except ImportError:
                             pass
                 
-                # Heartbeat (opcional, para depuración)
-                if self.verbose and self.frame_count % 60 == 0:
-                    # Obtener LY y modo de la PPU
-                    ly_value = 0
-                    mode_value = 0
-                    lcdc_value = 0
+                # --- Step 0222: EL ESTETOSCOPIO ---
+                # Diagnóstico periódico (cada ~60 frames = 1 segundo)
+                if self.frame_count % 60 == 0:
+                    if self._use_cpp:
+                        # Leer signos vitales directamente del hardware
+                        pc = self._regs.pc
+                        lcdc = self._mmu.read(0xFF40)
+                        
+                        # Miramos en el TileMap donde debería estar el logo (0x9904 - 0x9928)
+                        # Leemos un byte clave (ej: 0x9904)
+                        tile_map_val = self._mmu.read(0x9904)
+                        
+                        # Leemos un byte de Tile Data (ej: 0x8010, parte del logo)
+                        tile_data_val = self._mmu.read(0x8010)
+                        
+                        print(f"[VITAL] PC: {pc:04X} | LCDC: {lcdc:02X} | Map[9904]: {tile_map_val:02X} | Data[8010]: {tile_data_val:02X}")
+                    else:
+                        # Fallback para modo Python
+                        pc = self._cpu.registers.get_pc()
+                        lcdc = self._mmu.read(0xFF40)
+                        tile_map_val = self._mmu.read(0x9904)
+                        tile_data_val = self._mmu.read(0x8010)
+                        print(f"[VITAL] PC: {pc:04X} | LCDC: {lcdc:02X} | Map[9904]: {tile_map_val:02X} | Data[8010]: {tile_data_val:02X}")
                     
-                    try:
-                        if self._use_cpp:
-                            ly_value = self._ppu.ly
-                            mode_value = self._ppu.mode
-                            lcdc_value = self._mmu.read(0xFF40)
-                        else:
-                            ly_value = self._ppu.get_ly()
-                            mode_value = self._ppu.get_mode()
-                            lcdc_value = self._mmu.read(0xFF40)
-                    except (AttributeError, Exception):
-                        pass
-                    
-                    logger.info(
-                        f"💓 Heartbeat ... LY={ly_value} | Mode={mode_value} | LCDC={lcdc_value:02X}"
-                    )
+                    # Heartbeat (opcional, para depuración)
+                    if self.verbose:
+                        # Obtener LY y modo de la PPU
+                        ly_value = 0
+                        mode_value = 0
+                        lcdc_value = 0
+                        
+                        try:
+                            if self._use_cpp:
+                                ly_value = self._ppu.ly
+                                mode_value = self._ppu.mode
+                                lcdc_value = self._mmu.read(0xFF40)
+                            else:
+                                ly_value = self._ppu.get_ly()
+                                mode_value = self._ppu.get_mode()
+                                lcdc_value = self._mmu.read(0xFF40)
+                        except (AttributeError, Exception):
+                            pass
+                        
+                        logger.info(
+                            f"💓 Heartbeat ... LY={ly_value} | Mode={mode_value} | LCDC={lcdc_value:02X}"
+                        )
+                # ----------------------------------
                 
                 self.frame_count += 1
         

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El Estetoscopio: Signos Vitales del Emulador - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>El Estetoscopio: Signos Vitales del Emulador</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0222
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0221__placeholder.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Tras la limpieza final del código, la pantalla aparece verde (vacía), lo que técnicamente es correcto pero funcionalmente decepcionante. Para diagnosticar por qué el juego no muestra gráficos sin recurrir a logs masivos que saturan el buffer, implementamos un monitor de estado en Python que imprime signos vitales (PC, LCDC, VRAM) una vez por segundo. Este "estetoscopio" nos revelará si la CPU está atascada, si el hardware gráfico no está configurado, o si los gráficos simplemente no se han copiado aún.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En un emulador, cuando la pantalla aparece completamente verde (Color 0 de la paleta), significa que el renderizador funciona correctamente (dibuja el color de fondo) y la PPU funciona (envía índices 0), pero el problema es que la PPU <em>solo</em> envía ceros. Esto puede ocurrir por tres razones principales:
+                </p>
+                <ol>
+                    <li><strong>LCDC Bit 0 apagado:</strong> El juego aún no ha activado el fondo mediante el registro LCDC (0xFF40). El bit 0 de LCDC controla si el fondo está habilitado.</li>
+                    <li><strong>VRAM vacía:</strong> El juego no ha copiado los gráficos desde la ROM a la VRAM (0x8000-0x9FFF). Los tiles deben estar en la VRAM antes de poder ser renderizados.</li>
+                    <li><strong>TileMap vacío:</strong> El juego no ha configurado el TileMap (0x9800-0x9BFF) para indicar qué tile dibujar en cada posición de la pantalla.</li>
+                </ol>
+                <p>
+                    Sin logs masivos, es imposible saber si la CPU está ejecutando código, si está en un bucle infinito, o si simplemente está esperando algo. El "estetoscopio" es una sonda no intrusiva que imprime información clave cada 60 frames (1 segundo) sin afectar el rendimiento, permitiéndonos diagnosticar el estado del emulador en tiempo real.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió un bloque de diagnóstico en el método <code>run()</code> de <code>viboy.py</code> que se ejecuta cada 60 frames (aproximadamente 1 segundo). Este diagnóstico lee directamente del hardware los siguientes signos vitales:
+                </p>
+                <ul>
+                    <li><strong>PC (Program Counter):</strong> Dirección de memoria donde está ejecutándose la CPU. Si no cambia, la CPU está atascada en un bucle infinito.</li>
+                    <li><strong>LCDC (0xFF40):</strong> Registro de control de la LCD. El bit 0 indica si el fondo está habilitado. Si es 0x80 o 0x90 (bit 0 apagado), el juego ha desactivado el fondo.</li>
+                    <li><strong>TileMap[0x9904]:</strong> Un byte del TileMap donde debería estar el logo de Nintendo. Si es 0x00, el TileMap está vacío y el juego no ha configurado qué tiles dibujar.</li>
+                    <li><strong>TileData[0x8010]:</strong> Un byte de los datos de tiles donde debería estar parte del logo. Si es 0x00, la VRAM está vacía y el juego no ha copiado los gráficos.</li>
+                </ul>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/viboy.py</code>: Añadido bloque de diagnóstico en el método <code>run()</code> dentro del bucle principal, ejecutándose cada 60 frames.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se eligió imprimir cada 60 frames (1 segundo) para balancear la utilidad del diagnóstico con el impacto en el rendimiento. Un diagnóstico más frecuente saturaría la consola, mientras que uno menos frecuente no capturaría cambios rápidos. El diagnóstico se ejecuta solo cuando se usa el core C++ (modo principal), con un fallback para el modo Python.
+                </p>
+                <p>
+                    Se eligieron direcciones específicas (0x9904 para TileMap y 0x8010 para TileData) porque son ubicaciones típicas donde el logo de Nintendo se almacena durante el boot. Sin embargo, estos valores son solo indicativos; el diagnóstico principal es el PC y el LCDC.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Añadido bloque de diagnóstico "El Estetoscopio" en el método <code>run()</code> (líneas ~819-840)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para validar el diagnóstico, ejecutar el emulador y observar la salida de la consola:
+                </p>
+                <pre><code>python main.py roms/tetris.gb</code></pre>
+                <p>
+                    Cada segundo aparecerá una línea con el formato:
+                </p>
+                <pre><code>[VITAL] PC: 02B4 | LCDC: 91 | Map[9904]: 00 | Data[8010]: 00</code></pre>
+                <p>
+                    <strong>Análisis de resultados:</strong>
+                </p>
+                <ul>
+                    <li><strong>Caso A (PC estático):</strong> Si el PC no cambia entre líneas, la CPU está en un bucle infinito (deadlock lógico).</li>
+                    <li><strong>Caso B (LCDC apagado):</strong> Si LCDC es 0x90 o 0x80 (bit 0 apagado), el juego ha desactivado el fondo explícitamente y espera algo para encenderlo.</li>
+                    <li><strong>Caso C (VRAM vacía):</strong> Si Map[9904] y Data[8010] son 0x00, la CPU corre pero NO ha copiado los gráficos a la VRAM.</li>
+                </ul>
+                <p>
+                    Este diagnóstico nos permitirá identificar rápidamente el problema sin necesidad de activar logs masivos que saturan el buffer y rompen la conexión con el servidor de IA.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Control Register (LCDC)</a> - Bit 0 controla el fondo</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Video RAM (VRAM)</a> - Área de memoria para tiles y TileMaps</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Data</a> - Estructura de datos de tiles</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Diagnóstico no intrusivo:</strong> Un monitor de estado periódico puede proporcionar información valiosa sin afectar el rendimiento ni saturar los logs.</li>
+                        <li><strong>Signos vitales del emulador:</strong> El PC, LCDC y VRAM son indicadores clave del estado del sistema. Si el PC no cambia, la CPU está atascada. Si LCDC tiene el bit 0 apagado, el fondo está deshabilitado. Si la VRAM está vacía, los gráficos no se han copiado.</li>
+                        <li><strong>Balance entre diagnóstico y rendimiento:</strong> Imprimir cada 60 frames (1 segundo) proporciona suficiente información sin saturar la consola.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Valores esperados:</strong> Necesitamos ejecutar el emulador y observar qué valores muestra el diagnóstico para determinar si la CPU está corriendo, si el LCDC está configurado, y si la VRAM contiene datos.</li>
+                        <li><strong>Comportamiento del juego:</strong> Una vez que tengamos los valores del diagnóstico, podremos determinar si el problema es un deadlock, una configuración incorrecta del hardware, o simplemente que el juego aún no ha copiado los gráficos.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que las direcciones 0x9904 (TileMap) y 0x8010 (TileData) son ubicaciones típicas donde el logo de Nintendo se almacena, pero esto puede variar según el juego. El diagnóstico principal es el PC y el LCDC, que son universales.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y observar los valores del diagnóstico</li>
+                    <li>[ ] Analizar los valores para determinar si la CPU está corriendo, si el LCDC está configurado, y si la VRAM contiene datos</li>
+                    <li>[ ] Basado en el análisis, implementar la corrección correspondiente (desbloquear CPU, configurar LCDC, o verificar la copia de gráficos)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -32,6 +32,30 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0222: El Estetoscopio (Diagnóstico de Estado en Vivo)
+**Estado**: 🔍 EN DEPURACIÓN
+
+Tras la limpieza final, la pantalla aparece verde (vacía). Para diagnosticar por qué el juego no muestra gráficos sin recurrir a logs masivos, implementamos un monitor de estado en Python que imprime signos vitales (PC, LCDC, VRAM) una vez por segundo. Esto nos revelará si la CPU está atascada o si el hardware gráfico no está configurado como esperamos.
+
+**Objetivo:**
+- Monitorizar PC para ver si el emulador avanza.
+- Verificar LCDC para ver si el fondo está habilitado (Bit 0).
+- Verificar VRAM para ver si el logo se ha copiado.
+
+**Implementación:**
+1. **Modificación en `viboy.py`**: Añadido bloque de diagnóstico en el método `run()` que se ejecuta cada 60 frames (1 segundo). El diagnóstico lee directamente del hardware: PC, LCDC (0xFF40), TileMap[0x9904], y TileData[0x8010].
+
+**Concepto de Hardware:**
+Cuando la pantalla aparece completamente verde (Color 0), significa que el renderizador funciona (dibuja el color de fondo) y la PPU funciona (envía índices 0), pero la PPU solo envía ceros. Esto puede ocurrir porque: (1) LCDC Bit 0 está apagado (el juego no ha activado el fondo), (2) VRAM está vacía (el juego no ha copiado los gráficos), o (3) TileMap está vacío (el juego no ha configurado qué tiles dibujar). Sin logs masivos, es imposible saber si la CPU está ejecutando código o si está en un bucle infinito. El "estetoscopio" es una sonda no intrusiva que imprime información clave cada 60 frames sin afectar el rendimiento.
+
+**Archivos Afectados:**
+- `src/viboy.py` - Añadido bloque de diagnóstico "El Estetoscopio" en el método `run()`
+
+**Tests:**
+- Ejecutar `python main.py roms/tetris.gb` y observar la salida de la consola. Cada segundo aparecerá una línea `[VITAL] PC: XXXX | LCDC: XX | Map[9904]: XX | Data[8010]: XX`. Analizar los valores para determinar si la CPU está corriendo, si el LCDC está configurado, y si la VRAM contiene datos.
+
+---
+
 ### 2025-12-22 - Step 0220: El Amanecer de Tetris (Limpieza Final)
 **Estado**: ✅ COMPLETADO
 
