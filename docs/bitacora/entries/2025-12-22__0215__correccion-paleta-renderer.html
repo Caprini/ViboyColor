@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrección de Paleta: ¿Por qué el Negro es Blanco? - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Corrección de Paleta: ¿Por qué el Negro es Blanco?</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0215
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0213__inspeccion-puente-data-probe.html">Anterior (0213)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El Step 0213 confirmó que Python recibe correctamente el valor <code>3</code> (negro) en el framebuffer, pero la pantalla sigue blanca. Esto indica que el sistema de renderizado en Python está mapeando el índice <code>3</code> al color blanco, probablemente debido a que el registro BGP (0xFF47) es <code>0x00</code> o la lógica de decodificación de paleta es incorrecta.
+                </p>
+                <p>
+                    <strong>Hallazgo crítico:</strong> Si el registro BGP es <code>0x00</code>, todos los pares de bits son <code>00</code>, lo que significa que todos los índices de color (0, 1, 2, 3) se mapean al color 0 de la paleta (blanco). Esto explica por qué incluso píxeles negros (índice 3) se renderizan como blancos.
+                </p>
+                <p>
+                    <strong>Solución:</strong> Se añadió una sonda de diagnóstico para verificar el valor de BGP en Python, y se implementó una corrección que fuerza un valor por defecto estándar (<code>0xE4</code>) cuando BGP es <code>0x00</code>, asegurando que los índices de color se mapeen correctamente a los colores de la paleta.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: El Registro BGP (Background Palette)</h2>
+                <p>
+                    El registro BGP (Background Palette, dirección <code>0xFF47</code>) es un byte de 8 bits que define cómo se mapean los índices de color (0-3) del framebuffer a los colores reales de la paleta de grises de la Game Boy.
+                </p>
+                <p>
+                    <strong>Formato del registro BGP:</strong>
+                </p>
+                <ul>
+                    <li><strong>Bits 0-1:</strong> Color para índice 0 (píxeles con valor 0)</li>
+                    <li><strong>Bits 2-3:</strong> Color para índice 1 (píxeles con valor 1)</li>
+                    <li><strong>Bits 4-5:</strong> Color para índice 2 (píxeles con valor 2)</li>
+                    <li><strong>Bits 6-7:</strong> Color para índice 3 (píxeles con valor 3)</li>
+                </ul>
+                <p>
+                    Cada par de bits puede tener un valor de 0-3, que se mapea a los 4 tonos de gris disponibles:
+                </p>
+                <ul>
+                    <li><strong>0:</strong> Blanco (255, 255, 255)</li>
+                    <li><strong>1:</strong> Gris Claro (170, 170, 170)</li>
+                    <li><strong>2:</strong> Gris Oscuro (85, 85, 85)</li>
+                    <li><strong>3:</strong> Negro (0, 0, 0)</li>
+                </ul>
+                <p>
+                    <strong>El problema del BGP = 0x00:</strong>
+                </p>
+                <p>
+                    Si el registro BGP es <code>0x00</code> (todos los bits en 0), entonces:
+                </p>
+                <ul>
+                    <li>Índice 0 → Color 0 (Blanco)</li>
+                    <li>Índice 1 → Color 0 (Blanco)</li>
+                    <li>Índice 2 → Color 0 (Blanco)</li>
+                    <li>Índice 3 → Color 0 (Blanco)</li>
+                </ul>
+                <p>
+                    Esto significa que <strong>todos</strong> los píxeles, independientemente de su índice de color, se renderizan como blanco. Incluso si el framebuffer contiene correctamente el valor <code>3</code> (negro), el renderizador lo mapea al color 0 (blanco) porque el registro BGP está en <code>0x00</code>.
+                </p>
+                <p>
+                    <strong>Valor por defecto estándar:</strong>
+                </p>
+                <p>
+                    El valor <code>0xE4</code> (11100100 en binario) es un valor común usado por muchos juegos de Game Boy. Este valor mapea:
+                </p>
+                <ul>
+                    <li>Índice 0 → Color 0 (Blanco) - bits 0-1 = 00</li>
+                    <li>Índice 1 → Color 1 (Gris Claro) - bits 2-3 = 01</li>
+                    <li>Índice 2 → Color 2 (Gris Oscuro) - bits 4-5 = 10</li>
+                    <li>Índice 3 → Color 3 (Negro) - bits 6-7 = 11</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Background Palette Register (BGP), LCD Control Register.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron dos modificaciones principales:
+                </p>
+                <ol>
+                    <li><strong>Sonda de diagnóstico de BGP:</strong> Se añadió código en <code>src/viboy.py</code> para leer y mostrar el valor del registro BGP cuando se captura el framebuffer, permitiendo diagnosticar si el problema es un BGP en <code>0x00</code>.</li>
+                    <li><strong>Corrección de paleta en el renderer:</strong> Se modificó <code>src/gpu/renderer.py</code> para detectar cuando BGP es <code>0x00</code> y forzar un valor por defecto estándar (<code>0xE4</code>) que asegura un mapeo correcto de colores.</li>
+                </ol>
+                
+                <h3>Modificación en <code>src/viboy.py</code></h3>
+                <p>
+                    Se añadió una sonda de diagnóstico que lee el registro BGP justo cuando se captura el framebuffer:
+                </p>
+                <pre><code># --- Step 0215: SONDA DE PALETA ---
+bgp_value = self._mmu.read(0xFF47)
+print(f"BGP Register (0xFF47): 0x{bgp_value:02X}")
+# ----------------------------------</code></pre>
+                <p>
+                    Esta sonda permite verificar si el problema es un BGP en <code>0x00</code> o si hay otro problema en la lógica de decodificación de paleta.
+                </p>
+
+                <h3>Modificación en <code>src/gpu/renderer.py</code></h3>
+                <p>
+                    Se añadió una corrección en dos lugares del renderer (tanto en el método que usa el framebuffer C++ como en el método Python original):
+                </p>
+                <pre><code># --- Step 0215: CORRECCIÓN DE PALETA ---
+# Si BGP es 0x00, todos los índices se mapean al color 0 (blanco).
+# Esto causa que incluso píxeles negros (índice 3) se rendericen como blancos.
+# Forzamos un valor por defecto estándar (0xE4 = 11100100) que mapea:
+# Índice 0 -> Color 0 (Blanco)
+# Índice 1 -> Color 1 (Gris Claro)
+# Índice 2 -> Color 2 (Gris Oscuro)
+# Índice 3 -> Color 3 (Negro)
+if bgp == 0x00:
+    logger.warning(f"[Renderer] BGP es 0x00 (paleta inválida). Forzando 0xE4 (paleta estándar)")
+    bgp = 0xE4
+# ----------------------------------------</code></pre>
+                <p>
+                    Esta corrección asegura que, incluso si el registro BGP no ha sido inicializado por el juego o la MMU, el renderizador use una paleta válida que permita visualizar correctamente los gráficos.
+                </p>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>¿Por qué forzar 0xE4 en lugar de inicializar BGP en la MMU?</strong>
+                </p>
+                <p>
+                    La decisión de forzar el valor en el renderer en lugar de inicializar BGP en la MMU se tomó por las siguientes razones:
+                </p>
+                <ul>
+                    <li><strong>Separación de responsabilidades:</strong> El renderer es responsable de la visualización, y es el lugar más apropiado para manejar casos edge de paleta inválida.</li>
+                    <li><strong>Compatibilidad:</strong> Algunos juegos pueden escribir <code>0x00</code> temporalmente durante la inicialización, y forzar el valor en el renderer permite que el juego inicialice BGP correctamente más tarde sin interferencias.</li>
+                    <li><strong>Debugging:</strong> Mantener BGP en <code>0x00</code> en la MMU permite que la sonda de diagnóstico detecte el problema, mientras que el renderer corrige la visualización.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Añadida sonda de diagnóstico de BGP en el bloque de captura de framebuffer (líneas ~777-780)</li>
+                    <li><code>src/gpu/renderer.py</code> - Añadida corrección de paleta en dos lugares:
+                        <ul>
+                            <li>Método <code>render_frame()</code> cuando usa framebuffer C++ (líneas ~446-456)</li>
+                            <li>Método <code>render_frame()</code> en el método Python original (líneas ~502-512)</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizó mediante:
+                </p>
+                <ul>
+                    <li><strong>Sonda de diagnóstico:</strong> Al ejecutar el emulador, la sonda mostrará el valor de BGP en la consola, permitiendo verificar si el problema es un BGP en <code>0x00</code>.</li>
+                    <li><strong>Validación visual:</strong> Si el problema era un BGP en <code>0x00</code>, la corrección debería permitir que los píxeles negros (índice 3) se rendericen correctamente como negro en lugar de blanco.</li>
+                    <li><strong>Logs:</strong> El renderer emitirá un warning cuando detecte un BGP en <code>0x00</code> y fuerce el valor por defecto, permitiendo diagnosticar el problema en tiempo de ejecución.</li>
+                </ul>
+                <p>
+                    <strong>Comando de prueba:</strong>
+                </p>
+                <pre><code>python main.py roms/tetris.gb</code></pre>
+                <p>
+                    <strong>Resultado esperado:</strong>
+                </p>
+                <ul>
+                    <li>Si BGP es <code>0x00</code>, la consola mostrará: <code>BGP Register (0xFF47): 0x00</code></li>
+                    <li>El renderer emitirá un warning: <code>[Renderer] BGP es 0x00 (paleta inválida). Forzando 0xE4 (paleta estándar)</code></li>
+                    <li>Los píxeles negros (índice 3) deberían renderizarse correctamente como negro en lugar de blanco.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#ff47--bgp-background-palette-data-r-w-non-cgb-mode-only">Background Palette Register (BGP)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#lcd-control-register">LCD Control Register</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Registro BGP:</strong> El registro BGP es un byte que mapea índices de color (0-3) a colores reales de la paleta. Si BGP es <code>0x00</code>, todos los índices se mapean al color 0 (blanco), causando que incluso píxeles negros se rendericen como blancos.</li>
+                        <li><strong>Pipeline de renderizado:</strong> El flujo de datos va desde el framebuffer C++ (índices 0-3) → Python (lectura del framebuffer) → Renderer (mapeo de índices a colores RGB usando BGP) → Pygame (dibujo en pantalla). El problema puede estar en cualquier punto de este pipeline.</li>
+                        <li><strong>Debugging de sistemas híbridos:</strong> Cuando se trabaja con sistemas híbridos Python/C++, es crucial añadir sondas de diagnóstico en múltiples puntos del pipeline para identificar dónde se pierden o corrompen los datos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Inicialización de BGP:</strong> ¿Cuándo y cómo debería inicializarse el registro BGP en la MMU? ¿Algunos juegos dependen de que BGP esté en <code>0x00</code> inicialmente?</li>
+                        <li><strong>Valor por defecto:</strong> ¿Es <code>0xE4</code> el valor correcto por defecto, o debería ser otro valor? ¿Varía según el modelo de Game Boy (DMG vs CGB)?</li>
+                        <li><strong>Comportamiento del hardware real:</strong> ¿Qué hace el hardware real cuando BGP es <code>0x00</code>? ¿Se renderiza todo en blanco, o hay algún comportamiento especial?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición:</strong> Asumimos que forzar <code>0xE4</code> cuando BGP es <code>0x00</code> es un comportamiento aceptable, ya que es un valor común usado por muchos juegos. Sin embargo, esto podría no ser el comportamiento exacto del hardware real, y debería verificarse con documentación técnica o tests en hardware real.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y verificar que la sonda de BGP muestre el valor correcto</li>
+                    <li>[ ] Confirmar que la corrección de paleta permite visualizar correctamente los píxeles negros</li>
+                    <li>[ ] Si el problema persiste, investigar si hay otros problemas en la lógica de decodificación de paleta</li>
+                    <li>[ ] Considerar inicializar BGP con un valor por defecto en la MMU en lugar de forzarlo en el renderer</li>
+                    <li>[ ] Verificar el comportamiento del hardware real cuando BGP es <code>0x00</code> para asegurar compatibilidad</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

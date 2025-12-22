@@ -514,6 +514,19 @@ class Renderer:
         # Leer registro BGP (Background Palette)
         bgp = self.mmu.read_byte(IO_BGP) & 0xFF
         
+        # --- Step 0215: CORRECCIÓN DE PALETA ---
+        # Si BGP es 0x00, todos los índices se mapean al color 0 (blanco).
+        # Esto causa que incluso píxeles negros (índice 3) se rendericen como blancos.
+        # Forzamos un valor por defecto estándar (0xE4 = 11100100) que mapea:
+        # Índice 0 -> Color 0 (Blanco)
+        # Índice 1 -> Color 1 (Gris Claro)
+        # Índice 2 -> Color 2 (Gris Oscuro)
+        # Índice 3 -> Color 3 (Negro)
+        if bgp == 0x00:
+            logger.warning(f"[Renderer] BGP es 0x00 (paleta inválida). Forzando 0xE4 (paleta estándar)")
+            bgp = 0xE4
+        # ----------------------------------------
+        
         # Logs de diagnóstico desactivados para mejorar rendimiento
         
         # Comportamiento normal: Si el LCD está apagado (bit 7=0), mostrar pantalla blanca

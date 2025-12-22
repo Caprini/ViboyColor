@@ -32,6 +32,32 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0215: Corrección de Paleta (El Renderer Daltónico)
+**Estado**: 🔧 EN PROCESO
+
+El Step 0213 confirmó que Python recibe correctamente el valor `3` (negro) en el framebuffer, pero la pantalla sigue blanca. Esto indica que el sistema de renderizado en Python está mapeando el índice `3` al color blanco, probablemente debido a que el registro BGP (0xFF47) es `0x00` o la lógica de decodificación de paleta es incorrecta.
+
+**Objetivo:**
+- Verificar el valor de BGP en Python mediante una sonda de diagnóstico.
+- Corregir `renderer.py` para manejar el caso cuando BGP es `0x00`, forzando un valor por defecto estándar (`0xE4`) que asegura un mapeo correcto de colores.
+
+**Implementación:**
+1. **Sonda de diagnóstico en `src/viboy.py`**: Se añadió código para leer y mostrar el valor del registro BGP cuando se captura el framebuffer.
+2. **Corrección de paleta en `src/gpu/renderer.py`**: Se modificó el renderer para detectar cuando BGP es `0x00` y forzar un valor por defecto estándar (`0xE4`) que mapea correctamente los índices de color a los colores de la paleta.
+
+**Concepto de Hardware:**
+El registro BGP (Background Palette, 0xFF47) es un byte que mapea índices de color (0-3) a colores reales de la paleta. Si BGP es `0x00`, todos los índices se mapean al color 0 (blanco), causando que incluso píxeles negros (índice 3) se rendericen como blancos.
+
+**Archivos Afectados:**
+- `src/viboy.py` - Añadida sonda de diagnóstico de BGP
+- `src/gpu/renderer.py` - Añadida corrección de paleta en dos lugares (método C++ y método Python)
+
+**Tests:**
+- Ejecutar `python main.py roms/tetris.gb` y verificar que la sonda muestre el valor de BGP
+- Confirmar que la corrección permite visualizar correctamente los píxeles negros
+
+---
+
 ### 2025-12-22 - Step 0214: Restauración del Formato del Índice
 **Estado**: ✅ VERIFICADO
 
