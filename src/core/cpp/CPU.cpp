@@ -3,7 +3,6 @@
 #include "Registers.hpp"
 #include "PPU.hpp"
 #include "Timer.hpp"
-#include <cstdio>  // Step 0228: Reactivado para debug quirúrgico
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
@@ -461,22 +460,6 @@ int CPU::step() {
     }
     
     // ========== FASE 4: Fetch-Decode-Execute ==========
-    // --- Step 0228: FRANCOTIRADOR EN 0x2B15 ---
-    // Analizamos el código del juego real donde parece estar atascado.
-    // Miramos un rango pequeño alrededor del punto de estancamiento.
-    if (regs_->pc >= 0x2B10 && regs_->pc <= 0x2B20) {
-        uint8_t opcode_preview = mmu_->read(regs_->pc);
-        
-        // Leemos también HL para ver si apunta a algo interesante
-        // y el registro de Timer (DIV - 0xFF04) para ver si avanza.
-        // Esto es crucial: si el juego espera al Timer y el Timer no avanza...
-        uint8_t div_val = mmu_->read(0xFF04);
-        
-        printf("[SNIPER] PC:%04X | OP:%02X | AF:%04X | BC:%04X | DE:%04X | HL:%04X | DIV:%02X\n", 
-               regs_->pc, opcode_preview, regs_->get_af(), regs_->get_bc(), regs_->get_de(), regs_->get_hl(), div_val);
-    }
-    // ------------------------------------------
-    
     // Fetch: Leer opcode de memoria
     uint8_t opcode = fetch_byte();
 
@@ -494,10 +477,6 @@ int CPU::step() {
         // Fuente: Pan Docs - LD (nn), SP: 5 M-Cycles
         case 0x08:  // LD (nn), SP
             {
-                // --- Step 0232: DEBUG DE VIDA ---
-                printf("!!! EJECUTANDO OPCODE 0x08 EN C++ !!!\n");
-                // --------------------------------
-                
                 uint16_t addr = fetch_word();  // Consume 2 bytes más (nn en Little-Endian)
                 // Escribe SP en formato Little Endian (low byte primero, high byte segundo)
                 mmu_->write(addr, regs_->sp & 0xFF);         // Low byte

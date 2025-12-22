@@ -817,22 +817,6 @@ class Viboy:
                         except ImportError:
                             pass
                 
-                # --- Step 0230: EL REGRESO DEL ESTETOSCOPIO ---
-                # Diagnóstico periódico (cada 60 frames = 1 segundo aprox)
-                # Reactivado para diagnosticar por qué la pantalla sigue verde tras eliminar los logs.
-                # Esto nos dirá si la CPU sigue corriendo, dónde está y el estado del LCD.
-                if self.frame_count % 60 == 0:
-                    if self._use_cpp:
-                        # Leer estado vital directamente del hardware
-                        pc = self._regs.pc
-                        lcdc = self._mmu.read(0xFF40)
-                        
-                        # Ver si hay datos en VRAM (Tile Map y Tile Data)
-                        tile_map_val = self._mmu.read(0x9904)
-                        tile_data_val = self._mmu.read(0x8010)
-                        
-                        print(f"[VITAL] PC: {pc:04X} | LCDC: {lcdc:02X} | Map[9904]: {tile_map_val:02X} | Data[8010]: {tile_data_val:02X}")
-                # ---------------------------------------------
                 
                 # --- Step 0225: LA AUTOPSIA DE LOS 3 SEGUNDOS ---
                 # Volcado de estado completo tras 180 frames (3 segundos) para diagnóstico forense.

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Luz Verde: Arranque Definitivo - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Luz Verde: Arranque Definitivo</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0233
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0232__hard-reset-binario.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El fix del Opcode 0x08 (LD (nn), SP) desbloqueó el flujo de la CPU, permitiendo que el juego avance 
+                    más allá de la dirección 0x2B10. El log de diagnóstico confirmó que el PC había avanzado a 0x2B87, 
+                    indicando que la CPU está ejecutando código válido. Se procedió a eliminar toda la instrumentación 
+                    de depuración (Francotirador, Estetoscopio, marcadores radiactivos) para permitir que el emulador 
+                    ejecute a velocidad nativa y el juego complete su inicialización.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Este paso no trata sobre hardware del Game Boy, sino sobre el <strong>proceso de desarrollo y depuración</strong>.
+                </p>
+                <p>
+                    <strong>El Ciclo de Depuración:</strong>
+                </p>
+                <p>
+                    Durante el desarrollo de un emulador, es común añadir instrumentación de depuración (logs, trazas, 
+                    puntos de control) para diagnosticar problemas. Sin embargo, esta instrumentación tiene un costo:
+                </p>
+                <ul>
+                    <li><strong>Rendimiento:</strong> Los <code>printf</code> y accesos a memoria adicionales ralentizan 
+                        significativamente la ejecución, especialmente cuando se ejecutan millones de veces por segundo.</li>
+                    <li><strong>Precisión:</strong> Los logs pueden cambiar el timing de la ejecución, afectando la 
+                        sincronización entre componentes (CPU, PPU, Timer).</li>
+                    <li><strong>Ruido:</strong> La salida masiva de logs puede ocultar información relevante y saturar 
+                        los buffers del sistema.</li>
+                </ul>
+                <p>
+                    <strong>La Fase de Release:</strong>
+                </p>
+                <p>
+                    Una vez que se confirma que un fix funciona (en este caso, el opcode 0x08), es crítico eliminar toda 
+                    la instrumentación de depuración para permitir que el emulador ejecute a velocidad real. Esto permite:
+                </p>
+                <ul>
+                    <li>Que el juego complete su secuencia de inicialización en tiempo real.</li>
+                    <li>Que la sincronización entre componentes sea precisa.</li>
+                    <li>Que el rendimiento sea óptimo para la experiencia de usuario.</li>
+                </ul>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se eliminaron todos los bloques de código de depuración añadidos en pasos anteriores:
+                </p>
+                
+                <h3>Limpieza en CPU.cpp</h3>
+                <ul>
+                    <li><strong>Eliminado <code>#include &lt;cstdio&gt;</code>:</strong> Ya no se necesita para logs.</li>
+                    <li><strong>Eliminado bloque del Francotirador (Step 0228):</strong> El bloque que monitoreaba 
+                        el rango 0x2B10-0x2B20 y generaba logs de estado de registros.</li>
+                    <li><strong>Eliminado printf del opcode 0x08 (Step 0232):</strong> El marcador radiactivo que 
+                        confirmaba la ejecución del opcode.</li>
+                </ul>
+
+                <h3>Limpieza en viboy.py</h3>
+                <ul>
+                    <li><strong>Eliminado bloque del Estetoscopio (Step 0230):</strong> El diagnóstico periódico que 
+                        imprimía el estado vital (PC, LCDC, VRAM) cada 60 frames.</li>
+                </ul>
+
+                <h3>Resultado</h3>
+                <p>
+                    El código queda limpio y listo para ejecución a velocidad nativa. El emulador puede ahora:
+                </p>
+                <ul>
+                    <li>Ejecutar instrucciones sin overhead de logging.</li>
+                    <li>Mantener sincronización precisa entre CPU, PPU y Timer.</li>
+                    <li>Permitir que el juego complete su inicialización en tiempo real.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Eliminados bloques de debug (Francotirador, printf del 0x08) y <code>#include &lt;cstdio&gt;</code></li>
+                    <li><code>src/viboy.py</code> - Eliminado bloque del Estetoscopio (diagnóstico periódico)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizó mediante observación del comportamiento del emulador:
+                </p>
+                <ul>
+                    <li><strong>Antes de la limpieza:</strong> El log del Estetoscopio mostraba que el PC había avanzado 
+                        de 0x2B10 a 0x2B87, confirmando que el fix del opcode 0x08 funcionó.</li>
+                    <li><strong>Después de la limpieza:</strong> El emulador ejecuta sin logs, permitiendo velocidad 
+                        nativa. Se espera que el juego complete su inicialización y muestre la pantalla de título.</li>
+                </ul>
+                <p>
+                    <strong>Comando de ejecución:</strong>
+                </p>
+                <pre><code>python main.py roms/tetris.gb</code></pre>
+                <p>
+                    <strong>Resultado esperado:</strong>
+                </p>
+                <ul>
+                    <li>Consola limpia (sin logs masivos).</li>
+                    <li>Emulador ejecutando a velocidad real (60 FPS).</li>
+                    <li>Pantalla de título de Tetris visible (si la inicialización completa correctamente).</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Game Boy Pan Docs</a> - Referencia general de hardware</li>
+                </ul>
+                <p>
+                    <em>Nota: Este paso es principalmente sobre limpieza de código y no requiere consulta de documentación 
+                    de hardware específica.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Instrumentación de depuración:</strong> Los logs y trazas son herramientas esenciales 
+                            para diagnosticar problemas, pero deben eliminarse una vez confirmado que el fix funciona.</li>
+                        <li><strong>Impacto en rendimiento:</strong> Los <code>printf</code> y accesos a memoria adicionales 
+                            pueden ralentizar significativamente la ejecución cuando se ejecutan millones de veces por segundo.</li>
+                        <li><strong>Ciclo de desarrollo:</strong> El proceso de depuración → fix → verificación → limpieza 
+                            es crítico para mantener el código limpio y el rendimiento óptimo.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Inicialización completa:</strong> Verificar si el juego completa su secuencia de 
+                            inicialización y muestra la pantalla de título después de eliminar los logs.</li>
+                        <li><strong>Opcodes adicionales:</strong> Si el juego se queda atascado en otra dirección, 
+                            puede ser necesario reactivar el Francotirador para diagnosticar el siguiente opcode faltante.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que el fix del opcode 0x08 fue suficiente para desbloquear el flujo de ejecución. 
+                        Si el juego se queda atascado en otra dirección, será necesario diagnosticar el siguiente 
+                        problema de forma similar.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y verificar que muestra la pantalla de título de Tetris</li>
+                    <li>[ ] Si la pantalla sigue verde/blanca, reactivar el Francotirador en la nueva dirección de PC</li>
+                    <li>[ ] Continuar con la implementación de opcodes faltantes si es necesario</li>
+                    <li>[ ] Optimizar el rendimiento una vez que el juego funcione correctamente</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

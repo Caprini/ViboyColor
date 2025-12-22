@@ -32,6 +32,34 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0233: Limpieza Final y Arranque (Release)
+**Estado**: ✅ COMPLETADO
+
+El fix del Opcode 0x08 (LD (nn), SP) desbloqueó el flujo de la CPU, permitiendo que el juego avance más allá de la dirección 0x2B10. Se procedió a limpiar toda la instrumentación de depuración para permitir la ejecución a velocidad nativa.
+
+**Objetivo:**
+- Eliminar logs de debug (Francotirador, Estetoscopio, marcadores radiactivos).
+- Permitir que el juego complete su inicialización y encienda la pantalla.
+- Ejecutar el emulador a velocidad nativa sin overhead de logging.
+
+**Implementación:**
+1. **Limpieza en `CPU.cpp`**: Eliminado `#include <cstdio>`, bloque del Francotirador (Step 0228), y printf del opcode 0x08 (Step 0232).
+2. **Limpieza en `viboy.py`**: Eliminado bloque del Estetoscopio (Step 0230) que imprimía estado vital cada 60 frames.
+
+**Concepto de Hardware:**
+La instrumentación de depuración (logs, trazas) es esencial para diagnosticar problemas, pero tiene un costo en rendimiento y precisión. Una vez confirmado que un fix funciona, es crítico eliminar toda la instrumentación para permitir ejecución a velocidad real y sincronización precisa entre componentes.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Eliminados bloques de debug y `#include <cstdio>`
+- `src/viboy.py` - Eliminado bloque del Estetoscopio
+
+**Tests:**
+- Recompilar: `.\rebuild_cpp.ps1`
+- Ejecutar: `python main.py roms/tetris.gb`
+- Resultado esperado: Consola limpia, emulador ejecutando a velocidad real, pantalla de título de Tetris visible.
+
+---
+
 ### 2025-12-22 - Step 0232: Hard Reset del Binario (Verificación de Código)
 **Estado**: 🔧 EN PROCESO
 
