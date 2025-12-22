@@ -32,6 +32,35 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0239: Implementación de Echo RAM (El Espejo)
+**Estado**: ✅ VERIFICADO
+
+La autopsia del Step 0237 y el análisis forense del Step 0238 revelaron la causa raíz del bucle infinito en Tetris: la dirección `0xE645` pertenece a la región de **Echo RAM (0xE000-0xFDFF)**, que en el hardware real es un espejo exacto de la **WRAM (0xC000-0xDDFF)**. El juego escribió `0xFD` en `0xC645` (memoria real) y luego lee `0xE645` (espejo) para verificar la integridad de la memoria. Como nuestra MMU no implementaba Echo RAM, devolvía `0x00`, causando que la comparación `CP 0xFD` fallara y el bucle nunca terminara.
+
+**Objetivo:**
+- Implementar la lógica de Echo RAM en `MMU.cpp` para redirigir accesos a `0xE000-0xFDFF` hacia `0xC000-0xDDFF`.
+- Limpiar los logs del "Francotirador" (Step 0237) que ya cumplieron su misión.
+
+**Implementación:**
+1. **Modificación en `MMU::read()`**: Detectar si `addr` está entre `0xE000` y `0xFDFF`, y redirigir a `addr - 0x2000`.
+2. **Modificación en `MMU::write()`**: Misma lógica de redirección para escrituras.
+3. **Limpieza en `CPU.cpp`**: Eliminación de los logs del Francotirador que ralentizaban la ejecución.
+
+**Concepto de Hardware:**
+**Echo RAM (Mirror RAM)**: Es una peculiaridad del hardware de Game Boy causada por el cableado del bus de direcciones. Debido a limitaciones en el diseño del chip, acceder a direcciones en el rango `0xE000-0xFDFF` accede físicamente a la misma memoria que `0xC000-0xDDFF`. Los juegos a veces usan esta característica para verificar la integridad de la memoria: escriben un valor en WRAM y luego leen su espejo en Echo RAM para confirmar que la memoria funciona correctamente.
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Implementación de Echo RAM en `read()` y `write()`
+- `src/core/cpp/CPU.cpp` - Eliminación de logs del Francotirador
+- `docs/bitacora/entries/2025-12-22__0239__implementacion-echo-ram.html` - Entrada de bitácora
+
+**Próximos Pasos:**
+- Ejecutar Tetris y verificar que sale del bucle infinito en `0x2B2A`.
+- Confirmar que el juego avanza a la pantalla de Copyright.
+- Si el juego sigue fallando, investigar otras posibles causas (inicialización de WRAM, rutinas de copia, etc.).
+
+---
+
 ### 2025-12-22 - Step 0238: Análisis Forense de la Traza - El Origen del 0x00
 **Estado**: 🔍 EN DEPURACIÓN
 

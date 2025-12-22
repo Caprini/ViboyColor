@@ -154,6 +154,15 @@ uint8_t MMU::read(uint16_t addr) const {
     // Asegurar que la dirección esté en el rango válido (0x0000-0xFFFF)
     addr &= 0xFFFF;
     
+    // --- Step 0239: IMPLEMENTACIÓN DE ECHO RAM ---
+    // Echo RAM (0xE000-0xFDFF) es un espejo de WRAM (0xC000-0xDDFF)
+    // En el hardware real, acceder a 0xE000-0xFDFF accede físicamente a 0xC000-0xDDFF
+    // Fuente: Pan Docs - Memory Map, Echo RAM
+    if (addr >= 0xE000 && addr <= 0xFDFF) {
+        addr = addr - 0x2000;  // Redirigir a WRAM: 0xE645 -> 0xC645
+    }
+    // -----------------------------------------
+    
     // CRÍTICO: El registro STAT (0xFF41) tiene bits de solo lectura (0-2)
     // que son actualizados dinámicamente por la PPU. La MMU es la dueña de la memoria,
     // así que construimos el valor de STAT combinando:
@@ -258,6 +267,15 @@ uint8_t MMU::read(uint16_t addr) const {
 void MMU::write(uint16_t addr, uint8_t value) {
     // Asegurar que la dirección esté en el rango válido
     addr &= 0xFFFF;
+    
+    // --- Step 0239: IMPLEMENTACIÓN DE ECHO RAM ---
+    // Echo RAM (0xE000-0xFDFF) es un espejo de WRAM (0xC000-0xDDFF)
+    // Escribir en el espejo debe modificar la memoria real
+    // Fuente: Pan Docs - Memory Map, Echo RAM
+    if (addr >= 0xE000 && addr <= 0xFDFF) {
+        addr = addr - 0x2000;  // Redirigir a WRAM: 0xE645 -> 0xC645
+    }
+    // -----------------------------------------
     
     // Enmascarar el valor a 8 bits
     value &= 0xFF;

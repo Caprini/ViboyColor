@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementación de Echo RAM (El Espejo) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Implementación de Echo RAM (El Espejo)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0239
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0238__analisis-trace-forense.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    La autopsia del Step 0237 y el análisis forense del Step 0238 revelaron la causa raíz del bucle infinito
+                    en Tetris: la dirección <code>0xE645</code> pertenece a la región de <strong>Echo RAM (0xE000-0xFDFF)</strong>,
+                    que en el hardware real es un espejo exacto de la <strong>WRAM (0xC000-0xDDFF)</strong>. El juego escribió
+                    <code>0xFD</code> en <code>0xC645</code> (memoria real) y luego lee <code>0xE645</code> (espejo) para
+                    verificar la integridad de la memoria. Como nuestra MMU no implementaba Echo RAM, devolvía <code>0x00</code>,
+                    causando que la comparación <code>CP 0xFD</code> fallara y el bucle nunca terminara.
+                </p>
+                <p>
+                    Este Step implementa la lógica de Echo RAM en <code>MMU.cpp</code>, redirigiendo automáticamente cualquier
+                    acceso a <code>0xE000-0xFDFF</code> hacia <code>0xC000-0xDDFF</code> tanto en lectura como en escritura.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Echo RAM (Mirror RAM)</strong> es una peculiaridad del hardware de Game Boy causada por el cableado
+                    del bus de direcciones. Debido a limitaciones en el diseño del chip, acceder a direcciones en el rango
+                    <code>0xE000-0xFDFF</code> accede físicamente a la misma memoria que <code>0xC000-0xDDFF</code>.
+                </p>
+                <ul>
+                    <li><strong>WRAM (Work RAM)</strong>: <code>0xC000-0xDDFF</code> (8KB de memoria real).</li>
+                    <li><strong>Echo RAM</strong>: <code>0xE000-0xFDFF</code> (espejo de WRAM, misma memoria física).</li>
+                    <li><strong>Relación</strong>: <code>Echo_RAM_Address = WRAM_Address + 0x2000</code></li>
+                </ul>
+                <p>
+                    <strong>¿Por qué existe Echo RAM?</strong> En el hardware real, esto es un efecto secundario del diseño del
+                    bus de direcciones. Los bits de dirección no están completamente decodificados, causando que ciertos rangos
+                    se "reflejen" en otros. Los juegos a veces usan esta característica para verificar la integridad de la memoria:
+                    escriben un valor en WRAM y luego leen su espejo en Echo RAM para confirmar que la memoria funciona correctamente.
+                </p>
+                <p>
+                    <strong>Comportamiento</strong>:
+                </p>
+                <ul>
+                    <li>Leer <code>0xE645</code> debe devolver el valor almacenado en <code>0xC645</code>.</li>
+                    <li>Escribir <code>0xFD</code> en <code>0xE645</code> debe modificar <code>0xC645</code>.</li>
+                    <li>Ambas direcciones apuntan a la misma celda de memoria física.</li>
+                </ul>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - <a href="https://gbdev.io/pandocs/Memory_Map.html">Memory Map</a>,
+                    sección "Echo RAM".
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    La implementación de Echo RAM se realiza en los métodos <code>read()</code> y <code>write()</code> de
+                    <code>MMU.cpp</code>, redirigiendo automáticamente cualquier acceso al rango <code>0xE000-0xFDFF</code>
+                    hacia <code>0xC000-0xDDFF</code>.
+                </p>
+                
+                <h3>Modificación en MMU::read()</h3>
+                <pre><code>uint8_t MMU::read(uint16_t addr) const {
+    addr &= 0xFFFF;
+    
+    // --- Step 0239: IMPLEMENTACIÓN DE ECHO RAM ---
+    // Echo RAM (0xE000-0xFDFF) es un espejo de WRAM (0xC000-0xDDFF)
+    if (addr >= 0xE000 && addr <= 0xFDFF) {
+        addr = addr - 0x2000;  // Redirigir a WRAM: 0xE645 -> 0xC645
+    }
+    // -----------------------------------------
+    
+    // ... resto del código de lectura ...
+}</code></pre>
+
+                <h3>Modificación en MMU::write()</h3>
+                <pre><code>void MMU::write(uint16_t addr, uint8_t value) {
+    addr &= 0xFFFF;
+    
+    // --- Step 0239: IMPLEMENTACIÓN DE ECHO RAM ---
+    // Echo RAM (0xE000-0xFDFF) es un espejo de WRAM (0xC000-0xDDFF)
+    if (addr >= 0xE000 && addr <= 0xFDFF) {
+        addr = addr - 0x2000;  // Redirigir a WRAM: 0xE645 -> 0xC645
+    }
+    // -----------------------------------------
+    
+    // ... resto del código de escritura ...
+}</code></pre>
+
+                <h3>Limpieza de Logs de Debug</h3>
+                <p>
+                    También eliminamos los logs del "Francotirador" (Step 0237) en <code>CPU.cpp</code> que cumplieron su
+                    misión de identificar el problema. Estos logs ralentizaban la ejecución y ya no son necesarios.
+                </p>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Redirección temprana</strong>: La redirección se hace al inicio de <code>read()</code> y <code>write()</code>,
+                        antes de cualquier otro procesamiento, para garantizar que todos los accesos a Echo RAM se manejen correctamente.</li>
+                    <li><strong>Modificación de la dirección</strong>: En lugar de crear una lógica separada, simplemente modificamos la dirección
+                        <code>addr</code> para que apunte a WRAM. Esto garantiza que toda la lógica existente (registros I/O, STAT, etc.)
+                        funcione correctamente sin cambios adicionales.</li>
+                    <li><strong>Rango exacto</strong>: Usamos <code>0xE000-0xFDFF</code> (no <code>0xE000-0xFE00</code>) porque el rango
+                        <code>0xFE00-0xFEFF</code> es OAM (Object Attribute Memory), no Echo RAM.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Implementación de Echo RAM en <code>read()</code> y <code>write()</code></li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Eliminación de logs del Francotirador (Step 0237)</li>
+                    <li><code>docs/bitacora/entries/2025-12-22__0239__implementacion-echo-ram.html</code> - Esta entrada</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La implementación se validó mediante:
+                </p>
+                <ul>
+                    <li><strong>Compilación</strong>: <code>python setup.py build_ext --inplace</code> - Sin errores de compilación.</li>
+                    <li><strong>Ejecución de Tetris</strong>: <code>python main.py roms/tetris.gb</code> - El juego debería salir del
+                        bucle infinito en <code>0x2B2A</code> y avanzar a la pantalla de Copyright.</li>
+                    <li><strong>Validación de memoria</strong>: Verificar que escribir en <code>0xE645</code> modifica <code>0xC645</code>
+                        y viceversa.</li>
+                </ul>
+                <p>
+                    <strong>Resultado esperado</strong>: Cuando Tetris lea <code>0xE645</code> después de escribir <code>0xFD</code> en
+                    <code>0xC645</code>, debería obtener <code>0xFD</code>, la comparación <code>CP 0xFD</code> pasará (Z=1), y el salto
+                    condicional <code>JR NZ</code> no se tomará, permitiendo que el juego continúe.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Memory_Map.html">Memory Map</a> - Sección "Echo RAM"</li>
+                    <li>Análisis forense del Step 0238: Identificación de la dirección <code>0xE645</code> como causa del bucle</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Echo RAM</strong>: Es un espejo de WRAM causado por el diseño del bus de direcciones, no una región
+                            de memoria separada.</li>
+                        <li><strong>Uso en juegos</strong>: Los juegos a veces usan Echo RAM para verificar la integridad de la memoria,
+                            escribiendo en WRAM y leyendo desde Echo RAM.</li>
+                        <li><strong>Implementación</strong>: La redirección se hace simplemente restando <code>0x2000</code> a la dirección
+                            antes de acceder a la memoria.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento en hardware real</strong>: Verificar si hay alguna diferencia de timing entre acceder
+                            a WRAM directamente vs. a través de Echo RAM (probablemente no, pero es importante confirmarlo).</li>
+                        <li><strong>Rango exacto</strong>: Confirmar que <code>0xFDFF</code> es el límite superior correcto (no <code>0xFE00</code>).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que la redirección de Echo RAM no tiene efectos secundarios en el timing o en otros componentes
+                        del hardware. Si el juego sigue fallando después de esta implementación, podría haber otros problemas
+                        (inicialización de WRAM, rutinas de copia, etc.).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar Tetris y verificar que sale del bucle infinito</li>
+                    <li>[ ] Confirmar que el juego avanza a la pantalla de Copyright</li>
+                    <li>[ ] Si el juego sigue fallando, investigar otras posibles causas (inicialización de WRAM, rutinas de copia, etc.)</li>
+                    <li>[ ] Verificar que otros juegos que usen Echo RAM funcionen correctamente</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

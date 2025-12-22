@@ -461,18 +461,10 @@ int CPU::step() {
     }
     
     // ========== FASE 4: Fetch-Decode-Execute ==========
-    // --- Step 0237: FRANCOTIRADOR EXPANDIDO (RETROCESO) ---
-    // Ampliamos el rango hacia atrás (0x2B20) para identificar la instrucción
-    // que carga A antes de la comparación CP 0xFD en 0x2B2A.
-    if (regs_->pc >= 0x2B20 && regs_->pc <= 0x2B30) {
-        uint8_t opcode = mmu_->read(regs_->pc);
-        
-        // Leemos el siguiente byte por si es un LDH (n) o CP n
-        uint8_t next_byte = mmu_->read(regs_->pc + 1);
-        
-        printf("[SNIPER] PC:%04X | OP:%02X %02X | A:%02X | HL:%04X\n", 
-               regs_->pc, opcode, next_byte, regs_->a, regs_->get_hl());
-    }
+    // --- Step 0239: LIMPIEZA DE LOGS DEL FRANCOTIRADOR ---
+    // Los logs del Step 0237 cumplieron su misión: identificaron que el problema
+    // estaba en la lectura de Echo RAM (0xE645). Ahora que implementamos Echo RAM,
+    // eliminamos los logs para no ralentizar la ejecución.
     // ------------------------------------------
     
     // Fetch: Leer opcode de memoria
