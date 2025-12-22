@@ -32,6 +32,35 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0238: Análisis Forense de la Traza - El Origen del 0x00
+**Estado**: 🔍 EN DEPURACIÓN
+
+El análisis de la traza del Step 0237 reveló que el problema no está en la carga del acumulador, sino en que la memoria WRAM no contiene los valores esperados. El bucle en `0x2B20-0x2B2C` ejecuta `LD A, (HL)` en `0x2B25`, leyendo correctamente de WRAM, pero obtiene `0x00` cuando el juego espera `0xFD`.
+
+**Objetivo:**
+- Confirmar que `LD A, (HL)` funciona correctamente (lee de memoria).
+- Identificar qué rutina debería escribir `0xFD` en WRAM antes de llegar a `0x2B20`.
+- Determinar por qué esa rutina no se ejecutó o falló.
+
+**Hallazgos:**
+1. **Fuente del valor en A**: `LD A, (HL)` en `0x2B25` lee de WRAM (direcciones `0xE645`, `0xE646`, etc.).
+2. **Valor leído**: Siempre `0x00`, pero el juego espera `0xFD`.
+3. **Patrón**: `HL` se incrementa en cada iteración, sugiriendo un bucle de verificación de memoria.
+4. **Hipótesis**: Una rutina de inicialización que debería copiar datos a WRAM no se ejecutó o falló.
+
+**Concepto de Hardware:**
+**Reverse Taint Analysis (Análisis de Mancha Inverso)**: Técnica de depuración donde se rastrea un valor incorrecto desde su manifestación (sink: `CP 0xFD`) hasta su origen (source: `LD A, (HL)`). Sin embargo, el análisis reveló que la fuente no es el problema: la memoria simplemente no fue inicializada correctamente.
+
+**Archivos Afectados:**
+- `docs/bitacora/entries/2025-12-22__0238__analisis-trace-forense.html` - Análisis forense
+
+**Próximos Pasos:**
+- Rastrear hacia atrás para encontrar la rutina de inicialización que debería escribir `0xFD` en WRAM.
+- Verificar si los registros I/O `0xFF8C` y `0xFF94` necesitan implementación.
+- Buscar en el código de Tetris qué debería escribir `0xFD` en WRAM.
+
+---
+
 ### 2025-12-22 - Step 0237: Francotirador Expandido (Retroceso)
 **Estado**: 🔍 EN DEPURACIÓN
 

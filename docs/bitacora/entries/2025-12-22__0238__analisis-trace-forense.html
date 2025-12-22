@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análisis Forense de la Traza: El Origen del 0x00 - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Análisis Forense de la Traza: El Origen del 0x00</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0238
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0237__francotirador-retroceso.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El análisis de la traza del Step 0237 reveló el origen del valor incorrecto en el acumulador.
+                    El bucle en <code>0x2B20-0x2B2C</code> ejecuta una secuencia que lee de memoria WRAM mediante
+                    <code>LD A, (HL)</code> en <code>0x2B25</code>, pero obtiene <code>0x00</code> cuando el juego
+                    espera <code>0xFD</code>. El problema no está en la carga del acumulador, sino en que la memoria
+                    WRAM no contiene los valores esperados porque una rutina de inicialización no se ejecutó o falló.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Reverse Taint Analysis (Análisis de Mancha Inverso)</strong>: Técnica de depuración donde
+                    se rastrea un valor incorrecto ("mancha") desde su manifestación (sink) hasta su origen (source).
+                </p>
+                <ul>
+                    <li><strong>Sink (Sumidero)</strong>: <code>CP 0xFD</code> en <code>0x2B2A</code> - donde el fallo se manifiesta.</li>
+                    <li><strong>Taint (Mancha)</strong>: <code>0x00</code> en el registro <code>A</code> - el valor incorrecto.</li>
+                    <li><strong>Source (Fuente)</strong>: <code>LD A, (HL)</code> en <code>0x2B25</code> - la instrucción que introduce la mancha.</li>
+                </ul>
+                <p>
+                    Sin embargo, el análisis reveló que la fuente no es el problema: <code>LD A, (HL)</code> lee
+                    correctamente de memoria. El problema real es que la memoria WRAM en las direcciones apuntadas
+                    por <code>HL</code> contiene <code>0x00</code> en lugar de <code>0xFD</code>.
+                </p>
+                <p>
+                    Esto desplaza el problema: <strong>¿Quién debería haber escrito <code>0xFD</code> en esas direcciones
+                    de WRAM antes?</strong> Probablemente una rutina de inicialización o copia de datos que no se
+                    ejecutó o falló silenciosamente.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Análisis de la Traza</h2>
+                
+                <h3>Secuencia de Instrucciones Identificada</h3>
+                <pre><code>2B20: 23        → INC HL          (HL se incrementa: E644→E645, E645→E646...)
+2B21: F0 8C     → LDH A, (8C)     (Lee I/O 0xFF8C → A=44, 48, 4C, 50...)
+2B23: E0 94     → LDH (94), A     (Escribe A en I/O 0xFF94)
+2B25: 7E        → LD A, (HL)      (Lee memoria en HL → A=00 SIEMPRE)
+2B26: FE FF     → CP 0xFF         (Compara A con 0xFF)
+2B28: 28 C7     → JR Z, -57       (Salta si A==0xFF)
+2B2A: FE FD     → CP 0xFD         (Compara A con 0xFD) ← AQUÍ FALLA
+2B2C: 20 0E     → JR NZ, +14      (Salta si A!=0xFD → vuelve a 2B20)</code></pre>
+
+                <h3>Hallazgos Clave</h3>
+                <ol>
+                    <li><strong>Fuente del valor en A</strong>: <code>LD A, (HL)</code> en <code>0x2B25</code> lee de WRAM.</li>
+                    <li><strong>Dirección de memoria</strong>: <code>HL</code> apunta a <code>0xE645</code>, <code>0xE646</code>, etc. (WRAM).</li>
+                    <li><strong>Valor leído</strong>: Siempre <code>0x00</code>, pero el juego espera <code>0xFD</code>.</li>
+                    <li><strong>Patrón de incremento</strong>: <code>HL</code> se incrementa en cada iteración, sugiriendo un bucle de verificación.</li>
+                </ol>
+
+                <h3>Hipótesis del Problema</h3>
+                <p>
+                    El código parece estar verificando que una región de WRAM contiene valores específicos (<code>0xFD</code>).
+                    Estos valores deberían haber sido escritos por una rutina de inicialización anterior que:
+                </p>
+                <ul>
+                    <li>No se ejecutó (bloqueada por una condición previa que nunca se cumplió).</li>
+                    <li>Falló silenciosamente (error en el cálculo de direcciones o condición de salida).</li>
+                    <li>Escribió en una dirección diferente (error de offset o cálculo de dirección).</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>docs/bitacora/entries/2025-12-22__0238__analisis-trace-forense.html</code> - Este análisis</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Próximos Pasos de Investigación</h2>
+                <ol>
+                    <li><strong>Rastrear hacia atrás</strong>: Buscar en el código de Tetris qué rutina debería escribir <code>0xFD</code> en WRAM antes de llegar a <code>0x2B20</code>.</li>
+                    <li><strong>Verificar inicialización de WRAM</strong>: Comprobar si la MMU inicializa WRAM correctamente al arranque.</li>
+                    <li><strong>Analizar registros I/O</strong>: Los registros <code>0xFF8C</code> y <code>0xFF94</code> no están implementados. Verificar si esto afecta el flujo.</li>
+                    <li><strong>Buscar rutinas de copia</strong>: Buscar instrucciones <code>LDI</code>, <code>LDD</code>, o bucles de copia que deberían haber poblado WRAM.</li>
+                </ol>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set</a> - Instrucciones LD, LDH, CP, JR</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Memory Map</a> - WRAM, HRAM, I/O Ports</li>
+                    <li>Técnicas de depuración: Reverse Taint Analysis</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Análisis de traza</strong>: La técnica de "Reverse Taint Analysis" permite rastrear valores incorrectos hasta su origen.</li>
+                        <li><strong>Bucle de verificación</strong>: El código está verificando que la memoria contiene valores esperados, no cargando valores.</li>
+                        <li><strong>Problema desplazado</strong>: El problema no está en la lectura, sino en que la memoria no fue inicializada correctamente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rutina de inicialización</strong>: ¿Qué código debería escribir <code>0xFD</code> en WRAM?</li>
+                        <li><strong>Condición de bloqueo</strong>: ¿Por qué esa rutina no se ejecutó?</li>
+                        <li><strong>Registros I/O</strong>: ¿Los registros <code>0xFF8C</code> y <code>0xFF94</code> afectan el flujo?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal</strong>: Una rutina de inicialización que debería copiar datos a WRAM
+                        no se ejecutó porque una condición previa (quizás relacionada con registros I/O no implementados)
+                        nunca se cumplió, dejando WRAM sin inicializar.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Expandir el rango de trazado hacia atrás para encontrar la rutina de inicialización.</li>
+                    <li>[ ] Verificar si los registros I/O <code>0xFF8C</code> y <code>0xFF94</code> necesitan implementación.</li>
+                    <li>[ ] Buscar en el código de Tetris qué debería escribir <code>0xFD</code> en WRAM.</li>
+                    <li>[ ] Implementar el fix necesario (inicialización de WRAM o implementación de registros I/O).</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
