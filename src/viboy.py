@@ -760,20 +760,6 @@ class Viboy:
                                 fb_data = bytearray(raw_view)
                                 # ----------------------------------------
                                 
-                                # --- Sonda de Datos (Actualizada) ---
-                                if not hasattr(self, '_debug_frame_printed'):
-                                    self._debug_frame_printed = False
-                                
-                                if not self._debug_frame_printed:
-                                    p0 = fb_data[0]
-                                    mid = fb_data[23040 // 2]
-                                    print(f"\n--- [PYTHON SNAPSHOT PROBE] ---")
-                                    print(f"Pixel 0 (Snapshot): {p0} (Esperado: 3)")
-                                    # Confirmamos que BGP es correcto
-                                    print(f"BGP Register: 0x{self._mmu.read(0xFF47):02X}")
-                                    print(f"-------------------------------\n")
-                                    self._debug_frame_printed = True
-                                
                                 # 3. Guardar la COPIA SEGURA para el renderizador
                                 framebuffer_to_render = fb_data
                                 # ----------------------------------------

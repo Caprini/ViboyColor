@@ -1,7 +1,6 @@
 #include "PPU.hpp"
 #include "MMU.hpp"
 #include <algorithm>
-#include <cstdio>
 
 PPU::PPU(MMU* mmu) 
     : mmu_(mmu)
@@ -128,25 +127,6 @@ void PPU::step(int cpu_cycles) {
         
         // Si pasamos la última línea (153), reiniciar a 0 (nuevo frame)
         if (ly_ > 153) {
-            // --- Step 0213: SONDA C++ - Verificar framebuffer ANTES de limpiar ---
-            // Verificar el framebuffer justo antes de limpiarlo para el siguiente frame
-            static bool cpp_before_clear_probe_printed = false;
-            if (!cpp_before_clear_probe_printed) {
-                uint8_t p0 = framebuffer_[0];
-                uint8_t p8 = framebuffer_[8];
-                uint16_t mid_idx = (SCREEN_HEIGHT * SCREEN_WIDTH) / 2;
-                uint8_t mid = framebuffer_[mid_idx];
-                printf("\n--- [C++ BEFORE CLEAR PROBE] ---\n");
-                printf("Justo ANTES de limpiar framebuffer (ly_ > 153):\n");
-                printf("Pixel 0 (0,0): %d (Esperado: 3)\n", p0);
-                printf("Pixel 8 (8,0): %d\n", p8);
-                printf("Pixel Center (%d): %d\n", mid_idx, mid);
-                printf("Framebuffer ptr: %p\n", (void*)framebuffer_.data());
-                printf("---------------------------\n\n");
-                cpp_before_clear_probe_printed = true;
-            }
-            // -------------------------------------------------
-            
             ly_ = 0;
             // Reiniciar flag de interrupción STAT al cambiar de frame
             stat_interrupt_line_ = 0;
@@ -156,19 +136,6 @@ void PPU::step(int cpu_cycles) {
             // "tick" de hardware que inicia el dibujo, garantizando que el lienzo esté
             // siempre limpio justo antes de que el primer píxel del nuevo fotograma sea dibujado.
             clear_framebuffer();
-            
-            // --- Step 0213: SONDA C++ - Verificar framebuffer DESPUÉS de limpiar ---
-            // Verificar que el framebuffer se limpió correctamente
-            static bool cpp_after_clear_probe_printed = false;
-            if (!cpp_after_clear_probe_printed) {
-                uint8_t p0 = framebuffer_[0];
-                printf("\n--- [C++ AFTER CLEAR PROBE] ---\n");
-                printf("Justo DESPUÉS de limpiar framebuffer:\n");
-                printf("Pixel 0 (0,0): %d (Esperado: 0)\n", p0);
-                printf("---------------------------\n\n");
-                cpp_after_clear_probe_printed = true;
-            }
-            // -------------------------------------------------
         }
     }
     
@@ -379,92 +346,24 @@ void PPU::render_scanline() {
         uint8_t line_in_tile = map_y % 8;
         uint16_t tile_line_addr = tile_addr + (line_in_tile * 2);
 
-        // --- Step 0211: SONDA DE DIAGNÓSTICO (Píxel 0,0) ---
-        // Imprimir el estado interno solo una vez por frame (al inicio)
-        // Esto nos permite ver los valores exactos que la PPU está calculando
-        // sin inundar la consola con miles de líneas de log
-        if (ly_ == 0 && x == 0) {
-            printf("--- [PPU DIAGNOSTIC FRAME START] ---\n");
-            printf("LCDC: 0x%02X | SCX: 0x%02X | SCY: 0x%02X\n", lcdc, scx, scy);
-            printf("MapBase: 0x%04X | MapAddr: 0x%04X | TileID: 0x%02X\n", tile_map_base, tile_map_addr, tile_id);
-            printf("DataBase: 0x%04X | Signed: %d\n", tile_data_base, signed_addressing ? 1 : 0);
-            printf("CalcTileAddr: 0x%04X | LineAddr: 0x%04X\n", tile_addr, tile_line_addr);
-            bool valid = (tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE);
-            printf("VALID CHECK: %s\n", valid ? "PASS" : "FAIL");
-            printf("------------------------------------\n");
-        }
-        // -------------------------------------------------
-
-        // --- Step 0212: TEST AGRESIVO - FORZAR TODOS LOS PÍXELES A NEGRO ---
-        // Ignoramos completamente la validación y la lectura de VRAM.
-        // Forzamos TODOS los píxeles a color 3 (Negro) para verificar si el problema
-        // está en C++ (si esto no funciona) o en Python (si esto funciona pero la pantalla sigue blanca).
-        framebuffer_[line_start_index + x] = 3; // FORZAR NEGRO (Índice 3) - SIN CONDICIONES
-        
-        // --- Step 0213: SONDA C++ - Verificar escritura inmediata ---
-        // Verificar que realmente escribimos el valor correcto
-        static bool cpp_write_probe_printed = false;
-        if (ly_ == 0 && x == 0 && !cpp_write_probe_printed) {
-            uint8_t written_value = framebuffer_[line_start_index + x];
-            printf("\n--- [C++ WRITE PROBE] ---\n");
-            printf("Después de escribir en framebuffer[%d]:\n", line_start_index + x);
-            printf("Valor escrito: 3\n");
-            printf("Valor leído: %d\n", written_value);
-            printf("Framebuffer ptr: %p\n", (void*)framebuffer_.data());
-            printf("Framebuffer size: %zu\n", framebuffer_.size());
-            printf("---------------------------\n\n");
-            cpp_write_probe_printed = true;
-        }
-        // -------------------------------------------------
-        
-        // --- Step 0210: CORRECCIÓN CRÍTICA DE VALIDACIÓN DE VRAM (TEMPORALMENTE DESHABILITADO) ---
-        // ERROR ENCONTRADO: La condición `tile_line_addr < 0xA000 - 1` es incorrecta.
-        // 
-        // PROBLEMA:
-        // - VRAM va de 0x8000 a 0x9FFF (inclusive) = 8KB
-        // - Necesitamos leer 2 bytes consecutivos: tile_line_addr y tile_line_addr + 1
-        // - Si tile_line_addr = 0x9FFF, entonces tile_line_addr + 1 = 0xA000 (FUERA de VRAM)
-        // - La condición `tile_line_addr < 0x9FFF` rechaza 0x9FFF, pero también rechaza 0x9FFE
-        //   cuando debería aceptarlo (porque 0x9FFE + 1 = 0x9FFF está dentro de VRAM)
-        //
-        // SOLUCIÓN:
-        // - Validar que AMBOS bytes estén dentro de VRAM: tile_line_addr + 1 <= 0x9FFF
-        // - Esto significa: tile_line_addr <= 0x9FFE
-        // - Condición correcta: tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE
-        //
-        // IMPACTO:
-        // - Con la condición incorrecta, muchos tiles válidos caían en el else y se escribía
-        //   color_index = 0 (blanco) en lugar del color real del tile.
-        // - Esto explicaba por qué la pantalla estaba blanca incluso forzando bytes a 0xFF.
-        /*
+        // Usar la condición VALIDADA
         if (tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE) {
             
-            // --- Step 0212: EL TEST DEL ROTULADOR NEGRO ---
-            // Ignoramos la lectura de VRAM y la decodificación por un momento.
-            // Escribimos directamente en el framebuffer.
-            // Si esto funciona, veremos barras verticales negras.
+            // --- RESTAURADO: LÓGICA REAL DE VRAM ---
+            uint8_t byte1 = mmu_->read(tile_line_addr);
+            uint8_t byte2 = mmu_->read(tile_line_addr + 1);
             
-            // Patrón de rayas: 8 píxeles negros, 8 píxeles normales (blancos por ahora)
-            if ((x / 8) % 2 == 0) {
-                framebuffer_[line_start_index + x] = 3; // FORZAR NEGRO (Índice 3)
-            } else {
-                // Para las otras franjas, dejamos el comportamiento "normal" (que probablemente lea 0/blanco del Tile 0)
-                uint8_t byte1 = mmu_->read(tile_line_addr);
-                uint8_t byte2 = mmu_->read(tile_line_addr + 1);
-                uint8_t bit_index = 7 - (map_x % 8);
-                uint8_t bit_low = (byte1 >> bit_index) & 1;
-                uint8_t bit_high = (byte2 >> bit_index) & 1;
-                uint8_t color_index = (bit_high << 1) | bit_low;
-                framebuffer_[line_start_index + x] = color_index;
-            }
-            // ----------------------------------------------
+            uint8_t bit_index = 7 - (map_x % 8);
+            uint8_t bit_low = (byte1 >> bit_index) & 1;
+            uint8_t bit_high = (byte2 >> bit_index) & 1;
+            uint8_t color_index = (bit_high << 1) | bit_low;
+
+            framebuffer_[line_start_index + x] = color_index;
+            // ---------------------------------------
 
         } else {
-            // Dirección inválida: fuera de VRAM o el segundo byte estaría fuera
-            // Escribir color 0 (blanco por defecto) como fallback
             framebuffer_[line_start_index + x] = 0;
         }
-        */
     }
 }
 

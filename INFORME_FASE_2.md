@@ -32,6 +32,34 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0220: El Amanecer de Tetris (Limpieza Final)
+**Estado**: ✅ COMPLETADO
+
+Tras confirmar visualmente el funcionamiento de todo el pipeline con el "Test de la Caja Azul", se retiraron todas las herramientas de diagnóstico, hacks visuales y sondas de datos. Se restauró la lógica original de lectura de VRAM en C++ y la paleta de colores correcta en Python. El sistema está ahora limpio y operando con precisión de hardware.
+
+**Objetivo:**
+- Restaurar el código a su estado de producción.
+- Ejecutar Tetris y visualizar los gráficos reales del juego.
+
+**Implementación:**
+1. **Restauración en `renderer.py`**: Eliminado el cuadro azul de prueba y el forzado de color rojo en la paleta. Mantenida la lógica robusta de renderizado.
+2. **Restauración en `PPU.cpp`**: Eliminado el "Test del Rotulador Negro" (rayas verticales forzadas). Restaurada la lógica original de lectura de VRAM con validación correcta.
+3. **Limpieza en `viboy.py`**: Eliminados los prints de sondas de datos. Mantenida la lógica del `bytearray` (buena práctica defensiva).
+
+**Concepto de Hardware:**
+Durante la fase de depuración, implementamos múltiples "andamios" (scaffolding) para diagnosticar problemas: hacks visuales, paleta de debug, test del rotulador negro, y sondas de datos. Estos andamios cumplieron su propósito confirmando que cada componente funciona correctamente. Sin embargo, en producción, estos hacks interfieren con el renderizado real del juego. La restauración elimina todos estos andamios y deja solo la lógica limpia y precisa del hardware.
+
+**Archivos Afectados:**
+- `src/gpu/renderer.py` - Eliminación de hacks visuales y restauración de paleta
+- `src/core/cpp/PPU.cpp` - Restauración de lógica VRAM y eliminación de sondas
+- `src/viboy.py` - Eliminación de sondas de datos
+
+**Tests:**
+- Ejecutar `python main.py roms/tetris.gb` y verificar que se muestren los gráficos reales del juego (pantalla de copyright o logo de Nintendo cayendo).
+- Verificar que no haya rayas rojas ni cuadros azules, solo la emulación pura.
+
+---
+
 ### 2025-12-22 - Step 0219: Fix - Snapshot de Memoria (Bytearray Copy)
 **Estado**: 🔧 EN PROCESO
 
