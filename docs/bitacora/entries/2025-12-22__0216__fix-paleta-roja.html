@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paleta Debug: El Test del Rojo - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Paleta Debug: El Test del Rojo</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0216
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0215__correccion-paleta-renderer.html">Anterior (0215)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El análisis de los datos del Step 0215 es <strong>concluyente</strong>. Hemos aislado el problema con precisión quirúrgica:
+                </p>
+                <ol>
+                    <li><strong>C++ (PPU):</strong> Genera píxeles con valor <code>3</code> (Correcto, es negro).</li>
+                    <li><strong>Cython (Puente):</strong> Transfiere el valor <code>3</code> intacto a Python (Correcto).</li>
+                    <li><strong>Python (BGP):</strong> El registro tiene el valor <code>0xE4</code> (Correcto, paleta estándar).</li>
+                    <li><strong>Pantalla:</strong> Muestra <strong>BLANCO</strong>.</li>
+                </ol>
+                <p>
+                    <strong>La Deducción Lógica:</strong>
+                </p>
+                <p>
+                    Si la entrada del renderer es <code>3</code> y el registro BGP <code>0xE4</code> dice que el índice 3 debe mapearse al Color 3... entonces <strong>tu definición del "Color 3" en <code>renderer.py</code> es BLANCO</strong>.
+                </p>
+                <p>
+                    <strong>Solución:</strong> Corregimos la definición de colores en <code>renderer.py</code> y, para estar 100% seguros, hacemos que el <strong>Color 3 sea ROJO</strong> temporalmente. Si vemos rayas rojas, habremos ganado la guerra contra la pantalla blanca.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: La Paleta de Colores de Game Boy</h2>
+                <p>
+                    La Game Boy original usa una paleta de 4 tonos de gris/verde que se mapean a índices de color (0-3). El registro BGP (Background Palette, 0xFF47) define cómo se mapean estos índices a los colores reales.
+                </p>
+                <p>
+                    <strong>Paleta estándar de Game Boy:</strong>
+                </p>
+                <ul>
+                    <li><strong>Color 0:</strong> Blanco/Verde claro (224, 248, 208) - El más claro</li>
+                    <li><strong>Color 1:</strong> Gris claro (136, 192, 112) - Gris claro</li>
+                    <li><strong>Color 2:</strong> Gris oscuro (52, 104, 86) - Gris oscuro</li>
+                    <li><strong>Color 3:</strong> Negro/Verde oscuro (8, 24, 32) - El más oscuro</li>
+                </ul>
+                <p>
+                    <strong>El problema de inversión:</strong>
+                </p>
+                <p>
+                    Si la definición de colores en el código Python está invertida o mal definida, el índice 3 (que debería ser negro) se renderizará como blanco. Esto es exactamente lo que está ocurriendo: el pipeline funciona correctamente (C++ envía 3, Python recibe 3, BGP es 0xE4), pero la pantalla es blanca.
+                </p>
+                <p>
+                    <strong>El Test del Rojo:</strong>
+                </p>
+                <p>
+                    Para confirmar visualmente que tenemos control sobre el mapeo final, forzamos temporalmente que el índice 3 se renderice como <strong>ROJO</strong> (255, 0, 0). Si vemos rayas rojas en la pantalla, significa que:
+                </p>
+                <ol>
+                    <li>El pipeline de datos funciona correctamente.</li>
+                    <li>El renderer está aplicando la paleta correctamente.</li>
+                    <li>El problema era simplemente la definición de colores base.</li>
+                </ol>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Background Palette Register (BGP), LCD Control Register.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron las siguientes modificaciones en <code>src/gpu/renderer.py</code>:
+                </p>
+                
+                <h3>1. Definición Explícita de Colores en <code>__init__</code></h3>
+                <p>
+                    Se añadió una definición explícita de los colores base de Game Boy y una paleta mapeada:
+                </p>
+                <pre><code># --- FIX STEP 0216: Definición Explícita de Colores ---
+# Game Boy original: 0=Más claro, 3=Más oscuro
+# Paleta estándar de Game Boy (verde/amarillo original)
+self.COLORS = [
+    (224, 248, 208),  # 0: Blanco/Verde claro (White)
+    (136, 192, 112),  # 1: Gris claro (Light Gray)
+    (52, 104, 86),    # 2: Gris oscuro (Dark Gray)
+    (8, 24, 32)       # 3: Negro/Verde oscuro (Black)
+]
+# Paleta actual mapeada (índice -> RGB)
+self.palette = list(self.COLORS)
+
+# Flag para log de depuración (una sola vez)
+self.debug_palette_printed = False
+# ----------------------------------------</code></pre>
+
+                <h3>2. Corrección de Decodificación de Paleta BGP</h3>
+                <p>
+                    Se modificó la decodificación de paleta BGP para usar los colores explícitos y añadir el debug visual con rojo:
+                </p>
+                <pre><code># Decodificar paleta BGP (cada par de bits representa un color 0-3)
+# --- FIX STEP 0216: Usar COLORS explícitos y debug visual ---
+palette = [None] * 4
+for i in range(4):
+    color_idx = (bgp >> (i * 2)) & 0x03
+    palette[i] = self.COLORS[color_idx]
+    
+    # --- DEBUG VISUAL STEP 0216 ---
+    # Si el índice final es 3 (Negro), lo forzamos a ROJO
+    # para confirmar visualmente que estamos pintando lo que queremos.
+    if color_idx == 3:
+        palette[i] = (255, 0, 0)  # ROJO FUERTE
+    # -----------------------------
+
+# Log de diagnóstico (una sola vez si cambia BGP o es el primer frame)
+if not self.debug_palette_printed:
+    print(f"\n--- [RENDERER PALETTE DEBUG] ---")
+    print(f"BGP Raw: 0x{bgp:02X}")
+    print(f"Mapping:")
+    for i in range(4):
+        base_color_idx = (bgp >> (i * 2)) & 0x03
+        print(f"  Index {i} -> BaseColor {base_color_idx} -> RGB {palette[i]}")
+    print(f"--------------------------------\n")
+    self.debug_palette_printed = True
+# ----------------------------------------</code></pre>
+                <p>
+                    Esta modificación se aplicó en dos lugares:
+                </p>
+                <ol>
+                    <li>En el método que usa el framebuffer C++ (líneas ~467-472).</li>
+                    <li>En el método Python original (líneas ~593-598).</li>
+                </ol>
+            </section>
+
+            <!-- 4. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado:</strong>
+                </p>
+                <pre><code>python main.py roms/tetris.gb</code></pre>
+                <p>
+                    <strong>Resultado esperado:</strong>
+                </p>
+                <ul>
+                    <li>Se debe ver <strong>rayas verticales ROJAS y blancas</strong> en la pantalla.</li>
+                    <li>El log de depuración debe mostrar el mapeo de paleta con el índice 3 mapeado a ROJO.</li>
+                </ul>
+                <p>
+                    <strong>Validación:</strong>
+                </p>
+                <p>
+                    Si vemos rojo, significa que:
+                </p>
+                <ol>
+                    <li>El pipeline de datos funciona correctamente (C++ → Cython → Python).</li>
+                    <li>El renderer está aplicando la paleta correctamente.</li>
+                    <li>El problema era simplemente la definición de colores base.</li>
+                </ol>
+                <p>
+                    <strong>Próximos pasos después de confirmar el rojo:</strong>
+                </p>
+                <ol>
+                    <li>Eliminar el hack del rojo (<code>if color_idx == 3: ...</code>).</li>
+                    <li>Eliminar el hack de las rayas en C++ (Step 0212).</li>
+                    <li>Eliminar el hack de <code>byte=0xFF</code> en C++ (Step 0209).</li>
+                    <li><strong>¡Y veremos el Tetris!</strong></li>
+                </ol>
+            </section>
+
+            <!-- 5. Archivos Afectados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Corrección de definición de colores y debug visual con rojo</li>
+                </ul>
+            </section>
+
+            <!-- 6. Referencias -->
+            <section id="referencias">
+                <h2>Referencias</h2>
+                <ul>
+                    <li>Pan Docs - Background Palette Register (BGP)</li>
+                    <li>Pan Docs - LCD Control Register</li>
+                    <li>Step 0215 - Corrección de Paleta: ¿Por qué el Negro es Blanco?</li>
+                    <li>Step 0212 - Test Rotulador Negro</li>
+                    <li>Step 0209 - Diagnóstico Radical: Forzar Color Negro</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                <a href="../index.html">Volver al índice</a>
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+

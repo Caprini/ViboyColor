@@ -183,6 +183,22 @@ class Renderer:
         # Este buffer se escribe píxel a píxel y luego se escala a la ventana
         self.buffer = pygame.Surface((GB_WIDTH, GB_HEIGHT))
         
+        # --- FIX STEP 0216: Definición Explícita de Colores ---
+        # Game Boy original: 0=Más claro, 3=Más oscuro
+        # Paleta estándar de Game Boy (verde/amarillo original)
+        self.COLORS = [
+            (224, 248, 208),  # 0: Blanco/Verde claro (White)
+            (136, 192, 112),  # 1: Gris claro (Light Gray)
+            (52, 104, 86),    # 2: Gris oscuro (Dark Gray)
+            (8, 24, 32)       # 3: Negro/Verde oscuro (Black)
+        ]
+        # Paleta actual mapeada (índice -> RGB)
+        self.palette = list(self.COLORS)
+        
+        # Flag para log de depuración (una sola vez)
+        self.debug_palette_printed = False
+        # ----------------------------------------
+        
         logger.info(f"Renderer inicializado: {self.window_width}x{self.window_height} (scale={scale})")
         
         # Mostrar pantalla de carga
@@ -464,12 +480,30 @@ class Renderer:
                 
                 # Decodificar paleta BGP (cada par de bits representa un color 0-3)
                 # Formato: bits 0-1 = color 0, bits 2-3 = color 1, bits 4-5 = color 2, bits 6-7 = color 3
-                palette = [
-                    PALETTE_GREYSCALE[(bgp >> 0) & 0x03],
-                    PALETTE_GREYSCALE[(bgp >> 2) & 0x03],
-                    PALETTE_GREYSCALE[(bgp >> 4) & 0x03],
-                    PALETTE_GREYSCALE[(bgp >> 6) & 0x03],
-                ]
+                # --- FIX STEP 0216: Usar COLORS explícitos y debug visual ---
+                palette = [None] * 4
+                for i in range(4):
+                    color_idx = (bgp >> (i * 2)) & 0x03
+                    palette[i] = self.COLORS[color_idx]
+                    
+                    # --- DEBUG VISUAL STEP 0216 ---
+                    # Si el índice final es 3 (Negro), lo forzamos a ROJO
+                    # para confirmar visualmente que estamos pintando lo que queremos.
+                    if color_idx == 3:
+                        palette[i] = (255, 0, 0)  # ROJO FUERTE
+                    # -----------------------------
+                
+                # Log de diagnóstico (una sola vez si cambia BGP o es el primer frame)
+                if not self.debug_palette_printed:
+                    print(f"\n--- [RENDERER PALETTE DEBUG] ---")
+                    print(f"BGP Raw: 0x{bgp:02X}")
+                    print(f"Mapping:")
+                    for i in range(4):
+                        base_color_idx = (bgp >> (i * 2)) & 0x03
+                        print(f"  Index {i} -> BaseColor {base_color_idx} -> RGB {palette[i]}")
+                    print(f"--------------------------------\n")
+                    self.debug_palette_printed = True
+                # ----------------------------------------
                 
                 # Crear superficie de Pygame para el frame (160x144)
                 frame_surface = pygame.Surface((GB_WIDTH, GB_HEIGHT))
@@ -590,12 +624,30 @@ class Renderer:
         # Bits 4-5: Color para índice 2
         # Bits 6-7: Color para índice 3
         # Cada par de bits puede ser 0-3, pero en Game Boy original solo hay 4 tonos de gris
-        palette = [
-            PALETTE_GREYSCALE[(bgp >> 0) & 0x03],
-            PALETTE_GREYSCALE[(bgp >> 2) & 0x03],
-            PALETTE_GREYSCALE[(bgp >> 4) & 0x03],
-            PALETTE_GREYSCALE[(bgp >> 6) & 0x03],
-        ]
+        # --- FIX STEP 0216: Usar COLORS explícitos y debug visual ---
+        palette = [None] * 4
+        for i in range(4):
+            color_idx = (bgp >> (i * 2)) & 0x03
+            palette[i] = self.COLORS[color_idx]
+            
+            # --- DEBUG VISUAL STEP 0216 ---
+            # Si el índice final es 3 (Negro), lo forzamos a ROJO
+            # para confirmar visualmente que estamos pintando lo que queremos.
+            if color_idx == 3:
+                palette[i] = (255, 0, 0)  # ROJO FUERTE
+            # -----------------------------
+        
+        # Log de diagnóstico (una sola vez si cambia BGP o es el primer frame)
+        if not self.debug_palette_printed:
+            print(f"\n--- [RENDERER PALETTE DEBUG] ---")
+            print(f"BGP Raw: 0x{bgp:02X}")
+            print(f"Mapping:")
+            for i in range(4):
+                base_color_idx = (bgp >> (i * 2)) & 0x03
+                print(f"  Index {i} -> BaseColor {base_color_idx} -> RGB {palette[i]}")
+            print(f"--------------------------------\n")
+            self.debug_palette_printed = True
+        # ----------------------------------------
         
         # Logs de paleta desactivados para mejorar rendimiento
         

@@ -32,6 +32,41 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0216: Fix - Inversión de Paleta y Debug Visual
+**Estado**: 🔧 EN PROCESO
+
+El análisis de los datos del Step 0215 es **concluyente**. Hemos aislado el problema con precisión quirúrgica:
+
+1. **C++ (PPU)**: Genera píxeles con valor `3` (Correcto, es negro).
+2. **Cython (Puente)**: Transfiere el valor `3` intacto a Python (Correcto).
+3. **Python (BGP)**: El registro tiene el valor `0xE4` (Correcto, paleta estándar).
+4. **Pantalla**: Muestra **BLANCO**.
+
+**La Deducción Lógica:**
+Si la entrada del renderer es `3` y el registro BGP `0xE4` dice que el índice 3 debe mapearse al Color 3... entonces **tu definición del "Color 3" en `renderer.py` es BLANCO**.
+
+**Objetivo:**
+- Corregir `self.COLORS` para asegurar 0=Claro, 3=Oscuro.
+- Forzar visualización ROJA para el color negro temporalmente (debug visual).
+- Añadir log de diagnóstico que muestre el mapeo de paleta.
+
+**Implementación:**
+1. **Definición explícita de colores en `__init__`**: Se añadió `self.COLORS` con la paleta estándar de Game Boy (verde/amarillo original).
+2. **Corrección de decodificación de paleta BGP**: Se modificó la decodificación para usar los colores explícitos y forzar ROJO cuando el índice es 3 (debug visual).
+3. **Log de diagnóstico**: Se añadió un log que se imprime una sola vez mostrando el mapeo completo de paleta.
+
+**Concepto de Hardware:**
+La Game Boy original usa una paleta de 4 tonos de gris/verde. Si la definición de colores en el código Python está invertida o mal definida, el índice 3 (que debería ser negro) se renderizará como blanco. El "Test del Rojo" confirma visualmente que tenemos control sobre el mapeo final.
+
+**Archivos Afectados:**
+- `src/gpu/renderer.py` - Corrección de definición de colores y debug visual con rojo
+
+**Tests:**
+- Ejecutar `python main.py roms/tetris.gb` y verificar que se vean **rayas verticales ROJAS y blancas**.
+- Si se ve rojo, significa que el pipeline funciona y el problema era la definición de colores.
+
+---
+
 ### 2025-12-22 - Step 0215: Corrección de Paleta (El Renderer Daltónico)
 **Estado**: 🔧 EN PROCESO
 
