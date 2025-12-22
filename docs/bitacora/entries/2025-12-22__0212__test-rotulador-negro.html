@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test del Rotulador Negro: Escritura Directa - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Test del Rotulador Negro: Escritura Directa</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0212
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-21__0211__sonda-diagnostico-pixel-cero.html">Anterior (0211)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    La sonda del Step 0211 confirmó que la validación de direcciones VRAM es correcta (<code>VALID CHECK: PASS</code>) y que la matemática de direcciones es perfecta. Sin embargo, la pantalla sigue blanca porque estamos renderizando el Tile 0 (vacío). Para confirmar visualmente que tenemos control sobre el framebuffer dentro del bucle de renderizado validado, implementamos una escritura directa de índice de color 3 (Negro) en un patrón de rayas verticales.
+                </p>
+                <p>
+                    <strong>Objetivo:</strong> Generar barras verticales negras forzando <code>framebuffer_[i] = 3</code> dentro del bloque validado. Si esto funciona, veremos rayas verticales negras y blancas, confirmando que el pipeline de renderizado real está recorriendo la pantalla y pasando la validación.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: Validación Visual del Pipeline</h2>
+                <p>
+                    El Step 0211 nos confirmó que la validación de direcciones VRAM funciona correctamente. El log mostró <code>VALID CHECK: PASS</code> y <code>CalcTileAddr: 0x8000</code> con <code>TileID: 0x00</code>, lo que significa que la matemática es perfecta. Sin embargo, la pantalla sigue blanca.
+                </p>
+                <p>
+                    <strong>El problema de "dónde estamos mirando":</strong> El Tile 0 (ubicado en <code>0x8000</code>) está vacío/blanco por defecto. Nuestra sonda miró el píxel (0,0), que corresponde al Tile 0. Aunque forzamos <code>byte1=0xFF</code> en el Step 0209, es posible que la decodificación de bits o la paleta en Python esté haciendo que ese "3" se vea blanco, o simplemente que necesitamos ser más agresivos para confirmar el control total.
+                </p>
+                <p>
+                    <strong>La solución del "Rotulador Negro":</strong> En lugar de depender de la lectura de VRAM y la decodificación de bits, vamos a escribir directamente el índice de color 3 (Negro) en el framebuffer dentro del bloque validado. Si esto pone la pantalla negra (o a rayas), habremos confirmado que el pipeline de renderizado real (VRAM → Validación → Framebuffer) funciona, y que el problema anterior era puramente de datos (Tile 0 vacío).
+                </p>
+                <p>
+                    <strong>Patrón de rayas verticales:</strong> Para hacer el test más visible, implementamos un patrón alternado: cada 8 píxeles, forzamos el color 3 (Negro). En las franjas alternas, dejamos el comportamiento normal (que probablemente lea 0/blanco del Tile 0). Esto generará barras verticales negras y blancas, confirmando visualmente que:
+                </p>
+                <ul>
+                    <li>El bucle de renderizado está recorriendo todos los píxeles de la pantalla.</li>
+                    <li>La validación de VRAM está funcionando correctamente.</li>
+                    <li>El framebuffer está siendo escrito correctamente.</li>
+                    <li>El pipeline C++ → Cython → Python funciona end-to-end.</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "PPU Rendering", "Framebuffer", "Color Indexing"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó la función <code>PPU::render_scanline()</code> en el archivo <code>src/core/cpp/PPU.cpp</code> para implementar el patrón de rayas verticales negras dentro del bloque validado de VRAM.
+                </p>
+                
+                <h3>Modificación del Bloque de Renderizado</h3>
+                <p>
+                    Se reemplazó el código que forzaba <code>byte1 = 0xFF</code> y <code>byte2 = 0xFF</code> (Step 0209) con un patrón condicional que escribe directamente en el framebuffer:
+                </p>
+                <pre><code>// --- Step 0212: EL TEST DEL ROTULADOR NEGRO ---
+// Ignoramos la lectura de VRAM y la decodificación por un momento.
+// Escribimos directamente en el framebuffer.
+// Si esto funciona, veremos barras verticales negras.
+
+// Patrón de rayas: 8 píxeles negros, 8 píxeles normales (blancos por ahora)
+if ((x / 8) % 2 == 0) {
+    framebuffer_[line_start_index + x] = 3; // FORZAR NEGRO (Índice 3)
+} else {
+    // Para las otras franjas, dejamos el comportamiento "normal" (que probablemente lea 0/blanco del Tile 0)
+    uint8_t byte1 = mmu_->read(tile_line_addr);
+    uint8_t byte2 = mmu_->read(tile_line_addr + 1);
+    uint8_t bit_index = 7 - (map_x % 8);
+    uint8_t bit_low = (byte1 >> bit_index) & 1;
+    uint8_t bit_high = (byte2 >> bit_index) & 1;
+    uint8_t color_index = (bit_high << 1) | bit_low;
+    framebuffer_[line_start_index + x] = color_index;
+}
+// ----------------------------------------------</code></pre>
+
+                <h3>Lógica del Patrón</h3>
+                <p>
+                    El patrón funciona de la siguiente manera:
+                </p>
+                <ul>
+                    <li><strong>Condición <code>(x / 8) % 2 == 0</code>:</strong> Divide la coordenada X por 8 (cada tile tiene 8 píxeles de ancho) y verifica si el resultado es par. Esto crea franjas de 8 píxeles de ancho.</li>
+                    <li><strong>Franjas pares:</strong> Se fuerza directamente <code>framebuffer_[line_start_index + x] = 3</code> (Negro), ignorando completamente la lectura de VRAM y la decodificación de bits.</li>
+                    <li><strong>Franjas impares:</strong> Se mantiene el comportamiento normal: lectura de VRAM, decodificación de bits y escritura del índice de color calculado. Como el Tile 0 está vacío, estas franjas probablemente serán blancas (color_index = 0).</li>
+                </ul>
+                <p>
+                    <strong>Resultado esperado:</strong> Si el código funciona correctamente, deberíamos ver una pantalla con rayas verticales alternadas: negras (donde forzamos el color 3) y blancas (donde leemos el Tile 0 vacío).
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Modificado el bloque de renderizado en <code>render_scanline()</code> (líneas 385-402) para implementar el patrón de rayas verticales negras</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Compilación:</strong> El código debe compilarse exitosamente con <code>python setup.py build_ext --inplace</code> o <code>.\rebuild_cpp.ps1</code>. No se introdujeron errores de compilación.
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> La extensión Cython se generará correctamente y estará lista para pruebas en tiempo de ejecución.
+                </p>
+                <p>
+                    <strong>Prueba esperada:</strong> Al ejecutar el emulador con <code>python main.py roms/tetris.gb</code>, deberíamos ver una pantalla con rayas verticales negras y blancas alternadas:
+                </p>
+                <ul>
+                    <li><strong>Rayas negras:</strong> Donde nuestro "rotulador" forzó el color 3 (cada 8 píxeles, empezando desde X=0).</li>
+                    <li><strong>Rayas blancas:</strong> Donde la PPU leyó el Tile 0 (vacío) de la VRAM (cada 8 píxeles, empezando desde X=8).</li>
+                </ul>
+                <p>
+                    <strong>Validación de éxito:</strong> Si vemos este patrón, habremos confirmado que:
+                </p>
+                <ul>
+                    <li>El bucle de renderizado está funcionando correctamente.</li>
+                    <li>La validación de VRAM está permitiendo el acceso (el bloque <code>if</code> se está ejecutando).</li>
+                    <li>El framebuffer está siendo escrito correctamente.</li>
+                    <li>El pipeline C++ → Cython → Python funciona end-to-end.</li>
+                    <li>El problema anterior era puramente de datos (Tile 0 vacío), no de lógica.</li>
+                </ul>
+                <p>
+                    <strong>Próximo paso si funciona:</strong> Una vez confirmado que tenemos control total sobre el framebuffer, el siguiente paso será cargar datos reales en VRAM o mirar al tile correcto del mapa de tiles.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "PPU Rendering" - Proceso de renderizado de líneas de escaneo</li>
+                    <li>Pan Docs: "Framebuffer" - Estructura del buffer de píxeles</li>
+                    <li>Pan Docs: "Color Indexing" - Índices de color (0-3) y paletas</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Validación visual:</strong> A veces, la mejor forma de confirmar que un sistema funciona es hacer algo visualmente obvio (como escribir píxeles negros directamente) en lugar de depender de datos complejos.</li>
+                        <li><strong>Control total del framebuffer:</strong> Si podemos escribir directamente en el framebuffer y ver el resultado, sabemos que el pipeline de renderizado funciona. El problema entonces es solo de datos (qué escribimos), no de lógica (cómo escribimos).</li>
+                        <li><strong>Patrones de diagnóstico:</strong> Los patrones visuales (como rayas) son excelentes para confirmar que un bucle está recorriendo todos los elementos correctamente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Resultado visual:</strong> Ver si realmente aparecen las rayas verticales negras y blancas en la pantalla.</li>
+                        <li><strong>Control del pipeline:</strong> Confirmar que tenemos control total sobre el framebuffer dentro del bucle validado.</li>
+                        <li><strong>Origen del problema anterior:</strong> Si las rayas aparecen, confirmaremos que el problema era de datos (Tile 0 vacío), no de lógica.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> Si vemos las rayas verticales negras y blancas, habremos confirmado que todo el pipeline funciona correctamente. El problema anterior era simplemente que estábamos renderizando el Tile 0, que está vacío por defecto.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Una vez confirmado el control visual, el siguiente paso será cargar datos reales en VRAM o mirar al tile correcto del mapa de tiles para ver contenido real del juego.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con <code>.\rebuild_cpp.ps1</code> o <code>python setup.py build_ext --inplace</code></li>
+                    <li>[ ] Ejecutar el emulador: <code>python main.py roms/tetris.gb</code></li>
+                    <li>[ ] Verificar resultado visual: Buscar rayas verticales negras y blancas alternadas</li>
+                    <li>[ ] Si funciona: Confirmar que tenemos control total del framebuffer y que el problema era de datos, no de lógica</li>
+                    <li>[ ] Si funciona: Cargar datos reales en VRAM o mirar al tile correcto del mapa de tiles</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

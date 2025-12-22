@@ -32,6 +32,84 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0212: El Test del Rotulador Negro (Escritura Directa)
+**Estado**: 🔧 EN PROCESO
+
+La sonda del Step 0211 confirmó que la validación de direcciones VRAM es correcta (`VALID CHECK: PASS`) y que la matemática de direcciones es perfecta. Sin embargo, la pantalla sigue blanca porque estamos renderizando el Tile 0 (vacío). Para confirmar visualmente que tenemos control sobre el framebuffer dentro del bucle de renderizado validado, implementamos una escritura directa de índice de color 3 (Negro) en un patrón de rayas verticales.
+
+**Objetivo:**
+- Generar barras verticales negras forzando `framebuffer_[i] = 3` dentro del bloque validado.
+- Confirmar visualmente que el bucle de renderizado real está recorriendo la pantalla y pasando la validación.
+
+**Concepto de Hardware: Validación Visual del Pipeline**
+
+El Step 0211 nos confirmó que la validación de direcciones VRAM funciona correctamente. El log mostró `VALID CHECK: PASS` y `CalcTileAddr: 0x8000` con `TileID: 0x00`, lo que significa que la matemática es perfecta. Sin embargo, la pantalla sigue blanca.
+
+**El problema de "dónde estamos mirando":** El Tile 0 (ubicado en `0x8000`) está vacío/blanco por defecto. Nuestra sonda miró el píxel (0,0), que corresponde al Tile 0. Aunque forzamos `byte1=0xFF` en el Step 0209, es posible que la decodificación de bits o la paleta en Python esté haciendo que ese "3" se vea blanco, o simplemente que necesitamos ser más agresivos para confirmar el control total.
+
+**La solución del "Rotulador Negro":** En lugar de depender de la lectura de VRAM y la decodificación de bits, vamos a escribir directamente el índice de color 3 (Negro) en el framebuffer dentro del bloque validado. Si esto pone la pantalla negra (o a rayas), habremos confirmado que el pipeline de renderizado real (VRAM → Validación → Framebuffer) funciona, y que el problema anterior era puramente de datos (Tile 0 vacío).
+
+**Patrón de rayas verticales:** Para hacer el test más visible, implementamos un patrón alternado: cada 8 píxeles, forzamos el color 3 (Negro). En las franjas alternas, dejamos el comportamiento normal (que probablemente lea 0/blanco del Tile 0). Esto generará barras verticales negras y blancas, confirmando visualmente que:
+- El bucle de renderizado está recorriendo todos los píxeles de la pantalla.
+- La validación de VRAM está funcionando correctamente.
+- El framebuffer está siendo escrito correctamente.
+- El pipeline C++ → Cython → Python funciona end-to-end.
+
+**Implementación:**
+
+1. **Modificación del Bloque de Renderizado**: Se reemplazó el código que forzaba `byte1 = 0xFF` y `byte2 = 0xFF` (Step 0209) con un patrón condicional que escribe directamente en el framebuffer:
+   ```cpp
+   // --- Step 0212: EL TEST DEL ROTULADOR NEGRO ---
+   // Patrón de rayas: 8 píxeles negros, 8 píxeles normales (blancos por ahora)
+   if ((x / 8) % 2 == 0) {
+       framebuffer_[line_start_index + x] = 3; // FORZAR NEGRO (Índice 3)
+   } else {
+       // Para las otras franjas, dejamos el comportamiento "normal"
+       uint8_t byte1 = mmu_->read(tile_line_addr);
+       uint8_t byte2 = mmu_->read(tile_line_addr + 1);
+       uint8_t bit_index = 7 - (map_x % 8);
+       uint8_t bit_low = (byte1 >> bit_index) & 1;
+       uint8_t bit_high = (byte2 >> bit_index) & 1;
+       uint8_t color_index = (bit_high << 1) | bit_low;
+       framebuffer_[line_start_index + x] = color_index;
+   }
+   ```
+
+**Archivos Afectados:**
+- `src/core/cpp/PPU.cpp` - Modificado el bloque de renderizado en `render_scanline()` (líneas 385-402) para implementar el patrón de rayas verticales negras
+- `docs/bitacora/entries/2025-12-22__0212__test-rotulador-negro.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0212
+
+**Tests y Verificación:**
+
+1. **Recompilación del módulo C++**:
+   ```bash
+   python setup.py build_ext --inplace
+   # O usando el script de PowerShell:
+   .\rebuild_cpp.ps1
+   ```
+
+2. **Ejecución del emulador**:
+   ```bash
+   python main.py roms/tetris.gb
+   ```
+
+3. **Resultado esperado**: Deberíamos ver una pantalla con rayas verticales negras y blancas alternadas:
+   - **Rayas negras**: Donde nuestro "rotulador" forzó el color 3 (cada 8 píxeles, empezando desde X=0).
+   - **Rayas blancas**: Donde la PPU leyó el Tile 0 (vacío) de la VRAM (cada 8 píxeles, empezando desde X=8).
+
+**Validación de éxito**: Si vemos este patrón, habremos confirmado que:
+- El bucle de renderizado está funcionando correctamente.
+- La validación de VRAM está permitiendo el acceso (el bloque `if` se está ejecutando).
+- El framebuffer está siendo escrito correctamente.
+- El pipeline C++ → Cython → Python funciona end-to-end.
+- El problema anterior era puramente de datos (Tile 0 vacío), no de lógica.
+
+**Próximo paso si funciona**: Una vez confirmado que tenemos control total sobre el framebuffer, el siguiente paso será cargar datos reales en VRAM o mirar al tile correcto del mapa de tiles.
+
+---
+
 ### 2025-12-21 - Step 0211: La Sonda en el Píxel Cero
 **Estado**: ✅ VERIFIED
 

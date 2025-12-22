@@ -32,6 +32,16 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0212 - Test del Rotulador Negro: Escritura Directa -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-22</span>
+                        <span class="tag">0212</span>
+                        <a href="entries/2025-12-22__0212__test-rotulador-negro.html" class="title">Test del Rotulador Negro: Escritura Directa</a>
+                        <p class="summary">
+                            Validación visual definitiva del pipeline de renderizado forzando píxeles negros en patrón de rayas dentro de la lógica validada. La sonda del Step 0211 confirmó que la validación de direcciones VRAM es correcta (VALID CHECK: PASS) y que la matemática de direcciones es perfecta. Sin embargo, la pantalla sigue blanca porque estamos renderizando el Tile 0 (vacío). Para confirmar visualmente que tenemos control sobre el framebuffer dentro del bucle de renderizado validado, implementamos una escritura directa de índice de color 3 (Negro) en un patrón de rayas verticales.
+                        </p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0211 - La Sonda en el Píxel Cero -->
                     <li class="entry-item">
                         <span class="meta">2025-12-21</span>

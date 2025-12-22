@@ -383,23 +383,27 @@ void PPU::render_scanline() {
         //   color_index = 0 (blanco) en lugar del color real del tile.
         // - Esto explicaba por qué la pantalla estaba blanca incluso forzando bytes a 0xFF.
         if (tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE) {
-            uint8_t byte1 = mmu_->read(tile_line_addr);
-            uint8_t byte2 = mmu_->read(tile_line_addr + 1);
             
-            // --- Step 0209: DIAGNÓSTICO RADICAL (MANTENER TEMPORALMENTE) ---
-            // Forzar bytes a 0xFF (Color 3 - Negro)
-            // Esto ignora lo que haya en VRAM. Si la pantalla no sale negra,
-            // el problema es el framebuffer o la paleta.
-            byte1 = 0xFF;
-            byte2 = 0xFF;
-            // -------------------------------------
+            // --- Step 0212: EL TEST DEL ROTULADOR NEGRO ---
+            // Ignoramos la lectura de VRAM y la decodificación por un momento.
+            // Escribimos directamente en el framebuffer.
+            // Si esto funciona, veremos barras verticales negras.
             
-            uint8_t bit_index = 7 - (map_x % 8);
-            uint8_t bit_low = (byte1 >> bit_index) & 1;
-            uint8_t bit_high = (byte2 >> bit_index) & 1;
-            uint8_t color_index = (bit_high << 1) | bit_low;
+            // Patrón de rayas: 8 píxeles negros, 8 píxeles normales (blancos por ahora)
+            if ((x / 8) % 2 == 0) {
+                framebuffer_[line_start_index + x] = 3; // FORZAR NEGRO (Índice 3)
+            } else {
+                // Para las otras franjas, dejamos el comportamiento "normal" (que probablemente lea 0/blanco del Tile 0)
+                uint8_t byte1 = mmu_->read(tile_line_addr);
+                uint8_t byte2 = mmu_->read(tile_line_addr + 1);
+                uint8_t bit_index = 7 - (map_x % 8);
+                uint8_t bit_low = (byte1 >> bit_index) & 1;
+                uint8_t bit_high = (byte2 >> bit_index) & 1;
+                uint8_t color_index = (bit_high << 1) | bit_low;
+                framebuffer_[line_start_index + x] = color_index;
+            }
+            // ----------------------------------------------
 
-            framebuffer_[line_start_index + x] = color_index;
         } else {
             // Dirección inválida: fuera de VRAM o el segundo byte estaría fuera
             // Escribir color 0 (blanco por defecto) como fallback
