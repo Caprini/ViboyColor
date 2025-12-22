@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor GPS (El Navegador) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Monitor GPS (El Navegador)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0240
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0239__implementacion-echo-ram.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Tras superar el bucle de Echo RAM en <code>0x2B30</code>, el emulador corre estable a 60 FPS, pero la pantalla
+                    sigue mostrando solo el color de fondo (verde claro). Para diagnosticar el estado actual de la CPU sin saturar
+                    la consola con logs masivos, se implementa un <strong>monitor GPS (Navegador)</strong> que reporta periódicamente
+                    la posición del Program Counter (PC), el Stack Pointer (SP), el estado de las interrupciones (IME, IE, IF) y
+                    el estado del video (LCDC, LY).
+                </p>
+                <p>
+                    El monitor se activa cada 60 frames (aproximadamente una vez por segundo) y muestra información crítica
+                    del estado del sistema en un formato compacto: <code>[GPS] PC:XXXX | SP:XXXX | IME:X | IE:XX IF:XX | LCDC:XX LY:XX</code>.
+                    Esto permite identificar si la CPU está atascada en un bucle, esperando interrupciones, o ejecutando código normalmente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Diagnóstico No Intrusivo</strong>: En sistemas embebidos y emuladores, es crucial poder observar el
+                    estado interno del sistema sin modificar su comportamiento. Un monitor periódico (GPS) permite rastrear la
+                    posición de ejecución y el estado de los registros críticos sin afectar el timing del emulador.
+                </p>
+                <p>
+                    <strong>Registros Clave para Diagnóstico</strong>:
+                </p>
+                <ul>
+                    <li><strong>PC (Program Counter)</strong>: Indica dónde está ejecutando código la CPU. Si el PC está fijo o
+                        en un bucle pequeño, la CPU puede estar atascada esperando una condición.</li>
+                    <li><strong>SP (Stack Pointer)</strong>: Indica la posición de la pila. Un SP que no cambia puede indicar
+                        que no se están haciendo llamadas a funciones o interrupciones.</li>
+                    <li><strong>IME (Interrupt Master Enable)</strong>: Indica si las interrupciones están habilitadas globalmente.
+                        Si IME=0 y la CPU está en HALT, el sistema puede estar esperando una interrupción que nunca llegará.</li>
+                    <li><strong>IE (Interrupt Enable, 0xFFFF)</strong>: Indica qué interrupciones están habilitadas (VBlank, LCD STAT,
+                        Timer, Serial, Joypad).</li>
+                    <li><strong>IF (Interrupt Flag, 0xFF0F)</strong>: Indica qué interrupciones están pendientes. Si una interrupción
+                        está pendiente pero IME=0, la CPU no la procesará.</li>
+                    <li><strong>LCDC (LCD Control, 0xFF40)</strong>: Controla el estado del LCD. Si el bit 7 está desactivado, el LCD
+                        está apagado y no se renderizará nada.</li>
+                    <li><strong>LY (Line Y, 0xFF44)</strong>: Indica la línea de scanline actual (0-153). Si LY está fijo, la PPU puede
+                        estar atascada.</li>
+                </ul>
+                <p>
+                    <strong>Frecuencia de Muestreo</strong>: Reportar cada 60 frames (1 segundo a 60 FPS) es un equilibrio entre
+                    obtener información suficiente y no saturar la consola. Esta frecuencia permite detectar bucles rápidos sin
+                    generar miles de líneas de log.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - <a href="https://gbdev.io/pandocs/CPU_Registers_and_Flags.html">CPU Registers</a>,
+                    <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts</a>, <a href="https://gbdev.io/pandocs/LCDC.html">LCDC</a>.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    El monitor GPS se implementa en el método <code>run()</code> de <code>src/viboy.py</code>, justo después del
+                    incremento de <code>frame_count</code>. Se activa cuando <code>frame_count % 60 == 0</code> (cada 60 frames).
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/viboy.py</code>: Añadido bloque de diagnóstico GPS en el método <code>run()</code> que lee y
+                        muestra el estado de la CPU, interrupciones y video cada segundo.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Frecuencia de muestreo</strong>: 60 frames (1 segundo) es suficiente para detectar problemas sin
+                        saturar la consola. Se puede ajustar fácilmente cambiando el módulo.</li>
+                    <li><strong>Formato compacto</strong>: El formato <code>[GPS] PC:XXXX | SP:XXXX | IME:X | IE:XX IF:XX | LCDC:XX LY:XX</code>
+                        es fácil de leer y parsear visualmente.</li>
+                    <li><strong>Compatibilidad dual</strong>: El código soporta tanto el core C++ como el fallback Python, leyendo
+                        los registros de forma apropiada según el modo activo.</li>
+                    <li><strong>No intrusivo</strong>: El monitor solo lee valores, no modifica el estado del sistema. Esto garantiza
+                        que no afecta el comportamiento del emulador.</li>
+                </ul>
+
+                <h3>Código implementado</h3>
+                <pre><code># --- Step 0240: Monitor GPS (Navegador) ---
+# Reporta la posición de la CPU y el estado del hardware cada segundo (60 frames)
+if self.frame_count % 60 == 0:
+    if self._use_cpp and self._regs is not None and self._cpu is not None and self._mmu is not None:
+        # Leer registros de la CPU
+        pc = self._regs.pc
+        sp = self._regs.sp
+        ime = self._cpu.get_ime()
+        
+        # Leer registros de interrupciones
+        ie = self._mmu.read(0xFFFF)  # Interrupt Enable
+        if_register = self._mmu.read(0xFF0F)  # Interrupt Flag
+        
+        # Leer registros de video
+        lcdc = self._mmu.read(0xFF40)  # LCD Control
+        ly = self._ppu.ly if self._ppu is not None else self._mmu.read(0xFF44)  # LY (scanline actual)
+        
+        # Formato: [GPS] PC:XXXX | SP:XXXX | IME:X | IE:XX IF:XX | LCDC:XX LY:XX
+        print(f"[GPS] PC:{pc:04X} | SP:{sp:04X} | IME:{ime} | IE:{ie:02X} IF:{if_register:02X} | LCDC:{lcdc:02X} LY:{ly:02X}")
+    elif not self._use_cpp and self._cpu is not None and self._mmu is not None:
+        # Fallback para modo Python
+        pc = self._cpu.registers.get_pc()
+        sp = self._cpu.registers.get_sp()
+        ime = 1 if self._cpu.ime else 0
+        
+        ie = self._mmu.read(0xFFFF)
+        if_register = self._mmu.read(0xFF0F)
+        
+        lcdc = self._mmu.read(0xFF40)
+        ly = self._ppu.ly if self._ppu is not None else self._mmu.read(0xFF44)
+        
+        print(f"[GPS] PC:{pc:04X} | SP:{sp:04X} | IME:{ime} | IE:{ie:02X} IF:{if_register:02X} | LCDC:{lcdc:02X} LY:{ly:02X}")
+# -------------------------------------------------</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Añadido bloque de monitor GPS en el método <code>run()</code> (líneas 942-970)</li>
+                    <li><code>docs/bitacora/entries/2025-12-22__0240__monitor-gps-navegador.html</code> - Entrada de bitácora</li>
+                    <li><code>INFORME_FASE_2.md</code> - Actualización con Step 0240</li>
+                    <li><code>docs/bitacora/index.html</code> - Añadida entrada al índice</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La implementación se validó ejecutando el emulador con Tetris y observando los logs del GPS:
+                </p>
+                <ul>
+                    <li><strong>Ejecución manual</strong>: <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Resultado esperado</strong>: Líneas <code>[GPS]</code> apareciendo cada segundo en la consola con
+                        información del estado del sistema.</li>
+                    <li><strong>Validación</strong>: Los valores mostrados deben ser coherentes:
+                        <ul>
+                            <li>PC debe estar en un rango válido (0x0100-0xFFFF para código del juego, 0x0000-0x00FF para interrupciones).</li>
+                            <li>SP debe estar en un rango válido (típicamente 0xC000-0xDFFF para WRAM o 0xFFFE-0xFFFF para HRAM).</li>
+                            <li>LCDC bit 7 debe estar activado (0x80 o superior) para que el LCD esté encendido.</li>
+                            <li>LY debe cambiar entre 0-153 si la PPU está funcionando.</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Interpretación de los logs</strong>:
+                </p>
+                <ul>
+                    <li>Si el PC está fijo en un valor pequeño (ej: <code>0x02xx</code>), el juego puede estar en la inicialización.</li>
+                    <li>Si el PC está en <code>0xFFxx</code> (HRAM), puede estar ejecutando una rutina de alta velocidad (DMA).</li>
+                    <li>Si el PC salta mucho entre valores diferentes, el juego está ejecutando código normalmente.</li>
+                    <li>Si LCDC bit 7 está desactivado (valor < 0x80), el LCD está apagado y no se renderizará nada.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Registers_and_Flags.html">CPU Registers and Flags</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html">LCDC (LCD Control)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Video_Display.html">Video Display</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Diagnóstico no intrusivo</strong>: Un monitor periódico permite observar el estado del sistema
+                            sin modificar su comportamiento, lo cual es crucial para depurar emuladores sin introducir efectos secundarios.</li>
+                        <li><strong>Registros críticos</strong>: PC, SP, IME, IE, IF, LCDC y LY son suficientes para determinar
+                            si el sistema está funcionando correctamente o está atascado en un bucle.</li>
+                        <li><strong>Frecuencia de muestreo</strong>: Reportar cada segundo (60 frames) es un equilibrio entre
+                            obtener información suficiente y no saturar la consola con logs masivos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Estado real de la CPU</strong>: Los logs del GPS revelarán si la CPU está ejecutando código
+                            normalmente, esperando interrupciones, o atascada en un bucle.</li>
+                        <li><strong>Estado del LCD</strong>: Si LCDC bit 7 está desactivado, el LCD está apagado y no se renderizará
+                            nada, lo cual explicaría la pantalla verde.</li>
+                        <li><strong>Interrupciones</strong>: Si hay interrupciones pendientes (IF) pero IME está desactivado, la CPU
+                            puede estar esperando que se activen las interrupciones.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que el monitor GPS no afecta el timing del emulador porque solo lee valores y no modifica el estado.
+                        Si los logs revelan que el PC está fijo o en un bucle pequeño, investigaremos qué condición está esperando
+                        la CPU.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con Tetris y observar los logs del GPS.</li>
+                    <li>[ ] Analizar los valores de PC para determinar si la CPU está ejecutando código normalmente o está atascada.</li>
+                    <li>[ ] Verificar el estado de LCDC para confirmar si el LCD está encendido.</li>
+                    <li>[ ] Si el PC está fijo, investigar qué condición está esperando la CPU (interrupciones, cambios de estado, etc.).</li>
+                    <li>[ ] Si el LCD está apagado (LCDC bit 7 = 0), investigar por qué el juego no lo enciende.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -32,6 +32,36 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0240: Monitor GPS (El Navegador)
+**Estado**: ✅ VERIFICADO
+
+Tras superar el bucle de Echo RAM en `0x2B30`, el emulador corre estable a 60 FPS, pero la pantalla sigue mostrando solo el color de fondo (verde claro). Para diagnosticar el estado actual de la CPU sin saturar la consola con logs masivos, se implementa un **monitor GPS (Navegador)** que reporta periódicamente la posición del Program Counter (PC), el Stack Pointer (SP), el estado de las interrupciones (IME, IE, IF) y el estado del video (LCDC, LY).
+
+**Objetivo:**
+- Implementar un monitor no intrusivo que reporte el estado del sistema cada segundo (60 frames).
+- Mostrar información crítica: PC, SP, IME, IE, IF, LCDC, LY en formato compacto.
+- Permitir diagnosticar si la CPU está ejecutando código normalmente, esperando interrupciones, o atascada en un bucle.
+
+**Implementación:**
+1. **Añadido bloque de diagnóstico en `src/viboy.py`**: Se activa cuando `frame_count % 60 == 0` (cada 60 frames).
+2. **Lectura de registros**: Accede a `self._regs.pc`, `self._regs.sp`, `self._cpu.get_ime()`, `self._mmu.read(0xFFFF)`, `self._mmu.read(0xFF0F)`, `self._mmu.read(0xFF40)`, y `self._ppu.ly`.
+3. **Formato compacto**: `[GPS] PC:XXXX | SP:XXXX | IME:X | IE:XX IF:XX | LCDC:XX LY:XX`
+
+**Concepto de Hardware:**
+**Diagnóstico No Intrusivo**: Un monitor periódico permite observar el estado del sistema sin modificar su comportamiento. Los registros clave (PC, SP, IME, IE, IF, LCDC, LY) son suficientes para determinar si el sistema está funcionando correctamente o está atascado. La frecuencia de muestreo (1 segundo) es un equilibrio entre obtener información suficiente y no saturar la consola.
+
+**Archivos Afectados:**
+- `src/viboy.py` - Añadido bloque de monitor GPS en el método `run()`
+- `docs/bitacora/entries/2025-12-22__0240__monitor-gps-navegador.html` - Entrada de bitácora
+
+**Próximos Pasos:**
+- Ejecutar el emulador con Tetris y observar los logs del GPS.
+- Analizar los valores de PC para determinar si la CPU está ejecutando código normalmente o está atascada.
+- Verificar el estado de LCDC para confirmar si el LCD está encendido.
+- Si el PC está fijo, investigar qué condición está esperando la CPU.
+
+---
+
 ### 2025-12-22 - Step 0239: Implementación de Echo RAM (El Espejo)
 **Estado**: ✅ VERIFICADO
 

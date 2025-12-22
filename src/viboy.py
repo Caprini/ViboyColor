@@ -940,6 +940,40 @@ class Viboy:
                 # -----------------------------------------------
                 
                 self.frame_count += 1
+                
+                # --- Step 0240: Monitor GPS (Navegador) ---
+                # Reporta la posición de la CPU y el estado del hardware cada segundo (60 frames)
+                if self.frame_count % 60 == 0:
+                    if self._use_cpp and self._regs is not None and self._cpu is not None and self._mmu is not None:
+                        # Leer registros de la CPU
+                        pc = self._regs.pc
+                        sp = self._regs.sp
+                        ime = self._cpu.get_ime()
+                        
+                        # Leer registros de interrupciones
+                        ie = self._mmu.read(0xFFFF)  # Interrupt Enable
+                        if_register = self._mmu.read(0xFF0F)  # Interrupt Flag
+                        
+                        # Leer registros de video
+                        lcdc = self._mmu.read(0xFF40)  # LCD Control
+                        ly = self._ppu.ly if self._ppu is not None else self._mmu.read(0xFF44)  # LY (scanline actual)
+                        
+                        # Formato: [GPS] PC:XXXX | SP:XXXX | IME:X | IE:XX IF:XX | LCDC:XX LY:XX
+                        print(f"[GPS] PC:{pc:04X} | SP:{sp:04X} | IME:{ime} | IE:{ie:02X} IF:{if_register:02X} | LCDC:{lcdc:02X} LY:{ly:02X}")
+                    elif not self._use_cpp and self._cpu is not None and self._mmu is not None:
+                        # Fallback para modo Python
+                        pc = self._cpu.registers.get_pc()
+                        sp = self._cpu.registers.get_sp()
+                        ime = 1 if self._cpu.ime else 0
+                        
+                        ie = self._mmu.read(0xFFFF)
+                        if_register = self._mmu.read(0xFF0F)
+                        
+                        lcdc = self._mmu.read(0xFF40)
+                        ly = self._ppu.ly if self._ppu is not None else self._mmu.read(0xFF44)
+                        
+                        print(f"[GPS] PC:{pc:04X} | SP:{sp:04X} | IME:{ime} | IE:{ie:02X} IF:{if_register:02X} | LCDC:{lcdc:02X} LY:{ly:02X}")
+                # -------------------------------------------------
         
         except KeyboardInterrupt:
             # Salir limpiamente con Ctrl+C
