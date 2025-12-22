@@ -32,6 +32,34 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0218: Diagnóstico Definitivo del Renderizador (Blue Box)
+**Estado**: 🔧 EN PROCESO
+
+A pesar de que los datos son correctos (3/Rojo), la pantalla sigue verde. Esto sugiere que `render_frame` no está actualizando la ventana correctamente. Implementamos un método de renderizado más seguro (blit estándar) e inyectamos un cuadro azul forzado para verificar la conectividad entre la superficie interna y la ventana de Pygame.
+
+**Objetivo:**
+- Confirmar si `render_frame` recibe los datos correctos.
+- Verificar si podemos dibujar algo (Cuadro Azul) en la pantalla.
+- Corregir posible fallo en `pygame.transform.scale`.
+
+**Implementación:**
+1. **Diagnóstico de entrada**: Se añadió un bloque que imprime (una sola vez) el tipo del framebuffer, el valor del primer píxel, y los tamaños de superficie y ventana.
+2. **Cuadro azul de prueba**: Se sobrescribe un cuadro de 20×20 píxeles en el centro de la pantalla con color azul puro para verificar la conectividad visual.
+3. **Blit estándar**: Se reemplazó `pygame.transform.scale()` con 3 argumentos por el método estándar de crear una superficie escalada temporal y luego hacer blit.
+
+**Concepto de Hardware:**
+En Pygame, el renderizado funciona mediante una jerarquía de superficies: superficie interna (160×144) → superficie escalada (480×432) → ventana principal. Si cualquiera de estos pasos falla silenciosamente, la pantalla mostrará el color de fondo por defecto. El "Test de la Caja Azul" verifica que la superficie interna se conecta correctamente con la ventana.
+
+**Archivos Afectados:**
+- `src/gpu/renderer.py` - Modificación del método `render_frame()` para diagnóstico y blit estándar (líneas 438-540)
+
+**Tests:**
+- Ejecutar `python main.py roms/tetris.gb` y verificar si se ve un cuadro AZUL en el centro de la pantalla.
+- Si se ve el cuadro azul, la conexión con la ventana funciona. Si el resto es Rojo, arreglado. Si el resto es Verde, el bucle `for` falla.
+- Verificar en el log interno que `First Pixel Value inside render_frame` sea `3`.
+
+---
+
 ### 2025-12-22 - Step 0217: Fix - Implementación Robusta de render_frame
 **Estado**: 🔧 EN PROCESO
 

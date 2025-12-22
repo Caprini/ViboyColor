@@ -448,15 +448,17 @@ class Renderer:
                     logger.error("[Renderer] Framebuffer es None - PPU puede no estar inicializada")
                     return
                 
-                # DIAGNÓSTICO TEMPORAL: Verificar que el framebuffer se lee correctamente
-                static_frame_count = getattr(self, '_frame_count', 0)
-                self._frame_count = static_frame_count + 1
-                if static_frame_count < 3 or static_frame_count % 60 == 0:
-                    # Verificar primeros píxeles
-                    sample_indices = [frame_indices[0], frame_indices[1], frame_indices[2], 
-                                     frame_indices[160], frame_indices[161], frame_indices[162]]
-                    logger.info(f"[Renderer] Frame #{static_frame_count}: framebuffer leído, "
-                              f"muestra índices: {sample_indices}, len={len(frame_indices)}")
+                # --- STEP 0218: DIAGNÓSTICO DE ENTRADA ---
+                # 1. Imprimir qué recibe exactamente (solo una vez)
+                if not hasattr(self, '_debug_render_printed'):
+                    print(f"\n--- [RENDER_FRAME INTERNAL DEBUG] ---")
+                    print(f"Framebuffer Type: {type(frame_indices)}")
+                    print(f"First Pixel Value inside render_frame: {frame_indices[0]}")
+                    print(f"Surface size: {self.surface.get_size() if hasattr(self, 'surface') else 'N/A'}")
+                    print(f"Window size: {self.screen.get_size()}")
+                    print(f"-------------------------------------\n")
+                    self._debug_render_printed = True
+                # ----------------------------------------
                 
                 # Leer paleta BGP (Background Palette) desde MMU
                 bgp = self.mmu.read_byte(IO_BGP) & 0xFF
@@ -473,10 +475,6 @@ class Renderer:
                     logger.warning(f"[Renderer] BGP es 0x00 (paleta inválida). Forzando 0xE4 (paleta estándar)")
                     bgp = 0xE4
                 # ----------------------------------------
-                
-                # DIAGNÓSTICO: Verificar valor de BGP
-                if static_frame_count < 3:
-                    logger.info(f"[Renderer] BGP = 0x{bgp:02X}")
                 
                 # Decodificar paleta BGP (cada par de bits representa un color 0-3)
                 # Formato: bits 0-1 = color 0, bits 2-3 = color 1, bits 4-5 = color 2, bits 6-7 = color 3
@@ -505,38 +503,38 @@ class Renderer:
                     self.debug_palette_printed = True
                 # ----------------------------------------
                 
-                # --- STEP 0217: IMPLEMENTACIÓN ROBUSTA DE RENDER_FRAME ---
+                # --- STEP 0218: IMPLEMENTACIÓN CON DIAGNÓSTICO Y BLIT ESTÁNDAR ---
                 # Crear superficie de Pygame para el frame (160x144)
-                frame_surface = pygame.Surface((GB_WIDTH, GB_HEIGHT))
+                # Usamos self.surface si existe, sino creamos una nueva
+                if not hasattr(self, 'surface'):
+                    self.surface = pygame.Surface((GB_WIDTH, GB_HEIGHT))
                 
-                # Bloquear la superficie para acceso rápido de píxeles
-                px_array = pygame.PixelArray(frame_surface)
+                # Renderizado Manual (Lo mantenemos para verificar)
+                px_array = pygame.PixelArray(self.surface)
+                WIDTH, HEIGHT = 160, 144
                 
-                # Iterar sobre el buffer lineal
-                # Nota: Esto es lento en Python puro, pero seguro para verificar.
-                # Si funciona, veremos la pantalla roja.
-                for y in range(GB_HEIGHT):
-                    for x in range(GB_WIDTH):
-                        # Calcular índice lineal
-                        idx = y * GB_WIDTH + x
-                        
-                        # Obtener índice de color (0-3) del framebuffer
-                        # Manejamos el caso de que framebuffer sea un memoryview o lista
-                        color_index = frame_indices[idx] & 0x03  # Asegurar rango 0-3
-                        
-                        # Obtener color RGB de la paleta
-                        # Aseguramos que el índice esté en rango (seguridad)
+                for y in range(HEIGHT):
+                    for x in range(WIDTH):
+                        idx = y * WIDTH + x
+                        color_index = frame_indices[idx] & 0x03
                         color_rgb = palette[color_index]
-                        
-                        # Escribir en la superficie (PixelArray usa coordenadas x, y)
                         px_array[x, y] = color_rgb
                 
-                # Desbloquear superficie (CRÍTICO para que los cambios se apliquen)
+                # 3. PRUEBA DE VIDA: Cuadro AZUL en el centro
+                # Esto sobrescribe lo anterior. Si ves un cuadro azul, la superficie funciona.
+                # Si NO ves el cuadro azul, la superficie está desconectada de la ventana.
+                for y in range(60, 80):
+                    for x in range(70, 90):
+                        px_array[x, y] = (0, 0, 255)  # AZUL PURO
+                
                 px_array.close()
                 
-                # Escalar a la ventana principal
-                scaled_surface = pygame.transform.scale(frame_surface, (self.window_width, self.window_height))
+                # 4. CAMBIO A BLIT ESTÁNDAR (Más seguro que scale con dest)
+                # Escalamos a una nueva superficie temporal
+                scaled_surface = pygame.transform.scale(self.surface, self.screen.get_size())
+                # Copiamos esa superficie a la ventana
                 self.screen.blit(scaled_surface, (0, 0))
+                # Actualizamos la pantalla
                 pygame.display.flip()
                 return
             except Exception as e:

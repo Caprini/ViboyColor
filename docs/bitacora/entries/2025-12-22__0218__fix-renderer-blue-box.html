@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>La Caja Azul: Debugging de Pygame Surface - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>La Caja Azul: Debugging de Pygame Surface</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0218
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0217__fix-render-frame-loop.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    A pesar de que todos los datos confirman que debería verse rojo (C++ envía 3, Python recibe 3,
+                    la paleta mapea 3 a Rojo), la pantalla sigue mostrando verde (color 0). Esto significa que
+                    el método <code>render_frame</code> no está haciendo su trabajo: o no está dibujando, o no
+                    está actualizando la ventana correctamente.
+                </p>
+                <p>
+                    Este paso implementa un diagnóstico definitivo del renderizador mediante tres estrategias:
+                    (1) Imprimir qué recibe exactamente el método para asegurar que el framebuffer no llega vacío,
+                    (2) Forzar un cuadro AZUL en la mitad de la pantalla (ignorando el framebuffer) para verificar
+                    la conectividad entre la superficie interna y la ventana de Pygame, y (3) Usar el método estándar
+                    de <code>blit</code> en lugar de la optimización de <code>scale</code> de 3 argumentos que a veces
+                    falla silenciosamente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En Pygame, el renderizado funciona mediante una jerarquía de superficies:
+                </p>
+                <ul>
+                    <li><strong>Superficie Interna (self.surface):</strong> Superficie de 160×144 píxeles donde se dibuja el framebuffer píxel a píxel.</li>
+                    <li><strong>Superficie Escalada:</strong> Superficie temporal creada al escalar la superficie interna al tamaño de la ventana (480×432 con scale=3).</li>
+                    <li><strong>Ventana Principal (self.screen):</strong> La ventana visible del usuario, donde se hace blit de la superficie escalada.</li>
+                </ul>
+                <p>
+                    Si cualquiera de estos pasos falla silenciosamente, la pantalla mostrará el color de fondo
+                    por defecto (verde claro) en lugar de los datos reales. El "Test de la Caja Azul" verifica
+                    que la superficie interna se conecta correctamente con la ventana: si vemos un cuadro azul,
+                    sabemos que el pipeline de renderizado funciona; si no lo vemos, el problema está en la
+                    conexión entre superficies.
+                </p>
+                <p>
+                    El método <code>pygame.transform.scale()</code> con 3 argumentos (superficie, tamaño, destino)
+                    a veces falla silenciosamente en algunas versiones de Pygame. El método estándar de crear
+                    una superficie escalada temporal y luego hacer blit es más seguro y confiable.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó el método <code>render_frame</code> en <code>src/gpu/renderer.py</code> para
+                    incluir diagnóstico exhaustivo y un método de renderizado más seguro.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code>: Método <code>render_frame()</code> - Diagnóstico de entrada, cuadro azul de prueba, y cambio a blit estándar</li>
+                </ul>
+
+                <h3>Cambios técnicos</h3>
+                <p>
+                    <strong>1. Diagnóstico de Entrada:</strong> Se añadió un bloque de diagnóstico que se ejecuta
+                    una sola vez (usando <code>hasattr(self, '_debug_render_printed')</code>) que imprime:
+                </p>
+                <ul>
+                    <li>Tipo del framebuffer recibido</li>
+                    <li>Valor del primer píxel dentro de <code>render_frame</code></li>
+                    <li>Tamaño de la superficie interna</li>
+                    <li>Tamaño de la ventana</li>
+                </ul>
+                <p>
+                    <strong>2. Cuadro Azul de Prueba:</strong> Después de dibujar el framebuffer, se sobrescribe
+                    un cuadro de 20×20 píxeles en el centro de la pantalla (coordenadas 70-90 en X, 60-80 en Y)
+                    con color azul puro <code>(0, 0, 255)</code>. Si este cuadro se ve, confirma que:
+                </p>
+                <ul>
+                    <li>La superficie interna se está escribiendo correctamente</li>
+                    <li>La superficie se escala correctamente</li>
+                    <li>La ventana se actualiza correctamente</li>
+                </ul>
+                <p>
+                    <strong>3. Blit Estándar:</strong> Se reemplazó el método de escalado directo con 3 argumentos
+                    por el método estándar de dos pasos:
+                </p>
+                <pre><code># Antes (puede fallar silenciosamente):
+pygame.transform.scale(surface, size, dest)
+
+# Después (más seguro):
+scaled_surface = pygame.transform.scale(self.surface, self.screen.get_size())
+self.screen.blit(scaled_surface, (0, 0))
+pygame.display.flip()</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Modificación del método <code>render_frame()</code> para diagnóstico y blit estándar (líneas 438-540)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>python main.py roms/tetris.gb</code>
+                </p>
+                <p>
+                    <strong>Análisis de Resultados:</strong>
+                </p>
+                <ul>
+                    <li>
+                        <strong>¿Ves un cuadro AZUL en el centro?</strong>
+                        <ul>
+                            <li><strong>SÍ:</strong> ¡Bien! La conexión con la ventana funciona. Si el resto es Rojo, arreglado. Si el resto es Verde, el bucle <code>for</code> falla (mira el log interno).</li>
+                            <li><strong>NO:</strong> Entonces <code>self.screen</code> no se está actualizando. Problema de Pygame initialization o doble buffering.</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong>Log Interno:</strong> Verifica que <code>First Pixel Value inside render_frame</code> sea <code>3</code>.
+                    </li>
+                </ul>
+                <p>
+                    <strong>Código del Test:</strong>
+                </p>
+                <pre><code># En src/gpu/renderer.py, método render_frame()
+
+# 1. Diagnóstico de entrada (solo una vez)
+if not hasattr(self, '_debug_render_printed'):
+    print(f"\n--- [RENDER_FRAME INTERNAL DEBUG] ---")
+    print(f"Framebuffer Type: {type(frame_indices)}")
+    print(f"First Pixel Value inside render_frame: {frame_indices[0]}")
+    print(f"Surface size: {self.surface.get_size() if hasattr(self, 'surface') else 'N/A'}")
+    print(f"Window size: {self.screen.get_size()}")
+    print(f"-------------------------------------\n")
+    self._debug_render_printed = True
+
+# 2. Renderizado Manual
+px_array = pygame.PixelArray(self.surface)
+WIDTH, HEIGHT = 160, 144
+
+for y in range(HEIGHT):
+    for x in range(WIDTH):
+        idx = y * WIDTH + x
+        color_index = frame_indices[idx] & 0x03
+        color_rgb = palette[color_index]
+        px_array[x, y] = color_rgb
+
+# 3. PRUEBA DE VIDA: Cuadro AZUL en el centro
+for y in range(60, 80):
+    for x in range(70, 90):
+        px_array[x, y] = (0, 0, 255)  # AZUL PURO
+
+px_array.close()
+
+# 4. CAMBIO A BLIT ESTÁNDAR
+scaled_surface = pygame.transform.scale(self.surface, self.screen.get_size())
+self.screen.blit(scaled_surface, (0, 0))
+pygame.display.flip()</code></pre>
+                <p>
+                    <strong>Validación Nativa:</strong> Validación de módulo compilado C++ mediante diagnóstico de entrada y prueba visual de cuadro azul.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pygame Documentation: <a href="https://www.pygame.org/docs/ref/transform.html">pygame.transform.scale</a></li>
+                    <li>Pygame Documentation: <a href="https://www.pygame.org/docs/ref/surface.html">Surface.blit</a></li>
+                    <li>Pygame Documentation: <a href="https://www.pygame.org/docs/ref/display.html">pygame.display.flip</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Jerarquía de Superficies en Pygame:</strong> El renderizado en Pygame funciona mediante una cadena de superficies: superficie interna → superficie escalada → ventana principal. Cada paso debe funcionar correctamente para que la visualización funcione.</li>
+                        <li><strong>Test de Conectividad Visual:</strong> Inyectar un artefacto visual conocido (cuadro azul) en la superficie interna permite verificar que toda la cadena de renderizado funciona. Si el cuadro azul se ve, el problema está en el procesamiento del framebuffer; si no se ve, el problema está en la conexión entre superficies.</li>
+                        <li><strong>Blit Estándar vs Scale Directo:</strong> El método estándar de crear una superficie escalada temporal y luego hacer blit es más confiable que usar <code>pygame.transform.scale()</code> con 3 argumentos, que puede fallar silenciosamente en algunas versiones.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Resultado del Test:</strong> Verificar si el cuadro azul se ve en la pantalla. Esto determinará si el problema está en el procesamiento del framebuffer o en la conexión entre superficies.</li>
+                        <li><strong>Valor del Primer Píxel:</strong> Confirmar que el log interno muestra que el primer píxel tiene valor 3, confirmando que el framebuffer llega correctamente a <code>render_frame</code>.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> El método <code>pygame.transform.scale()</code> con 3 argumentos
+                        está fallando silenciosamente, o hay un problema de sincronización entre la superficie interna y la
+                        ventana. El cambio a blit estándar y la inyección del cuadro azul ayudarán a aislar el problema.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar <code>python main.py roms/tetris.gb</code> y verificar si se ve el cuadro azul</li>
+                    <li>[ ] Analizar el log interno para confirmar que el framebuffer llega correctamente</li>
+                    <li>[ ] Si el cuadro azul se ve pero el resto es verde, investigar el bucle de renderizado</li>
+                    <li>[ ] Si el cuadro azul NO se ve, investigar la inicialización de Pygame o el doble buffering</li>
+                    <li>[ ] Una vez identificado el problema, aplicar la corrección definitiva</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
