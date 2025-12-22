@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPU Desalineada: El Caso del Opcode 0x08 - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>CPU Desalineada: El Caso del Opcode 0x08</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0231
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0230__regreso-estetoscopio.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El análisis forense de la traza del "Francotirador" (Step 0228) reveló un error crítico de sincronización: 
+                    el opcode <code>0x08</code> (<code>LD (nn), SP</code>) no estaba implementado. Esto causaba que la CPU 
+                    interpretara los 2 bytes de dirección siguientes como instrucciones, desalineando completamente el flujo 
+                    de ejecución y ejecutando "basura" que corrompía los flags y la lógica del juego.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <code>LD (nn), SP</code> es una instrucción de <strong>3 bytes</strong> que guarda el Stack Pointer (SP) 
+                    en una dirección de memoria absoluta especificada directamente en el código:
+                </p>
+                <ol>
+                    <li><strong>Byte 1:</strong> Opcode <code>0x08</code></li>
+                    <li><strong>Byte 2:</strong> Dirección baja (LSB) en formato Little-Endian</li>
+                    <li><strong>Byte 3:</strong> Dirección alta (MSB) en formato Little-Endian</li>
+                </ol>
+                <p>
+                    La instrucción escribe SP en la dirección especificada en formato Little-Endian: primero el byte bajo 
+                    (SP & 0xFF) en la dirección <code>nn</code>, luego el byte alto (SP >> 8) en la dirección <code>nn + 1</code>.
+                </p>
+                <p>
+                    <strong>El Problema del Desalineamiento:</strong>
+                </p>
+                <p>
+                    Si esta instrucción no está implementada, la CPU la trata como una instrucción de 1 byte (probablemente 
+                    un NOP por defecto o cae en el caso <code>default</code>). Luego, cuando intenta ejecutar la siguiente 
+                    instrucción, lee los bytes 2 y 3 de la instrucción anterior como si fueran opcodes nuevos. Esto causa:
+                </p>
+                <ul>
+                    <li><strong>Desalineamiento:</strong> El PC no avanza correctamente, saltando sobre datos que deberían ser direcciones.</li>
+                    <li><strong>Ejecución de "Basura":</strong> Los bytes de datos se interpretan como instrucciones (ej: <code>0x2F</code> = CPL, <code>0x3F</code> = CCF).</li>
+                    <li><strong>Corrupción de Flags:</strong> Las instrucciones ejecutadas por error modifican los flags de forma inesperada.</li>
+                    <li><strong>Flujo Roto:</strong> El juego pierde completamente el control de la ejecución.</li>
+                </ul>
+                <p>
+                    Este tipo de error es especialmente difícil de detectar porque el juego puede seguir "ejecutando" durante 
+                    mucho tiempo, pero con una lógica completamente corrupta.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Implementamos el opcode <code>0x08</code> en el método <code>step()</code> de <code>CPU.cpp</code>, 
+                    siguiendo la especificación de Pan Docs.
+                </p>
+                
+                <h3>Modificación en CPU.cpp</h3>
+                <p>
+                    Añadimos el caso <code>0x08</code> al switch de opcodes, justo después de <code>NOP</code> (0x00):
+                </p>
+                <pre><code>// --- Step 0231: FIX DESALINEAMIENTO ---
+// LD (nn), SP - Guarda el Stack Pointer en la dirección nn
+// Esta instrucción es de 3 bytes. Si falta, la CPU ejecuta los datos
+// de la dirección como instrucciones, corrompiendo el flujo.
+// Fuente: Pan Docs - LD (nn), SP: 5 M-Cycles
+case 0x08:  // LD (nn), SP
+    {
+        uint16_t addr = fetch_word();  // Consume 2 bytes más (nn en Little-Endian)
+        // Escribe SP en formato Little Endian (low byte primero, high byte segundo)
+        mmu_->write(addr, regs_->sp & 0xFF);         // Low byte
+        mmu_->write(addr + 1, (regs_->sp >> 8) & 0xFF);  // High byte
+        cycles_ += 5;  // LD (nn), SP consume 5 M-Cycles
+        return 5;
+    }
+// -------------------------------------</code></pre>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Timing:</strong> 5 M-Cycles según Pan Docs (fetch opcode + fetch 2 bytes de dirección + 2 writes a memoria).</li>
+                    <li><strong>Little-Endian:</strong> La dirección se lee en formato Little-Endian (LSB primero), y SP se escribe también en Little-Endian.</li>
+                    <li><strong>Ubicación:</strong> Colocado justo después de <code>NOP</code> para mantener el orden lógico de opcodes.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido caso <code>0x08</code> en el switch de opcodes del método <code>step()</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para validar la implementación:
+                </p>
+                <ol>
+                    <li><strong>Recompilar:</strong> <code>.\rebuild_cpp.ps1</code> o <code>python setup.py build_ext --inplace</code></li>
+                    <li><strong>Ejecutar:</strong> <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Analizar traza:</strong> Verificar que el "Francotirador" ya no muestre opcodes <code>0x2F</code> y <code>0x3F</code> 
+                        ejecutándose después de <code>0x08</code> en las direcciones esperadas.</li>
+                </ol>
+                <p>
+                    <strong>Resultado Esperado:</strong>
+                </p>
+                <ul>
+                    <li>La CPU ya no se "comerá" los bytes intermedios después de <code>0x08</code>.</li>
+                    <li>El flujo lógico del juego debería restaurarse.</li>
+                    <li><strong>Posibilidad alta:</strong> ¡Que el juego arranque y veas gráficos!</li>
+                    <li><strong>Posibilidad media:</strong> Que avance hasta el siguiente opcode no implementado (pero ya en el camino correcto).</li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El opcode se ejecuta directamente en el núcleo C++, 
+                    sin overhead de Python, garantizando el timing preciso de 5 M-Cycles.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Game Boy Pan Docs</a> - Especificación del opcode <code>LD (nn), SP</code> (0x08)</li>
+                    <li>Implementación basada en conocimiento general de arquitectura LR35902 y análisis forense de trazas de ejecución.</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Desalineamiento de Instrucciones:</strong> Si una instrucción de múltiples bytes no está implementada, la CPU puede interpretar los bytes de datos como código, causando ejecución de "basura".</li>
+                        <li><strong>Análisis Forense de Trazas:</strong> Comparar la secuencia de opcodes ejecutados con la secuencia esperada puede revelar opcodes faltantes o mal implementados.</li>
+                        <li><strong>Little-Endian en Game Boy:</strong> Tanto las direcciones como los valores de 16 bits se almacenan en formato Little-Endian (LSB primero).</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Otros Opcodes Faltantes:</strong> Puede haber más opcodes no implementados que causen problemas similares.</li>
+                        <li><strong>Recuperación del Juego:</strong> Si este era el único problema, el juego debería arrancar correctamente ahora.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> El opcode <code>0x08</code> era el causante principal del desalineamiento. 
+                        Con su implementación, el juego debería poder avanzar correctamente en su secuencia de inicialización. 
+                        Si aún hay problemas, probablemente sean otros opcodes faltantes o problemas de sincronización de hardware.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y verificar que el desalineamiento se haya corregido</li>
+                    <li>[ ] Analizar si el juego avanza más allá del punto de bloqueo anterior</li>
+                    <li>[ ] Verificar si aparecen gráficos o si el juego enciende la pantalla</li>
+                    <li>[ ] Si hay nuevos errores, analizar la traza para identificar el siguiente opcode faltante</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

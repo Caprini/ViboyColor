@@ -473,7 +473,7 @@ int CPU::step() {
         uint8_t div_val = mmu_->read(0xFF04);
         
         printf("[SNIPER] PC:%04X | OP:%02X | AF:%04X | BC:%04X | DE:%04X | HL:%04X | DIV:%02X\n", 
-               regs_->pc, opcode_preview, regs_->af, regs_->get_bc(), regs_->get_de(), regs_->get_hl(), div_val);
+               regs_->pc, opcode_preview, regs_->get_af(), regs_->get_bc(), regs_->get_de(), regs_->get_hl(), div_val);
     }
     // ------------------------------------------
     
@@ -486,6 +486,22 @@ int CPU::step() {
             // NOP no hace nada, solo consume 1 M-Cycle
             cycles_ += 1;
             return 1;
+
+        // --- Step 0231: FIX DESALINEAMIENTO ---
+        // LD (nn), SP - Guarda el Stack Pointer en la dirección nn
+        // Esta instrucción es de 3 bytes. Si falta, la CPU ejecuta los datos
+        // de la dirección como instrucciones, corrompiendo el flujo.
+        // Fuente: Pan Docs - LD (nn), SP: 5 M-Cycles
+        case 0x08:  // LD (nn), SP
+            {
+                uint16_t addr = fetch_word();  // Consume 2 bytes más (nn en Little-Endian)
+                // Escribe SP en formato Little Endian (low byte primero, high byte segundo)
+                mmu_->write(addr, regs_->sp & 0xFF);         // Low byte
+                mmu_->write(addr + 1, (regs_->sp >> 8) & 0xFF);  // High byte
+                cycles_ += 5;  // LD (nn), SP consume 5 M-Cycles
+                return 5;
+            }
+        // -------------------------------------
 
         // ========== Loads 8-bit (LD r, r' y LD r, n) ==========
         // Bloque 0x40-0x7F: LD r, r'

@@ -32,6 +32,32 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0231: Fix - Desalineamiento de CPU (Opcode 0x08)
+**Estado**: 🔧 EN PROCESO
+
+El análisis forense de la traza del "Francotirador" (Step 0228) reveló un error crítico de sincronización: el opcode `0x08` (`LD (nn), SP`) no estaba implementado. Esto causaba que la CPU interpretara los 2 bytes de dirección siguientes como instrucciones, desalineando completamente el flujo de ejecución y ejecutando "basura" que corrompía los flags y la lógica del juego.
+
+**Objetivo:**
+- Implementar `0x08` correctamente consumiendo 2 bytes adicionales para la dirección.
+- Restaurar la alineación del flujo de instrucciones.
+- Permitir que el juego avance correctamente en su secuencia de inicialización.
+
+**Implementación:**
+1. **Modificación en `CPU.cpp`**: Añadido caso `0x08` en el switch de opcodes del método `step()`. La instrucción lee 2 bytes para la dirección (Little-Endian), escribe SP en esa dirección (también en Little-Endian), y consume 5 M-Cycles según Pan Docs.
+
+**Concepto de Hardware:**
+`LD (nn), SP` es una instrucción de 3 bytes que guarda el Stack Pointer en una dirección de memoria absoluta. Si no está implementada, la CPU trata el opcode como de 1 byte y luego interpreta los bytes 2 y 3 como nuevas instrucciones, causando desalineamiento y ejecución de código corrupto.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Añadido caso `0x08` en el switch de opcodes
+
+**Tests:**
+- Recompilar: `.\rebuild_cpp.ps1` o `python setup.py build_ext --inplace`
+- Ejecutar: `python main.py roms/tetris.gb`
+- Resultado esperado: La CPU ya no ejecuta opcodes `0x2F` y `0x3F` después de `0x08`. El juego debería avanzar más allá del punto de bloqueo anterior.
+
+---
+
 ### 2025-12-22 - Step 0230: El Regreso del Estetoscopio (Diagnóstico en Vivo)
 **Estado**: 🔍 EN DEPURACIÓN
 
