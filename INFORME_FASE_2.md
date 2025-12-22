@@ -32,6 +32,34 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0236: Francotirador II - El Bucle de la Muerte
+**Estado**: 🔍 EN DEPURACIÓN
+
+La autopsia reveló que la CPU se ha estancado en la dirección `0x2B30` tras 9.5 millones de ciclos, con la VRAM vacía y el LCD apagado. Activamos una traza quirúrgica en esa dirección para identificar la instrucción exacta y la condición de espera que impide que el juego continúe.
+
+**Objetivo:**
+- Identificar el opcode en `0x2B30`.
+- Determinar qué condición (Registro, Memoria, Flag) está bloqueando el avance.
+- Verificar si es un bucle de espera de hardware (STAT, DIV, Serial) o una condición de flag.
+
+**Implementación:**
+1. **Modificación en `CPU.cpp`**: Agregado `#include <cstdio>` y bloque de debug quirúrgico que imprime información detallada cuando el PC está en la zona 0x2B2A-0x2B35.
+2. **Modificación en `viboy.py`**: Desactivada la Autopsia (Step 0235) para limpiar la consola y ver solo los logs del Francotirador.
+
+**Concepto de Hardware:**
+Cuando un programa se detiene en una dirección específica durante millones de ciclos, generalmente está esperando una condición que nunca se cumple. Esto puede ser un Busy Wait Loop que lee un registro de hardware (STAT, DIV, Serial) esperando que un bit cambie, o una instrucción condicional (JR NZ, JR Z) que salta a sí misma porque el flag nunca cambia. El análisis de la autopsia mostró que IE tiene el Bit 3 habilitado (Serial Interrupt), algo inusual para el arranque de Tetris.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Agregado debug quirúrgico en step()
+- `src/viboy.py` - Desactivada Autopsia (Step 0235)
+
+**Tests:**
+- Recompilar: `.\rebuild_cpp.ps1`
+- Ejecutar: `python main.py roms/tetris.gb`
+- Observar los logs `[SNIPER]` cuando el PC entre en la zona 0x2B2A-0x2B35
+
+---
+
 ### 2025-12-22 - Step 0234: Paciencia y Puntería (Autopsia Mejorada)
 **Estado**: 🔍 EN DEPURACIÓN
 

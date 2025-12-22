@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Francotirador II: El Bucle de la Muerte - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Francotirador II: El Bucle de la Muerte</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0236
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0235__autopsia-inteligente.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    La autopsia del Step 0235 reveló que la CPU se ha estancado en la dirección <code>0x2B30</code> tras 9.5 millones de ciclos, con la VRAM vacía y el LCD apagado. Activamos una traza quirúrgica en esa dirección para identificar la instrucción exacta y la condición de espera que impide que el juego continúe.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Cuando un programa se detiene en una dirección específica durante millones de ciclos, generalmente está esperando una condición que nunca se cumple. Esto puede ser:
+                </p>
+                <ul>
+                    <li><strong>Busy Wait Loop:</strong> Un bucle que lee un registro de hardware (como STAT, DIV, o un registro de I/O) esperando que un bit cambie de estado.</li>
+                    <li><strong>Condición de Flag:</strong> Una instrucción condicional (JR NZ, JR Z, etc.) que salta a sí misma porque el flag nunca cambia.</li>
+                    <li><strong>Interrupción Pendiente:</strong> El juego espera una interrupción (V-Blank, Timer, Serial) que nuestra implementación no está generando correctamente.</li>
+                </ul>
+                <p>
+                    El análisis de la autopsia mostró que:
+                </p>
+                <ul>
+                    <li><strong>PC: 0x2B30</strong> - La CPU avanzó desde 0x02B4 hasta 0x2B30 (casi 10KB de código) y se detuvo.</li>
+                    <li><strong>VRAM: 00</strong> - No se ha escrito nada en VRAM, lo que sugiere que el juego no ha llegado a la fase de carga de gráficos.</li>
+                    <li><strong>IE: 0x08</strong> - Bit 3 habilitado (Serial Interrupt), algo inusual para el arranque de Tetris que normalmente espera V-Blank (0x01).</li>
+                    <li><strong>cycles_: 9,590,921</strong> - El emulador funciona, pero el juego ha decidido detenerse.</li>
+                </ul>
+                <p>
+                    La única forma de entender qué está pasando es ver la instrucción exacta en <code>0x2B30</code> y los registros asociados en tiempo real.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Activamos un "Francotirador" (debug quirúrgico) que imprime información detallada solo cuando el PC está en la zona crítica (0x2B2A - 0x2B35). Esto nos permite ver:
+                </p>
+                <ul>
+                    <li>El opcode exacto que se está ejecutando.</li>
+                    <li>El siguiente byte (por si es una instrucción de 2 bytes como LDH o CP).</li>
+                    <li>El estado completo de los registros (AF, BC, DE, HL).</li>
+                </ul>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code>: Agregado bloque de debug quirúrgico antes del fetch_byte() en step().</li>
+                    <li><code>src/viboy.py</code>: Desactivada la Autopsia (Step 0235) para limpiar la consola y ver solo los logs del Francotirador.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Zona de Debug:</strong> Elegimos un rango de direcciones (0x2B2A - 0x2B35) en lugar de solo 0x2B30 para capturar instrucciones que puedan estar justo antes o después del punto de bloqueo. Esto nos ayuda a entender el contexto del bucle.
+                </p>
+                <p>
+                    <strong>Lectura Directa de Memoria:</strong> Leemos el opcode directamente desde la MMU antes de fetch_byte() para evitar que el fetch modifique el PC antes de imprimir. Esto nos da una vista precisa del estado en el momento exacto.
+                </p>
+                <p>
+                    <strong>Desactivación de Autopsia:</strong> La autopsia genera mucha salida que puede ocultar los logs del Francotirador. Al desactivarla, tenemos una consola limpia que muestra solo la información crítica.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Agregado <code>#include &lt;cstdio&gt;</code> y bloque de debug quirúrgico en step()</li>
+                    <li><code>src/viboy.py</code> - Comentado el bloque completo de la Autopsia (Step 0235)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para verificar el funcionamiento del debug quirúrgico:
+                </p>
+                <ol>
+                    <li><strong>Recompilar:</strong> <code>.\rebuild_cpp.ps1</code></li>
+                    <li><strong>Ejecutar:</strong> <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Observar:</strong> Los logs <code>[SNIPER]</code> deberían aparecer cuando el PC entre en la zona 0x2B2A-0x2B35</li>
+                </ol>
+                <p>
+                    <strong>Lo que buscamos:</strong>
+                </p>
+                <ul>
+                    <li>Si vemos <code>JR NZ</code> (Salto relativo si no cero) saltando a sí mismo o un poco atrás, es un bucle de espera.</li>
+                    <li>Si vemos <code>CALL</code> a una función que nunca vuelve, puede ser un problema de stack o de retorno.</li>
+                    <li>Si vemos lecturas a <code>0xFF00</code> (Joypad) o <code>0xFF01</code> (Serial), el juego está esperando entrada del usuario o comunicación serial.</li>
+                    <li>Si vemos <code>BIT</code> o <code>CP</code> seguido de <code>JR</code>, el juego está verificando un flag o registro que nunca cambia.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set</a></li>
+                    <li>Análisis de autopsia: <code>autopsy_step_0235_20251222_191910.txt</code></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Debug Quirúrgico:</strong> En lugar de trazar todas las instrucciones (que es lento y genera demasiada salida), podemos activar logs solo en zonas críticas del código. Esto es similar a los breakpoints condicionales en un depurador.</li>
+                        <li><strong>Busy Wait Loops:</strong> Los juegos de Game Boy a menudo esperan eventos de hardware (V-Blank, Timer) mediante bucles que leen registros repetidamente. Si nuestra implementación no genera estos eventos correctamente, el juego se queda atascado.</li>
+                        <li><strong>Serial Interrupt (IE: 0x08):</strong> Es inusual que un juego habilite la interrupción serial durante el arranque. Esto podría indicar que el juego está esperando comunicación serial que nunca llegará, o que hay un bug en nuestra implementación de interrupciones.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Instrucción Exacta:</strong> Necesitamos ver qué opcode está en 0x2B30 para entender qué condición está verificando.</li>
+                        <li><strong>Estado de Flags:</strong> Los flags (Z, N, H, C) en el momento del bloqueo nos dirán por qué una instrucción condicional siempre salta o nunca salta.</li>
+                        <li><strong>Registros de I/O:</strong> Si el juego está leyendo un registro de hardware (STAT, DIV, Serial), necesitamos verificar que nuestra implementación está actualizando esos registros correctamente.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> El juego está en un bucle de espera que verifica un registro de hardware (probablemente STAT para V-Blank o un registro de Serial) que nuestra implementación no está actualizando correctamente. La presencia de IE: 0x08 (Serial) es sospechosa y sugiere que el juego podría estar esperando una interrupción serial que nunca se generará.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Asumimos que el opcode en 0x2B30 es una instrucción condicional (JR, JP, CALL condicional) o una lectura de I/O seguida de una verificación. Si fuera una instrucción incondicional (NOP, LD, etc.), el juego continuaría ejecutándose.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y capturar los logs del Francotirador</li>
+                    <li>[ ] Analizar el opcode en 0x2B30 y determinar qué condición está verificando</li>
+                    <li>[ ] Verificar si el registro de hardware que el juego está leyendo se está actualizando correctamente</li>
+                    <li>[ ] Si es una interrupción serial, investigar por qué el juego la habilita durante el arranque</li>
+                    <li>[ ] Implementar el fix necesario basado en los hallazgos del debug</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

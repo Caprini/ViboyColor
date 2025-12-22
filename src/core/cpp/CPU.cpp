@@ -3,6 +3,7 @@
 #include "Registers.hpp"
 #include "PPU.hpp"
 #include "Timer.hpp"
+#include <cstdio>  // Step 0236: Francotirador II
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
@@ -460,6 +461,19 @@ int CPU::step() {
     }
     
     // ========== FASE 4: Fetch-Decode-Execute ==========
+    // --- Step 0236: FRANCOTIRADOR EN 0x2B30 ---
+    // Analizamos el nuevo punto de bloqueo.
+    if (regs_->pc >= 0x2B2A && regs_->pc <= 0x2B35) {
+        uint8_t opcode = mmu_->read(regs_->pc);
+        
+        // Leemos el siguiente byte por si es un LDH (n) o CP n
+        uint8_t next_byte = mmu_->read(regs_->pc + 1);
+        
+        printf("[SNIPER] PC:%04X | OP:%02X %02X | AF:%04X | BC:%04X | DE:%04X | HL:%04X\n", 
+               regs_->pc, opcode, next_byte, regs_->af, regs_->get_bc(), regs_->get_de(), regs_->get_hl());
+    }
+    // ------------------------------------------
+    
     // Fetch: Leer opcode de memoria
     uint8_t opcode = fetch_byte();
 

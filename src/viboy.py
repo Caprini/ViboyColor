@@ -730,6 +730,14 @@ class Viboy:
         try:
             # Bucle principal del emulador
             while self.running:
+                # --- Step 0235: Forzar paleta si es 0 (ya lo haces en renderer, pero asegurémoslo en MMU) ---
+                # Si BGP es 0x00, el juego no ha configurado la paleta y la pantalla será blanca.
+                # Forzamos 0xE4 (paleta estándar) para que al menos veamos algo.
+                if self._use_cpp and self._mmu is not None:
+                    if self._mmu.read(0xFF47) == 0:
+                        self._mmu.write(0xFF47, 0xE4)
+                # ------------------------------------------------------------------------------------
+                
                 # --- Step 0200: La limpieza del framebuffer ahora es responsabilidad de la PPU ---
                 # La PPU limpia el framebuffer sincrónicamente cuando LY se resetea a 0,
                 # eliminando la condición de carrera entre Python y C++.
@@ -818,70 +826,117 @@ class Viboy:
                             pass
                 
                 
-                # --- Step 0234: LA AUTOPSIA INTELIGENTE (10 SEGUNDOS) ---
-                # Volcado de estado completo tras 600 frames (10 segundos) para diagnóstico forense.
-                # Esto nos dirá si el juego avanzó, si configuró los registros de vídeo y si escribió datos en VRAM.
-                # MEJORA: Lee el mapa de tiles correcto según LCDC (Bit 3 determina 0x9800 vs 0x9C00).
-                if not hasattr(self, '_autopsy_done'):
-                    self._autopsy_done = False
-                
-                if not self._autopsy_done and self.frame_count >= 600:
-                    print("\n" + "=" * 40)
-                    print("💀 AUTOPSIA DEL SISTEMA (Frame 600 - 10 segundos)")
-                    print("=" * 40)
-                    
-                    if self._use_cpp:
-                        # 1. Estado de la CPU
-                        pc = self._regs.pc
-                        sp = self._regs.sp
-                        af = self._regs.af
-                        bc = self._regs.bc
-                        de = self._regs.de
-                        hl = self._regs.hl
-                        print(f"CPU State:")
-                        print(f"  PC: 0x{pc:04X} | SP: 0x{sp:04X}")
-                        print(f"  AF: 0x{af:04X} | BC: 0x{bc:04X} | DE: 0x{de:04X} | HL: 0x{hl:04X}")
-                        print(f"  Flags: Z={self._regs.flag_z}, N={self._regs.flag_n}, H={self._regs.flag_h}, C={self._regs.flag_c}")
-                        print(f"  Halted: {self._cpu.get_halted() if hasattr(self._cpu, 'get_halted') else 'N/A'}")
-                        
-                        # 2. Estado de Video (IO)
-                        lcdc = self._mmu.read(0xFF40)
-                        stat = self._mmu.read(0xFF41)
-                        ly = self._ppu.ly  # Propiedad directa
-                        bgp = self._mmu.read(0xFF47)
-                        print(f"\nVideo Registers:")
-                        print(f"  LCDC: 0x{lcdc:02X} (Bit 7={'ON' if lcdc & 0x80 else 'OFF'}, BG={'ON' if lcdc & 1 else 'OFF'}, Map={'0x9C00' if lcdc & 0x08 else '0x9800'})")
-                        print(f"  STAT: 0x{stat:02X} | LY: {ly} (Decimal)")
-                        print(f"  BGP:  0x{bgp:02X} (Palette)")
-                        
-                        # 3. Muestra de VRAM (Tile Data - El logo de Nintendo suele estar en 0x8010-0x802F)
-                        print(f"\nVRAM Tile Data (0x8010 - Primeros bytes del logo?):")
-                        data_sample = [f"{self._mmu.read(0x8010 + i):02X}" for i in range(16)]
-                        print(f"  {' '.join(data_sample)}")
-                        
-                        # 4. Muestra de VRAM (Tile Map - Leer según LCDC Bit 3)
-                        # Step 0234: Leer el mapa correcto según la configuración del juego
-                        bg_map_base = 0x9C00 if (lcdc & 0x08) else 0x9800
-                        print(f"\nVRAM Tile Map (Base 0x{bg_map_base:04X} - según LCDC Bit 3):")
-                        map_sample = [f"{self._mmu.read(bg_map_base + i):02X}" for i in range(16)]
-                        print(f"  {' '.join(map_sample)}")
-                        
-                        # 5. Estado de interrupciones
-                        ie = self._mmu.read(0xFFFF)  # Interrupt Enable
-                        if_register = self._mmu.read(0xFF0F)  # Interrupt Flag
-                        print(f"\nInterrupts:")
-                        print(f"  IE: 0x{ie:02X} | IF: 0x{if_register:02X}")
-                        
-                        # 6. Ciclos totales ejecutados
-                        print(f"\nSystem State:")
-                        print(f"  Total Cycles: {self._total_cycles:,}")
-                        print(f"  Frames: {self.frame_count}")
-                    else:
-                        # Fallback para modo Python (si se usa)
-                        print("⚠️ Autopsia solo disponible en modo C++")
-                    
-                    print("=" * 40 + "\n")
-                    self._autopsy_done = True
+                # --- Step 0236: AUTOPSIA DESACTIVADA ---
+                # La autopsia (Step 0235) se desactiva para limpiar la consola.
+                # Solo queremos ver los logs del Francotirador (Step 0236) en 0x2B30.
+                # if not hasattr(self, '_autopsy_done'):
+                #     self._autopsy_done = False
+                # 
+                # if not self._autopsy_done and self.frame_count >= 600:
+                #     # Preparar el contenido de la Autopsia
+                #     autopsy_lines = []
+                #     autopsy_lines.append("\n" + "=" * 40)
+                #     autopsy_lines.append("💀 AUTOPSIA DEL SISTEMA (Frame 600 - 10 segundos)")
+                #     autopsy_lines.append("=" * 40)
+                #     
+                #     if self._use_cpp:
+                #         # 1. Estado de la CPU
+                #         pc = self._regs.pc
+                #         sp = self._regs.sp
+                #         af = self._regs.af
+                #         bc = self._regs.bc
+                #         de = self._regs.de
+                #         hl = self._regs.hl
+                #         autopsy_lines.append(f"CPU State:")
+                #         autopsy_lines.append(f"  PC: 0x{pc:04X} | SP: 0x{sp:04X}")
+                #         autopsy_lines.append(f"  AF: 0x{af:04X} | BC: 0x{bc:04X} | DE: 0x{de:04X} | HL: 0x{hl:04X}")
+                #         autopsy_lines.append(f"  Flags: Z={self._regs.flag_z}, N={self._regs.flag_n}, H={self._regs.flag_h}, C={self._regs.flag_c}")
+                #         autopsy_lines.append(f"  Halted: {self._cpu.get_halted() if hasattr(self._cpu, 'get_halted') else 'N/A'}")
+                #         
+                #         # 2. Estado de Video (IO)
+                #         lcdc = self._mmu.read(0xFF40)
+                #         stat = self._mmu.read(0xFF41)
+                #         ly = self._ppu.ly  # Propiedad directa
+                #         bgp = self._mmu.read(0xFF47)
+                #         autopsy_lines.append(f"\nVideo Registers:")
+                #         autopsy_lines.append(f"  LCDC: 0x{lcdc:02X} (Bit 7={'ON' if lcdc & 0x80 else 'OFF'}, BG={'ON' if lcdc & 1 else 'OFF'}, Map={'0x9C00' if lcdc & 0x08 else '0x9800'})")
+                #         autopsy_lines.append(f"  STAT: 0x{stat:02X} | LY: {ly} (Decimal)")
+                #         autopsy_lines.append(f"  BGP:  0x{bgp:02X} (Palette)")
+                #         
+                #         # 3. Estado del Timer (CRÍTICO para Step 0235)
+                #         div = self._mmu.read(0xFF04)  # DIV
+                #         tima = self._mmu.read(0xFF05)  # TIMA
+                #         tma = self._mmu.read(0xFF06)   # TMA
+                #         tac = self._mmu.read(0xFF07)   # TAC
+                #         autopsy_lines.append(f"\nTimer Registers:")
+                #         autopsy_lines.append(f"  DIV:  0x{div:02X} | TIMA: 0x{tima:02X} | TMA: 0x{tma:02X} | TAC: 0x{tac:02X}")
+                #         autopsy_lines.append(f"  Timer Enabled: {'YES' if (tac & 0x04) else 'NO'} (TAC bit 2)")
+                #         freq_mode = tac & 0x03
+                #         freq_str = ""
+                #         if freq_mode == 0:
+                #             freq_str = "4096 Hz (1024 T-Cycles)"
+                #         elif freq_mode == 1:
+                #             freq_str = "262144 Hz (16 T-Cycles)"
+                #         elif freq_mode == 2:
+                #             freq_str = "65536 Hz (64 T-Cycles)"
+                #         elif freq_mode == 3:
+                #             freq_str = "16384 Hz (256 T-Cycles)"
+                #         autopsy_lines.append(f"  Timer Frequency: {freq_str}")
+                #         
+                #         # 4. Muestra de VRAM (Tile Data - El logo de Nintendo suele estar en 0x8010-0x802F)
+                #         autopsy_lines.append(f"\nVRAM Tile Data (0x8010 - Primeros bytes del logo?):")
+                #         data_sample = [f"{self._mmu.read(0x8010 + i):02X}" for i in range(16)]
+                #         autopsy_lines.append(f"  {' '.join(data_sample)}")
+                #         
+                #         # 5. Muestra de VRAM (Tile Map - Leer según LCDC Bit 3)
+                #         # Step 0234: Leer el mapa correcto según la configuración del juego
+                #         bg_map_base = 0x9C00 if (lcdc & 0x08) else 0x9800
+                #         autopsy_lines.append(f"\nVRAM Tile Map (Base 0x{bg_map_base:04X} - según LCDC Bit 3):")
+                #         map_sample = [f"{self._mmu.read(bg_map_base + i):02X}" for i in range(16)]
+                #         autopsy_lines.append(f"  {' '.join(map_sample)}")
+                #         
+                #         # 6. Estado de interrupciones
+                #         ie = self._mmu.read(0xFFFF)  # Interrupt Enable
+                #         if_register = self._mmu.read(0xFF0F)  # Interrupt Flag
+                #         autopsy_lines.append(f"\nInterrupts:")
+                #         autopsy_lines.append(f"  IE: 0x{ie:02X} | IF: 0x{if_register:02X}")
+                #         autopsy_lines.append(f"  Timer IE: {'ENABLED' if (ie & 0x04) else 'DISABLED'} (Bit 2)")
+                #         autopsy_lines.append(f"  Timer IF: {'PENDING' if (if_register & 0x04) else 'CLEAR'} (Bit 2)")
+                #         
+                #         # 7. Ciclos totales ejecutados
+                #         autopsy_lines.append(f"\nSystem State:")
+                #         autopsy_lines.append(f"  Total Cycles: {self._total_cycles:,}")
+                #         autopsy_lines.append(f"  Frames: {self.frame_count}")
+                #         
+                #         # 8. Estado de ciclos de CPU (verificar que cycles_ se incrementa)
+                #         cpu_cycles = self._cpu.get_cycles() if hasattr(self._cpu, 'get_cycles') else 0
+                #         autopsy_lines.append(f"  CPU Cycles (cycles_): {cpu_cycles:,}")
+                #     else:
+                #         # Fallback para modo Python (si se usa)
+                #         autopsy_lines.append("⚠️ Autopsia solo disponible en modo C++")
+                #     
+                #     autopsy_lines.append("=" * 40 + "\n")
+                #     
+                #     # Imprimir en consola
+                #     autopsy_text = "\n".join(autopsy_lines)
+                #     print(autopsy_text)
+                #     
+                #     # Escribir en archivo de log
+                #     try:
+                #         from datetime import datetime
+                #         log_filename = f"autopsy_step_0235_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+                #         with open(log_filename, 'w', encoding='utf-8') as f:
+                #             f.write("=" * 70 + "\n")
+                #             f.write("AUTOPSIA DEL SISTEMA - Step 0235\n")
+                #             f.write(f"Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                #             f.write(f"Frame: {self.frame_count}\n")
+                #             f.write("=" * 70 + "\n\n")
+                #             f.write(autopsy_text)
+                #         print(f"📝 Autopsia guardada en: {log_filename}")
+                #     except Exception as e:
+                #         logger.error(f"Error al escribir autopsia en archivo: {e}")
+                #     
+                #     self._autopsy_done = True
                 # -----------------------------------------------
                 
                 self.frame_count += 1
