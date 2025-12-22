@@ -32,65 +32,131 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0214 - Restauración del Formato del Índice -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0214__restauracion-formato-indice.html" class="entry-link">
+                                    Restauración del Formato del Índice
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0214 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se restauró el layout clásico del índice para los Steps 0208-0213, asegurando coherencia visual y manteniendo los estados y metadatos originales.
+                        </p>
+                    </li>
                     <!-- Entrada 0213 - Inspección del Puente: ¿Llegan los datos a Python? -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0213</span>
-                        <a href="entries/2025-12-22__0213__inspeccion-puente-data-probe.html" class="title">Inspección del Puente: ¿Llegan los datos a Python?</a>
-                        <p class="summary">
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0213__inspeccion-puente-data-probe.html" class="entry-link">
+                                    Inspección del Puente: ¿Llegan los datos a Python?
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0213 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔧 DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
                             Diagnóstico crítico para verificar la integridad de los datos del framebuffer al cruzar de C++ a Python. A pesar de que la PPU en C++ reporta operaciones correctas y forzamos la escritura de píxeles negros, la pantalla permanece blanca. Implementamos una sonda en viboy.py para inspeccionar los valores crudos del framebuffer (memoryview) tal como llegan a Python, antes de que el renderizador los toque.
                         </p>
-                        <span class="status-badge status-draft">DRAFT</span>
                     </li>
                     <!-- Entrada 0212 - Test del Rotulador Negro: Escritura Directa -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0212</span>
-                        <a href="entries/2025-12-22__0212__test-rotulador-negro.html" class="title">Test del Rotulador Negro: Escritura Directa</a>
-                        <p class="summary">
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0212__test-rotulador-negro.html" class="entry-link">
+                                    Test del Rotulador Negro: Escritura Directa
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0212 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">🔧 DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
                             Validación visual definitiva del pipeline de renderizado forzando píxeles negros en patrón de rayas dentro de la lógica validada. La sonda del Step 0211 confirmó que la validación de direcciones VRAM es correcta (VALID CHECK: PASS) y que la matemática de direcciones es perfecta. Sin embargo, la pantalla sigue blanca porque estamos renderizando el Tile 0 (vacío). Para confirmar visualmente que tenemos control sobre el framebuffer dentro del bucle de renderizado validado, implementamos una escritura directa de índice de color 3 (Negro) en un patrón de rayas verticales.
                         </p>
-                        <span class="status-badge status-draft">DRAFT</span>
                     </li>
                     <!-- Entrada 0211 - La Sonda en el Píxel Cero -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-21</span>
-                        <span class="tag">0211</span>
-                        <a href="entries/2025-12-21__0211__sonda-diagnostico-pixel-cero.html" class="title">La Sonda en el Píxel Cero</a>
-                        <p class="summary">
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-21__0211__sonda-diagnostico-pixel-cero.html" class="entry-link">
+                                    La Sonda en el Píxel Cero
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-21 | 
+                            <strong>Step ID:</strong> 0211 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
                             La "Inundación de VRAM" (Step 0208) y el "Forzado de Negro" (Step 0209) han fallado, lo que indica que la lógica de validación de direcciones en render_scanline está rechazando sistemáticamente los accesos a VRAM, desviando el flujo al bloque else (blanco). Matemáticamente esto no debería ocurrir, así que debemos ver los valores en tiempo real. Se instrumenta PPU::render_scanline() con printf para mostrar las variables de cálculo (LCDC, direcciones, Tile ID) exclusivamente para el píxel (0,0) del fotograma. Esto nos dará una radiografía exacta de por qué la dirección se considera inválida sin inundar la consola con miles de líneas de log.
                         </p>
-                        <span class="status-badge status-verified">VERIFIED</span>
                     </li>
                     <!-- Entrada 0210 - Corrección Crítica: Error de Validación de VRAM en PPU -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-21</span>
-                        <span class="tag">0210</span>
-                        <a href="entries/2025-12-21__0210__correccion-critica-validacion-vram.html" class="title">Corrección Crítica: Error de Validación de VRAM en PPU</a>
-                        <p class="summary">
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-21__0210__correccion-critica-validacion-vram.html" class="entry-link">
+                                    Corrección Crítica: Error de Validación de VRAM en PPU
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-21 | 
+                            <strong>Step ID:</strong> 0210 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
                             Tras una auditoría completa del código de PPU::render_scanline(), se identificó un error lógico crítico en la validación de direcciones VRAM. La condición tile_line_addr < 0xA000 - 1 era incorrecta y causaba que muchos tiles válidos fueran rechazados, escribiendo color 0 (blanco) en el framebuffer en lugar del color real del tile. Este error explicaba por qué la pantalla permanecía blanca incluso cuando se forzaban los bytes de tile a 0xFF (negro) en el Step 0209. Corrección aplicada: cambiar la validación a tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE, garantizando que tanto tile_line_addr como tile_line_addr + 1 estén dentro del rango válido de VRAM.
                         </p>
-                        <span class="status-badge status-verified">VERIFIED</span>
                     </li>
                     <!-- Entrada 0209 - Diagnóstico Radical: Forzar Color Negro en la Lectura de PPU -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-21</span>
-                        <span class="tag">0209</span>
-                        <a href="entries/2025-12-21__0209__diagnostico-radical-forzar-color-negro-lectura-ppu.html" class="title">Diagnóstico Radical: Forzar Color Negro en la Lectura de PPU</a>
-                        <p class="summary">
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-21__0209__diagnostico-radical-forzar-color-negro-lectura-ppu.html" class="entry-link">
+                                    Diagnóstico Radical: Forzar Color Negro en la Lectura de PPU
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-21 | 
+                            <strong>Step ID:</strong> 0209 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
                             La inundación de VRAM del Step 0208 no funcionó: la pantalla siguió blanca a pesar de haber llenado toda la región de Tile Data con 0xFF. Esto sugiere que la ROM borra la VRAM antes del primer renderizado, o que hay un problema de direccionamiento. Para descartar definitivamente problemas del framebuffer o la paleta, aplicamos un diagnóstico aún más radical: interceptar la lectura de datos de tile en la PPU y forzar siempre el valor 0xFF (negro), ignorando completamente lo que haya en VRAM. Si la pantalla se pone negra, confirmamos que el pipeline funciona y el problema es la VRAM vacía. Si sigue blanca, el problema está en el framebuffer o la paleta.
                         </p>
-                        <span class="status-badge status-verified">VERIFIED</span>
                     </li>
                     <!-- Entrada 0208 - Diagnóstico de Fuerza Bruta: Inundación de VRAM -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-21</span>
-                        <span class="tag">0208</span>
-                        <a href="entries/2025-12-21__0208__diagnostico-fuerza-bruta-inundacion-vram.html" class="title">Diagnóstico de Fuerza Bruta: Inundación de VRAM</a>
-                        <p class="summary">
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-21__0208__diagnostico-fuerza-bruta-inundacion-vram.html" class="entry-link">
+                                    Diagnóstico de Fuerza Bruta: Inundación de VRAM
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-21 | 
+                            <strong>Step ID:</strong> 0208 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
                             Después del Step 0207, con las coordenadas corregidas, la pantalla sigue mostrándose en blanco y los logs muestran ceros. Esto sugiere que la PPU no está "viendo" los datos que inyectamos en la VRAM. Para resolver esto definitivamente, aplicamos una técnica de diagnóstico agresiva: llenar toda la región de Tile Data (0x8000-0x97FF) con `0xFF` (píxeles negros). Si la pantalla se vuelve negra, confirmamos que la PPU SÍ lee la VRAM y que el problema es de coordenadas o formato. Si la pantalla sigue blanca, hay un error fundamental en cómo la MMU o la PPU acceden a la memoria de vídeo.
                         </p>
-                        <span class="status-badge status-verified">VERIFIED</span>
                     </li>
                     <!-- Entrada 0207 - Ajuste de Coordenadas: Centrado del Logo -->
                     <li>

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restauración del Formato del Índice - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Restauración del Formato del Índice</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0214
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0213__inspeccion-puente-data-probe.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se restauró el formato clásico del índice de bitácora para los Steps 0208 a 0213,
+                    reemplazando las tarjetas recientes por la estructura usada hasta el Step 0207
+                    (encabezado, metadatos y resumen). Esto preserva la consistencia visual y la
+                    lectura cronológica de la bitácora.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La bitácora funciona como “trazador de señales” del proyecto híbrido
+                    Python/C++: cada entrada captura decisiones de sincronía y validación de la PPU,
+                    MMU y el puente Cython. Mantener un formato homogéneo facilita correlacionar
+                    rápidamente síntomas (logs, estado VERIFIED/DRAFT) con cambios en el núcleo.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se reemplazaron los nodos <code>entry-item</code> introducidos en los Steps 0208-0213
+                    por la estructura histórica basada en <code>entry-header</code>, <code>entry-meta-index</code>
+                    y <code>entry-summary</code>. Se respetó el estado previo de cada step
+                    (VERIFIED/DRAFT) y su metadata original.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>docs/bitacora/index.html</code>: restaurado el layout clásico de las entradas 0208-0213.</li>
+                    <li><code>docs/bitacora/entries/2025-12-22__0214__restauracion-formato-indice.html</code>: nueva entrada de bitácora.</li>
+                    <li><code>INFORME_FASE_2.md</code>: añadida la sección del Step 0214.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se priorizó la uniformidad del índice para mantener la trazabilidad histórica y
+                    la lectura rápida de estados. No se alteró el contenido de los resúmenes ni la
+                    jerarquía de fechas/steps.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>docs/bitacora/index.html</code> - Reversión al formato clásico para steps 0208-0213.</li>
+                    <li><code>docs/bitacora/entries/2025-12-22__0214__restauracion-formato-indice.html</code> - Nueva entrada.</li>
+                    <li><code>INFORME_FASE_2.md</code> - Registro del Step 0214.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Cambio puramente documental. No se ejecutaron pruebas automatizadas.
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> N/A (ajuste de documentación).</li>
+                    <li><strong>Resultado:</strong> N/A.</li>
+                    <li><strong>Código del Test:</strong>
+                        <pre><code>N/A — No aplica para cambios de documentación.</code></pre>
+                    </li>
+                    <li><strong>Validación de módulo compilado C++:</strong> No aplica (sin cambios en código nativo).</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Formato histórico de la bitácora del proyecto (interno).</li>
+                </ul>
+                <p>
+                    <em>No se consultaron fuentes externas; se preservó el estilo previo del índice.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li>La homogeneidad del índice facilita ubicar rápidamente pasos VERIFIED/DRAFT.</li>
+                        <li>Los cambios de estilo pueden ocultar o confundir el seguimiento cronológico.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>Revisar que futuras entradas mantengan el layout clásico sin divergencias.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Mantener una plantilla única reduce la carga cognitiva al navegar la bitácora y
+                        evitará discrepancias de estado o metadatos en futuras auditorías.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar que las próximas entradas usen el layout clásico desde el inicio.</li>
+                    <li>[ ] Añadir chequeo automatizado liviano para validar estructura del índice.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

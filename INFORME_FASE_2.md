@@ -32,14 +32,33 @@
 
 ## Entradas de Desarrollo
 
-### 2025-12-22 - Step 0213: La Inspección del Puente (Data Probe)
-**Estado**: 🔍 EN DEPURACIÓN
+### 2025-12-22 - Step 0214: Restauración del Formato del Índice
+**Estado**: ✅ VERIFICADO
 
-A pesar de que la PPU en C++ reporta operaciones correctas y forzamos la escritura de píxeles negros (Step 0212), la pantalla permanece blanca. Esto sugiere que los datos no están cruzando correctamente el puente Cython hacia Python, o que el renderizador de Python los está interpretando mal. Implementamos una sonda en `viboy.py` para inspeccionar los valores crudos del framebuffer (`memoryview`) tal como llegan a Python.
+Se reestableció el formato clásico del índice de la bitácora para los Steps 0208-0213, sustituyendo las tarjetas recientes por la estructura previa (encabezado, metadatos y resumen). Esto preserva la coherencia visual y facilita seguir el estado (VERIFIED/DRAFT) de cada paso sin ambigüedad.
 
-**Objetivo:**
-- Determinar si Python recibe `3` (Negro) o `0` (Blanco) en el framebuffer.
-- Aislar el fallo: ¿Es el puente C++ → Python (Cython) o el renderizado final (Pygame)?
+**Impacto:**
+- Bitácora: `docs/bitacora/index.html` vuelve al layout unificado.
+- Documentación: Se añade esta entrada como Step 0214 con estado VERIFIED.
+
+**Motivación:**
+- Mantener una navegación homogénea que permita localizar rápidamente pasos críticos y su estatus.
+- Evitar divergencias de estilo que compliquen la lectura cronológica.
+
+**Tests:**
+- No se ejecutaron pruebas automatizadas (cambio puramente documental).
+
+---
+
+### 2025-12-22 - Step 0213: La Inspección del Puente (Data Probe) - RESUELTO
+**Estado**: ✅ RESUELTO
+
+A pesar de que la PPU en C++ reporta operaciones correctas y forzamos la escritura de píxeles negros (Step 0212), la pantalla permanece blanca. Implementamos sondas tanto en C++ como en Python para rastrear el framebuffer en cada punto del pipeline y descubrimos que el problema NO está en el puente Cython, sino en la **sincronización temporal**.
+
+**Hallazgo crítico:**
+- Python estaba leyendo el framebuffer **después** de que C++ lo limpiara para el siguiente frame.
+- El `memoryview` es una vista de la memoria actual, no una copia histórica.
+- La solución fue leer el framebuffer cuando `ly_ == 144` (inicio de V-Blank) y hacer una copia para preservar los datos.
 
 **Concepto de Hardware: El Puente de Datos**
 
