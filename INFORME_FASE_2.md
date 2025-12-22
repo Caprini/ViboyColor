@@ -32,6 +32,36 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0228: El Francotirador en la Zona Alta (0x2B15)
+**Estado**: 🔍 EN DEPURACIÓN
+
+El fix de `LY=0` funcionó a la perfección. La PPU ahora se comporta como un hardware real. La autopsia reveló que la CPU ha escapado de la BIOS y está ejecutando código del juego en la zona alta de la ROM (PC: `0x2B15`), pero mantiene la pantalla apagada (LCDC: `0x08`). Para entender por qué la secuencia de carga se ha detenido, reactivamos el trazado quirúrgico centrado en la dirección donde la CPU pasa su tiempo ahora.
+
+**Objetivo:**
+- Identificar el bucle de código en `0x2B15`.
+- Verificar si el juego está esperando al Timer (`DIV`) o una interrupción.
+- Determinar si el bloqueo es por hardware (Timer, Interrupciones, Joypad) o lógico (bucle infinito).
+
+**Implementación:**
+1. **Modificación en `CPU.cpp`**: Reactivado el "Francotirador" (sniper) en el método `step()` para trazar instrucciones cuando PC está en el rango `0x2B10-0x2B20`. El trazado imprime PC, opcode, registros (AF, BC, DE, HL) y el valor del Timer (DIV) para analizar el comportamiento.
+
+**Concepto de Hardware:**
+Cuando un juego de Game Boy inicia, típicamente sigue esta secuencia: (1) Fase de Arranque (BIOS), (2) Transferencia de Control al cartucho, (3) Inicialización del Juego (apaga pantalla, carga gráficos, configura paletas, vuelve a encenderla). El hecho de que la CPU esté en `0x2B15` (zona alta de la ROM) indica que el juego ha superado la fase de arranque. Sin embargo, si el juego mantiene la pantalla apagada y no avanza, puede estar esperando: Timer (DIV), Interrupciones, Joypad, o puede estar en un bucle infinito. El trazado quirúrgico nos permitirá ver exactamente qué instrucciones está ejecutando la CPU y qué registros está consultando.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Añadido bloque de debug quirúrgico en `step()` para rango 0x2B10-0x2B20
+
+**Tests:**
+- Recompilar: `.\rebuild_cpp.ps1` o `python setup.py build_ext --inplace`
+- Ejecutar: `python main.py roms/tetris.gb`
+- Analizar salida: Buscar líneas con `[SNIPER]` en la consola
+- Lo que buscamos:
+  - Si el código lee `0xFF04` (DIV) y compara, es un problema de Timer.
+  - Si el código lee `0xFF00` (Joypad), está esperando un botón.
+  - Si es un salto incondicional `JR -1`, es un cuelgue explícito (Game Over del emulador).
+
+---
+
 ### 2025-12-22 - Step 0227: Fix - Comportamiento de LCD Apagado (Reset LY)
 **Estado**: 🔧 EN PROCESO
 

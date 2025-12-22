@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Misión en la Zona Alta: Debugging del Juego - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Misión en la Zona Alta: Debugging del Juego</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0228
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0227__fix-lcd-off-behavior.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El fix de `LY=0` funcionó a la perfección. La PPU ahora se comporta como un hardware real. 
+                    La autopsia reveló que la CPU ha escapado de la BIOS y está ejecutando código del juego en la zona alta de la ROM (PC: `0x2B15`), 
+                    pero mantiene la pantalla apagada (LCDC: `0x08`). Para entender por qué la secuencia de carga se ha detenido, 
+                    reactivamos el trazado quirúrgico centrado en la dirección donde la CPU pasa su tiempo ahora.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Cuando un juego de Game Boy inicia, típicamente sigue esta secuencia:
+                </p>
+                <ol>
+                    <li><strong>Fase de Arranque:</strong> La BIOS ejecuta código de inicialización (direcciones bajas: 0x0000-0x00FF).</li>
+                    <li><strong>Transferencia de Control:</strong> El juego toma el control y comienza a ejecutar código del cartucho (direcciones altas: 0x0100+).</li>
+                    <li><strong>Inicialización del Juego:</strong> El juego apaga la pantalla (LCDC Bit 7 = 0), carga gráficos en VRAM, configura paletas y vuelve a encenderla.</li>
+                </ol>
+                <p>
+                    El hecho de que la CPU esté en `0x2B15` (zona alta de la ROM) indica que el juego ha superado la fase de arranque. 
+                    Sin embargo, si el juego mantiene la pantalla apagada y no avanza, puede estar esperando:
+                </p>
+                <ul>
+                    <li><strong>Timer (DIV):</strong> El registro DIV (0xFF04) incrementa continuamente. Algunos juegos esperan a que alcance un valor específico para sincronización.</li>
+                    <li><strong>Interrupciones:</strong> El juego puede estar esperando una interrupción (V-Blank, Timer, etc.) que no está llegando.</li>
+                    <li><strong>Joypad:</strong> Algunos juegos esperan una entrada del usuario antes de continuar.</li>
+                    <li><strong>Bucle Infinito:</strong> Si el código en `0x2B15` es un salto incondicional a sí mismo (ej: `JR -1`), el juego está explícitamente colgado.</li>
+                </ul>
+                <p>
+                    El trazado quirúrgico nos permitirá ver exactamente qué instrucciones está ejecutando la CPU y qué registros está consultando, 
+                    lo que revelará la causa del bloqueo.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Reactivamos el "Francotirador" (sniper) en la CPU para trazar instrucciones en el rango `0x2B10-0x2B20`, 
+                    donde la CPU está pasando su tiempo según la autopsia del Step 0227.
+                </p>
+                
+                <h3>Modificación en CPU.cpp</h3>
+                <p>
+                    Añadimos un bloque de debug en el método `step()` que se activa cuando el PC está en el rango objetivo:
+                </p>
+                <pre><code>// --- Step 0228: FRANCOTIRADOR EN 0x2B15 ---
+if (regs_->pc >= 0x2B10 && regs_->pc <= 0x2B20) {
+    uint8_t opcode_preview = mmu_->read(regs_->pc);
+    uint8_t div_val = mmu_->read(0xFF04);
+    
+    printf("[SNIPER] PC:%04X | OP:%02X | AF:%04X | BC:%04X | DE:%04X | HL:%04X | DIV:%02X\n", 
+           regs_->pc, opcode_preview, regs_->af, regs_->get_bc(), regs_->get_de(), regs_->get_hl(), div_val);
+}
+// ------------------------------------------</code></pre>
+                
+                <p>
+                    El trazado imprime:
+                </p>
+                <ul>
+                    <li><strong>PC:</strong> Contador de programa (dirección actual)</li>
+                    <li><strong>OP:</strong> Opcode de la instrucción que se va a ejecutar</li>
+                    <li><strong>AF, BC, DE, HL:</strong> Estado de los registros principales</li>
+                    <li><strong>DIV:</strong> Valor del registro DIV (Timer) para verificar si avanza</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Elegimos un rango pequeño (0x2B10-0x2B20) para minimizar el impacto en el rendimiento. 
+                    El debug solo se activa cuando la CPU está en esa zona específica, por lo que no afecta 
+                    la ejecución normal del resto del código. También incluimos el registro DIV para verificar 
+                    si el Timer está avanzando, lo que podría ser la causa del bloqueo.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido bloque de debug quirúrgico en `step()` para rango 0x2B10-0x2B20</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para validar la implementación:
+                </p>
+                <ol>
+                    <li><strong>Recompilar:</strong> <code>.\rebuild_cpp.ps1</code> o <code>python setup.py build_ext --inplace</code></li>
+                    <li><strong>Ejecutar:</strong> <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Analizar salida:</strong> Buscar líneas con <code>[SNIPER]</code> en la consola</li>
+                </ol>
+                <p>
+                    <strong>Lo que buscamos:</strong>
+                </p>
+                <ul>
+                    <li>Si el código lee `0xFF04` (DIV) y compara, es un problema de Timer.</li>
+                    <li>Si el código lee `0xFF00` (Joypad), está esperando un botón.</li>
+                    <li>Si es un salto incondicional `JR -1`, es un cuelgue explícito (Game Over del emulador).</li>
+                    <li>Si el opcode se repite constantemente, es un bucle infinito.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Game Boy Pan Docs</a> - Especificación del hardware</li>
+                    <li>Implementación basada en conocimiento general de arquitectura LR35902 y técnicas de debugging de emuladores.</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Fase de Arranque:</strong> La CPU ejecuta código de la BIOS primero, luego transfiere el control al cartucho.</li>
+                        <li><strong>Zona Alta de ROM:</strong> Las direcciones 0x0100+ contienen código del juego. Si PC está en 0x2B15, el juego ya tomó el control.</li>
+                        <li><strong>Bloqueo en Inicialización:</strong> Los juegos pueden detenerse esperando hardware (Timer, Interrupciones, Joypad) que no responde correctamente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Opcode en 0x2B15:</strong> Qué instrucción está ejecutando el juego en ese punto.</li>
+                        <li><strong>Registros Consultados:</strong> Si el juego está leyendo DIV, Joypad u otros registros de hardware.</li>
+                        <li><strong>Patrón de Ejecución:</strong> Si es un bucle infinito o una espera activa.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> El juego está esperando el Timer (DIV) para avanzar, pero el Timer no está incrementando correctamente, 
+                        o el juego está esperando una interrupción que no se está generando. El trazado quirúrgico confirmará o refutará esta hipótesis.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y analizar la salida del Francotirador</li>
+                    <li>[ ] Identificar el opcode y el patrón de ejecución en 0x2B15</li>
+                    <li>[ ] Verificar si el Timer (DIV) está avanzando correctamente</li>
+                    <li>[ ] Determinar si el bloqueo es por Timer, Interrupciones o Joypad</li>
+                    <li>[ ] Implementar el fix correspondiente según el diagnóstico</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
