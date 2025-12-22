@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0219 - La Foto Finish: Snapshot de Memoria -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0219__fix-snapshot-memory-copy.html" class="entry-link">
+                                    La Foto Finish: Snapshot de Memoria
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0219 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Solución a la corrupción de datos volátiles implementando copias inmutables (bytearray) antes del renderizado. Se detectó una discrepancia de datos: la sonda principal leía 3 pero el renderizador leía 0. Para solucionar esto y desacoplar el renderizado de la memoria volátil de C++, implementamos una copia obligatoria (bytearray) del framebuffer en el momento exacto en que el frame está listo.
+                        </p>
+                    </li>
                     <!-- Entrada 0218 - La Caja Azul: Debugging de Pygame Surface -->
                     <li>
                         <div class="entry-header">

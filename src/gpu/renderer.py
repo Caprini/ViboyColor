@@ -411,12 +411,17 @@ class Renderer:
         # Actualizar la pantalla
         pygame.display.flip()
 
-    def render_frame(self) -> None:
+    def render_frame(self, framebuffer_data: bytearray | None = None) -> None:
         """
         Renderiza un frame completo del Background (fondo) y Window (ventana) de la Game Boy.
         
         Si use_cpp_ppu=True, usa el framebuffer de C++ directamente (Zero-Copy).
         Si use_cpp_ppu=False, calcula tiles desde VRAM (método Python original).
+        
+        Args:
+            framebuffer_data: Opcional. Si se proporciona, usa este bytearray como fuente
+                             de datos en lugar de leer desde la PPU. Esto permite pasar
+                             un snapshot inmutable del framebuffer (Step 0219).
         
         Este método implementa el renderizado básico del Background y Window según la configuración
         del registro LCDC (LCD Control, 0xFF40):
@@ -438,22 +443,28 @@ class Renderer:
         # OPTIMIZACIÓN: Si usamos PPU C++, hacer blit directo del framebuffer
         if self.use_cpp_ppu and self.cpp_ppu is not None:
             try:
-                # Obtener framebuffer como memoryview (Zero-Copy)
-                # El framebuffer es ahora uint8_t con índices de color (0-3) en formato 1D
-                # Organización: píxel (y, x) está en índice [y * 160 + x]
-                frame_indices = self.cpp_ppu.get_framebuffer()  # 1D array de 23040 elementos
+                # --- Step 0219: SNAPSHOT INMUTABLE ---
+                # Si se proporciona framebuffer_data, usar ese snapshot en lugar de leer desde PPU
+                if framebuffer_data is not None:
+                    frame_indices = framebuffer_data
+                else:
+                    # Obtener framebuffer como memoryview (Zero-Copy)
+                    # El framebuffer es ahora uint8_t con índices de color (0-3) en formato 1D
+                    # Organización: píxel (y, x) está en índice [y * 160 + x]
+                    frame_indices = self.cpp_ppu.get_framebuffer()  # 1D array de 23040 elementos
                 
                 # CRÍTICO: Verificar que el framebuffer sea válido
                 if frame_indices is None:
                     logger.error("[Renderer] Framebuffer es None - PPU puede no estar inicializada")
                     return
                 
-                # --- STEP 0218: DIAGNÓSTICO DE ENTRADA ---
+                # --- STEP 0219: DIAGNÓSTICO DE ENTRADA (ACTUALIZADO) ---
                 # 1. Imprimir qué recibe exactamente (solo una vez)
                 if not hasattr(self, '_debug_render_printed'):
                     print(f"\n--- [RENDER_FRAME INTERNAL DEBUG] ---")
                     print(f"Framebuffer Type: {type(frame_indices)}")
                     print(f"First Pixel Value inside render_frame: {frame_indices[0]}")
+                    print(f"Using Snapshot: {framebuffer_data is not None}")
                     print(f"Surface size: {self.surface.get_size() if hasattr(self, 'surface') else 'N/A'}")
                     print(f"Window size: {self.screen.get_size()}")
                     print(f"-------------------------------------\n")

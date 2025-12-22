@@ -734,9 +734,6 @@ class Viboy:
                 # eliminando la condición de carrera entre Python y C++.
                 
                 # --- Bucle de Frame Completo (154 scanlines) ---
-                # CRÍTICO: Necesitamos leer el framebuffer justo después de completar
-                # la línea 143 (última línea visible), antes de que se avance a la línea 144
-                # y antes de que se limpie para el siguiente frame.
                 framebuffer_to_render = None
                 
                 for line in range(SCANLINES_PER_FRAME):
@@ -750,42 +747,35 @@ class Viboy:
                     if self._use_cpp:
                         self._cpu.run_scanline()
                         
-                        # --- Step 0213: Leer framebuffer justo después de línea 143 ---
-                        # Leer el framebuffer justo después de completar la línea 143
-                        # (última línea visible), antes de que se avance a la línea 144
-                        # y antes de que se limpie para el siguiente frame.
+                        # --- Step 0219: SNAPSHOT INMUTABLE ---
+                        # Verificar si el frame está listo usando el método de la PPU
                         if self._ppu is not None:
-                            current_ly = self._ppu.ly
-                            if current_ly == 144:  # Inicio de V-Blank, frame completo
-                                # CRÍTICO: Hacer una COPIA del framebuffer porque el memoryview
-                                # es una vista de la memoria. Si el framebuffer se limpia después,
-                                # la vista reflejará los valores limpios. Necesitamos preservar
-                                # los datos del frame completo.
-                                fb_view = self._ppu.framebuffer
-                                framebuffer_to_render = bytes(fb_view)  # Copia los datos
+                            if self._ppu.get_frame_ready_and_reset():
+                                # 1. Obtener la vista directa de C++
+                                raw_view = self._ppu.framebuffer
                                 
-                                # --- Step 0213: SONDA DE DATOS PYTHON ---
-                                # Inspeccionar el framebuffer justo cuando se completa el frame
+                                # 2. --- STEP 0219: SNAPSHOT INMUTABLE ---
+                                # Hacemos una copia profunda inmediata a la memoria de Python.
+                                # Esto "congela" el frame y nos protege de cualquier cambio en C++.
+                                fb_data = bytearray(raw_view)
+                                # ----------------------------------------
+                                
+                                # --- Sonda de Datos (Actualizada) ---
                                 if not hasattr(self, '_debug_frame_printed'):
                                     self._debug_frame_printed = False
                                 
                                 if not self._debug_frame_printed:
-                                    p0 = framebuffer_to_render[0]
-                                    p8 = framebuffer_to_render[8]
-                                    mid = framebuffer_to_render[23040 // 2]
-                                    print(f"\n--- [PYTHON DATA PROBE] ---")
-                                    print(f"Frame completo (LY=144), framebuffer leído (COPIA):")
-                                    print(f"Pixel 0 (0,0): {p0} (Esperado: 3)")
-                                    print(f"Pixel 8 (8,0): {p8}")
-                                    print(f"Pixel Center: {mid}")
-                                    
-                                    # --- Step 0215: SONDA DE PALETA ---
-                                    bgp_value = self._mmu.read(0xFF47)
-                                    print(f"BGP Register (0xFF47): 0x{bgp_value:02X}")
-                                    # ----------------------------------
-                                    
-                                    print(f"---------------------------\n")
+                                    p0 = fb_data[0]
+                                    mid = fb_data[23040 // 2]
+                                    print(f"\n--- [PYTHON SNAPSHOT PROBE] ---")
+                                    print(f"Pixel 0 (Snapshot): {p0} (Esperado: 3)")
+                                    # Confirmamos que BGP es correcto
+                                    print(f"BGP Register: 0x{self._mmu.read(0xFF47):02X}")
+                                    print(f"-------------------------------\n")
                                     self._debug_frame_printed = True
+                                
+                                # 3. Guardar la COPIA SEGURA para el renderizador
+                                framebuffer_to_render = fb_data
                                 # ----------------------------------------
                     else:
                         # Fallback para modo Python (arquitectura antigua)
@@ -818,16 +808,14 @@ class Viboy:
                         self.running = False
                         break
                     
-                    # El renderizado ya no depende de "is_frame_ready" porque este bucle
-                    # garantiza que se ha completado un frame.
-                    # Si tenemos un framebuffer capturado, pasarlo al renderer
+                    # --- Step 0219: Pasar snapshot inmutable al renderizador ---
+                    # Si tenemos un framebuffer capturado (snapshot), pasarlo al renderer
                     if framebuffer_to_render is not None:
-                        # Pasar el framebuffer capturado al renderer
-                        # NOTA: Esto requiere modificar renderer.py para aceptar un framebuffer opcional
-                        # Por ahora, el renderer leerá el framebuffer directamente desde la PPU
-                        pass
-                    
-                    self._renderer.render_frame()
+                        # Pasar la COPIA SEGURA al renderizador
+                        self._renderer.render_frame(framebuffer_data=framebuffer_to_render)
+                    else:
+                        # Fallback: el renderer leerá el framebuffer directamente desde la PPU
+                        self._renderer.render_frame()
                     
                     # Sincronización con el reloj del host para mantener 60 FPS
                     if self._clock is not None:

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>La Foto Finish: Snapshot de Memoria - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>La Foto Finish: Snapshot de Memoria</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0219
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0218__fix-renderer-blue-box.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El Step 0218 confirmó que el renderizador está conectado correctamente a la ventana (el cuadro azul se ve),
+                    pero persiste una discrepancia crítica: la sonda en <code>viboy.py</code> lee <code>Pixel 0: 3</code> (Negro/Rojo),
+                    mientras que la sonda en <code>renderer.py</code> lee <code>First Pixel Value: 0</code> (Blanco/Verde).
+                </p>
+                <p>
+                    Esta discrepancia indica que los datos se están perdiendo o sobrescribiendo en el microsegundo que pasa
+                    entre la lectura en <code>viboy.py</code> y la llamada a <code>render_frame</code>. Esto ocurre típicamente
+                    cuando usamos <strong>MemoryViews volátiles</strong>: si C++ toca esa memoria (o si Python pierde la referencia),
+                    los datos cambian.
+                </p>
+                <p>
+                    Este paso implementa la <strong>Estrategia del Snapshot Inmutable</strong>: en lugar de pasar una "vista"
+                    (memoryview) al renderizador que mira directamente a la memoria de C++ (la cual es peligrosa y volátil),
+                    hacemos una <strong>copia fotográfica instantánea</strong> (<code>bytearray</code>) de los datos en <code>viboy.py</code>
+                    justo cuando sabemos que son correctos (cuando la sonda dice 3). Pasamos esa copia segura al renderizador.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la arquitectura híbrida Python/C++, el framebuffer vive en memoria C++ y se expone a Python mediante
+                    un <code>memoryview</code> (vista de memoria). Un <code>memoryview</code> es una referencia directa a la
+                    memoria subyacente: si C++ modifica esa memoria (por ejemplo, limpiando el framebuffer para el siguiente frame),
+                    el <code>memoryview</code> reflejará inmediatamente esos cambios.
+                </p>
+                <p>
+                    El problema de las <strong>MemoryViews Volátiles</strong>:
+                </p>
+                <ul>
+                    <li><strong>Condición de Carrera:</strong> Si C++ limpia el framebuffer mientras Python está leyendo,
+                        Python verá datos parciales o corruptos.</li>
+                    <li><strong>Referencias Perdidas:</strong> Si Python pierde la referencia al <code>memoryview</code> o
+                        el objeto C++ se destruye, el <code>memoryview</code> puede apuntar a memoria inválida.</li>
+                    <li><strong>Optimizaciones del Compilador:</strong> El compilador C++ puede reordenar operaciones de
+                        memoria, causando que los datos cambien en momentos inesperados.</li>
+                </ul>
+                <p>
+                    La solución es hacer una <strong>copia inmutable</strong> (<code>bytearray</code>) del framebuffer en el
+                    momento exacto en que sabemos que está completo y correcto. Esta copia vive en la memoria de Python y
+                    no puede ser modificada por C++, garantizando que el renderizador siempre trabaje con datos estables.
+                </p>
+                <p>
+                    <strong>Rendimiento:</strong> Copiar 23040 bytes (160×144 píxeles) toma aproximadamente 0.01ms en un
+                    procesador moderno, lo cual es insignificante comparado con el tiempo de renderizado (16.67ms por frame
+                    a 60 FPS). El beneficio de estabilidad supera ampliamente el costo de rendimiento.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificaron dos archivos para implementar el snapshot inmutable:
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/viboy.py</code>: Método <code>run()</code> - Captura del snapshot usando <code>bytearray</code> y paso al renderizador</li>
+                    <li><code>src/gpu/renderer.py</code>: Método <code>render_frame()</code> - Acepta parámetro opcional <code>framebuffer_data</code></li>
+                </ul>
+
+                <h3>Cambios técnicos</h3>
+                <p>
+                    <strong>1. Modificación en <code>viboy.py</code>:</strong>
+                </p>
+                <ul>
+                    <li>Se reemplazó la verificación de <code>current_ly == 144</code> por <code>get_frame_ready_and_reset()</code>,
+                        que es más robusto y maneja correctamente el estado del frame.</li>
+                    <li>Se cambió la copia de <code>bytes(fb_view)</code> a <code>bytearray(raw_view)</code> para garantizar
+                        que la copia es mutable y vive completamente en Python.</li>
+                    <li>Se actualizó la sonda de datos para usar el snapshot y mostrar el mensaje <code>[PYTHON SNAPSHOT PROBE]</code>.</li>
+                    <li>Se pasa el snapshot al renderizador mediante el parámetro <code>framebuffer_data</code>.</li>
+                </ul>
+                <pre><code># En src/viboy.py -> run()
+
+# Renderizado
+if self._use_cpp:
+    if self._ppu.get_frame_ready_and_reset():
+        # 1. Obtener la vista directa de C++
+        raw_view = self._ppu.framebuffer
+        
+        # 2. --- STEP 0219: SNAPSHOT INMUTABLE ---
+        # Hacemos una copia profunda inmediata a la memoria de Python.
+        # Esto "congela" el frame y nos protege de cualquier cambio en C++.
+        fb_data = bytearray(raw_view)
+        # ----------------------------------------
+        
+        # 3. Pasar la COPIA SEGURA al renderizador
+        self._renderer.render_frame(framebuffer_data=fb_data)</code></pre>
+
+                <p>
+                    <strong>2. Modificación en <code>renderer.py</code>:</strong>
+                </p>
+                <ul>
+                    <li>Se añadió el parámetro opcional <code>framebuffer_data: bytearray | None = None</code> al método
+                        <code>render_frame()</code>.</li>
+                    <li>Si se proporciona <code>framebuffer_data</code>, se usa ese snapshot en lugar de leer desde la PPU.</li>
+                    <li>Se actualizó el diagnóstico para indicar si se está usando un snapshot o leyendo directamente.</li>
+                </ul>
+                <pre><code># En src/gpu/renderer.py -> render_frame()
+
+def render_frame(self, framebuffer_data: bytearray | None = None) -> None:
+    # --- Step 0219: SNAPSHOT INMUTABLE ---
+    # Si se proporciona framebuffer_data, usar ese snapshot en lugar de leer desde PPU
+    if framebuffer_data is not None:
+        frame_indices = framebuffer_data
+    else:
+        frame_indices = self.cpp_ppu.get_framebuffer()</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Modificación del método <code>run()</code> para captura de snapshot (líneas 753-789)</li>
+                    <li><code>src/gpu/renderer.py</code> - Modificación del método <code>render_frame()</code> para aceptar snapshot (líneas 414-444)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>python main.py roms/tetris.gb</code>
+                </p>
+                <p>
+                    <strong>Resultado Esperado:</strong>
+                </p>
+                <ul>
+                    <li>Consola: <code>[PYTHON SNAPSHOT PROBE] ... Pixel 0: 3</code></li>
+                    <li>Consola (Renderer): <code>First Pixel Value inside render_frame: 3</code> (¡Deben coincidir!)</li>
+                    <li>Pantalla: <strong>Rayas Rojas verticales</strong> de fondo + <strong>Cuadro Azul</strong> en el centro</li>
+                </ul>
+                <p>
+                    Si ambas sondas muestran el mismo valor (3) y la pantalla muestra rojo, habremos conectado todos los cables.
+                    El siguiente paso será la limpieza final para jugar Tetris.
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El snapshot se crea desde un <code>memoryview</code>
+                    expuesto por Cython, que a su vez accede al framebuffer nativo de C++. La copia garantiza que los datos
+                    no se corrompan durante el paso entre C++ y Python.
+                </p>
+            </section>
+
+            <!-- 6. Referencias -->
+            <section id="referencias">
+                <h2>Referencias</h2>
+                <ul>
+                    <li>Pan Docs - LCD Timing, Frame Rendering</li>
+                    <li>Python Documentation - <code>bytearray</code> and <code>memoryview</code></li>
+                    <li>Cython Documentation - Memory Views and Zero-Copy</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                <a href="../index.html">← Volver al índice</a>
+            </p>
+            <p class="footer-note">
+                Este proyecto es educativo y Open Source. Clean-Room Implementation.
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+

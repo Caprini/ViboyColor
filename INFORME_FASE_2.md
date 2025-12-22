@@ -32,6 +32,33 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0219: Fix - Snapshot de Memoria (Bytearray Copy)
+**Estado**: 🔧 EN PROCESO
+
+Se detectó una discrepancia de datos: la sonda principal leía `3` pero el renderizador leía `0`. Para solucionar esto y desacoplar el renderizado de la memoria volátil de C++, implementamos una copia obligatoria (`bytearray`) del framebuffer en el momento exacto en que el frame está listo. Esto garantiza que el renderizador trabaje con datos estables.
+
+**Objetivo:**
+- Forzar una copia `bytearray` en `viboy.py`.
+- Lograr que el renderizador reciba y dibuje los valores `3` (Rojo).
+- Eliminar condiciones de carrera entre C++ y Python.
+
+**Implementación:**
+1. **Modificación en `viboy.py`**: Se reemplazó la verificación de `current_ly == 144` por `get_frame_ready_and_reset()`, y se cambió la copia de `bytes(fb_view)` a `bytearray(raw_view)` para garantizar que la copia es mutable y vive completamente en Python.
+2. **Modificación en `renderer.py`**: Se añadió el parámetro opcional `framebuffer_data: bytearray | None = None` al método `render_frame()`. Si se proporciona, se usa ese snapshot en lugar de leer desde la PPU.
+
+**Concepto de Hardware:**
+En la arquitectura híbrida Python/C++, el framebuffer vive en memoria C++ y se expone a Python mediante un `memoryview` (vista de memoria). Un `memoryview` es una referencia directa a la memoria subyacente: si C++ modifica esa memoria (por ejemplo, limpiando el framebuffer para el siguiente frame), el `memoryview` reflejará inmediatamente esos cambios. La solución es hacer una copia inmutable (`bytearray`) del framebuffer en el momento exacto en que sabemos que está completo y correcto. Esta copia vive en la memoria de Python y no puede ser modificada por C++, garantizando que el renderizador siempre trabaje con datos estables.
+
+**Archivos Afectados:**
+- `src/viboy.py` - Modificación del método `run()` para captura de snapshot (líneas 753-789)
+- `src/gpu/renderer.py` - Modificación del método `render_frame()` para aceptar snapshot (líneas 414-444)
+
+**Tests:**
+- Ejecutar `python main.py roms/tetris.gb` y verificar que ambas sondas muestren el mismo valor (3).
+- Verificar que la pantalla muestre rayas rojas verticales de fondo + cuadro azul en el centro.
+
+---
+
 ### 2025-12-22 - Step 0218: Diagnóstico Definitivo del Renderizador (Blue Box)
 **Estado**: 🔧 EN PROCESO
 
