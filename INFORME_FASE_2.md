@@ -32,6 +32,44 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0225: La Autopsia de los 3 Segundos
+**Estado**: 🔍 EN PROCESO
+
+Ante la persistencia de la pantalla en blanco (verde) sin errores aparentes, cambiamos la estrategia de depuración. En lugar de trazar la ejecución paso a paso (que introduce latencia y distorsiona el comportamiento), dejamos correr el emulador durante 3 segundos (180 frames) y realizamos un volcado de estado completo ("Autopsia"). Esto revelará si el juego logró avanzar más allá de la inicialización, si configuró los registros de vídeo correctamente y si llegó a escribir datos gráficos en la VRAM.
+
+**Objetivo:**
+- Obtener una "foto" del estado interno tras la secuencia de arranque.
+- Determinar si el fallo es de CPU (atascada), Lógico (LCDC apagado) o de Datos (VRAM vacía).
+
+**Implementación:**
+1. **Modificación en `viboy.py`**: Añadido bloque de autopsia en el método `run()` que se ejecuta una sola vez cuando `frame_count >= 180`. El bloque imprime:
+   - Estado de la CPU (PC, SP, registros AF/BC/DE/HL, flags, estado HALT)
+   - Registros de vídeo (LCDC, STAT, LY, BGP)
+   - Muestra de VRAM Tile Data (0x8010-0x801F)
+   - Muestra de VRAM Tile Map (0x9900-0x990F)
+   - Estado de interrupciones (IE, IF)
+   - Estadísticas del sistema (ciclos totales, frames)
+
+**Concepto de Hardware:**
+Cuando un juego de Game Boy arranca, sigue una secuencia típica: inicialización → espera V-Blank → copia gráficos → configura mapa → habilita pantalla → configura paleta. Si el emulador funciona a 60 FPS, en 3 segundos habrá ejecutado millones de ciclos. El estado después de 3 segundos responde preguntas binarias: ¿avanzó la CPU? ¿Se configuró LCDC? ¿Se escribió VRAM? Esto reduce el espacio de búsqueda del problema.
+
+**Interpretación de la Autopsia:**
+- **Si PC sigue en 0x02B4 (o cerca):** El problema es el **Timing**. La CPU no ve avanzar a LY.
+- **Si BGP es 0x00:** El juego corre pero **la paleta está negra/blanca**. (Tetris escribe `0xFC` o `0xE4`).
+- **Si LCDC Bit 0 es OFF:** El juego corre pero **no ha encendido la pantalla**.
+- **Si VRAM Tile Data son todos 0x00:** El juego corre pero **no copia gráficos** (falla DMA o `LDI/LDD`).
+- **Si VRAM Tile Map son todos 0x00:** El juego tiene gráficos pero **el mapa está vacío** (dibuja el tile 0 en todas partes).
+
+**Archivos Afectados:**
+- `src/viboy.py` - Añadido bloque de autopsia en el método `run()`
+
+**Tests:**
+- Ejecutar `python main.py roms/tetris.gb` y esperar 3 segundos.
+- Analizar el volcado de estado completo en la consola.
+- Interpretar los valores para determinar el tipo de fallo (Timing, Lógico, o Datos).
+
+---
+
 ### 2025-12-22 - Step 0224: Cese el Fuego (Ejecución Final)
 **Estado**: ✅ COMPLETADO
 

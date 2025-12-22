@@ -823,6 +823,70 @@ class Viboy:
                 #     # ... código de diagnóstico comentado ...
                 # ----------------------------------
                 
+                # --- Step 0225: LA AUTOPSIA DE LOS 3 SEGUNDOS ---
+                # Volcado de estado completo tras 180 frames (3 segundos) para diagnóstico forense.
+                # Esto nos dirá si el juego avanzó, si configuró los registros de vídeo y si escribió datos en VRAM.
+                if not hasattr(self, '_autopsy_done'):
+                    self._autopsy_done = False
+                
+                if not self._autopsy_done and self.frame_count >= 180:
+                    print("\n" + "=" * 40)
+                    print("💀 AUTOPSIA DEL SISTEMA (Frame 180)")
+                    print("=" * 40)
+                    
+                    if self._use_cpp:
+                        # 1. Estado de la CPU
+                        pc = self._regs.pc
+                        sp = self._regs.sp
+                        af = self._regs.af
+                        bc = self._regs.bc
+                        de = self._regs.de
+                        hl = self._regs.hl
+                        print(f"CPU State:")
+                        print(f"  PC: 0x{pc:04X} | SP: 0x{sp:04X}")
+                        print(f"  AF: 0x{af:04X} | BC: 0x{bc:04X} | DE: 0x{de:04X} | HL: 0x{hl:04X}")
+                        print(f"  Flags: Z={self._regs.flag_z}, N={self._regs.flag_n}, H={self._regs.flag_h}, C={self._regs.flag_c}")
+                        print(f"  Halted: {self._cpu.get_halted() if hasattr(self._cpu, 'get_halted') else 'N/A'}")
+                        
+                        # 2. Estado de Video (IO)
+                        lcdc = self._mmu.read(0xFF40)
+                        stat = self._mmu.read(0xFF41)
+                        ly = self._ppu.ly  # Propiedad directa
+                        bgp = self._mmu.read(0xFF47)
+                        print(f"\nVideo Registers:")
+                        print(f"  LCDC: 0x{lcdc:02X} (Bit 7={'ON' if lcdc & 0x80 else 'OFF'}, BG={'ON' if lcdc & 1 else 'OFF'})")
+                        print(f"  STAT: 0x{stat:02X} | LY: {ly} (Decimal)")
+                        print(f"  BGP:  0x{bgp:02X} (Palette)")
+                        
+                        # 3. Muestra de VRAM (Tile Data - El logo de Nintendo suele estar en 0x8010-0x802F)
+                        print(f"\nVRAM Tile Data (0x8010 - Primeros bytes del logo?):")
+                        data_sample = [f"{self._mmu.read(0x8010 + i):02X}" for i in range(16)]
+                        print(f"  {' '.join(data_sample)}")
+                        
+                        # 4. Muestra de VRAM (Tile Map - 0x9900 - Centro de pantalla aprox)
+                        # Tetris suele escribir el copyright o logo en el mapa 0x9800-0x9BFF
+                        print(f"\nVRAM Tile Map (0x9900 - Centro aprox):")
+                        map_sample = [f"{self._mmu.read(0x9900 + i):02X}" for i in range(16)]
+                        print(f"  {' '.join(map_sample)}")
+                        
+                        # 5. Estado de interrupciones
+                        ie = self._mmu.read(0xFFFF)  # Interrupt Enable
+                        if_register = self._mmu.read(0xFF0F)  # Interrupt Flag
+                        print(f"\nInterrupts:")
+                        print(f"  IE: 0x{ie:02X} | IF: 0x{if_register:02X}")
+                        
+                        # 6. Ciclos totales ejecutados
+                        print(f"\nSystem State:")
+                        print(f"  Total Cycles: {self._total_cycles:,}")
+                        print(f"  Frames: {self.frame_count}")
+                    else:
+                        # Fallback para modo Python (si se usa)
+                        print("⚠️ Autopsia solo disponible en modo C++")
+                    
+                    print("=" * 40 + "\n")
+                    self._autopsy_done = True
+                # -----------------------------------------------
+                
                 self.frame_count += 1
         
         except KeyboardInterrupt:

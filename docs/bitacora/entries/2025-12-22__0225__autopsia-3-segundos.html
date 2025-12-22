@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>La Autopsia: Diagnóstico Post-Arranque - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>La Autopsia: Diagnóstico Post-Arranque</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0225
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0224__cese-fuego-victoria.html">Anterior (0224)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Ante la persistencia de la pantalla en blanco (verde) sin errores aparentes, cambiamos la estrategia de depuración. En lugar de trazar la ejecución paso a paso (que introduce latencia y distorsiona el comportamiento), dejamos correr el emulador durante 3 segundos (180 frames) y realizamos un volcado de estado completo ("Autopsia"). Esto revelará si el juego logró avanzar más allá de la inicialización, si configuró los registros de vídeo correctamente y si llegó a escribir datos gráficos en la VRAM.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Cuando un juego de Game Boy arranca, sigue una secuencia típica de inicialización:
+                </p>
+                <ol>
+                    <li><strong>Inicialización de registros:</strong> Configura los valores iniciales de la CPU y periféricos.</li>
+                    <li><strong>Espera de V-Blank:</strong> Espera a que la PPU entre en modo V-Blank (LY = 144) antes de tocar VRAM.</li>
+                    <li><strong>Copia de gráficos:</strong> Usa DMA o instrucciones de carga/almacenamiento para copiar tiles a VRAM (0x8000-0x97FF).</li>
+                    <li><strong>Configuración del mapa:</strong> Escribe índices de tiles en el Tile Map (0x9800-0x9BFF).</li>
+                    <li><strong>Habilitación de la pantalla:</strong> Activa el bit 7 de LCDC (0xFF40) para encender la pantalla.</li>
+                    <li><strong>Configuración de paleta:</strong> Escribe valores en BGP (0xFF47) para definir los colores.</li>
+                </ol>
+                <p>
+                    Si el emulador funciona a 60 FPS, en 3 segundos habrá ejecutado millones de ciclos. Si la pantalla sigue verde después de 3 segundos, el estado de la máquina en ese momento nos dirá exactamente por qué:
+                </p>
+                <ul>
+                    <li><strong>Si PC sigue en 0x02B4 (o cerca):</strong> El problema es el <strong>Timing</strong>. La CPU no ve avanzar a LY, probablemente porque la PPU no está actualizando el registro correctamente.</li>
+                    <li><strong>Si BGP es 0x00:</strong> El juego corre pero <strong>la paleta está negra/blanca</strong>. Tetris normalmente escribe 0xFC o 0xE4 en BGP.</li>
+                    <li><strong>Si LCDC Bit 0 es OFF:</strong> El juego corre pero <strong>no ha encendido la pantalla</strong> (el bit 7 también debe estar ON).</li>
+                    <li><strong>Si VRAM Tile Data son todos 0x00:</strong> El juego corre pero <strong>no copia gráficos</strong> (falla DMA o instrucciones LDI/LDD).</li>
+                    <li><strong>Si VRAM Tile Map son todos 0x00:</strong> El juego tiene gráficos pero <strong>el mapa está vacío</strong> (dibuja el tile 0 en todas partes).</li>
+                </ul>
+                <p>
+                    La "Autopsia" es una técnica forense: en lugar de intentar rastrear el problema en tiempo real (que introduce latencia), dejamos que el sistema corra libremente y luego "congelamos" el estado para analizarlo. Es como tomar una fotografía del estado interno del hardware después de un tiempo determinado.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió un bloque de código en el método <code>run()</code> de <code>viboy.py</code> que se ejecuta una sola vez cuando el contador de frames alcanza 180 (aproximadamente 3 segundos a 60 FPS).
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>viboy.py</strong>: Añadido bloque de autopsia que imprime el estado completo del sistema cuando <code>frame_count >= 180</code>. El bloque incluye:
+                        <ul>
+                            <li>Estado de la CPU (PC, SP, registros AF/BC/DE/HL, flags, estado HALT)</li>
+                            <li>Registros de vídeo (LCDC, STAT, LY, BGP)</li>
+                            <li>Muestra de VRAM Tile Data (0x8010-0x801F)</li>
+                            <li>Muestra de VRAM Tile Map (0x9900-0x990F)</li>
+                            <li>Estado de interrupciones (IE, IF)</li>
+                            <li>Estadísticas del sistema (ciclos totales, frames)</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se usa una bandera <code>_autopsy_done</code> para garantizar que la autopsia se ejecute solo una vez, evitando saturar la consola con volcados repetidos. El volcado se hace después de completar el frame 180, no durante su ejecución, para no interferir con el timing.
+                </p>
+                <p>
+                    La autopsia solo está disponible en modo C++ porque es donde se está ejecutando el emulador actualmente. Si se detecta modo Python, se imprime un aviso.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Añadido bloque de autopsia en el método <code>run()</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para validar la implementación:
+                </p>
+                <ol>
+                    <li><strong>Ejecutar el emulador:</strong> <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Esperar 3 segundos:</strong> El emulador debe ejecutarse normalmente durante 180 frames.</li>
+                    <li><strong>Analizar la salida:</strong> La consola mostrará el volcado de estado completo con el formato:
+                        <pre><code>========================================
+💀 AUTOPSIA DEL SISTEMA (Frame 180)
+========================================
+CPU State:
+  PC: 0xXXXX | SP: 0xXXXX
+  AF: 0xXXXX | BC: 0xXXXX | DE: 0xXXXX | HL: 0xXXXX
+  Flags: Z=X, N=X, H=X, C=X
+  Halted: True/False
+
+Video Registers:
+  LCDC: 0xXX (Bit 7=ON/OFF, BG=ON/OFF)
+  STAT: 0xXX | LY: XXX (Decimal)
+  BGP:  0xXX (Palette)
+
+VRAM Tile Data (0x8010 - Primeros bytes del logo?):
+  XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX
+
+VRAM Tile Map (0x9900 - Centro aprox):
+  XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX XX
+
+Interrupts:
+  IE: 0xXX | IF: 0xXX
+
+System State:
+  Total Cycles: X,XXX,XXX
+  Frames: 180
+========================================</code></pre>
+                    </li>
+                    <li><strong>Interpretar los resultados:</strong> Según los valores obtenidos, determinar el tipo de fallo:
+                        <ul>
+                            <li>Timing (PC atascado)</li>
+                            <li>Lógico (LCDC apagado)</li>
+                            <li>Datos (VRAM vacía)</li>
+                        </ul>
+                    </li>
+                </ol>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Timing, VRAM, LCDC Register</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Post-Boot State, Initialization Sequence</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Diagnóstico Forense:</strong> En lugar de rastrear el problema en tiempo real (que introduce latencia y distorsiona el comportamiento), es más efectivo dejar que el sistema corra libremente y luego "congelar" el estado para analizarlo.</li>
+                        <li><strong>Secuencia de Inicialización:</strong> Los juegos de Game Boy siguen una secuencia típica: inicialización → espera V-Blank → copia gráficos → configura mapa → habilita pantalla → configura paleta.</li>
+                        <li><strong>Preguntas Binarias:</strong> El estado después de 3 segundos responde preguntas binarias: ¿avanzó la CPU? ¿Se configuró LCDC? ¿Se escribió VRAM? Esto reduce el espacio de búsqueda del problema.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Interpretación de Resultados:</strong> Una vez obtenido el volcado de estado, necesitamos interpretar los valores para determinar el tipo exacto de fallo (Timing, Lógico, o Datos).</li>
+                        <li><strong>Valores Esperados:</strong> Necesitamos conocer los valores "normales" que Tetris debería tener después de 3 segundos para comparar con los obtenidos.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que 180 frames (3 segundos) es tiempo suficiente para que Tetris complete su secuencia de inicialización. Si el juego es más lento o tiene bucles de espera más largos, podríamos necesitar aumentar el umbral.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y obtener el volcado de estado completo</li>
+                    <li>[ ] Analizar los valores obtenidos y determinar el tipo de fallo</li>
+                    <li>[ ] Implementar la corrección según el diagnóstico</li>
+                    <li>[ ] Verificar que Tetris carga y muestra gráficos correctamente</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
