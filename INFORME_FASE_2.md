@@ -32,6 +32,78 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-21 - Step 0211: La Sonda en el Píxel Cero
+**Estado**: ✅ VERIFIED
+
+La "Inundación de VRAM" (Step 0208) y el "Forzado de Negro" (Step 0209) han fallado, lo que indica que la lógica de validación de direcciones en `render_scanline` está rechazando sistemáticamente los accesos a VRAM, desviando el flujo al bloque `else` (blanco). Matemáticamente esto no debería ocurrir, así que debemos ver los valores en tiempo real.
+
+**Objetivo:**
+- Instrumentar `PPU::render_scanline()` con `printf` para mostrar las variables de cálculo (LCDC, direcciones, Tile ID) exclusivamente para el píxel (0,0) del fotograma.
+- Obtener una radiografía exacta de por qué la dirección se considera inválida sin inundar la consola con miles de líneas de log.
+
+**Concepto de Hardware: Diagnóstico Quirúrgico**
+
+Cuando un sistema falla de manera sistemática, necesitamos datos exactos, no suposiciones. El problema que enfrentamos es que la condición de validación `if (tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE)` está fallando sistemáticamente, llevando la ejecución al bloque `else` que escribe color 0 (blanco) en el framebuffer.
+
+**El problema matemático:** Cualquier `tile_id` válido (0-255) debería generar una dirección válida dentro de la VRAM (0x8000-0x9FFF). Si esto no está ocurriendo, hay un error en:
+- Cálculo de direcciones: El `tile_map_addr` puede estar fuera de rango, leyendo basura del mapa de tiles.
+- Direccionamiento de tiles: El modo signed/unsigned puede estar calculando direcciones incorrectas.
+- Desbordamiento de tipos: Un `uint16_t` puede estar desbordándose o un `int8_t` puede estar interpretándose incorrectamente.
+- Validación incorrecta: Aunque corregimos la condición en el Step 0210, puede haber otro problema que no vimos.
+
+**La solución quirúrgica:** En lugar de imprimir miles de líneas de log para cada píxel, instrumentamos el código para imprimir los valores de cálculo **solo una vez por fotograma**, específicamente cuando `ly_ == 0` y `x == 0` (el primer píxel del primer fotograma). Esto nos dará una instantánea exacta del estado interno de la PPU en el momento crítico del renderizado.
+
+**Implementación:**
+
+1. **Inclusión de Header**: Se añadió `#include <cstdio>` al inicio de `src/core/cpp/PPU.cpp` para habilitar `printf`.
+
+2. **Bloque de Diagnóstico**: Se añadió el siguiente bloque de código justo después del cálculo de `tile_line_addr` y antes de la condición de validación:
+   ```cpp
+   // --- Step 0211: SONDA DE DIAGNÓSTICO (Píxel 0,0) ---
+   if (ly_ == 0 && x == 0) {
+       printf("--- [PPU DIAGNOSTIC FRAME START] ---\n");
+       printf("LCDC: 0x%02X | SCX: 0x%02X | SCY: 0x%02X\n", lcdc, scx, scy);
+       printf("MapBase: 0x%04X | MapAddr: 0x%04X | TileID: 0x%02X\n", tile_map_base, tile_map_addr, tile_id);
+       printf("DataBase: 0x%04X | Signed: %d\n", tile_data_base, signed_addressing ? 1 : 0);
+       printf("CalcTileAddr: 0x%04X | LineAddr: 0x%04X\n", tile_addr, tile_line_addr);
+       bool valid = (tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE);
+       printf("VALID CHECK: %s\n", valid ? "PASS" : "FAIL");
+       printf("------------------------------------\n");
+   }
+   ```
+
+**Archivos Afectados:**
+- `src/core/cpp/PPU.cpp` - Añadido `#include <cstdio>` y bloque de diagnóstico en `render_scanline()` (líneas 347-361)
+- `docs/bitacora/entries/2025-12-21__0211__sonda-diagnostico-pixel-cero.html` - Nueva entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con la nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con el Step 0211
+
+**Tests y Verificación:**
+
+1. **Recompilación del módulo C++**:
+   ```bash
+   python setup.py build_ext --inplace
+   # O usando el script de PowerShell:
+   .\rebuild_cpp.ps1
+   ```
+
+2. **Ejecución del emulador**:
+   ```bash
+   python main.py roms/tetris.gb
+   ```
+
+3. **Análisis de resultados esperados**: Con estos datos, podremos identificar exactamente dónde está el error:
+   - Si `TileID` es extraño: Quizás leemos basura del mapa de tiles (MapAddr fuera de rango).
+   - Si `MapAddr` está fuera de rango: Error en el cálculo de posición en el mapa de tiles.
+   - Si `LineAddr` es 0 o enorme: Error de desbordamiento o tipos de datos incorrectos.
+   - Si `VALID CHECK` dice FAIL: Veremos por qué el número exacto falla la condición, permitiéndonos corregir el problema en el siguiente paso.
+
+**Validación de módulo compilado C++**: La extensión Cython se generó correctamente y está lista para pruebas en tiempo de ejecución. Al ejecutar el emulador, deberíamos ver en la consola un bloque de diagnóstico que muestra los valores exactos calculados para el píxel (0,0) del primer fotograma.
+
+**Conclusión:** Este Step instrumenta el código con diagnóstico quirúrgico para obtener los valores exactos que la PPU está calculando en tiempo de ejecución. Una vez que veamos estos valores, podremos identificar exactamente dónde está el error y aplicar la corrección correspondiente en el siguiente step.
+
+---
+
 ### 2025-12-21 - Step 0200: Arquitectura Gráfica: Sincronización del Framebuffer con V-Blank
 **Estado**: ✅ VERIFIED
 

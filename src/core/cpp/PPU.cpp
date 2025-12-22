@@ -1,6 +1,7 @@
 #include "PPU.hpp"
 #include "MMU.hpp"
 #include <algorithm>
+#include <cstdio>
 
 PPU::PPU(MMU* mmu) 
     : mmu_(mmu)
@@ -345,6 +346,22 @@ void PPU::render_scanline() {
 
         uint8_t line_in_tile = map_y % 8;
         uint16_t tile_line_addr = tile_addr + (line_in_tile * 2);
+
+        // --- Step 0211: SONDA DE DIAGNÓSTICO (Píxel 0,0) ---
+        // Imprimir el estado interno solo una vez por frame (al inicio)
+        // Esto nos permite ver los valores exactos que la PPU está calculando
+        // sin inundar la consola con miles de líneas de log
+        if (ly_ == 0 && x == 0) {
+            printf("--- [PPU DIAGNOSTIC FRAME START] ---\n");
+            printf("LCDC: 0x%02X | SCX: 0x%02X | SCY: 0x%02X\n", lcdc, scx, scy);
+            printf("MapBase: 0x%04X | MapAddr: 0x%04X | TileID: 0x%02X\n", tile_map_base, tile_map_addr, tile_id);
+            printf("DataBase: 0x%04X | Signed: %d\n", tile_data_base, signed_addressing ? 1 : 0);
+            printf("CalcTileAddr: 0x%04X | LineAddr: 0x%04X\n", tile_addr, tile_line_addr);
+            bool valid = (tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE);
+            printf("VALID CHECK: %s\n", valid ? "PASS" : "FAIL");
+            printf("------------------------------------\n");
+        }
+        // -------------------------------------------------
 
         // --- Step 0210: CORRECCIÓN CRÍTICA DE VALIDACIÓN DE VRAM ---
         // ERROR ENCONTRADO: La condición `tile_line_addr < 0xA000 - 1` es incorrecta.

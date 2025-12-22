@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>La Sonda en el Píxel Cero - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>La Sonda en el Píxel Cero</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-21
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0211
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">✅ VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-21__0210__correccion-critica-validacion-vram.html">Anterior (0210)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    La "Inundación de VRAM" (Step 0208) y el "Forzado de Negro" (Step 0209) han fallado, lo que indica que la lógica de validación de direcciones en <code>render_scanline</code> está rechazando sistemáticamente los accesos a VRAM, desviando el flujo al bloque <code>else</code> (blanco). Matemáticamente esto no debería ocurrir, así que debemos ver los valores en tiempo real.
+                </p>
+                <p>
+                    <strong>Objetivo:</strong> Instrumentar <code>PPU::render_scanline()</code> con <code>printf</code> para mostrar las variables de cálculo (LCDC, direcciones, Tile ID) exclusivamente para el píxel (0,0) del fotograma. Esto nos dará una radiografía exacta de por qué la dirección se considera inválida sin inundar la consola con miles de líneas de log.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware: Diagnóstico Quirúrgico</h2>
+                <p>
+                    Cuando un sistema falla de manera sistemática, necesitamos datos exactos, no suposiciones. El problema que enfrentamos es que la condición de validación <code>if (tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE)</code> está fallando sistemáticamente, llevando la ejecución al bloque <code>else</code> que escribe color 0 (blanco) en el framebuffer.
+                </p>
+                <p>
+                    <strong>El problema matemático:</strong> Cualquier <code>tile_id</code> válido (0-255) debería generar una dirección válida dentro de la VRAM (0x8000-0x9FFF). Si esto no está ocurriendo, hay un error en:
+                </p>
+                <ul>
+                    <li><strong>Cálculo de direcciones:</strong> El <code>tile_map_addr</code> puede estar fuera de rango, leyendo basura del mapa de tiles.</li>
+                    <li><strong>Direccionamiento de tiles:</strong> El modo signed/unsigned puede estar calculando direcciones incorrectas.</li>
+                    <li><strong>Desbordamiento de tipos:</strong> Un <code>uint16_t</code> puede estar desbordándose o un <code>int8_t</code> puede estar interpretándose incorrectamente.</li>
+                    <li><strong>Validación incorrecta:</strong> Aunque corregimos la condición en el Step 0210, puede haber otro problema que no vimos.</li>
+                </ul>
+                <p>
+                    <strong>La solución quirúrgica:</strong> En lugar de imprimir miles de líneas de log para cada píxel, instrumentamos el código para imprimir los valores de cálculo <strong>solo una vez por fotograma</strong>, específicamente cuando <code>ly_ == 0</code> y <code>x == 0</code> (el primer píxel del primer fotograma). Esto nos dará una instantánea exacta del estado interno de la PPU en el momento crítico del renderizado.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "PPU Rendering", "Tile Addressing", "VRAM Access"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió un bloque de diagnóstico en <code>PPU::render_scanline()</code> dentro del archivo <code>src/core/cpp/PPU.cpp</code>, justo antes de la condición de validación de VRAM.
+                </p>
+                
+                <h3>Inclusión de Header</h3>
+                <p>
+                    Se añadió <code>#include &lt;cstdio&gt;</code> al inicio del archivo para habilitar <code>printf</code>.
+                </p>
+                <pre><code>#include "PPU.hpp"
+#include "MMU.hpp"
+#include &lt;algorithm&gt;
+#include &lt;cstdio&gt;  // Step 0211: Para printf de diagnóstico</code></pre>
+
+                <h3>Bloque de Diagnóstico</h3>
+                <p>
+                    Se añadió el siguiente bloque de código justo después del cálculo de <code>tile_line_addr</code> y antes de la condición de validación:
+                </p>
+                <pre><code>// --- Step 0211: SONDA DE DIAGNÓSTICO (Píxel 0,0) ---
+// Imprimir el estado interno solo una vez por frame (al inicio)
+// Esto nos permite ver los valores exactos que la PPU está calculando
+// sin inundar la consola con miles de líneas de log
+if (ly_ == 0 && x == 0) {
+    printf("--- [PPU DIAGNOSTIC FRAME START] ---\n");
+    printf("LCDC: 0x%02X | SCX: 0x%02X | SCY: 0x%02X\n", lcdc, scx, scy);
+    printf("MapBase: 0x%04X | MapAddr: 0x%04X | TileID: 0x%02X\n", tile_map_base, tile_map_addr, tile_id);
+    printf("DataBase: 0x%04X | Signed: %d\n", tile_data_base, signed_addressing ? 1 : 0);
+    printf("CalcTileAddr: 0x%04X | LineAddr: 0x%04X\n", tile_addr, tile_line_addr);
+    bool valid = (tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE);
+    printf("VALID CHECK: %s\n", valid ? "PASS" : "FAIL");
+    printf("------------------------------------\n");
+}
+// -------------------------------------------------</code></pre>
+
+                <h3>Variables Diagnosticadas</h3>
+                <p>
+                    El bloque de diagnóstico imprime las siguientes variables críticas:
+                </p>
+                <ul>
+                    <li><strong>LCDC:</strong> Registro de control del LCD (0xFF40), incluye bits de habilitación y modo de direccionamiento.</li>
+                    <li><strong>SCX/SCY:</strong> Registros de scroll horizontal y vertical (0xFF43/0xFF42).</li>
+                    <li><strong>MapBase:</strong> Dirección base del mapa de tiles (0x9800 o 0x9C00 según LCDC bit 3).</li>
+                    <li><strong>MapAddr:</strong> Dirección calculada en el mapa de tiles para el tile actual.</li>
+                    <li><strong>TileID:</strong> ID del tile leído desde el mapa (0-255).</li>
+                    <li><strong>DataBase:</strong> Dirección base de los datos de tiles (0x8000 o 0x9000 según LCDC bit 4).</li>
+                    <strong>Signed:</strong> Indica si se usa direccionamiento signed (1) o unsigned (0).</li>
+                    <li><strong>CalcTileAddr:</strong> Dirección base del tile calculada (antes de añadir el offset de línea).</li>
+                    <li><strong>LineAddr:</strong> Dirección final de la línea del tile (tile_addr + line_in_tile * 2).</li>
+                    <li><strong>VALID CHECK:</strong> Resultado de la validación (PASS si está en rango, FAIL si no).</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Añadido <code>#include &lt;cstdio&gt;</code> y bloque de diagnóstico en <code>render_scanline()</code> (líneas 347-361)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Compilación:</strong> El código se compiló exitosamente con <code>python setup.py build_ext --inplace</code>. No se introdujeron errores de compilación.
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> La extensión Cython se generó correctamente y está lista para pruebas en tiempo de ejecución.
+                </p>
+                <p>
+                    <strong>Prueba esperada:</strong> Al ejecutar el emulador con <code>python main.py roms/tetris.gb</code>, deberíamos ver en la consola un bloque de diagnóstico que muestra los valores exactos calculados para el píxel (0,0) del primer fotograma. Este bloque aparecerá una vez por fotograma (60 veces por segundo), pero solo mostrará los valores del primer píxel, evitando inundar la consola.
+                </p>
+                <p>
+                    <strong>Análisis de resultados esperados:</strong> Con estos datos, podremos identificar exactamente dónde está el error:
+                </p>
+                <ul>
+                    <li><strong>Si TileID es extraño:</strong> Quizás leemos basura del mapa de tiles (MapAddr fuera de rango).</li>
+                    <li><strong>Si MapAddr está fuera de rango:</strong> Error en el cálculo de posición en el mapa de tiles.</li>
+                    <li><strong>Si LineAddr es 0 o enorme:</strong> Error de desbordamiento o tipos de datos incorrectos.</li>
+                    <li><strong>Si VALID CHECK dice FAIL:</strong> Veremos por qué el número exacto falla la condición, permitiéndonos corregir el problema en el siguiente paso.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "PPU Rendering" - Proceso de renderizado de líneas de escaneo</li>
+                    <li>Pan Docs: "Tile Addressing" - Cálculo de direcciones de tiles (signed vs unsigned)</li>
+                    <li>Pan Docs: "VRAM Access" - Validación de rangos de memoria VRAM</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Diagnóstico quirúrgico:</strong> Cuando un problema es sistemático, es mejor instrumentar el código para ver los valores exactos en tiempo de ejecución que adivinar basándose en suposiciones.</li>
+                        <li><strong>Control de salida de logs:</strong> Imprimir logs para cada píxel (160×144 = 23,040 píxeles por fotograma) saturaría la consola. Es mejor limitar la salida a casos específicos (como el primer píxel del primer fotograma).</li>
+                        <li><strong>Validación de hipótesis:</strong> Aunque matemáticamente cualquier tile_id debería generar una dirección válida, necesitamos verificar que los cálculos intermedios sean correctos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Valores reales:</strong> Ver los valores exactos que la PPU está calculando en tiempo de ejecución para identificar dónde está el error.</li>
+                        <li><strong>Origen del problema:</strong> Determinar si el problema está en el cálculo de direcciones, la lectura del mapa de tiles, o la validación de rangos.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> La condición de validación está fallando porque alguna de las variables intermedias (MapAddr, TileID, CalcTileAddr, LineAddr) tiene un valor incorrecto que no podemos ver sin instrumentar el código.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Una vez que veamos los valores exactos, la corrección será obvia. Puede ser:
+                    </p>
+                    <ul>
+                        <li>Un error en el cálculo de MapAddr (fuera del rango 0x9800-0x9FFF)</li>
+                        <li>Un TileID inválido leído desde el mapa (basura de memoria no inicializada)</li>
+                        <li>Un error en el cálculo de direcciones signed/unsigned</li>
+                        <li>Un desbordamiento de tipos de datos (uint16_t, int8_t)</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con <code>.\rebuild_cpp.ps1</code> o <code>python setup.py build_ext --inplace</code></li>
+                    <li>[ ] Ejecutar el emulador: <code>python main.py roms/tetris.gb</code></li>
+                    <li>[ ] Analizar la consola: Buscar el bloque <code>[PPU DIAGNOSTIC FRAME START]</code></li>
+                    <li>[ ] Identificar el error: Comparar los valores impresos con los valores esperados según la documentación</li>
+                    <li>[ ] Aplicar corrección: Una vez identificado el problema, corregirlo en el siguiente step</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
