@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0254 - PPU Fase E - Renderizado de Sprites -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0254</span>
+                        <a href="entries/2025-12-23__0254__sprite-rendering-ppu-phase-e.html" class="title">PPU Fase E - Renderizado de Sprites</a>
+                        <p class="summary">Este Step implementa el renderizado de Sprites (OBJ - Objects) en la PPU de C++. Hasta ahora, la PPU solo podía renderizar el Background (fondo), pero con la DMA funcionando (Step 0251), la memoria OAM (`0xFE00-0xFE9F`) ahora contiene datos válidos de los personajes y objetos del juego. Este Step completa el pipeline de renderizado permitiendo que los sprites se dibujen encima del fondo, respetando transparencia, prioridad y atributos (flip X/Y, paleta).</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0253 - Silencio Total (Release Candidate) -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>

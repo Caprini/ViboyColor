@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PPU Fase E - Renderizado de Sprites - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>PPU Fase E - Renderizado de Sprites</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0254
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0253__silent-run-release-candidate.html">Anterior (0253)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa el renderizado de Sprites (OBJ - Objects) en la PPU de C++. 
+                    Hasta ahora, la PPU solo podía renderizar el Background (fondo), pero con la DMA funcionando 
+                    (Step 0251), la memoria OAM (`0xFE00-0xFE9F`) ahora contiene datos válidos de los personajes 
+                    y objetos del juego. Este Step completa el pipeline de renderizado permitiendo que los sprites 
+                    se dibujen encima del fondo, respetando transparencia, prioridad y atributos (flip X/Y, paleta).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Los <strong>Sprites (OBJ - Objects)</strong> son objetos móviles que se dibujan encima del 
+                    Background y la Window. En hardware real, la Game Boy puede mostrar hasta 40 sprites en total, 
+                    pero solo 10 por línea de escaneo (scanline).
+                </p>
+                
+                <h3>Estructura de OAM (Object Attribute Memory)</h3>
+                <p>
+                    La memoria OAM (`0xFE00-0xFE9F`) contiene 160 bytes organizados en 40 entradas de 4 bytes cada una:
+                </p>
+                <ul>
+                    <li><strong>Byte 0 (Y Position)</strong>: Posición Y en pantalla + 16. Si Y = 0, el sprite está oculto.</li>
+                    <li><strong>Byte 1 (X Position)</strong>: Posición X en pantalla + 8. Si X = 0, el sprite está oculto.</li>
+                    <li><strong>Byte 2 (Tile ID)</strong>: Índice del tile en VRAM (0-255). Los sprites siempre usan direccionamiento unsigned desde `0x8000`.</li>
+                    <li><strong>Byte 3 (Attributes)</strong>: Atributos del sprite:
+                        <ul>
+                            <li>Bit 7: Prioridad (0=encima del fondo, 1=detrás del fondo excepto color 0)</li>
+                            <li>Bit 6: Y-Flip (0=normal, 1=volteado verticalmente)</li>
+                            <li>Bit 5: X-Flip (0=normal, 1=volteado horizontalmente)</li>
+                            <li>Bit 4: Paleta (0=OBP0, 1=OBP1)</li>
+                            <li>Bits 0-3: No usados (reservados para CGB)</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Tamaño de Sprites</h3>
+                <p>
+                    El tamaño de los sprites está controlado por el bit 2 del registro LCDC:
+                </p>
+                <ul>
+                    <li><strong>Bit 2 = 0</strong>: Sprites de 8x8 píxeles (un solo tile)</li>
+                    <li><strong>Bit 2 = 1</strong>: Sprites de 8x16 píxeles (dos tiles verticales, tile_id y tile_id+1)</li>
+                </ul>
+
+                <h3>Prioridad y Transparencia</h3>
+                <p>
+                    Los sprites tienen reglas especiales de renderizado:
+                </p>
+                <ul>
+                    <li><strong>Color 0 = Transparente</strong>: El color 0 en un sprite siempre es transparente y no se dibuja.</li>
+                    <li><strong>Prioridad (Bit 7 de Attributes)</strong>:
+                        <ul>
+                            <li>Si Prioridad = 0: El sprite se dibuja encima del fondo siempre.</li>
+                            <li>Si Prioridad = 1: El sprite se dibuja detrás del fondo, excepto si el fondo es color 0 (transparente).</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Límite de Hardware</h3>
+                <p>
+                    En hardware real, solo se pueden dibujar 10 sprites por línea de escaneo. Si hay más de 10 sprites 
+                    que intersectan con una línea, solo los primeros 10 (en orden de OAM) se dibujan. Los demás se 
+                    ignoran silenciosamente.
+                </p>
+
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - OAM, Sprite Attributes, Sprite Rendering
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se completó la implementación del método `render_sprites()` en `PPU.cpp` y se integró en 
+                    `render_scanline()` para que los sprites se dibujen después del Background.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>`src/core/cpp/PPU.cpp`</strong>: 
+                        <ul>
+                            <li>Completada la implementación de `render_sprites()` con toda la lógica de renderizado.</li>
+                            <li>Integrada la llamada a `render_sprites()` en `render_scanline()` después de renderizar el Background.</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Lógica de Renderizado</h3>
+                <p>
+                    El método `render_sprites()` implementa el siguiente algoritmo:
+                </p>
+                <ol>
+                    <li><strong>Verificación de Habilitación</strong>: Verifica que los sprites estén habilitados (LCDC bit 1).</li>
+                    <li><strong>Determinación de Altura</strong>: Lee el bit 2 de LCDC para determinar si los sprites son 8x8 o 8x16.</li>
+                    <li><strong>Iteración sobre OAM</strong>: Itera sobre los 40 sprites en OAM (`0xFE00-0xFE9F`).</li>
+                    <li><strong>Filtrado por Visibilidad</strong>: 
+                        <ul>
+                            <li>Verifica que Y y X no sean 0 (sprite oculto).</li>
+                            <li>Verifica que el sprite intersecte con la línea actual (LY).</li>
+                        </ul>
+                    </li>
+                    <li><strong>Decodificación de Atributos</strong>: Extrae prioridad, Y-Flip, X-Flip y paleta.</li>
+                    <li><strong>Cálculo de Línea del Sprite</strong>: Calcula qué línea del sprite se está dibujando, aplicando Y-Flip si es necesario.</li>
+                    <li><strong>Manejo de Sprites 8x16</strong>: Si el sprite es 8x16, determina qué tile usar (superior o inferior).</li>
+                    <li><strong>Decodificación del Tile</strong>: Usa `decode_tile_line()` para decodificar la línea del tile desde VRAM.</li>
+                    <li><strong>Renderizado de Píxeles</strong>: Para cada píxel del sprite:
+                        <ul>
+                            <li>Aplica X-Flip si es necesario.</li>
+                            <li>Verifica que el píxel esté dentro de los límites de pantalla.</li>
+                            <li>Verifica transparencia (color 0 = no dibujar).</li>
+                            <li>Respetar prioridad: si prioridad = 1 y el fondo no es color 0, no dibujar.</li>
+                            <li>Escribe el índice de color en el framebuffer.</li>
+                        </ul>
+                    </li>
+                </ol>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Límite de 10 Sprites por Línea</strong>: Se implementó un contador `sprites_drawn` que limita el renderizado a 10 sprites por línea, respetando el comportamiento del hardware real.</li>
+                    <li><strong>Prioridad del Fondo</strong>: Se verifica el color del fondo en cada píxel antes de dibujar el sprite. Si el sprite tiene prioridad y el fondo no es transparente, el sprite no se dibuja.</li>
+                    <li><strong>Transparencia</strong>: El color 0 del sprite siempre es transparente, independientemente de la prioridad.</li>
+                    <li><strong>Paleta</strong>: Los índices de color (0-3) se guardan en el framebuffer. La aplicación de la paleta (OBP0/OBP1) se hace en Python al renderizar.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Completada implementación de `render_sprites()` e integración en `render_scanline()`</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La implementación se validará ejecutando ROMs comerciales que usan sprites extensivamente:
+                </p>
+                <ul>
+                    <li><strong>Pokémon Red</strong>: Debe mostrar el logo de "POKÉMON" y los sprites de Gengar y Jigglypuff (o Nidorino) en la pantalla de título.</li>
+                    <li><strong>Super Mario Deluxe</strong>: Debe mostrar a Mario y otros sprites en pantalla.</li>
+                    <li><strong>Tetris</strong>: Si logra arrancar, debe mostrar las piezas (tetrominos) como sprites.</li>
+                </ul>
+                <p>
+                    <strong>Comando de prueba:</strong>
+                </p>
+                <pre><code>python main.py roms/pkmn.gb</code></pre>
+                <p>
+                    <strong>Validación esperada:</strong> Los sprites deben aparecer encima del fondo, respetando transparencia y prioridad.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/OAM.html">OAM (Object Attribute Memory)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Sprite_Attributes.html">Sprite Attributes</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Sprite_Rendering.html">Sprite Rendering</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>OAM y Sprites</strong>: La memoria OAM contiene los atributos de los 40 sprites posibles. Cada sprite tiene posición, tile ID y atributos (prioridad, flip, paleta).</li>
+                        <li><strong>Prioridad del Fondo</strong>: Los sprites con prioridad (bit 7 = 1) se dibujan detrás del fondo, excepto si el fondo es color 0 (transparente). Esto permite efectos como sprites que pasan "detrás" de objetos del fondo.</li>
+                        <li><strong>Transparencia</strong>: El color 0 en sprites siempre es transparente, permitiendo formas irregulares y efectos de superposición.</li>
+                        <li><strong>Sprites 8x16</strong>: Los sprites grandes usan dos tiles consecutivos (tile_id y tile_id+1), uno para la mitad superior y otro para la inferior.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Orden de Renderizado</strong>: En hardware real, los sprites se dibujan en orden inverso (sprite 39 primero, sprite 0 último), lo que hace que los sprites con índice menor aparezcan encima. Esta implementación actual dibuja en orden directo, lo que podría causar problemas de ordenamiento visual.</li>
+                        <li><strong>Límite de 10 Sprites</strong>: El límite de 10 sprites por línea se implementó, pero no se ha verificado si el hardware realmente detiene el renderizado después de 10 sprites o si simplemente ignora los demás.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Orden de Renderizado</strong>: Por simplicidad, se implementó el renderizado en orden directo (sprite 0 a sprite 39). 
+                        Si hay problemas de ordenamiento visual (sprites apareciendo en el orden incorrecto), será necesario 
+                        invertir el orden de iteración o implementar un sistema de ordenamiento por prioridad.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar `python main.py roms/pkmn.gb` y verificar que los sprites aparecen correctamente.</li>
+                    <li>[ ] Si hay problemas de ordenamiento visual, implementar renderizado en orden inverso (sprite 39 a sprite 0).</li>
+                    <li>[ ] Verificar que la prioridad del fondo funciona correctamente (sprites pasando detrás de objetos).</li>
+                    <li>[ ] Implementar renderizado de Window (si es necesario para completar el pipeline de renderizado).</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -32,6 +32,57 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0254: PPU Fase E - Renderizado de Sprites
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa el renderizado de Sprites (OBJ - Objects) en la PPU de C++. Hasta ahora, la PPU solo podía renderizar el Background (fondo), pero con la DMA funcionando (Step 0251), la memoria OAM (`0xFE00-0xFE9F`) ahora contiene datos válidos de los personajes y objetos del juego. Este Step completa el pipeline de renderizado permitiendo que los sprites se dibujen encima del fondo, respetando transparencia, prioridad y atributos (flip X/Y, paleta).
+
+**Objetivo:**
+- Implementar el renderizado completo de Sprites en la PPU de C++.
+- Integrar el renderizado de sprites en `render_scanline()` después del Background.
+- Respetar transparencia (color 0), prioridad del fondo y atributos (flip X/Y, paleta).
+
+**Implementación:**
+1. **Modificado `src/core/cpp/PPU.cpp`**: Completada la implementación de `render_sprites()`:
+   - Verificación de habilitación de sprites (LCDC bit 1).
+   - Determinación de altura de sprites (8x8 o 8x16 según LCDC bit 2).
+   - Iteración sobre los 40 sprites en OAM (`0xFE00-0xFE9F`).
+   - Filtrado por visibilidad (Y/X != 0, intersección con línea actual).
+   - Decodificación de atributos (prioridad, Y-Flip, X-Flip, paleta).
+   - Cálculo de línea del sprite con soporte para Y-Flip.
+   - Manejo de sprites 8x16 (dos tiles consecutivos).
+   - Decodificación de tiles desde VRAM usando `decode_tile_line()`.
+   - Renderizado de píxeles con respeto a transparencia y prioridad.
+   - Límite de 10 sprites por línea (comportamiento del hardware real).
+2. **Integración en `render_scanline()`**: Añadida llamada a `render_sprites()` después de renderizar el Background.
+
+**Concepto de Hardware:**
+**Sprites (OBJ - Objects)**: Los sprites son objetos móviles que se dibujan encima del Background y la Window. La memoria OAM contiene 40 entradas de 4 bytes cada una, con información de posición, tile ID y atributos. Cada sprite puede ser 8x8 o 8x16 píxeles, y puede tener atributos de prioridad (detrás del fondo), flip vertical/horizontal y selección de paleta (OBP0/OBP1).
+
+**Prioridad del Fondo**: Los sprites con prioridad (bit 7 de attributes = 1) se dibujan detrás del fondo, excepto si el fondo es color 0 (transparente). Esto permite efectos visuales como sprites que pasan "detrás" de objetos del fondo.
+
+**Transparencia**: El color 0 en sprites siempre es transparente, permitiendo formas irregulares y efectos de superposición.
+
+**Límite de Hardware**: En hardware real, solo se pueden dibujar 10 sprites por línea de escaneo. Si hay más de 10 sprites que intersectan con una línea, solo los primeros 10 (en orden de OAM) se dibujan.
+
+**Fuente:** Pan Docs - OAM, Sprite Attributes, Sprite Rendering
+
+**Archivos Afectados:**
+- `src/core/cpp/PPU.cpp` - Completada implementación de `render_sprites()` e integración en `render_scanline()`.
+
+**Decisiones de Diseño:**
+- **Límite de 10 Sprites por Línea**: Se implementó un contador `sprites_drawn` que limita el renderizado a 10 sprites por línea, respetando el comportamiento del hardware real.
+- **Prioridad del Fondo**: Se verifica el color del fondo en cada píxel antes de dibujar el sprite. Si el sprite tiene prioridad y el fondo no es transparente, el sprite no se dibuja.
+- **Transparencia**: El color 0 del sprite siempre es transparente, independientemente de la prioridad.
+- **Paleta**: Los índices de color (0-3) se guardan en el framebuffer. La aplicación de la paleta (OBP0/OBP1) se hace en Python al renderizar.
+
+**Próximos Pasos:**
+- Ejecutar `python main.py roms/pkmn.gb` y verificar que los sprites aparecen correctamente (logo de "POKÉMON", Gengar, Jigglypuff).
+- Si hay problemas de ordenamiento visual, implementar renderizado en orden inverso (sprite 39 a sprite 0).
+- Verificar que la prioridad del fondo funciona correctamente (sprites pasando detrás de objetos).
+
+---
+
 ### 2025-12-23 - Step 0253: Silencio Total (Release Candidate)
 **Estado**: ✅ IMPLEMENTADO
 
