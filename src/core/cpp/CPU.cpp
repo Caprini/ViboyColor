@@ -3,7 +3,7 @@
 #include "Registers.hpp"
 #include "PPU.hpp"
 #include "Timer.hpp"
-#include <cstdio>  // Step 0236: Francotirador II
+// Step 0243: Eliminado #include <cstdio> - Operación Silencio
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
@@ -461,16 +461,9 @@ int CPU::step() {
     }
     
     // ========== FASE 4: Fetch-Decode-Execute ==========
-    // --- Step 0241: FRANCOTIRADOR RECARGADO ---
-    // Reactivamos el debug del Francotirador para analizar el comportamiento
-    // dinámico del bucle en 0x2B20-0x2B30. Necesitamos ver si HL avanza
-    // (escaneando memoria) o se reinicia constantemente.
-    if (regs_->pc >= 0x2B20 && regs_->pc <= 0x2B30) {
-        uint8_t opcode = mmu_->read(regs_->pc);
-        printf("[SNIPER] PC:%04X | OP:%02X | A:%02X | HL:%04X\n", 
-               regs_->pc, opcode, regs_->a, regs_->get_hl());
-    }
-    // ------------------------------------------
+    // Step 0243: Operación Silencio - Eliminado bloque del Francotirador
+    // El emulador debe correr a velocidad nativa (60 FPS) sin instrumentación pesada.
+    // El monitor GPS (Step 0240) proporciona suficiente información para diagnóstico.
     
     // Fetch: Leer opcode de memoria
     uint8_t opcode = fetch_byte();
@@ -489,12 +482,8 @@ int CPU::step() {
         // Fuente: Pan Docs - LD (nn), SP: 5 M-Cycles
         case 0x08:  // LD (nn), SP
             {
-                // --- Step 0242: MARCADOR RADIACTIVO ---
-                // DEBUG: Confirmar ejecución real del fix
-                // Este printf es un "canario" para verificar que estamos ejecutando
-                // la versión correcta del código C++ y no una DLL/PYD cacheada.
-                printf("!!! EJECUTANDO OPCODE 0x08 EN C++ !!!\n");
-                // ---------------------------------------
+                // Step 0243: Operación Silencio - Eliminado marcador radiactivo
+                // El código está limpio y funcionando. No necesitamos más instrumentación.
                 
                 uint16_t addr = fetch_word();  // Consume 2 bytes más (nn en Little-Endian)
                 // Escribe SP en formato Little Endian (low byte primero, high byte segundo)

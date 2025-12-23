@@ -32,6 +32,39 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0243: Operación Silencio
+**Estado**: 🔍 EN DEPURACIÓN
+
+Tras el "Hard Reset" (Step 0242), se confirmó que el código basura ha desaparecido y ahora observamos un bucle de escaneo de memoria legítimo (`INC HL`, `CP FD`). Sin embargo, la instrumentación de depuración (`printf` por instrucción) está ralentizando masivamente el emulador, impidiendo saber si el bucle termina naturalmente. Se elimina toda la instrumentación pesada (Francotirador y Marcador Radiactivo) para permitir la ejecución a velocidad nativa (60 FPS) y usar el monitor GPS (Step 0240) para verificar el avance.
+
+**Objetivo:**
+- Eliminar toda la instrumentación de depuración pesada en `CPU.cpp` (Francotirador y Marcador Radiactivo).
+- Permitir la ejecución a velocidad nativa (60 FPS) sin ralentizaciones.
+- Usar el monitor GPS para verificar el avance del emulador.
+
+**Implementación:**
+1. **Eliminado bloque del Francotirador (Step 0241)**: Se elimina el bloque que logueaba cada instrucción en el rango `0x2B20-0x2B30`.
+2. **Eliminado Marcador Radiactivo (Step 0242)**: Se elimina el `printf` dentro del `case 0x08`.
+3. **Eliminado `#include <cstdio>`**: Ya no se usa ningún `printf` ni función de I/O estándar.
+
+**Concepto de Hardware:**
+**Efecto Observador en Emulación**: La instrumentación de depuración (logs, `printf`, trazas) consume tiempo de CPU y puede ralentizar el emulador hasta 1,000 veces, impidiendo que el juego alcance su velocidad natural (60 FPS). Esto puede hacer que bucles que normalmente terminarían en milisegundos tarden minutos o incluso horas. El **monitor GPS** (implementado en Step 0240) proporciona suficiente información para diagnóstico sin ralentizar la ejecución, reportando periódicamente el estado de la CPU (PC, SP, IME, IE, IF, LCDC, LY).
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Eliminada toda la instrumentación de depuración (Francotirador y Marcador Radiactivo). Eliminado `#include <cstdio>`.
+- `docs/bitacora/entries/2025-12-22__0243__operacion-silencio.html` - Entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con Step 0243
+
+**Próximos Pasos:**
+- Recompilar la extensión C++: `.\rebuild_cpp.ps1`
+- Ejecutar Tetris: `python main.py roms/tetris.gb`
+- Observar los logs del GPS (cada segundo) para verificar si el PC cambia o se queda fijo.
+- Si el PC cambia drásticamente (sale de la zona `0x2Bxx` y va a `0x02xx`, `0x2Cxx`, etc.): **ÉXITO** - Hemos superado la inicialización.
+- Si el PC se queda fijo en `0x2B24` durante más de 5-10 segundos: Investigar por qué la memoria WRAM no contiene el byte marcador `0xFD`.
+
+---
+
 ### 2025-12-22 - Step 0242: Hard Reset y Marcador Radiactivo
 **Estado**: 🔍 EN DEPURACIÓN
 

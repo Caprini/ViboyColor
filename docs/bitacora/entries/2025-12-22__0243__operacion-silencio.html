@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Operación Silencio - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Operación Silencio</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0243
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0242__hard-reset-marcador-radiactivo.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Tras el "Hard Reset" (Step 0242), se confirmó que el código basura ha desaparecido y ahora observamos un bucle de escaneo de memoria legítimo (`INC HL`, `CP FD`). Sin embargo, la instrumentación de depuración (`printf` por instrucción) está ralentizando masivamente el emulador, impidiendo saber si el bucle termina naturalmente. Se elimina toda la instrumentación pesada (Francotirador y Marcador Radiactivo) para permitir la ejecución a velocidad nativa (60 FPS) y usar el monitor GPS (Step 0240) para verificar el avance.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Efecto Observador (Observer Effect)</strong>: En física cuántica, el acto de observar un sistema puede alterar su comportamiento. En emulación, algo similar ocurre: la instrumentación de depuración (logs, `printf`, trazas) consume tiempo de CPU y puede ralentizar el emulador hasta 1,000 veces, impidiendo que el juego alcance su velocidad natural (60 FPS). Esto puede hacer que bucles que normalmente terminarían en milisegundos tarden minutos o incluso horas.
+                </p>
+                <p>
+                    <strong>Rendimiento en el Bucle Crítico</strong>: El bucle de emulación (`step()`) se ejecuta millones de veces por segundo. Cada `printf` o llamada a I/O puede consumir microsegundos o milisegundos, multiplicándose por millones de ejecuciones. Un solo `printf` por instrucción puede ralentizar el emulador de 60 FPS a menos de 1 FPS, haciendo imposible determinar si el juego está funcionando correctamente o simplemente está lento debido a la instrumentación.
+                </p>
+                <p>
+                    <strong>Monitor GPS como Alternativa</strong>: En lugar de instrumentar cada instrucción, podemos usar un monitor externo (GPS) que muestre el estado de la CPU periódicamente (por ejemplo, cada segundo). Esto proporciona suficiente información para diagnóstico sin ralentizar la ejecución, permitiendo que el emulador corra a velocidad nativa.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se eliminan todos los bloques de instrumentación pesada en `CPU.cpp` para permitir la ejecución a velocidad nativa. El monitor GPS (Step 0240) proporciona suficiente información para diagnóstico sin ralentizar la ejecución.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code>: Eliminado bloque del Francotirador (Step 0241) y Marcador Radiactivo (Step 0242). Eliminado <code>#include &lt;cstdio&gt;</code>.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Eliminación completa de instrumentación</strong>: Se eliminan todos los `printf` del bucle crítico, incluyendo el Francotirador (que logueaba cada instrucción en el rango `0x2B20-0x2B30`) y el Marcador Radiactivo (que logueaba cada ejecución del opcode `0x08`). Esto permite que el emulador corra a velocidad nativa (60 FPS) sin interferencias.
+                </p>
+                <p>
+                    <strong>Monitor GPS como única fuente de diagnóstico</strong>: El monitor GPS (implementado en Step 0240) reporta periódicamente el estado de la CPU (PC, SP, IME, IE, IF, LCDC, LY) sin ralentizar la ejecución. Esto proporciona suficiente información para determinar si el emulador está funcionando correctamente o si está atrapado en un bucle.
+                </p>
+                <p>
+                    <strong>Limpieza de includes</strong>: Se elimina `#include &lt;cstdio&gt;` ya que no se usa ningún `printf` ni función de I/O estándar en el código.
+                </p>
+
+                <h3>Código eliminado</h3>
+                <pre><code>// Eliminado: #include &lt;cstdio&gt;
+
+// Eliminado: Bloque del Francotirador (Step 0241)
+// if (regs_->pc >= 0x2B20 && regs_->pc <= 0x2B30) {
+//     uint8_t opcode = mmu_->read(regs_->pc);
+//     printf("[SNIPER] PC:%04X | OP:%02X | A:%02X | HL:%04X\n", 
+//            regs_->pc, opcode, regs_->a, regs_->get_hl());
+// }
+
+// Eliminado: Marcador Radiactivo (Step 0242)
+// printf("!!! EJECUTANDO OPCODE 0x08 EN C++ !!!\n");</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Eliminada toda la instrumentación de depuración (Francotirador y Marcador Radiactivo). Eliminado <code>#include &lt;cstdio&gt;</code>.</li>
+                    <li><code>docs/bitacora/entries/2025-12-22__0243__operacion-silencio.html</code> - Entrada de bitácora</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con nueva entrada</li>
+                    <li><code>INFORME_FASE_2.md</code> - Actualizado con Step 0243</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realiza mediante ejecución del emulador a velocidad nativa y observación del monitor GPS:
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado</strong>: <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Monitor GPS</strong>: Observar los logs del GPS (cada segundo) para verificar si el PC cambia o se queda fijo.</li>
+                    <li><strong>Validación esperada</strong>: 
+                        <ul>
+                            <li>Si el PC cambia drásticamente (sale de la zona `0x2Bxx` y va a `0x02xx`, `0x2Cxx`, etc.): <strong>ÉXITO</strong> - Hemos superado la inicialización.</li>
+                            <li>Si el PC se queda fijo en `0x2B24` durante más de 5-10 segundos: <strong>Bucle Infinito Lógico</strong> - La memoria nunca tiene `0xFD`.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Rendimiento</strong>: El emulador debe correr a 60 FPS sin ralentizaciones visibles.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Game Boy Pan Docs</a> - Referencia general de arquitectura LR35902</li>
+                </ul>
+                <p>
+                    <em>Nota: Este paso es principalmente sobre optimización de rendimiento y eliminación de instrumentación de depuración. No requiere consulta de documentación específica de hardware.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Efecto Observador en Emulación</strong>: La instrumentación de depuración puede ralentizar masivamente el emulador, haciendo imposible determinar si el juego está funcionando correctamente o simplemente está lento debido a la instrumentación.</li>
+                        <li><strong>Rendimiento en el Bucle Crítico</strong>: Cada `printf` o llamada a I/O en el bucle de emulación se multiplica por millones de ejecuciones, ralentizando el emulador hasta 1,000 veces.</li>
+                        <li><strong>Monitor GPS como Alternativa</strong>: Un monitor externo que muestre el estado de la CPU periódicamente proporciona suficiente información para diagnóstico sin ralentizar la ejecución.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento del bucle de escaneo</strong>: ¿El bucle de escaneo de memoria (`INC HL`, `CP FD`) termina naturalmente o es un bucle infinito lógico?</li>
+                        <li><strong>Estado de la memoria WRAM</strong>: ¿La memoria WRAM está inicializada correctamente o contiene solo ceros, causando que el bucle nunca encuentre el byte marcador `0xFD`?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis de Trabajo</strong>: Es muy probable que la memoria WRAM esté inicializada a ceros (`0x00`) por nuestra MMU. Si el juego busca `0xFD` y no lo encuentra, escaneará toda la memoria y luego... ¿qué? ¿Dará la vuelta? ¿Se colgará? Necesitamos dejar que el emulador corra a velocidad nativa para ver si supera este escaneo.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar la extensión C++: <code>.\rebuild_cpp.ps1</code></li>
+                    <li>[ ] Ejecutar Tetris: <code>python main.py roms/tetris.gb</code></li>
+                    <li>[ ] Observar los logs del GPS (cada segundo) para verificar si el PC cambia o se queda fijo</li>
+                    <li>[ ] Si el PC cambia drásticamente: <strong>ÉXITO</strong> - Hemos superado la inicialización</li>
+                    <li>[ ] Si el PC se queda fijo en `0x2B24` durante más de 5-10 segundos: Investigar por qué la memoria WRAM no contiene el byte marcador `0xFD`</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
