@@ -460,29 +460,28 @@ class Renderer:
                 
                 # Diagnóstico desactivado para producción
                 
-                # Leer paleta BGP (Background Palette) desde MMU
-                bgp = self.mmu.read_byte(IO_BGP) & 0xFF
+                # --- Step 0256: DEBUG PALETTE FORCE (HIGH CONTRAST) ---
+                # Ignoramos BGP/OBP del hardware para ver los índices crudos de la PPU.
+                # Esto nos confirmará si la PPU está dibujando sprites/fondo.
+                # 
+                # Paleta fija de alto contraste: 0=Blanco, 1=Gris Claro, 2=Gris Oscuro, 3=Negro
+                # Formato RGB (Pygame surface)
+                debug_palette_map = {
+                    0: (224, 248, 208),  # 00: White/Greenish (Color 0)
+                    1: (136, 192, 112),  # 01: Light Gray (Color 1)
+                    2: (52, 104, 86),    # 10: Dark Gray (Color 2)
+                    3: (8, 24, 32)       # 11: Black (Color 3)
+                }
                 
-                # --- Step 0215: CORRECCIÓN DE PALETA ---
-                # Si BGP es 0x00, todos los índices se mapean al color 0 (blanco).
-                # Esto causa que incluso píxeles negros (índice 3) se rendericen como blancos.
-                # Forzamos un valor por defecto estándar (0xE4 = 11100100) que mapea:
-                # Índice 0 -> Color 0 (Blanco)
-                # Índice 1 -> Color 1 (Gris Claro)
-                # Índice 2 -> Color 2 (Gris Oscuro)
-                # Índice 3 -> Color 3 (Negro)
-                if bgp == 0x00:
-                    logger.warning(f"[Renderer] BGP es 0x00 (paleta inválida). Forzando 0xE4 (paleta estándar)")
-                    bgp = 0xE4
+                # Mapeo directo: índice del framebuffer -> color RGB
+                # No pasamos por BGP/OBP decodificado, revelamos cualquier píxel con índice > 0
+                palette = [
+                    debug_palette_map[0],
+                    debug_palette_map[1],
+                    debug_palette_map[2],
+                    debug_palette_map[3]
+                ]
                 # ----------------------------------------
-                
-                # Decodificar paleta BGP (cada par de bits representa un color 0-3)
-                # Formato: bits 0-1 = color 0, bits 2-3 = color 1, bits 4-5 = color 2, bits 6-7 = color 3
-                # --- RESTAURADO: Usar COLORS explícitos sin debug visual ---
-                palette = [None] * 4
-                for i in range(4):
-                    color_idx = (bgp >> (i * 2)) & 0x03
-                    palette[i] = self.COLORS[color_idx]
                 
                 # Log de paleta desactivado para producción
                 
@@ -529,20 +528,27 @@ class Renderer:
         
         # Logs de diagnóstico desactivados para mejorar rendimiento
         
-        # Leer registro BGP (Background Palette)
-        bgp = self.mmu.read_byte(IO_BGP) & 0xFF
+        # --- Step 0256: DEBUG PALETTE FORCE (HIGH CONTRAST) ---
+        # Ignoramos BGP/OBP del hardware para ver los índices crudos de la PPU.
+        # Esto nos confirmará si la PPU está dibujando sprites/fondo.
+        # 
+        # Paleta fija de alto contraste: 0=Blanco, 1=Gris Claro, 2=Gris Oscuro, 3=Negro
+        # Formato RGB (Pygame surface)
+        debug_palette_map = {
+            0: (224, 248, 208),  # 00: White/Greenish (Color 0)
+            1: (136, 192, 112),  # 01: Light Gray (Color 1)
+            2: (52, 104, 86),    # 10: Dark Gray (Color 2)
+            3: (8, 24, 32)       # 11: Black (Color 3)
+        }
         
-        # --- Step 0215: CORRECCIÓN DE PALETA ---
-        # Si BGP es 0x00, todos los índices se mapean al color 0 (blanco).
-        # Esto causa que incluso píxeles negros (índice 3) se rendericen como blancos.
-        # Forzamos un valor por defecto estándar (0xE4 = 11100100) que mapea:
-        # Índice 0 -> Color 0 (Blanco)
-        # Índice 1 -> Color 1 (Gris Claro)
-        # Índice 2 -> Color 2 (Gris Oscuro)
-        # Índice 3 -> Color 3 (Negro)
-        if bgp == 0x00:
-            logger.warning(f"[Renderer] BGP es 0x00 (paleta inválida). Forzando 0xE4 (paleta estándar)")
-            bgp = 0xE4
+        # Mapeo directo: índice del framebuffer -> color RGB
+        # No pasamos por BGP/OBP decodificado, revelamos cualquier píxel con índice > 0
+        palette = [
+            debug_palette_map[0],
+            debug_palette_map[1],
+            debug_palette_map[2],
+            debug_palette_map[3]
+        ]
         # ----------------------------------------
         
         # Logs de diagnóstico desactivados para mejorar rendimiento
@@ -600,19 +606,6 @@ class Renderer:
             data_base = 0x8000
         else:
             data_base = 0x8800  # Signed addressing: tile ID 0 está en 0x9000
-        
-        # Decodificar paleta BGP
-        # BGP es un byte donde cada par de bits representa el color para el índice 0-3:
-        # Bits 0-1: Color para índice 0
-        # Bits 2-3: Color para índice 1
-        # Bits 4-5: Color para índice 2
-        # Bits 6-7: Color para índice 3
-        # Cada par de bits puede ser 0-3, pero en Game Boy original solo hay 4 tonos de gris
-        # --- RESTAURADO: Usar COLORS explícitos sin debug visual ---
-        palette = [None] * 4
-        for i in range(4):
-            color_idx = (bgp >> (i * 2)) & 0x03
-            palette[i] = self.COLORS[color_idx]
         
         # Logs de paleta desactivados para mejorar rendimiento
         
@@ -897,29 +890,31 @@ class Renderer:
         if not lcdc_bit1:
                 return 0
         
-        # Leer paletas de sprites
-        obp0 = self.mmu.read_byte(IO_OBP0) & 0xFF  # Object Palette 0
-        obp1 = self.mmu.read_byte(IO_OBP1) & 0xFF  # Object Palette 1
+        # --- Step 0256: DEBUG PALETTE FORCE (HIGH CONTRAST) ---
+        # Ignoramos OBP0/OBP1 del hardware para ver los índices crudos de los sprites.
+        # Usamos la misma paleta de debug que el fondo para consistencia visual.
+        debug_palette_map = {
+            0: (224, 248, 208),  # 00: White/Greenish (Color 0 - transparente en sprites)
+            1: (136, 192, 112),  # 01: Light Gray (Color 1)
+            2: (52, 104, 86),    # 10: Dark Gray (Color 2)
+            3: (8, 24, 32)       # 11: Black (Color 3)
+        }
         
-        # Decodificar paletas (igual que BGP)
+        # Mapeo directo: índice del sprite -> color RGB
+        # No pasamos por OBP0/OBP1 decodificado, revelamos cualquier píxel con índice > 0
         palette0 = [
-            PALETTE_GREYSCALE[(obp0 >> 0) & 0x03],
-            PALETTE_GREYSCALE[(obp0 >> 2) & 0x03],
-            PALETTE_GREYSCALE[(obp0 >> 4) & 0x03],
-            PALETTE_GREYSCALE[(obp0 >> 6) & 0x03],
+            debug_palette_map[0],
+            debug_palette_map[1],
+            debug_palette_map[2],
+            debug_palette_map[3]
         ]
         palette1 = [
-            PALETTE_GREYSCALE[(obp1 >> 0) & 0x03],
-            PALETTE_GREYSCALE[(obp1 >> 2) & 0x03],
-            PALETTE_GREYSCALE[(obp1 >> 4) & 0x03],
-            PALETTE_GREYSCALE[(obp1 >> 6) & 0x03],
+            debug_palette_map[0],
+            debug_palette_map[1],
+            debug_palette_map[2],
+            debug_palette_map[3]
         ]
-        
-        # Si las paletas están en 0x00 (todo blanco), usar paleta por defecto
-        if obp0 == 0x00:
-            palette0 = PALETTE_GREYSCALE
-        if obp1 == 0x00:
-            palette1 = PALETTE_GREYSCALE
+        # ----------------------------------------
         
         oam_base = 0xFE00  # OAM comienza en 0xFE00
         sprites_per_oam = 40  # 40 sprites máximo

@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0256 - Paleta de Debug (High Contrast) -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0256</span>
+                        <a href="entries/2025-12-23__0256__debug-palette-high-contrast.html" class="title">Paleta de Debug (High Contrast)</a>
+                        <p class="summary">Este Step implementa una paleta de debug de alto contraste en el renderizador de Python (`src/gpu/renderer.py`) que ignora completamente los registros de paleta del hardware (BGP, OBP0, OBP1) y mapea directamente los índices de color (0-3) del framebuffer de la PPU a colores fijos de alto contraste. El objetivo es revelar cualquier píxel que la PPU esté generando, incluso si los registros de paleta están en `0x00` (todo blanco) o si la MMU no está sirviendo correctamente los valores de paleta al frontend.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0255 - Inspector OAM y Paletas -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>

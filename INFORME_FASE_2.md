@@ -32,6 +32,66 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0256: Paleta de Debug (High Contrast)
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa una paleta de debug de alto contraste en el renderizador de Python (`src/gpu/renderer.py`) que ignora completamente los registros de paleta del hardware (BGP, OBP0, OBP1) y mapea directamente los índices de color (0-3) del framebuffer de la PPU a colores fijos de alto contraste. El objetivo es revelar cualquier píxel que la PPU esté generando, incluso si los registros de paleta están en `0x00` (todo blanco) o si la MMU no está sirviendo correctamente los valores de paleta al frontend.
+
+**Objetivo:**
+- Forzar una paleta de debug de alto contraste que ignore BGP/OBP0/OBP1.
+- Revelar cualquier píxel que la PPU esté generando, independientemente del estado de los registros de paleta.
+- Distinguir entre problemas de paleta (PPU funciona pero paletas incorrectas) y problemas de PPU (PPU no genera píxeles).
+
+**Implementación:**
+1. **Modificado `src/gpu/renderer.py`**: 
+   - **Renderizado con PPU C++ (líneas 444-515)**: Reemplazada la lógica de lectura y decodificación de BGP con un mapeo directo de índices a colores de alto contraste.
+   - **Renderizado con método Python (líneas 525-832)**: Aplicada la misma paleta de debug al método Python que calcula tiles desde VRAM.
+   - **Renderizado de Sprites (líneas 873-1027)**: Modificado `render_sprites()` para usar la misma paleta de debug, ignorando OBP0 y OBP1.
+
+**Paleta de Debug:**
+- Índice 0 → (224, 248, 208) - White/Greenish
+- Índice 1 → (136, 192, 112) - Light Gray
+- Índice 2 → (52, 104, 86) - Dark Gray
+- Índice 3 → (8, 24, 32) - Black
+
+**Concepto de Hardware:**
+**Registros de Paleta**: En la Game Boy, los registros de paleta controlan cómo se traducen los índices de color (0-3) generados por la PPU a colores RGB visibles en pantalla. El framebuffer de la PPU contiene índices de color (0, 1, 2, 3), no colores RGB directamente. Estos índices deben pasar por una paleta para convertirse en colores visibles.
+
+**BGP (0xFF47)**: Paleta del Background. Cada par de bits (0-1, 2-3, 4-5, 6-7) mapea un índice de color (0-3) a un tono de gris (0-3). Si BGP es `0x00`, todos los índices se mapean al color 0 (blanco), haciendo que incluso píxeles negros (índice 3) se rendericen como blancos.
+
+**OBP0/OBP1 (0xFF48/0xFF49)**: Paletas de Sprites. Similar a BGP, pero el color 0 es siempre transparente en sprites.
+
+**Problema Crítico**: Si los registros de paleta están en `0x00` o si la MMU no está sirviendo correctamente estos valores, todos los píxeles se renderizarán como blancos, incluso si la PPU está generando correctamente los índices de color. Esto hace que sea imposible distinguir entre un problema de renderizado (PPU no genera píxeles) y un problema de paleta (PPU genera píxeles pero se renderizan como blancos).
+
+**Solución de Debug**: Al forzar una paleta fija de alto contraste que mapea directamente los índices 0-3 a colores visibles (Blanco, Gris Claro, Gris Oscuro, Negro), podemos "ver" cualquier píxel que la PPU esté generando, independientemente del estado de los registros de paleta. Si vemos formas negras/grises, sabemos que la PPU funciona; si seguimos viendo todo blanco, el problema está en la PPU misma.
+
+**Fuente:** Pan Docs - Palette Registers (BGP, OBP0, OBP1)
+
+**Archivos Afectados:**
+- `src/gpu/renderer.py` - Modificado `render_frame()` y `render_sprites()` para forzar paleta de debug de alto contraste (Step 0256).
+
+**Decisiones de Diseño:**
+- **Paleta de Alto Contraste**: Se eligieron colores con suficiente contraste para que cualquier píxel con índice > 0 sea claramente visible, incluso en fondos claros.
+- **Mapeo Directo**: Se evita cualquier decodificación de BGP/OBP para eliminar posibles puntos de fallo. Si el framebuffer tiene índice 3, se renderiza como negro directamente.
+- **Consistencia Visual**: Se usa la misma paleta para fondo y sprites para facilitar la comparación visual.
+- **No Requiere Recompilación**: Esta modificación es puramente en Python, por lo que no requiere recompilar C++. Esto permite iterar rápidamente durante el debugging.
+
+**Validación:**
+- Ejecutar: `python main.py roms/pkmn.gb` (o cualquier ROM con sprites).
+- **Si vemos formas negras/grises moviéndose** (logo de GAME FREAK, intro de Gengar vs Nidorino): ✅ ÉXITO - La PPU funciona correctamente, el problema está en los registros de paleta.
+- **Si seguimos viendo todo blanco/verde**: ❌ PROBLEMA - La PPU no está generando píxeles o el framebuffer no se está leyendo correctamente.
+
+**Próximos Pasos:**
+- Ejecutar `python main.py roms/pkmn.gb` y observar la pantalla.
+- Si vemos formas negras/grises:
+  - Verificar por qué BGP/OBP0/OBP1 están en 0x00 o por qué la MMU no los está sirviendo correctamente.
+  - Corregir la lectura/escritura de los registros de paleta en la MMU.
+  - Restaurar la lógica normal de paletas y validar que los colores se muestran correctamente.
+- Si no vemos formas:
+  - Verificar que el framebuffer de la PPU C++ contiene índices válidos (0-3).
+  - Verificar que el framebuffer se está transfiriendo correctamente desde C++ a Python.
+  - Investigar por qué la PPU no está generando píxeles o por qué el framebuffer está vacío.
+
 ### 2025-12-23 - Step 0255: Inspector OAM y Paletas
 **Estado**: ✅ IMPLEMENTADO
 
