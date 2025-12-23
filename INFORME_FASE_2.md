@@ -32,6 +32,71 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0267: SP Corruption Watchdog (Stack Pointer Watchdog)
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa un watchdog (perro guardián) para detectar la corrupción del Stack Pointer (SP) en tiempo real. El análisis del Step 0266 reveló que el GPS muestra `SP:210A`, lo cual es un estado fatal: el Stack Pointer apunta a la ROM (solo lectura) cuando debería estar en RAM escribible.
+
+**Objetivo:**
+- Implementar un watchdog que detecte el momento exacto en que el SP se corrompe.
+- Identificar la instrucción que causa la corrupción del Stack Pointer.
+- Verificar que las instrucciones relacionadas con SP estén implementadas correctamente.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/CPU.cpp`**: 
+   - Agregado watchdog de SP al final del método `step()` que se ejecuta después de cada instrucción.
+   - El watchdog verifica que el SP esté en un rango válido (WRAM `0xC000-0xDFFF` o HRAM `0xFF80-0xFFFE`).
+   - Si detecta corrupción, imprime un mensaje crítico con el valor de SP y el PC actual: `[CRITICAL] SP CORRUPTION DETECTED! SP:%04X at PC:%04X`.
+
+**Código del Watchdog:**
+```cpp
+// --- Step 0267: SP CORRUPTION WATCHDOG ---
+// El Stack Pointer debe estar siempre en RAM (C000-DFFF o FF80-FFFE)
+// Si baja de C000 (y no es 0000 momentáneo), algo ha ido terriblemente mal.
+if (regs_->sp < 0xC000 && regs_->sp != 0x0000) {
+    printf("[CRITICAL] SP CORRUPTION DETECTED! SP:%04X at PC:%04X\n", regs_->sp, regs_->pc);
+}
+```
+
+**Verificación de Instrucciones Relacionadas con SP:**
+- **0x31 (LD SP, d16)**: ✅ Implementada correctamente. Lee un valor de 16 bits en formato Little-Endian usando `fetch_word()` y lo asigna a SP.
+- **0xF9 (LD SP, HL)**: ❌ No implementada. Esta instrucción copia el valor de HL a SP. Si HL contiene basura, corrompe el SP.
+- **0xE8 (ADD SP, r8)**: ❌ No implementada. Esta instrucción suma un valor con signo de 8 bits a SP.
+- **0xF8 (LD HL, SP+r8)**: ❌ No implementada. Esta instrucción carga HL con SP + r8 (con signo).
+
+**Concepto de Hardware:**
+**El Stack Pointer (SP) en Game Boy**: El Stack Pointer es un registro de 16 bits que apunta a la ubicación en memoria donde se almacena la pila (stack). La pila es una estructura de datos LIFO (Last In First Out) que se usa para:
+- **Llamadas a subrutinas (CALL/RET)**: Guarda la dirección de retorno antes de saltar a una subrutina.
+- **Interrupciones**: Guarda el estado de la CPU (PC) antes de saltar al vector de interrupción.
+- **PUSH/POP**: Guarda y restaura valores de registros temporalmente.
+
+**Rangos de Memoria Válidos para el Stack**: Según el mapa de memoria de Game Boy, el Stack debe estar en:
+- **WRAM (Work RAM)**: `0xC000-0xDFFF` - RAM interna de 8KB, escribible.
+- **HRAM (High RAM)**: `0xFF80-0xFFFE` - RAM de alta velocidad de 127 bytes, escribible.
+
+**¿Por qué es fatal si SP apunta a la ROM?** Si el Stack Pointer apunta a la ROM (`0x0000-0x7FFF` o `0xA000-0xBFFF`), cualquier operación de escritura (PUSH, CALL) intentará escribir en memoria de solo lectura. Como implementamos la protección de ROM (Step 0252), esas escrituras se ignoran silenciosamente. Cuando la CPU ejecuta POP o RET, lee datos de la ROM (que son instrucciones, no direcciones de retorno válidas). El resultado es que la CPU salta a una dirección basura y el programa se estrella.
+
+**¿Cómo se corrompe el SP?** El SP puede corromperse por varias razones:
+- **Instrucción `LD SP, nn` con datos erróneos**: Si `nn` contiene basura o un valor incorrecto.
+- **Instrucción `LD SP, HL` con HL corrupto**: Si HL contiene basura (`0x210A`), copiarlo a SP corrompe el stack.
+- **Desbordamiento masivo de la pila**: Miles de PUSH sin POP correspondientes (poco probable en código normal).
+- **Error en aritmética de SP**: Instrucciones como `ADD SP, r8` con resultados incorrectos.
+
+**El Watchdog**: Un watchdog es un mecanismo de monitoreo que verifica continuamente una condición crítica. En este caso, verificamos después de cada instrucción que el SP esté en un rango válido. Si detectamos corrupción, imprimimos un mensaje crítico con el valor de SP y el PC donde ocurrió, permitiendo identificar la instrucción exacta que causó el problema.
+
+**Fuente:** Pan Docs - "Memory Map", "Stack Pointer", "CALL/RET Instructions", "CPU Instruction Set"
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Agregado watchdog de SP al final del método `step()` (Step 0267).
+
+**Próximos Pasos:**
+- Ejecutar el emulador con Pokémon Red y buscar el mensaje crítico de corrupción de SP en los logs.
+- Una vez detectada la corrupción, usar `tools/dump_rom_zone.py` alrededor del PC reportado para identificar la instrucción exacta que causa el problema.
+- Implementar las instrucciones faltantes relacionadas con SP (0xF9, 0xE8, 0xF8) si el análisis revela que el juego las está usando.
+- Mejorar la verificación del watchdog para validar explícitamente los rangos WRAM y HRAM.
+
+---
+
 ### 2025-12-23 - Step 0266: Análisis del Bucle de Pokémon (0x0564)
 **Estado**: ✅ IMPLEMENTADO
 

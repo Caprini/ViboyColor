@@ -1562,6 +1562,18 @@ int CPU::step() {
             cycles_ += 0;
             return 0;
     }
+    
+    // --- Step 0267: SP CORRUPTION WATCHDOG ---
+    // El Stack Pointer debe estar siempre en RAM (C000-DFFF o FF80-FFFE)
+    // Si baja de C000 (y no es 0000 momentáneo), algo ha ido terriblemente mal.
+    // Esta verificación se ejecuta después de cada instrucción para detectar
+    // el momento exacto en que el SP se corrompe.
+    // Fuente: Pan Docs - Memory Map: Stack debe estar en WRAM (C000-DFFF) o HRAM (FF80-FFFE)
+    if (regs_->sp < 0xC000 && regs_->sp != 0x0000) {
+        printf("[CRITICAL] SP CORRUPTION DETECTED! SP:%04X at PC:%04X\n", regs_->sp, regs_->pc);
+        // Opcional: exit(1) para detenerlo en el acto (comentado para permitir logging)
+        // exit(1);
+    }
 }
 
 uint32_t CPU::get_cycles() const {

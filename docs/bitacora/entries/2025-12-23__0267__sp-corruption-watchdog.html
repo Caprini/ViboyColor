@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SP Corruption Watchdog - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>SP Corruption Watchdog (Stack Pointer Watchdog)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0267
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0266__pokemon-loop-analysis.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa un watchdog (perro guardián) para detectar la corrupción del Stack Pointer (SP) en tiempo real. El análisis del Step 0266 reveló que el GPS muestra `SP:210A`, lo cual es un estado fatal: el Stack Pointer apunta a la ROM (solo lectura) cuando debería estar en RAM escribible. Este watchdog detecta el momento exacto en que el SP se corrompe, permitiendo identificar la instrucción que causa el desastre.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>El Stack Pointer (SP) en Game Boy:</strong> El Stack Pointer es un registro de 16 bits que apunta a la ubicación en memoria donde se almacena la pila (stack). La pila es una estructura de datos LIFO (Last In First Out) que se usa para:
+                </p>
+                <ul>
+                    <li><strong>Llamadas a subrutinas (CALL/RET):</strong> Guarda la dirección de retorno antes de saltar a una subrutina.</li>
+                    <li><strong>Interrupciones:</strong> Guarda el estado de la CPU (PC) antes de saltar al vector de interrupción.</li>
+                    <li><strong>PUSH/POP:</strong> Guarda y restaura valores de registros temporalmente.</li>
+                </ul>
+                <p>
+                    <strong>Rangos de Memoria Válidos para el Stack:</strong> Según el mapa de memoria de Game Boy, el Stack debe estar en:
+                </p>
+                <ul>
+                    <li><strong>WRAM (Work RAM):</strong> `0xC000-0xDFFF` - RAM interna de 8KB, escribible.</li>
+                    <li><strong>HRAM (High RAM):</strong> `0xFF80-0xFFFE` - RAM de alta velocidad de 127 bytes, escribible.</li>
+                </ul>
+                <p>
+                    <strong>¿Por qué es fatal si SP apunta a la ROM?</strong> Si el Stack Pointer apunta a la ROM (`0x0000-0x7FFF` o `0xA000-0xBFFF`), cualquier operación de escritura (PUSH, CALL) intentará escribir en memoria de solo lectura. Como implementamos la protección de ROM (Step 0252), esas escrituras se ignoran silenciosamente. Cuando la CPU ejecuta POP o RET, lee datos de la ROM (que son instrucciones, no direcciones de retorno válidas). El resultado es que la CPU salta a una dirección basura y el programa se estrella.
+                </p>
+                <p>
+                    <strong>¿Cómo se corrompe el SP?</strong> El SP puede corromperse por varias razones:
+                </p>
+                <ul>
+                    <li><strong>Instrucción `LD SP, nn` con datos erróneos:</strong> Si `nn` contiene basura o un valor incorrecto.</li>
+                    <li><strong>Instrucción `LD SP, HL` con HL corrupto:</strong> Si HL contiene basura (`0x210A`), copiarlo a SP corrompe el stack.</li>
+                    <li><strong>Desbordamiento masivo de la pila:</strong> Miles de PUSH sin POP correspondientes (poco probable en código normal).</li>
+                    <li><strong>Error en aritmética de SP:</strong> Instrucciones como `ADD SP, r8` con resultados incorrectos.</li>
+                </ul>
+                <p>
+                    <strong>El Watchdog:</strong> Un watchdog es un mecanismo de monitoreo que verifica continuamente una condición crítica. En este caso, verificamos después de cada instrucción que el SP esté en un rango válido. Si detectamos corrupción, imprimimos un mensaje crítico con el valor de SP y el PC donde ocurrió, permitiendo identificar la instrucción exacta que causó el problema.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Memory Map", "Stack Pointer", "CALL/RET Instructions"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se agregó una verificación al final del método `step()` en `CPU.cpp` que se ejecuta después de cada instrucción. El watchdog verifica que el SP esté en un rango válido (por encima de `0xC000` o en HRAM `0xFF80-0xFFFE`). Si detecta corrupción, imprime un mensaje crítico con el valor de SP y el PC actual.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code>: Agregado watchdog de SP al final del método `step()` (Step 0267).</li>
+                </ul>
+
+                <h3>Código del Watchdog</h3>
+                <pre><code>// --- Step 0267: SP CORRUPTION WATCHDOG ---
+// El Stack Pointer debe estar siempre en RAM (C000-DFFF o FF80-FFFE)
+// Si baja de C000 (y no es 0000 momentáneo), algo ha ido terriblemente mal.
+// Esta verificación se ejecuta después de cada instrucción para detectar
+// el momento exacto en que el SP se corrompe.
+// Fuente: Pan Docs - Memory Map: Stack debe estar en WRAM (C000-DFFF) o HRAM (FF80-FFFE)
+if (regs_->sp < 0xC000 && regs_->sp != 0x0000) {
+    printf("[CRITICAL] SP CORRUPTION DETECTED! SP:%04X at PC:%04X\n", regs_->sp, regs_->pc);
+    // Opcional: exit(1) para detenerlo en el acto (comentado para permitir logging)
+    // exit(1);
+}</code></pre>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Verificación después de cada instrucción:</strong> Se ejecuta al final de `step()`, después del switch de opcodes. Esto garantiza que detectamos la corrupción inmediatamente después de que ocurre.</li>
+                    <li><strong>Excepción para SP=0x0000:</strong> Se permite temporalmente `SP=0x0000` porque algunos juegos pueden inicializar el SP a 0 antes de establecerlo a un valor válido. Sin embargo, si el SP permanece en 0 durante la ejecución normal, es un error.</li>
+                    <li><strong>Logging en lugar de exit():</strong> El `exit(1)` está comentado para permitir que el emulador continúe y genere más logs. Esto es útil para análisis post-mortem, pero puede cambiarse a `exit(1)` para detener la ejecución inmediatamente.</li>
+                    <li><strong>No verifica HRAM explícitamente:</strong> La verificación solo comprueba que SP >= 0xC000. El rango HRAM (0xFF80-0xFFFE) está por encima de 0xC000, por lo que está cubierto implícitamente. Sin embargo, una verificación más estricta podría validar explícitamente ambos rangos.</li>
+                </ul>
+
+                <h3>Verificación de Instrucciones Relacionadas con SP</h3>
+                <p>
+                    Se revisaron las siguientes instrucciones que modifican el SP:
+                </p>
+                <ul>
+                    <li><strong>0x31 (LD SP, d16):</strong> ✅ Implementada correctamente. Lee un valor de 16 bits en formato Little-Endian usando `fetch_word()` y lo asigna a SP.</li>
+                    <li><strong>0xF9 (LD SP, HL):</strong> ❌ No implementada. Esta instrucción copia el valor de HL a SP. Si HL contiene basura, corrompe el SP. Esta es una posible fuente de corrupción.</li>
+                    <li><strong>0xE8 (ADD SP, r8):</strong> ❌ No implementada. Esta instrucción suma un valor con signo de 8 bits a SP. Un error en esta instrucción podría causar corrupción.</li>
+                    <li><strong>0xF8 (LD HL, SP+r8):</strong> ❌ No implementada. Esta instrucción carga HL con SP + r8 (con signo). No modifica SP directamente, pero podría indicar problemas si se usa incorrectamente.</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> Las instrucciones no implementadas (0xF9, 0xE8, 0xF8) no son necesarias para el funcionamiento del watchdog, pero su ausencia podría ser una fuente de corrupción si el juego intenta usarlas. El watchdog detectará la corrupción independientemente de qué instrucción la cause.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Agregado watchdog de SP al final del método `step()` (Step 0267).</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    El watchdog se validará ejecutando el emulador con Pokémon Red y buscando el mensaje crítico en los logs:
+                </p>
+                <ul>
+                    <li><strong>Comando de prueba:</strong> <code>python main.py roms/pkmn.gb > sp_debug.log 2>&1</code></li>
+                    <li><strong>Búsqueda en el log:</strong> Buscar la cadena <code>[CRITICAL] SP CORRUPTION DETECTED!</code></li>
+                    <li><strong>Análisis post-mortem:</strong> Una vez detectada la corrupción, usar <code>tools/dump_rom_zone.py</code> alrededor del PC reportado para ver qué instrucción causó el desastre.</li>
+                </ul>
+                <p>
+                    <strong>Validación esperada:</strong> El watchdog debería detectar la corrupción cuando el SP baja de `0xC000` y mostrar el PC exacto donde ocurrió. Esto permitirá identificar la instrucción que corrompe el SP y corregirla.
+                </p>
+                <p>
+                    <strong>Nota:</strong> El watchdog está activo en todos los builds (debug y release). En producción, podría desactivarse o hacerse condicional mediante una macro de compilación para evitar overhead en el bucle crítico.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Memory_Map.html">Memory Map</a> - Rangos de memoria válidos para el Stack.</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">CPU Instruction Set</a> - Instrucciones relacionadas con SP (LD SP, d16, LD SP, HL, ADD SP, r8).</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Registers_and_Flags.html">CPU Registers and Flags</a> - Descripción del Stack Pointer.</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Stack Pointer y Memoria:</strong> El SP debe apuntar siempre a memoria escribible (WRAM o HRAM). Si apunta a ROM, las escrituras se ignoran y las lecturas devuelven instrucciones en lugar de datos de la pila.</li>
+                        <li><strong>Corrupción de SP:</strong> El SP puede corromperse por instrucciones que lo modifican con valores incorrectos (ej: `LD SP, HL` cuando HL contiene basura).</li>
+                        <li><strong>Watchdog Pattern:</strong> Un watchdog es un patrón de diseño común en sistemas embebidos para detectar condiciones anómalas en tiempo real. Se ejecuta periódicamente (en este caso, después de cada instrucción) y alerta cuando detecta un estado inválido.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Instrucciones faltantes:</strong> Las instrucciones 0xF9 (LD SP, HL), 0xE8 (ADD SP, r8) y 0xF8 (LD HL, SP+r8) no están implementadas. Si el juego intenta usarlas, causarán comportamiento indefinido. Necesitamos implementarlas o al menos detectar cuando se intentan ejecutar.</li>
+                        <li><strong>Rango HRAM:</strong> La verificación actual solo comprueba que SP >= 0xC000. El rango HRAM (0xFF80-0xFFFE) está cubierto implícitamente, pero una verificación más estricta podría validar explícitamente ambos rangos válidos.</li>
+                        <li><strong>Overhead de rendimiento:</strong> El watchdog agrega una verificación condicional después de cada instrucción. En el bucle crítico, esto podría tener un impacto mínimo en el rendimiento. Deberíamos medir el overhead y considerar hacerlo condicional en builds de release.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El SP se corrompe por una instrucción `LD SP, HL` (0xF9) cuando HL contiene basura (`0x210A`). Esta instrucción no está implementada, por lo que el juego podría estar ejecutando código basura o la CPU podría estar leyendo el opcode incorrecto.
+                    </p>
+                    <p>
+                        <strong>Suposición sobre SP=0x0000:</strong> Permitimos temporalmente `SP=0x0000` porque algunos juegos pueden inicializar el SP a 0 antes de establecerlo a un valor válido. Sin embargo, si el SP permanece en 0 durante la ejecución normal, es un error que debería detectarse.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con Pokémon Red y buscar el mensaje crítico de corrupción de SP en los logs.</li>
+                    <li>[ ] Una vez detectada la corrupción, usar <code>tools/dump_rom_zone.py</code> alrededor del PC reportado para identificar la instrucción exacta que causa el problema.</li>
+                    <li>[ ] Implementar las instrucciones faltantes relacionadas con SP (0xF9, 0xE8, 0xF8) si el análisis revela que el juego las está usando.</li>
+                    <li>[ ] Mejorar la verificación del watchdog para validar explícitamente los rangos WRAM y HRAM.</li>
+                    <li>[ ] Considerar hacer el watchdog condicional en builds de release para evitar overhead en el bucle crítico.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

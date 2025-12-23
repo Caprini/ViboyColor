@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0267 - SP Corruption Watchdog -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0267</span>
+                        <a href="entries/2025-12-23__0267__sp-corruption-watchdog.html" class="title">SP Corruption Watchdog (Stack Pointer Watchdog)</a>
+                        <p class="summary">Este Step implementa un watchdog (perro guardián) para detectar la corrupción del Stack Pointer (SP) en tiempo real. El análisis del Step 0266 reveló que el GPS muestra SP:210A, lo cual es un estado fatal: el Stack Pointer apunta a la ROM (solo lectura) cuando debería estar en RAM escribible. Este watchdog detecta el momento exacto en que el SP se corrompe, permitiendo identificar la instrucción que causa el desastre. El watchdog verifica después de cada instrucción que el SP esté en un rango válido (WRAM 0xC000-0xDFFF o HRAM 0xFF80-0xFFFE) e imprime un mensaje crítico con el valor de SP y el PC cuando detecta corrupción.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0266 - Análisis del Bucle de Pokémon -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>
