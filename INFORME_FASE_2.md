@@ -32,6 +32,104 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0268: Stack Math Implementation (0xE8, 0xF8, 0xF9)
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa las tres instrucciones críticas de aritmética de pila ("Stack Math") que faltaban en la CPU: **ADD SP, e (0xE8)**, **LD HL, SP+e (0xF8)** y **LD SP, HL (0xF9)**.
+
+**Objetivo:**
+- Implementar las instrucciones de aritmética de pila que los compiladores C usan constantemente.
+- Corregir la corrupción del Stack Pointer detectada en el Step 0267.
+- Asegurar que los flags H y C se calculen correctamente (basados en el byte bajo de SP).
+
+**Implementación:**
+1. **Modificado `src/core/cpp/CPU.cpp`**: 
+   - Agregado caso `0xE8` (ADD SP, e): Suma un offset con signo de 8 bits al SP. Flags H y C se calculan basándose en el byte bajo de SP.
+   - Agregado caso `0xF8` (LD HL, SP+e): Calcula SP + offset y almacena en HL (SP no se modifica). Flags idénticos a ADD SP, e.
+   - Agregado caso `0xF9` (LD SP, HL): Copia HL a SP. No afecta flags.
+
+**Código de las Instrucciones:**
+
+```cpp
+// Case 0xE8: ADD SP, e
+case 0xE8: {
+    uint8_t offset_raw = fetch_byte();
+    int8_t offset = static_cast<int8_t>(offset_raw);
+    uint16_t sp_old = regs_->sp;
+    uint8_t sp_low = sp_old & 0xFF;
+    uint16_t sp_new = (sp_old + offset) & 0xFFFF;
+    regs_->sp = sp_new;
+    
+    // Flags: Z=0, N=0, H y C basados en byte bajo
+    regs_->set_flag_z(false);
+    regs_->set_flag_n(false);
+    uint8_t offset_unsigned = static_cast<uint8_t>(offset_raw);
+    uint8_t sp_low_nibble = sp_low & 0x0F;
+    uint8_t offset_low_nibble = offset_unsigned & 0x0F;
+    bool half_carry = (sp_low_nibble + offset_low_nibble) > 0x0F;
+    regs_->set_flag_h(half_carry);
+    bool carry = ((static_cast<uint16_t>(sp_low) + static_cast<uint16_t>(offset_unsigned)) & 0x100) != 0;
+    regs_->set_flag_c(carry);
+    cycles_ += 4;
+    return 4;
+}
+
+// Case 0xF8: LD HL, SP+e
+case 0xF8: {
+    uint8_t offset_raw = fetch_byte();
+    int8_t offset = static_cast<int8_t>(offset_raw);
+    uint16_t sp = regs_->sp;
+    uint8_t sp_low = sp & 0xFF;
+    uint16_t hl_new = (sp + offset) & 0xFFFF;
+    regs_->set_hl(hl_new);
+    
+    // Flags idénticos a ADD SP, e
+    regs_->set_flag_z(false);
+    regs_->set_flag_n(false);
+    uint8_t offset_unsigned = static_cast<uint8_t>(offset_raw);
+    uint8_t sp_low_nibble = sp_low & 0x0F;
+    uint8_t offset_low_nibble = offset_unsigned & 0x0F;
+    bool half_carry = (sp_low_nibble + offset_low_nibble) > 0x0F;
+    regs_->set_flag_h(half_carry);
+    bool carry = ((static_cast<uint16_t>(sp_low) + static_cast<uint16_t>(offset_unsigned)) & 0x100) != 0;
+    regs_->set_flag_c(carry);
+    cycles_ += 3;
+    return 3;
+}
+
+// Case 0xF9: LD SP, HL
+case 0xF9: {
+    uint16_t hl = regs_->get_hl();
+    regs_->sp = hl;
+    cycles_ += 2;
+    return 2;
+}
+```
+
+**Concepto de Hardware:**
+**Stack Math (Matemáticas de Pila)**: La Game Boy tiene instrucciones especiales para operar con el Stack Pointer como si fuera un registro de datos normal. Estas instrucciones son vitales para el lenguaje C y juegos como Pokémon:
+
+- **ADD SP, e (0xE8)**: Suma un valor con signo al SP. Se usa para reservar o liberar espacio para variables locales. **La trampa**: Los flags H y C se calculan basándose en el byte bajo (como si fuera una suma de 8 bits), ¡no en el resultado de 16 bits!
+
+- **LD HL, SP+e (0xF8)**: Calcula la dirección de una variable en la pila y la pone en HL. Usa la misma lógica de flags extraña.
+
+- **LD SP, HL (0xF9)**: Mueve HL a SP. Esencial para restaurar la pila.
+
+**Flags Especiales**: En ADD SP, e y LD HL, SP+e, los flags H y C se calculan basándose en el byte bajo de SP, no en el resultado completo de 16 bits. Esto es diferente a ADD HL, rr, donde los flags se calculan en los 12 bits bajos (H) y 16 bits (C).
+
+**Fuente:** Pan Docs - "CPU Instruction Set", "ADD SP, r8", "LD HL, SP+r8", "LD SP, HL"
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Agregados casos 0xE8, 0xF8 y 0xF9 en el método `step()` (Step 0268).
+
+**Próximos Pasos:**
+- Recompilar el módulo C++ con `.\rebuild_cpp.ps1`.
+- Ejecutar el emulador con Pokémon Red y verificar que el SP ya no se corrompe.
+- Verificar que el juego avanza más allá del bucle de espera y muestra gráficos.
+- Si el watchdog del Step 0267 sigue detectando corrupción, analizar qué otras instrucciones pueden estar causando el problema.
+
+---
+
 ### 2025-12-23 - Step 0267: SP Corruption Watchdog (Stack Pointer Watchdog)
 **Estado**: ✅ IMPLEMENTADO
 
@@ -60,9 +158,9 @@ if (regs_->sp < 0xC000 && regs_->sp != 0x0000) {
 
 **Verificación de Instrucciones Relacionadas con SP:**
 - **0x31 (LD SP, d16)**: ✅ Implementada correctamente. Lee un valor de 16 bits en formato Little-Endian usando `fetch_word()` y lo asigna a SP.
-- **0xF9 (LD SP, HL)**: ❌ No implementada. Esta instrucción copia el valor de HL a SP. Si HL contiene basura, corrompe el SP.
-- **0xE8 (ADD SP, r8)**: ❌ No implementada. Esta instrucción suma un valor con signo de 8 bits a SP.
-- **0xF8 (LD HL, SP+r8)**: ❌ No implementada. Esta instrucción carga HL con SP + r8 (con signo).
+- **0xF9 (LD SP, HL)**: ✅ Implementada en Step 0268. Esta instrucción copia el valor de HL a SP.
+- **0xE8 (ADD SP, r8)**: ✅ Implementada en Step 0268. Esta instrucción suma un valor con signo de 8 bits a SP.
+- **0xF8 (LD HL, SP+r8)**: ✅ Implementada en Step 0268. Esta instrucción carga HL con SP + r8 (con signo).
 
 **Concepto de Hardware:**
 **El Stack Pointer (SP) en Game Boy**: El Stack Pointer es un registro de 16 bits que apunta a la ubicación en memoria donde se almacena la pila (stack). La pila es una estructura de datos LIFO (Last In First Out) que se usa para:

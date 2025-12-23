@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stack Math Implementation (0xE8, 0xF8, 0xF9) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Stack Math Implementation (0xE8, 0xF8, 0xF9)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0268
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0267__sp-corruption-watchdog.html">Anterior (0267)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa las tres instrucciones críticas de aritmética de pila ("Stack Math") que faltaban en la CPU:
+                    <strong>ADD SP, e (0xE8)</strong>, <strong>LD HL, SP+e (0xF8)</strong> y <strong>LD SP, HL (0xF9)</strong>.
+                </p>
+                <p>
+                    El diagnóstico del Step 0267 reveló que el Stack Pointer estaba corrompido (SP:210A, apuntando a ROM).
+                    La causa más probable era la falta de estas instrucciones, que los juegos usan para gestionar variables locales en la pila.
+                </p>
+                <p>
+                    La implementación es quirúrgica: los flags H y C se calculan basándose en el byte bajo de SP (como si fuera una suma de 8 bits),
+                    no en el resultado completo de 16 bits. Este comportamiento específico del hardware LR35902 es crítico para la precisión.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La Game Boy tiene unas instrucciones extrañas pero vitales para el lenguaje C (y para Pokémon): operar con el Stack Pointer (SP) como si fuera un registro de datos normal.
+                </p>
+                
+                <h3>ADD SP, e (0xE8)</h3>
+                <p>
+                    Suma un valor con signo (positivo o negativo) al SP. Se usa para reservar o liberar espacio para variables locales en la pila.
+                </p>
+                <p>
+                    <strong>La trampa:</strong> Los flags <strong>H</strong> y <strong>C</strong> se calculan basándose en el byte bajo (como si fuera una suma de 8 bits), ¡no en el resultado de 16 bits! Es un comportamiento muy específico de la CPU LR35902.
+                </p>
+                <ul>
+                    <li><strong>Z</strong>: Siempre 0 (reset).</li>
+                    <li><strong>N</strong>: Siempre 0 (es suma).</li>
+                    <li><strong>H</strong>: Carry desde el bit 3 (nibble bajo). Fórmula: <code>((sp & 0xF) + (offset & 0xF)) > 0xF</code>.</li>
+                    <li><strong>C</strong>: Carry desde el bit 7 (byte bajo). Fórmula: <code>((sp & 0xFF) + (offset & 0xFF)) > 0xFF</code>.</li>
+                </ul>
+                <p>
+                    <strong>Timing:</strong> 4 M-Cycles (16 T-Cycles).
+                </p>
+
+                <h3>LD HL, SP+e (0xF8)</h3>
+                <p>
+                    Calcula la dirección de una variable en la pila y la pone en HL. Usa la misma lógica de flags extraña que ADD SP, e.
+                </p>
+                <p>
+                    <strong>Importante:</strong> SP NO se modifica. Solo se usa para el cálculo.
+                </p>
+                <p>
+                    <strong>Timing:</strong> 3 M-Cycles (12 T-Cycles).
+                </p>
+
+                <h3>LD SP, HL (0xF9)</h3>
+                <p>
+                    Mueve HL a SP. Esencial para restaurar la pila después de operaciones temporales.
+                </p>
+                <p>
+                    <strong>Flags:</strong> No afecta flags.
+                </p>
+                <p>
+                    <strong>Timing:</strong> 2 M-Cycles (8 T-Cycles).
+                </p>
+
+                <h3>¿Por qué son críticas?</h3>
+                <p>
+                    Si estas instrucciones faltan o están mal implementadas, el SP acaba apuntando a Narnia (o a la ROM 0x210A, como vimos en el Step 0267), y el juego explota. Los compiladores C generan código que usa estas instrucciones constantemente para:
+                </p>
+                <ul>
+                    <li>Reservar espacio para variables locales: <code>ADD SP, -8</code> (reserva 8 bytes).</li>
+                    <li>Acceder a variables locales: <code>LD HL, SP+4</code> (accede a la variable en offset +4).</li>
+                    <li>Restaurar la pila: <code>LD SP, HL</code> (restaura SP desde un registro temporal).</li>
+                </ul>
+
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "CPU Instruction Set", "ADD SP, r8", "LD HL, SP+r8", "LD SP, HL"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron los tres opcodes en el método <code>step()</code> de <code>CPU.cpp</code>, justo antes del prefijo CB (0xCB).
+                </p>
+                
+                <h3>Case 0xE8: ADD SP, e</h3>
+                <pre><code>case 0xE8:  // ADD SP, e
+{
+    // Leer offset con signo
+    uint8_t offset_raw = fetch_byte();
+    int8_t offset = static_cast&lt;int8_t&gt;(offset_raw);
+    
+    // Guardar SP original para cálculo de flags
+    uint16_t sp_old = regs_-&gt;sp;
+    uint8_t sp_low = sp_old &amp; 0xFF;
+    
+    // Calcular nuevo SP
+    uint16_t sp_new = (sp_old + offset) &amp; 0xFFFF;
+    regs_-&gt;sp = sp_new;
+    
+    // Calcular flags (CRÍTICO: basados en byte bajo)
+    regs_-&gt;set_flag_z(false);  // Z: siempre 0
+    regs_-&gt;set_flag_n(false);  // N: siempre 0
+    
+    // H: Half-carry desde bit 3
+    uint8_t offset_unsigned = static_cast&lt;uint8_t&gt;(offset_raw);
+    uint8_t sp_low_nibble = sp_low &amp; 0x0F;
+    uint8_t offset_low_nibble = offset_unsigned &amp; 0x0F;
+    bool half_carry = (sp_low_nibble + offset_low_nibble) &gt; 0x0F;
+    regs_-&gt;set_flag_h(half_carry);
+    
+    // C: Carry desde bit 7
+    bool carry = ((static_cast&lt;uint16_t&gt;(sp_low) + static_cast&lt;uint16_t&gt;(offset_unsigned)) &amp; 0x100) != 0;
+    regs_-&gt;set_flag_c(carry);
+    
+    cycles_ += 4;
+    return 4;
+}</code></pre>
+
+                <h3>Case 0xF8: LD HL, SP+e</h3>
+                <pre><code>case 0xF8:  // LD HL, SP+e
+{
+    // Leer offset con signo
+    uint8_t offset_raw = fetch_byte();
+    int8_t offset = static_cast&lt;int8_t&gt;(offset_raw);
+    
+    // Guardar SP para cálculo de flags (NO se modifica)
+    uint16_t sp = regs_-&gt;sp;
+    uint8_t sp_low = sp &amp; 0xFF;
+    
+    // Calcular HL = SP + offset
+    uint16_t hl_new = (sp + offset) &amp; 0xFFFF;
+    regs_-&gt;set_hl(hl_new);
+    
+    // Calcular flags (idéntico a ADD SP, e)
+    regs_-&gt;set_flag_z(false);
+    regs_-&gt;set_flag_n(false);
+    
+    uint8_t offset_unsigned = static_cast&lt;uint8_t&gt;(offset_raw);
+    uint8_t sp_low_nibble = sp_low &amp; 0x0F;
+    uint8_t offset_low_nibble = offset_unsigned &amp; 0x0F;
+    bool half_carry = (sp_low_nibble + offset_low_nibble) &gt; 0x0F;
+    regs_-&gt;set_flag_h(half_carry);
+    
+    bool carry = ((static_cast&lt;uint16_t&gt;(sp_low) + static_cast&lt;uint16_t&gt;(offset_unsigned)) &amp; 0x100) != 0;
+    regs_-&gt;set_flag_c(carry);
+    
+    cycles_ += 3;
+    return 3;
+}</code></pre>
+
+                <h3>Case 0xF9: LD SP, HL</h3>
+                <pre><code>case 0xF9:  // LD SP, HL
+{
+    uint16_t hl = regs_-&gt;get_hl();
+    regs_-&gt;sp = hl;
+    cycles_ += 2;
+    return 2;
+}</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Cálculo de Flags:</strong> Se usa el byte bajo de SP y el offset como unsigned para el cálculo de flags, pero el offset se interpreta como signed para la suma real. Esto replica el comportamiento del hardware.</li>
+                    <li><strong>Ubicación en el Switch:</strong> Se insertaron justo antes del prefijo CB para mantener el orden lógico de opcodes.</li>
+                    <li><strong>Watchdog del Step 0267:</strong> Se mantiene activo para verificar que estas instrucciones no corrompan el SP.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Agregados casos 0xE8, 0xF8 y 0xF9 en el método <code>step()</code>.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Las instrucciones se implementaron directamente en C++ y requieren recompilación.
+                </p>
+                <p>
+                    <strong>Comando de compilación:</strong>
+                </p>
+                <pre><code>.\rebuild_cpp.ps1</code></pre>
+                <p>
+                    <strong>Comando de prueba:</strong>
+                </p>
+                <pre><code>python main.py roms/pkmn.gb</code></pre>
+                <p>
+                    <strong>Verificaciones esperadas:</strong>
+                </p>
+                <ul>
+                    <li>El mensaje <code>[CRITICAL] SP CORRUPTION</code> del Step 0267 debería dejar de aparecer (o aparecer mucho menos frecuentemente).</li>
+                    <li>El GPS debería mostrar valores de SP "sanos" como <code>DFFX</code> o <code>FFFX</code> (en WRAM o HRAM).</li>
+                    <li>El juego debería avanzar más allá del bucle de espera y mostrar gráficos nuevos en pantalla.</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> Los tests unitarios completos se pueden implementar en un Step futuro, siguiendo el patrón de <code>tests/test_cpu_sp_arithmetic.py</code> de la versión Python.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - ADD SP, r8</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - LD HL, SP+r8</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - LD SP, HL</a></li>
+                    <li>Implementación de referencia en Python: <code>src/cpu/core.py</code> (Step 0068, v0.0.1)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Flags en Stack Math:</strong> Los flags H y C en ADD SP, e y LD HL, SP+e se calculan basándose en el byte bajo de SP, no en el resultado completo de 16 bits. Esto es diferente a ADD HL, rr, donde los flags se calculan en los 12 bits bajos (H) y 16 bits (C).</li>
+                        <li><strong>Uso en Compiladores C:</strong> Estas instrucciones son fundamentales para el código generado por compiladores C, que las usan constantemente para gestionar el stack frame y variables locales.</li>
+                        <li><strong>Corrupción de SP:</strong> Si estas instrucciones faltan o están mal implementadas, el SP puede corromperse y apuntar a memoria de solo lectura (ROM), causando que el juego se estrelle.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Validación con ROMs reales:</strong> Necesitamos ejecutar el emulador con Pokémon Red y verificar que el SP ya no se corrompe y que el juego avanza correctamente.</li>
+                        <li><strong>Tests unitarios:</strong> Implementar tests unitarios completos en C++ o Python que validen el cálculo de flags en casos límite (overflow, underflow, etc.).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que la implementación de flags es correcta basándonos en la documentación de Pan Docs y la implementación de referencia en Python (v0.0.1). Sin embargo, la validación final requiere ejecutar el emulador con ROMs reales y verificar que el comportamiento es correcto.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con <code>.\rebuild_cpp.ps1</code></li>
+                    <li>[ ] Ejecutar el emulador con Pokémon Red y verificar que el SP ya no se corrompe</li>
+                    <li>[ ] Verificar que el juego avanza más allá del bucle de espera y muestra gráficos</li>
+                    <li>[ ] Si el watchdog del Step 0267 sigue detectando corrupción, analizar qué otras instrucciones pueden estar causando el problema</li>
+                    <li>[ ] Implementar tests unitarios completos para las tres instrucciones (opcional, puede ser un Step futuro)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

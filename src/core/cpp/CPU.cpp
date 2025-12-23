@@ -1543,6 +1543,104 @@ int CPU::step() {
                 return 3;
             }
 
+        // ========== Stack Math (Aritmética de Pila) ==========
+        // Step 0268: Implementación de instrucciones de aritmética de pila
+        // Estas instrucciones son críticas para el manejo de variables locales en la pila
+        
+        case 0xE8:  // ADD SP, e (Add signed 8-bit offset to Stack Pointer)
+            // Suma un valor con signo de 8 bits al Stack Pointer
+            // El offset se lee como un byte con signo (Two's Complement)
+            // Flags H y C se calculan basándose en el byte bajo de SP, no en el resultado completo
+            // Fuente: Pan Docs - ADD SP, r8: 4 M-Cycles (16 cycles)
+            {
+                // Leer offset con signo
+                uint8_t offset_raw = fetch_byte();
+                int8_t offset = static_cast<int8_t>(offset_raw);
+                
+                // Guardar SP original para cálculo de flags
+                uint16_t sp_old = regs_->sp;
+                uint8_t sp_low = sp_old & 0xFF;
+                
+                // Calcular nuevo SP
+                uint16_t sp_new = (sp_old + offset) & 0xFFFF;
+                regs_->sp = sp_new;
+                
+                // Calcular flags (CRÍTICO: basados en byte bajo, no resultado completo)
+                // Z: siempre 0 (reset)
+                regs_->set_flag_z(false);
+                
+                // N: siempre 0 (es suma)
+                regs_->set_flag_n(false);
+                
+                // H: Half-carry desde bit 3 (nibble bajo)
+                // Fórmula: ((sp_low & 0xF) + (offset & 0xF)) > 0xF
+                // Convertir offset a unsigned para el cálculo
+                uint8_t offset_unsigned = static_cast<uint8_t>(offset_raw);
+                uint8_t sp_low_nibble = sp_low & 0x0F;
+                uint8_t offset_low_nibble = offset_unsigned & 0x0F;
+                bool half_carry = (sp_low_nibble + offset_low_nibble) > 0x0F;
+                regs_->set_flag_h(half_carry);
+                
+                // C: Carry desde bit 7 (byte bajo)
+                // Fórmula: ((sp_low + offset_unsigned) & 0x100) != 0
+                bool carry = ((static_cast<uint16_t>(sp_low) + static_cast<uint16_t>(offset_unsigned)) & 0x100) != 0;
+                regs_->set_flag_c(carry);
+                
+                cycles_ += 4;  // ADD SP, e consume 4 M-Cycles
+                return 4;
+            }
+
+        case 0xF8:  // LD HL, SP+e (Load HL with SP + signed 8-bit offset)
+            // Calcula SP + offset y almacena el resultado en HL
+            // SP NO se modifica (solo se usa para el cálculo)
+            // Flags H y C se calculan igual que ADD SP, e
+            // Fuente: Pan Docs - LD HL, SP+r8: 3 M-Cycles (12 cycles)
+            {
+                // Leer offset con signo
+                uint8_t offset_raw = fetch_byte();
+                int8_t offset = static_cast<int8_t>(offset_raw);
+                
+                // Guardar SP para cálculo de flags (NO se modifica)
+                uint16_t sp = regs_->sp;
+                uint8_t sp_low = sp & 0xFF;
+                
+                // Calcular HL = SP + offset
+                uint16_t hl_new = (sp + offset) & 0xFFFF;
+                regs_->set_hl(hl_new);
+                
+                // Calcular flags (idéntico a ADD SP, e)
+                // Z: siempre 0 (reset)
+                regs_->set_flag_z(false);
+                
+                // N: siempre 0 (es suma)
+                regs_->set_flag_n(false);
+                
+                // H: Half-carry desde bit 3 (nibble bajo)
+                uint8_t offset_unsigned = static_cast<uint8_t>(offset_raw);
+                uint8_t sp_low_nibble = sp_low & 0x0F;
+                uint8_t offset_low_nibble = offset_unsigned & 0x0F;
+                bool half_carry = (sp_low_nibble + offset_low_nibble) > 0x0F;
+                regs_->set_flag_h(half_carry);
+                
+                // C: Carry desde bit 7 (byte bajo)
+                bool carry = ((static_cast<uint16_t>(sp_low) + static_cast<uint16_t>(offset_unsigned)) & 0x100) != 0;
+                regs_->set_flag_c(carry);
+                
+                cycles_ += 3;  // LD HL, SP+e consume 3 M-Cycles
+                return 3;
+            }
+
+        case 0xF9:  // LD SP, HL (Load Stack Pointer from HL)
+            // Copia el valor de HL a SP
+            // No afecta flags
+            // Fuente: Pan Docs - LD SP, HL: 2 M-Cycles (8 cycles)
+            {
+                uint16_t hl = regs_->get_hl();
+                regs_->sp = hl;
+                cycles_ += 2;  // LD SP, HL consume 2 M-Cycles
+                return 2;
+            }
+
         case 0xCB:  // CB Prefix (Extended Instructions)
             // Prefijo para instrucciones extendidas (256 instrucciones adicionales)
             // El siguiente byte se interpreta con una tabla diferente

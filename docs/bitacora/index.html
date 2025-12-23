@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0268 - Stack Math Implementation -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0268</span>
+                        <a href="entries/2025-12-23__0268__stack-math-implementation.html" class="title">Stack Math Implementation (0xE8, 0xF8, 0xF9)</a>
+                        <p class="summary">Este Step implementa las tres instrucciones críticas de aritmética de pila ("Stack Math") que faltaban en la CPU: ADD SP, e (0xE8), LD HL, SP+e (0xF8) y LD SP, HL (0xF9). El diagnóstico del Step 0267 reveló que el Stack Pointer estaba corrompido (SP:210A, apuntando a ROM). La causa más probable era la falta de estas instrucciones, que los juegos usan para gestionar variables locales en la pila. La implementación es quirúrgica: los flags H y C se calculan basándose en el byte bajo de SP (como si fuera una suma de 8 bits), no en el resultado completo de 16 bits. Este comportamiento específico del hardware LR35902 es crítico para la precisión.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0267 - SP Corruption Watchdog -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>
