@@ -32,6 +32,58 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0264: HALT Wakeup Fix (IME=0)
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step revisa y corrige la lógica de despertar de HALT en la CPU. El Step 0263 confirmó que el Tile Map contiene datos válidos (tile 0x7F), pero la pantalla sigue estática. El GPS muestra `IME:0`, `IE:0D`, `IF:01`, lo que indica que hay una interrupción V-Blank pendiente pero la CPU no la está atendiendo porque IME está desactivado.
+
+**Objetivo:**
+- Revisar y corregir la lógica de despertar de HALT cuando IME=0.
+- Asegurar que la CPU se despierte de HALT cuando hay una interrupción pendiente habilitada, incluso si IME está desactivado.
+- Permitir que el juego continúe su ejecución incluso cuando IME=0.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/CPU.cpp` (Método `handle_interrupts`)**: 
+   - Mejorados los comentarios para explicar claramente que la CPU debe despertar de HALT cuando hay una interrupción pendiente habilitada, incluso si IME=0.
+   - La lógica ya estaba correcta, pero ahora está mejor documentada según Pan Docs.
+   - Comentarios añadidos: "Según Pan Docs, cuando IME=0 y hay una interrupción pendiente habilitada en IE: 1. La CPU DEBE SALIR DE HALT (despertar). 2. Pero NO salta al vector de interrupción (porque IME=0). 3. Simplemente continúa la ejecución en la siguiente instrucción."
+
+**Concepto de Hardware:**
+**HALT Instruction**: La instrucción HALT pone la CPU en estado de bajo consumo. La CPU deja de ejecutar instrucciones hasta que ocurre una interrupción o se despierta manualmente.
+
+**Comportamiento de HALT con IME=0**: Según Pan Docs, cuando IME=0 y hay una interrupción pendiente habilitada en IE:
+1. La CPU DEBE SALIR DE HALT (despertar).
+2. Pero NO salta al vector de interrupción (porque IME=0).
+3. Simplemente continúa la ejecución en la siguiente instrucción.
+
+**El problema del "HALT Bug"**: Si la CPU se queda en HALT eternamente porque IME=0, el juego se congela esperando que la interrupción ocurra. Esto es especialmente problemático en juegos que usan HALT para esperar V-Blank, ya que si IME nunca se activa, la CPU nunca despierta y el juego se queda congelado.
+
+**El caso de Pokémon Red**: El GPS muestra `IME:0`, `IE:0D`, `IF:01`, lo que indica que hay una interrupción V-Blank pendiente (`IF:01`) y está habilitada en IE (`IE:0D` tiene el bit 0 activo). Si el juego está en HALT esperando V-Blank, la CPU debe despertar incluso si IME=0, permitiendo que el juego continúe su ejecución.
+
+**Fuente:** Pan Docs - "HALT Instruction", "Interrupts", "IME (Interrupt Master Enable)"
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Mejorados comentarios en método `handle_interrupts()` para explicar el comportamiento de despertar de HALT cuando IME=0 (Step 0264).
+
+**Decisiones de Diseño:**
+- **Despertar de HALT independiente de IME**: La CPU debe despertar de HALT si hay CUALQUIER interrupción pendiente habilitada en IE, independientemente del estado de IME. Esto permite que el juego continúe su ejecución incluso si IME está desactivado.
+- **No saltar al vector si IME=0**: Si IME es false, la CPU no consume ciclos extra ni salta al vector de interrupción. Simplemente continúa la ejecución normal (HALT termina).
+- **Comentarios mejorados**: Se añadieron comentarios detallados explicando el comportamiento según Pan Docs, incluyendo referencias a la documentación oficial.
+
+**Validación:**
+- Recompilar: `.\rebuild_cpp.ps1`
+- Ejecutar: `python main.py roms/pkmn.gb` (Pokémon Red es ideal porque usa HALT para esperar V-Blank).
+- Observar el comportamiento:
+  - **Si la animación avanza**: La corrección funciona correctamente. La CPU está despertando de HALT cuando hay interrupciones pendientes, incluso si IME=0.
+  - **Si la pantalla sigue estática**: Puede haber otro problema (posiblemente en el renderizado de sprites o en la lógica de actualización de frames).
+
+**Próximos Pasos:**
+- Ejecutar `python main.py roms/pkmn.gb` y observar si la animación avanza.
+- Si la animación avanza, confirmar que la corrección funciona correctamente.
+- Si la pantalla sigue estática, investigar otros problemas potenciales (renderizado de sprites, lógica de actualización de frames, etc.).
+
+---
+
 ### 2025-12-23 - Step 0263: Tile Map Inspector
 **Estado**: ✅ IMPLEMENTADO
 

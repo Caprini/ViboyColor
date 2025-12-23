@@ -1597,10 +1597,22 @@ uint8_t CPU::handle_interrupts() {
     // Calcular interrupciones pendientes (bits activos en ambos registros)
     uint8_t pending = ie_reg & if_reg;
     
-    // Despertar de HALT si hay interrupción pendiente (incluso sin IME)
+    // --- Step 0264: HALT WAKEUP FIX (IME=0) ---
+    // Según Pan Docs, cuando IME=0 y hay una interrupción pendiente habilitada en IE:
+    // 1. La CPU DEBE SALIR DE HALT (despertar).
+    // 2. Pero NO salta al vector de interrupción (porque IME=0).
+    // 3. Simplemente continúa la ejecución en la siguiente instrucción.
+    // 
+    // Esto es crítico: si la CPU se queda en HALT eternamente porque IME=0,
+    // el juego se congela esperando que la interrupción ocurra.
+    // 
+    // Fuente: Pan Docs - "HALT Instruction", "Interrupts"
     if (halted_ && pending != 0) {
         halted_ = false;
+        // Nota: Si IME es false, no consumimos ciclos extra ni saltamos al vector,
+        // simplemente continuamos la ejecución (HALT termina).
     }
+    // -----------------------------------------
     
     // Si IME está activo y hay interrupciones pendientes, procesar la de mayor prioridad
     if (ime_ && pending != 0) {

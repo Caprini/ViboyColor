@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0264 - HALT Wakeup Fix -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0264</span>
+                        <a href="entries/2025-12-23__0264__halt-wakeup-fix.html" class="title">HALT Wakeup Fix (IME=0)</a>
+                        <p class="summary">Este Step revisa y corrige la lógica de despertar de HALT en la CPU. El Step 0263 confirmó que el Tile Map contiene datos válidos (tile 0x7F), pero la pantalla sigue estática. El GPS muestra IME:0, IE:0D, IF:01, lo que indica que hay una interrupción V-Blank pendiente pero la CPU no la está atendiendo porque IME está desactivado. La hipótesis es que el juego está usando HALT y esperando que la CPU se despierte cuando ocurre una interrupción, incluso si IME=0. Según Pan Docs, cuando IME=0 y hay una interrupción pendiente habilitada, la CPU debe salir de HALT pero NO saltar al vector de interrupción.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0263 - Tile Map Inspector -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>

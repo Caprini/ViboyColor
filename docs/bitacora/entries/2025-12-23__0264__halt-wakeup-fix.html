@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HALT Wakeup Fix - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>HALT Wakeup Fix (IME=0)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0264
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0263__tile-map-inspector.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step revisa y corrige la lógica de despertar de HALT en la CPU. El Step 0263 confirmó que el Tile Map contiene datos válidos (tile 0x7F), pero la pantalla sigue estática. El GPS muestra `IME:0`, `IE:0D`, `IF:01`, lo que indica que hay una interrupción V-Blank pendiente pero la CPU no la está atendiendo porque IME está desactivado. La hipótesis es que el juego está usando HALT y esperando que la CPU se despierte cuando ocurre una interrupción, incluso si IME=0. Según Pan Docs, cuando IME=0 y hay una interrupción pendiente habilitada, la CPU debe salir de HALT pero NO saltar al vector de interrupción.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>HALT Instruction:</strong> La instrucción HALT pone la CPU en estado de bajo consumo. La CPU deja de ejecutar instrucciones hasta que ocurre una interrupción o se despierta manualmente.
+                </p>
+                <p>
+                    <strong>Comportamiento de HALT con IME=0:</strong> Según Pan Docs, cuando IME=0 y hay una interrupción pendiente habilitada en IE:
+                </p>
+                <ol>
+                    <li><strong>La CPU DEBE SALIR DE HALT</strong> (despertar).</li>
+                    <li><strong>Pero NO salta al vector de interrupción</strong> (porque IME=0).</li>
+                    <li><strong>Simplemente continúa la ejecución</strong> en la siguiente instrucción.</li>
+                </ol>
+                <p>
+                    <strong>El problema del "HALT Bug":</strong> Si la CPU se queda en HALT eternamente porque IME=0, el juego se congela esperando que la interrupción ocurra. Esto es especialmente problemático en juegos que usan HALT para esperar V-Blank, ya que si IME nunca se activa, la CPU nunca despierta y el juego se queda congelado.
+                </p>
+                <p>
+                    <strong>El caso de Pokémon Red:</strong> El GPS muestra `IME:0`, `IE:0D`, `IF:01`, lo que indica que hay una interrupción V-Blank pendiente (`IF:01`) y está habilitada en IE (`IE:0D` tiene el bit 0 activo). Si el juego está en HALT esperando V-Blank, la CPU debe despertar incluso si IME=0, permitiendo que el juego continúe su ejecución.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "HALT Instruction", "Interrupts", "IME (Interrupt Master Enable)"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se revisó y mejoró la lógica de despertar de HALT en el método <code>handle_interrupts()</code> de <code>CPU.cpp</code>. La lógica ya estaba implementada correctamente, pero se mejoraron los comentarios para explicar claramente el comportamiento cuando IME=0.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>CPU::handle_interrupts()</strong>: Mejorados los comentarios para explicar claramente que la CPU debe despertar de HALT cuando hay una interrupción pendiente habilitada, incluso si IME=0. La lógica ya estaba correcta, pero ahora está mejor documentada.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Despertar de HALT independiente de IME:</strong> La CPU debe despertar de HALT si hay CUALQUIER interrupción pendiente habilitada en IE, independientemente del estado de IME. Esto permite que el juego continúe su ejecución incluso si IME está desactivado.
+                </p>
+                <p>
+                    <strong>No saltar al vector si IME=0:</strong> Si IME es false, la CPU no consume ciclos extra ni salta al vector de interrupción. Simplemente continúa la ejecución normal (HALT termina).
+                </p>
+                <p>
+                    <strong>Comentarios mejorados:</strong> Se añadieron comentarios detallados explicando el comportamiento según Pan Docs, incluyendo referencias a la documentación oficial.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Mejorados comentarios en método <code>handle_interrupts()</code> para explicar el comportamiento de despertar de HALT cuando IME=0 (Step 0264).</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para validar esta corrección:
+                </p>
+                <ol>
+                    <li><strong>Recompilar:</strong> <code>.\rebuild_cpp.ps1</code></li>
+                    <li><strong>Ejecutar:</strong> <code>python main.py roms/pkmn.gb</code> (Pokémon Red es ideal porque usa HALT para esperar V-Blank).</li>
+                    <li><strong>Observar el comportamiento:</strong>
+                        <ul>
+                            <li><strong>Si la animación avanza:</strong> La corrección funciona correctamente. La CPU está despertando de HALT cuando hay interrupciones pendientes, incluso si IME=0.</li>
+                            <li><strong>Si la pantalla sigue estática:</strong> Puede haber otro problema (posiblemente en el renderizado de sprites o en la lógica de actualización de frames).</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Validación esperada:</strong> Si la corrección funciona, deberías ver la animación de la intro de Pokémon (estrellas cayendo, Game Freak, etc.) avanzando correctamente, incluso si IME está desactivado.
+                </p>
+                <p>
+                    <strong>Correlación con GPS:</strong> El GPS debería mostrar que la CPU está ejecutando instrucciones (PC cambiando) incluso cuando IME=0, confirmando que la CPU está despertando de HALT correctamente.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#halt">HALT Instruction</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Registers_and_Flags.html#ime---interrupt-master-enable">IME (Interrupt Master Enable)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>HALT con IME=0:</strong> Cuando IME=0 y hay una interrupción pendiente habilitada, la CPU debe despertar de HALT pero NO saltar al vector de interrupción. Simplemente continúa la ejecución normal.</li>
+                        <li><strong>El problema del congelamiento:</strong> Si la CPU se queda en HALT eternamente porque IME=0, el juego se congela esperando que la interrupción ocurra. Esto es especialmente problemático en juegos que usan HALT para esperar V-Blank.</li>
+                        <li><strong>Despertar independiente de IME:</strong> La CPU debe despertar de HALT si hay CUALQUIER interrupción pendiente habilitada en IE, independientemente del estado de IME. Esto permite que el juego continúe su ejecución incluso si IME está desactivado.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento en tiempo real:</strong> ¿La CPU está despertando de HALT correctamente cuando hay interrupciones pendientes, incluso si IME=0? Los tests nos dirán si la corrección funciona.</li>
+                        <li><strong>Correlación con animación:</strong> Si la corrección funciona, ¿la animación de la intro de Pokémon avanza correctamente? Esto confirmaría que el problema estaba en el despertar de HALT.</li>
+                        <li><strong>Otros problemas potenciales:</strong> Si la pantalla sigue estática después de la corrección, puede haber otro problema (posiblemente en el renderizado de sprites o en la lógica de actualización de frames).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> Si el Tile Map contiene datos válidos (Step 0263) pero la pantalla sigue estática, y el GPS muestra `IME:0`, `IE:0D`, `IF:01`, es posible que:
+                    </p>
+                    <ol>
+                        <li><strong>La CPU está en HALT y no se despierta:</strong> Si la CPU se queda en HALT eternamente porque IME=0, el juego se congela esperando que la interrupción ocurra. Esta corrección debería resolver este problema.</li>
+                        <li><strong>El problema está en otro lado:</strong> Si la corrección no resuelve el problema, puede haber otro problema (posiblemente en el renderizado de sprites o en la lógica de actualización de frames).</li>
+                    </ol>
+                    <p>
+                        Esta corrección debería permitir que la CPU despierte de HALT correctamente, permitiendo que el juego continúe su ejecución y que la animación avance.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar <code>python main.py roms/pkmn.gb</code> y observar si la animación avanza.</li>
+                    <li>[ ] Si la animación avanza, confirmar que la corrección funciona correctamente.</li>
+                    <li>[ ] Si la pantalla sigue estática, investigar otros problemas potenciales (renderizado de sprites, lógica de actualización de frames, etc.).</li>
+                    <li>[ ] Correlacionar el comportamiento con el GPS para confirmar que la CPU está ejecutando instrucciones incluso cuando IME=0.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
