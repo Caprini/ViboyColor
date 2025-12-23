@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análisis del Bucle de Pokémon - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Análisis del Bucle de Pokémon (0x0564)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0266
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0265__lyc-coincidence-stat-irq-fix.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step analiza el bucle de espera en Pokémon Red usando la herramienta de desensamblado `tools/dump_rom_zone.py`. El Step 0265 implementó las interrupciones STAT por LYC, pero la pantalla sigue verde y el TileMap muestra `0x7F` (blanco). El GPS muestra que el PC está atrapado en un bucle entre `0x0564` y `0x056D`. Este Step desensambla esa región para entender qué está esperando el juego y por qué no avanza.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Bucles de Espera en Game Boy:</strong> Los juegos de Game Boy usan diferentes técnicas para esperar eventos:
+                </p>
+                <ul>
+                    <li><strong>HALT:</strong> La CPU entra en estado de bajo consumo y espera una interrupción. Eficiente pero requiere IME activo.</li>
+                    <li><strong>Polling Activo:</strong> La CPU ejecuta un bucle que verifica constantemente una condición (ej: lectura de registro, contador en RAM). Menos eficiente pero funciona incluso con IME=0.</li>
+                    <li><strong>Espera de V-Blank Manual:</strong> El juego lee el registro LY (0xFF44) y espera hasta que sea 144 (V-Blank). No requiere interrupciones.</li>
+                </ul>
+                <p>
+                    <strong>El caso de Pokémon Red:</strong> El GPS muestra `IME:0`, `IE:0D`, `IF:01`, lo que indica que hay una interrupción V-Blank pendiente pero IME está desactivado. Si el juego está en un bucle de espera activo (polling), está verificando alguna condición que nunca se cumple porque las interrupciones no se están procesando.
+                </p>
+                <p>
+                    <strong>Análisis de Código:</strong> Desensamblar la región donde el PC está atrapado nos permite ver qué instrucciones está ejecutando el juego y qué condición está esperando. Esto nos ayuda a entender si el problema es:
+                </p>
+                <ol>
+                    <li>Un bucle que espera una interrupción (pero IME=0).</li>
+                    <li>Un bucle que espera una variable en RAM que se actualiza en una ISR (pero la ISR nunca se ejecuta).</li>
+                    <li>Un bucle que espera un registro de hardware que no está funcionando correctamente.</li>
+                </ol>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Interrupts", "HALT Instruction", "LCD Y-Coordinate (LY)"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se mejoró la herramienta `tools/dump_rom_zone.py` para desensamblar correctamente todas las instrucciones en una región de la ROM, no solo el primer byte de cada línea.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>tools/dump_rom_zone.py</strong>: 
+                        <ul>
+                            <li>Cambiados los valores por defecto para analizar la región `0x0560-0x0580` de Pokémon Red.</li>
+                            <li>Añadido desensamblado instrucción por instrucción que muestra todas las instrucciones correctamente con sus operandos.</li>
+                            <li>Mejorado el formato de salida para mostrar dirección, bytes y mnemónico completo con operandos decodificados.</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Resultados del Análisis</h3>
+                <p>
+                    El desensamblado reveló el siguiente código en la región `0x0564-0x056D`:
+                </p>
+                <pre><code>0564 | 21 60 CD     | LD HL, 0xCD60
+0567 | CB D6        | SET 2, (HL)    ; Establece bit 2 de (0xCD60)
+0569 | 21 4B CC     | LD HL, 0xCC4B
+056C | 35           | DEC (HL)       ; Decrementa byte en (0xCC4B)
+056D | 20 F5        | JR NZ, 0x0564  ; Si no es cero, vuelve a 0564</code></pre>
+                
+                <h4>Interpretación del Bucle:</h4>
+                <ol>
+                    <li><strong>0x0564</strong>: Carga `HL` con `0xCD60` (dirección en RAM).</li>
+                    <li><strong>0x0567</strong>: `CB D6` = `SET 2, (HL)` - Establece el bit 2 de la dirección `0xCD60`.</li>
+                    <li><strong>0x0569</strong>: Carga `HL` con `0xCC4B` (dirección en RAM).</li>
+                    <li><strong>0x056C</strong>: Decrementa el byte en la dirección `0xCC4B`.</li>
+                    <li><strong>0x056D</strong>: Si el resultado no es cero, salta de vuelta a `0x0564`.</li>
+                </ol>
+
+                <h4>Observaciones Críticas:</h4>
+                <ul>
+                    <li><strong>NO hay HALT:</strong> El bucle es activo (polling), no espera interrupciones.</li>
+                    <li><strong>NO hay lectura de LY:</strong> No está esperando V-Blank manualmente leyendo `0xFF44`.</li>
+                    <li><strong>NO hay DI/EI:</strong> No cambia IME en esta zona.</li>
+                    <li><strong>Hay un contador en 0xCC4B:</strong> El bucle decrementa un contador hasta que llegue a 0.</li>
+                </ul>
+
+                <h4>Hipótesis:</h4>
+                <p>
+                    El bucle está esperando que el contador en `0xCC4B` llegue a 0. Este contador probablemente se inicializa en algún lugar del código y se decrementa en una ISR (Interrupt Service Routine). Si `IME=0`, la ISR nunca se ejecuta, el contador nunca se decrementa, y el bucle se queda atrapado esperando que el contador llegue a 0.
+                </p>
+                <p>
+                    <strong>Direcciones importantes:</strong>
+                </p>
+                <ul>
+                    <li><strong>0xCD60:</strong> Se establece el bit 2. Podría ser un registro de hardware o una variable de estado.</li>
+                    <li><strong>0xCC4B:</strong> Contador que se decrementa. Probablemente se inicializa en otro lugar y se decrementa en una ISR.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Modificados</h2>
+                <ul>
+                    <li><code>tools/dump_rom_zone.py</code>: Mejorado desensamblado instrucción por instrucción y cambiados valores por defecto para analizar el bucle de Pokémon Red.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado:</strong>
+                </p>
+                <pre><code>python tools/dump_rom_zone.py</code></pre>
+                <p>
+                    <strong>Resultado:</strong> El desensamblado mostró correctamente todas las instrucciones en la región `0x0560-0x0580`, revelando el bucle de espera activo que decrementa un contador en `0xCC4B`.
+                </p>
+                <p>
+                    <strong>Análisis del código:</strong> El bucle está esperando que un contador en RAM (`0xCC4B`) llegue a 0. Este contador probablemente se actualiza en una ISR que no se está ejecutando porque `IME=0`.
+                </p>
+            </section>
+
+            <!-- 6. Referencias -->
+            <section id="referencias">
+                <h2>Referencias</h2>
+                <ul>
+                    <li>Pan Docs - "Interrupts"</li>
+                    <li>Pan Docs - "HALT Instruction"</li>
+                    <li>Pan Docs - "LCD Y-Coordinate (LY)"</li>
+                    <li>Game Boy CPU Manual - "Instruction Set"</li>
+                </ul>
+            </section>
+
+            <!-- 7. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>Instrumentar la lectura/escritura de `0xCC4B` para ver qué valor tiene y si se está actualizando.</li>
+                    <li>Buscar dónde se inicializa el contador en `0xCC4B` (probablemente antes del bucle).</li>
+                    <li>Buscar dónde se decrementa el contador (probablemente en una ISR de V-Blank o Timer).</li>
+                    <li>Verificar qué hay en `0xCD60` y por qué se establece el bit 2.</li>
+                    <li>Investigar si el problema es que `IME` nunca se activa o si hay otro problema con las interrupciones.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>Viboy Color - Proyecto Educativo Open Source</p>
+        </footer>
+    </div>
+</body>
+</html>
+

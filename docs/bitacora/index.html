@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0266 - Análisis del Bucle de Pokémon -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0266</span>
+                        <a href="entries/2025-12-23__0266__pokemon-loop-analysis.html" class="title">Análisis del Bucle de Pokémon (0x0564)</a>
+                        <p class="summary">Este Step analiza el bucle de espera en Pokémon Red usando la herramienta de desensamblado tools/dump_rom_zone.py. El Step 0265 implementó las interrupciones STAT por LYC, pero la pantalla sigue verde y el TileMap muestra 0x7F (blanco). El GPS muestra que el PC está atrapado en un bucle entre 0x0564 y 0x056D. Este Step desensambla esa región para entender qué está esperando el juego y por qué no avanza. El análisis reveló que el bucle está esperando que un contador en RAM (0xCC4B) llegue a 0, probablemente actualizado en una ISR que no se ejecuta porque IME=0.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0265 - LYC Coincidence & STAT IRQ Fix -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>

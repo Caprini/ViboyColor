@@ -317,7 +317,68 @@ def dump_rom_zone(rom_path, start_addr, end_addr):
             print(f"📍 Zona: {hex(start_addr)} - {hex(end_addr)} ({len(zone_data)} bytes)")
             print(f"{'='*80}\n")
             
-            # Volcado hexadecimal con desensamblado básico
+            # --- Step 0266: Desensamblado mejorado instrucción por instrucción ---
+            print("DESENSAMBLADO:")
+            print("-" * 80)
+            
+            current_addr = start_addr
+            i = 0
+            
+            while i < len(zone_data):
+                addr_str = f"{current_addr:04X}"
+                opcode = zone_data[i]
+                mnemonic = GB_OPCODES.get(opcode, "???")
+                
+                # Determinar longitud de la instrucción
+                inst_len = 1
+                if mnemonic and mnemonic != "???":
+                    if "d16" in mnemonic or "a16" in mnemonic:
+                        inst_len = 3
+                    elif "d8" in mnemonic or "r8" in mnemonic or "a8" in mnemonic:
+                        inst_len = 2
+                    elif mnemonic == "PREFIX CB":
+                        inst_len = 2  # CB + 1 byte más
+                
+                # Construir la representación de bytes
+                bytes_repr = []
+                for j in range(min(inst_len, len(zone_data) - i)):
+                    bytes_repr.append(f"{zone_data[i + j]:02X}")
+                
+                # Construir el mnemónico completo con operandos
+                full_mnemonic = mnemonic or "???"
+                
+                if inst_len > 1 and i + inst_len <= len(zone_data):
+                    if inst_len == 2:
+                        operand = zone_data[i + 1]
+                        if "r8" in mnemonic:
+                            # r8 es signed
+                            signed_val = operand if operand < 128 else operand - 256
+                            target = current_addr + 2 + signed_val
+                            full_mnemonic = f"{mnemonic} ; {operand:02X} (target: {target:04X})"
+                        elif "a8" in mnemonic:
+                            full_mnemonic = f"{mnemonic} ; {operand:02X} (0xFF{operand:02X})"
+                        elif "d8" in mnemonic:
+                            full_mnemonic = f"{mnemonic} ; {operand:02X}"
+                    elif inst_len == 3:
+                        low = zone_data[i + 1]
+                        high = zone_data[i + 2]
+                        addr = (high << 8) | low
+                        if "a16" in mnemonic:
+                            full_mnemonic = f"{mnemonic} ; {low:02X} {high:02X} ({addr:04X})"
+                        else:
+                            full_mnemonic = f"{mnemonic} ; {low:02X} {high:02X} ({addr})"
+                
+                # Mostrar la instrucción
+                bytes_str = " ".join(bytes_repr).ljust(12)
+                print(f"{addr_str} | {bytes_str} | {full_mnemonic}")
+                
+                i += inst_len
+                current_addr += inst_len
+            
+            print("-" * 80)
+            print()
+            
+            # Volcado hexadecimal con desensamblado básico (mantener formato original)
             bytes_per_line = 16
             current_addr = start_addr
             i = 0
@@ -404,9 +465,11 @@ def dump_rom_zone(rom_path, start_addr, end_addr):
 def main():
     """Función principal."""
     # Argumentos por defecto
-    default_rom = "roms/tetris.gb"
-    default_start = 0x2AE0
-    default_end = 0x2B20
+    # --- Step 0266: Análisis del Bucle de Pokémon ---
+    # Cambiar a la región del bucle de espera en Pokémon Red (0x0564-0x056D)
+    default_rom = "roms/pkmn.gb"
+    default_start = 0x0560
+    default_end = 0x0580
     
     if len(sys.argv) >= 2:
         rom_path = sys.argv[1]
