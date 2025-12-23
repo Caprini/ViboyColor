@@ -1486,6 +1486,8 @@ int CPU::step() {
             // Esta instrucción se usa típicamente al inicio de rutinas críticas
             // Fuente: Pan Docs - DI: 1 M-Cycle
             {
+                // --- Step 0252: DI TRACE ---
+                printf("[DI] ¡Interrupciones Deshabilitadas en PC:%04X!\n", regs_->pc);
                 ime_ = false;
                 ime_scheduled_ = false;  // Cancelar cualquier EI pendiente
                 cycles_ += 1;  // DI consume 1 M-Cycle
@@ -1611,6 +1613,9 @@ uint8_t CPU::handle_interrupts() {
     
     // Si IME está activo y hay interrupciones pendientes, procesar la de mayor prioridad
     if (ime_ && pending != 0) {
+        // --- Step 0252: ISR TRACE ---
+        printf("[INT] ¡Interrupcion disparada! Tipo: %02X. Saltando a Vector. (IME desactivado)\n", pending);
+        
         // Desactivar IME inmediatamente (evita interrupciones anidadas)
         ime_ = false;
         

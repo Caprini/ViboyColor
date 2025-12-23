@@ -397,6 +397,22 @@ void MMU::write(uint16_t addr, uint8_t value) {
         return;
     }
     
+    // --- Step 0252: PROTECCIÓN DE ROM ---
+    // En hardware real, la ROM (0x0000-0x7FFF) es de solo lectura.
+    // Escribir en este rango no modifica los datos de la ROM, sino que se envía
+    // al MBC (Memory Bank Controller) del cartucho para controlar el cambio de bancos.
+    // Como Tetris es "ROM ONLY" (Type 0x00), las escrituras aquí deben ignorarse
+    // silenciosamente. Si permitimos escribir en ROM, el juego puede corromper
+    // su propio código, causando saltos erráticos y comportamiento extraño.
+    // Fuente: Pan Docs - "Memory Map", "Cartridge Types"
+    if (addr < 0x8000) {
+        // ROM es de solo lectura: NO escribir en memory_
+        // Los logs de SENTINEL y DMA ya se registraron arriba si aplicaban,
+        // pero no modificamos la memoria para evitar corrupción.
+        return;
+    }
+    // -----------------------------------------
+    
     // Escritura directa: O(1), sin overhead de Python
     memory_[addr] = value;
 }

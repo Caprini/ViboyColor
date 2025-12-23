@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0252 - ROM Protection & Interrupt Trace -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0252</span>
+                        <a href="entries/2025-12-23__0252__rom-protection-interrupt-trace.html" class="title">ROM Protection & Interrupt Trace</a>
+                        <p class="summary">Este Step implementa dos mejoras críticas de integridad: protección de ROM y rastreo de interrupciones. El análisis del Step 0251 reveló que el juego estaba escribiendo en el rango de ROM (`0x0000-0x7FFF`), lo que podría corromper el código del juego en tiempo de ejecución. En hardware real, la ROM es de solo lectura y las escrituras se ignoran silenciosamente (o se envían al MBC para cartuchos con bancos). Además, se añadieron logs de rastreo para detectar quién desactiva IME: la instrucción `DI` o el procesamiento automático de interrupciones.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0251 - Implementación de DMA (OAM Transfer) -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>

@@ -32,6 +32,46 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0252: ROM Protection & Interrupt Trace
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa dos mejoras críticas de integridad: **protección de ROM** y **rastreo de interrupciones**. El análisis del Step 0251 reveló que el juego estaba escribiendo en el rango de ROM (`0x0000-0x7FFF`), lo que podría corromper el código del juego en tiempo de ejecución. Además, el misterio de `IME:0` constante requiere instrumentación para detectar quién desactiva las interrupciones.
+
+**Objetivo:**
+- Proteger la ROM contra escrituras que podrían corromper el código del juego.
+- Instrumentar los puntos donde IME se desactiva para entender por qué las interrupciones no se procesan.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/MMU.cpp`**: Añadida protección de ROM en el método `write()` (líneas ~399-408).
+   - Si `addr < 0x8000`, se retorna inmediatamente sin escribir en `memory_`.
+   - Los logs de `SENTINEL` y `DMA` se mantienen para diagnóstico, pero la memoria no se modifica.
+2. **Modificado `src/core/cpp/CPU.cpp`**: Añadidos logs de rastreo en dos puntos:
+   - En `case 0xF3` (DI): Log `[DI] ¡Interrupciones Deshabilitadas en PC:XXXX!`
+   - En `handle_interrupts()`: Log `[INT] ¡Interrupcion disparada! Tipo: XX. Saltando a Vector. (IME desactivado)`
+
+**Concepto de Hardware:**
+**Protección de ROM**: En hardware real, la ROM del cartucho (`0x0000-0x7FFF`) es físicamente de solo lectura. Intentar escribir en este rango no modifica los datos de la ROM, sino que se envía al MBC (Memory Bank Controller) del cartucho para controlar el cambio de bancos de memoria. Para cartuchos "ROM ONLY" (Type 0x00) como Tetris, las escrituras simplemente se ignoran silenciosamente.
+
+**Rastreo de Interrupciones**: El sistema de interrupciones tiene dos formas principales de desactivar IME:
+1. **Instrucción `DI` (0xF3)**: Desactiva IME inmediatamente. Se usa típicamente al inicio de rutinas críticas.
+2. **Procesamiento de Interrupción**: Cuando se dispara una interrupción, el hardware desactiva IME automáticamente para evitar interrupciones anidadas.
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Añadida protección de ROM en el método `write()`.
+- `src/core/cpp/CPU.cpp` - Añadidos logs de rastreo en `DI` y `handle_interrupts()`.
+
+**Decisiones de Diseño:**
+- **Protección Silenciosa**: No generamos errores ni warnings cuando se intenta escribir en ROM. El hardware real simplemente ignora estas escrituras silenciosamente.
+- **Logs de Diagnóstico**: Los logs de `SENTINEL` y `DMA` se mantienen para diagnóstico, pero la memoria no se modifica.
+- **Instrumentación Temporal**: Los logs de `[DI]` y `[INT]` son temporales para diagnóstico. Una vez que identifiquemos el problema, pueden desactivarse para mejorar el rendimiento.
+
+**Próximos Pasos:**
+- Ejecutar el emulador con Tetris y analizar los logs de protección de ROM.
+- Verificar si los logs de `[DI]` y `[INT]` revelan quién desactiva IME.
+- Si la protección de ROM resuelve el problema, considerar implementar manejo de MBC para cartuchos con bancos de memoria.
+
+---
+
 ### 2025-12-23 - Step 0251: Implementación de DMA (OAM Transfer)
 **Estado**: ✅ IMPLEMENTADO
 

@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ROM Protection & Interrupt Trace - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>ROM Protection & Interrupt Trace</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0252
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0251__implementacion-dma-oam-transfer.html">Anterior (0251)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa dos mejoras críticas de integridad: <strong>protección de ROM</strong> y <strong>rastreo de interrupciones</strong>.
+                    El análisis del Step 0251 reveló que el juego estaba escribiendo en el rango de ROM (`0x0000-0x7FFF`), lo que podría corromper
+                    el código del juego en tiempo de ejecución. Además, el misterio de `IME:0` constante requiere instrumentación para detectar
+                    quién desactiva las interrupciones (¿es `DI`? ¿o una interrupción que se dispara?).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Protección de ROM</h3>
+                <p>
+                    En una Game Boy real, la ROM del cartucho (`0x0000-0x7FFF`) es físicamente de <strong>solo lectura</strong>. Intentar escribir
+                    en este rango no modifica los datos de la ROM, sino que se envía al <strong>MBC (Memory Bank Controller)</strong> del cartucho
+                    para controlar el cambio de bancos de memoria.
+                </p>
+                <p>
+                    <strong>Cartuchos "ROM ONLY" (Type 0x00)</strong>: Los cartuchos sin MBC (como Tetris) no tienen bancos de memoria. En estos casos,
+                    las escrituras en el rango de ROM simplemente se ignoran silenciosamente. El hardware no genera errores, pero tampoco modifica
+                    la memoria.
+                </p>
+                <p>
+                    <strong>El Problema en Nuestro Emulador</strong>: Si nuestra MMU permite escribir directamente en `memory_[addr]` para direcciones
+                    en el rango de ROM, estamos permitiendo que el juego se <strong>automutile</strong>. Si el juego sobrescribe su propio código
+                    con valores como `0xFD`, cualquier ejecución futura leerá instrucciones corruptas, causando saltos erráticos, cuelgues y
+                    comportamiento extraño.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "Memory Map", "Cartridge Types"
+                </p>
+
+                <h3>Rastreo de Interrupciones</h3>
+                <p>
+                    El sistema de interrupciones de la Game Boy tiene dos estados críticos:
+                </p>
+                <ul>
+                    <li><strong>IME (Interrupt Master Enable)</strong>: Flag global que habilita/deshabilita todas las interrupciones.</li>
+                    <li><strong>IF (Interrupt Flag)</strong>: Registro que indica qué interrupciones están pendientes.</li>
+                    <li><strong>IE (Interrupt Enable)</strong>: Registro que indica qué interrupciones están habilitadas.</li>
+                </ul>
+                <p>
+                    <strong>¿Quién desactiva IME?</strong> Hay dos formas principales:
+                </p>
+                <ol>
+                    <li><strong>Instrucción `DI` (0xF3)</strong>: Desactiva IME inmediatamente. Se usa típicamente al inicio de rutinas críticas.</li>
+                    <li><strong>Procesamiento de Interrupción</strong>: Cuando se dispara una interrupción, el hardware desactiva IME automáticamente
+                        para evitar interrupciones anidadas. El ISR (Interrupt Service Routine) puede reactivar IME con `EI` si lo necesita.</li>
+                </ol>
+                <p>
+                    <strong>El Misterio del Step 0251</strong>: El GPS mostraba `IME:0` constante, a pesar de que vimos un `[EI]`. Necesitamos saber
+                    quién apaga las interrupciones para entender por qué el juego no responde a las interrupciones de V-Blank.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "Interrupts", "DI", "EI"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <h3>1. Protección de ROM en MMU</h3>
+                <p>
+                    Se añadió una verificación en el método `MMU::write()` que previene escrituras en el rango de ROM (`0x0000-0x7FFF`).
+                    La protección se coloca <strong>después</strong> de todos los casos especiales (DIV, TIMA, TMA, TAC, P1) pero <strong>antes</strong>
+                    de la escritura directa en `memory_`.
+                </p>
+                <pre><code>// --- Step 0252: PROTECCIÓN DE ROM ---
+if (addr < 0x8000) {
+    // ROM es de solo lectura: NO escribir en memory_
+    // Los logs de SENTINEL y DMA ya se registraron arriba si aplicaban,
+    // pero no modificamos la memoria para evitar corrupción.
+    return;
+}
+// -----------------------------------------</code></pre>
+                <p>
+                    <strong>Decisiones de Diseño</strong>:
+                </p>
+                <ul>
+                    <li>Los logs de `SENTINEL` y `DMA` se mantienen para diagnóstico, pero la memoria no se modifica.</li>
+                    <li>No generamos errores ni warnings: el hardware real simplemente ignora estas escrituras silenciosamente.</li>
+                    <li>Para cartuchos con MBC, esta lógica debería extenderse para manejar el cambio de bancos, pero por ahora
+                        es suficiente para cartuchos "ROM ONLY".
+                    </li>
+                </ul>
+
+                <h3>2. Rastreo de Interrupciones en CPU</h3>
+                <p>
+                    Se añadieron dos puntos de instrumentación:
+                </p>
+                <ol>
+                    <li><strong>En `case 0xF3` (DI)</strong>: Log cuando se ejecuta la instrucción `DI`.</li>
+                    <li><strong>En `handle_interrupts()`</strong>: Log cuando se dispara una interrupción y se desactiva IME.</li>
+                </ol>
+                <pre><code>// En case 0xF3 (DI):
+printf("[DI] ¡Interrupciones Deshabilitadas en PC:%04X!\n", regs_->pc);
+
+// En handle_interrupts():
+printf("[INT] ¡Interrupcion disparada! Tipo: %02X. Saltando a Vector. (IME desactivado)\n", pending);</code></pre>
+                <p>
+                    <strong>Formato de los Logs</strong>:
+                </p>
+                <ul>
+                    <li><code>[DI]</code>: Indica que se ejecutó la instrucción `DI` en la dirección PC especificada.</li>
+                    <li><code>[INT]</code>: Indica que se disparó una interrupción. El valor `Tipo` es el bit de interrupción activado
+                        (0x01=V-Blank, 0x02=LCD STAT, 0x04=Timer, 0x08=Serial, 0x10=Joypad).
+                    </li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Añadida protección de ROM en el método <code>write()</code> (líneas ~399-408).</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadidos logs de rastreo en <code>case 0xF3</code> (DI) y <code>handle_interrupts()</code>.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para verificar la implementación, se debe ejecutar el emulador con Tetris y analizar los logs:
+                </p>
+                <ol>
+                    <li><strong>Recompilar</strong>: <code>.\rebuild_cpp.ps1</code></li>
+                    <li><strong>Ejecutar con redirección</strong>: <code>python main.py roms/tetris.gb > debug_252.log 2>&1</code></li>
+                    <li><strong>Analizar logs</strong>:
+                        <ul>
+                            <li><strong>ROM</strong>: ¿Desapareció el log <code>Write SENTINEL [0065]</code>? (O al menos, ¿seguro que no corrompe la memoria?)</li>
+                            <li><strong>IME</strong>: Buscar en el log:
+                                <ul>
+                                    <li>¿Ves <code>[DI]</code> después del <code>[EI]</code>?</li>
+                                    <li>¿Ves <code>[INT] ¡Interrupcion disparada!</code>?</li>
+                                </ul>
+                            </li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Validación Esperada</strong>:
+                </p>
+                <ul>
+                    <li>Los logs de <code>Write SENTINEL [0065]</code> pueden seguir apareciendo (para diagnóstico), pero la memoria ROM no debe corromperse.</li>
+                    <li>Si vemos <code>[DI]</code> después de <code>[EI]</code>, sabremos que el juego está desactivando interrupciones explícitamente.</li>
+                    <li>Si vemos <code>[INT]</code>, sabremos que las interrupciones se están disparando, pero IME se desactiva automáticamente.</li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++</strong>: Los cambios están en código C++ compilado, por lo que se requiere recompilación
+                    antes de probar.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Memory_Map.html">Memory Map</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/The_Cartridge_Header.html#0147--cartridge-type">Cartridge Types</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#di">DI (Disable Interrupts)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#ei">EI (Enable Interrupts)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>ROM es de solo lectura</strong>: En hardware real, escribir en ROM no modifica los datos, sino que se envía al MBC.
+                            Para cartuchos "ROM ONLY", estas escrituras simplemente se ignoran.
+                        </li>
+                        <li><strong>Corrupción de memoria</strong>: Si permitimos que el juego escriba en su propio código, cualquier lectura futura
+                            puede devolver datos corruptos, causando saltos erráticos y comportamiento impredecible.
+                        </li>
+                        <li><strong>IME se desactiva automáticamente</strong>: Cuando se dispara una interrupción, el hardware desactiva IME para evitar
+                            interrupciones anidadas. El ISR puede reactivar IME con `EI` si lo necesita.
+                        </li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿El juego está usando DI?</strong>: Los logs de <code>[DI]</code> nos dirán si el juego está desactivando interrupciones
+                            explícitamente después de <code>EI</code>.
+                        </li>
+                        <li><strong>¿Las interrupciones se están disparando?</strong>: Los logs de <code>[INT]</code> nos dirán si las interrupciones
+                            se están disparando, pero IME se desactiva automáticamente.
+                        </li>
+                        <li><strong>¿La protección de ROM resuelve el problema?</strong>: Si la corrupción de ROM era la causa del comportamiento errático,
+                            proteger la ROM debería mejorar significativamente la estabilidad del emulador.
+                        </li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal</strong>: La corrupción de ROM (escribir `0xFD` en `0x0065`) estaba causando que el juego lea instrucciones
+                        corruptas, lo que provocaba saltos erráticos y el comportamiento extraño que observamos. Proteger la ROM debería prevenir esta
+                        corrupción y mejorar la estabilidad.
+                    </p>
+                    <p>
+                        <strong>Suposición sobre IME</strong>: Asumimos que el juego está desactivando IME después de activarlo con `EI`, o que las
+                        interrupciones se están disparando pero IME se desactiva automáticamente. Los logs nos dirán cuál es el caso real.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con Tetris y analizar los logs de protección de ROM.</li>
+                    <li>[ ] Verificar si los logs de <code>[DI]</code> y <code>[INT]</code> revelan quién desactiva IME.</li>
+                    <li>[ ] Si la protección de ROM resuelve el problema, considerar implementar manejo de MBC para cartuchos con bancos de memoria.</li>
+                    <li>[ ] Si IME se desactiva automáticamente por interrupciones, verificar que el ISR reactiva IME correctamente.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
