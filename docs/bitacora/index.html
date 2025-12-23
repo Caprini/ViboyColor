@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0246 - WRAM Writer Profiler -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0246</span>
+                        <a href="entries/2025-12-23__0246__wram-writer-profiler.html" class="title">WRAM Writer Profiler</a>
+                        <p class="summary">El análisis del Step 0245 reveló cero actividad detectada, lo que sugiere que el emulador puede estar entrando en el bucle de espera antes de llegar a la escritura. Se implementa un profiler de escrituras en WRAM que registra las primeras 100 escrituras en el rango 0xC000-0xDFFF para determinar si la memoria se está inicializando siquiera, o si permanece completamente virgen (solo ceros).</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0245 - Interceptor de Transferencia DMA/HRAM -->
                     <li class="entry-item">
                         <span class="meta">2025-12-22</span>

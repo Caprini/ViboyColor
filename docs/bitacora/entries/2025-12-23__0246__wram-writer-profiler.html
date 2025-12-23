@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WRAM Writer Profiler - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>WRAM Writer Profiler</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0246
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0245__interceptor-dma-hram.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El análisis del Step 0245 reveló un resultado desconcertante: <strong>cero actividad detectada</strong>.
+                    Esto contradice parcialmente al Step 0244 (que sí vio escrituras de `0xFD`), lo que sugiere que
+                    el emulador puede estar entrando en el bucle de espera antes de llegar a la escritura, o que
+                    el script de análisis filtró demasiado.
+                </p>
+                <p>
+                    La conclusión neta es que el juego <strong>NO</strong> usa DMA (`FF46`) ni lee la HRAM (`FF8D`)
+                    para copiarla. Sin embargo, el juego <strong>BUSCA</strong> datos en WRAM y se cuelga porque está vacía.
+                </p>
+                <p>
+                    Este Step implementa un <strong>profiler de escrituras en WRAM</strong> que registra las primeras
+                    100 escrituras en el rango `0xC000-0xDFFF` para determinar si la memoria se está inicializando
+                    siquiera, o si permanece completamente virgen (solo ceros).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La <strong>Work RAM (WRAM)</strong> del Game Boy es una región de memoria de 8KB ubicada en el
+                    rango `0xC000-0xDFFF`. Esta memoria es utilizada por los juegos para almacenar variables de estado,
+                    buffers temporales, y datos de trabajo durante la ejecución.
+                </p>
+                <p>
+                    Durante el arranque de un juego, típicamente ocurre una <strong>rutina de inicialización</strong>
+                    que copia datos desde el cartucho (ROM) hacia la WRAM. Esta rutina puede ser:
+                </p>
+                <ul>
+                    <li><strong>Rutina de copia masiva (memcpy)</strong>: Mueve bloques de datos desde la ROM hacia la WRAM.</li>
+                    <li><strong>Rutina de inicialización de variables</strong>: Escribe valores específicos en direcciones
+                        concretas de la WRAM.</li>
+                    <li><strong>Rutina de limpieza</strong>: Llena la WRAM con ceros o valores por defecto.</li>
+                </ul>
+                <p>
+                    Si la WRAM permanece vacía (llena de ceros), significa que <strong>esa rutina de copia nunca ocurrió</strong>
+                    o escribió ceros. Esto puede deberse a:
+                </p>
+                <ul>
+                    <li>El <strong>Program Counter (PC)</strong> tomó un camino erróneo antes de llegar al `CALL` de copia.</li>
+                    <li>La rutina de inicialización falló silenciosamente.</li>
+                    <li>El emulador se saltó completamente la fase de inicialización de memoria.</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Memory Map", "Work RAM (WRAM)"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementa un profiler de escrituras en WRAM que registra las primeras 100 escrituras en el
+                    rango `0xC000-0xDFFF`. Este profiler nos permitirá determinar:
+                </p>
+                <ul>
+                    <li><strong>Escenario A (Silencio Total)</strong>: No se detectan escrituras en WRAM.
+                        <em>Diagnóstico:</em> La CPU se salta la inicialización. El `PC` toma un camino erróneo antes
+                        de llegar al `CALL` de copia.</li>
+                    <li><strong>Escenario B (Escrituras detectadas)</strong>: Se detectan escrituras en WRAM.
+                        <em>Análisis:</em> Si los valores son todo `00`, es una rutina de limpieza (`XOR A`).
+                        Si los valores son variados (`12`, `F0`, `FD`), es una rutina de copia de datos.</li>
+                </ul>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code>: Añadido bloque de instrumentación en `MMU::write` para
+                        registrar las primeras 100 escrituras en WRAM. Se eliminó la instrumentación de los Steps
+                        0244 y 0245 para limpiar el ruido.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Límite de 100 escrituras:</strong> Se limita el registro a las primeras 100 escrituras
+                    para evitar saturar la salida de la consola y mantener el rendimiento del emulador. Este número
+                    es suficiente para determinar si la memoria se está inicializando o permanece virgen.
+                </p>
+                <p>
+                    <strong>Rango WRAM (0xC000-0xDFFF):</strong> Se filtra por dirección lógica, incluyendo Echo RAM
+                    si se redirige, pero el filtro se aplica antes de la redirección para mantener la coherencia.
+                </p>
+                <p>
+                    <strong>Limpieza de instrumentación anterior:</strong> Se eliminaron los bloques de instrumentación
+                    de los Steps 0244 y 0245 para reducir el ruido en los logs y facilitar el análisis de los resultados.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Añadido profiler de escrituras en WRAM (Step 0246).
+                        Eliminada instrumentación de Steps 0244 y 0245.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realiza mediante ejecución del emulador y observación de la salida de la consola:
+                </p>
+                <ol>
+                    <li><strong>Recompilación:</strong> <code>.\rebuild_cpp.ps1</code></li>
+                    <li><strong>Ejecución:</strong> <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Observación:</strong> Se observa la consola para detectar mensajes <code>[WRAM-WRITE]</code></li>
+                </ol>
+                <p>
+                    <strong>Resultados esperados:</strong>
+                </p>
+                <ul>
+                    <li><strong>Escenario A (Silencio Total)</strong>: No se ven mensajes <code>[WRAM-WRITE]</code>.
+                        Esto confirma que la CPU se salta la inicialización.</li>
+                    <li><strong>Escenario B (Escrituras detectadas)</strong>: Se ven mensajes <code>[WRAM-WRITE #N]</code>
+                        con direcciones y valores. Esto confirma que la memoria se está inicializando, pero necesitamos
+                        analizar los valores para determinar si son datos válidos o ceros.</li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El profiler está implementado directamente en
+                    el código C++ de la MMU, por lo que requiere recompilación para activarse. La instrumentación se
+                    ejecuta en el bucle crítico de escritura de memoria, por lo que debe ser eficiente para no degradar
+                    el rendimiento del emulador.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Memory_Map.html">Memory Map</a> - Sección "Work RAM (WRAM)"</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Memory_Map.html">Memory Map</a> - Sección "Echo RAM"</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Rutina de inicialización de memoria:</strong> Los juegos de Game Boy típicamente
+                            ejecutan una rutina de inicialización que copia datos desde la ROM hacia la WRAM al inicio
+                            de la ejecución. Si esta rutina no se ejecuta, la WRAM permanece vacía y el juego puede
+                            colgarse buscando datos que nunca existieron.</li>
+                        <li><strong>Profiling de memoria:</strong> Instrumentar las escrituras en memoria es una técnica
+                            efectiva para diagnosticar problemas de inicialización. Al registrar las primeras escrituras,
+                            podemos determinar si la memoria se está inicializando o permanece virgen.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Resultados del profiler:</strong> Necesitamos ejecutar el emulador y observar si
+                            se detectan escrituras en WRAM. Si no se detectan, confirmaremos que la CPU se salta la
+                            inicialización. Si se detectan, analizaremos los valores para determinar si son datos
+                            válidos o ceros.</li>
+                        <li><strong>Ruta de ejecución del PC:</strong> Si no se detectan escrituras, necesitaremos
+                            rastrear el Program Counter para determinar por qué la rutina de inicialización no se
+                            ejecuta.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego debería estar ejecutando una rutina de copia
+                        masiva (tipo `memcpy`) que mueve bloques de datos desde el Cartucho (ROM) hacia la RAM de
+                        trabajo (WRAM) al inicio. Si la WRAM está vacía, significa que esa rutina de copia nunca
+                        ocurrió o escribió ceros.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Asumimos que el límite de 100 escrituras es suficiente para
+                        determinar si la memoria se está inicializando. Si el juego escribe más de 100 veces en WRAM
+                        durante la inicialización, perderemos información, pero las primeras 100 escrituras deberían
+                        ser suficientes para diagnosticar el problema.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y observar la salida del profiler de WRAM</li>
+                    <li>[ ] Analizar los resultados: ¿Se detectan escrituras? ¿Qué valores se escriben?</li>
+                    <li>[ ] Si no se detectan escrituras: Rastrear el Program Counter para determinar por qué
+                        la rutina de inicialización no se ejecuta</li>
+                    <li>[ ] Si se detectan escrituras pero son ceros: Investigar por qué la rutina de copia
+                        escribe ceros en lugar de datos válidos</li>
+                    <li>[ ] Si se detectan escrituras con valores variados: Confirmar que la memoria se está
+                        inicializando correctamente y buscar el problema en otra parte</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

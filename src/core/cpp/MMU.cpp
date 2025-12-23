@@ -260,15 +260,6 @@ uint8_t MMU::read(uint16_t addr) const {
         return 0;
     }
     
-    // --- Step 0245: HRAM READ WATCHDOG ---
-    // El Centinela (Step 0244) confirmó que el juego escribe 0xFD en HRAM (0xFF8D),
-    // pero luego lo busca en WRAM. Necesitamos saber si alguien intenta leer 0xFF8D
-    // para copiar esos datos a WRAM. Si nadie lee 0xFF8D, nadie puede copiar el marcador.
-    // Fuente: Pan Docs - "High RAM (HRAM)", "Memory Map"
-    if (addr == 0xFF8D) {
-        printf("[HRAM] ¡Lectura detectada en FF8D! PC podría estar copiando datos.\n");
-    }
-    // -----------------------------------------
     
     // Acceso directo al array: O(1), sin overhead de Python
     return memory_[addr];
@@ -290,24 +281,21 @@ void MMU::write(uint16_t addr, uint8_t value) {
     // Enmascarar el valor a 8 bits
     value &= 0xFF;
     
-    // --- Step 0244: SENTINEL SEARCH (Buscando al 0xFD) ---
-    // El juego se cuelga buscando este valor. ¿Alguien lo escribe?
-    // Detectamos cualquier intento de escribir 0xFD en la zona de RAM (WRAM/Echo RAM)
-    // Direcciones >= 0xC000 corresponden a WRAM (0xC000-0xDFFF) y Echo RAM (0xE000-0xFDFF)
-    if (value == 0xFD && addr >= 0xC000) {
-        printf("[SENTINEL] ¡Detectada escritura de 0xFD en Address: %04X!\n", addr);
-    }
-    // -----------------------------------------
-    
-    // --- Step 0245: INTERCEPTOR DMA ---
-    // El Centinela (Step 0244) confirmó que el juego escribe 0xFD en HRAM (0xFF8D),
-    // pero luego lo busca en WRAM. Necesitamos saber si el juego intenta activar
-    // una transferencia DMA para mover datos de HRAM a WRAM.
-    // El registro DMA (0xFF46) se escribe con el byte alto de la dirección fuente
-    // (ej: escribir 0xFE inicia una transferencia desde 0xFE00).
-    // Fuente: Pan Docs - "DMA Transfer", "OAM DMA"
-    if (addr == 0xFF46) {
-        printf("[DMA] ¡Escritura en Registro DMA (FF46)! Valor: %02X (Source: %04X00)\n", value, value);
+    // --- Step 0246: WRAM WRITER PROFILER ---
+    // Hemos confirmado que el juego se cuelga escaneando una WRAM vacía. Los diagnósticos
+    // anteriores indican que no hay transferencias DMA ni copias desde HRAM.
+    // La hipótesis principal ahora es que la rutina de inicialización que debe copiar
+    // datos desde la ROM a la WRAM no se está ejecutando.
+    // Este profiler registra las primeras 100 escrituras en WRAM (0xC000-0xDFFF) para
+    // determinar si la memoria se está inicializando siquiera.
+    // Fuente: Pan Docs - "Memory Map", "Work RAM (WRAM)"
+    static int wram_write_counter = 0;
+    // Rango WRAM: 0xC000 - 0xDFFF (incluyendo Echo RAM si se redirige, pero filtramos por dirección lógica)
+    if (addr >= 0xC000 && addr <= 0xDFFF) {
+        if (wram_write_counter < 100) {
+            printf("[WRAM-WRITE #%d] Addr: %04X | Val: %02X\n", wram_write_counter, addr, value);
+            wram_write_counter++;
+        }
     }
     // -----------------------------------------
     

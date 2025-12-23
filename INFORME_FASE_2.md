@@ -32,6 +32,41 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0246: WRAM Writer Profiler
+**Estado**: 🔍 EN DEPURACIÓN
+
+El análisis del Step 0245 reveló un resultado desconcertante: **cero actividad detectada**. Esto contradice parcialmente al Step 0244 (que sí vio escrituras de `0xFD`), lo que sugiere que el emulador puede estar entrando en el bucle de espera antes de llegar a la escritura, o que el script de análisis filtró demasiado.
+
+La conclusión neta es que el juego **NO** usa DMA (`FF46`) ni lee la HRAM (`FF8D`) para copiarla. Sin embargo, el juego **BUSCA** datos en WRAM y se cuelga porque está vacía.
+
+**Objetivo:**
+- Instrumentar `MMU::write` para registrar las primeras 100 escrituras en WRAM (`0xC000-0xDFFF`).
+- Determinar si la WRAM permanece virgen (solo ceros/sin escrituras) o si se está escribiendo "basura".
+- Confirmar si la rutina de inicialización que debe copiar datos desde la ROM a la WRAM se está ejecutando.
+
+**Implementación:**
+1. **Eliminada instrumentación de Steps 0244 y 0245**: Se limpió el código de instrumentación anterior para reducir el ruido en los logs.
+2. **Añadido bloque de instrumentación en `MMU::write`**: Registra las primeras 100 escrituras en WRAM con formato `[WRAM-WRITE #N] Addr: XXXX | Val: XX`.
+
+**Concepto de Hardware:**
+**Work RAM (WRAM)**: La WRAM del Game Boy es una región de memoria de 8KB ubicada en el rango `0xC000-0xDFFF`. Esta memoria es utilizada por los juegos para almacenar variables de estado, buffers temporales, y datos de trabajo durante la ejecución.
+
+**Rutina de Inicialización de Memoria**: Durante el arranque de un juego, típicamente ocurre una rutina de inicialización que copia datos desde el cartucho (ROM) hacia la WRAM. Esta rutina puede ser:
+- **Rutina de copia masiva (memcpy)**: Mueve bloques de datos desde la ROM hacia la WRAM.
+- **Rutina de inicialización de variables**: Escribe valores específicos en direcciones concretas de la WRAM.
+- **Rutina de limpieza**: Llena la WRAM con ceros o valores por defecto.
+
+Si la WRAM permanece vacía (llena de ceros), significa que **esa rutina de copia nunca ocurrió** o escribió ceros. Esto puede deberse a que el Program Counter (PC) tomó un camino erróneo antes de llegar al `CALL` de copia, o que la rutina de inicialización falló silenciosamente.
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Añadido profiler de escrituras en WRAM (Step 0246). Eliminada instrumentación de Steps 0244 y 0245.
+
+**Resultados Esperados:**
+- **Escenario A (Silencio Total)**: No se detectan escrituras en WRAM. *Diagnóstico:* La CPU se salta la inicialización. El `PC` toma un camino erróneo antes de llegar al `CALL` de copia.
+- **Escenario B (Escrituras detectadas)**: Se detectan escrituras en WRAM. *Análisis:* Si los valores son todo `00`, es una rutina de limpieza (`XOR A`). Si los valores son variados (`12`, `F0`, `FD`), es una rutina de copia de datos.
+
+---
+
 ### 2025-12-22 - Step 0245: Interceptor de Transferencia DMA/HRAM
 **Estado**: 🔍 EN DEPURACIÓN
 
