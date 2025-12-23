@@ -32,6 +32,44 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0244: El Rastreador del Centinela
+**Estado**: 🔍 EN DEPURACIÓN
+
+Tras confirmar un bucle infinito en `0x2B24` donde el juego escanea la WRAM buscando el byte `0xFD` (que nunca encuentra porque la memoria está inicializada a `0x00`), se implementa un rastreador del centinela (sentinel search) en la MMU para detectar cualquier intento de escritura de este valor mágico. Esto permitirá determinar si el juego intentó escribir el marcador y falló, o si nunca llegó a ejecutar la instrucción de escritura.
+
+**Objetivo:**
+- Instrumentar el método `MMU::write` para detectar y registrar cualquier intento de escribir el valor `0xFD` en la memoria RAM (direcciones `>= 0xC000`).
+- Determinar si el juego intentó escribir el marcador mágico y falló, o si nunca llegó a ejecutar la instrucción de escritura.
+
+**Implementación:**
+1. **Añadido bloque de diagnóstico en `MMU::write`**: Se coloca justo después de enmascarar el valor y antes de los registros especiales, para capturar todas las escrituras relevantes, incluyendo las que se redirigen desde Echo RAM.
+2. **Condición de detección**: Se verifica tanto el valor (`0xFD`) como la dirección (`>= 0xC000`) para evitar falsos positivos en otras áreas de memoria.
+3. **Formato del mensaje**: El mensaje incluye el prefijo `[SENTINEL]` para facilitar su búsqueda en los logs y muestra la dirección exacta donde se intentó escribir.
+
+**Concepto de Hardware:**
+**Marcadores Mágicos en Memoria (Sentinel Values)**: Muchos programas usan valores especiales (marcadores o "sentinels") para indicar estados o marcar posiciones en memoria. En el caso de Tetris, el juego parece estar buscando el byte `0xFD` en la WRAM como un marcador que indica que alguna fase de inicialización se completó correctamente.
+
+**Diagnóstico de Bucle Infinito**: Cuando un programa entra en un bucle infinito buscando un valor que nunca encuentra, hay dos posibles causas:
+- **Opción A**: El programa intentó escribir el marcador, pero la escritura falló (problema en la MMU o en la lógica de escritura).
+- **Opción B**: El programa nunca llegó a ejecutar la instrucción que escribe el marcador (problema anterior en la ejecución, posiblemente en la CPU o en la lógica de inicialización).
+
+El **rastreador del centinela** es una técnica de debugging que consiste en instrumentar el punto de escritura (en este caso, el método `MMU::write`) para detectar y registrar cualquier intento de escribir el valor buscado. Si el rastreador detecta la escritura, sabemos que el juego intentó escribir el marcador (y debemos investigar por qué no se guardó correctamente). Si el rastreador nunca se activa, sabemos que el problema está antes de la escritura (posiblemente en la lógica de inicialización o en un salto condicional incorrecto).
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Añadido bloque de diagnóstico del rastreador del centinela en `MMU::write`
+- `docs/bitacora/entries/2025-12-22__0244__rastreador-del-centinela.html` - Entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con Step 0244
+
+**Próximos Pasos:**
+- Recompilar la extensión C++: `.\rebuild_cpp.ps1`
+- Ejecutar Tetris: `python main.py roms/tetris.gb`
+- Observar la consola para detectar mensajes `[SENTINEL]`
+- **Si aparece el mensaje**: Investigar por qué la escritura no se guardó correctamente (verificar redirección de Echo RAM, lógica de escritura, etc.)
+- **Si NO aparece el mensaje**: Investigar la lógica de inicialización del juego para encontrar dónde se supone que debería escribirse el marcador (posible problema en saltos condicionales o en la lógica de inicialización)
+
+---
+
 ### 2025-12-22 - Step 0243: Operación Silencio
 **Estado**: 🔍 EN DEPURACIÓN
 

@@ -280,6 +280,15 @@ void MMU::write(uint16_t addr, uint8_t value) {
     // Enmascarar el valor a 8 bits
     value &= 0xFF;
     
+    // --- Step 0244: SENTINEL SEARCH (Buscando al 0xFD) ---
+    // El juego se cuelga buscando este valor. ¿Alguien lo escribe?
+    // Detectamos cualquier intento de escribir 0xFD en la zona de RAM (WRAM/Echo RAM)
+    // Direcciones >= 0xC000 corresponden a WRAM (0xC000-0xDFFF) y Echo RAM (0xE000-0xFDFF)
+    if (value == 0xFD && addr >= 0xC000) {
+        printf("[SENTINEL] ¡Detectada escritura de 0xFD en Address: %04X!\n", addr);
+    }
+    // -----------------------------------------
+    
     // --- SENSOR DE VRAM (Step 0204) - DESACTIVADO EN STEP 0229 ---
     // Step 0229: Comentado para permitir velocidad nativa del emulador.
     // Los logs ralentizaban el emulador tanto que parecía estar colgado.

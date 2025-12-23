@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>El Rastreador del Centinela - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>El Rastreador del Centinela</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0244
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0243__operacion-silencio.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Tras confirmar un bucle infinito en <code>0x2B24</code> donde el juego escanea la WRAM buscando el byte <code>0xFD</code> (que nunca encuentra porque la memoria está inicializada a <code>0x00</code>), se implementa un rastreador del centinela (sentinel search) en la MMU para detectar cualquier intento de escritura de este valor mágico. Esto permitirá determinar si el juego intentó escribir el marcador y falló, o si nunca llegó a ejecutar la instrucción de escritura.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Marcadores Mágicos en Memoria (Sentinel Values)</strong>: Muchos programas usan valores especiales (marcadores o "sentinels") para indicar estados o marcar posiciones en memoria. En el caso de Tetris, el juego parece estar buscando el byte <code>0xFD</code> en la WRAM como un marcador que indica que alguna fase de inicialización se completó correctamente.
+                </p>
+                <p>
+                    <strong>Diagnóstico de Bucle Infinito</strong>: Cuando un programa entra en un bucle infinito buscando un valor que nunca encuentra, hay dos posibles causas:
+                </p>
+                <ul>
+                    <li><strong>Opción A</strong>: El programa intentó escribir el marcador, pero la escritura falló (problema en la MMU o en la lógica de escritura).</li>
+                    <li><strong>Opción B</strong>: El programa nunca llegó a ejecutar la instrucción que escribe el marcador (problema anterior en la ejecución, posiblemente en la CPU o en la lógica de inicialización).</li>
+                </ul>
+                <p>
+                    El <strong>rastreador del centinela</strong> es una técnica de debugging que consiste en instrumentar el punto de escritura (en este caso, el método <code>MMU::write</code>) para detectar y registrar cualquier intento de escribir el valor buscado. Si el rastreador detecta la escritura, sabemos que el juego intentó escribir el marcador (y debemos investigar por qué no se guardó correctamente). Si el rastreador nunca se activa, sabemos que el problema está antes de la escritura (posiblemente en la lógica de inicialización o en un salto condicional incorrecto).
+                </p>
+                <p>
+                    <strong>Área de Memoria Monitoreada</strong>: El rastreador monitorea direcciones <code>>= 0xC000</code>, que incluyen:
+                </p>
+                <ul>
+                    <li><strong>WRAM</strong> (<code>0xC000-0xDFFF</code>): Memoria de trabajo interna del Game Boy (8 KB).</li>
+                    <li><strong>Echo RAM</strong> (<code>0xE000-0xFDFF</code>): Espejo de WRAM (redirigido a WRAM por la MMU desde Step 0239).</li>
+                </ul>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añade un bloque de diagnóstico al inicio del método <code>MMU::write</code> que detecta cualquier intento de escribir el valor <code>0xFD</code> en direcciones de RAM (<code>>= 0xC000</code>). El diagnóstico se ejecuta antes de cualquier redirección de Echo RAM o manejo de registros especiales, para capturar todas las escrituras relevantes.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code>: Añadido bloque de diagnóstico en <code>MMU::write</code> para detectar escrituras de <code>0xFD</code> en RAM.</li>
+                </ul>
+
+                <h3>Código añadido</h3>
+                <pre><code>// --- Step 0244: SENTINEL SEARCH (Buscando al 0xFD) ---
+// El juego se cuelga buscando este valor. ¿Alguien lo escribe?
+// Detectamos cualquier intento de escribir 0xFD en la zona de RAM (WRAM/Echo RAM)
+// Direcciones >= 0xC000 corresponden a WRAM (0xC000-0xDFFF) y Echo RAM (0xE000-0xFDFF)
+if (value == 0xFD && addr >= 0xC000) {
+    printf("[SENTINEL] ¡Detectada escritura de 0xFD en Address: %04X!\n", addr);
+}
+// -----------------------------------------</code></pre>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Ubicación del diagnóstico</strong>: Se coloca justo después de enmascarar el valor y antes de los registros especiales, para capturar todas las escrituras relevantes, incluyendo las que se redirigen desde Echo RAM.</li>
+                    <li><strong>Condición de detección</strong>: Se verifica tanto el valor (<code>0xFD</code>) como la dirección (<code>>= 0xC000</code>) para evitar falsos positivos en otras áreas de memoria.</li>
+                    <li><strong>Formato del mensaje</strong>: El mensaje incluye el prefijo <code>[SENTINEL]</code> para facilitar su búsqueda en los logs y muestra la dirección exacta donde se intentó escribir.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Añadido bloque de diagnóstico del rastreador del centinela en <code>MMU::write</code></li>
+                    <li><code>docs/bitacora/entries/2025-12-22__0244__rastreador-del-centinela.html</code> - Entrada de bitácora</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con nueva entrada</li>
+                    <li><code>INFORME_FASE_2.md</code> - Actualizado con Step 0244</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    El diagnóstico se valida ejecutando el emulador con Tetris y observando la consola:
+                </p>
+                <ol>
+                    <li><strong>Recompilar la extensión C++</strong>: <code>.\rebuild_cpp.ps1</code></li>
+                    <li><strong>Ejecutar Tetris</strong>: <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Observar la consola</strong>:
+                        <ul>
+                            <li>Si aparece <code>[SENTINEL] ¡Detectada escritura de 0xFD en Address: XXXX!</code>: El juego intentó escribir el marcador. Anotar la dirección y verificar si es Echo RAM (<code>0xE...</code>) o WRAM (<code>0xC...</code>). Investigar por qué la escritura no se guardó correctamente.</li>
+                            <li>Si NO aparece ningún mensaje y el emulador entra en el bucle GPS (<code>PC:2B24</code>): El juego nunca escribió el marcador. El problema está antes de la escritura, posiblemente en la lógica de inicialización o en un salto condicional incorrecto.</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Nota</strong>: Este diagnóstico es intencionalmente visible (usa <code>printf</code>) para facilitar su detección en los logs. Una vez identificada la causa del problema, el diagnóstico puede ser removido o convertido en un log condicional.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Memory_Map.html">Memory Map</a> - Descripción de WRAM y Echo RAM</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Memory_Map.html#echo-ram">Echo RAM</a> - Comportamiento del espejo de memoria</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Marcadores Mágicos</strong>: Los programas usan valores especiales para marcar estados o posiciones en memoria. El byte <code>0xFD</code> parece ser un marcador que Tetris usa para indicar que alguna fase de inicialización se completó.</li>
+                        <li><strong>Diagnóstico de Bucle Infinito</strong>: Cuando un programa busca un valor que nunca encuentra, hay dos posibles causas: el valor nunca se escribió (problema anterior) o se escribió pero no se guardó (problema en la escritura).</li>
+                        <li><strong>Rastreador del Centinela</strong>: Técnica de debugging que instrumenta el punto de escritura para detectar intentos de escribir un valor específico. Permite distinguir entre problemas de escritura y problemas de lógica.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿El juego escribe el marcador?</strong>: Necesitamos ejecutar el emulador y observar si aparece el mensaje <code>[SENTINEL]</code> en los logs.</li>
+                        <li><strong>Si se escribe, ¿por qué no se guarda?</strong>: Si el rastreador detecta la escritura pero el juego no encuentra el valor, debemos investigar por qué la escritura no se guardó correctamente (posible problema en Echo RAM o en la lógica de redirección).</li>
+                        <li><strong>Si no se escribe, ¿dónde falla la inicialización?</strong>: Si el rastreador nunca se activa, debemos investigar la lógica de inicialización del juego para encontrar dónde se supone que debería escribirse el marcador.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal</strong>: El juego intenta escribir <code>0xFD</code> en WRAM o Echo RAM como marcador de inicialización, pero algo falla en el proceso (ya sea la escritura misma o la lógica que decide cuándo escribirla).
+                    </p>
+                    <p>
+                        <strong>Suposición</strong>: El valor <code>0xFD</code> es un marcador mágico específico de Tetris, no un valor estándar del hardware. Esta suposición se basa en el análisis del código que busca este valor específico en la memoria.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar la extensión C++: <code>.\rebuild_cpp.ps1</code></li>
+                    <li>[ ] Ejecutar Tetris: <code>python main.py roms/tetris.gb</code></li>
+                    <li>[ ] Observar la consola para detectar mensajes <code>[SENTINEL]</code></li>
+                    <li>[ ] <strong>Si aparece el mensaje</strong>: Investigar por qué la escritura no se guardó correctamente (verificar redirección de Echo RAM, lógica de escritura, etc.)</li>
+                    <li>[ ] <strong>Si NO aparece el mensaje</strong>: Investigar la lógica de inicialización del juego para encontrar dónde se supone que debería escribirse el marcador (posible problema en saltos condicionales o en la lógica de inicialización)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
