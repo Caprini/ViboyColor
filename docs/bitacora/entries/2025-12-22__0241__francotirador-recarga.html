@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Francotirador: Recarga - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Francotirador: Recarga</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0241
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0240__monitor-gps-navegador.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Tras implementar Echo RAM (Step 0239) y el monitor GPS (Step 0240), el análisis del GPS revela que la CPU sigue atrapada en la zona <code>0x2B24</code>. Aunque la lógica de Echo RAM está implementada, el juego sigue fallando la validación de memoria. Se reactiva el "Francotirador" (traza detallada) en el rango <code>0x2B20-0x2B30</code> para observar el comportamiento dinámico del bucle y determinar si HL avanza (escaneando memoria) o se reinicia constantemente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Análisis Dinámico de Bucles de Verificación</strong>: Cuando un juego verifica la integridad de la memoria, típicamente ejecuta un bucle que:
+                </p>
+                <ol>
+                    <li>Inicializa un registro (ej: HL) con una dirección de inicio.</li>
+                    <li>Lee un byte de memoria en esa dirección.</li>
+                    <li>Compara el valor leído con un valor esperado (ej: <code>CP 0xFD</code>).</li>
+                    <li>Si la comparación falla, reinicia el bucle o aborta.</li>
+                    <li>Si la comparación pasa, incrementa HL y repite hasta cubrir todo el rango.</li>
+                </ol>
+                <p>
+                    Si el bucle está <strong>avanzando</strong> (HL incrementa), significa que la verificación está progresando pero es lenta (puede estar escaneando toda la RAM). Si el bucle está <strong>estático</strong> (HL se reinicia constantemente), significa que falla en el primer byte y nunca avanza.
+                </p>
+                <p>
+                    El "Francotirador" es una técnica de debugging que consiste en activar trazas detalladas solo en un rango específico de direcciones de memoria. Esto permite observar el comportamiento de un bucle sin saturar la consola con logs masivos de toda la ejecución.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se reactiva el bloque de debug del Francotirador en <code>CPU.cpp</code>, justo antes del fetch del opcode, para capturar cada instrucción ejecutada en el rango crítico.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code>: Añadido bloque de debug del Francotirador en el método <code>step()</code>.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    El bloque de debug se coloca <strong>antes</strong> del <code>fetch_byte()</code> para capturar el PC antes de que se incremente. Esto permite ver la dirección exacta donde se ejecuta cada instrucción. El formato del log incluye:
+                </p>
+                <ul>
+                    <li><strong>PC</strong>: Program Counter (dirección de la instrucción actual).</li>
+                    <li><strong>OP</strong>: Opcode de la instrucción.</li>
+                    <li><strong>A</strong>: Valor del acumulador (para ver qué valor se está comparando).</li>
+                    <li><strong>HL</strong>: Valor del par de registros HL (para ver si avanza o se reinicia).</li>
+                </ul>
+                <p>
+                    <strong>Nota importante</strong>: Este debug es temporal y debe desactivarse una vez que identifiquemos el problema, ya que los <code>printf</code> ralentizan significativamente la ejecución.
+                </p>
+
+                <h3>Código añadido</h3>
+                <pre><code>// --- Step 0241: FRANCOTIRADOR RECARGADO ---
+// Reactivamos el debug del Francotirador para analizar el comportamiento
+// dinámico del bucle en 0x2B20-0x2B30. Necesitamos ver si HL avanza
+// (escaneando memoria) o se reinicia constantemente.
+if (regs_->pc >= 0x2B20 && regs_->pc <= 0x2B30) {
+    uint8_t opcode = mmu_->read(regs_->pc);
+    printf("[SNIPER] PC:%04X | OP:%02X | A:%02X | HL:%04X\n", 
+           regs_->pc, opcode, regs_->a, regs_->get_hl());
+}
+// ------------------------------------------</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Reactivación del bloque de debug del Francotirador en el método <code>step()</code></li>
+                    <li><code>docs/bitacora/entries/2025-12-22__0241__francotirador-recarga.html</code> - Entrada de bitácora</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para validar esta implementación, se debe:
+                </p>
+                <ol>
+                    <li><strong>Recompilar la extensión C++</strong>:
+                        <pre><code>python setup.py build_ext --inplace</code></pre>
+                    </li>
+                    <li><strong>Ejecutar el emulador con Tetris</strong>:
+                        <pre><code>python main.py roms/tetris.gb</code></pre>
+                    </li>
+                    <li><strong>Analizar los logs del Francotirador</strong>:
+                        <ul>
+                            <li>Si <strong>HL avanza</strong> (ej: <code>HL:E645</code>, <code>HL:E646</code>, <code>HL:E647</code>...): El bucle está escaneando toda la RAM y solo es lento. Dejar correr o optimizar los logs.</li>
+                            <li>Si <strong>HL es estático</strong> (ej: <code>HL:E645</code> repetido): El bucle falla en el primer byte y se reinicia. Hay un problema de datos en RAM.</li>
+                            <li>Si <strong>A cambia</strong>: Ver qué valor se está comparando y si coincide con lo esperado.</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Estado actual</strong>: Pendiente de ejecución y análisis de logs.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Game Boy Pan Docs</a> - Referencia general de arquitectura LR35902</li>
+                </ul>
+                <p>
+                    <em>Nota: Esta implementación es una técnica de debugging estándar para análisis dinámico de bucles.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Análisis Dinámico</strong>: Observar el comportamiento de un bucle en tiempo de ejecución es crucial para entender por qué falla. Los logs estáticos (dumps de memoria) no muestran el flujo de ejecución.</li>
+                        <li><strong>Debugging Selectivo</strong>: Activar trazas solo en un rango específico de direcciones permite obtener información detallada sin saturar la consola con logs masivos.</li>
+                        <li><strong>Patrones de Verificación</strong>: Los juegos suelen verificar la integridad de la memoria escaneando byte a byte. Si el bucle avanza, la verificación está progresando; si se reinicia, hay un fallo temprano.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento de HL</strong>: ¿HL avanza o se reinicia? Esto determinará si el problema es un fallo temprano o un bucle lento.</li>
+                        <li><strong>Valor de A</strong>: ¿Qué valor se está comparando? ¿Es el esperado (<code>0xFD</code>) o hay una discrepancia?</li>
+                        <li><strong>Estado de la memoria</strong>: ¿La memoria WRAM contiene los valores correctos? ¿La Echo RAM está funcionando correctamente?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal</strong>: Aunque implementamos Echo RAM, es posible que:
+                    </p>
+                    <ul>
+                        <li>La memoria WRAM no se inicializó correctamente antes de la verificación.</li>
+                        <li>El juego escribió valores en WRAM que no se reflejaron correctamente en Echo RAM.</li>
+                        <li>Hay otro problema de inicialización que causa que la verificación falle en un byte diferente.</li>
+                    </ul>
+                    <p>
+                        Los logs del Francotirador nos dirán cuál de estas hipótesis es correcta.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar la extensión C++ con el debug del Francotirador activado.</li>
+                    <li>[ ] Ejecutar Tetris y capturar los logs del Francotirador.</li>
+                    <li>[ ] Analizar los logs para determinar si HL avanza o se reinicia.</li>
+                    <li>[ ] Si HL avanza: Dejar correr el bucle o optimizar los logs para que termine más rápido.</li>
+                    <li>[ ] Si HL es estático: Investigar por qué la memoria no contiene los valores esperados.</li>
+                    <li>[ ] Una vez identificado el problema, desactivar el debug del Francotirador para no ralentizar la ejecución.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

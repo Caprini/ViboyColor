@@ -32,6 +32,36 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0241: Francotirador: Recarga
+**Estado**: 🔍 EN DEPURACIÓN
+
+Tras implementar Echo RAM (Step 0239) y el monitor GPS (Step 0240), el análisis del GPS revela que la CPU sigue atrapada en la zona `0x2B24`. Aunque la lógica de Echo RAM está implementada, el juego sigue fallando la validación de memoria. Se reactiva el "Francotirador" (traza detallada) en el rango `0x2B20-0x2B30` para observar el comportamiento dinámico del bucle y determinar si HL avanza (escaneando memoria) o se reinicia constantemente.
+
+**Objetivo:**
+- Reactivar el bloque de debug del Francotirador en `CPU.cpp` para capturar cada instrucción ejecutada en el rango crítico.
+- Observar el comportamiento dinámico del bucle: ¿HL avanza o se reinicia?
+- Determinar si el problema es un fallo temprano (HL estático) o un bucle lento (HL avanza).
+
+**Implementación:**
+1. **Añadido bloque de debug en `CPU.cpp`**: Se activa cuando `regs_->pc >= 0x2B20 && regs_->pc <= 0x2B30`.
+2. **Formato del log**: `[SNIPER] PC:XXXX | OP:XX | A:XX | HL:XXXX` para ver PC, opcode, acumulador y HL.
+3. **Ubicación**: Justo antes del `fetch_byte()` para capturar el PC antes de que se incremente.
+
+**Concepto de Hardware:**
+**Análisis Dinámico de Bucles de Verificación**: Cuando un juego verifica la integridad de la memoria, típicamente ejecuta un bucle que inicializa HL, lee un byte, compara con un valor esperado, y si pasa, incrementa HL y repite. Si el bucle avanza (HL incrementa), la verificación está progresando pero es lenta. Si el bucle es estático (HL se reinicia), hay un fallo temprano. El "Francotirador" es una técnica de debugging que activa trazas detalladas solo en un rango específico de direcciones, permitiendo observar el comportamiento sin saturar la consola.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Reactivación del bloque de debug del Francotirador en el método `step()`
+- `docs/bitacora/entries/2025-12-22__0241__francotirador-recarga.html` - Entrada de bitácora
+
+**Próximos Pasos:**
+- Recompilar la extensión C++ y ejecutar Tetris.
+- Analizar los logs del Francotirador para determinar si HL avanza o se reinicia.
+- Si HL avanza: Dejar correr el bucle o optimizar los logs.
+- Si HL es estático: Investigar por qué la memoria no contiene los valores esperados.
+
+---
+
 ### 2025-12-22 - Step 0240: Monitor GPS (El Navegador)
 **Estado**: ✅ VERIFICADO
 

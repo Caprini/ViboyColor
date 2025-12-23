@@ -461,10 +461,15 @@ int CPU::step() {
     }
     
     // ========== FASE 4: Fetch-Decode-Execute ==========
-    // --- Step 0239: LIMPIEZA DE LOGS DEL FRANCOTIRADOR ---
-    // Los logs del Step 0237 cumplieron su misión: identificaron que el problema
-    // estaba en la lectura de Echo RAM (0xE645). Ahora que implementamos Echo RAM,
-    // eliminamos los logs para no ralentizar la ejecución.
+    // --- Step 0241: FRANCOTIRADOR RECARGADO ---
+    // Reactivamos el debug del Francotirador para analizar el comportamiento
+    // dinámico del bucle en 0x2B20-0x2B30. Necesitamos ver si HL avanza
+    // (escaneando memoria) o se reinicia constantemente.
+    if (regs_->pc >= 0x2B20 && regs_->pc <= 0x2B30) {
+        uint8_t opcode = mmu_->read(regs_->pc);
+        printf("[SNIPER] PC:%04X | OP:%02X | A:%02X | HL:%04X\n", 
+               regs_->pc, opcode, regs_->a, regs_->get_hl());
+    }
     // ------------------------------------------
     
     // Fetch: Leer opcode de memoria
