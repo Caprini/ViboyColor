@@ -32,6 +32,36 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0242: Hard Reset y Marcador Radiactivo
+**Estado**: 🔍 EN DEPURACIÓN
+
+El análisis del log del Francotirador (Step 0241) revela una secuencia de instrucciones absurda en `0x2B20`: múltiples ejecuciones de `LD (nn), SP` (opcode `0x08`) mezcladas con operaciones aritméticas sin sentido. Esto sugiere que la CPU está ejecutando **datos ("basura")** en lugar de código válido, o que estamos sufriendo un problema de persistencia de binarios compilados antiguos en Windows. Se implementa un "marcador radiactivo" (printf muy visible) dentro del `case 0x08` para confirmar que estamos ejecutando la versión correcta del código C++ y no una DLL/PYD cacheada.
+
+**Objetivo:**
+- Añadir un marcador radiactivo (printf muy visible) dentro del `case 0x08` para confirmar su ejecución.
+- Proporcionar instrucciones de Hard Reset para eliminar artefactos de compilación anteriores.
+- Verificar que estamos ejecutando la versión correcta del código y no una DLL/PYD cacheada.
+
+**Implementación:**
+1. **Añadido marcador radiactivo en `CPU.cpp`**: Se coloca al inicio del `case 0x08` con un mensaje muy visible (`!!! EJECUTANDO OPCODE 0x08 EN C++ !!!`).
+2. **Instrucciones de Hard Reset**: Cerrar terminales, eliminar `build/` y archivos `.pyd`, recompilar desde cero.
+
+**Concepto de Hardware:**
+**Problema de Persistencia de Binarios en Windows**: Python puede cachear extensiones compiladas (`.pyd` o `.dll`) en memoria o en el directorio de trabajo. Si se modifica el código fuente C++ pero no se limpia correctamente el caché, Python puede seguir usando la versión antigua del binario. El **marcador radiactivo** es una técnica de debugging que consiste en añadir un marcador muy visible en un punto específico del código para confirmar que se está ejecutando la versión correcta.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Añadido marcador radiactivo en el `case 0x08`
+- `docs/bitacora/entries/2025-12-22__0242__hard-reset-marcador-radiactivo.html` - Entrada de bitácora
+
+**Próximos Pasos:**
+- Realizar Hard Reset: Cerrar terminales, eliminar `build/` y archivos `.pyd`.
+- Recompilar y ejecutar Tetris.
+- Analizar si aparece el mensaje del marcador radiactivo en los logs.
+- Si aparece: Confirmar que el código es real y investigar el origen del salto incorrecto.
+- Si no aparece: Hacer un Hard Reset más agresivo o verificar la configuración de compilación.
+
+---
+
 ### 2025-12-22 - Step 0241: Francotirador: Recarga
 **Estado**: 🔍 EN DEPURACIÓN
 

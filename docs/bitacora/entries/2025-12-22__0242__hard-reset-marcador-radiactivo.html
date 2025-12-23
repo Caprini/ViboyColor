@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hard Reset y Marcador Radiactivo - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Hard Reset y Marcador Radiactivo</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0242
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0241__francotirador-recarga.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El análisis del log del Francotirador (Step 0241) revela una secuencia de instrucciones absurda en `0x2B20`: múltiples ejecuciones de `LD (nn), SP` (opcode `0x08`) mezcladas con operaciones aritméticas sin sentido. Esto sugiere que la CPU está ejecutando **datos ("basura")** en lugar de código válido, o que estamos sufriendo un problema de persistencia de binarios compilados antiguos en Windows. Se implementa un "marcador radiactivo" (printf muy visible) dentro del `case 0x08` para confirmar que estamos ejecutando la versión correcta del código C++ y no una DLL/PYD cacheada.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Problema de Persistencia de Binarios en Windows</strong>: En sistemas Windows, Python puede cachear extensiones compiladas (archivos `.pyd` o `.dll`) en memoria o en el directorio de trabajo. Si se modifica el código fuente C++ pero no se limpia correctamente el caché, Python puede seguir usando la versión antigua del binario, causando comportamientos inesperados o "fantasmas" de código anterior.
+                </p>
+                <p>
+                    <strong>Marcador Radiactivo (Canary Debugging)</strong>: Es una técnica de debugging que consiste en añadir un marcador muy visible (como un `printf` con un mensaje único) en un punto específico del código para confirmar que se está ejecutando la versión correcta. Si el marcador aparece en los logs, confirmamos que el código nuevo se está ejecutando. Si no aparece pero el comportamiento sugiere que debería ejecutarse, entonces hay un problema de caché o compilación.
+                </p>
+                <p>
+                    <strong>Hard Reset</strong>: Consiste en eliminar manualmente todos los artefactos de compilación (carpetas `build/`, archivos `.pyd`, `.dll`, `.so`) antes de recompilar. Esto asegura que no queden residuos de compilaciones anteriores que puedan interferir con la nueva versión.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añade un marcador radiactivo (printf muy visible) dentro del `case 0x08` en `CPU.cpp` para confirmar que el opcode se está ejecutando con la versión correcta del código.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code>: Añadido marcador radiactivo en el `case 0x08`.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    El marcador se coloca <strong>al inicio</strong> del `case 0x08`, antes de cualquier otra operación, para que se ejecute inmediatamente cuando se detecte el opcode. El mensaje es muy visible (`!!! EJECUTANDO OPCODE 0x08 EN C++ !!!`) para que sea fácil de identificar en los logs, incluso si hay mucha salida.
+                </p>
+                <p>
+                    <strong>Nota importante</strong>: Este marcador es temporal y debe eliminarse una vez que confirmemos que estamos ejecutando la versión correcta del código. Los `printf` ralentizan la ejecución, especialmente si se ejecutan frecuentemente.
+                </p>
+
+                <h3>Código añadido</h3>
+                <pre><code>case 0x08:  // LD (nn), SP
+    {
+        // --- Step 0242: MARCADOR RADIACTIVO ---
+        // DEBUG: Confirmar ejecución real del fix
+        // Este printf es un "canario" para verificar que estamos ejecutando
+        // la versión correcta del código C++ y no una DLL/PYD cacheada.
+        printf("!!! EJECUTANDO OPCODE 0x08 EN C++ !!!\n");
+        // ---------------------------------------
+        
+        uint16_t addr = fetch_word();
+        mmu_->write(addr, regs_->sp & 0xFF);
+        mmu_->write(addr + 1, (regs_->sp >> 8) & 0xFF);
+        cycles_ += 5;
+        return 5;
+    }</code></pre>
+
+                <h3>Instrucciones de Hard Reset</h3>
+                <p>
+                    Para asegurar que no hay artefactos de compilación anteriores:
+                </p>
+                <ol>
+                    <li><strong>Cerrar todas las terminales de Python</strong>: Cerrar cualquier ventana de PowerShell o CMD que esté ejecutando Python o el emulador.</li>
+                    <li><strong>Eliminar carpeta `build/`</strong>: Si existe, eliminar manualmente la carpeta `build/` del proyecto.</li>
+                    <li><strong>Eliminar archivos `.pyd`</strong>: Buscar y eliminar cualquier archivo `.pyd` en la raíz del proyecto (ej: `viboy_core*.pyd`).</li>
+                    <li><strong>Recompilar</strong>: Ejecutar `.\rebuild_cpp.ps1` para recompilar desde cero.</li>
+                    <li><strong>Ejecutar</strong>: Ejecutar `python main.py roms/tetris.gb` y observar los logs.</li>
+                </ol>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido marcador radiactivo en el `case 0x08`</li>
+                    <li><code>docs/bitacora/entries/2025-12-22__0242__hard-reset-marcador-radiactivo.html</code> - Entrada de bitácora</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para validar esta implementación, se debe:
+                </p>
+                <ol>
+                    <li><strong>Realizar Hard Reset</strong>:
+                        <ul>
+                            <li>Cerrar todas las terminales de Python.</li>
+                            <li>Eliminar manualmente la carpeta `build/` si existe.</li>
+                            <li>Eliminar cualquier archivo `.pyd` en la raíz del proyecto.</li>
+                        </ul>
+                    </li>
+                    <li><strong>Recompilar la extensión C++</strong>:
+                        <pre><code>.\rebuild_cpp.ps1</code></pre>
+                    </li>
+                    <li><strong>Ejecutar el emulador con Tetris</strong>:
+                        <pre><code>python main.py roms/tetris.gb</code></pre>
+                    </li>
+                    <li><strong>Analizar los logs</strong>:
+                        <ul>
+                            <li>Si se ve <strong>`!!! EJECUTANDO OPCODE 0x08 EN C++ !!!`</strong> mezclado con los logs del Francotirador: Confirmamos que el código es real. La CPU está ejecutando esa secuencia. El problema es CÓMO llegamos ahí (un salto incorrecto anterior).</li>
+                            <li>Si <strong>NO</strong> se ve el mensaje pero el Francotirador dice `OP:08`: El binario no se actualizó. Estamos corriendo una versión vieja fantasma. Necesitamos hacer un Hard Reset más agresivo o verificar que la compilación se completó correctamente.</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Estado actual</strong>: Pendiente de ejecución y análisis de logs.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Game Boy Pan Docs</a> - Referencia general de arquitectura LR35902</li>
+                    <li>Documentación de Python: <a href="https://docs.python.org/3/extending/windows.html">Extending Python on Windows</a> - Gestión de extensiones compiladas en Windows</li>
+                </ul>
+                <p>
+                    <em>Nota: Esta implementación es una técnica de debugging estándar para verificar la ejecución de código compilado.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Problema de Caché en Windows</strong>: Python puede cachear extensiones compiladas, causando que se ejecute código antiguo incluso después de recompilar. Esto es especialmente problemático en Windows con archivos `.pyd`.</li>
+                        <li><strong>Marcador Radiactivo</strong>: Añadir un marcador muy visible en un punto específico del código permite confirmar que se está ejecutando la versión correcta. Es una técnica de debugging estándar para verificar la ejecución de código compilado.</li>
+                        <li><strong>Hard Reset</strong>: Eliminar manualmente todos los artefactos de compilación antes de recompilar asegura que no queden residuos de compilaciones anteriores.</li>
+                        <li><strong>Análisis de Secuencias Anómalas</strong>: Si el log muestra una secuencia de instrucciones absurda (como múltiples `LD (nn), SP` en un bucle corto), puede indicar que estamos ejecutando datos en lugar de código, o que hay un problema de desalineamiento causado por una compilación anterior incorrecta.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Ejecución del Marcador</strong>: ¿Aparece el mensaje `!!! EJECUTANDO OPCODE 0x08 EN C++ !!!` en los logs? Esto confirmará que estamos ejecutando la versión correcta del código.</li>
+                        <li><strong>Origen del Desalineamiento</strong>: Si el marcador aparece pero la secuencia sigue siendo absurda, el problema es que la CPU saltó incorrectamente a una zona de datos. Necesitamos investigar qué causó ese salto.</li>
+                        <li><strong>Persistencia de Binarios</strong>: Si el marcador no aparece, confirmamos que hay un problema de caché. Necesitamos hacer un Hard Reset más agresivo o verificar la configuración de compilación.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal</strong>: El problema de la secuencia absurda puede deberse a:
+                    </p>
+                    <ul>
+                        <li>Un salto incorrecto anterior que llevó a la CPU a una zona de datos (gráficos, tablas) en lugar de código.</li>
+                        <li>Un problema de caché de binarios en Windows que está ejecutando una versión antigua del código donde el opcode `0x08` no estaba implementado correctamente.</li>
+                        <li>Un desalineamiento causado por una implementación anterior incorrecta del opcode `0x08` (ej: si antes consumía 1 byte en lugar de 3, el PC habría avanzado incorrectamente).</li>
+                    </ul>
+                    <p>
+                        El marcador radiactivo nos dirá cuál de estas hipótesis es correcta.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Realizar Hard Reset: Cerrar terminales, eliminar `build/` y archivos `.pyd`.</li>
+                    <li>[ ] Recompilar la extensión C++ con el marcador radiactivo.</li>
+                    <li>[ ] Ejecutar Tetris y capturar los logs.</li>
+                    <li>[ ] Analizar si aparece el mensaje `!!! EJECUTANDO OPCODE 0x08 EN C++ !!!`.</li>
+                    <li>[ ] Si aparece: Confirmar que el código es real y investigar el origen del salto incorrecto.</li>
+                    <li>[ ] Si no aparece: Hacer un Hard Reset más agresivo o verificar la configuración de compilación.</li>
+                    <li>[ ] Una vez confirmado, eliminar el marcador radiactivo para no ralentizar la ejecución.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

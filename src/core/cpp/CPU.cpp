@@ -489,6 +489,13 @@ int CPU::step() {
         // Fuente: Pan Docs - LD (nn), SP: 5 M-Cycles
         case 0x08:  // LD (nn), SP
             {
+                // --- Step 0242: MARCADOR RADIACTIVO ---
+                // DEBUG: Confirmar ejecución real del fix
+                // Este printf es un "canario" para verificar que estamos ejecutando
+                // la versión correcta del código C++ y no una DLL/PYD cacheada.
+                printf("!!! EJECUTANDO OPCODE 0x08 EN C++ !!!\n");
+                // ---------------------------------------
+                
                 uint16_t addr = fetch_word();  // Consume 2 bytes más (nn en Little-Endian)
                 // Escribe SP en formato Little Endian (low byte primero, high byte segundo)
                 mmu_->write(addr, regs_->sp & 0xFF);         // Low byte

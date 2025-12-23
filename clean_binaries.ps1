@@ -1,5 +1,5 @@
 # Script de limpieza agresiva de binarios compilados
-# Step 0232: Hard Reset del Binario
+# Step 0242: Hard Reset del Binario y Marcador Radiactivo
 
 Write-Host "=== Limpieza Agresiva de Binarios ===" -ForegroundColor Yellow
 Write-Host ""
