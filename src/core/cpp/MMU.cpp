@@ -302,6 +302,34 @@ void MMU::write(uint16_t addr, uint8_t value) {
     // Caso C: Escritura en DMA (El Transportista)
     if (addr == 0xFF46) {
         printf("[TIME] PC:%04X -> Write DMA [%04X] = %02X\n", debug_current_pc, addr, value);
+        
+        // --- Step 0251: IMPLEMENTACIÓN DMA (OAM TRANSFER) ---
+        // Cuando se escribe un valor XX en 0xFF46, se inicia una transferencia DMA
+        // que copia 160 bytes desde la dirección XX00 hasta OAM (0xFE00-0xFE9F)
+        // Fuente: Pan Docs - "DMA Transfer"
+        // 
+        // En hardware real, la transferencia tarda ~160 microsegundos (640 ciclos),
+        // pero para simplificar implementamos una copia instantánea.
+        // Durante la transferencia real, la CPU solo puede acceder a HRAM (0xFF80-0xFFFE),
+        // pero por ahora ignoramos esta restricción.
+        
+        // 1. Calcular dirección origen: value * 0x100 (ej: 0xC0 -> 0xC000)
+        uint16_t source_base = static_cast<uint16_t>(value) << 8;
+        
+        // 2. Copiar 160 bytes (0xA0) a OAM (0xFE00-0xFE9F)
+        for (int i = 0; i < 160; i++) {
+            uint16_t source_addr = source_base + i;
+            // Leer desde la dirección fuente (puede ser ROM, RAM, VRAM, etc.)
+            uint8_t data = read(source_addr);
+            // Escribir directamente en OAM
+            // Validar que la dirección de destino esté dentro de los límites
+            if ((0xFE00 + i) < MEMORY_SIZE) {
+                memory_[0xFE00 + i] = data;
+            }
+        }
+        
+        // Log de confirmación
+        printf("[DMA] Transferencia completada: %04X -> FE00 (160 bytes)\n", source_base);
     }
     // -----------------------------------------
     

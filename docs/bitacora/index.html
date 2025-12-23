@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0251 - Implementación de DMA (OAM Transfer) -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0251</span>
+                        <a href="entries/2025-12-23__0251__implementacion-dma-oam-transfer.html" class="title">Implementación de DMA (OAM Transfer)</a>
+                        <p class="summary">Este Step implementa la transferencia DMA (Direct Memory Access) para copiar datos a la OAM (Object Attribute Memory). Cuando un juego escribe un valor en el registro `0xFF46`, el hardware copia automáticamente 160 bytes desde la dirección `XX00` hasta la OAM (`0xFE00-0xFE9F`). Esta funcionalidad es crítica para que los juegos puedan actualizar los sprites, y muchos juegos (como Tetris) dependen de ella para su secuencia de arranque. La implementación actual es una copia instantánea, pero en hardware real la transferencia tarda ~640 ciclos.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0250 - La Precuela (Volcado ROM Expandido) -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>

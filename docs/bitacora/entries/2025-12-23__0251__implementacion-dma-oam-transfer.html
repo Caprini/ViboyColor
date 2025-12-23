@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0251: Implementación de DMA (OAM Transfer) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Step 0251: Implementación de DMA (OAM Transfer)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0251
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0250__precuela-volcado-rom.html">Anterior (0250)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa la transferencia DMA (Direct Memory Access) para copiar datos a la OAM (Object Attribute Memory).
+                    Cuando un juego escribe un valor en el registro <code>0xFF46</code>, el hardware copia automáticamente 160 bytes desde
+                    la dirección <code>XX00</code> (donde XX es el valor escrito) hasta la OAM (<code>0xFE00-0xFE9F</code>).
+                    Esta funcionalidad es crítica para que los juegos puedan actualizar los sprites, y muchos juegos (como Tetris)
+                    dependen de ella para su secuencia de arranque.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La Game Boy incluye un mecanismo de DMA (Direct Memory Access) que permite copiar datos a la OAM sin intervención
+                    directa de la CPU. Este mecanismo es esencial porque la OAM es accesible solo durante ciertos períodos del ciclo
+                    de renderizado de la PPU.
+                </p>
+                <p>
+                    <strong>Funcionamiento del DMA:</strong>
+                </p>
+                <ul>
+                    <li><strong>Registro DMA (<code>0xFF46</code>)</strong>: Escribir un valor <code>XX</code> en este registro inicia
+                        una transferencia DMA.</li>
+                    <li><strong>Dirección Origen</strong>: El valor escrito forma la parte alta de la dirección origen: <code>XX00</code>
+                        (ej: escribir <code>0xC0</code> → origen en <code>0xC000</code>).</li>
+                    <li><strong>Destino</strong>: La OAM siempre está en <code>0xFE00-0xFE9F</code> (160 bytes, 40 sprites × 4 bytes).</li>
+                    <li><strong>Duración</strong>: En hardware real, la transferencia tarda aproximadamente 160 microsegundos (640 ciclos de CPU).</li>
+                    <li><strong>Restricción durante DMA</strong>: Durante la transferencia, la CPU solo puede acceder a HRAM (<code>0xFF80-0xFFFE</code>).
+                        Intentar acceder a otras regiones de memoria durante la DMA puede causar comportamientos impredecibles.</li>
+                </ul>
+                <p>
+                    <strong>¿Por qué es importante?</strong>
+                </p>
+                <p>
+                    Muchos juegos usan DMA para copiar datos de sprites a la OAM porque es más rápido y eficiente que copiar byte a byte
+                    con la CPU. Además, algunos juegos (como Tetris) usan la DMA como parte de su secuencia de inicialización o como
+                    mecanismo de sincronización. Si la DMA no está implementada, estos juegos pueden quedarse en bucles infinitos esperando
+                    que la transferencia se complete.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "DMA Transfer"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó la transferencia DMA en el método <code>write()</code> de <code>MMU.cpp</code>. Cuando se detecta una
+                    escritura en <code>0xFF46</code>, se calcula la dirección origen y se copian 160 bytes a la OAM.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code>: Añadida lógica de transferencia DMA en el método <code>write()</code>.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>DMA Instantánea:</strong> Por simplicidad, implementamos una copia instantánea de los 160 bytes. En hardware real,
+                    la transferencia tarda ~640 ciclos, pero para esta primera implementación asumimos que la copia es inmediata.
+                    Una implementación más precisa requeriría:
+                </p>
+                <ul>
+                    <li>Contar ciclos durante la transferencia (640 ciclos).</li>
+                    <li>Bloquear el acceso a memoria (excepto HRAM) durante la transferencia.</li>
+                    <li>Sincronizar con el ciclo de renderizado de la PPU.</li>
+                </ul>
+                <p>
+                    <strong>Validación de Direcciones:</strong> Se valida que la dirección de destino (<code>0xFE00 + i</code>) esté dentro
+                    de los límites de memoria antes de escribir. Esto previene accesos fuera de rango.
+                </p>
+                <p>
+                    <strong>Uso de <code>read()</code>:</strong> Se usa el método <code>read()</code> de la MMU para leer desde la dirección
+                    origen, lo que garantiza que se respeten todas las reglas de mapeo de memoria (ej: Echo RAM, registros especiales).
+                    Esto es importante porque la DMA puede copiar desde cualquier región de memoria (ROM, RAM, VRAM, etc.).
+                </p>
+
+                <h3>Código implementado</h3>
+                <pre><code>// --- Step 0251: IMPLEMENTACIÓN DMA (OAM TRANSFER) ---
+if (addr == 0xFF46) {
+    // 1. Calcular dirección origen: value * 0x100
+    uint16_t source_base = static_cast&lt;uint16_t&gt;(value) &lt;&lt; 8;
+    
+    // 2. Copiar 160 bytes (0xA0) a OAM (0xFE00-0xFE9F)
+    for (int i = 0; i &lt; 160; i++) {
+        uint16_t source_addr = source_base + i;
+        uint8_t data = read(source_addr);
+        if ((0xFE00 + i) &lt; MEMORY_SIZE) {
+            memory_[0xFE00 + i] = data;
+        }
+    }
+    
+    printf("[DMA] Transferencia completada: %04X -&gt; FE00 (160 bytes)\n", source_base);
+}</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Añadida lógica de transferencia DMA en el método <code>write()</code> (líneas 302-323).</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La implementación se validará ejecutando juegos que dependen de DMA:
+                </p>
+                <ul>
+                    <li><strong>Tetris</strong>: El log del Step 0250 mostró un intento de DMA (<code>Write DMA [FF46] = 00</code>).
+                        Con esta implementación, Tetris debería poder completar su secuencia de arranque.</li>
+                    <li><strong>Mario Deluxe y Pokémon Red</strong>: Estos juegos ya muestran actividad gráfica, pero la DMA permitirá
+                        que los sprites se rendericen correctamente.</li>
+                    <li><strong>Log de DMA</strong>: El código incluye un mensaje de log (<code>[DMA] Transferencia completada...</code>)
+                        que confirmará cuando se ejecute una transferencia DMA.</li>
+                </ul>
+                <p>
+                    <strong>Comando de prueba:</strong>
+                </p>
+                <pre><code>python main.py roms/tetris.gb</code></pre>
+                <p>
+                    <strong>Validación esperada:</strong>
+                </p>
+                <ul>
+                    <li>Ver el mensaje <code>[DMA] Transferencia completada...</code> en la consola.</li>
+                    <li>Tetris sale del bucle infinito (el PC cambia de <code>0x2Bxx</code>).</li>
+                    <li>Los sprites (piezas) aparecen en pantalla o el logo se muestra correctamente.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/DMA_Transfer.html">DMA Transfer</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Memory_Map.html">Memory Map - OAM</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>DMA como mecanismo de copia rápida</strong>: La DMA permite copiar bloques de memoria sin intervención
+                            directa de la CPU, lo que es más eficiente que copiar byte a byte.</li>
+                        <li><strong>Restricciones durante DMA</strong>: En hardware real, durante la transferencia DMA, la CPU solo puede
+                            acceder a HRAM. Esta restricción no está implementada en esta versión inicial, pero es importante para una
+                            emulación precisa.</li>
+                        <li><strong>Uso de DMA en juegos</strong>: Los juegos usan DMA no solo para copiar sprites, sino también como
+                            mecanismo de sincronización o como parte de su secuencia de inicialización.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Timing preciso</strong>: La implementación actual es instantánea, pero en hardware real tarda 640 ciclos.
+                            Necesitamos verificar si los juegos dependen de este timing para funcionar correctamente.</li>
+                        <li><strong>Bloqueo de memoria</strong>: No implementamos el bloqueo de acceso a memoria (excepto HRAM) durante la DMA.
+                            Algunos juegos pueden depender de este comportamiento.</li>
+                        <li><strong>Interacción con PPU</strong>: La OAM solo es accesible durante ciertos períodos del ciclo de renderizado.
+                            Necesitamos verificar si la DMA respeta estos períodos o si puede escribir en cualquier momento.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>DMA Instantánea:</strong> Asumimos que una copia instantánea es suficiente para que los juegos funcionen.
+                        Si algunos juegos fallan, puede ser necesario implementar el timing preciso de 640 ciclos.
+                    </p>
+                    <p>
+                        <strong>Acceso a Memoria durante DMA:</strong> Por ahora, permitimos que la CPU acceda a cualquier región de memoria
+                        durante la DMA. Si encontramos problemas, necesitaremos implementar el bloqueo de acceso (excepto HRAM).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Probar Tetris y verificar si sale del bucle infinito.</li>
+                    <li>[ ] Verificar que los sprites aparecen correctamente en Mario y Pokémon.</li>
+                    <li>[ ] Si es necesario, implementar timing preciso de DMA (640 ciclos).</li>
+                    <li>[ ] Si es necesario, implementar bloqueo de acceso a memoria durante DMA (excepto HRAM).</li>
+                    <li>[ ] Investigar si hay otros juegos que dependen críticamente de DMA para su arranque.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

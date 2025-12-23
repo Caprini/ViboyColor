@@ -32,6 +32,41 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0251: Implementación de DMA (OAM Transfer)
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa la transferencia DMA (Direct Memory Access) para copiar datos a la OAM (Object Attribute Memory). El análisis de los logs de Tetris, Mario y Pokémon reveló que Tetris intenta usar DMA (`Write DMA [FF46] = 00`), mientras que Mario y Pokémon ya muestran actividad gráfica. La implementación de DMA es crítica para que los juegos puedan actualizar los sprites y completar su secuencia de arranque.
+
+**Objetivo:**
+- Implementar la transferencia DMA cuando se escribe en el registro `0xFF46`.
+- Copiar 160 bytes desde la dirección `XX00` (donde XX es el valor escrito) hasta la OAM (`0xFE00-0xFE9F`).
+- Permitir que Tetris y otros juegos completen su secuencia de arranque.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/MMU.cpp`**: Añadida lógica de transferencia DMA en el método `write()` (líneas 302-323).
+   - Cuando se detecta una escritura en `0xFF46`, se calcula la dirección origen (`value << 8`).
+   - Se copian 160 bytes desde la dirección origen hasta la OAM usando el método `read()` para respetar el mapeo de memoria.
+   - Se incluye un log de confirmación: `[DMA] Transferencia completada: XXXX -> FE00 (160 bytes)`.
+
+**Concepto de Hardware:**
+**DMA (Direct Memory Access)**: La Game Boy incluye un mecanismo de DMA que permite copiar datos a la OAM sin intervención directa de la CPU. Escribir un valor `XX` en `0xFF46` inicia una transferencia que copia 160 bytes desde `XX00` hasta `0xFE00-0xFE9F`. En hardware real, la transferencia tarda ~160 microsegundos (640 ciclos), y durante este tiempo la CPU solo puede acceder a HRAM (`0xFF80-0xFFFE`).
+
+**Uso de DMA en juegos**: Los juegos usan DMA no solo para copiar sprites, sino también como mecanismo de sincronización o como parte de su secuencia de inicialización. Tetris, por ejemplo, intenta usar DMA durante su arranque, y si no está implementada, puede quedarse en un bucle infinito.
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Añadida lógica de transferencia DMA en el método `write()`.
+
+**Decisiones de Diseño:**
+- **DMA Instantánea**: Por simplicidad, implementamos una copia instantánea. Una implementación más precisa requeriría contar 640 ciclos y bloquear el acceso a memoria (excepto HRAM) durante la transferencia.
+- **Uso de `read()`**: Se usa el método `read()` de la MMU para leer desde la dirección origen, garantizando que se respeten todas las reglas de mapeo de memoria (Echo RAM, registros especiales, etc.).
+
+**Próximos Pasos:**
+- Probar Tetris y verificar si sale del bucle infinito.
+- Verificar que los sprites aparecen correctamente en Mario y Pokémon.
+- Si es necesario, implementar timing preciso de DMA (640 ciclos) y bloqueo de acceso a memoria durante DMA.
+
+---
+
 ### 2025-12-23 - Step 0250: La Precuela (Volcado ROM Expandido)
 **Estado**: 🔍 EN DEPURACIÓN
 
