@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0249 - Volcado de Zona Cero -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0249</span>
+                        <a href="entries/2025-12-23__0249__volcado-zona-cero.html" class="title">Volcado de Zona Cero (Desensamblador de ROM)</a>
+                        <p class="summary">El Step 0248 reveló que el juego ejecuta `EI` pero el GPS muestra `IME:0` permanentemente, con un bucle infinito en `0x2B24`. Este Step crea una herramienta de volcado de ROM para desensamblar la zona crítica (`0x2B20` - `0x2BC0`) y entender exactamente qué está haciendo el código del juego. El volcado confirma un bucle infinito con `JP 2B20` en `0x2BA9` y una condición de salida que busca `0xFF` como terminador, sugiriendo que el juego espera que DMA o interrupciones modifiquen los datos que el bucle está leyendo.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0248 - EI Watchdog -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>

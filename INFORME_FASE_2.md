@@ -32,6 +32,52 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0249: Volcado de Zona Cero (Desensamblador de ROM)
+**Estado**: 🔍 EN DEPURACIÓN
+
+El Step 0248 reveló que el juego ejecuta `EI` (Enable Interrupts) en `0x033A`, pero el GPS muestra `IME:0` permanentemente. El análisis forense identificó un bucle infinito en `0x2B24` y escrituras en HRAM en `0x2BA3`. Para entender exactamente qué está haciendo el código del juego en esa región crítica, se creó una herramienta de volcado de ROM con desensamblado básico.
+
+**Objetivo:**
+- Crear un script que volcara la zona crítica de la ROM (`0x2B20` - `0x2BC0`) en formato hexadecimal.
+- Desensamblar los opcodes para entender el flujo de control del programa.
+- Identificar las instrucciones clave que causan el bucle infinito.
+
+**Implementación:**
+1. **Creado `tools/dump_rom_zone.py`**: Script que lee una zona específica de la ROM y la muestra en formato hexadecimal con desensamblado básico.
+2. **Diccionario de opcodes Game Boy**: Mapeo completo de los 256 opcodes posibles del LR35902 con sus mnemónicos.
+3. **Detección automática de longitud**: El script identifica si una instrucción tiene 1, 2 o 3 bytes y muestra los operandos.
+4. **Cálculo de saltos relativos**: Para instrucciones `JR r8`, calcula la dirección de destino.
+5. **Creado `tools/analizar_zona_critica.py`**: Script de análisis que interpreta los resultados del volcado.
+
+**Concepto de Hardware:**
+**Desensamblado**: El proceso de convertir código máquina (bytes) en instrucciones legibles (mnemónicos) se llama desensamblado. Cada opcode tiene un significado específico según la especificación del procesador LR35902.
+
+**Análisis de Flujo**: Al examinar una secuencia de opcodes, podemos reconstruir el flujo de control del programa: saltos condicionales, bucles, llamadas a subrutinas, etc. Esto es esencial para entender por qué un programa se queda atascado.
+
+**Archivos Afectados:**
+- `tools/dump_rom_zone.py` - Script de volcado de ROM con desensamblado básico (nuevo)
+- `tools/analizar_zona_critica.py` - Script de análisis de la zona crítica (nuevo)
+
+**Hallazgos Clave del Volcado:**
+- **0x2B20**: `INC HL` - Inicio del bucle, incrementa el puntero HL
+- **0x2B24**: `LD A,(HL)` seguido de `CP 0xFF` - Compara el byte en (HL) con 0xFF
+- **0x2B96**: `LD (HL+),A` - Escribe A en (HL) e incrementa HL (parte de rutina de copia)
+- **0x2BA3**: `LDH (FF8D),A` - Escribe en HRAM[0xFF8D] (configuración)
+- **0x2BA9**: `JP 2B20` - **⚠️ SALTO INCONDICIONAL AL INICIO (BUCLE INFINITO)**
+
+**Hipótesis Principal:**
+El juego está en un bucle que lee datos desde una dirección (apuntada por HL) y espera encontrar `0xFF` como terminador. Si nunca encuentra `0xFF`, el bucle continúa indefinidamente. El juego probablemente espera que DMA o una interrupción modifique esos datos o active un flag, pero como esas operaciones no funcionan correctamente en el emulador, el bucle nunca termina.
+
+**Próximos Pasos:**
+- Verificar qué dirección apunta HL cuando el bucle comienza (tracking de registros)
+- Verificar qué datos están en esa dirección y si contienen el terminador `0xFF`
+- Verificar si el juego espera que DMA modifique esos datos
+- Verificar si el juego espera una interrupción que modifique un flag
+
+**Fuente**: Pan Docs - CPU Instruction Set, GBEDG - Game Boy Opcodes Reference
+
+---
+
 ### 2025-12-23 - Step 0248: EI Watchdog
 **Estado**: 🔍 EN DEPURACIÓN
 

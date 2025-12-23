@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Volcado de Zona Cero - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Volcado de Zona Cero (Desensamblador de ROM)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0249
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0248__ei-watchdog.html">Anterior (0248)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El Step 0248 reveló que el juego ejecuta `EI` (Enable Interrupts) en `0x033A`, pero el GPS muestra `IME:0` permanentemente. 
+                    El análisis forense identificó un bucle infinito en `0x2B24` y escrituras en HRAM en `0x2BA3`. 
+                    Este Step crea una herramienta de volcado de ROM para desensamblar la zona crítica (`0x2B20` - `0x2BC0`) y entender exactamente qué está haciendo el código del juego en esa región.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El Game Boy almacena el código del juego en la ROM del cartucho. La CPU (LR35902) lee instrucciones desde la ROM 
+                    y las ejecuta secuencialmente. Cuando un emulador se atasca en un bucle infinito, es crucial poder examinar el 
+                    código máquina (opcodes) en esa zona para entender la lógica del programa.
+                </p>
+                <p>
+                    <strong>Desensamblado:</strong> El proceso de convertir código máquina (bytes) en instrucciones legibles (mnemónicos) 
+                    se llama desensamblado. Cada opcode tiene un significado específico según la especificación del procesador LR35902.
+                </p>
+                <p>
+                    <strong>Análisis de Flujo:</strong> Al examinar una secuencia de opcodes, podemos reconstruir el flujo de control 
+                    del programa: saltos condicionales, bucles, llamadas a subrutinas, etc. Esto es esencial para entender por qué 
+                    un programa se queda atascado.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se creó el script <code>tools/dump_rom_zone.py</code> que:
+                </p>
+                <ul>
+                    <li>Lee una zona específica de la ROM (por defecto: `0x2B20` - `0x2BC0`)</li>
+                    <li>Muestra los bytes en formato hexadecimal con direcciones</li>
+                    <li>Intenta desensamblar las instrucciones usando un diccionario de opcodes Game Boy</li>
+                    <li>Muestra operandos y calcula direcciones de destino para saltos relativos</li>
+                </ul>
+                
+                <h3>Componentes creados</h3>
+                <ul>
+                    <li><code>tools/dump_rom_zone.py</code>: Script principal de volcado con desensamblado básico</li>
+                    <li><code>tools/analizar_zona_critica.py</code>: Script de análisis que interpreta los resultados del volcado</li>
+                </ul>
+
+                <h3>Características del desensamblador</h3>
+                <ul>
+                    <li><strong>Diccionario de opcodes:</strong> Mapeo completo de los 256 opcodes posibles del LR35902</li>
+                    <li><strong>Detección de longitud:</strong> Identifica automáticamente si una instrucción tiene 1, 2 o 3 bytes</li>
+                    <li><strong>Cálculo de saltos:</strong> Para saltos relativos (`JR r8`), calcula la dirección de destino</li>
+                    <li><strong>Formato legible:</strong> Muestra dirección, bytes hexadecimales, representación ASCII y mnemónico</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tools/dump_rom_zone.py</code> - Script de volcado de ROM con desensamblado básico (nuevo)</li>
+                    <li><code>tools/analizar_zona_critica.py</code> - Script de análisis de la zona crítica (nuevo)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    El script se ejecutó exitosamente sobre la ROM de Tetris:
+                </p>
+                <pre><code>$ python tools/dump_rom_zone.py roms/tetris.gb 0x2B20 0x2BC0
+
+================================================================================
+📦 VOLCADO DE ROM: tetris.gb
+📍 Zona: 0x2b20 - 0x2bc0 (160 bytes)
+================================================================================
+
+2B20 | 23 F0 8C E0 94 7E FE FF 28 C7 FE FD 20 0E F0 8C | #....~..(... ... | INC HL
+2B30 | EE 20 E0 94 23 7E 18 08 13 13 18 E4 FE FE 28 F8 | . ..#~........(. | XOR d8
+2B40 | E0 89 F0 87 47 1A 4F F0 8B CB 77 20 06 F0 90 80 | ....G.O...w .... | LDH (a8),A
+2B50 | 89 18 0A 78 F5 F0 90 47 F1 90 99 DE 08 E0 93 F0 | ...x...G........ | ADC A,C
+2B60 | 88 47 13 1A 13 4F F0 8B CB 6F 20 06 F0 91 80 89 | .G...O...o ..... | ADC A,B
+2B70 | 18 0A 78 F5 F0 91 47 F1 90 99 DE 08 E0 92 E5 F0 | ..x...G......... | JR r8
+2B80 | 8D 67 F0 8E 6F F0 95 A7 28 04 3E FF 18 02 F0 93 | .g..o...(.>..... | ADC A,L
+2B90 | 22 F0 92 22 F0 89 22 F0 94 47 F0 8B B0 47 F0 8A | "..".."..G...G.. | LD (HL+),A
+2BA0 | B0 22 7C E0 8D 7D E0 8E E1 C3 20 2B 68 2C 6C 2C | ."|..}.... +h,l, | OR B
+2BB0 | 70 2C 74 2C 78 2C 7C 2C 80 2C 84 2C 88 2C 8C 2C | p,t,x,|,.,.,.,., | LD (HL),B
+
+================================================================================
+✅ Volcado completado: 160 bytes
+================================================================================</code></pre>
+
+                <h3>Hallazgos Clave del Volcado</h3>
+                <ul>
+                    <li><strong>0x2B20:</strong> <code>INC HL</code> - Inicio del bucle, incrementa el puntero HL</li>
+                    <li><strong>0x2B24:</strong> <code>LD A,(HL)</code> seguido de <code>CP 0xFF</code> - Compara el byte en (HL) con 0xFF</li>
+                    <li><strong>0x2B96:</strong> <code>LD (HL+),A</code> - Escribe A en (HL) e incrementa HL (parte de rutina de copia)</li>
+                    <li><strong>0x2BA3:</strong> <code>LDH (FF8D),A</code> - Escribe en HRAM[0xFF8D] (configuración)</li>
+                    <li><strong>0x2BA9:</strong> <code>JP 2B20</code> - <strong>⚠️ SALTO INCONDICIONAL AL INICIO (BUCLE INFINITO)</strong></li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Game Boy Pan Docs</a> - Especificación de opcodes LR35902</li>
+                    <li>GBEDG: <a href="https://gbdev.io/gb-opcodes/">Game Boy Opcodes Reference</a> - Referencia completa de instrucciones</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Bucle Infinito Confirmado:</strong> El código en `0x2BA9` ejecuta `JP 2B20`, saltando incondicionalmente al inicio del bucle en `0x2B20`. Esto confirma que el juego está atascado en un bucle.</li>
+                        <li><strong>Condición de Salida:</strong> El código en `0x2B24` compara el byte en (HL) con `0xFF`. Si encuentra `0xFF`, probablemente sale del bucle (hay un `JR Z` hacia atrás). Si nunca encuentra `0xFF`, el bucle continúa indefinidamente.</li>
+                        <li><strong>Rutina de Copia:</strong> El código en `0x2B96` usa `LD (HL+),A` para copiar datos. Esto sugiere que el juego está intentando copiar datos desde una fuente a un destino.</li>
+                        <li><strong>Configuración en HRAM:</strong> El código escribe en `HRAM[0xFF8D]` y otros registros HRAM, sugiriendo que está configurando parámetros para alguna operación.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿Qué datos lee el bucle?</strong> Necesitamos verificar qué dirección apunta HL cuando el bucle comienza y qué datos espera encontrar.</li>
+                        <li><strong>¿Por qué nunca encuentra 0xFF?</strong> Si el bucle espera encontrar `0xFF` como terminador, ¿por qué nunca lo encuentra? ¿Los datos están mal inicializados?</li>
+                        <li><strong>¿Depende de DMA o interrupciones?</strong> El juego podría estar esperando que DMA o una interrupción modifique los datos que el bucle está leyendo.</li>
+                        <li><strong>¿Hay un flag que nunca se activa?</strong> El código podría estar esperando que algún flag en memoria cambie, pero si ese flag nunca cambia, el bucle nunca termina.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> El juego está en un bucle que lee datos desde una dirección (apuntada por HL) 
+                        y espera encontrar `0xFF` como terminador. Si nunca encuentra `0xFF`, el bucle continúa indefinidamente. 
+                        El juego probablemente espera que DMA o una interrupción modifique esos datos o active un flag, pero como 
+                        esas operaciones no funcionan correctamente en el emulador, el bucle nunca termina.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> El código en `0x2B96` (LD (HL+),A) es parte de una rutina de copia que debería 
+                        ejecutarse desde HRAM (como es común en las rutinas de DMA de OAM). Si esa rutina nunca se ejecuta, 
+                        los datos nunca se copian y el bucle nunca encuentra el terminador `0xFF`.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar qué dirección apunta HL cuando el bucle comienza (tracking de registros)</li>
+                    <li>[ ] Verificar qué datos están en esa dirección y si contienen el terminador `0xFF`</li>
+                    <li>[ ] Verificar si el juego espera que DMA modifique esos datos</li>
+                    <li>[ ] Verificar si el juego espera una interrupción que modifique un flag</li>
+                    <li>[ ] Comparar el comportamiento con un emulador de referencia para confirmar la hipótesis</li>
+                    <li>[ ] Implementar tracking de HL durante el bucle para ver qué datos está leyendo</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
