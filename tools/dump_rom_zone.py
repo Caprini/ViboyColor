@@ -405,8 +405,8 @@ def main():
     """Función principal."""
     # Argumentos por defecto
     default_rom = "roms/tetris.gb"
-    default_start = 0x2B20
-    default_end = 0x2BC0
+    default_start = 0x2AE0
+    default_end = 0x2B20
     
     if len(sys.argv) >= 2:
         rom_path = sys.argv[1]

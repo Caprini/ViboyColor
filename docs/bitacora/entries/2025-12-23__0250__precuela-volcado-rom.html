@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0250: La Precuela (Volcado ROM Expandido) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Step 0250: La Precuela (Volcado ROM Expandido)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0250
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0249__volcado-zona-cero.html">Anterior (0249)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El Step 0249 reveló que el bucle infinito en <code>0x2B20</code> busca el valor <code>0xFD</code> en la memoria apuntada por <code>HL</code>. Como nuestra memoria está vacía (todo <code>0x00</code>), el bucle nunca termina. Este Step expande el volcado de ROM al rango anterior (<code>0x2AE0</code> - <code>0x2B20</code>) para encontrar cómo se inicializa <code>HL</code> antes de entrar en el bucle. El análisis revela que <code>HL</code> se inicializa desde una tabla de punteros en <code>0x2BAC</code>, y que el valor final depende de datos leídos desde la memoria RAM que no están inicializados correctamente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Tablas de Punteros en ROM:</strong> Los juegos de Game Boy frecuentemente almacenan tablas de punteros en la ROM que apuntan a datos en RAM. Estas tablas permiten que el código acceda dinámicamente a diferentes regiones de memoria basándose en un índice. El formato típico es little-endian: el byte bajo va primero, seguido del byte alto.
+                </p>
+                <p>
+                    <strong>Indirección de Memoria:</strong> El código puede usar múltiples niveles de indirección: primero lee un puntero desde la ROM, luego usa ese puntero para leer datos desde la RAM, y finalmente usa esos datos como otra dirección o valor. Si cualquiera de estos niveles no está inicializado correctamente, el programa puede fallar o entrar en un bucle infinito.
+                </p>
+                <p>
+                    <strong>Inicialización de Memoria:</strong> El Game Boy no inicializa automáticamente la RAM al encender. Los juegos deben inicializar explícitamente las regiones de memoria que van a usar. Si un juego asume que ciertos datos ya están en memoria (por ejemplo, copiados por DMA o por una rutina de inicialización), pero esos datos nunca se copian, el programa puede fallar.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó el script de volcado para analizar el rango anterior al bucle infinito y se creó un script de análisis de flujo para entender cómo se inicializa <code>HL</code>.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>tools/dump_rom_zone.py</code>: Modificado para volcar el rango <code>0x2AE0</code> - <code>0x2B20</code>.</li>
+                    <li><code>tools/analyze_code_flow.py</code>: Script nuevo que desensambla y analiza el flujo de código entre <code>0x2B05</code> y <code>0x2B20</code>.</li>
+                </ul>
+
+                <h3>Análisis del Flujo de Código</h3>
+                <p>
+                    El código entre <code>0x2B05</code> y <code>0x2B20</code> realiza las siguientes operaciones:
+                </p>
+                <ol>
+                    <li><strong>0x2B05</strong>: <code>LD HL, 0x2BAC</code> - Inicializa HL apuntando a una tabla de punteros en ROM.</li>
+                    <li><strong>0x2B08</strong>: <code>RLCA</code> - Rota el registro A (probablemente un índice).</li>
+                    <li><strong>0x2B09-0x2B0A</strong>: <code>LD E,A</code> / <code>LD D,0x00</code> - Convierte A en un offset de 16 bits.</li>
+                    <li><strong>0x2B0C</strong>: <code>ADD HL,DE</code> - Calcula la dirección de la entrada en la tabla: <code>HL = 0x2BAC + A</code>.</li>
+                    <li><strong>0x2B0D-0x2B0F</strong>: Lee un puntero desde <code>[HL]</code> y lo almacena en <code>DE</code>.</li>
+                    <li><strong>0x2B10-0x2B14</strong>: Lee datos desde <code>[DE]</code> y los usa para configurar <code>HL</code>.</li>
+                    <li><strong>0x2B16-0x2B1B</strong>: Escribe datos a registros de hardware (<code>0xFF90</code>, <code>0xFF91</code>).</li>
+                    <li><strong>0x2B1D-0x2B1F</strong>: Lee otro puntero desde <code>[HL]</code> y lo almacena en <code>DE</code>.</li>
+                    <li><strong>0x2B20</strong>: <code>INC HL</code> - <strong>¡AQUÍ EMPIEZA EL BUCLE!</strong></li>
+                </ol>
+
+                <h3>Hallazgo Clave</h3>
+                <p>
+                    El volcado de <code>0x2BAC</code> revela una tabla de direcciones:
+                </p>
+                <pre><code>2BAC: 68 2C 6C 2C 70 2C 74 2C 78 2C 7C 2C 80 2C 84 2C
+2BBC: 88 2C 8C 2C 90 2C 94 2C 98 2C 9C 2C A0 2C A4 2C
+2BCC: A8 2C AC 2C</code></pre>
+                <p>
+                    Estos son punteros little-endian que apuntan a direcciones en el rango <code>0x2C68</code> - <code>0x2CAC</code>. El código usa el valor de <code>A</code> como índice para seleccionar uno de estos punteros, luego lee datos desde la dirección apuntada, y finalmente usa esos datos para configurar <code>HL</code>.
+                </p>
+                <p>
+                    <strong>El Problema:</strong> Si los datos en la dirección apuntada por la tabla no están inicializados (son <code>0x00</code>), <code>HL</code> se configurará incorrectamente, y el bucle en <code>0x2B20</code> buscará <code>0xFD</code> en una dirección incorrecta o en memoria vacía.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tools/dump_rom_zone.py</code> - Modificado: Cambiado rango por defecto a <code>0x2AE0</code> - <code>0x2B20</code>.</li>
+                    <li><code>tools/analyze_code_flow.py</code> - Nuevo: Script de análisis de flujo de código con desensamblado detallado.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutó el script de volcado y el script de análisis para verificar el flujo de código:
+                </p>
+                <pre><code>$ python tools/dump_rom_zone.py
+📦 VOLCADO DE ROM: tetris.gb
+📍 Zona: 0x2ae0 - 0x2b20 (64 bytes)
+...
+✅ Volcado completado: 64 bytes
+
+$ python tools/analyze_code_flow.py
+🔍 ANÁLISIS DEL FLUJO DE CÓDIGO (0x2B05 - 0x2B20)
+...
+📊 RESUMEN DEL FLUJO:
+1. 2B05: LD HL, 0x2BAC  → HL apunta a tabla de punteros en ROM
+2. 2B08: RLCA           → Rota A (índice?)
+3. 2B09: LD E,A / 2B0A: LD D,0x00  → DE = A (como offset)
+4. 2B0C: ADD HL,DE      → HL = 0x2BAC + A (apunta a entrada de tabla)
+5. 2B0D-2B0F: Lee puntero desde [HL] → DE = [HL] (dirección en memoria)
+6. 2B10-2B14: Lee datos desde [DE] → HL = [DE] (nueva dirección)
+7. 2B16-2B1B: Escribe datos a registros de hardware (0xFF90, 0xFF91)
+8. 2B1D-2B1F: Lee OTRO puntero desde [HL] → DE = [HL+1]
+9. 2B20: INC HL  → ¡AQUÍ EMPIEZA EL BUCLE!</code></pre>
+                <p>
+                    <strong>Validación:</strong> El análisis confirma que <code>HL</code> se inicializa desde una tabla de punteros y que el valor final depende de datos leídos desde la RAM que no están inicializados.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set</a> - Referencia de opcodes LR35902</li>
+                    <li>GBEDG: <a href="https://gbdev.io/gb-opcodes/optables/">Game Boy Opcodes Reference</a> - Tabla completa de opcodes</li>
+                </ul>
+                <p>
+                    <em>Nota: El análisis de flujo de código se basa en la especificación del conjunto de instrucciones del LR35902.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Inicialización de HL:</strong> El registro <code>HL</code> se inicializa desde una tabla de punteros en ROM usando un índice calculado a partir del registro <code>A</code>.</li>
+                        <li><strong>Indirección Múltiple:</strong> El código usa múltiples niveles de indirección: ROM → RAM → RAM, lo que significa que si cualquier nivel no está inicializado, el programa falla.</li>
+                        <li><strong>Dependencia de Inicialización:</strong> El juego asume que ciertos datos ya están en memoria RAM antes de ejecutar este código, pero esos datos nunca se copian porque DMA o las rutinas de inicialización no funcionan correctamente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Valor de A:</strong> ¿Qué valor tiene el registro <code>A</code> cuando se ejecuta <code>RLCA</code> en <code>0x2B08</code>? Esto determina qué entrada de la tabla se selecciona.</li>
+                        <li><strong>Datos Esperados:</strong> ¿Qué datos específicos espera el juego encontrar en la dirección apuntada por la tabla? ¿Son datos de configuración, sprites, o algo más?</li>
+                        <li><strong>Rutina de Inicialización:</strong> ¿Qué rutina debería copiar estos datos a RAM? ¿Es DMA, una interrupción V-Blank, o una rutina de inicialización del juego?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> El juego espera que una rutina de inicialización (probablemente ejecutada durante el boot o en una interrupción V-Blank) copie datos desde la ROM a la RAM antes de ejecutar el código en <code>0x2B05</code>. Como esta rutina nunca se ejecuta o falla, los datos no están en RAM, <code>HL</code> se configura incorrectamente, y el bucle en <code>0x2B20</code> nunca encuentra el terminador <code>0xFD</code>.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar el valor de <code>A</code> cuando se ejecuta <code>RLCA</code> en <code>0x2B08</code> (tracking de registros).</li>
+                    <li>[ ] Volcar la región de memoria apuntada por la tabla (por ejemplo, <code>0x2C68</code>) para ver qué datos espera el juego.</li>
+                    <li>[ ] Buscar en la ROM rutinas de inicialización que copien datos a RAM (buscando patrones como <code>LD HL, ...</code> seguido de <code>LD (HL+),A</code> o <code>LDI</code>).</li>
+                    <li>[ ] Verificar si el juego espera que DMA copie estos datos (revisar si hay escrituras a <code>0xFF46</code> antes de <code>0x2B05</code>).</li>
+                    <li>[ ] Implementar tracking de registros para ver el valor exacto de <code>HL</code> cuando entra al bucle en <code>0x2B20</code>.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

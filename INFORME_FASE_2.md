@@ -32,6 +32,54 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0250: La Precuela (Volcado ROM Expandido)
+**Estado**: 🔍 EN DEPURACIÓN
+
+El Step 0249 reveló que el bucle infinito en `0x2B20` busca el valor `0xFD` en la memoria apuntada por `HL`. Como nuestra memoria está vacía (todo `0x00`), el bucle nunca termina. Este Step expande el volcado de ROM al rango anterior (`0x2AE0` - `0x2B20`) para encontrar cómo se inicializa `HL` antes de entrar en el bucle.
+
+**Objetivo:**
+- Volcar el rango `0x2AE0` - `0x2B20` para ver el código que precede al bucle infinito.
+- Identificar cómo se inicializa el registro `HL` antes de entrar en el bucle.
+- Entender qué datos espera el juego encontrar en la memoria.
+
+**Implementación:**
+1. **Modificado `tools/dump_rom_zone.py`**: Cambiado el rango por defecto a `0x2AE0` - `0x2B20`.
+2. **Creado `tools/analyze_code_flow.py`**: Script que desensambla y analiza el flujo de código entre `0x2B05` y `0x2B20` con explicaciones detalladas.
+
+**Concepto de Hardware:**
+**Tablas de Punteros en ROM**: Los juegos de Game Boy frecuentemente almacenan tablas de punteros en la ROM que apuntan a datos en RAM. Estas tablas permiten que el código acceda dinámicamente a diferentes regiones de memoria basándose en un índice. El formato típico es little-endian: el byte bajo va primero, seguido del byte alto.
+
+**Indirección de Memoria**: El código puede usar múltiples niveles de indirección: primero lee un puntero desde la ROM, luego usa ese puntero para leer datos desde la RAM, y finalmente usa esos datos como otra dirección o valor. Si cualquiera de estos niveles no está inicializado correctamente, el programa puede fallar o entrar en un bucle infinito.
+
+**Archivos Afectados:**
+- `tools/dump_rom_zone.py` - Modificado: Cambiado rango por defecto a `0x2AE0` - `0x2B20`.
+- `tools/analyze_code_flow.py` - Nuevo: Script de análisis de flujo de código con desensamblado detallado.
+
+**Hallazgos Clave del Análisis:**
+- **0x2B05**: `LD HL, 0x2BAC` - Inicializa HL apuntando a una tabla de punteros en ROM.
+- **0x2B08**: `RLCA` - Rota el registro A (probablemente un índice).
+- **0x2B0C**: `ADD HL,DE` - Calcula la dirección de la entrada en la tabla: `HL = 0x2BAC + A`.
+- **0x2B0D-0x2B0F**: Lee un puntero desde `[HL]` y lo almacena en `DE`.
+- **0x2B10-0x2B14**: Lee datos desde `[DE]` y los usa para configurar `HL`.
+- **0x2B20**: `INC HL` - **¡AQUÍ EMPIEZA EL BUCLE!**
+
+**Tabla de Punteros en 0x2BAC:**
+El volcado de `0x2BAC` revela una tabla de direcciones (punteros little-endian) que apuntan a direcciones en el rango `0x2C68` - `0x2CAC`. El código usa el valor de `A` como índice para seleccionar uno de estos punteros.
+
+**Hipótesis Principal:**
+El juego espera que una rutina de inicialización (probablemente ejecutada durante el boot o en una interrupción V-Blank) copie datos desde la ROM a la RAM antes de ejecutar el código en `0x2B05`. Como esta rutina nunca se ejecuta o falla, los datos no están en RAM, `HL` se configura incorrectamente (probablemente `0x0000` o una dirección inválida), y el bucle en `0x2B20` nunca encuentra el terminador `0xFD` porque está buscando en memoria vacía.
+
+**Próximos Pasos:**
+- Verificar el valor de `A` cuando se ejecuta `RLCA` en `0x2B08` (tracking de registros).
+- Volcar la región de memoria apuntada por la tabla (por ejemplo, `0x2C68`) para ver qué datos espera el juego.
+- Buscar en la ROM rutinas de inicialización que copien datos a RAM.
+- Verificar si el juego espera que DMA copie estos datos (revisar si hay escrituras a `0xFF46` antes de `0x2B05`).
+- Implementar tracking de registros para ver el valor exacto de `HL` cuando entra al bucle en `0x2B20`.
+
+**Fuente**: Pan Docs - CPU Instruction Set, GBEDG - Game Boy Opcodes Reference
+
+---
+
 ### 2025-12-23 - Step 0249: Volcado de Zona Cero (Desensamblador de ROM)
 **Estado**: 🔍 EN DEPURACIÓN
 

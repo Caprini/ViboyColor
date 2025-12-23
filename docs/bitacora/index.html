@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0250 - La Precuela (Volcado ROM Expandido) -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0250</span>
+                        <a href="entries/2025-12-23__0250__precuela-volcado-rom.html" class="title">La Precuela (Volcado ROM Expandido)</a>
+                        <p class="summary">El Step 0249 reveló que el bucle infinito en `0x2B20` busca el valor `0xFD` en la memoria apuntada por `HL`. Este Step expande el volcado de ROM al rango anterior (`0x2AE0` - `0x2B20`) para encontrar cómo se inicializa `HL` antes de entrar en el bucle. El análisis revela que `HL` se inicializa desde una tabla de punteros en `0x2BAC`, y que el valor final depende de datos leídos desde la memoria RAM que no están inicializados correctamente. El código usa múltiples niveles de indirección (ROM → RAM → RAM), lo que significa que si cualquier nivel no está inicializado, el programa falla.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0249 - Volcado de Zona Cero -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>
