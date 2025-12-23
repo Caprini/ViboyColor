@@ -32,6 +32,40 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0248: EI Watchdog
+**Estado**: 🔍 EN DEPURACIÓN
+
+El análisis del Timeline Logger (Step 0247) reveló que el juego está intentando usar DMA (`PC:2B96` escribe `00` en `FF46`) y escribiendo el centinela `FD` en HRAM (`PC:2BA3` escribe `FD` en `FF8D`), pero el GPS muestra constantemente `IME:0` (interrupciones deshabilitadas). 
+
+**Hipótesis de Bloqueo:**
+La rutina que copia los datos de HRAM/ROM a WRAM (donde se espera el `FD`) probablemente reside en una rutina de interrupción (V-Blank). Como `IME` es 0, la interrupción nunca se dispara, la copia nunca ocurre, y el bucle principal espera eternamente.
+
+**Objetivo:**
+- Instrumentar la instrucción `EI` (Enable Interrupts, opcode 0xFB) para detectar si el juego intenta habilitar las interrupciones.
+- Determinar si el juego nunca ejecuta `EI` (confirmando que IME permanece deshabilitado) o si lo ejecuta pero en un momento incorrecto.
+
+**Implementación:**
+1. **Re-añadido `#include <cstdio>` temporalmente** en `CPU.cpp` (aunque se eliminó en Step 0243 para rendimiento).
+2. **Añadido log `[EI]` en el caso 0xFB**: Registra cada ejecución de `EI` con el PC actual para determinar cuándo y dónde el juego intenta habilitar interrupciones.
+
+**Concepto de Hardware:**
+**EI (Enable Interrupts, Opcode 0xFB)**: Instrucción que habilita el Interrupt Master Enable (IME) con un retraso de 1 instrucción. En hardware real, cuando se ejecuta `EI`, el IME no se activa inmediatamente, sino después de ejecutar la siguiente instrucción. Esto permite que la instrucción siguiente a `EI` se ejecute sin interrupciones.
+
+**IME (Interrupt Master Enable)**: Flag global que controla si la CPU puede procesar interrupciones. Si IME está deshabilitado (`IME:0`), la CPU ignora todas las interrupciones, incluso si están habilitadas en el registro IE (Interrupt Enable, 0xFFFF) y hay señales pendientes en IF (Interrupt Flag, 0xFF0F).
+
+**El Problema del Deadlock por IME**: Muchos juegos de Game Boy usan interrupciones V-Blank para sincronizar operaciones críticas como copias de datos a VRAM o WRAM. Si el juego espera una interrupción que nunca ocurre (porque IME está deshabilitado), puede quedar atascado en un bucle infinito esperando un evento que nunca llegará.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Añadido log en caso 0xFB (EI) y re-añadido #include &lt;cstdio&gt; temporalmente (Step 0248)
+
+**Resultados Esperados:**
+- **Escenario A (EI aparece)**: Si aparece `[EI] ¡Interrupciones Habilitadas en PC:XXXX!`, el juego intenta habilitar interrupciones. Necesitamos verificar si ocurre antes o después del bucle de espera.
+- **Escenario B (EI nunca aparece)**: Si NO aparece `[EI]`, el juego nunca ejecuta `EI`, lo que confirma que las interrupciones permanecen deshabilitadas y explica el deadlock.
+
+**Fuente**: Pan Docs - CPU Instruction Set (EI), Interrupt Master Enable (IME)
+
+---
+
 ### 2025-12-23 - Step 0247: Memory Timeline & PC Tracker
 **Estado**: 🔍 EN DEPURACIÓN
 

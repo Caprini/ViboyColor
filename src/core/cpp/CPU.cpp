@@ -4,6 +4,8 @@
 #include "PPU.hpp"
 #include "Timer.hpp"
 // Step 0243: Eliminado #include <cstdio> - Operación Silencio
+// Step 0248: Re-añadido temporalmente para EI Watchdog
+#include <cstdio>
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
@@ -1497,6 +1499,10 @@ int CPU::step() {
             // Esto permite que la instrucción siguiente a EI se ejecute sin interrupciones
             // Fuente: Pan Docs - EI: 1 M-Cycle
             {
+                // --- Step 0248: EI WATCHDOG ---
+                // Instrumentación temporal para detectar si el juego intenta habilitar interrupciones
+                printf("[EI] ¡Interrupciones Habilitadas en PC:%04X!\n", regs_->pc);
+                
                 ime_scheduled_ = true;  // Activar IME después de la siguiente instrucción
                 cycles_ += 1;  // EI consume 1 M-Cycle
                 return 1;

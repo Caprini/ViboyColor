@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EI Watchdog - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>EI Watchdog</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0248
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0247__memory-timeline-pc-tracker.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El análisis del Timeline Logger (Step 0247) reveló que el juego está intentando usar DMA y escribiendo el centinela `FD` en HRAM, pero el GPS muestra constantemente `IME:0` (interrupciones deshabilitadas). La hipótesis es que el juego depende de una rutina de interrupción (V-Blank) para copiar datos de HRAM/ROM a WRAM, pero como IME está deshabilitado, la interrupción nunca se dispara y el bucle principal espera eternamente.
+                </p>
+                <p>
+                    Este Step instrumenta la instrucción `EI` (Enable Interrupts, opcode 0xFB) para detectar si el juego intenta habilitar las interrupciones en algún momento. Si nunca aparece el log `[EI]`, significa que el juego ha decidido no usar interrupciones todavía, lo que explicaría el deadlock.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>EI (Enable Interrupts, Opcode 0xFB)</strong>: Instrucción que habilita el Interrupt Master Enable (IME) con un retraso de 1 instrucción. En hardware real, cuando se ejecuta `EI`, el IME no se activa inmediatamente, sino después de ejecutar la siguiente instrucción. Esto permite que la instrucción siguiente a `EI` se ejecute sin interrupciones, lo cual es crítico para patrones como:
+                </p>
+                <pre><code>EI
+RETI  ; Esta instrucción se ejecuta sin interrupciones
+      ; Después de RETI, IME se activa y se comprueban interrupciones pendientes</code></pre>
+                <p>
+                    <strong>IME (Interrupt Master Enable)</strong>: Flag global que controla si la CPU puede procesar interrupciones. Si IME está deshabilitado (`IME:0`), la CPU ignora todas las interrupciones, incluso si están habilitadas en el registro IE (Interrupt Enable, 0xFFFF) y hay señales pendientes en IF (Interrupt Flag, 0xFF0F).
+                </p>
+                <p>
+                    <strong>El Problema del Deadlock por IME</strong>: Muchos juegos de Game Boy usan interrupciones V-Blank para sincronizar operaciones críticas como copias de datos a VRAM o WRAM. Si el juego espera una interrupción que nunca ocurre (porque IME está deshabilitado), puede quedar atascado en un bucle infinito esperando un evento que nunca llegará.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - CPU Instruction Set (EI), Interrupt Master Enable (IME)
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadió instrumentación temporal en el caso `0xFB` (EI) de `CPU.cpp` para registrar cada vez que el juego intenta habilitar las interrupciones. El log muestra el Program Counter (PC) donde se ejecutó la instrucción `EI`, lo que permite determinar si el juego intenta habilitar interrupciones y en qué punto del código.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code>: Añadido log `[EI]` en el caso 0xFB con el PC actual. Re-añadido `#include <cstdio>` temporalmente para el diagnóstico.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se re-añadió `#include <cstdio>` temporalmente (aunque se eliminó en Step 0243 para rendimiento) porque este diagnóstico específico requiere visibilidad inmediata en la consola. Una vez identificado el problema, esta instrumentación se eliminará para restaurar el rendimiento.
+                </p>
+                <p>
+                    El log se imprime directamente con `printf` en lugar de usar un sistema de logging más complejo porque:
+                </p>
+                <ul>
+                    <li>Es instrumentación temporal de diagnóstico</li>
+                    <li>Necesita ser visible inmediatamente en la consola</li>
+                    <li>No debe interferir con el flujo normal de ejecución</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido log en caso 0xFB (EI) y re-añadido #include &lt;cstdio&gt; temporalmente (Step 0248)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para verificar esta instrumentación:
+                </p>
+                <ol>
+                    <li><strong>Recompilar la extensión C++</strong>: <code>.\rebuild_cpp.ps1</code> o <code>python setup.py build_ext --inplace</code></li>
+                    <li><strong>Ejecutar el emulador</strong>: <code>python main.py roms/tetris.gb</code></li>
+                    <li><strong>Observar la consola</strong>:
+                        <ul>
+                            <li>Si aparece <code>[EI] ¡Interrupciones Habilitadas en PC:XXXX!</code>: El juego intenta habilitar interrupciones. Anotar el PC y verificar si ocurre antes o después del bucle de espera.</li>
+                            <li>Si NO aparece <code>[EI]</code>: El juego nunca ejecuta `EI`, lo que confirma que las interrupciones permanecen deshabilitadas y explica el deadlock.</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Validación de módulo compilado C++</strong>: La instrumentación está en el código C++ nativo, por lo que requiere recompilación para que surta efecto.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html#ei-enable-interrupts">CPU Instruction Set - EI (Enable Interrupts)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts - Interrupt Master Enable (IME)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>EI tiene retraso de 1 instrucción</strong>: El IME no se activa inmediatamente después de `EI`, sino después de ejecutar la siguiente instrucción. Esto es un comportamiento del hardware real.</li>
+                        <li><strong>IME es el control global</strong>: Aunque IE (Interrupt Enable) esté configurado correctamente, si IME está deshabilitado, la CPU ignora todas las interrupciones.</li>
+                        <li><strong>Deadlock por IME</strong>: Si un juego espera una interrupción que nunca ocurre (porque IME está deshabilitado), puede quedar atascado en un bucle infinito.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿El juego ejecuta EI?</strong>: Necesitamos verificar si el juego intenta habilitar interrupciones en algún momento. Si nunca ejecuta `EI`, el IME permanecerá deshabilitado y las interrupciones nunca se procesarán.</li>
+                        <li><strong>¿Cuándo debería ejecutarse EI?</strong>: Si el juego ejecuta `EI`, necesitamos determinar si ocurre antes o después del bucle de espera. Si ocurre después, el bucle nunca se romperá.</li>
+                        <li><strong>¿El registro IE está configurado?</strong>: Aunque el GPS ya reporta IE, necesitamos verificar si el juego escribe en IE para habilitar las interrupciones V-Blank o Timer.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal</strong>: El juego depende de una rutina de interrupción (probablemente V-Blank) para copiar datos de HRAM/ROM a WRAM. Como IME está deshabilitado, la interrupción nunca se dispara, la copia nunca ocurre, y el bucle principal espera eternamente.
+                    </p>
+                    <p>
+                        <strong>Suposición</strong>: Si el juego nunca ejecuta `EI`, significa que está diseñado para funcionar sin interrupciones en esta fase de inicialización, o que hay un bug en el flujo del código que impide que se ejecute `EI`.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador y observar si aparece el log <code>[EI]</code></li>
+                    <li>[ ] Si aparece <code>[EI]</code>: Analizar en qué PC ocurre y si es antes o después del bucle de espera</li>
+                    <li>[ ] Si NO aparece <code>[EI]</code>: Confirmar que el juego nunca habilita interrupciones y buscar alternativas (¿copia manual? ¿otro mecanismo?)</li>
+                    <li>[ ] Verificar el valor del registro IE en el GPS para confirmar si las interrupciones están habilitadas a nivel de hardware</li>
+                    <li>[ ] Una vez identificado el problema, eliminar la instrumentación temporal para restaurar el rendimiento</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

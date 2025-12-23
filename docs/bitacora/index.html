@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0248 - EI Watchdog -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0248</span>
+                        <a href="entries/2025-12-23__0248__ei-watchdog.html" class="title">EI Watchdog</a>
+                        <p class="summary">El análisis del Timeline Logger (Step 0247) reveló que el juego está intentando usar DMA y escribiendo el centinela `FD` en HRAM, pero el GPS muestra constantemente `IME:0`. La hipótesis es que el juego depende de una rutina de interrupción (V-Blank) para copiar datos, pero como IME está deshabilitado, la interrupción nunca se dispara. Este Step instrumenta la instrucción `EI` (Enable Interrupts, opcode 0xFB) para detectar si el juego intenta habilitar las interrupciones en algún momento.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0247 - Memory Timeline & PC Tracker -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>
