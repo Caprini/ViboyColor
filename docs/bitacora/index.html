@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0259 - VRAM Write Monitor & MBC Check -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0259</span>
+                        <a href="entries/2025-12-23__0259__vram-write-monitor-mbc-check.html" class="title">VRAM Write Monitor & MBC Check</a>
+                        <p class="summary">Este Step instrumenta la MMU para monitorear las escrituras en VRAM y analiza la lógica de lectura de ROM para confirmar si hay soporte de MBC (Memory Bank Controllers). El objetivo es determinar si la VRAM está vacía porque el juego intenta leer gráficos de bancos ROM no mapeados, lo que explicaría por qué la CPU copia ceros a la VRAM. Si la CPU funciona (Mario y Pokémon corren), ¿por qué no copian los gráficos? La teoría principal es que el mapeo de memoria (MBC) no está implementado. Si el juego intenta leer gráficos del banco 2, 3, etc., pero solo se cargó el banco 0, leerá basura o ceros, y copiará esos ceros a la VRAM.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0258 - VRAM Vital Signs (VRAM Sum) -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>

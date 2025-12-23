@@ -32,6 +32,63 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0259: VRAM Write Monitor & MBC Check
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step instrumenta la MMU para monitorear las escrituras en VRAM y analiza la lógica de lectura de ROM para confirmar si hay soporte de MBC (Memory Bank Controllers). El objetivo es determinar si la VRAM está vacía porque el juego intenta leer gráficos de bancos ROM no mapeados, lo que explicaría por qué la CPU copia ceros a la VRAM.
+
+**Objetivo:**
+- Añadir un monitor de escrituras en VRAM para ver qué datos está copiando la CPU.
+- Analizar la lógica de lectura de ROM para confirmar si hay soporte de MBC.
+- Determinar si la VRAM está vacía porque el juego intenta leer gráficos de bancos ROM no mapeados.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/MMU.cpp` (Método `write`)**:
+   - Añadido monitor específico para el rango de VRAM (`0x8000` - `0x9FFF`) que registra las primeras 50 escrituras.
+   - El monitor registra: PC (Program Counter), dirección de VRAM, y valor escrito.
+   - Si los valores son todos `00`, la CPU está copiando ceros (confirma teoría de MBC roto).
+   - Si los valores son `FF` o variados, hay datos (el problema vuelve a ser la PPU).
+
+2. **Modificado `src/core/cpp/MMU.cpp` (Método `read`)**:
+   - Añadido comentario crítico que documenta la falta de soporte de MBC.
+   - Explica que la ROM se carga de forma plana en `memory_[0x0000-0x7FFF]` mediante `load_rom()`.
+   - Para juegos grandes (>32KB), solo se carga el banco 0. Si el juego intenta cambiar de banco, leerá basura o ceros.
+
+**Concepto de Hardware:**
+**VRAM (Video RAM)**: La VRAM en la Game Boy ocupa el rango `0x8000-0x9FFF` (8KB) y contiene:
+- **Tile Data (0x8000-0x97FF)**: Datos de los tiles (gráficos) que se usan para renderizar el fondo y los sprites.
+- **Tile Map (0x9800-0x9FFF)**: Mapas de tiles que indican qué tile se dibuja en cada posición del fondo.
+
+**MBC (Memory Bank Controllers)**: Los cartuchos de Game Boy pueden tener diferentes tamaños de ROM:
+- **ROM ONLY (32KB)**: Cabe entero en el espacio de direcciones `0x0000-0x7FFF`. No necesita MBC.
+- **MBC1/MBC3 (>32KB)**: Usan un Memory Bank Controller para intercambiar bancos de ROM. El espacio `0x0000-0x3FFF` siempre mapea al Banco 0, pero el espacio `0x4000-0x7FFF` puede mapear a diferentes bancos (1, 2, 3, etc.) escribiendo en registros especiales del MBC.
+
+**Problema Crítico**: Si nuestro emulador C++ (`MMU.cpp`) **NO** implementa MBC1/MBC3, el juego intenta leer gráficos del Banco X, pero lee el Banco 1 (o basura), o ceros. La CPU copia esos "ceros" a la VRAM. Resultado: Pantalla Verde.
+
+**Fuente:** Pan Docs - "Memory Bank Controllers", "Cartridge Types", "Memory Map", "VRAM"
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Modificado el método `write()` para añadir monitor de escrituras en VRAM (Step 0259).
+- `src/core/cpp/MMU.cpp` - Modificado el método `read()` para añadir comentario sobre falta de soporte de MBC (Step 0259).
+
+**Decisiones de Diseño:**
+- **Monitor limitado a 50 escrituras**: Se limita a las primeras 50 escrituras para no saturar el log. Esto es suficiente para ver si la CPU está copiando ceros o datos reales.
+- **Incluir PC en el log**: Se incluye el Program Counter para saber desde dónde escribe el juego (probablemente una rutina de copia `LDI` o `LD`).
+- **Documentación de MBC**: Se añadió un comentario crítico que documenta la falta de soporte de MBC, explicando por qué la VRAM puede estar vacía.
+
+**Validación:**
+- Recompilar: `.\rebuild_cpp.ps1`
+- Ejecutar: `python main.py roms/pkmn.gb` (Pokémon es ideal porque sabemos que intenta dibujar).
+- Observar los logs de `[VRAM]`:
+  - **¿Ves logs de `[VRAM]`?** Si no, la CPU no está escribiendo en VRAM (problema más grave).
+  - **Mira los valores (`Val`)**: Si son `00`, la CPU está copiando ceros (confirma teoría de MBC roto). Si son `FF` o variados, hay datos (el problema vuelve a ser la PPU).
+  - **Mira el `PC`**: ¿Desde dónde escribe? (Probablemente una rutina de copia `LDI` o `LD`).
+
+**Próximos Pasos:**
+- Ejecutar `python main.py roms/pkmn.gb` y observar los valores que se escriben en VRAM.
+- Si todos son `00`: Confirmar que la CPU está copiando ceros, lo que sugiere un problema de MBC.
+- Si confirmamos que el problema es MBC: Implementar soporte básico de MBC1/MBC3 en la MMU para permitir que los juegos grandes carguen gráficos desde bancos superiores.
+
 ### 2025-12-23 - Step 0258: VRAM Vital Signs (VRAM Sum)
 **Estado**: ✅ IMPLEMENTADO
 

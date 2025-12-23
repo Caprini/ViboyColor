@@ -259,6 +259,20 @@ uint8_t MMU::read(uint16_t addr) const {
         return 0;
     }
     
+    // --- Step 0259: ANÁLISIS DE LECTURA DE ROM (MBC) ---
+    // IMPORTANTE: La implementación actual NO soporta MBC (Memory Bank Controllers).
+    // La ROM se carga de forma plana en memory_[0x0000-0x7FFF] mediante load_rom().
+    // 
+    // Para juegos grandes (>32KB):
+    // - Banco 0 (0x0000-0x3FFF): Cargado correctamente
+    // - Banco 1+ (0x4000-0x7FFF): Si el juego intenta cambiar de banco, leerá
+    //   basura o ceros porque solo se cargó el banco 0.
+    // 
+    // Esto puede explicar por qué la VRAM está vacía: el juego intenta leer gráficos
+    // del banco 2, 3, etc., pero lee ceros, y copia esos ceros a la VRAM.
+    // 
+    // Fuente: Pan Docs - "Memory Bank Controllers", "Cartridge Types"
+    // -----------------------------------------
     
     // Acceso directo al array: O(1), sin overhead de Python
     return memory_[addr];
@@ -307,19 +321,19 @@ void MMU::write(uint16_t addr, uint8_t value) {
     }
     // -----------------------------------------
     
-    // --- SENSOR DE VRAM (Step 0204) - DESACTIVADO EN STEP 0229 ---
-    // Step 0229: Comentado para permitir velocidad nativa del emulador.
-    // Los logs ralentizaban el emulador tanto que parecía estar colgado.
-    /*
-    static bool vram_write_detected = false;
-    if (!vram_write_detected && addr >= 0x8000 && addr <= 0x9FFF) {
-        printf("\n--- [VRAM WRITE DETECTED!] ---\n");
-        printf("Primera escritura en VRAM en Addr: 0x%04X | Valor: 0x%02X\n", addr, value);
-        printf("--------------------------------\n\n");
-        vram_write_detected = true;
+    // --- Step 0259: VRAM WRITE MONITOR ---
+    // Monitorizar las primeras 50 escrituras en VRAM para ver qué datos llegan
+    // Si la VRAM está vacía (ceros), la PPU renderizará píxeles de índice 0 (verdes/blancos).
+    // Si vemos valores distintos de cero, significa que la CPU está copiando datos.
+    // Si solo vemos ceros, el problema está en la carga de datos gráficos (posiblemente MBC).
+    static int vram_write_counter = 0;
+    if (addr >= 0x8000 && addr <= 0x9FFF) {
+        if (vram_write_counter < 50) {
+            printf("[VRAM] PC:%04X -> Write VRAM [%04X] = %02X\n", debug_current_pc, addr, value);
+            vram_write_counter++;
+        }
     }
-    */
-    // --- Fin del Sensor ---
+    // -----------------------------------------
     
     // CRÍTICO: El registro DIV (0xFF04) tiene comportamiento especial
     // Cualquier escritura en 0xFF04 resetea el contador del Timer a 0

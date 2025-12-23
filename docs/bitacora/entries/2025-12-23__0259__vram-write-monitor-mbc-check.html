@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0259: VRAM Write Monitor & MBC Check - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Step 0259: VRAM Write Monitor & MBC Check</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0259
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0258__vram-vital-signs.html">Anterior (0258)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step instrumenta la MMU para monitorear las escrituras en VRAM y analiza la lógica de lectura de ROM para confirmar si hay soporte de MBC (Memory Bank Controllers). El objetivo es determinar si la VRAM está vacía porque el juego intenta leer gráficos de bancos ROM no mapeados, lo que explicaría por qué la CPU copia ceros a la VRAM.
+                </p>
+                <p>
+                    <strong>Hipótesis Principal:</strong> Si la VRAM está completamente vacía (todo ceros), la PPU renderizará píxeles de índice 0 (verdes/blancos). Con la paleta forzada en C++ (Step 0257) y Python (Step 0256), si la pantalla sigue verde incluso con juegos que tienen el LCD encendido (como Pokémon Red, `LCDC:E3`), la única explicación lógica que queda es que <strong>la VRAM está llena de ceros</strong>. Si la VRAM es todo 0, la PPU dibuja el "Color 0" perfectamente, que es... verde.
+                </p>
+                <p>
+                    <strong>Teoría del MBC:</strong> Si la CPU funciona (Mario y Pokémon corren), ¿por qué no copian los gráficos? La teoría principal es que <strong>el mapeo de memoria (MBC) no está implementado</strong>. Si el juego intenta leer gráficos del Banco 2, 3, etc., pero solo se cargó el Banco 0, leerá basura o ceros, y copiará esos ceros a la VRAM.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>VRAM (Video RAM)</h3>
+                <p>
+                    La VRAM en la Game Boy ocupa el rango `0x8000-0x9FFF` (8KB) y contiene:
+                </p>
+                <ul>
+                    <li><strong>Tile Data (0x8000-0x97FF):</strong> Datos de los tiles (gráficos) que se usan para renderizar el fondo y los sprites. Cada tile ocupa 16 bytes (2 bytes por línea de 8 píxeles).</li>
+                    <li><strong>Tile Map (0x9800-0x9FFF):</strong> Mapas de tiles que indican qué tile se dibuja en cada posición del fondo. Cada byte del mapa apunta a un tile en el Tile Data.</li>
+                </ul>
+
+                <h3>MBC (Memory Bank Controllers)</h3>
+                <p>
+                    Los cartuchos de Game Boy pueden tener diferentes tamaños de ROM:
+                </p>
+                <ul>
+                    <li><strong>ROM ONLY (32KB):</strong> Cabe entero en el espacio de direcciones `0x0000-0x7FFF`. No necesita MBC.</li>
+                    <li><strong>MBC1/MBC3 (>32KB):</strong> Usan un Memory Bank Controller para intercambiar bancos de ROM. El espacio `0x0000-0x3FFF` siempre mapea al Banco 0, pero el espacio `0x4000-0x7FFF` puede mapear a diferentes bancos (1, 2, 3, etc.) escribiendo en registros especiales del MBC.</li>
+                </ul>
+                <p>
+                    <strong>Problema Crítico:</strong> Si nuestro emulador C++ (`MMU.cpp`) <strong>NO</strong> implementa MBC1/MBC3, el juego intenta leer gráficos del Banco X, pero lee el Banco 1 (o basura), o ceros. La CPU copia esos "ceros" a la VRAM. Resultado: Pantalla Verde.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Memory Bank Controllers", "Cartridge Types", "Memory Map"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>1. Monitor de Escrituras en VRAM (`MMU.cpp::write`)</h3>
+                <p>
+                    Se añadió un monitor específico para el rango de VRAM (`0x8000` - `0x9FFF`) que registra las primeras 50 escrituras:
+                </p>
+                <pre><code>// --- Step 0259: VRAM WRITE MONITOR ---
+// Monitorizar las primeras 50 escrituras en VRAM para ver qué datos llegan
+// Si la VRAM está vacía (ceros), la PPU renderizará píxeles de índice 0 (verdes/blancos).
+// Si vemos valores distintos de cero, significa que la CPU está copiando datos.
+// Si solo vemos ceros, el problema está en la carga de datos gráficos (posiblemente MBC).
+static int vram_write_counter = 0;
+if (addr >= 0x8000 && addr <= 0x9FFF) {
+    if (vram_write_counter < 50) {
+        printf("[VRAM] PC:%04X -> Write VRAM [%04X] = %02X\n", debug_current_pc, addr, value);
+        vram_write_counter++;
+    }
+}
+// -----------------------------------------</code></pre>
+
+                <p>
+                    Este monitor registra:
+                </p>
+                <ul>
+                    <li><strong>PC:</strong> El Program Counter de la CPU cuando se ejecuta la escritura (para saber desde dónde escribe el juego).</li>
+                    <li><strong>Addr:</strong> La dirección de VRAM donde se escribe.</li>
+                    <li><strong>Value:</strong> El valor que se escribe. Si son todos `00`, la CPU está copiando ceros. Si son `FF` o variados, hay datos.</li>
+                </ul>
+
+                <h3>2. Análisis de Lectura de ROM (`MMU.cpp::read`)</h3>
+                <p>
+                    Se añadió un comentario crítico que documenta la falta de soporte de MBC:
+                </p>
+                <pre><code>// --- Step 0259: ANÁLISIS DE LECTURA DE ROM (MBC) ---
+// IMPORTANTE: La implementación actual NO soporta MBC (Memory Bank Controllers).
+// La ROM se carga de forma plana en memory_[0x0000-0x7FFF] mediante load_rom().
+// 
+// Para juegos grandes (>32KB):
+// - Banco 0 (0x0000-0x3FFF): Cargado correctamente
+// - Banco 1+ (0x4000-0x7FFF): Si el juego intenta cambiar de banco, leerá
+//   basura o ceros porque solo se cargó el banco 0.
+// 
+// Esto puede explicar por qué la VRAM está vacía: el juego intenta leer gráficos
+// del banco 2, 3, etc., pero lee ceros, y copia esos ceros a la VRAM.
+// 
+// Fuente: Pan Docs - "Memory Bank Controllers", "Cartridge Types"
+// -----------------------------------------</code></pre>
+
+                <h3>3. Revisión de `load_rom()`</h3>
+                <p>
+                    El método `load_rom()` simplemente copia la ROM directamente a `memory_` empezando en `0x0000`, sin ningún manejo de bancos:
+                </p>
+                <pre><code>void MMU::load_rom(const uint8_t* data, size_t size) {
+    // Validar que los datos no excedan el tamaño de memoria
+    size_t copy_size = (size > MEMORY_SIZE) ? MEMORY_SIZE : size;
+    
+    // Copiar los datos ROM a memoria, empezando en 0x0000
+    // Usamos memcpy para máxima velocidad
+    std::memcpy(memory_.data(), data, copy_size);
+}</code></pre>
+
+                <p>
+                    <strong>Problema:</strong> Si la ROM es mayor de 32KB, solo se cargan los primeros 32KB. Si el juego intenta leer del banco 1, 2, etc. (direcciones `0x4000-0x7FFF`), leerá basura o ceros porque solo se cargó el banco 0.
+                </p>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Monitor limitado a 50 escrituras:</strong> Se limita a las primeras 50 escrituras para no saturar el log. Esto es suficiente para ver si la CPU está copiando ceros o datos reales.</li>
+                    <li><strong>Incluir PC en el log:</strong> Se incluye el Program Counter para saber desde dónde escribe el juego (probablemente una rutina de copia `LDI` o `LD`).</li>
+                    <li><strong>Documentación de MBC:</strong> Se añadió un comentario crítico que documenta la falta de soporte de MBC, explicando por qué la VRAM puede estar vacía.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Modificado el método <code>write()</code> para añadir monitor de escrituras en VRAM (Step 0259).</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Modificado el método <code>read()</code> para añadir comentario sobre falta de soporte de MBC (Step 0259).</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Validación del Monitor VRAM:</strong>
+                </p>
+                <ol>
+                    <li><strong>Recompilación:</strong> Ejecutar <code>.\rebuild_cpp.ps1</code> para recompilar la extensión C++.</li>
+                    <li><strong>Ejecución:</strong> Ejecutar <code>python main.py roms/pkmn.gb</code> (Pokémon es ideal porque sabemos que intenta dibujar).</li>
+                    <li><strong>Observación del Log:</strong> Buscar en el log las líneas <code>[VRAM] PC:XXXX -> Write VRAM [XXXX] = XX</code>.</li>
+                    <li><strong>Interpretación:</strong>
+                        <ul>
+                            <li><strong>Si los valores son `00`:</strong> La CPU está copiando ceros. Esto confirma la teoría de MBC roto (el juego intenta leer gráficos del banco X, pero lee ceros).</li>
+                            <li><strong>Si los valores son `FF` o variados:</strong> Hay datos. Entonces el problema vuelve a ser la PPU (no está leyendo correctamente los tiles desde VRAM).</li>
+                            <li><strong>Mira el `PC`:</strong> ¿Desde dónde escribe? (Probablemente una rutina de copia `LDI` o `LD`).</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Comando de Prueba:</strong>
+                </p>
+                <pre><code>.\rebuild_cpp.ps1
+python main.py roms/pkmn.gb</code></pre>
+                <p>
+                    <strong>Resultado Esperado:</strong> El log debe mostrar las primeras 50 escrituras en VRAM con el formato <code>[VRAM] PC:XXXX -> Write VRAM [XXXX] = XX</code>. Si todos los valores son `00`, confirmamos que la CPU está copiando ceros, lo que sugiere un problema de MBC.
+                </p>
+                <p>
+                    <strong>Validación de Módulo Compilado C++:</strong> El código se ejecuta en C++ compilado, por lo que es necesario recompilar la extensión antes de ejecutar. El monitor se ejecuta en tiempo real durante la emulación, registrando las escrituras en VRAM.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Memory_Map.html">Memory Map</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/The_Cartridge_Header.html">Cartridge Header</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/MBC1.html">MBC1</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/MBC3.html">MBC3</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Video_Display.html">Video Display</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/VRAM.html">VRAM</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>MBC (Memory Bank Controllers):</strong> Los cartuchos grandes (>32KB) usan MBC para intercambiar bancos de ROM. El espacio `0x0000-0x3FFF` siempre mapea al Banco 0, pero el espacio `0x4000-0x7FFF` puede mapear a diferentes bancos escribiendo en registros especiales del MBC.</li>
+                        <li><strong>Problema de MBC no implementado:</strong> Si el juego intenta leer gráficos del banco 2, 3, etc., pero solo se cargó el banco 0, leerá basura o ceros. La CPU copia esos "ceros" a la VRAM, resultando en una pantalla verde.</li>
+                        <li><strong>Monitor de Escrituras:</strong> Al monitorear las escrituras en VRAM, podemos ver qué datos está copiando la CPU. Si todos son ceros, confirmamos que el problema está en la carga de datos gráficos (posiblemente MBC).</li>
+                        <li><strong>Lógica Negativa:</strong> Si la PPU funcionara y tuviera datos distintos de cero, veríamos píxeles grises o negros. Si solo vemos verde, significa que la PPU solo está leyendo ceros. Por lo tanto, la VRAM está vacía (o llena de ceros).</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Valores en VRAM:</strong> Ejecutar el diagnóstico con Pokémon Red y verificar los valores que se escriben en VRAM. Si todos son `00`, confirmamos que la CPU está copiando ceros, lo que sugiere un problema de MBC.</li>
+                        <li><strong>Implementación de MBC:</strong> Si confirmamos que el problema es MBC, debemos implementar soporte básico de MBC1/MBC3 en la MMU para permitir que los juegos grandes carguen gráficos desde bancos superiores.</li>
+                        <li><strong>Timing de Carga:</strong> Si la VRAM contiene datos pero la pantalla sigue verde, debemos investigar por qué la PPU no está leyendo correctamente los tiles desde VRAM o por qué el Tile Map apunta a tiles vacíos.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> Si la CPU funciona (Mario y Pokémon corren), ¿por qué no copian los gráficos? La teoría principal es que el mapeo de memoria (MBC) no está implementado. Si el juego intenta leer gráficos del banco 2, 3, etc., pero solo se cargó el banco 0, leerá basura o ceros, y copiará esos ceros a la VRAM.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Asumimos que el monitor de escrituras en VRAM (primeras 50 escrituras) es suficiente para determinar si la CPU está copiando ceros o datos reales. Si todos los valores son `00`, confirmamos que el problema está en la carga de datos gráficos (posiblemente MBC).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar: <code>.\rebuild_cpp.ps1</code></li>
+                    <li>[ ] Ejecutar: <code>python main.py roms/pkmn.gb</code> (Pokémon es ideal porque sabemos que intenta dibujar).</li>
+                    <li>[ ] Observar los logs de <code>[VRAM]</code>:
+                        <ul>
+                            <li><strong>¿Ves logs de `[VRAM]`?</strong> Si no, la CPU no está escribiendo en VRAM (problema más grave).</li>
+                            <li><strong>Mira los valores (`Val`):</strong>
+                                <ul>
+                                    <li>Si son `00`: La CPU está copiando ceros. (Confirma teoría de MBC roto).</li>
+                                    <li>Si son `FF` o variados: Hay datos. Entonces el problema vuelve a ser la PPU.</li>
+                                </ul>
+                            </li>
+                            <li><strong>Mira el `PC`:</strong> ¿Desde dónde escribe? (Probablemente una rutina de copia `LDI` o `LD`).</li>
+                        </ul>
+                    </li>
+                    <li>[ ] <strong>Si confirmamos que el problema es MBC:</strong>
+                        <ul>
+                            <li>Implementar soporte básico de MBC1/MBC3 en la MMU.</li>
+                            <li>Detectar el tipo de cartucho desde el header de la ROM.</li>
+                            <li>Implementar cambio de bancos cuando el juego escribe en `0x0000-0x7FFF` (registros del MBC).</li>
+                        </ul>
+                    </li>
+                    <li>[ ] <strong>Si la VRAM contiene datos pero la pantalla sigue verde:</strong>
+                        <ul>
+                            <li>Investigar por qué la PPU no está leyendo correctamente los tiles desde VRAM.</li>
+                            <li>Verificar que el Tile Map apunta a tiles válidos (no a tiles vacíos).</li>
+                            <li>Verificar que la PPU está decodificando correctamente los tiles desde VRAM.</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
