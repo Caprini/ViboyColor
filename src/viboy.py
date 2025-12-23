@@ -983,6 +983,16 @@ class Viboy:
                         logger.info(f"[VIDEO] BGP:{bgp:02X} OBP0:{obp0:02X} OBP1:{obp1:02X} | LCDC:{lcdc:02X}")
                         logger.info(f"[SPRITE 0] Y:{s0_y:02X} X:{s0_x:02X} T:{s0_tile:02X} A:{s0_attr:02X}")
                         logger.info(f"[SPRITE 1] Y:{s1_y:02X} X:{s1_x:02X} T:{s1_tile:02X} A:{s1_attr:02X}")
+                        
+                        # --- Step 0258: VRAM CHECKSUM ---
+                        # Leer muestras masivas para ver si hay vida
+                        # Nota: Esto es lento, pero solo ocurre 1 vez por segundo
+                        vram_sum = 0
+                        # Muestreo rápido: leer cada 16 bytes para no matar el rendimiento
+                        for addr in range(0x8000, 0xA000, 16):
+                            vram_sum += self._mmu.read(addr)
+                        
+                        logger.info(f"[MEMORY] VRAM_SUM: {vram_sum} (Si es 0, no hay gráficos)")
                         # -------------------------------------------------
                     elif not self._use_cpp and self._cpu is not None and self._mmu is not None:
                         # Fallback para modo Python
@@ -1016,6 +1026,16 @@ class Viboy:
                         logger.info(f"[VIDEO] BGP:{bgp:02X} OBP0:{obp0:02X} OBP1:{obp1:02X} | LCDC:{lcdc:02X}")
                         logger.info(f"[SPRITE 0] Y:{s0_y:02X} X:{s0_x:02X} T:{s0_tile:02X} A:{s0_attr:02X}")
                         logger.info(f"[SPRITE 1] Y:{s1_y:02X} X:{s1_x:02X} T:{s1_tile:02X} A:{s1_attr:02X}")
+                        
+                        # --- Step 0258: VRAM CHECKSUM (Python) ---
+                        # Leer muestras masivas para ver si hay vida
+                        # Nota: Esto es lento, pero solo ocurre 1 vez por segundo
+                        vram_sum = 0
+                        # Muestreo rápido: leer cada 16 bytes para no matar el rendimiento
+                        for addr in range(0x8000, 0xA000, 16):
+                            vram_sum += self._mmu.read(addr)
+                        
+                        logger.info(f"[MEMORY] VRAM_SUM: {vram_sum} (Si es 0, no hay gráficos)")
                         # -------------------------------------------------
                 # -------------------------------------------------
         

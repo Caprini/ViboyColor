@@ -32,6 +32,54 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0258: VRAM Vital Signs (VRAM Sum)
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step añade un diagnóstico de integridad de VRAM en el monitor GPS de `src/viboy.py`. Calculamos la suma de bytes de la VRAM (muestreo cada 16 bytes) para determinar si contiene gráficos o está completamente vacía. Si la VRAM está llena de ceros, la PPU renderizará píxeles de índice 0 (verdes/blancos), funcionando "correctamente" sobre datos vacíos.
+
+**Objetivo:**
+- Añadir un diagnóstico de VRAM en el monitor GPS para calcular la suma de bytes de la VRAM.
+- Determinar si la VRAM está completamente vacía (suma = 0) o contiene datos (suma > 0).
+- Distinguir entre problemas de VRAM vacía (CPU/DMA no copia gráficos) y problemas de PPU (VRAM contiene datos pero no se renderizan).
+
+**Implementación:**
+1. **Modificado `src/viboy.py`**: 
+   - Añadido código en el monitor GPS (Step 0240) para calcular la suma de bytes de la VRAM usando un muestreo cada 16 bytes (rango `0x8000-0xA000`).
+   - El diagnóstico se ejecuta una vez por segundo (cada 60 frames), igual que el resto del monitor GPS.
+   - Se añadió tanto en el bloque de C++ como en el bloque de Python (fallback).
+
+**Concepto de Hardware:**
+**VRAM (Video RAM)**: La VRAM en la Game Boy ocupa el rango `0x8000-0x9FFF` (8KB) y contiene:
+- **Tile Data (0x8000-0x97FF)**: Datos de los tiles (gráficos) que se usan para renderizar el fondo y los sprites. Cada tile ocupa 16 bytes (2 bytes por línea de 8 píxeles).
+- **Tile Map (0x9800-0x9FFF)**: Mapas de tiles que indican qué tile se dibuja en cada posición del fondo. Cada byte del mapa apunta a un tile en el Tile Data.
+
+**Problema Crítico**: Si la VRAM está completamente vacía (todo ceros), la PPU renderizará píxeles de índice 0 (que corresponde al color más claro de la paleta). Con la paleta de debug de Python (Step 0256), el índice 0 se mapea a verde/blanco, lo que explica por qué vemos una pantalla completamente verde incluso cuando el LCD está encendido.
+
+**Diagnóstico de VRAM**: Al calcular la suma de bytes de la VRAM (usando un muestreo cada 16 bytes para no matar el rendimiento), podemos determinar:
+- **Sum = 0**: La VRAM está vacía. El juego no ha copiado gráficos. Esto indica un problema de CPU/DMA (el juego no está ejecutando el código que copia los tiles desde la ROM a la VRAM).
+- **Sum > 0**: Hay datos en la VRAM. Si la pantalla sigue verde, el problema está en la PPU (no está leyendo correctamente los tiles desde VRAM) o en el mapeo de tiles (Tile Map apunta a tiles vacíos).
+
+**Fuente:** Pan Docs - VRAM, Tile Data, Tile Maps
+
+**Archivos Afectados:**
+- `src/viboy.py` - Modificado el monitor GPS (Step 0240) para añadir cálculo de suma de VRAM (Step 0258).
+
+**Decisiones de Diseño:**
+- **Muestreo cada 16 bytes**: Se eligió leer cada 16 bytes en lugar de todos los bytes para no matar el rendimiento. El muestreo es suficiente para detectar si la VRAM está completamente vacía (suma = 0) o contiene datos (suma > 0).
+- **Frecuencia de ejecución**: El diagnóstico se ejecuta solo una vez por segundo (cada 60 frames), igual que el resto del monitor GPS, para no impactar el rendimiento.
+- **Log claro**: Se usa un mensaje de log claro que indica explícitamente que si la suma es 0, no hay gráficos en la VRAM.
+
+**Validación:**
+- Ejecutar: `python main.py roms/pkmn.gb` (o cualquier ROM con LCD encendido).
+- Observar el log y buscar `[MEMORY] VRAM_SUM: X` cada segundo.
+- **Si X = 0**: La VRAM está vacía. El juego no ha copiado gráficos. Esto indica un problema de CPU/DMA.
+- **Si X > 0**: Hay datos en la VRAM. Si la pantalla sigue verde, el problema está en la PPU o en el mapeo de tiles.
+
+**Próximos Pasos:**
+- Ejecutar `python main.py roms/pkmn.gb` y observar el valor de `VRAM_SUM`.
+- Si X = 0: Investigar por qué el juego no está ejecutando el código que copia los tiles desde la ROM a la VRAM (problema de CPU/DMA).
+- Si X > 0: Investigar por qué la PPU no está leyendo correctamente los tiles desde VRAM o por qué el Tile Map apunta a tiles vacíos.
+
 ### 2025-12-23 - Step 0257: Hardware Palette Bypass (C++)
 **Estado**: ✅ IMPLEMENTADO
 

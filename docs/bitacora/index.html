@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0258 - VRAM Vital Signs (VRAM Sum) -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0258</span>
+                        <a href="entries/2025-12-23__0258__vram-vital-signs.html" class="title">VRAM Vital Signs (VRAM Sum)</a>
+                        <p class="summary">Este Step añade un diagnóstico de integridad de VRAM en el monitor GPS de `src/viboy.py`. Calculamos la suma de bytes de la VRAM (muestreo cada 16 bytes) para determinar si contiene gráficos o está completamente vacía. Si la VRAM está llena de ceros, la PPU renderizará píxeles de índice 0 (verdes/blancos), funcionando "correctamente" sobre datos vacíos. Con la paleta forzada en C++ (Step 0257) y Python (Step 0256), si la pantalla sigue verde incluso con juegos que tienen el LCD encendido (como Pokémon Red, `LCDC:E3`), la única explicación lógica que queda es que la VRAM está llena de ceros.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0257 - Hardware Palette Bypass (C++) -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>
