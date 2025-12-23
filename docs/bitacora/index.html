@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0262 - ROM Read Probe -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0262</span>
+                        <a href="entries/2025-12-23__0262__rom-read-probe.html" class="title">ROM Read Probe</a>
+                        <p class="summary">Este Step instrumenta el método MMU::read() para monitorear las lecturas en el área de ROM conmutada (0x4000-0x7FFF). El Step 0261 confirmó que MBC1 funciona (vemos cambios de banco), pero las escrituras en VRAM siguen siendo ceros. La hipótesis es que MMU::read() podría estar devolviendo ceros al leer del banco conmutado, a pesar de que el cambio de banco se registra correctamente. Esta instrumentación nos permitirá verificar qué valores está devolviendo realmente la MMU cuando el juego lee desde los bancos ROM seleccionados.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0261 - MBC Activity Monitor -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>

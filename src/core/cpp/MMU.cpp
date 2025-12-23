@@ -290,6 +290,19 @@ uint8_t MMU::read(uint16_t addr) const {
                 return 0xFF;
             }
             
+            // --- Step 0262: ROM READ PROBE ---
+            // Instrumentar las primeras 50 lecturas del área de ROM conmutada para verificar
+            // qué valores está devolviendo la MMU. Si devuelve ceros, la carga de ROM o el
+            // cálculo de offset está fallando. Si devuelve valores variados, la lectura es correcta.
+            static int rom_read_counter = 0;
+            if (rom_read_counter < 50) {
+                uint8_t val = rom_data_[rom_addr];
+                printf("[ROM-READ] PC:%04X -> Read ROM[%04X] (Bank %d, Offset %zu) = %02X\n", 
+                       debug_current_pc, addr, current_rom_bank_, rom_addr, val);
+                rom_read_counter++;
+            }
+            // -----------------------------------------
+            
             return rom_data_[rom_addr];
         }
     }

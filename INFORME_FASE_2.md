@@ -32,6 +32,57 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0262: ROM Read Probe
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step instrumenta el método `MMU::read()` para monitorear las lecturas en el área de ROM conmutada (`0x4000-0x7FFF`). El Step 0261 confirmó que MBC1 funciona (vemos cambios de banco), pero las escrituras en VRAM siguen siendo ceros. La hipótesis es que `MMU::read()` podría estar devolviendo ceros al leer del banco conmutado, a pesar de que el cambio de banco se registra correctamente.
+
+**Objetivo:**
+- Instrumentar las lecturas del área de ROM conmutada para verificar qué valores está devolviendo realmente la MMU.
+- Distinguir entre dos casos: el juego está limpiando la VRAM intencionalmente, o la lectura del banco conmutado devuelve ceros.
+- Correlacionar las lecturas ROM con las escrituras en VRAM para determinar si los datos correctos están llegando.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/MMU.cpp` (Método `read`)**: 
+   - Añadido contador estático `rom_read_counter` para limitar los logs a las primeras 50 lecturas (evitando saturar la salida).
+   - El log se imprime después de calcular el offset pero antes de devolver el valor, mostrando exactamente qué está leyendo el juego y qué valor se está devolviendo.
+   - Formato de log: `[ROM-READ] PC:XXXX -> Read ROM[YYYY] (Bank N, Offset ZZZZ) = VV`
+
+**Concepto de Hardware:**
+**Lectura de ROM conmutada**: Cuando un juego necesita acceder a datos almacenados en bancos ROM distintos del banco 0, primero selecciona el banco escribiendo en `0x2000-0x3FFF`, y luego lee desde `0x4000-0x7FFF`. El MBC1 mapea el banco seleccionado a este espacio de memoria, permitiendo que el juego acceda a hasta 16KB de datos del banco elegido.
+
+**El problema de los ceros en VRAM**: Si el juego cambia de banco correctamente (vemos logs de cambio en el Step 0261), pero las escrituras en VRAM siguen siendo ceros, hay dos posibilidades:
+1. El juego está limpiando la VRAM intencionalmente antes de copiar los gráficos reales.
+2. La lectura del banco conmutado devuelve ceros, lo que indica un fallo en la carga de ROM o en el cálculo de offset.
+
+**La sonda de lectura ROM**: Para distinguir entre estos casos, necesitamos verificar qué valor está devolviendo realmente `MMU::read()` cuando el juego lee desde el área conmutada. Si devuelve ceros (o `0xFF`), nuestra lógica de lectura de `rom_data_` está fallando. Si devuelve valores variados (`0x3E`, `0xCD`, etc.), entonces la lectura es correcta y el problema está en otro lado.
+
+**Fuente:** Pan Docs - "MBC1", "Memory Bank Controllers", "Memory Map"
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Modificado método `read()` para loguear las primeras 50 lecturas del área de ROM conmutada (Step 0262).
+
+**Decisiones de Diseño:**
+- **Límite de 50 lecturas**: Para evitar saturar los logs con miles de lecturas, limitamos el registro a las primeras 50. Esto es suficiente para verificar si la lectura está funcionando correctamente durante la inicialización del juego.
+- **Información completa en el log**: El log incluye el PC actual, la dirección leída, el banco actual, el offset calculado en `rom_data_`, y el valor devuelto. Esto nos permite verificar si el cálculo de offset es correcto y si el valor devuelto corresponde a los datos reales de la ROM.
+- **Log después del cálculo de offset**: El log se imprime después de calcular el offset pero antes de devolver el valor, asegurando que vemos exactamente qué valor se está devolviendo al juego.
+
+**Validación:**
+- Recompilar: `.\rebuild_cpp.ps1`
+- Ejecutar: `python main.py roms/pkmn.gb` (Pokémon Red es ideal porque tiene 1024KB de ROM y necesita múltiples bancos).
+- Observar los logs:
+  - Buscar `[ROM-READ] PC:XXXX -> Read ROM[YYYY] (Bank N, Offset ZZZZ) = VV` - Muestra qué está leyendo el juego y qué valor se está devolviendo.
+  - **Si Val = 00**: La lectura está devolviendo ceros, lo que indica un fallo en la carga de ROM o en el cálculo de offset. El vector `rom_data_` podría estar vacío o el offset calculado podría estar fuera de rango.
+  - **Si Val variados (3E, CD, etc.)**: La lectura es correcta y está devolviendo datos reales de la ROM. En este caso, si la VRAM sigue vacía, el problema está en otro lado (posiblemente en la lógica de copia de datos a VRAM o en el timing).
+
+**Próximos Pasos:**
+- Ejecutar `python main.py roms/pkmn.gb` y observar los logs de lectura ROM.
+- Si las lecturas devuelven ceros, verificar la carga de ROM y el cálculo de offset.
+- Si las lecturas devuelven valores variados, verificar la lógica de copia de datos a VRAM o el timing.
+- Correlacionar las lecturas ROM con las escrituras en VRAM para determinar si los datos correctos están llegando a la VRAM.
+
+---
+
 ### 2025-12-23 - Step 0261: MBC Activity Monitor
 **Estado**: ✅ IMPLEMENTADO
 
