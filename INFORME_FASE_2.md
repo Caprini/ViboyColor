@@ -32,6 +32,48 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-22 - Step 0245: Interceptor de Transferencia DMA/HRAM
+**Estado**: 🔍 EN DEPURACIÓN
+
+El Centinela (Step 0244) confirmó que el juego escribe el marcador `0xFD` en **HRAM** (`0xFF8D`), pero luego lo busca desesperadamente en **WRAM**, causando un bucle infinito. Falta el eslabón perdido: ¿Quién mueve los datos de HRAM a WRAM? Se implementa un interceptor de transferencia que monitorea escrituras en el registro DMA (`0xFF46`) y lecturas en HRAM (`0xFF8D`) para determinar si el juego intenta usar DMA o una rutina de copia manual.
+
+**Objetivo:**
+- Instrumentar `MMU::read` para detectar lecturas en HRAM (`0xFF8D`).
+- Instrumentar `MMU::write` para detectar escrituras en el registro DMA (`0xFF46`).
+- Crear un script de análisis automático para procesar logs y generar un resumen estructurado.
+
+**Implementación:**
+1. **Añadido bloque de instrumentación en `MMU::read`**: Detecta lecturas en `0xFF8D` (HRAM) para determinar si alguien intenta leer el marcador `0xFD` para copiarlo a WRAM.
+2. **Añadido bloque de instrumentación en `MMU::write`**: Detecta escrituras en `0xFF46` (registro DMA) para determinar si el juego intenta activar una transferencia DMA.
+3. **Creado script de análisis automático**: `tools/analizar_dma_0245.py` procesa los logs del emulador y genera un resumen estructurado con estadísticas, correlaciones y conclusiones.
+
+**Concepto de Hardware:**
+**DMA (Direct Memory Access)**: El Game Boy tiene un registro DMA (`0xFF46`) que permite copiar 160 bytes de datos desde cualquier dirección de memoria a la OAM (Object Attribute Memory, `0xFE00-0xFE9F`). Cuando el juego escribe un byte en `0xFF46`, el hardware inicia automáticamente una transferencia desde la dirección `(valor × 0x100)` a OAM. Sin embargo, el hardware real solo copia a OAM, no a otras áreas de memoria como WRAM.
+
+**Transferencias Manuales de Memoria**: Además de DMA, los programas pueden usar instrucciones de copia manual como `LDI` (Load Increment) o `LDD` (Load Decrement) para mover datos entre áreas de memoria. Estas instrucciones copian un byte desde la dirección apuntada por `HL` a la dirección apuntada por `DE`, incrementando o decrementando ambos punteros.
+
+**El Problema del Eslabón Perdido**: El Step 0244 confirmó que el juego escribe `0xFD` en HRAM y lo busca en WRAM, pero el marcador nunca aparece en WRAM. Esto sugiere que hay una transferencia de datos que debería ocurrir entre la escritura en HRAM y la búsqueda en WRAM, pero que no está funcionando. Las posibilidades son:
+- **Opción A**: El juego intenta usar DMA para copiar datos, pero nuestra implementación de DMA no está funcionando o no está copiando a la dirección correcta.
+- **Opción B**: El juego usa una rutina de copia manual (LDI/LDD) que lee desde HRAM y escribe en WRAM, pero la lectura o escritura falla silenciosamente.
+- **Opción C**: El juego escribió en HRAM pero nunca intentó copiar los datos (problema anterior en la lógica de inicialización).
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Añadidos bloques de instrumentación en `MMU::read` (HRAM) y `MMU::write` (DMA)
+- `tools/analizar_dma_0245.py` - Script de análisis automático para procesar logs y generar resumen
+- `docs/bitacora/entries/2025-12-22__0245__interceptor-dma-hram.html` - Entrada de bitácora
+- `docs/bitacora/index.html` - Actualizado con nueva entrada
+- `INFORME_FASE_2.md` - Actualizado con Step 0245
+
+**Próximos Pasos:**
+- Recompilar la extensión C++: `python setup.py build_ext --inplace`
+- Ejecutar el emulador durante 10 segundos: `python main.py roms/tetris.gb > dma_check.log 2>&1`
+- Analizar el log: `python tools/analizar_dma_0245.py dma_check.log > RESUMEN_DMA_0245.txt`
+- **Si se detectan eventos DMA**: Investigar por qué la transferencia DMA falla (verificar implementación de DMA, dirección de destino, etc.)
+- **Si se detectan lecturas HRAM**: Investigar por qué la copia manual falla (verificar instrucciones LDI/LDD, redirección de Echo RAM, etc.)
+- **Si NO se detecta nada**: Instrumentar más áreas (por ejemplo, rastreador de escrituras en WRAM) o investigar la lógica de inicialización del juego
+
+---
+
 ### 2025-12-22 - Step 0244: El Rastreador del Centinela
 **Estado**: 🔍 EN DEPURACIÓN
 

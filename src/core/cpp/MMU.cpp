@@ -260,6 +260,16 @@ uint8_t MMU::read(uint16_t addr) const {
         return 0;
     }
     
+    // --- Step 0245: HRAM READ WATCHDOG ---
+    // El Centinela (Step 0244) confirmó que el juego escribe 0xFD en HRAM (0xFF8D),
+    // pero luego lo busca en WRAM. Necesitamos saber si alguien intenta leer 0xFF8D
+    // para copiar esos datos a WRAM. Si nadie lee 0xFF8D, nadie puede copiar el marcador.
+    // Fuente: Pan Docs - "High RAM (HRAM)", "Memory Map"
+    if (addr == 0xFF8D) {
+        printf("[HRAM] ¡Lectura detectada en FF8D! PC podría estar copiando datos.\n");
+    }
+    // -----------------------------------------
+    
     // Acceso directo al array: O(1), sin overhead de Python
     return memory_[addr];
 }
@@ -286,6 +296,18 @@ void MMU::write(uint16_t addr, uint8_t value) {
     // Direcciones >= 0xC000 corresponden a WRAM (0xC000-0xDFFF) y Echo RAM (0xE000-0xFDFF)
     if (value == 0xFD && addr >= 0xC000) {
         printf("[SENTINEL] ¡Detectada escritura de 0xFD en Address: %04X!\n", addr);
+    }
+    // -----------------------------------------
+    
+    // --- Step 0245: INTERCEPTOR DMA ---
+    // El Centinela (Step 0244) confirmó que el juego escribe 0xFD en HRAM (0xFF8D),
+    // pero luego lo busca en WRAM. Necesitamos saber si el juego intenta activar
+    // una transferencia DMA para mover datos de HRAM a WRAM.
+    // El registro DMA (0xFF46) se escribe con el byte alto de la dirección fuente
+    // (ej: escribir 0xFE inicia una transferencia desde 0xFE00).
+    // Fuente: Pan Docs - "DMA Transfer", "OAM DMA"
+    if (addr == 0xFF46) {
+        printf("[DMA] ¡Escritura en Registro DMA (FF46)! Valor: %02X (Source: %04X00)\n", value, value);
     }
     // -----------------------------------------
     

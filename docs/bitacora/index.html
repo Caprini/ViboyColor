@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0245 - Interceptor de Transferencia DMA/HRAM -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-22</span>
+                        <span class="tag">0245</span>
+                        <a href="entries/2025-12-22__0245__interceptor-dma-hram.html" class="title">Interceptor de Transferencia DMA/HRAM</a>
+                        <p class="summary">El Centinela (Step 0244) confirmó que el juego escribe 0xFD en HRAM (0xFF8D), pero luego lo busca en WRAM. Se implementa un interceptor que monitorea escrituras en el registro DMA (0xFF46) y lecturas en HRAM (0xFF8D) para determinar si el juego intenta usar DMA o una rutina de copia manual para transferir los datos.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0244 - El Rastreador del Centinela -->
                     <li class="entry-item">
                         <span class="meta">2025-12-22</span>

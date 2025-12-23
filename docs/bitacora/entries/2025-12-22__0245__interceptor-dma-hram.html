@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interceptor de Transferencia DMA/HRAM - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Interceptor de Transferencia DMA/HRAM</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-22
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0245
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-22__0244__rastreador-del-centinela.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El Centinela (Step 0244) confirmó que el juego escribe el marcador <code>0xFD</code> en <strong>HRAM</strong> (<code>0xFF8D</code>), pero luego lo busca desesperadamente en <strong>WRAM</strong>, causando un bucle infinito. Falta el eslabón perdido: ¿Quién mueve los datos de HRAM a WRAM? Se implementa un interceptor de transferencia que monitorea escrituras en el registro DMA (<code>0xFF46</code>) y lecturas en HRAM (<code>0xFF8D</code>) para determinar si el juego intenta usar DMA o una rutina de copia manual.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>DMA (Direct Memory Access)</strong>: El Game Boy tiene un registro DMA (<code>0xFF46</code>) que permite copiar 160 bytes de datos desde cualquier dirección de memoria a la OAM (Object Attribute Memory, <code>0xFE00-0xFE9F</code>). Cuando el juego escribe un byte en <code>0xFF46</code>, el hardware inicia automáticamente una transferencia desde la dirección <code>(valor × 0x100)</code> a OAM. Por ejemplo, escribir <code>0xFE</code> en <code>0xFF46</code> inicia una transferencia desde <code>0xFE00</code> a OAM.
+                </p>
+                <p>
+                    <strong>Transferencias Manuales de Memoria</strong>: Además de DMA, los programas pueden usar instrucciones de copia manual como <code>LDI</code> (Load Increment) o <code>LDD</code> (Load Decrement) para mover datos entre áreas de memoria. Estas instrucciones copian un byte desde la dirección apuntada por <code>HL</code> a la dirección apuntada por <code>DE</code>, incrementando o decrementando ambos punteros.
+                </p>
+                <p>
+                    <strong>El Problema del Eslabón Perdido</strong>: El Step 0244 confirmó que:
+                </p>
+                <ul>
+                    <li>El juego escribe <code>0xFD</code> en HRAM (<code>0xFF8D</code>).</li>
+                    <li>El juego busca <code>0xFD</code> en WRAM (<code>0xCxxx</code>).</li>
+                    <li>El marcador nunca aparece en WRAM, causando un bucle infinito.</li>
+                </ul>
+                <p>
+                    Esto sugiere que hay una <strong>transferencia de datos</strong> que debería ocurrir entre la escritura en HRAM y la búsqueda en WRAM, pero que no está funcionando. Las posibilidades son:
+                </p>
+                <ul>
+                    <li><strong>Opción A</strong>: El juego intenta usar DMA para copiar datos, pero nuestra implementación de DMA no está funcionando o no está copiando a la dirección correcta.</li>
+                    <li><strong>Opción B</strong>: El juego usa una rutina de copia manual (LDI/LDD) que lee desde HRAM y escribe en WRAM, pero la lectura o escritura falla silenciosamente.</li>
+                    <li><strong>Opción C</strong>: El juego escribió en HRAM pero nunca intentó copiar los datos (problema anterior en la lógica de inicialización).</li>
+                </ul>
+                <p>
+                    El <strong>interceptor de transferencia</strong> instrumenta dos puntos críticos:
+                </p>
+                <ul>
+                    <li><strong>Registro DMA (<code>0xFF46</code>)</strong>: Detecta si el juego intenta activar una transferencia DMA.</li>
+                    <li><strong>HRAM (<code>0xFF8D</code>)</strong>: Detecta si alguien intenta leer el marcador desde HRAM (lo cual sería necesario para copiarlo a WRAM).</li>
+                </ul>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "DMA Transfer", "OAM DMA", "High RAM (HRAM)", "Memory Map"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añaden dos bloques de instrumentación en la MMU: uno en <code>MMU::read</code> para detectar lecturas en HRAM (<code>0xFF8D</code>) y otro en <code>MMU::write</code> para detectar escrituras en el registro DMA (<code>0xFF46</code>). Además, se crea un script de análisis automático para procesar los logs y generar un resumen estructurado.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code>: Añadidos bloques de instrumentación en <code>MMU::read</code> (HRAM) y <code>MMU::write</code> (DMA).</li>
+                    <li><code>tools/analizar_dma_0245.py</code>: Script de análisis automático para procesar logs y generar resumen.</li>
+                </ul>
+
+                <h3>Código añadido en MMU::read</h3>
+                <pre><code>// --- Step 0245: HRAM READ WATCHDOG ---
+// El Centinela (Step 0244) confirmó que el juego escribe 0xFD en HRAM (0xFF8D),
+// pero luego lo busca en WRAM. Necesitamos saber si alguien intenta leer 0xFF8D
+// para copiar esos datos a WRAM. Si nadie lee 0xFF8D, nadie puede copiar el marcador.
+// Fuente: Pan Docs - "High RAM (HRAM)", "Memory Map"
+if (addr == 0xFF8D) {
+    printf("[HRAM] ¡Lectura detectada en FF8D! PC podría estar copiando datos.\n");
+}
+// -----------------------------------------</code></pre>
+
+                <h3>Código añadido en MMU::write</h3>
+                <pre><code>// --- Step 0245: INTERCEPTOR DMA ---
+// El Centinela (Step 0244) confirmó que el juego escribe 0xFD en HRAM (0xFF8D),
+// pero luego lo busca en WRAM. Necesitamos saber si el juego intenta activar
+// una transferencia DMA para mover datos de HRAM a WRAM.
+// El registro DMA (0xFF46) se escribe con el byte alto de la dirección fuente
+// (ej: escribir 0xFE inicia una transferencia desde 0xFE00).
+// Fuente: Pan Docs - "DMA Transfer", "OAM DMA"
+if (addr == 0xFF46) {
+    printf("[DMA] ¡Escritura en Registro DMA (FF46)! Valor: %02X (Source: %04X00)\n", value, value);
+}
+// -----------------------------------------</code></pre>
+
+                <h3>Script de Análisis Automático</h3>
+                <p>
+                    Se crea el script <code>tools/analizar_dma_0245.py</code> que:
+                </p>
+                <ul>
+                    <li>Analiza los logs del emulador buscando eventos DMA y HRAM.</li>
+                    <li>Genera estadísticas de eventos (total, distribución, correlación).</li>
+                    <li>Proporciona hipótesis y conclusiones basadas en los hallazgos.</li>
+                </ul>
+                <p>
+                    <strong>Uso del script</strong>:
+                </p>
+                <pre><code># 1. Ejecutar el emulador y redirigir la salida a un log
+python main.py roms/tetris.gb > dma_check.log 2>&1
+
+# 2. Analizar el log y generar el resumen
+python tools/analizar_dma_0245.py dma_check.log > RESUMEN_DMA_0245.txt</code></pre>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Instrumentación selectiva</strong>: Solo se instrumentan las direcciones críticas (<code>0xFF46</code> y <code>0xFF8D</code>) para minimizar el overhead y mantener la velocidad del emulador.</li>
+                    <li><strong>Formato de mensajes</strong>: Los mensajes usan prefijos <code>[DMA]</code> y <code>[HRAM]</code> para facilitar su búsqueda en los logs.</li>
+                    <li><strong>Análisis automático</strong>: El script de análisis procesa los logs de forma estructurada, permitiendo identificar patrones y correlaciones sin revisar manualmente miles de líneas.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Añadidos bloques de instrumentación en <code>MMU::read</code> (HRAM) y <code>MMU::write</code> (DMA).</li>
+                    <li><code>tools/analizar_dma_0245.py</code> - Script de análisis automático para procesar logs y generar resumen.</li>
+                    <li><code>docs/bitacora/entries/2025-12-22__0245__interceptor-dma-hram.html</code> - Entrada de bitácora.</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con nueva entrada.</li>
+                    <li><code>INFORME_FASE_2.md</code> - Actualizado con Step 0245.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realiza mediante ejecución del emulador y análisis de logs:
+                </p>
+                <ol>
+                    <li><strong>Recompilación</strong>: Recompilar la extensión C++ con la nueva instrumentación:
+                        <pre><code>python setup.py build_ext --inplace</code></pre>
+                    </li>
+                    <li><strong>Ejecución con logging</strong>: Ejecutar el emulador durante 10 segundos y redirigir la salida:
+                        <pre><code>python main.py roms/tetris.gb > dma_check.log 2>&1</code></pre>
+                    </li>
+                    <li><strong>Análisis automático</strong>: Procesar el log con el script de análisis:
+                        <pre><code>python tools/analizar_dma_0245.py dma_check.log > RESUMEN_DMA_0245.txt</code></pre>
+                    </li>
+                    <li><strong>Interpretación de resultados</strong>:
+                        <ul>
+                            <li>Si se detectan eventos DMA: El juego SÍ intenta usar DMA, pero la transferencia falla.</li>
+                            <li>Si se detectan lecturas HRAM: El juego SÍ intenta leer el marcador, pero la copia falla.</li>
+                            <li>Si NO se detecta nada: El juego escribió en HRAM pero nunca intentó transferir los datos.</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Validación de módulo compilado C++</strong>: La instrumentación está implementada directamente en C++, por lo que requiere recompilación de la extensión. Los mensajes de log se generan en tiempo de ejecución y se capturan en la salida estándar.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">https://gbdev.io/pandocs/</a> - "DMA Transfer", "OAM DMA", "High RAM (HRAM)", "Memory Map"</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>DMA en Game Boy</strong>: El registro DMA (<code>0xFF46</code>) permite copiar 160 bytes desde cualquier dirección a OAM. Sin embargo, el hardware real solo copia a OAM, no a otras áreas de memoria. Si el juego intenta usar DMA para copiar de HRAM a WRAM, esto no funcionará en hardware real (a menos que haya una rutina de copia manual que lea desde OAM después de la transferencia DMA).</li>
+                        <li><strong>Transferencias Manuales</strong>: Las instrucciones <code>LDI</code> y <code>LDD</code> permiten copiar datos byte a byte entre áreas de memoria. Estas instrucciones son más lentas que DMA pero más flexibles.</li>
+                        <li><strong>El Eslabón Perdido</strong>: Si el juego escribe en HRAM y busca en WRAM, debe haber una transferencia intermedia. Si no detectamos DMA ni lecturas HRAM, es posible que el juego use una rutina de copia que no estamos instrumentando, o que haya un problema anterior que impide que el juego llegue a la rutina de copia.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿El juego usa DMA?</strong>: Necesitamos ejecutar el emulador y analizar los logs para confirmar si el juego intenta activar DMA.</li>
+                        <li><strong>¿El juego lee HRAM?</strong>: Necesitamos confirmar si alguien intenta leer <code>0xFF8D</code> para copiar el marcador.</li>
+                        <li><strong>¿Hay una rutina de copia manual?</strong>: Si no detectamos DMA ni lecturas HRAM, es posible que el juego use una rutina de copia que no estamos instrumentando (por ejemplo, una rutina que lee desde una dirección diferente o que usa un método de copia que no detectamos).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición principal</strong>: Asumimos que si el juego intenta transferir datos de HRAM a WRAM, lo hará mediante DMA o mediante una rutina de copia manual que lea desde HRAM. Sin embargo, es posible que el juego use un método diferente (por ejemplo, una rutina que lee desde una dirección diferente o que usa un método de copia que no detectamos).
+                    </p>
+                    <p>
+                        <strong>Limitación de la instrumentación</strong>: Solo instrumentamos dos puntos críticos (DMA y HRAM). Si el juego usa una rutina de copia que no pasa por estos puntos, no la detectaremos. En ese caso, necesitaríamos instrumentar más áreas o usar un enfoque diferente (por ejemplo, un rastreador de escrituras en WRAM que detecte cuando se escribe <code>0xFD</code> en WRAM).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar la extensión C++: <code>python setup.py build_ext --inplace</code></li>
+                    <li>[ ] Ejecutar el emulador durante 10 segundos: <code>python main.py roms/tetris.gb > dma_check.log 2>&1</code></li>
+                    <li>[ ] Analizar el log: <code>python tools/analizar_dma_0245.py dma_check.log > RESUMEN_DMA_0245.txt</code></li>
+                    <li>[ ] <strong>Si se detectan eventos DMA</strong>: Investigar por qué la transferencia DMA falla (verificar implementación de DMA, dirección de destino, etc.).</li>
+                    <li>[ ] <strong>Si se detectan lecturas HRAM</strong>: Investigar por qué la copia manual falla (verificar instrucciones LDI/LDD, redirección de Echo RAM, etc.).</li>
+                    <li>[ ] <strong>Si NO se detecta nada</strong>: Instrumentar más áreas (por ejemplo, rastreador de escrituras en WRAM) o investigar la lógica de inicialización del juego para encontrar dónde se supone que debería ocurrir la transferencia.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
