@@ -129,6 +129,21 @@ private:
     static constexpr size_t MEMORY_SIZE = 0x10000;
     
     /**
+     * --- Step 0260: MBC1 ROM BANKING ---
+     * Almacena el cartucho ROM completo (puede ser >32KB).
+     * Se usa para acceder a bancos de ROM conmutables.
+     */
+    std::vector<uint8_t> rom_data_;
+    
+    /**
+     * --- Step 0260: MBC1 ROM BANKING ---
+     * Banco de ROM actualmente seleccionado para el rango 0x4000-0x7FFF.
+     * Inicializado a 1 (el banco 0 está siempre mapeado en 0x0000-0x3FFF).
+     * Nota: En MBC1, el banco 0 se trata como banco 1 cuando se selecciona.
+     */
+    uint8_t current_rom_bank_;
+    
+    /**
      * Puntero a la PPU para lectura dinámica del registro STAT (0xFF41).
      * 
      * Este puntero se establece mediante setPPU() y se usa cuando se lee

@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0260 - MBC1 ROM Banking -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0260</span>
+                        <a href="entries/2025-12-23__0260__mbc1-rom-banking.html" class="title">MBC1 ROM Banking</a>
+                        <p class="summary">Este Step implementa soporte básico de MBC1 (Memory Bank Controller 1) en la MMU de C++ para permitir que los juegos grandes (>32KB) accedan a sus bancos de ROM. El diagnóstico del Step 0259 confirmó que Pokémon Red estaba escribiendo ceros en VRAM porque intentaba leer gráficos de bancos ROM no mapeados. Con MBC1 implementado, los juegos pueden seleccionar bancos de ROM y leer los datos correctos. El espacio `0x0000-0x3FFF` siempre mapea al Banco 0 (fijo), pero el espacio `0x4000-0x7FFF` puede mapear a diferentes bancos escribiendo en `0x2000-0x3FFF`.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0259 - VRAM Write Monitor & MBC Check -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>

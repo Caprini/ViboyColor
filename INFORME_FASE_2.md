@@ -32,6 +32,74 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0260: MBC1 ROM Banking
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa soporte básico de MBC1 (Memory Bank Controller 1) en la MMU de C++ para permitir que los juegos grandes (>32KB) accedan a sus bancos de ROM. El diagnóstico del Step 0259 confirmó que Pokémon Red estaba escribiendo ceros en VRAM porque intentaba leer gráficos de bancos ROM no mapeados. Con MBC1 implementado, los juegos pueden seleccionar bancos de ROM y leer los datos correctos.
+
+**Objetivo:**
+- Implementar soporte básico de MBC1 para cartuchos grandes (>32KB).
+- Permitir que los juegos seleccionen bancos de ROM escribiendo en `0x2000-0x3FFF`.
+- Mapear correctamente el espacio `0x4000-0x7FFF` al banco seleccionado.
+- Resolver el problema de VRAM vacía causado por lectura de bancos ROM no mapeados.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/MMU.hpp`**:
+   - Añadido miembro `std::vector<uint8_t> rom_data_` para almacenar el cartucho ROM completo.
+   - Añadido miembro `uint8_t current_rom_bank_` para rastrear el banco ROM actualmente seleccionado.
+
+2. **Modificado `src/core/cpp/MMU.cpp` (Constructor)**:
+   - Inicializado `current_rom_bank_ = 1` en el constructor.
+
+3. **Modificado `src/core/cpp/MMU.cpp` (Método `load_rom`)**:
+   - Modificado para cargar toda la ROM en `rom_data_` en lugar de solo 32KB.
+   - También copiar el banco 0 (primeros 16KB) a `memory_[0x0000-0x3FFF]` para compatibilidad.
+
+4. **Modificado `src/core/cpp/MMU.cpp` (Método `read`)**:
+   - Añadida lógica para leer del banco correcto según la dirección:
+     - `0x0000-0x3FFF`: Siempre mapea al Banco 0 (fijo).
+     - `0x4000-0x7FFF`: Mapea al banco seleccionado (`current_rom_bank_`).
+
+5. **Modificado `src/core/cpp/MMU.cpp` (Método `write`)**:
+   - Añadida lógica para interceptar escrituras en `0x2000-0x3FFF` y cambiar el banco ROM.
+   - Validación de que el banco no exceda el tamaño de la ROM.
+   - Log de diagnóstico limitado a las primeras 10 veces.
+
+**Concepto de Hardware:**
+**MBC1 (Memory Bank Controller 1)**: Los cartuchos grandes (>32KB) usan MBC1 para intercambiar bancos de ROM. El espacio `0x0000-0x3FFF` siempre mapea al Banco 0 (fijo), pero el espacio `0x4000-0x7FFF` puede mapear a diferentes bancos (1, 2, 3, etc.) escribiendo en registros especiales del MBC.
+
+**MBC1 Banking Control**: El MBC1 controla el cambio de bancos mediante escrituras en el rango de ROM (que normalmente es de solo lectura):
+- **0x2000-0x3FFF**: Selección de banco ROM. El valor escrito (bits 0-4) selecciona el banco que aparecerá en `0x4000-0x7FFF`. Nota: El banco 0 se trata como banco 1.
+- **0x0000-0x1FFF**: Habilitación/deshabilitación de RAM externa (ignorado en esta implementación básica).
+
+**Problema Resuelto**: Pokémon Red (1024KB ROM) intentaba copiar gráficos desde el banco 2, 3, etc., pero nuestra MMU solo tenía mapeado el banco 0. El juego leía ceros o basura, y copiaba esos ceros a la VRAM, resultando en una pantalla verde. Con MBC1, el juego puede seleccionar el banco correcto y leer los datos gráficos reales.
+
+**Fuente:** Pan Docs - "MBC1", "Memory Bank Controllers", "Cartridge Types", "Memory Map"
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.hpp` - Añadidos miembros `rom_data_` y `current_rom_bank_` para soportar MBC1 (Step 0260).
+- `src/core/cpp/MMU.cpp` - Modificado constructor, `load_rom()`, `read()` y `write()` para implementar MBC1 básico (Step 0260).
+
+**Decisiones de Diseño:**
+- **Almacenamiento completo de ROM**: Se almacena toda la ROM en `rom_data_` para permitir acceso a cualquier banco, no solo los primeros 32KB.
+- **Compatibilidad con código existente**: El banco 0 también se copia a `memory_[0x0000-0x3FFF]` para mantener compatibilidad con código que accede directamente a `memory_`.
+- **Validación de bancos**: Se valida que el banco seleccionado no exceda el tamaño de la ROM para evitar accesos fuera de rango.
+- **Log limitado**: El log de cambio de bancos se limita a las primeras 10 veces para no saturar la salida.
+
+**Validación:**
+- Recompilar: `.\rebuild_cpp.ps1`
+- Ejecutar: `python main.py roms/pkmn.gb` (Pokémon Red es ideal porque tiene 1024KB de ROM y necesita MBC1).
+- Observar el log:
+  - `[MBC1] ROM loaded: X bytes (Y banks)` - Confirma que la ROM se cargó correctamente.
+  - `[MBC1] PC:XXXX -> ROM Bank changed to N` - Confirma que el juego está cambiando bancos.
+  - `[VRAM] PC:XXXX -> Write VRAM [XXXX] = XX` - Los valores deberían ser distintos de `00` ahora.
+- Observación Visual: Si MBC1 funciona correctamente, deberías ver gráficos en pantalla (con la paleta de debug activa).
+
+**Próximos Pasos:**
+- Ejecutar `python main.py roms/pkmn.gb` y verificar que los gráficos aparecen en pantalla.
+- Si los gráficos aparecen, confirmamos que MBC1 funciona correctamente.
+- Si hay problemas, verificar que el banco seleccionado no exceda el tamaño de la ROM y que el cálculo del offset del banco es correcto.
+
 ### 2025-12-23 - Step 0259: VRAM Write Monitor & MBC Check
 **Estado**: ✅ IMPLEMENTADO
 

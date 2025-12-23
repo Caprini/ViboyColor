@@ -39,7 +39,7 @@ static const uint8_t VIBOY_LOGO_MAP[32] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nullptr), debug_current_pc(0) {
+MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nullptr), debug_current_pc(0), current_rom_bank_(1) {
     // Inicializar memoria a 0
     // --- Step 0189: Inicialización de Registros de Hardware (Post-BIOS) ---
     // Estos son los valores que los registros de I/O tienen después de que la
@@ -259,21 +259,38 @@ uint8_t MMU::read(uint16_t addr) const {
         return 0;
     }
     
-    // --- Step 0259: ANÁLISIS DE LECTURA DE ROM (MBC) ---
-    // IMPORTANTE: La implementación actual NO soporta MBC (Memory Bank Controllers).
-    // La ROM se carga de forma plana en memory_[0x0000-0x7FFF] mediante load_rom().
+    // --- Step 0260: MBC1 ROM BANKING ---
+    // Implementación básica de MBC1 para soportar cartuchos grandes (>32KB).
     // 
-    // Para juegos grandes (>32KB):
-    // - Banco 0 (0x0000-0x3FFF): Cargado correctamente
-    // - Banco 1+ (0x4000-0x7FFF): Si el juego intenta cambiar de banco, leerá
-    //   basura o ceros porque solo se cargó el banco 0.
+    // MBC1 Banking:
+    // - 0x0000-0x3FFF: Siempre mapea al Banco 0 (fijo)
+    // - 0x4000-0x7FFF: Mapea al banco seleccionado (current_rom_bank_)
     // 
-    // Esto puede explicar por qué la VRAM está vacía: el juego intenta leer gráficos
-    // del banco 2, 3, etc., pero lee ceros, y copia esos ceros a la VRAM.
-    // 
-    // Fuente: Pan Docs - "Memory Bank Controllers", "Cartridge Types"
-    // -----------------------------------------
+    // El banco se selecciona escribiendo en 0x2000-0x3FFF (ver método write).
+    // Fuente: Pan Docs - "MBC1", "Memory Bank Controllers"
     
+    // Si hay datos ROM cargados, usar banking
+    if (!rom_data_.empty()) {
+        if (addr >= 0x0000 && addr <= 0x3FFF) {
+            // Banco 0 fijo: leer desde el principio de la ROM
+            if (addr < rom_data_.size()) {
+                return rom_data_[addr];
+            }
+            return 0x00;  // Fuera de rango
+        } else if (addr >= 0x4000 && addr <= 0x7FFF) {
+            // Banco conmutable: calcular offset
+            // Offset = (banco * 0x4000) + (addr - 0x4000)
+            size_t bank_offset = static_cast<size_t>(current_rom_bank_) * 0x4000;
+            size_t rom_addr = bank_offset + (addr - 0x4000);
+            
+            if (rom_addr < rom_data_.size()) {
+                return rom_data_[rom_addr];
+            }
+            return 0x00;  // Fuera de rango
+        }
+    }
+    
+    // Para direcciones fuera de ROM o si no hay ROM cargada, usar memoria normal
     // Acceso directo al array: O(1), sin overhead de Python
     return memory_[addr];
 }
@@ -385,18 +402,50 @@ void MMU::write(uint16_t addr, uint8_t value) {
         return;
     }
     
-    // --- Step 0252: PROTECCIÓN DE ROM ---
+    // --- Step 0260: MBC1 ROM BANKING ---
     // En hardware real, la ROM (0x0000-0x7FFF) es de solo lectura.
     // Escribir en este rango no modifica los datos de la ROM, sino que se envía
     // al MBC (Memory Bank Controller) del cartucho para controlar el cambio de bancos.
-    // Como Tetris es "ROM ONLY" (Type 0x00), las escrituras aquí deben ignorarse
-    // silenciosamente. Si permitimos escribir en ROM, el juego puede corromper
-    // su propio código, causando saltos erráticos y comportamiento extraño.
-    // Fuente: Pan Docs - "Memory Map", "Cartridge Types"
+    // 
+    // MBC1 Banking Control:
+    // - 0x2000-0x3FFF: Selección de banco ROM (bits 0-4, banco 0 se trata como 1)
+    // - 0x0000-0x1FFF: Habilitación/deshabilitación de RAM (ignoramos por ahora)
+    // 
+    // Fuente: Pan Docs - "MBC1", "Memory Bank Controllers"
     if (addr < 0x8000) {
         // ROM es de solo lectura: NO escribir en memory_
-        // Los logs de SENTINEL y DMA ya se registraron arriba si aplicaban,
-        // pero no modificamos la memoria para evitar corrupción.
+        
+        // --- Step 0260: MBC1 ROM BANK SELECTION ---
+        // Interceptar escrituras en 0x2000-0x3FFF para cambiar el banco ROM
+        if (addr >= 0x2000 && addr <= 0x3FFF) {
+            // Selección de banco ROM (bits 0-4 del valor escrito)
+            uint8_t bank = value & 0x1F;  // Máscara para bits 0-4
+            
+            // En MBC1, el banco 0 se trata como banco 1
+            if (bank == 0) {
+                bank = 1;
+            }
+            
+            // Validar que el banco no exceda el tamaño de la ROM
+            // Cada banco es de 16KB (0x4000 bytes)
+            size_t max_banks = rom_data_.size() / 0x4000;
+            if (max_banks > 0 && bank >= max_banks) {
+                bank = max_banks - 1;  // Limitar al último banco disponible
+            }
+            
+            current_rom_bank_ = bank;
+            
+            // Log de diagnóstico (solo primeras 10 veces para no saturar)
+            static int bank_change_counter = 0;
+            if (bank_change_counter < 10) {
+                printf("[MBC1] PC:%04X -> ROM Bank changed to %d (max: %zu)\n", 
+                       debug_current_pc, current_rom_bank_, max_banks);
+                bank_change_counter++;
+            }
+        }
+        // -----------------------------------------
+        
+        // No escribir en memoria para evitar corrupción
         return;
     }
     // -----------------------------------------
@@ -406,12 +455,25 @@ void MMU::write(uint16_t addr, uint8_t value) {
 }
 
 void MMU::load_rom(const uint8_t* data, size_t size) {
-    // Validar que los datos no excedan el tamaño de memoria
-    size_t copy_size = (size > MEMORY_SIZE) ? MEMORY_SIZE : size;
+    // --- Step 0260: MBC1 ROM BANKING ---
+    // Cargar toda la ROM en rom_data_ para soportar cartuchos grandes (>32KB).
+    // El banco 0 se carga también en memory_[0x0000-0x3FFF] para compatibilidad
+    // con código que accede directamente a memory_.
+    // 
+    // Fuente: Pan Docs - "MBC1", "Memory Bank Controllers"
     
-    // Copiar los datos ROM a memoria, empezando en 0x0000
-    // Usamos memcpy para máxima velocidad
-    std::memcpy(memory_.data(), data, copy_size);
+    // Redimensionar rom_data_ y copiar toda la ROM
+    rom_data_.resize(size);
+    std::memcpy(rom_data_.data(), data, size);
+    
+    // También copiar el banco 0 (primeros 16KB) a memory_ para compatibilidad
+    size_t bank0_size = (size > 0x4000) ? 0x4000 : size;
+    std::memcpy(memory_.data(), data, bank0_size);
+    
+    // Inicializar el banco actual a 1 (banco 0 está siempre mapeado en 0x0000-0x3FFF)
+    current_rom_bank_ = 1;
+    
+    printf("[MBC1] ROM loaded: %zu bytes (%zu banks)\n", size, size / 0x4000);
 }
 
 void MMU::setPPU(PPU* ppu) {
