@@ -32,6 +32,60 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0261: MBC Activity Monitor
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step instrumenta el código MBC1 implementado en el Step 0260 para monitorear cambios de banco ROM y detectar intentos de lectura fuera de rango. El objetivo es confirmar si el juego está seleccionando bancos de ROM correctamente y si nuestra MMU está respondiendo adecuadamente.
+
+**Objetivo:**
+- Instrumentar cambios de banco ROM para diagnosticar si el juego está seleccionando bancos correctamente.
+- Detectar intentos de lectura fuera de rango en el espacio ROM para identificar errores en el cálculo de offset.
+- Correlacionar cambios de banco con las escrituras en VRAM para determinar si los datos correctos están llegando.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/MMU.cpp` (Método `write`)**: 
+   - Modificado para comparar el banco nuevo con el banco actual antes de loguear.
+   - Solo se registra cuando hay un cambio real de banco (evita saturar logs con escrituras repetidas).
+   - Formato de log: `[MBC1] PC:XXXX -> ROM Bank Switch: N -> M`
+
+2. **Modificado `src/core/cpp/MMU.cpp` (Método `read`)**:
+   - Añadido log crítico cuando se intenta leer desde un offset que excede el tamaño de la ROM cargada.
+   - Formato de log: `[MBC1 CRITICAL] Intento de lectura fuera de ROM! Offset: X, Size: Y, Bank: Z, Addr: 0xWWWW`
+
+**Concepto de Hardware:**
+**MBC1 Banking Activity**: Cuando un juego necesita acceder a datos gráficos, código o recursos almacenados en bancos ROM distintos del banco 0, primero debe seleccionar el banco correcto escribiendo en `0x2000-0x3FFF`. Si el juego intenta cambiar de banco pero el MBC no responde, el juego leerá datos incorrectos (posiblemente ceros o basura) y copiará esos datos a la VRAM, resultando en una pantalla vacía.
+
+**Diagnóstico de Integridad**: Si implementamos MBC1 pero los logs de VRAM siguen mostrando ceros, necesitamos saber:
+1. ¿El juego está intentando cambiar de banco? (Si no vemos logs de cambio, el juego puede estar fallando antes de llegar ahí).
+2. ¿La lectura desde el banco seleccionado está funcionando? (Si vemos cambios de banco pero lecturas fuera de rango, hay un error en el cálculo de offset).
+
+**Fuente:** Pan Docs - "MBC1", "Memory Bank Controllers", "Cartridge Types"
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Modificado método `write()` para loguear cambios de banco ROM solo cuando cambian (Step 0261). Modificado método `read()` para loguear intentos de lectura fuera de rango (Step 0261).
+
+**Decisiones de Diseño:**
+- **Log condicional de cambios de banco**: Solo logueamos cuando el banco realmente cambia, evitando saturar los logs con escrituras repetidas al mismo banco.
+- **Log crítico de lecturas fuera de rango**: Detecta errores en el cálculo de offset o validación de bancos que resultarían en datos inválidos.
+- **Formato de log con PC**: Los logs incluyen el Program Counter actual para correlacionar los cambios de banco con las instrucciones del juego que los provocan.
+
+**Validación:**
+- Recompilar: `.\rebuild_cpp.ps1`
+- Ejecutar: `python main.py roms/pkmn.gb` (Pokémon Red es ideal porque tiene 1024KB de ROM y necesita múltiples bancos).
+- Observar los logs:
+  - Buscar `[MBC1] PC:XXXX -> ROM Bank Switch: N -> M` - Confirma que el juego está cambiando bancos.
+  - Si ves cambios de banco (ej: `1 -> 2`, `2 -> 6`), el juego está intentando acceder a datos de diferentes bancos.
+  - Si **NO** ves cambios, el juego puede estar fallando antes de llegar a la selección de bancos, o puede estar usando un cartucho sin MBC.
+  - Buscar `[MBC1 CRITICAL]` - Indica que hay un error en el cálculo de offset o que el banco seleccionado excede el tamaño de la ROM.
+
+**Próximos Pasos:**
+- Ejecutar `python main.py roms/pkmn.gb` y observar los logs de cambio de banco.
+- Si vemos cambios de banco, verificar que los datos leídos desde esos bancos sean correctos (no ceros).
+- Si no vemos cambios de banco, investigar por qué el juego no llega a la selección de bancos.
+- Si vemos logs críticos de lecturas fuera de rango, corregir el cálculo de offset o la validación de bancos.
+
+---
+
 ### 2025-12-23 - Step 0260: MBC1 ROM Banking
 **Estado**: ✅ IMPLEMENTADO
 

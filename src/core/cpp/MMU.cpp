@@ -283,10 +283,14 @@ uint8_t MMU::read(uint16_t addr) const {
             size_t bank_offset = static_cast<size_t>(current_rom_bank_) * 0x4000;
             size_t rom_addr = bank_offset + (addr - 0x4000);
             
-            if (rom_addr < rom_data_.size()) {
-                return rom_data_[rom_addr];
+            // --- Step 0261: Log de seguridad para lecturas fuera de rango ---
+            if (rom_addr >= rom_data_.size()) {
+                printf("[MBC1 CRITICAL] Intento de lectura fuera de ROM! Offset: %zu, Size: %zu, Bank: %d, Addr: 0x%04X\n", 
+                       rom_addr, rom_data_.size(), current_rom_bank_, addr);
+                return 0xFF;
             }
-            return 0x00;  // Fuera de rango
+            
+            return rom_data_[rom_addr];
         }
     }
     
@@ -417,31 +421,32 @@ void MMU::write(uint16_t addr, uint8_t value) {
         
         // --- Step 0260: MBC1 ROM BANK SELECTION ---
         // Interceptar escrituras en 0x2000-0x3FFF para cambiar el banco ROM
+        // --- Step 0261: MBC ACTIVITY MONITOR ---
+        // Instrumentar cambios de banco ROM para diagnosticar si el juego está
+        // seleccionando bancos correctamente. Solo logueamos cuando el banco cambia.
         if (addr >= 0x2000 && addr <= 0x3FFF) {
             // Selección de banco ROM (bits 0-4 del valor escrito)
-            uint8_t bank = value & 0x1F;  // Máscara para bits 0-4
+            uint8_t new_bank = value & 0x1F;  // Máscara para bits 0-4
             
             // En MBC1, el banco 0 se trata como banco 1
-            if (bank == 0) {
-                bank = 1;
+            if (new_bank == 0) {
+                new_bank = 1;
             }
             
             // Validar que el banco no exceda el tamaño de la ROM
             // Cada banco es de 16KB (0x4000 bytes)
             size_t max_banks = rom_data_.size() / 0x4000;
-            if (max_banks > 0 && bank >= max_banks) {
-                bank = max_banks - 1;  // Limitar al último banco disponible
+            if (max_banks > 0 && new_bank >= max_banks) {
+                new_bank = max_banks - 1;  // Limitar al último banco disponible
             }
             
-            current_rom_bank_ = bank;
-            
-            // Log de diagnóstico (solo primeras 10 veces para no saturar)
-            static int bank_change_counter = 0;
-            if (bank_change_counter < 10) {
-                printf("[MBC1] PC:%04X -> ROM Bank changed to %d (max: %zu)\n", 
-                       debug_current_pc, current_rom_bank_, max_banks);
-                bank_change_counter++;
+            // --- Step 0261: Log solo si el banco cambia para no saturar ---
+            if (new_bank != current_rom_bank_) {
+                printf("[MBC1] PC:%04X -> ROM Bank Switch: %d -> %d\n", 
+                       debug_current_pc, current_rom_bank_, new_bank);
             }
+            
+            current_rom_bank_ = new_bank;
         }
         // -----------------------------------------
         

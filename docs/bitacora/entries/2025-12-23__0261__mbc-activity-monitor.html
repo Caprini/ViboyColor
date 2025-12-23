@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MBC Activity Monitor - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>MBC Activity Monitor</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0261
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0260__mbc1-rom-banking.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step instrumenta el código MBC1 implementado en el Step 0260 para monitorear cambios de banco ROM y detectar intentos de lectura fuera de rango. El objetivo es confirmar si el juego está seleccionando bancos de ROM correctamente y si nuestra MMU está respondiendo adecuadamente. Si el juego intenta cambiar de banco pero no vemos logs, significa que hay un problema en la lógica de detección. Si vemos cambios de banco pero la VRAM sigue vacía, el problema está en la lectura de datos desde los bancos correctos.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>MBC1 (Memory Bank Controller 1)</strong> es un chip presente en cartuchos grandes (>32KB) que permite al juego cambiar dinámicamente qué banco de ROM aparece en el espacio de memoria `0x4000-0x7FFF`. El juego selecciona el banco escribiendo un valor en el rango `0x2000-0x3FFF` (que normalmente es ROM de solo lectura, pero el MBC intercepta estas escrituras).
+                </p>
+                <p>
+                    Cuando un juego necesita acceder a datos gráficos, código o recursos almacenados en bancos ROM distintos del banco 0, primero debe seleccionar el banco correcto escribiendo en `0x2000-0x3FFF`, y luego leer desde `0x4000-0x7FFF`. Si el juego intenta cambiar de banco pero el MBC no responde, el juego leerá datos incorrectos (posiblemente ceros o basura) y copiará esos datos a la VRAM, resultando en una pantalla vacía.
+                </p>
+                <p>
+                    <strong>Diagnóstico de Integridad:</strong> Si implementamos MBC1 pero los logs de VRAM siguen mostrando ceros, necesitamos saber:
+                    1. ¿El juego está intentando cambiar de banco? (Si no vemos logs de cambio, el juego puede estar fallando antes de llegar ahí).
+                    2. ¿La lectura desde el banco seleccionado está funcionando? (Si vemos cambios de banco pero lecturas fuera de rango, hay un error en el cálculo de offset).
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "MBC1", "Memory Bank Controllers", "Cartridge Types"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó el método `write()` de `MMU.cpp` para registrar cambios de banco ROM solo cuando el banco realmente cambia (evitando saturar los logs con escrituras repetidas al mismo banco). También se añadió un log de seguridad en el método `read()` para detectar intentos de lectura fuera del rango válido de la ROM.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>MMU::write()</strong>: Modificado para comparar el banco nuevo con el banco actual antes de loguear. Solo se registra cuando hay un cambio real.</li>
+                    <li><strong>MMU::read()</strong>: Añadido log crítico cuando se intenta leer desde un offset que excede el tamaño de la ROM cargada.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Log condicional de cambios de banco:</strong> En lugar de loguear cada escritura en `0x2000-0x3FFF`, solo logueamos cuando el banco realmente cambia. Esto evita saturar los logs con escrituras repetidas al mismo banco (algunos juegos escriben el mismo valor múltiples veces por seguridad).
+                </p>
+                <p>
+                    <strong>Log crítico de lecturas fuera de rango:</strong> Si el cálculo de offset es incorrecto o el banco seleccionado excede el tamaño de la ROM, el juego leerá datos inválidos. Este log nos permite detectar estos casos y corregir la lógica de cálculo de offset o validación de bancos.
+                </p>
+                <p>
+                    <strong>Formato de log:</strong> Los logs incluyen el Program Counter (PC) actual para correlacionar los cambios de banco con las instrucciones del juego que los provocan. Esto facilita el debugging si hay problemas de sincronización.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Modificado método <code>write()</code> para loguear cambios de banco ROM solo cuando cambian (Step 0261). Modificado método <code>read()</code> para loguear intentos de lectura fuera de rango (Step 0261).</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para validar esta instrumentación:
+                </p>
+                <ol>
+                    <li><strong>Recompilar:</strong> <code>.\rebuild_cpp.ps1</code></li>
+                    <li><strong>Ejecutar:</strong> <code>python main.py roms/pkmn.gb</code> (Pokémon Red es ideal porque tiene 1024KB de ROM y necesita múltiples bancos).</li>
+                    <li><strong>Observar los logs:</strong>
+                        <ul>
+                            <li>Buscar <code>[MBC1] PC:XXXX -> ROM Bank Switch: N -> M</code> - Confirma que el juego está cambiando bancos.</li>
+                            <li>Si ves cambios de banco (ej: <code>1 -> 2</code>, <code>2 -> 6</code>), el juego está intentando acceder a datos de diferentes bancos.</li>
+                            <li>Si <strong>NO</strong> ves cambios, el juego puede estar fallando antes de llegar a la selección de bancos, o puede estar usando un cartucho sin MBC.</li>
+                            <li>Buscar <code>[MBC1 CRITICAL]</code> - Indica que hay un error en el cálculo de offset o que el banco seleccionado excede el tamaño de la ROM.</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Validación esperada:</strong> Si MBC1 funciona correctamente, deberías ver múltiples cambios de banco durante la inicialización del juego, especialmente cuando el juego carga gráficos desde diferentes bancos ROM.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/MBC1.html">MBC1</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/MBCs.html">Memory Bank Controllers</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/The_Cartridge_Header.html#0147---cartridge-type">Cartridge Types</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>MBC1 Banking:</strong> El juego selecciona bancos escribiendo en `0x2000-0x3FFF`, pero el MBC intercepta estas escrituras y no modifican la ROM (que es de solo lectura). El banco seleccionado aparece en `0x4000-0x7FFF`.</li>
+                        <li><strong>Diagnóstico de actividad:</strong> Si el juego no cambia de banco, puede estar fallando antes de llegar a la selección de bancos, o puede estar usando un cartucho sin MBC. Si cambia de banco pero la VRAM sigue vacía, el problema está en la lectura de datos desde los bancos correctos.</li>
+                        <li><strong>Validación de offset:</strong> El cálculo de offset `(banco * 0x4000) + (addr - 0x4000)` debe validarse para evitar lecturas fuera de rango que resulten en datos inválidos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Actividad del juego:</strong> ¿El juego está realmente intentando cambiar de banco? Los logs nos dirán si vemos cambios de banco o si el juego nunca llega a esa parte del código.</li>
+                        <li><strong>Integridad de lectura:</strong> ¿Las lecturas desde los bancos seleccionados están funcionando correctamente? El log crítico nos dirá si hay errores en el cálculo de offset.</li>
+                        <li><strong>Correlación con VRAM:</strong> Si vemos cambios de banco pero la VRAM sigue vacía, necesitamos verificar si el juego está leyendo los datos correctos desde los bancos seleccionados.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> Si implementamos MBC1 en el Step 0260 pero los logs de VRAM siguen mostrando ceros, es posible que:
+                        1. El juego no esté cambiando de banco (falla antes de llegar ahí).
+                        2. El juego esté cambiando de banco pero leyendo datos incorrectos (error en el cálculo de offset).
+                        3. El juego esté leyendo datos correctos pero no copiándolos a la VRAM (problema en la lógica de copia de datos).
+                    </p>
+                    <p>
+                        Esta instrumentación nos permitirá distinguir entre estos casos y determinar dónde está el problema real.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar <code>python main.py roms/pkmn.gb</code> y observar los logs de cambio de banco.</li>
+                    <li>[ ] Si vemos cambios de banco, verificar que los datos leídos desde esos bancos sean correctos (no ceros).</li>
+                    <li>[ ] Si no vemos cambios de banco, investigar por qué el juego no llega a la selección de bancos.</li>
+                    <li>[ ] Si vemos logs críticos de lecturas fuera de rango, corregir el cálculo de offset o la validación de bancos.</li>
+                    <li>[ ] Correlacionar los cambios de banco con las escrituras en VRAM para determinar si los datos correctos están llegando a la VRAM.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

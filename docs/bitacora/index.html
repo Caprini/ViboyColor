@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0261 - MBC Activity Monitor -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0261</span>
+                        <a href="entries/2025-12-23__0261__mbc-activity-monitor.html" class="title">MBC Activity Monitor</a>
+                        <p class="summary">Este Step instrumenta el código MBC1 implementado en el Step 0260 para monitorear cambios de banco ROM y detectar intentos de lectura fuera de rango. El objetivo es confirmar si el juego está seleccionando bancos de ROM correctamente y si nuestra MMU está respondiendo adecuadamente. Si el juego intenta cambiar de banco pero no vemos logs, significa que hay un problema en la lógica de detección. Si vemos cambios de banco pero la VRAM sigue vacía, el problema está en la lectura de datos desde los bancos correctos.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0260 - MBC1 ROM Banking -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>
