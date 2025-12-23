@@ -3,9 +3,6 @@
 #include "Registers.hpp"
 #include "PPU.hpp"
 #include "Timer.hpp"
-// Step 0243: Eliminado #include <cstdio> - Operación Silencio
-// Step 0248: Re-añadido temporalmente para EI Watchdog
-#include <cstdio>
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
@@ -1486,8 +1483,6 @@ int CPU::step() {
             // Esta instrucción se usa típicamente al inicio de rutinas críticas
             // Fuente: Pan Docs - DI: 1 M-Cycle
             {
-                // --- Step 0252: DI TRACE ---
-                printf("[DI] ¡Interrupciones Deshabilitadas en PC:%04X!\n", regs_->pc);
                 ime_ = false;
                 ime_scheduled_ = false;  // Cancelar cualquier EI pendiente
                 cycles_ += 1;  // DI consume 1 M-Cycle
@@ -1501,10 +1496,6 @@ int CPU::step() {
             // Esto permite que la instrucción siguiente a EI se ejecute sin interrupciones
             // Fuente: Pan Docs - EI: 1 M-Cycle
             {
-                // --- Step 0248: EI WATCHDOG ---
-                // Instrumentación temporal para detectar si el juego intenta habilitar interrupciones
-                printf("[EI] ¡Interrupciones Habilitadas en PC:%04X!\n", regs_->pc);
-                
                 ime_scheduled_ = true;  // Activar IME después de la siguiente instrucción
                 cycles_ += 1;  // EI consume 1 M-Cycle
                 return 1;
@@ -1613,9 +1604,6 @@ uint8_t CPU::handle_interrupts() {
     
     // Si IME está activo y hay interrupciones pendientes, procesar la de mayor prioridad
     if (ime_ && pending != 0) {
-        // --- Step 0252: ISR TRACE ---
-        printf("[INT] ¡Interrupcion disparada! Tipo: %02X. Saltando a Vector. (IME desactivado)\n", pending);
-        
         // Desactivar IME inmediatamente (evita interrupciones anidadas)
         ime_ = false;
         

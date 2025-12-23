@@ -3,7 +3,6 @@
 #include "Timer.hpp"
 #include "Joypad.hpp"
 #include <cstring>
-#include <cstdio>
 
 // --- Step 0206: Datos del Logo Personalizado "Viboy Color" en Formato Tile (2bpp) ---
 // Convertido desde la imagen 'viboy_logo_48x8_debug.png' (48x8px) a formato de Tile (2bpp).
@@ -281,38 +280,16 @@ void MMU::write(uint16_t addr, uint8_t value) {
     // Enmascarar el valor a 8 bits
     value &= 0xFF;
     
-    // --- Step 0247: MEMORY TIMELINE & PC TRACKER ---
-    // El Step 0246 confirmó que el juego limpia la WRAM a ceros, pero necesitamos entender
-    // la secuencia temporal completa: ¿En qué orden ocurren las operaciones y quién las ejecuta?
-    // Este logger combina el tracking del PC con las escrituras clave para reconstruir la historia.
-    // Fuente: Pan Docs - "Memory Map", "DMA", "HRAM"
-    
-    // Caso A: Escritura en WRAM (0xC000-0xDFFF) - Solo las primeras 200 para ver la limpieza
-    static int wram_log_count = 0;
-    if (addr >= 0xC000 && addr <= 0xDFFF && wram_log_count < 200) {
-        printf("[TIME] PC:%04X -> Write WRAM [%04X] = %02X\n", debug_current_pc, addr, value);
-        wram_log_count++;
-    }
-
-    // Caso B: Escritura de 0xFD en cualquier sitio (El Marcador)
-    if (value == 0xFD) {
-        printf("[TIME] PC:%04X -> Write SENTINEL [%04X] = FD\n", debug_current_pc, addr);
-    }
-
-    // Caso C: Escritura en DMA (El Transportista)
+    // --- Step 0251: IMPLEMENTACIÓN DMA (OAM TRANSFER) ---
+    // Cuando se escribe un valor XX en 0xFF46, se inicia una transferencia DMA
+    // que copia 160 bytes desde la dirección XX00 hasta OAM (0xFE00-0xFE9F)
+    // Fuente: Pan Docs - "DMA Transfer"
+    // 
+    // En hardware real, la transferencia tarda ~160 microsegundos (640 ciclos),
+    // pero para simplificar implementamos una copia instantánea.
+    // Durante la transferencia real, la CPU solo puede acceder a HRAM (0xFF80-0xFFFE),
+    // pero por ahora ignoramos esta restricción.
     if (addr == 0xFF46) {
-        printf("[TIME] PC:%04X -> Write DMA [%04X] = %02X\n", debug_current_pc, addr, value);
-        
-        // --- Step 0251: IMPLEMENTACIÓN DMA (OAM TRANSFER) ---
-        // Cuando se escribe un valor XX en 0xFF46, se inicia una transferencia DMA
-        // que copia 160 bytes desde la dirección XX00 hasta OAM (0xFE00-0xFE9F)
-        // Fuente: Pan Docs - "DMA Transfer"
-        // 
-        // En hardware real, la transferencia tarda ~160 microsegundos (640 ciclos),
-        // pero para simplificar implementamos una copia instantánea.
-        // Durante la transferencia real, la CPU solo puede acceder a HRAM (0xFF80-0xFFFE),
-        // pero por ahora ignoramos esta restricción.
-        
         // 1. Calcular dirección origen: value * 0x100 (ej: 0xC0 -> 0xC000)
         uint16_t source_base = static_cast<uint16_t>(value) << 8;
         
@@ -327,9 +304,6 @@ void MMU::write(uint16_t addr, uint8_t value) {
                 memory_[0xFE00 + i] = data;
             }
         }
-        
-        // Log de confirmación
-        printf("[DMA] Transferencia completada: %04X -> FE00 (160 bytes)\n", source_base);
     }
     // -----------------------------------------
     

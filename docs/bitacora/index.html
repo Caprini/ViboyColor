@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0253 - Silencio Total (Release Candidate) -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0253</span>
+                        <a href="entries/2025-12-23__0253__silent-run-release-candidate.html" class="title">Silencio Total (Release Candidate)</a>
+                        <p class="summary">Este Step elimina toda la instrumentación de depuración (`printf`) de `MMU.cpp` y `CPU.cpp` para permitir que el emulador corra a velocidad real (60 FPS). El Step 0252 confirmó que la lógica funcional (protección de ROM, DMA, interrupciones) está correcta, pero los miles de logs estaban ralentizando masivamente la ejecución, impidiendo ver el resultado final en pantalla. Esta es la limpieza final antes del "momento de la verdad": ejecutar Tetris a velocidad nativa.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0252 - ROM Protection & Interrupt Trace -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>

@@ -32,6 +32,49 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0253: Silencio Total (Release Candidate)
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step elimina **toda** la instrumentación de depuración (`printf`) de `MMU.cpp` y `CPU.cpp` para permitir que el emulador corra a velocidad real (60 FPS). El Step 0252 confirmó que la lógica funcional (protección de ROM, DMA, interrupciones) está correcta, pero los miles de logs estaban ralentizando masivamente la ejecución, impidiendo ver el resultado final en pantalla. Esta es la limpieza final antes del "momento de la verdad": ejecutar Tetris a velocidad nativa.
+
+**Objetivo:**
+- Eliminar todos los `printf()` activos del bucle crítico de emulación.
+- Permitir que el emulador ejecute a 60 FPS reales sin overhead de I/O.
+- Verificar que Tetris arranca correctamente cuando el emulador corre a velocidad nativa.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/MMU.cpp`**: Eliminados todos los `printf()` activos:
+   - Eliminados logs de `[TIME]`, `[SENTINEL]`, `[DMA]`, `[WRAM-WRITE]`, `[HRAM]`.
+   - Eliminada variable estática `wram_log_count`.
+   - Eliminado `#include <cstdio>`.
+   - Se mantiene la lógica funcional: protección de ROM, DMA, registros de hardware.
+2. **Modificado `src/core/cpp/CPU.cpp`**: Eliminados todos los `printf()` activos:
+   - Eliminados logs de `[DI]`, `[EI]`, `[INT]`, `[SNIPER]`.
+   - Eliminado `#include <cstdio>`.
+   - Se mantiene la lógica funcional: procesamiento de interrupciones, instrucciones, flags.
+
+**Concepto de Hardware:**
+**Overhead de I/O**: Las operaciones de I/O (`printf`, `std::cout`) son órdenes de magnitud más lentas que las operaciones aritméticas o de memoria. En un bucle crítico que ejecuta millones de iteraciones por segundo, incluso un solo `printf()` puede reducir el rendimiento de 60 FPS a menos de 1 FPS. Para la CPU emulada, el tiempo pasa normal, pero para el usuario, el juego parece congelado.
+
+**Zero-Cost Abstractions**: En el bucle crítico de emulación, cada operación debe ser lo más eficiente posible. Las abstracciones de alto nivel (como logging) deben eliminarse o moverse fuera del bucle crítico. El código C++ compilado debe ejecutarse sin overhead de I/O en el camino crítico.
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Eliminados todos los `printf()` activos y `#include <cstdio>`.
+- `src/core/cpp/CPU.cpp` - Eliminados todos los `printf()` activos y `#include <cstdio>`.
+
+**Decisiones de Diseño:**
+- **Eliminación Total de Logs**: En lugar de usar flags de compilación condicionales (`#ifdef DEBUG`), se eliminaron todos los logs activos. Esto simplifica el código y garantiza que no haya overhead en builds de release.
+- **Preservación de Comentarios**: Los logs comentados se mantienen en el código para referencia futura. Esto permite reactivar la instrumentación rápidamente si es necesario.
+- **Lógica Funcional Preservada**: Se mantiene intacta toda la lógica funcional crítica: protección de ROM, DMA, interrupciones, registros de hardware.
+
+**Próximos Pasos:**
+- Ejecutar `python main.py roms/tetris.gb` y verificar que el emulador corre a 60 FPS reales.
+- Confirmar que Tetris arranca y muestra el copyright o el menú principal.
+- Si el juego arranca correctamente, celebrar el hito y documentar el éxito.
+- Si la pantalla sigue verde, reactivar el logging selectivo (solo GPS de Python) para diagnóstico.
+
+---
+
 ### 2025-12-23 - Step 0252: ROM Protection & Interrupt Trace
 **Estado**: ✅ IMPLEMENTADO
 
