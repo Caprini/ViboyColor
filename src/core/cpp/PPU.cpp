@@ -109,6 +109,9 @@ void PPU::step(int cpu_cycles) {
         // Esto asegura que se detecte el rising edge de H-Blank (Mode 0)
         check_stat_interrupt();
         
+        // Guardar el estado anterior de LYC match para detectar rising edge
+        bool old_lyc_match = ((ly_ & 0xFF) == (lyc_ & 0xFF));
+        
         // Avanzar a la siguiente línea
         ly_ += 1;
         
@@ -116,10 +119,45 @@ void PPU::step(int cpu_cycles) {
         // Se actualizará automáticamente en la siguiente llamada a update_mode()
         mode_ = MODE_2_OAM_SEARCH;
         
+        // --- Step 0265: LYC COINCIDENCE RISING EDGE DETECTION ---
+        // CRÍTICO: Verificar interrupción LYC inmediatamente después de cambiar LY
+        // Esto asegura que detectamos el rising edge cuando LY pasa de no coincidir
+        // con LYC a coincidir con LYC. El rising edge es crítico para juegos que
+        // sincronizan efectos visuales con la posición del haz de electrones.
+        //
+        // Ejemplo: Si LYC=10, LY=9 -> LY=10, necesitamos detectar el rising edge
+        // cuando LY pasa a 10, no cuando LY ya es 10 y verificamos más tarde.
+        bool new_lyc_match = ((ly_ & 0xFF) == (lyc_ & 0xFF));
+        
+        // Si LYC match cambió de false a true (rising edge), verificar interrupción
+        // inmediatamente, pero solo para la condición LYC (no para modos PPU)
+        if (!old_lyc_match && new_lyc_match) {
+            // Leer STAT para obtener bits configurables
+            uint8_t stat_full = mmu_->read(IO_STAT);
+            uint8_t stat_configurable = stat_full & 0xF8;
+            
+            // Si el bit 6 (LYC Int Enable) está activo, solicitar interrupción
+            if ((stat_configurable & 0x40) != 0) {
+                mmu_->request_interrupt(1);  // Bit 1 = LCD STAT Interrupt
+            }
+        }
+        
         // CRÍTICO: Cuando LY cambia, reiniciar los flags de interrupción y renderizado
         // Esto permite que se dispare una nueva interrupción y renderizado si las condiciones
-        // se cumplen en la nueva línea
-        stat_interrupt_line_ = 0;
+        // se cumplen en la nueva línea. Sin embargo, para LYC, preservamos el estado si
+        // la coincidencia sigue activa para evitar disparar múltiples veces.
+        //
+        // Si LYC match está activo, preservar el bit 0 en stat_interrupt_line_
+        // Si LYC match está inactivo, limpiar el bit 0
+        if (new_lyc_match) {
+            stat_interrupt_line_ |= 0x01;  // Preservar bit 0 si LYC match está activo
+        } else {
+            stat_interrupt_line_ &= ~0x01;  // Limpiar bit 0 si LYC match está inactivo
+        }
+        
+        // Limpiar bits de modo (1-3) porque el modo cambió
+        stat_interrupt_line_ &= 0x01;  // Solo preservar bit 0 (LYC), limpiar resto
+        
         scanline_rendered_ = false;
         
         // Si llegamos a V-Blank (línea 144), solicitar interrupción y marcar frame listo

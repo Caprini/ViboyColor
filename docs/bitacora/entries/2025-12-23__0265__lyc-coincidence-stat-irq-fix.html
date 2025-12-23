@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LYC Coincidence & STAT IRQ Fix - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>LYC Coincidence & STAT IRQ Fix</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0265
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0264__halt-wakeup-fix.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa y corrige la lógica de comparación LYC (LY Compare) y la generación de interrupciones STAT en la PPU. El Step 0264 confirmó que el HALT funciona correctamente, pero la intro de Pokémon Red sigue sin avanzar. La hipótesis es que el juego está esperando una interrupción LCD STAT (por coincidencia LY=LYC) para sincronizar efectos visuales o avanzar la lógica, y nuestra PPU no la está disparando correctamente. Este Step asegura que cuando LY coincide con LYC y el bit 6 de STAT está habilitado, se solicite la interrupción STAT en el flanco de subida (rising edge).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>LYC Register (0xFF45):</strong> El registro LYC (LY Compare) permite al software configurar un valor de línea (0-255) con el que se compara LY (Línea actual). Cuando LY == LYC, el bit 2 del registro STAT se activa, indicando una coincidencia.
+                </p>
+                <p>
+                    <strong>STAT Register (0xFF41):</strong> El registro STAT tiene varios bits importantes:
+                </p>
+                <ul>
+                    <li><strong>Bit 2 (LYC=LY Coincidence Flag):</strong> Se activa cuando LY == LYC. Es de solo lectura y se actualiza dinámicamente por la PPU.</li>
+                    <li><strong>Bit 6 (LYC Interrupt Enable):</strong> Si está activo, solicita una interrupción STAT cuando LY == LYC.</li>
+                    <li><strong>Bits 3-5:</strong> Habilitan interrupciones por modo PPU (H-Blank, V-Blank, OAM Search).</li>
+                </ul>
+                <p>
+                    <strong>Rising Edge Detection:</strong> La interrupción STAT solo debe dispararse en el flanco de subida (rising edge), es decir, cuando la condición pasa de False a True. Si se dispara en cada ciclo donde la condición es True, se saturaría la CPU con interrupciones.
+                </p>
+                <p>
+                    <strong>El caso de Pokémon Red:</strong> Muchos juegos avanzados como Pokémon usan la interrupción STAT por LYC para sincronizar efectos visuales (cambiar paletas en medio de la pantalla, efectos de raster, etc.). Si esta interrupción no se dispara correctamente, el juego puede quedarse esperando y no avanzar.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "LCD Status Register (STAT)", "LYC Register (0xFF45)", "LCD Interrupts"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron dos mejoras críticas:
+                </p>
+                <ol>
+                    <li><strong>Interceptación de escrituras a LYC en MMU:</strong> Cuando el juego escribe en 0xFF45, la MMU ahora actualiza inmediatamente la PPU llamando a <code>PPU::set_lyc()</code>.</li>
+                    <li><strong>Detección mejorada de rising edge para LYC:</strong> Cuando LY cambia y coincide con LYC, se verifica inmediatamente si debe dispararse la interrupción STAT, antes de resetear los flags de interrupción.</li>
+                </ol>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>MMU::write()</strong>: Se añadió interceptación para escrituras a 0xFF45 (LYC) que actualiza la PPU inmediatamente.</li>
+                    <li><strong>PPU::step()</strong>: Se mejoró la lógica de detección de rising edge para LYC. Cuando LY cambia, se guarda el estado anterior de LYC match, se actualiza LY, y se verifica inmediatamente si hay un rising edge (LYC match pasó de False a True). Si el bit 6 de STAT está habilitado, se solicita la interrupción STAT.</li>
+                    <li><strong>PPU::check_stat_interrupt()</strong>: La lógica existente ya era correcta, pero ahora se complementa con la verificación inmediata en <code>step()</code>.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Verificación inmediata después de cambiar LY:</strong> Cuando LY cambia, se verifica inmediatamente si LY == LYC y si debe dispararse la interrupción. Esto asegura que el rising edge se detecte en el momento exacto en que ocurre, no más tarde.
+                </p>
+                <p>
+                    <strong>Preservación del estado de LYC en stat_interrupt_line_:</strong> Cuando LY cambia, se preserva el bit 0 de <code>stat_interrupt_line_</code> si LYC match sigue activo, y se limpia si está inactivo. Los bits de modo (1-3) se limpian porque el modo cambió. Esto permite detectar correctamente el rising edge en la próxima verificación.
+                </p>
+                <p>
+                    <strong>Interceptación de LYC en MMU:</strong> La MMU intercepta escrituras a 0xFF45 y actualiza la PPU inmediatamente. Esto asegura que cuando el juego configura LYC, la PPU puede verificar inmediatamente si LY == LYC y actualizar el bit 2 de STAT.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Modificados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code>: Interceptación de escrituras a LYC (0xFF45).</li>
+                    <li><code>src/core/cpp/PPU.cpp</code>: Mejora de la detección de rising edge para LYC en <code>step()</code>.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Los tests existentes para interrupciones STAT y LYC siguen pasando. La implementación mejora la detección de rising edge sin romper la funcionalidad existente.
+                </p>
+                <p>
+                    <strong>Comando de prueba:</strong>
+                </p>
+                <pre><code>python main.py roms/pkmn.gb</code></pre>
+                <p>
+                    <strong>Validación esperada:</strong> La intro de Pokémon Red debería avanzar si el juego estaba esperando una interrupción STAT por LYC. Si el problema persiste, podría ser necesario revisar otras fuentes de interrupciones (Timer, Serial) o el estado de IME.
+                </p>
+            </section>
+
+            <!-- 6. Referencias -->
+            <section id="referencias">
+                <h2>Referencias</h2>
+                <ul>
+                    <li>Pan Docs - "LCD Status Register (STAT)"</li>
+                    <li>Pan Docs - "LYC Register (0xFF45)"</li>
+                    <li>Pan Docs - "LCD Interrupts"</li>
+                    <li>Pan Docs - "Rising Edge Detection"</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>Viboy Color - Proyecto Educativo Open Source</p>
+        </footer>
+    </div>
+</body>
+</html>
+

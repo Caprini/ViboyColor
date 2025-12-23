@@ -32,6 +32,63 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0265: LYC Coincidence & STAT IRQ Fix
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa y corrige la lógica de comparación LYC (LY Compare) y la generación de interrupciones STAT en la PPU. El Step 0264 confirmó que el HALT funciona correctamente, pero la intro de Pokémon Red sigue sin avanzar. La hipótesis es que el juego está esperando una interrupción LCD STAT (por coincidencia LY=LYC) para sincronizar efectos visuales o avanzar la lógica, y nuestra PPU no la está disparando correctamente.
+
+**Objetivo:**
+- Interceptar escrituras a LYC (0xFF45) en MMU para actualizar la PPU inmediatamente.
+- Mejorar la detección de rising edge para interrupciones STAT por LYC.
+- Asegurar que cuando LY coincide con LYC y el bit 6 de STAT está habilitado, se solicite la interrupción STAT en el flanco de subida (rising edge).
+
+**Implementación:**
+1. **Modificado `src/core/cpp/MMU.cpp` (Método `write`)**: 
+   - Añadida interceptación para escrituras a 0xFF45 (LYC) que actualiza la PPU inmediatamente llamando a `PPU::set_lyc()`.
+   - Esto asegura que cuando el juego configura LYC, la PPU puede verificar inmediatamente si LY == LYC y actualizar el bit 2 de STAT.
+
+2. **Modificado `src/core/cpp/PPU.cpp` (Método `step`)**: 
+   - Mejorada la lógica de detección de rising edge para LYC. Cuando LY cambia, se guarda el estado anterior de LYC match, se actualiza LY, y se verifica inmediatamente si hay un rising edge (LYC match pasó de False a True).
+   - Si el bit 6 de STAT está habilitado, se solicita la interrupción STAT inmediatamente.
+   - Se preserva el estado de LYC en `stat_interrupt_line_` cuando LY cambia, permitiendo detectar correctamente el rising edge en la próxima verificación.
+
+**Concepto de Hardware:**
+**LYC Register (0xFF45)**: El registro LYC (LY Compare) permite al software configurar un valor de línea (0-255) con el que se compara LY (Línea actual). Cuando LY == LYC, el bit 2 del registro STAT se activa, indicando una coincidencia.
+
+**STAT Register (0xFF41)**: El registro STAT tiene varios bits importantes:
+- **Bit 2 (LYC=LY Coincidence Flag)**: Se activa cuando LY == LYC. Es de solo lectura y se actualiza dinámicamente por la PPU.
+- **Bit 6 (LYC Interrupt Enable)**: Si está activo, solicita una interrupción STAT cuando LY == LYC.
+- **Bits 3-5**: Habilitan interrupciones por modo PPU (H-Blank, V-Blank, OAM Search).
+
+**Rising Edge Detection**: La interrupción STAT solo debe dispararse en el flanco de subida (rising edge), es decir, cuando la condición pasa de False a True. Si se dispara en cada ciclo donde la condición es True, se saturaría la CPU con interrupciones.
+
+**El caso de Pokémon Red**: Muchos juegos avanzados como Pokémon usan la interrupción STAT por LYC para sincronizar efectos visuales (cambiar paletas en medio de la pantalla, efectos de raster, etc.). Si esta interrupción no se dispara correctamente, el juego puede quedarse esperando y no avanzar.
+
+**Fuente:** Pan Docs - "LCD Status Register (STAT)", "LYC Register (0xFF45)", "LCD Interrupts"
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.cpp` - Interceptación de escrituras a LYC (0xFF45) para actualizar la PPU (Step 0265).
+- `src/core/cpp/PPU.cpp` - Mejora de la detección de rising edge para LYC en `step()` (Step 0265).
+
+**Decisiones de Diseño:**
+- **Verificación inmediata después de cambiar LY**: Cuando LY cambia, se verifica inmediatamente si LY == LYC y si debe dispararse la interrupción. Esto asegura que el rising edge se detecte en el momento exacto en que ocurre, no más tarde.
+- **Preservación del estado de LYC en stat_interrupt_line_**: Cuando LY cambia, se preserva el bit 0 de `stat_interrupt_line_` si LYC match sigue activo, y se limpia si está inactivo. Los bits de modo (1-3) se limpian porque el modo cambió. Esto permite detectar correctamente el rising edge en la próxima verificación.
+- **Interceptación de LYC en MMU**: La MMU intercepta escrituras a 0xFF45 y actualiza la PPU inmediatamente. Esto asegura que cuando el juego configura LYC, la PPU puede verificar inmediatamente si LY == LYC y actualizar el bit 2 de STAT.
+
+**Validación:**
+- Recompilar: `.\rebuild_cpp.ps1`
+- Ejecutar: `python main.py roms/pkmn.gb`
+- Observar el comportamiento:
+  - **Si la intro avanza**: La corrección funciona correctamente. La interrupción STAT por LYC se está disparando correctamente.
+  - **Si la pantalla sigue estática**: Puede haber otro problema (posiblemente en el Timer o en otras fuentes de interrupciones).
+
+**Próximos Pasos:**
+- Ejecutar `python main.py roms/pkmn.gb` y observar si la intro avanza.
+- Si la intro avanza, confirmar que la corrección funciona correctamente.
+- Si la pantalla sigue estática, investigar otras fuentes de interrupciones (Timer, Serial) o el estado de IME.
+
+---
+
 ### 2025-12-23 - Step 0264: HALT Wakeup Fix (IME=0)
 **Estado**: ✅ IMPLEMENTADO
 

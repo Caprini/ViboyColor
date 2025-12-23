@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0265 - LYC Coincidence & STAT IRQ Fix -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0265</span>
+                        <a href="entries/2025-12-23__0265__lyc-coincidence-stat-irq-fix.html" class="title">LYC Coincidence & STAT IRQ Fix</a>
+                        <p class="summary">Este Step implementa y corrige la lógica de comparación LYC (LY Compare) y la generación de interrupciones STAT en la PPU. El Step 0264 confirmó que el HALT funciona correctamente, pero la intro de Pokémon Red sigue sin avanzar. La hipótesis es que el juego está esperando una interrupción LCD STAT (por coincidencia LY=LYC) para sincronizar efectos visuales o avanzar la lógica, y nuestra PPU no la está disparando correctamente. Este Step asegura que cuando LY coincide con LYC y el bit 6 de STAT está habilitado, se solicite la interrupción STAT en el flanco de subida (rising edge).</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0264 - HALT Wakeup Fix -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>

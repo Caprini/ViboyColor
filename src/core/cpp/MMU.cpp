@@ -425,6 +425,21 @@ void MMU::write(uint16_t addr, uint8_t value) {
         return;
     }
     
+    // --- Step 0265: LYC REGISTER INTERCEPTION ---
+    // El registro LYC (0xFF45) es controlado por la PPU.
+    // Cuando el juego escribe en LYC, debemos actualizar la PPU inmediatamente
+    // para que pueda verificar si LY == LYC y actualizar el bit 2 de STAT.
+    // Fuente: Pan Docs - LYC Register (0xFF45)
+    if (addr == 0xFF45) {
+        if (ppu_ != nullptr) {
+            ppu_->set_lyc(value);
+        }
+        // También guardar en memoria para consistencia (aunque la PPU es la fuente de verdad)
+        memory_[addr] = value & 0xFF;
+        return;
+    }
+    // -----------------------------------------
+    
     // --- Step 0260: MBC1 ROM BANKING ---
     // En hardware real, la ROM (0x0000-0x7FFF) es de solo lectura.
     // Escribir en este rango no modifica los datos de la ROM, sino que se envía
