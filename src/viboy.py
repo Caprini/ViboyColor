@@ -960,6 +960,30 @@ class Viboy:
                         
                         # Formato: [GPS] PC:XXXX | SP:XXXX | IME:X | IE:XX IF:XX | LCDC:XX LY:XX
                         print(f"[GPS] PC:{pc:04X} | SP:{sp:04X} | IME:{ime} | IE:{ie:02X} IF:{if_register:02X} | LCDC:{lcdc:02X} LY:{ly:02X}")
+                        
+                        # --- Step 0255: OAM & PALETTE INSPECTOR ---
+                        # Leer registros de Paleta
+                        bgp = self._mmu.read(0xFF47)  # Background Palette
+                        obp0 = self._mmu.read(0xFF48)  # Object Palette 0
+                        obp1 = self._mmu.read(0xFF49)  # Object Palette 1
+                        
+                        # Leer primeros 2 sprites de OAM (4 bytes cada uno)
+                        # Sprite 0: Y=FE00, X=FE01, Tile=FE02, Attr=FE03
+                        s0_y = self._mmu.read(0xFE00)
+                        s0_x = self._mmu.read(0xFE01)
+                        s0_tile = self._mmu.read(0xFE02)
+                        s0_attr = self._mmu.read(0xFE03)
+                        
+                        s1_y = self._mmu.read(0xFE04)
+                        s1_x = self._mmu.read(0xFE05)
+                        s1_tile = self._mmu.read(0xFE06)
+                        s1_attr = self._mmu.read(0xFE07)
+                        
+                        # Log extendido de Video
+                        logger.info(f"[VIDEO] BGP:{bgp:02X} OBP0:{obp0:02X} OBP1:{obp1:02X} | LCDC:{lcdc:02X}")
+                        logger.info(f"[SPRITE 0] Y:{s0_y:02X} X:{s0_x:02X} T:{s0_tile:02X} A:{s0_attr:02X}")
+                        logger.info(f"[SPRITE 1] Y:{s1_y:02X} X:{s1_x:02X} T:{s1_tile:02X} A:{s1_attr:02X}")
+                        # -------------------------------------------------
                     elif not self._use_cpp and self._cpu is not None and self._mmu is not None:
                         # Fallback para modo Python
                         pc = self._cpu.registers.get_pc()
@@ -973,6 +997,26 @@ class Viboy:
                         ly = self._ppu.ly if self._ppu is not None else self._mmu.read(0xFF44)
                         
                         print(f"[GPS] PC:{pc:04X} | SP:{sp:04X} | IME:{ime} | IE:{ie:02X} IF:{if_register:02X} | LCDC:{lcdc:02X} LY:{ly:02X}")
+                        
+                        # --- Step 0255: OAM & PALETTE INSPECTOR (Python) ---
+                        bgp = self._mmu.read(0xFF47)
+                        obp0 = self._mmu.read(0xFF48)
+                        obp1 = self._mmu.read(0xFF49)
+                        
+                        s0_y = self._mmu.read(0xFE00)
+                        s0_x = self._mmu.read(0xFE01)
+                        s0_tile = self._mmu.read(0xFE02)
+                        s0_attr = self._mmu.read(0xFE03)
+                        
+                        s1_y = self._mmu.read(0xFE04)
+                        s1_x = self._mmu.read(0xFE05)
+                        s1_tile = self._mmu.read(0xFE06)
+                        s1_attr = self._mmu.read(0xFE07)
+                        
+                        logger.info(f"[VIDEO] BGP:{bgp:02X} OBP0:{obp0:02X} OBP1:{obp1:02X} | LCDC:{lcdc:02X}")
+                        logger.info(f"[SPRITE 0] Y:{s0_y:02X} X:{s0_x:02X} T:{s0_tile:02X} A:{s0_attr:02X}")
+                        logger.info(f"[SPRITE 1] Y:{s1_y:02X} X:{s1_x:02X} T:{s1_tile:02X} A:{s1_attr:02X}")
+                        # -------------------------------------------------
                 # -------------------------------------------------
         
         except KeyboardInterrupt:

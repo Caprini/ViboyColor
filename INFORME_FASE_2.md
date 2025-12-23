@@ -32,6 +32,60 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0255: Inspector OAM y Paletas
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step extiende el monitor GPS (Step 0240) en `src/viboy.py` para incluir inspección en tiempo real de los registros de paleta (BGP, OBP0, OBP1) y los primeros sprites de la OAM (Object Attribute Memory). El objetivo es diagnosticar por qué la pantalla aparece verde/blanca cuando debería mostrar sprites, verificando si el problema está en los datos (OAM vacía o DMA no funcionando) o en el renderizado (paletas incorrectas).
+
+**Objetivo:**
+- Añadir instrumentación de diagnóstico al monitor GPS para inspeccionar OAM y paletas en tiempo real.
+- Permitir distinguir entre problemas de datos (OAM vacía) y problemas de renderizado (paletas incorrectas).
+- No modificar el núcleo C++, solo añadir herramientas de diagnóstico en Python.
+
+**Implementación:**
+1. **Modificado `src/viboy.py`**: Extendido el bloque GPS (Step 0240) con inspección de OAM y paletas:
+   - Lectura de registros de paleta: `0xFF47` (BGP), `0xFF48` (OBP0), `0xFF49` (OBP1).
+   - Lectura de Sprite 0: `0xFE00-0xFE03` (Y, X, Tile, Attributes).
+   - Lectura de Sprite 1: `0xFE04-0xFE07` (Y, X, Tile, Attributes).
+   - Logging con formato hexadecimal usando `logger.info()`.
+   - Implementado tanto para modo C++ como modo Python (fallback).
+
+**Concepto de Hardware:**
+**OAM (Object Attribute Memory)**: La OAM se encuentra en el rango `0xFE00-0xFE9F` (160 bytes = 40 sprites × 4 bytes). Cada sprite ocupa 4 bytes consecutivos:
+- **Byte 0 (Y)**: Posición vertical (0-255, pero Y=0 o Y≥160 oculta el sprite).
+- **Byte 1 (X)**: Posición horizontal (0-255, pero X=0 o X≥168 oculta el sprite).
+- **Byte 2 (Tile)**: Índice del tile en VRAM (0-255).
+- **Byte 3 (Attributes)**: Atributos (paleta, flip X/Y, prioridad, etc.).
+
+**Palette Registers**: Los registros de paleta controlan cómo se traducen los colores de los tiles:
+- **BGP (0xFF47)**: Paleta del Background (4 colores: 00, 01, 10, 11).
+- **OBP0 (0xFF48)**: Paleta de Sprites (canal 0, colores 1-3; color 0 es transparente).
+- **OBP1 (0xFF49)**: Paleta de Sprites (canal 1, colores 1-3; color 0 es transparente).
+
+**Problema Crítico**: Si `OBP0` o `OBP1` están en `0x00` o `0xFF` (todos blancos o todos transparentes), los sprites serán invisibles incluso si están correctamente renderizados. Si la OAM está vacía (todos ceros), la DMA no está funcionando o el juego no ha inicializado los sprites aún.
+
+**Fuente:** Pan Docs - OAM (Object Attribute Memory), Sprite Attributes, Palette Registers
+
+**Archivos Afectados:**
+- `src/viboy.py` - Extendido el monitor GPS con inspección de OAM y paletas (Step 0255).
+
+**Decisiones de Diseño:**
+- **Instrumentación en Python**: Se eligió añadir la instrumentación en Python en lugar de C++ para evitar impactar el rendimiento del núcleo y facilitar el debugging.
+- **Frecuencia de Reporte**: Se mantiene la frecuencia del GPS (cada 60 frames = 1 segundo) para no saturar los logs.
+- **Formato de Log**: Se usa formato hexadecimal con prefijos `[VIDEO]` y `[SPRITE]` para facilitar el filtrado y análisis.
+
+**Escenarios de Diagnóstico:**
+- **OAM vacía (Y:00 X:00 T:00)**: La DMA no está copiando datos o la memoria se borra.
+- **OAM con datos válidos (Y:10 X:08 T:5A)**: Los sprites están presentes. Si no se ven, el problema está en el renderizado C++ o en las paletas.
+- **Paletas en 0x00 o 0xFF**: Los sprites serán invisibles (blancos o transparentes).
+
+**Próximos Pasos:**
+- Ejecutar `python main.py roms/pkmn.gb` (o cualquier ROM con sprites) y observar los logs `[VIDEO]` y `[SPRITE]`.
+- Analizar los valores reportados para determinar si el problema es de datos (OAM vacía) o renderizado (paletas incorrectas).
+- Si OAM está vacía: Investigar la DMA y verificar que se ejecuta frecuentemente.
+- Si OAM tiene datos pero sprites invisibles: Verificar el renderizado C++ y el mapeo de paletas.
+- Corregir el problema identificado y validar que los sprites se muestran correctamente.
+
 ### 2025-12-23 - Step 0254: PPU Fase E - Renderizado de Sprites
 **Estado**: ✅ IMPLEMENTADO
 
