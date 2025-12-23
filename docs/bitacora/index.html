@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0257 - Hardware Palette Bypass (C++) -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0257</span>
+                        <a href="entries/2025-12-23__0257__hardware-palette-bypass.html" class="title">Hardware Palette Bypass (C++)</a>
+                        <p class="summary">Este Step modifica `src/core/cpp/PPU.cpp` para forzar valores estándar de paleta (`0xE4`) directamente en el motor de renderizado de C++, ignorando completamente los registros de paleta de la MMU (BGP, OBP0, OBP1). El objetivo es garantizar que los índices de color (0-3) generados desde la VRAM se preserven en el framebuffer, independientemente del estado de los registros de paleta en la MMU. Si la pantalla sigue verde después del Step 0256 (paleta de debug en Python), significa que el framebuffer de C++ está lleno de ceros. Esto puede ocurrir si la PPU está aplicando una paleta con valor `0x00` que convierte todos los píxeles (incluso los negros) en índice `0` antes de escribirlos en el framebuffer.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0256 - Paleta de Debug (High Contrast) -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>

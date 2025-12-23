@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0257: Hardware Palette Bypass (C++) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Step 0257: Hardware Palette Bypass (C++)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0257
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0256__debug-palette-high-contrast.html">Anterior (0256)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step modifica `src/core/cpp/PPU.cpp` para forzar valores estándar de paleta (`0xE4`) directamente en el motor de renderizado de C++, ignorando completamente los registros de paleta de la MMU (BGP, OBP0, OBP1). El objetivo es garantizar que los índices de color (0-3) generados desde la VRAM se preserven en el framebuffer, independientemente del estado de los registros de paleta en la MMU.
+                </p>
+                <p>
+                    Si la pantalla sigue verde después del Step 0256 (paleta de debug en Python), significa que el framebuffer de C++ está lleno de ceros. Esto puede ocurrir si la PPU está aplicando una paleta con valor `0x00` que convierte todos los píxeles (incluso los negros) en índice `0` antes de escribirlos en el framebuffer. Al forzar `0xE4` (mapeo identidad: 3→3, 2→2, 1→1, 0→0), garantizamos que los datos visuales de la VRAM se preserven en el framebuffer.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, la PPU (Pixel Processing Unit) genera índices de color (0-3) desde los datos de los tiles almacenados en VRAM. Estos índices pasan por los registros de paleta (BGP para fondo, OBP0/OBP1 para sprites) antes de escribirse en el framebuffer interno de la PPU.
+                </p>
+                <p>
+                    <strong>Registro BGP (0xFF47):</strong> Paleta del Background. Cada par de bits (0-1, 2-3, 4-5, 6-7) mapea un índice de color crudo (0-3) a un índice final (0-3). El valor estándar es `0xE4` (11100100 en binario), que implementa un mapeo identidad:
+                </p>
+                <ul>
+                    <li>Bits 0-1 (00): Índice 0 → Color 0</li>
+                    <li>Bits 2-3 (01): Índice 1 → Color 1</li>
+                    <li>Bits 4-5 (10): Índice 2 → Color 2</li>
+                    <li>Bits 6-7 (11): Índice 3 → Color 3</li>
+                </ul>
+                <p>
+                    <strong>Problema Crítico:</strong> Si BGP está en `0x00` (00000000), todos los índices se mapean al color 0:
+                </p>
+                <ul>
+                    <li>Índice 0 → Color 0 (blanco)</li>
+                    <li>Índice 1 → Color 0 (blanco)</li>
+                    <li>Índice 2 → Color 0 (blanco)</li>
+                    <li>Índice 3 → Color 0 (blanco)</li>
+                </ul>
+                <p>
+                    Esto significa que incluso si la VRAM contiene datos válidos (tiles con píxeles negros, índice 3), la PPU los convierte a índice 0 antes de escribirlos en el framebuffer. Cuando Python lee el framebuffer, solo ve ceros, y la paleta de debug de Python (Step 0256) mapea el índice 0 a verde/blanco.
+                </p>
+                <p>
+                    <strong>Solución de Bypass:</strong> Al forzar `BGP = 0xE4` directamente en el código C++ de la PPU, ignoramos cualquier valor erróneo que pueda estar en la MMU y garantizamos que los índices de color se preserven. Si después de este bypass vemos formas negras/grises en la pantalla, confirmamos que:
+                </p>
+                <ol>
+                    <li>La VRAM contiene datos válidos (tiles cargados correctamente).</li>
+                    <li>La PPU está leyendo y decodificando los tiles correctamente.</li>
+                    <li>El problema estaba en los registros de paleta (BGP/OBP) en la MMU.</li>
+                </ol>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Palette Registers (BGP, OBP0, OBP1), Background Palette Register
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificaron dos funciones en `src/core/cpp/PPU.cpp` para forzar valores de paleta estándar (`0xE4`) en lugar de leerlos desde la MMU:
+                </p>
+                
+                <h3>1. Modificación en `render_scanline()` (Background)</h3>
+                <p>
+                    Se agregó código para forzar `BGP = 0xE4` y aplicar el mapeo de paleta antes de escribir en el framebuffer:
+                </p>
+                <pre><code>// --- Step 0257: HARDWARE PALETTE BYPASS ---
+// Forzar BGP = 0xE4 (mapeo identidad: 3->3, 2->2, 1->1, 0->0)
+// Esto garantiza que los índices de color se preserven en el framebuffer,
+// independientemente del estado de los registros de paleta en la MMU.
+// uint8_t bgp = mmu_->read(IO_BGP); // COMENTADO: Ignorar MMU
+uint8_t bgp = 0xE4;  // 11 10 01 00 (Mapeo identidad estándar)
+// -------------------------------------------
+
+// ... código de decodificación de tiles ...
+
+// --- Step 0257: Aplicar paleta forzada (mapeo identidad) ---
+// Aplicar BGP para mapear el índice de color crudo al índice final
+// BGP = 0xE4 = 11 10 01 00
+// color_index 0 -> (BGP >> 0) & 3 = 0
+// color_index 1 -> (BGP >> 2) & 3 = 1
+// color_index 2 -> (BGP >> 4) & 3 = 2
+// color_index 3 -> (BGP >> 6) & 3 = 3
+uint8_t final_color = (bgp >> (color_index * 2)) & 0x03;
+framebuffer_[line_start_index + x] = final_color;
+// -------------------------------------------------------------</code></pre>
+
+                <h3>2. Modificación en `render_sprites()` (Sprites)</h3>
+                <p>
+                    Se agregó código para forzar `OBP0 = 0xE4` y `OBP1 = 0xE4` y aplicar el mapeo de paleta según el atributo del sprite:
+                </p>
+                <pre><code>// --- Step 0257: HARDWARE PALETTE BYPASS ---
+// Forzar OBP0 = 0xE4 y OBP1 = 0xE4 (mapeo identidad)
+// Esto garantiza que los índices de color de sprites se preserven en el framebuffer,
+// independientemente del estado de los registros de paleta en la MMU.
+// uint8_t obp0 = mmu_->read(IO_OBP0); // COMENTADO: Ignorar MMU
+// uint8_t obp1 = mmu_->read(IO_OBP1); // COMENTADO: Ignorar MMU
+uint8_t obp0 = 0xE4;  // 11 10 01 00 (Mapeo identidad estándar)
+uint8_t obp1 = 0xE4;  // 11 10 01 00 (Mapeo identidad estándar)
+// -------------------------------------------
+
+// ... código de renderizado de sprites ...
+
+// --- Step 0257: Aplicar paleta forzada (mapeo identidad) ---
+// Aplicar OBP0 u OBP1 según el atributo del sprite
+uint8_t palette = (palette_num == 0) ? obp0 : obp1;
+// Aplicar paleta para mapear el índice de color crudo al índice final
+// palette = 0xE4 = 11 10 01 00
+// sprite_color_idx 0 -> (palette >> 0) & 3 = 0 (transparente, no se dibuja)
+// sprite_color_idx 1 -> (palette >> 2) & 3 = 1
+// sprite_color_idx 2 -> (palette >> 4) & 3 = 2
+// sprite_color_idx 3 -> (palette >> 6) & 3 = 3
+uint8_t final_sprite_color = (palette >> (sprite_color_idx * 2)) & 0x03;
+framebuffer_line[final_x] = final_sprite_color;
+// -------------------------------------------------------------</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Bypass en C++:</strong> Se eligió forzar los valores de paleta directamente en C++ en lugar de solo en Python (Step 0256) para garantizar que el framebuffer de C++ contenga índices válidos (0-3) desde el principio. Esto elimina cualquier punto de fallo en la transferencia de datos desde C++ a Python.</li>
+                    <li><strong>Valor 0xE4:</strong> Se eligió `0xE4` porque es el valor estándar que usan muchos juegos de Game Boy y implementa un mapeo identidad que preserva los índices originales. Esto permite ver los datos visuales reales de la VRAM sin distorsión.</li>
+                    <li><strong>Aplicación de Paleta:</strong> Aunque el valor es un mapeo identidad, se aplica la lógica de paleta completa para mantener la consistencia con el hardware real. Esto facilita la depuración futura cuando se restaure la lectura normal de BGP/OBP.</li>
+                    <li><strong>Comentarios Explicativos:</strong> Se agregaron comentarios detallados explicando el propósito del bypass y el mapeo de paleta para facilitar la comprensión y el mantenimiento futuro.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Modificado `render_scanline()` y `render_sprites()` para forzar BGP = 0xE4 y OBP0/OBP1 = 0xE4 (Step 0257).</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Validación de Módulo Compilado C++:</strong>
+                </p>
+                <ol>
+                    <li><strong>Recompilación:</strong> Ejecutar <code>.\rebuild_cpp.ps1</code> para recompilar la extensión Cython con los cambios en C++.</li>
+                    <li><strong>Ejecución:</strong> Ejecutar <code>python main.py roms/pkmn.gb</code> (o cualquier ROM con sprites).</li>
+                    <li><strong>Observación:</strong> Con la paleta de debug de Python (Step 0256) + el bypass de paleta de C++ (Step 0257), deberíamos ver:
+                        <ul>
+                            <li><strong>✅ ÉXITO:</strong> Formas negras/grises moviéndose en la pantalla (logo de GAME FREAK, intro de Gengar vs Nidorino en Pokémon Red). Esto confirma que la VRAM contiene datos válidos y la PPU los está procesando correctamente.</li>
+                            <li><strong>❌ PROBLEMA:</strong> Si seguimos viendo todo verde/blanco, el problema está en la VRAM misma (tiles no cargados) o en la lectura de tiles desde VRAM.</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Comando de Prueba:</strong>
+                </p>
+                <pre><code>.\rebuild_cpp.ps1
+python main.py roms/pkmn.gb</code></pre>
+                <p>
+                    <strong>Resultado Esperado:</strong> Pantalla con gráficos en blanco y negro (o gris/verde con la paleta de debug de Python), mostrando sprites y fondo correctamente renderizados.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Palettes.html">Palette Registers (BGP, OBP0, OBP1)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html">LCD Control Register (LCDC)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Tile_Data.html">Tile Data</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Pipeline de Renderizado:</strong> VRAM → PPU (decodificación de tiles) → Aplicación de Paleta (BGP/OBP) → Framebuffer → Python (aplicación de paleta final) → Pantalla. El bypass de paleta en C++ garantiza que los índices de color se preserven en el framebuffer, independientemente del estado de los registros de paleta en la MMU.</li>
+                        <li><strong>Mapeo de Paleta:</strong> Los registros de paleta (BGP, OBP0, OBP1) mapean índices de color crudos (0-3) a índices finales (0-3). El valor `0xE4` implementa un mapeo identidad que preserva los índices originales, mientras que `0x00` convierte todos los índices a 0 (blanco).</li>
+                        <li><strong>Diagnóstico por Capas:</strong> Al aplicar bypasses en diferentes capas (Python en Step 0256, C++ en Step 0257), podemos aislar el problema: si vemos gráficos después del bypass de C++, el problema está en los registros de paleta; si no vemos nada, el problema está en la VRAM o en la lectura de tiles.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Estado de VRAM:</strong> Verificar que la VRAM contiene datos válidos (tiles cargados) cuando se ejecuta el juego. Si la VRAM está vacía, el bypass de paleta no ayudará.</li>
+                        <li><strong>Lectura de Tiles:</strong> Verificar que la PPU está leyendo correctamente los tiles desde VRAM. Si hay un error en la decodificación de tiles, el bypass de paleta no ayudará.</li>
+                        <li><strong>Registros de Paleta en MMU:</strong> Una vez que confirmemos que la VRAM y la PPU funcionan correctamente, debemos investigar por qué los registros de paleta (BGP, OBP0, OBP1) están en `0x00` o por qué la MMU no los está sirviendo correctamente.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> El framebuffer de C++ está lleno de ceros porque la PPU está aplicando una paleta con valor `0x00` que convierte todos los píxeles (incluso los negros, índice 3) en índice 0 antes de escribirlos en el framebuffer. Al forzar `0xE4` (mapeo identidad), los índices de color se preservan y deberíamos ver gráficos en la pantalla.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Asumimos que la VRAM contiene datos válidos y que la PPU está leyendo y decodificando los tiles correctamente. Si después del bypass de paleta seguimos viendo todo verde/blanco, esta suposición es incorrecta y debemos investigar la VRAM y la lectura de tiles.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar <code>.\rebuild_cpp.ps1</code> para recompilar la extensión Cython con los cambios en C++.</li>
+                    <li>[ ] Ejecutar <code>python main.py roms/pkmn.gb</code> y observar la pantalla.</li>
+                    <li>[ ] <strong>Si vemos formas negras/grises:</strong>
+                        <ul>
+                            <li>Confirmar que la VRAM y la PPU funcionan correctamente.</li>
+                            <li>Investigar por qué los registros de paleta (BGP, OBP0, OBP1) están en `0x00` o por qué la MMU no los está sirviendo correctamente.</li>
+                            <li>Corregir la lectura/escritura de los registros de paleta en la MMU.</li>
+                            <li>Restaurar la lógica normal de paletas (quitar el bypass) y validar que los colores se muestran correctamente.</li>
+                        </ul>
+                    </li>
+                    <li>[ ] <strong>Si seguimos viendo todo verde/blanco:</strong>
+                        <ul>
+                            <li>Verificar que el framebuffer de la PPU C++ contiene índices válidos (0-3) usando un debugger o logs.</li>
+                            <li>Verificar que la VRAM contiene datos válidos (tiles cargados) inspeccionando la memoria en tiempo de ejecución.</li>
+                            <li>Investigar por qué la PPU no está generando píxeles o por qué el framebuffer está vacío.</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -338,6 +338,14 @@ void PPU::render_scanline() {
     bool signed_addressing = (lcdc & 0x10) == 0;
     uint16_t tile_data_base = signed_addressing ? 0x9000 : 0x8000;
 
+    // --- Step 0257: HARDWARE PALETTE BYPASS ---
+    // Forzar BGP = 0xE4 (mapeo identidad: 3->3, 2->2, 1->1, 0->0)
+    // Esto garantiza que los índices de color se preserven en el framebuffer,
+    // independientemente del estado de los registros de paleta en la MMU.
+    // uint8_t bgp = mmu_->read(IO_BGP); // COMENTADO: Ignorar MMU
+    uint8_t bgp = 0xE4;  // 11 10 01 00 (Mapeo identidad estándar)
+    // -------------------------------------------
+
     size_t line_start_index = ly_ * 160;
 
     for (int x = 0; x < 160; ++x) {
@@ -369,8 +377,16 @@ void PPU::render_scanline() {
             uint8_t bit_high = (byte2 >> bit_index) & 1;
             uint8_t color_index = (bit_high << 1) | bit_low;
 
-            framebuffer_[line_start_index + x] = color_index;
-            // ---------------------------------------
+            // --- Step 0257: Aplicar paleta forzada (mapeo identidad) ---
+            // Aplicar BGP para mapear el índice de color crudo al índice final
+            // BGP = 0xE4 = 11 10 01 00
+            // color_index 0 -> (BGP >> 0) & 3 = 0
+            // color_index 1 -> (BGP >> 2) & 3 = 1
+            // color_index 2 -> (BGP >> 4) & 3 = 2
+            // color_index 3 -> (BGP >> 6) & 3 = 3
+            uint8_t final_color = (bgp >> (color_index * 2)) & 0x03;
+            framebuffer_[line_start_index + x] = final_color;
+            // -------------------------------------------------------------
 
         } else {
             framebuffer_[line_start_index + x] = 0;
@@ -548,6 +564,16 @@ void PPU::render_sprites() {
     // Bit 2: OBJ Size (0=8x8, 1=8x16)
     uint8_t sprite_height = ((lcdc & 0x04) != 0) ? 16 : 8;
     
+    // --- Step 0257: HARDWARE PALETTE BYPASS ---
+    // Forzar OBP0 = 0xE4 y OBP1 = 0xE4 (mapeo identidad)
+    // Esto garantiza que los índices de color de sprites se preserven en el framebuffer,
+    // independientemente del estado de los registros de paleta en la MMU.
+    // uint8_t obp0 = mmu_->read(IO_OBP0); // COMENTADO: Ignorar MMU
+    // uint8_t obp1 = mmu_->read(IO_OBP1); // COMENTADO: Ignorar MMU
+    uint8_t obp0 = 0xE4;  // 11 10 01 00 (Mapeo identidad estándar)
+    uint8_t obp1 = 0xE4;  // 11 10 01 00 (Mapeo identidad estándar)
+    // -------------------------------------------
+    
     // Índice base en el framebuffer para la línea actual
     uint8_t* framebuffer_line = &framebuffer_[ly_ * SCREEN_WIDTH];
     
@@ -665,10 +691,18 @@ void PPU::render_sprites() {
                 continue;
             }
             
-            // Escribir índice de color del sprite en el framebuffer (0-3)
-            // NOTA: La paleta (OBP0/OBP1) se aplicará en Python al renderizar
-            // Aquí solo guardamos el índice de color (0-3) del sprite
-            framebuffer_line[final_x] = sprite_color_idx;
+            // --- Step 0257: Aplicar paleta forzada (mapeo identidad) ---
+            // Aplicar OBP0 u OBP1 según el atributo del sprite
+            uint8_t palette = (palette_num == 0) ? obp0 : obp1;
+            // Aplicar paleta para mapear el índice de color crudo al índice final
+            // palette = 0xE4 = 11 10 01 00
+            // sprite_color_idx 0 -> (palette >> 0) & 3 = 0 (transparente, no se dibuja)
+            // sprite_color_idx 1 -> (palette >> 2) & 3 = 1
+            // sprite_color_idx 2 -> (palette >> 4) & 3 = 2
+            // sprite_color_idx 3 -> (palette >> 6) & 3 = 3
+            uint8_t final_sprite_color = (palette >> (sprite_color_idx * 2)) & 0x03;
+            framebuffer_line[final_x] = final_sprite_color;
+            // -------------------------------------------------------------
         }
     }
 }
