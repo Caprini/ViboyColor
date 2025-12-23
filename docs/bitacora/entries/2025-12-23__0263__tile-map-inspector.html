@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tile Map Inspector - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Tile Map Inspector</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0263
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0262__rom-read-probe.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step instrumenta la PPU para inspeccionar el Tile Map que se está utilizando durante el renderizado. El Step 0262 confirmó que MBC1 funciona perfectamente y que la ROM se lee correctamente, pero la pantalla sigue vacía. La hipótesis es que hay un desajuste en la configuración de la PPU (Tile Map vs Tile Data) o que el Tile Map está vacío. Esta instrumentación nos permitirá verificar si el área de memoria que la PPU está usando como Tile Map contiene índices de tiles válidos o está completamente vacía.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Tile Map (Mapa de Tiles):</strong> El Tile Map es una tabla de 32x32 bytes (1024 bytes) que contiene los índices de los tiles que se deben dibujar en cada posición del fondo. La PPU lee el Tile Map para determinar qué tile dibujar en cada posición de la pantalla.
+                </p>
+                <p>
+                    <strong>Configuración de Tile Map:</strong> El registro LCDC (0xFF40) controla qué área de VRAM se usa como Tile Map:
+                </p>
+                <ul>
+                    <li><strong>Bit 3:</strong> Background Tile Map Area (`0=9800`, `1=9C00`).</li>
+                    <li><strong>Bit 4:</strong> Background & Window Tile Data Area (`0=8800`, `1=8000`).</li>
+                </ul>
+                <p>
+                    <strong>El problema del desajuste:</strong> Si el juego usa el mapa en `9C00` pero nosotros miramos en `9800` (o viceversa), veremos blanco. Si el juego usa tiles en `8000` pero nosotros usamos `8800` (signed), veremos basura o blanco. Si el Tile Map está completamente vacío (todos los bytes son `00`), la PPU renderizará solo el tile 0, que puede ser blanco o transparente.
+                </p>
+                <p>
+                    <strong>La inspección del Tile Map:</strong> Para diagnosticar el problema, necesitamos verificar qué contiene realmente el Tile Map que la PPU está utilizando. Si todos los bytes son `00`, el mapa está vacío y no se ha copiado el mapa. Si hay bytes variados, el mapa tiene datos y deberíamos ver algo en pantalla.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "LCD Control (LCDC)", "Tile Map", "Tile Data"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó el método <code>render_scanline()</code> de <code>PPU.cpp</code> para inspeccionar el Tile Map una sola vez cuando LY=100 (mitad de pantalla). El inspector muestra el valor de LCDC, la dirección base del Tile Map, la dirección base de Tile Data, y los primeros 16 bytes del Tile Map.
+                </p>
+                
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><strong>PPU::render_scanline()</strong>: Añadido código de inspección que se ejecuta una sola vez cuando LY=100, mostrando la configuración de la PPU y los primeros 16 bytes del Tile Map.</li>
+                    <li><strong>MMU.cpp</strong>: Comentados los logs de diagnóstico <code>[VRAM]</code>, <code>[ROM-READ]</code> y <code>[MBC1]</code> para reducir el ruido en la salida y permitir ver claramente el log del inspector.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Inspección única:</strong> El inspector se ejecuta una sola vez cuando LY=100 usando un flag estático <code>map_inspected</code>. Esto evita saturar los logs con información repetida y permite ver el estado del Tile Map después de que el juego haya tenido tiempo de inicializarse.
+                </p>
+                <p>
+                    <strong>Información completa:</strong> El inspector muestra LCDC (para ver la configuración), las direcciones base del Tile Map y Tile Data (para verificar qué áreas se están usando), y los primeros 16 bytes del Tile Map (para ver si contiene datos o está vacío).
+                </p>
+                <p>
+                    <strong>Limpieza de logs:</strong> Se comentaron los logs de diagnóstico anteriores (<code>[VRAM]</code>, <code>[ROM-READ]</code>, <code>[MBC1]</code>) para reducir el ruido en la salida y permitir ver claramente el log del inspector. El log crítico de <code>[MBC1 CRITICAL]</code> se mantiene activo para detectar errores graves.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Modificado método <code>render_scanline()</code> para inspeccionar el Tile Map (Step 0263).</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Comentados logs de diagnóstico <code>[VRAM]</code>, <code>[ROM-READ]</code> y <code>[MBC1]</code> para reducir ruido (Step 0263).</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Para validar esta instrumentación:
+                </p>
+                <ol>
+                    <li><strong>Recompilar:</strong> <code>.\rebuild_cpp.ps1</code></li>
+                    <li><strong>Ejecutar:</strong> <code>python main.py roms/pkmn.gb</code> (Pokémon Red es ideal porque tiene 1024KB de ROM y necesita múltiples bancos).</li>
+                    <li><strong>Observar los logs:</strong>
+                        <ul>
+                            <li>Buscar <code>[PPU INSPECT]</code> - Muestra la configuración de la PPU y los primeros 16 bytes del Tile Map.</li>
+                            <li><strong>Si los bytes del mapa son todos `00`:</strong> El mapa está vacío -> No se ha copiado el mapa. El juego puede estar limpiando la VRAM antes de copiar los datos, o puede haber un problema en la lógica de copia de datos a VRAM.</li>
+                            <li><strong>Si los bytes son variados:</strong> El mapa tiene datos -> Deberíamos ver algo en pantalla. Si la pantalla sigue vacía, el problema está en otro lado (posiblemente en el renderizado de la PPU o en la configuración de Tile Data).</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Validación esperada:</strong> Si el Tile Map contiene datos variados pero la pantalla sigue vacía, necesitamos verificar la configuración de Tile Data (signed vs unsigned addressing) o el renderizado de la PPU. Si el Tile Map está vacío, necesitamos esperar más tiempo o verificar por qué el juego no está copiando el mapa a la VRAM.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCDC.html">LCD Control (LCDC)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Tile_Data.html">Tile Data</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Tile_Map.html">Tile Map</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Tile Map:</strong> El Tile Map es una tabla de 32x32 bytes que contiene los índices de los tiles que se deben dibujar en cada posición del fondo. La PPU lee el Tile Map para determinar qué tile dibujar.</li>
+                        <li><strong>Configuración de LCDC:</strong> El registro LCDC controla qué área de VRAM se usa como Tile Map (bit 3) y qué área se usa como Tile Data (bit 4). Un desajuste en esta configuración puede resultar en una pantalla vacía.</li>
+                        <li><strong>Diagnóstico de Tile Map:</strong> Si el Tile Map está vacío (todos los bytes son `00`), la PPU renderizará solo el tile 0, que puede ser blanco o transparente. Si el Tile Map contiene datos pero la pantalla sigue vacía, el problema está en otro lado.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Contenido del Tile Map:</strong> ¿El Tile Map contiene índices de tiles válidos o está completamente vacío? Los logs nos dirán si el mapa tiene datos o si está vacío.</li>
+                        <li><strong>Configuración correcta:</strong> ¿La PPU está usando la misma configuración de Tile Map y Tile Data que el juego espera? El inspector nos mostrará qué áreas se están usando.</li>
+                        <li><strong>Correlación con renderizado:</strong> Si el Tile Map contiene datos pero la pantalla sigue vacía, ¿el problema está en el renderizado de la PPU o en la configuración de Tile Data?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> Si MBC1 funciona (Step 0262) y la ROM se lee correctamente, pero la pantalla sigue vacía, es posible que:
+                    </p>
+                    <ol>
+                        <li><strong>El Tile Map está vacío:</strong> El juego puede estar limpiando la VRAM antes de copiar los datos, o puede haber un problema en la lógica de copia de datos a VRAM.</li>
+                        <li><strong>Desajuste en la configuración:</strong> El juego puede estar usando una configuración diferente de Tile Map o Tile Data que la que la PPU está utilizando.</li>
+                        <li><strong>Problema en el renderizado:</strong> Si el Tile Map contiene datos pero la pantalla sigue vacía, el problema está en el renderizado de la PPU o en la configuración de Tile Data.</li>
+                    </ol>
+                    <p>
+                        Esta instrumentación nos permitirá distinguir entre estos casos y determinar dónde está el problema real.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar <code>python main.py roms/pkmn.gb</code> y observar el log del inspector.</li>
+                    <li>[ ] Si el Tile Map está vacío, verificar por qué el juego no está copiando el mapa a la VRAM o esperar más tiempo.</li>
+                    <li>[ ] Si el Tile Map contiene datos pero la pantalla sigue vacía, verificar la configuración de Tile Data o el renderizado de la PPU.</li>
+                    <li>[ ] Correlacionar el contenido del Tile Map con la configuración de LCDC para determinar si hay un desajuste.</li>
+                    <li>[ ] Si es necesario, instrumentar también la lectura de Tile Data para verificar si los tiles están cargados correctamente.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

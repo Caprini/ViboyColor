@@ -338,6 +338,24 @@ void PPU::render_scanline() {
     bool signed_addressing = (lcdc & 0x10) == 0;
     uint16_t tile_data_base = signed_addressing ? 0x9000 : 0x8000;
 
+    // --- Step 0263: TILE MAP INSPECTOR ---
+    // Inspeccionar el Tile Map una sola vez cuando LY=100 (mitad de pantalla)
+    // para verificar si contiene índices de tiles válidos o está vacío
+    static bool map_inspected = false;
+    if (ly_ == 100 && !map_inspected) {
+        printf("[PPU INSPECT] LCDC: %02X\n", lcdc);
+        printf("[PPU INSPECT] BG Map Base: %04X\n", tile_map_base);
+        printf("[PPU INSPECT] BG Data Base: %04X\n", tile_data_base);
+        
+        printf("[PPU INSPECT] First 16 bytes of Map at %04X:\n", tile_map_base);
+        for(int i=0; i<16; i++) {
+            printf("%02X ", mmu_->read(tile_map_base + i));
+        }
+        printf("\n");
+        map_inspected = true;
+    }
+    // -----------------------------------------
+
     // --- Step 0257: HARDWARE PALETTE BYPASS ---
     // Forzar BGP = 0xE4 (mapeo identidad: 3->3, 2->2, 1->1, 0->0)
     // Esto garantiza que los índices de color se preserven en el framebuffer,

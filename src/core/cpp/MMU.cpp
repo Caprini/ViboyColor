@@ -291,9 +291,11 @@ uint8_t MMU::read(uint16_t addr) const {
             }
             
             // --- Step 0262: ROM READ PROBE ---
+            // COMENTADO EN STEP 0263: Limpieza de logs para reducir ruido
             // Instrumentar las primeras 50 lecturas del área de ROM conmutada para verificar
             // qué valores está devolviendo la MMU. Si devuelve ceros, la carga de ROM o el
             // cálculo de offset está fallando. Si devuelve valores variados, la lectura es correcta.
+            /*
             static int rom_read_counter = 0;
             if (rom_read_counter < 50) {
                 uint8_t val = rom_data_[rom_addr];
@@ -301,6 +303,7 @@ uint8_t MMU::read(uint16_t addr) const {
                        debug_current_pc, addr, current_rom_bank_, rom_addr, val);
                 rom_read_counter++;
             }
+            */
             // -----------------------------------------
             
             return rom_data_[rom_addr];
@@ -356,10 +359,12 @@ void MMU::write(uint16_t addr, uint8_t value) {
     // -----------------------------------------
     
     // --- Step 0259: VRAM WRITE MONITOR ---
+    // COMENTADO EN STEP 0263: Limpieza de logs para reducir ruido
     // Monitorizar las primeras 50 escrituras en VRAM para ver qué datos llegan
     // Si la VRAM está vacía (ceros), la PPU renderizará píxeles de índice 0 (verdes/blancos).
     // Si vemos valores distintos de cero, significa que la CPU está copiando datos.
     // Si solo vemos ceros, el problema está en la carga de datos gráficos (posiblemente MBC).
+    /*
     static int vram_write_counter = 0;
     if (addr >= 0x8000 && addr <= 0x9FFF) {
         if (vram_write_counter < 50) {
@@ -367,6 +372,7 @@ void MMU::write(uint16_t addr, uint8_t value) {
             vram_write_counter++;
         }
     }
+    */
     // -----------------------------------------
     
     // CRÍTICO: El registro DIV (0xFF04) tiene comportamiento especial
@@ -454,10 +460,13 @@ void MMU::write(uint16_t addr, uint8_t value) {
             }
             
             // --- Step 0261: Log solo si el banco cambia para no saturar ---
+            // COMENTADO EN STEP 0263: Limpieza de logs para reducir ruido
+            /*
             if (new_bank != current_rom_bank_) {
                 printf("[MBC1] PC:%04X -> ROM Bank Switch: %d -> %d\n", 
                        debug_current_pc, current_rom_bank_, new_bank);
             }
+            */
             
             current_rom_bank_ = new_bank;
         }

@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0263 - Tile Map Inspector -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0263</span>
+                        <a href="entries/2025-12-23__0263__tile-map-inspector.html" class="title">Tile Map Inspector</a>
+                        <p class="summary">Este Step instrumenta la PPU para inspeccionar el Tile Map que se está utilizando durante el renderizado. El Step 0262 confirmó que MBC1 funciona perfectamente y que la ROM se lee correctamente, pero la pantalla sigue vacía. La hipótesis es que hay un desajuste en la configuración de la PPU (Tile Map vs Tile Data) o que el Tile Map está vacío. Esta instrumentación nos permitirá verificar si el área de memoria que la PPU está usando como Tile Map contiene índices de tiles válidos o está completamente vacía.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0262 - ROM Read Probe -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>
