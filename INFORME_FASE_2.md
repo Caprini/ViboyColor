@@ -32,6 +32,42 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0247: Memory Timeline & PC Tracker
+**Estado**: 🔍 EN DEPURACIÓN
+
+El Step 0246 confirmó que el juego **sí está escribiendo en la WRAM**, pero lo está haciendo de manera descendente (desde `DFFF` hacia abajo) y con valor **`0x00`** (ceros). Esto es una **rutina de limpieza de memoria (Zero-Fill)** que es normal y correcta durante la inicialización.
+
+Sin embargo, aún falta la pieza clave: **La Cronología**. ¿En qué orden ocurren las operaciones y quién las ejecuta? Si el juego limpia toda la WRAM a ceros y luego busca `0xFD`... nunca lo va a encontrar. El `0xFD` debe escribirse **DESPUÉS** de la limpieza, o la limpieza no debería tocar esa zona.
+
+**Objetivo:**
+- Implementar un sistema de rastreo temporal que combine el Program Counter (PC) con las escrituras clave en memoria.
+- Reconstruir la secuencia temporal completa de operaciones de memoria para determinar qué instrucción (PC) está provocando cada operación.
+- Determinar si la limpieza de WRAM ocurre antes o después de escribir el marcador `0xFD`.
+
+**Implementación:**
+1. **Añadido miembro público `debug_current_pc` en `MMU.hpp`**: Campo para rastrear el PC actual de la CPU.
+2. **Actualizado `CPU::step()`**: Actualiza `mmu_->debug_current_pc` antes de ejecutar cada instrucción.
+3. **Reemplazado logging del Step 0246 con Timeline Logger en `MMU::write()`**: Registra escrituras en WRAM, marcador `0xFD`, y DMA junto con el PC que las provocó.
+
+**Concepto de Hardware:**
+**Program Counter (PC)**: Registro de 16 bits que contiene la dirección de memoria de la próxima instrucción a ejecutar. Cada vez que la CPU ejecuta una instrucción, el PC avanza al siguiente opcode.
+
+**Rastreo Temporal de Operaciones**: Para entender la secuencia de eventos en un programa, es crucial conocer no solo *qué* operaciones ocurren, sino también *cuándo* ocurren y *desde dónde* (qué instrucción las provocó). Esto permite reconstruir la "historia" o "timeline" de las operaciones de memoria.
+
+**El Problema de la Cronología**: El Step 0246 confirmó que el juego escribe `0xFD` en HRAM, limpia la WRAM a ceros, y busca `0xFD` en WRAM. Pero falta saber: ¿En qué orden ocurre esto? Si la limpieza ocurre *después* de escribir el marcador, entonces está borrando el marcador. Si la escritura del marcador ocurre *después* de la limpieza, entonces el problema está en otro lado.
+
+**Archivos Afectados:**
+- `src/core/cpp/MMU.hpp` - Añadido miembro público `debug_current_pc` (Step 0247)
+- `src/core/cpp/MMU.cpp` - Inicializado `debug_current_pc` en constructor. Reemplazado logging del Step 0246 con Timeline Logger (Step 0247)
+- `src/core/cpp/CPU.cpp` - Añadida actualización de PC en MMU antes de ejecutar instrucción (Step 0247)
+
+**Resultados Esperados:**
+- **Escenario A (Limpieza antes del marcador)**: Se ven múltiples escrituras en WRAM con valor `00`, seguidas de escritura del marcador `FD`. *Diagnóstico:* La limpieza ocurre antes, lo cual es correcto. El problema está en que el marcador no se copia a WRAM después.
+- **Escenario B (Marcador antes de la limpieza)**: Se ve escritura del marcador, seguido de múltiples escrituras en WRAM con valor `00`. *Diagnóstico:* La limpieza está borrando el marcador después de escribirlo.
+- **Escenario C (Nunca se escribe el marcador)**: No se ve ninguna escritura del marcador. *Diagnóstico:* El juego nunca escribe el marcador, o la rutina que lo escribe no se ejecuta.
+
+---
+
 ### 2025-12-23 - Step 0246: WRAM Writer Profiler
 **Estado**: 🔍 EN DEPURACIÓN
 

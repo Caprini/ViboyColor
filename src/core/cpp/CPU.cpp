@@ -465,6 +465,12 @@ int CPU::step() {
     // El emulador debe correr a velocidad nativa (60 FPS) sin instrumentación pesada.
     // El monitor GPS (Step 0240) proporciona suficiente información para diagnóstico.
     
+    // --- Step 0247: Memory Timeline & PC Tracker ---
+    // Actualizar el PC en la MMU antes de ejecutar la instrucción
+    // Esto permite que la MMU registre qué instrucción provocó cada operación de memoria
+    mmu_->debug_current_pc = regs_->pc;
+    // -----------------------------------------
+    
     // Fetch: Leer opcode de memoria
     uint8_t opcode = fetch_byte();
 

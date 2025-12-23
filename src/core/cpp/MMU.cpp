@@ -40,7 +40,7 @@ static const uint8_t VIBOY_LOGO_MAP[32] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nullptr) {
+MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nullptr), debug_current_pc(0) {
     // Inicializar memoria a 0
     // --- Step 0189: Inicialización de Registros de Hardware (Post-BIOS) ---
     // Estos son los valores que los registros de I/O tienen después de que la
@@ -281,21 +281,27 @@ void MMU::write(uint16_t addr, uint8_t value) {
     // Enmascarar el valor a 8 bits
     value &= 0xFF;
     
-    // --- Step 0246: WRAM WRITER PROFILER ---
-    // Hemos confirmado que el juego se cuelga escaneando una WRAM vacía. Los diagnósticos
-    // anteriores indican que no hay transferencias DMA ni copias desde HRAM.
-    // La hipótesis principal ahora es que la rutina de inicialización que debe copiar
-    // datos desde la ROM a la WRAM no se está ejecutando.
-    // Este profiler registra las primeras 100 escrituras en WRAM (0xC000-0xDFFF) para
-    // determinar si la memoria se está inicializando siquiera.
-    // Fuente: Pan Docs - "Memory Map", "Work RAM (WRAM)"
-    static int wram_write_counter = 0;
-    // Rango WRAM: 0xC000 - 0xDFFF (incluyendo Echo RAM si se redirige, pero filtramos por dirección lógica)
-    if (addr >= 0xC000 && addr <= 0xDFFF) {
-        if (wram_write_counter < 100) {
-            printf("[WRAM-WRITE #%d] Addr: %04X | Val: %02X\n", wram_write_counter, addr, value);
-            wram_write_counter++;
-        }
+    // --- Step 0247: MEMORY TIMELINE & PC TRACKER ---
+    // El Step 0246 confirmó que el juego limpia la WRAM a ceros, pero necesitamos entender
+    // la secuencia temporal completa: ¿En qué orden ocurren las operaciones y quién las ejecuta?
+    // Este logger combina el tracking del PC con las escrituras clave para reconstruir la historia.
+    // Fuente: Pan Docs - "Memory Map", "DMA", "HRAM"
+    
+    // Caso A: Escritura en WRAM (0xC000-0xDFFF) - Solo las primeras 200 para ver la limpieza
+    static int wram_log_count = 0;
+    if (addr >= 0xC000 && addr <= 0xDFFF && wram_log_count < 200) {
+        printf("[TIME] PC:%04X -> Write WRAM [%04X] = %02X\n", debug_current_pc, addr, value);
+        wram_log_count++;
+    }
+
+    // Caso B: Escritura de 0xFD en cualquier sitio (El Marcador)
+    if (value == 0xFD) {
+        printf("[TIME] PC:%04X -> Write SENTINEL [%04X] = FD\n", debug_current_pc, addr);
+    }
+
+    // Caso C: Escritura en DMA (El Transportista)
+    if (addr == 0xFF46) {
+        printf("[TIME] PC:%04X -> Write DMA [%04X] = %02X\n", debug_current_pc, addr, value);
     }
     // -----------------------------------------
     

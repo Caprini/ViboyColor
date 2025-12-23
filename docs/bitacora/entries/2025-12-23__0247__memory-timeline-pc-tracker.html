@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memory Timeline & PC Tracker - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Memory Timeline & PC Tracker</h1>
+            <!-- Entrada 0247 - Memory Timeline & PC Tracker -->
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0247
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0246__wram-writer-profiler.html">Anterior (0246)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    El Step 0246 confirmó que el juego <strong>sí está escribiendo en la WRAM</strong>, pero lo está haciendo
+                    de manera descendente (desde `DFFF` hacia abajo) y con valor <strong>`0x00`</strong> (ceros). Esto es una
+                    <strong>rutina de limpieza de memoria (Zero-Fill)</strong> que es normal y correcta durante la inicialización.
+                </p>
+                <p>
+                    Sin embargo, aún falta la pieza clave: <strong>La Cronología</strong>. ¿En qué orden ocurren las operaciones
+                    y quién las ejecuta? Si el juego limpia toda la WRAM a ceros y luego busca `0xFD`... nunca lo va a encontrar.
+                    El `0xFD` debe escribirse <strong>DESPUÉS</strong> de la limpieza, o la limpieza no debería tocar esa zona.
+                </p>
+                <p>
+                    Este Step implementa un <strong>Memory Timeline & PC Tracker</strong> que combina el tracking del Program Counter
+                    con las escrituras clave en memoria para reconstruir la secuencia temporal completa y determinar qué instrucción
+                    (PC) está provocando cada operación.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El <strong>Program Counter (PC)</strong> es un registro de 16 bits que contiene la dirección de memoria de la
+                    próxima instrucción a ejecutar. Cada vez que la CPU ejecuta una instrucción, el PC avanza al siguiente opcode
+                    (o salta a una dirección diferente en caso de saltos, llamadas, etc.).
+                </p>
+                <p>
+                    <strong>Rastreo Temporal de Operaciones de Memoria:</strong> Para entender la secuencia de eventos en un
+                    programa, es crucial conocer no solo <em>qué</em> operaciones ocurren, sino también <em>cuándo</em> ocurren
+                    y <em>desde dónde</em> (qué instrucción las provocó). Esto permite reconstruir la "historia" o "timeline"
+                    de las operaciones de memoria.
+                </p>
+                <p>
+                    <strong>El Problema de la Cronología:</strong> El Step 0246 confirmó que:
+                </p>
+                <ul>
+                    <li>El juego escribe `0xFD` en HRAM (`FF8D`) - El Marcador</li>
+                    <li>El juego limpia la WRAM a ceros (`0x00`) desde `DFFF` hacia abajo - La Limpieza</li>
+                    <li>El juego busca `0xFD` en WRAM y se cuelga porque solo hay ceros - El Problema</li>
+                </ul>
+                <p>
+                    Pero falta saber: <strong>¿En qué orden ocurre esto?</strong> Si la limpieza ocurre <em>después</em> de escribir
+                    el marcador, entonces está borrando el marcador. Si la escritura del marcador ocurre <em>después</em> de la
+                    limpieza, entonces el problema está en otro lado (quizás la copia nunca ocurre).
+                </p>
+                <p>
+                    <strong>Rastreo del PC en Operaciones de Memoria:</strong> Al registrar el PC actual en cada operación de
+                    memoria, podemos determinar qué instrucción (y por tanto, qué rutina del juego) está ejecutando cada operación.
+                    Esto nos permite correlacionar las operaciones con el flujo del programa y reconstruir la secuencia temporal.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "CPU Registers", "Memory Map"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementa un sistema de rastreo temporal que combina el Program Counter (PC) con las escrituras clave
+                    en memoria. Este sistema registra:
+                </p>
+                <ul>
+                    <li><strong>Escrituras en WRAM</strong>: Las primeras 200 escrituras en el rango `0xC000-0xDFFF` para ver
+                        la rutina de limpieza con su PC correspondiente.</li>
+                    <li><strong>Escrituras del Marcador (`0xFD`)</strong>: Cualquier escritura del valor `0xFD` en cualquier
+                        dirección de memoria (el "sentinel" que el juego busca).</li>
+                    <li><strong>Escrituras en DMA (`0xFF46`)</strong>: Actividad del registro DMA para detectar transferencias
+                        de memoria.</li>
+                </ul>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/MMU.hpp</code>: Añadido miembro público <code>debug_current_pc</code> para rastrear
+                        el PC actual de la CPU.</li>
+                    <li><code>src/core/cpp/MMU.cpp</code>: Inicializado <code>debug_current_pc</code> en el constructor.
+                        Reemplazado el logging del Step 0246 con el nuevo Timeline Logger que incluye el PC en cada registro.</li>
+                    <li><code>src/core/cpp/CPU.cpp</code>: Añadida actualización de <code>mmu_->debug_current_pc</code> en el
+                        método <code>step()</code> antes de ejecutar cada instrucción.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Campo público <code>debug_current_pc</code>:</strong> Se añade como miembro público de la clase MMU
+                    para permitir que la CPU lo actualice fácilmente sin necesidad de métodos adicionales. Este campo es solo
+                    para diagnóstico y no afecta la lógica normal del emulador.
+                </p>
+                <p>
+                    <strong>Actualización antes del fetch:</strong> El PC se actualiza en la MMU <em>antes</em> de ejecutar la
+                    instrucción (justo antes del <code>fetch_byte()</code>), para que el PC registrado corresponda a la dirección
+                    de la instrucción que está <em>a punto de ejecutarse</em>, no a la siguiente.
+                </p>
+                <p>
+                    <strong>Formato de log unificado:</strong> Todos los logs usan el formato <code>[TIME] PC:XXXX -> ...</code>
+                    para facilitar el análisis temporal. El prefijo <code>[TIME]</code> permite filtrar fácilmente estos logs de
+                    otros mensajes del sistema.
+                </p>
+                <p>
+                    <strong>Límite de 200 escrituras en WRAM:</strong> Se aumentó el límite de 100 a 200 escrituras para capturar
+                    más contexto de la rutina de limpieza, pero sigue siendo limitado para evitar saturar la salida.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Añadido miembro público <code>debug_current_pc</code> (Step 0247)</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Inicializado <code>debug_current_pc</code> en constructor.
+                        Reemplazado logging del Step 0246 con Timeline Logger (Step 0247)</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadida actualización de PC en MMU antes de ejecutar instrucción (Step 0247)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realiza mediante ejecución del emulador con redirección de salida a un archivo para análisis:
+                </p>
+                <ol>
+                    <li><strong>Recompilación:</strong> <code>.\rebuild_cpp.ps1</code></li>
+                    <li><strong>Ejecución con redirección:</strong> <code>python main.py roms/tetris.gb > timeline.log 2>&1</code>
+                        (redirección necesaria porque el log será extenso)</li>
+                    <li><strong>Análisis del log:</strong> Buscar líneas con <code>[TIME]</code> para reconstruir la secuencia temporal</li>
+                </ol>
+                <p>
+                    <strong>Código clave modificado:</strong>
+                </p>
+                <pre><code>// En CPU::step(), antes de fetch_byte():
+mmu_->debug_current_pc = regs_->pc;
+
+// En MMU::write(), logging con PC:
+if (addr >= 0xC000 && addr <= 0xDFFF && wram_log_count < 200) {
+    printf("[TIME] PC:%04X -> Write WRAM [%04X] = %02X\n", debug_current_pc, addr, value);
+    wram_log_count++;
+}
+
+if (value == 0xFD) {
+    printf("[TIME] PC:%04X -> Write SENTINEL [%04X] = FD\n", debug_current_pc, addr);
+}
+
+if (addr == 0xFF46) {
+    printf("[TIME] PC:%04X -> Write DMA [%04X] = %02X\n", debug_current_pc, addr, value);
+}</code></pre>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El Timeline Logger está implementado directamente en
+                    el código C++ de la MMU y CPU, por lo que requiere recompilación para activarse. La instrumentación se ejecuta
+                    en el bucle crítico de ejecución de instrucciones, pero el overhead es mínimo (solo una asignación y comparaciones
+                    condicionales).
+                </p>
+                <p>
+                    <strong>Resultados esperados:</strong>
+                </p>
+                <ul>
+                    <li><strong>Escenario A (Limpieza antes del marcador):</strong> Se ven múltiples <code>[TIME] PC:XXXX -> Write WRAM</code>
+                        con valor <code>00</code>, seguidos de <code>[TIME] PC:YYYY -> Write SENTINEL</code> con valor <code>FD</code>.
+                        <em>Diagnóstico:</em> La limpieza ocurre antes, lo cual es correcto. El problema está en que el marcador no se
+                        copia a WRAM después.</li>
+                    <li><strong>Escenario B (Marcador antes de la limpieza):</strong> Se ve <code>[TIME] PC:XXXX -> Write SENTINEL</code>,
+                        seguido de múltiples <code>[TIME] PC:YYYY -> Write WRAM</code> con valor <code>00</code>.
+                        <em>Diagnóstico:</em> La limpieza está borrando el marcador después de escribirlo.</li>
+                    <li><strong>Escenario C (Nunca se escribe el marcador):</strong> No se ve ningún <code>Write SENTINEL</code>.
+                        <em>Diagnóstico:</em> El juego nunca escribe el marcador, o la rutina que lo escribe no se ejecuta.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Registers_and_Flags.html">CPU Registers and Flags</a> - Sección "Program Counter (PC)"</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Memory_Map.html">Memory Map</a> - Sección "Work RAM (WRAM)"</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Memory_Map.html">Memory Map</a> - Sección "DMA"</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Rastreo temporal de operaciones:</strong> Para diagnosticar problemas de sincronización o
+                            secuencia en un programa, es crucial reconstruir la "timeline" o cronología de las operaciones.
+                            Registrar el PC junto con las operaciones de memoria permite determinar qué instrucción (y por tanto,
+                            qué rutina) está ejecutando cada operación.</li>
+                        <li><strong>Instrumentación arquitectónica:</strong> Añadir campos de debug en las estructuras de datos
+                            principales (como la MMU) es una técnica común para permitir que componentes relacionados (como la CPU)
+                            actualicen información de contexto que luego puede usarse para logging o diagnóstico.</li>
+                        <li><strong>Análisis de secuencia:</strong> Al analizar los logs temporales, podemos determinar si las
+                            operaciones ocurren en el orden correcto y si hay operaciones que están interfiriendo entre sí
+                            (por ejemplo, una rutina de limpieza que borra datos antes de que otra rutina los use).</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Resultados del Timeline Logger:</strong> Necesitamos ejecutar el emulador y analizar los
+                            logs para determinar la secuencia temporal real de las operaciones. ¿Ocurre la limpieza antes o
+                            después de escribir el marcador?</li>
+                        <li><strong>Correlación con el código del juego:</strong> Una vez que conozcamos el PC de cada operación,
+                            podríamos potencialmente correlacionar estos PCs con el código del juego (ROM) para entender qué
+                            rutinas están ejecutando estas operaciones.</li>
+                        <li><strong>Efecto en el rendimiento:</strong> Aunque el overhead debería ser mínimo, necesitamos
+                            verificar que el emulador sigue ejecutándose a velocidad razonable con esta instrumentación activa.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> La secuencia temporal de las operaciones de memoria revelará si
+                        la limpieza de WRAM está ocurriendo antes o después de escribir el marcador `0xFD`. Si ocurre después,
+                        entonces la limpieza está borrando el marcador. Si ocurre antes, entonces el problema está en que el
+                        marcador nunca se copia a WRAM después de escribirlo en HRAM.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Asumimos que el PC actualizado antes del fetch corresponde correctamente a
+                        la instrucción que está a punto de ejecutarse. En realidad, después del fetch el PC ya avanza, pero como
+                        actualizamos antes del fetch, el PC registrado debería corresponder a la instrucción que está ejecutando
+                        la operación de memoria.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con redirección de salida: <code>python main.py roms/tetris.gb > timeline.log 2>&1</code></li>
+                    <li>[ ] Analizar el archivo <code>timeline.log</code> buscando líneas con <code>[TIME]</code></li>
+                    <li>[ ] Reconstruir la secuencia temporal: ¿En qué orden ocurren las escrituras en WRAM, el marcador y DMA?</li>
+                    <li>[ ] Identificar el PC de cada operación para determinar qué rutinas están ejecutando estas operaciones</li>
+                    <li>[ ] Determinar si la limpieza está borrando el marcador o si el marcador nunca se copia a WRAM</li>
+                    <li>[ ] Si es necesario, correlacionar los PCs con el código del juego (ROM) para entender el flujo del programa</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

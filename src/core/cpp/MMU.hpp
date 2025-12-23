@@ -105,6 +105,17 @@ public:
      */
     void request_interrupt(uint8_t bit);
 
+    /**
+     * Step 0247: Memory Timeline & PC Tracker
+     * 
+     * Campo público para rastrear el Program Counter (PC) actual de la CPU.
+     * La CPU actualiza este campo antes de ejecutar cada instrucción, permitiendo
+     * que la MMU registre qué instrucción provocó cada operación de memoria.
+     * 
+     * Este campo se usa únicamente para diagnóstico y depuración.
+     */
+    uint16_t debug_current_pc;
+
 private:
     /**
      * Memoria principal: 65536 bytes (64KB)
