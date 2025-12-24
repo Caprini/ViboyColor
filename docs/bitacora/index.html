@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0270 - Stack Operations Completion -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0270</span>
+                        <a href="entries/2025-12-23__0270__stack-operations-completion.html" class="title">Stack Operations Completion (DE, HL, AF)</a>
+                        <p class="summary">Este Step completa las operaciones de pila (PUSH/POP) para todos los pares de registros de la CPU. El diagnóstico del Step 0269 reveló que el Stack Pointer ya no apuntaba a la ROM (corrección exitosa), pero el CPU entraba en un bucle infinito de RST 38 (PC:0038) con el SP cayendo en picada. La causa raíz era la falta de las instrucciones PUSH/POP para los pares DE, HL y, críticamente, AF. Pokémon usa PUSH AF y POP AF constantemente para guardar y recuperar el estado de los flags. Si estas instrucciones no están implementadas, la pila se desalinea o los registros quedan con valores basura, causando saltos a direcciones inválidas (que se leen como 0xFF, ejecutando RST 38). Se implementaron 6 nuevas instrucciones: PUSH DE (0xD5), POP DE (0xD1), PUSH HL (0xE5), POP HL (0xE1), PUSH AF (0xF5) y POP AF (0xF1). La implementación de POP AF es especialmente crítica, ya que los 4 bits bajos del registro F siempre deben ser cero.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0269 - Control Flow Completion -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>

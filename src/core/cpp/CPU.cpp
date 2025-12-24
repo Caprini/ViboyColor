@@ -1530,6 +1530,75 @@ int CPU::step() {
                 return 3;
             }
 
+        case 0xD5:  // PUSH DE (Push DE onto stack)
+            // Empuja el par de registros DE en la pila
+            // La pila crece hacia abajo: SP se decrementa primero
+            // Fuente: Pan Docs - PUSH DE: 4 M-Cycles
+            {
+                uint16_t de = regs_->get_de();
+                push_word(de);
+                cycles_ += 4;  // PUSH DE consume 4 M-Cycles
+                return 4;
+            }
+
+        case 0xD1:  // POP DE (Pop from stack into DE)
+            // Saca una palabra de la pila y la guarda en DE
+            // La pila se "encoge": SP se incrementa después de leer
+            // Fuente: Pan Docs - POP DE: 3 M-Cycles
+            {
+                uint16_t value = pop_word();
+                regs_->set_de(value);
+                cycles_ += 3;  // POP DE consume 3 M-Cycles
+                return 3;
+            }
+
+        case 0xE5:  // PUSH HL (Push HL onto stack)
+            // Empuja el par de registros HL en la pila
+            // La pila crece hacia abajo: SP se decrementa primero
+            // Fuente: Pan Docs - PUSH HL: 4 M-Cycles
+            {
+                uint16_t hl = regs_->get_hl();
+                push_word(hl);
+                cycles_ += 4;  // PUSH HL consume 4 M-Cycles
+                return 4;
+            }
+
+        case 0xE1:  // POP HL (Pop from stack into HL)
+            // Saca una palabra de la pila y la guarda en HL
+            // La pila se "encoge": SP se incrementa después de leer
+            // Fuente: Pan Docs - POP HL: 3 M-Cycles
+            {
+                uint16_t value = pop_word();
+                regs_->set_hl(value);
+                cycles_ += 3;  // POP HL consume 3 M-Cycles
+                return 3;
+            }
+
+        case 0xF5:  // PUSH AF (Push AF onto stack)
+            // Empuja el par de registros AF en la pila
+            // La pila crece hacia abajo: SP se decrementa primero
+            // Fuente: Pan Docs - PUSH AF: 4 M-Cycles
+            {
+                uint16_t af = regs_->get_af();
+                push_word(af);
+                cycles_ += 4;  // PUSH AF consume 4 M-Cycles
+                return 4;
+            }
+
+        case 0xF1:  // POP AF (Pop from stack into AF)
+            // Saca una palabra de la pila y la guarda en AF
+            // CRÍTICO: Los 4 bits bajos del registro F SIEMPRE deben ser 0
+            // El hardware real garantiza que estos bits nunca se pueden escribir
+            // Fuente: Pan Docs - POP AF: 3 M-Cycles
+            // Nota: set_af() ya aplica REGISTER_F_MASK (0xF0), pero lo hacemos
+            // explícito con & 0xFFF0 para mayor claridad y robustez
+            {
+                uint16_t value = pop_word();
+                regs_->set_af(value & 0xFFF0);  // Limpiar bits bajos de F explícitamente
+                cycles_ += 3;  // POP AF consume 3 M-Cycles
+                return 3;
+            }
+
         case 0xCD:  // CALL nn (Call subroutine at address nn)
             // Llama a una subrutina guardando la dirección de retorno en la pila
             // 1. Lee la dirección destino nn (16 bits, Little-Endian)

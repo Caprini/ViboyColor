@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stack Operations Completion (DE, HL, AF) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Stack Operations Completion (DE, HL, AF)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0270
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0269__control-flow-completion.html">Anterior (0269)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step completa las operaciones de pila (PUSH/POP) para todos los pares de registros de la CPU. El diagnóstico del Step 0269 reveló que el Stack Pointer ya no apuntaba a la ROM (corrección exitosa), pero el CPU entraba en un bucle infinito de <code>RST 38</code> (<code>PC:0038</code>) con el SP cayendo en picada.
+                </p>
+                <p>
+                    La causa raíz era la falta de las instrucciones <strong>PUSH/POP</strong> para los pares <code>DE</code>, <code>HL</code> y, críticamente, <code>AF</code>. Pokémon usa <code>PUSH AF</code> y <code>POP AF</code> constantemente para guardar y recuperar el estado de los flags. Si estas instrucciones no están implementadas, la pila se desalinea o los registros quedan con valores basura, causando saltos a direcciones inválidas (que se leen como <code>0xFF</code>, ejecutando <code>RST 38</code>).
+                </p>
+                <p>
+                    Se implementaron <strong>6 nuevas instrucciones</strong>: <code>PUSH DE</code> (0xD5), <code>POP DE</code> (0xD1), <code>PUSH HL</code> (0xE5), <code>POP HL</code> (0xE1), <code>PUSH AF</code> (0xF5) y <code>POP AF</code> (0xF1). La implementación de <code>POP AF</code> es especialmente crítica, ya que los 4 bits bajos del registro F siempre deben ser cero.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La pila (Stack) es una estructura de datos LIFO (Last In First Out) que crece hacia direcciones menores de memoria. En la Game Boy, la pila se encuentra típicamente en WRAM (0xC000-0xDFFF) o HRAM (0xFF80-0xFFFE).
+                </p>
+
+                <h3>Operaciones de Pila (PUSH/POP)</h3>
+                <p>
+                    Las instrucciones PUSH y POP permiten guardar y recuperar valores de 16 bits (pares de registros) en la pila. Hay 4 pares de registros que pueden ser empujados/sacados de la pila:
+                </p>
+                <ul>
+                    <li><strong>BC</strong>: B (byte alto) y C (byte bajo) - Ya implementado en Step 0106</li>
+                    <li><strong>DE</strong>: D (byte alto) y E (byte bajo) - <strong>Implementado en este Step</strong></li>
+                    <li><strong>HL</strong>: H (byte alto) y L (byte bajo) - <strong>Implementado en este Step</strong></li>
+                    <li><strong>AF</strong>: A (byte alto) y F (byte bajo) - <strong>Implementado en este Step</strong></li>
+                </ul>
+
+                <h3>PUSH (Empujar a la Pila)</h3>
+                <p>
+                    La instrucción PUSH empuja un par de registros de 16 bits en la pila:
+                </p>
+                <ol>
+                    <li>Decrementa SP en 1 (la pila crece hacia abajo)</li>
+                    <li>Escribe el byte alto (MSB) en la dirección SP</li>
+                    <li>Decrementa SP en 1</li>
+                    <li>Escribe el byte bajo (LSB) en la dirección SP</li>
+                </ol>
+                <p>
+                    <strong>Timing:</strong> 4 M-Cycles (todas las instrucciones PUSH).
+                </p>
+
+                <h3>POP (Sacar de la Pila)</h3>
+                <p>
+                    La instrucción POP saca un par de registros de 16 bits de la pila:
+                </p>
+                <ol>
+                    <li>Lee el byte bajo (LSB) de la dirección SP</li>
+                    <li>Incrementa SP en 1</li>
+                    <li>Lee el byte alto (MSB) de la dirección SP</li>
+                    <li>Incrementa SP en 1</li>
+                    <li>Combina los bytes en formato Little-Endian y los guarda en el par de registros</li>
+                </ol>
+                <p>
+                    <strong>Timing:</strong> 3 M-Cycles (todas las instrucciones POP).
+                </p>
+
+                <h3>POP AF - Caso Especial (CRÍTICO)</h3>
+                <p>
+                    El registro F (Flags) tiene una peculiaridad hardware: <strong>los 4 bits bajos siempre son 0</strong>. Solo los bits 7, 6, 5, 4 son válidos (Z, N, H, C respectivamente).
+                </p>
+                <p>
+                    Cuando hacemos <code>POP AF</code>, debemos asegurarnos de que los 4 bits bajos del registro F se limpien explícitamente. Aunque <code>set_af()</code> ya aplica la máscara <code>REGISTER_F_MASK (0xF0)</code>, lo hacemos explícito con <code>& 0xFFF0</code> para mayor claridad y robustez.
+                </p>
+                <p>
+                    <strong>Implementación:</strong> <code>regs_->set_af(pop_word() & 0xFFF0);</code>
+                </p>
+
+                <h3>¿Por qué son críticas?</h3>
+                <p>
+                    Si estas instrucciones faltan o están mal implementadas:
+                </p>
+                <ol>
+                    <li>El juego intenta guardar el estado de los flags usando <code>PUSH AF</code>.</li>
+                    <li>Si no está implementada, la CPU trata ese byte como un opcode no reconocido (o NOP), <strong>pero no empuja nada a la pila</strong>.</li>
+                    <li>El juego continúa ejecutando.</li>
+                    <li>De repente se encuentra un <code>POP AF</code> (que sí tenemos implementado).</li>
+                    <li>Hace <code>POP</code> de la pila. Pero como nunca hicimos el <code>PUSH</code> del <code>PUSH AF</code>, sacamos basura (o underflow).</li>
+                    <li><strong>Los flags quedan con valores basura. El juego toma decisiones incorrectas basadas en flags corruptos.</strong></li>
+                    <li>Un <code>RET</code> posterior puede saltar a una dirección inválida (que se lee como <code>0xFF</code>), ejecutando <code>RST 38</code> y entrando en un bucle infinito.</li>
+                </ol>
+
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "CPU Instruction Set", "Stack Operations", "Register F (Flags)"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron 6 nuevas instrucciones en el método <code>step()</code> de <code>CPU.cpp</code>, justo después de las instrucciones PUSH/POP BC existentes.
+                </p>
+
+                <h3>PUSH DE (0xD5)</h3>
+                <pre><code>case 0xD5:  // PUSH DE (Push DE onto stack)
+{
+    uint16_t de = regs_->get_de();
+    push_word(de);
+    cycles_ += 4;  // PUSH DE consume 4 M-Cycles
+    return 4;
+}</code></pre>
+
+                <h3>POP DE (0xD1)</h3>
+                <pre><code>case 0xD1:  // POP DE (Pop from stack into DE)
+{
+    uint16_t value = pop_word();
+    regs_->set_de(value);
+    cycles_ += 3;  // POP DE consume 3 M-Cycles
+    return 3;
+}</code></pre>
+
+                <h3>PUSH HL (0xE5)</h3>
+                <pre><code>case 0xE5:  // PUSH HL (Push HL onto stack)
+{
+    uint16_t hl = regs_->get_hl();
+    push_word(hl);
+    cycles_ += 4;  // PUSH HL consume 4 M-Cycles
+    return 4;
+}</code></pre>
+
+                <h3>POP HL (0xE1)</h3>
+                <pre><code>case 0xE1:  // POP HL (Pop from stack into HL)
+{
+    uint16_t value = pop_word();
+    regs_->set_hl(value);
+    cycles_ += 3;  // POP HL consume 3 M-Cycles
+    return 3;
+}</code></pre>
+
+                <h3>PUSH AF (0xF5)</h3>
+                <pre><code>case 0xF5:  // PUSH AF (Push AF onto stack)
+{
+    uint16_t af = regs_->get_af();
+    push_word(af);
+    cycles_ += 4;  // PUSH AF consume 4 M-Cycles
+    return 4;
+}</code></pre>
+
+                <h3>POP AF (0xF1) - CRÍTICO</h3>
+                <pre><code>case 0xF1:  // POP AF (Pop from stack into AF)
+{
+    // CRÍTICO: Los 4 bits bajos del registro F SIEMPRE deben ser 0
+    // El hardware real garantiza que estos bits nunca se pueden escribir
+    // Nota: set_af() ya aplica REGISTER_F_MASK (0xF0), pero lo hacemos
+    // explícito con & 0xFFF0 para mayor claridad y robustez
+    uint16_t value = pop_word();
+    regs_->set_af(value & 0xFFF0);  // Limpiar bits bajos de F explícitamente
+    cycles_ += 3;  // POP AF consume 3 M-Cycles
+    return 3;
+}</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Limpieza explícita de bits bajos en POP AF:</strong> Aunque <code>set_af()</code> ya aplica la máscara, hacemos la limpieza explícita con <code>& 0xFFF0</code> para mayor claridad y robustez. Esto garantiza que los 4 bits bajos del registro F siempre sean cero, como requiere el hardware.</li>
+                    <li><strong>Organización del código:</strong> Las instrucciones se agrupan juntas después de PUSH/POP BC para mantener la coherencia y facilitar el mantenimiento.</li>
+                    <li><strong>Timing preciso:</strong> Cada instrucción retorna el número exacto de M-Cycles según Pan Docs (4 para PUSH, 3 para POP).</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Agregadas 6 nuevas instrucciones de pila en el método <code>step()</code>:
+                        <ul>
+                            <li>PUSH DE (0xD5) - 4 M-Cycles</li>
+                            <li>POP DE (0xD1) - 3 M-Cycles</li>
+                            <li>PUSH HL (0xE5) - 4 M-Cycles</li>
+                            <li>POP HL (0xE1) - 3 M-Cycles</li>
+                            <li>PUSH AF (0xF5) - 4 M-Cycles</li>
+                            <li>POP AF (0xF1) - 3 M-Cycles (con limpieza explícita de bits bajos de F)</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Las instrucciones se implementaron directamente en C++ y requieren recompilación.
+                </p>
+                <p>
+                    <strong>Comando de compilación:</strong>
+                </p>
+                <pre><code>.\rebuild_cpp.ps1</code></pre>
+                <p>
+                    <strong>Comando de prueba:</strong>
+                </p>
+                <pre><code>python main.py roms/pkmn.gb</code></pre>
+                <p>
+                    <strong>Verificaciones esperadas:</strong>
+                </p>
+                <ul>
+                    <li>El bucle infinito de <code>RST 38</code> (<code>PC:0038</code>) debería desaparecer.</li>
+                    <li>El Stack Pointer debería mantenerse estable (no caer en picada).</li>
+                    <li>El juego debería avanzar más allá del bucle de espera y mostrar la intro (estrellas, Game Freak, Gengar).</li>
+                    <li>Si <code>PUSH AF</code> era el culpable (casi seguro), esto estabilizará el sistema definitivamente.</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> Los tests unitarios completos se pueden implementar en un Step futuro, siguiendo el patrón de tests existentes.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - PUSH Instructions</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - POP Instructions</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - Register F (Flags)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - Stack Operations</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Bucle RST 38:</strong> Si el juego "descarrila" y salta a una zona vacía, lee <code>0xFF</code>, ejecuta <code>RST 38</code>, empuja el PC a la pila, salta a <code>0038</code>, lee <code>0xFF</code> otra vez (si <code>0038</code> no tiene código válido), vuelve a empujar... Esto causa un Stack Overflow (el SP baja hasta dar la vuelta).</li>
+                        <li><strong>PUSH/POP AF:</strong> Pokémon usa <code>PUSH AF</code> y <code>POP AF</code> constantemente para guardar y recuperar el estado de los flags. Si estas instrucciones no están implementadas, la pila se desalinea o los registros quedan con valores basura, causando saltos a direcciones inválidas.</li>
+                        <li><strong>Registro F:</strong> Los 4 bits bajos del registro F siempre deben ser cero. Al hacer <code>POP AF</code>, debemos limpiar esos bits explícitamente con <code>& 0xFFF0</code>.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Validación con ROMs reales:</strong> Necesitamos ejecutar el emulador con Pokémon Red y verificar que el bucle de <code>RST 38</code> desaparece y que el juego avanza correctamente.</li>
+                        <li><strong>Tests unitarios:</strong> Implementar tests unitarios completos que validen el comportamiento de PUSH/POP para todos los pares de registros, especialmente el caso especial de POP AF.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que la falta de PUSH/POP AF era la causa principal del bucle infinito de <code>RST 38</code>. Si el problema persiste después de este Step, necesitaremos investigar otras causas posibles (como otras instrucciones faltantes o problemas en la gestión de memoria).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con <code>.\rebuild_cpp.ps1</code></li>
+                    <li>[ ] Ejecutar el emulador con Pokémon Red y verificar que el bucle de <code>RST 38</code> desaparece</li>
+                    <li>[ ] Verificar que el Stack Pointer se mantiene estable (no cae en picada)</li>
+                    <li>[ ] Verificar que el juego avanza más allá del bucle de espera y muestra la intro (estrellas, Game Freak, Gengar)</li>
+                    <li>[ ] Si el problema persiste, investigar otras causas posibles (otras instrucciones faltantes, problemas en gestión de memoria, etc.)</li>
+                    <li>[ ] Implementar tests unitarios completos para las nuevas instrucciones (opcional, puede ser un Step futuro)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

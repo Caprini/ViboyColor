@@ -32,6 +32,45 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0270: Stack Operations Completion (DE, HL, AF)
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step completa las operaciones de pila (PUSH/POP) para todos los pares de registros de la CPU.
+
+**Objetivo:**
+- Implementar las instrucciones PUSH/POP faltantes para los pares DE, HL y AF.
+- Corregir el bucle infinito de `RST 38` (`PC:0038`) causado por la falta de estas instrucciones.
+- Asegurar que POP AF limpie correctamente los 4 bits bajos del registro F.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/CPU.cpp`**: 
+   - Agregado `PUSH DE` (0xD5): 4 M-Cycles. Empuja el par DE en la pila.
+   - Agregado `POP DE` (0xD1): 3 M-Cycles. Saca una palabra de la pila y la guarda en DE.
+   - Agregado `PUSH HL` (0xE5): 4 M-Cycles. Empuja el par HL en la pila.
+   - Agregado `POP HL` (0xE1): 3 M-Cycles. Saca una palabra de la pila y la guarda en HL.
+   - Agregado `PUSH AF` (0xF5): 4 M-Cycles. Empuja el par AF en la pila.
+   - Agregado `POP AF` (0xF1): 3 M-Cycles. Saca una palabra de la pila y la guarda en AF, limpiando explícitamente los 4 bits bajos de F con `& 0xFFF0`.
+
+**Concepto de Hardware:**
+**Bucle RST 38**: Si el juego "descarrila" y salta a una zona vacía, lee `0xFF`, ejecuta `RST 38`, empuja el PC a la pila, salta a `0038`, lee `0xFF` otra vez (si `0038` no tiene código válido), vuelve a empujar... Esto causa un Stack Overflow (el SP baja hasta dar la vuelta).
+
+**PUSH/POP AF**: Pokémon usa `PUSH AF` y `POP AF` constantemente para guardar y recuperar el estado de los flags. Si estas instrucciones no están implementadas, la pila se desalinea o los registros quedan con valores basura, causando saltos a direcciones inválidas (que se leen como `0xFF`, ejecutando `RST 38`).
+
+**Registro F**: Los 4 bits bajos del registro F siempre deben ser cero. Al hacer `POP AF`, debemos limpiar esos bits explícitamente con `& 0xFFF0`.
+
+**Fuente:** Pan Docs - "CPU Instruction Set", "Stack Operations", "Register F (Flags)"
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Agregadas 6 nuevas instrucciones de pila en el método `step()` (Step 0270).
+
+**Próximos Pasos:**
+- Recompilar el módulo C++ con `.\rebuild_cpp.ps1`.
+- Ejecutar el emulador con Pokémon Red y verificar que el bucle de `RST 38` desaparece.
+- Verificar que el Stack Pointer se mantiene estable (no cae en picada).
+- Verificar que el juego avanza más allá del bucle de espera y muestra la intro (estrellas, Game Freak, Gengar).
+
+---
+
 ### 2025-12-23 - Step 0269: Control Flow Completion (Calls, Rets, RSTs)
 **Estado**: ✅ IMPLEMENTADO
 
