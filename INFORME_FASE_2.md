@@ -32,6 +32,44 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-23 - Step 0269: Control Flow Completion (Calls, Rets, RSTs)
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step completa el conjunto de instrucciones de control de flujo de la CPU implementando todas las instrucciones condicionales y RST que faltaban.
+
+**Objetivo:**
+- Implementar todas las instrucciones de control de flujo restantes que faltaban en la CPU.
+- Corregir el "Desastre de Flujo de Control" que causaba la corrupción del Stack Pointer.
+- Asegurar que las instrucciones condicionales lean siempre los operandos para mantener el PC alineado.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/CPU.cpp`**: 
+   - Agregadas 4 retornos condicionales: `RET NZ` (0xC0), `RET Z` (0xC8), `RET NC` (0xD0), `RET C` (0xD8).
+   - Agregadas 4 llamadas condicionales: `CALL NZ, nn` (0xC4), `CALL Z, nn` (0xCC), `CALL NC, nn` (0xD4), `CALL C, nn` (0xDC).
+   - Agregados 4 saltos absolutos condicionales: `JP NZ, nn` (0xC2), `JP Z, nn` (0xCA), `JP NC, nn` (0xD2), `JP C, nn` (0xDA).
+   - Agregadas 8 instrucciones RST: `RST 00` (0xC7), `RST 08` (0xCF), `RST 10` (0xD7), `RST 18` (0xDF), `RST 20` (0xE7), `RST 28` (0xEF), `RST 30` (0xF7), `RST 38` (0xFF).
+   - Agregado salto indirecto: `JP (HL)` (0xE9).
+
+**Concepto de Hardware:**
+**Desastre de Flujo de Control**: Si una instrucción condicional (como `CALL Z`) no está implementada, actúa como NOP, desbalanceando la pila. Cuando luego se ejecuta un `RET`, saca datos erróneos y corrompe el SP.
+
+**Restarts (RST)**: Las instrucciones RST son llamadas rápidas de 1 byte que hacen `PUSH PC` y saltan a una dirección fija. Son críticas para Pokémon, que las usa intensivamente para funciones del sistema (cambio de bancos de memoria, manejo de gráficos, etc.).
+
+**Lectura de Operandos**: En instrucciones condicionales, siempre debemos leer los operandos (nn) incluso si la condición no se cumple, para mantener el PC alineado correctamente.
+
+**Fuente:** Pan Docs - "CPU Instruction Set", "Control Flow Instructions", "RST Instructions"
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Agregadas 17 nuevas instrucciones de control de flujo en el método `step()` (Step 0269).
+
+**Próximos Pasos:**
+- Recompilar el módulo C++ con `.\rebuild_cpp.ps1`.
+- Ejecutar el emulador con Pokémon Red y verificar que el SP ya no se corrompe.
+- Verificar que el juego avanza más allá del bucle de espera y muestra gráficos.
+- Si el SP sigue corrompido, investigar otras causas posibles (instrucciones CB faltantes, problemas en gestión de memoria, etc.).
+
+---
+
 ### 2025-12-23 - Step 0268: Stack Math Implementation (0xE8, 0xF8, 0xF9)
 **Estado**: ✅ IMPLEMENTADO
 

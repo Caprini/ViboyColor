@@ -1324,6 +1324,87 @@ int CPU::step() {
                 return 4;
             }
 
+        // ========== Saltos Absolutos Condicionales (JP cc, nn) ==========
+        // Step 0269: Implementación de saltos absolutos condicionales
+        
+        case 0xC2:  // JP NZ, nn (Jump if Not Zero)
+            // Salto absoluto condicional: salta si el flag Z está desactivado (Z=0)
+            // SIEMPRE lee nn (para avanzar PC), pero solo salta si la condición es verdadera
+            // Fuente: Pan Docs - JP NZ, nn: 4 M-Cycles si salta, 3 M-Cycles si no
+            {
+                uint16_t target = fetch_word();  // Siempre leer nn para mantener PC alineado
+                
+                if (!regs_->get_flag_z()) {
+                    // Condición verdadera: saltar
+                    regs_->pc = target;
+                    cycles_ += 4;  // JP NZ consume 4 M-Cycles si salta
+                    return 4;
+                } else {
+                    // Condición falsa: no saltar, continuar ejecución normal
+                    cycles_ += 3;  // JP NZ consume 3 M-Cycles si no salta
+                    return 3;
+                }
+            }
+
+        case 0xCA:  // JP Z, nn (Jump if Zero)
+            // Salto absoluto condicional: salta si el flag Z está activado (Z=1)
+            // Fuente: Pan Docs - JP Z, nn: 4 M-Cycles si salta, 3 M-Cycles si no
+            {
+                uint16_t target = fetch_word();
+                
+                if (regs_->get_flag_z()) {
+                    regs_->pc = target;
+                    cycles_ += 4;
+                    return 4;
+                } else {
+                    cycles_ += 3;
+                    return 3;
+                }
+            }
+
+        case 0xD2:  // JP NC, nn (Jump if No Carry)
+            // Salto absoluto condicional: salta si el flag C está desactivado (C=0)
+            // Fuente: Pan Docs - JP NC, nn: 4 M-Cycles si salta, 3 M-Cycles si no
+            {
+                uint16_t target = fetch_word();
+                
+                if (!regs_->get_flag_c()) {
+                    regs_->pc = target;
+                    cycles_ += 4;
+                    return 4;
+                } else {
+                    cycles_ += 3;
+                    return 3;
+                }
+            }
+
+        case 0xDA:  // JP C, nn (Jump if Carry)
+            // Salto absoluto condicional: salta si el flag C está activado (C=1)
+            // Fuente: Pan Docs - JP C, nn: 4 M-Cycles si salta, 3 M-Cycles si no
+            {
+                uint16_t target = fetch_word();
+                
+                if (regs_->get_flag_c()) {
+                    regs_->pc = target;
+                    cycles_ += 4;
+                    return 4;
+                } else {
+                    cycles_ += 3;
+                    return 3;
+                }
+            }
+
+        case 0xE9:  // JP (HL) (Jump to address in HL)
+            // Salto indirecto: PC = HL
+            // Esta instrucción permite saltar a una dirección calculada dinámicamente
+            // Fuente: Pan Docs - JP (HL): 1 M-Cycle
+            {
+                uint16_t hl = regs_->get_hl();
+                regs_->pc = hl;
+                cycles_ += 1;  // JP (HL) consume 1 M-Cycle
+                return 1;
+            }
+
         case 0x18:  // JR e (Jump Relative)
             // Salto relativo incondicional
             // Lee un byte con signo (int8_t) y lo suma a PC
@@ -1464,6 +1545,85 @@ int CPU::step() {
                 return 6;
             }
 
+        // ========== Llamadas Condicionales (CALL cc, nn) ==========
+        // Step 0269: Implementación de llamadas condicionales
+        // Estas instrucciones son críticas para evitar desbalance de pila
+        
+        case 0xC4:  // CALL NZ, nn (Call if Not Zero)
+            // Llama a una subrutina si el flag Z está desactivado (Z=0)
+            // SIEMPRE lee nn (para avanzar PC), pero solo llama si la condición es verdadera
+            // Fuente: Pan Docs - CALL NZ, nn: 6 M-Cycles si se cumple, 3 M-Cycles si no
+            {
+                uint16_t target = fetch_word();  // Siempre leer nn para mantener PC alineado
+                
+                if (!regs_->get_flag_z()) {
+                    // Condición verdadera: hacer push y saltar
+                    uint16_t return_addr = regs_->pc;  // PC actual es la dirección de retorno
+                    push_word(return_addr);
+                    regs_->pc = target;
+                    cycles_ += 6;  // CALL NZ consume 6 M-Cycles si se cumple
+                    return 6;
+                } else {
+                    // Condición falsa: no llamar, continuar ejecución normal
+                    cycles_ += 3;  // CALL NZ consume 3 M-Cycles si no se cumple
+                    return 3;
+                }
+            }
+
+        case 0xCC:  // CALL Z, nn (Call if Zero)
+            // Llama a una subrutina si el flag Z está activado (Z=1)
+            // Fuente: Pan Docs - CALL Z, nn: 6 M-Cycles si se cumple, 3 M-Cycles si no
+            {
+                uint16_t target = fetch_word();
+                
+                if (regs_->get_flag_z()) {
+                    uint16_t return_addr = regs_->pc;
+                    push_word(return_addr);
+                    regs_->pc = target;
+                    cycles_ += 6;
+                    return 6;
+                } else {
+                    cycles_ += 3;
+                    return 3;
+                }
+            }
+
+        case 0xD4:  // CALL NC, nn (Call if No Carry)
+            // Llama a una subrutina si el flag C está desactivado (C=0)
+            // Fuente: Pan Docs - CALL NC, nn: 6 M-Cycles si se cumple, 3 M-Cycles si no
+            {
+                uint16_t target = fetch_word();
+                
+                if (!regs_->get_flag_c()) {
+                    uint16_t return_addr = regs_->pc;
+                    push_word(return_addr);
+                    regs_->pc = target;
+                    cycles_ += 6;
+                    return 6;
+                } else {
+                    cycles_ += 3;
+                    return 3;
+                }
+            }
+
+        case 0xDC:  // CALL C, nn (Call if Carry)
+            // Llama a una subrutina si el flag C está activado (C=1)
+            // Fuente: Pan Docs - CALL C, nn: 6 M-Cycles si se cumple, 3 M-Cycles si no
+            {
+                uint16_t target = fetch_word();
+                
+                if (regs_->get_flag_c()) {
+                    uint16_t return_addr = regs_->pc;
+                    push_word(return_addr);
+                    regs_->pc = target;
+                    cycles_ += 6;
+                    return 6;
+                } else {
+                    cycles_ += 3;
+                    return 3;
+                }
+            }
+
         case 0xC9:  // RET (Return from subroutine)
             // Retorna de una subrutina recuperando la dirección de retorno de la pila
             // 1. Saca la dirección de retorno de la pila
@@ -1474,6 +1634,72 @@ int CPU::step() {
                 regs_->pc = return_addr;
                 cycles_ += 4;  // RET consume 4 M-Cycles
                 return 4;
+            }
+
+        // ========== Retornos Condicionales (RET cc) ==========
+        // Step 0269: Implementación de retornos condicionales
+        // Estas instrucciones son críticas para el flujo de control correcto
+        
+        case 0xC0:  // RET NZ (Return if Not Zero)
+            // Retorna si el flag Z está desactivado (Z=0)
+            // Fuente: Pan Docs - RET NZ: 5 M-Cycles si se cumple, 2 M-Cycles si no
+            {
+                if (!regs_->get_flag_z()) {
+                    // Condición verdadera: hacer pop y saltar
+                    uint16_t return_addr = pop_word();
+                    regs_->pc = return_addr;
+                    cycles_ += 5;  // RET NZ consume 5 M-Cycles si se cumple
+                    return 5;
+                } else {
+                    // Condición falsa: no retornar, continuar ejecución
+                    cycles_ += 2;  // RET NZ consume 2 M-Cycles si no se cumple
+                    return 2;
+                }
+            }
+
+        case 0xC8:  // RET Z (Return if Zero)
+            // Retorna si el flag Z está activado (Z=1)
+            // Fuente: Pan Docs - RET Z: 5 M-Cycles si se cumple, 2 M-Cycles si no
+            {
+                if (regs_->get_flag_z()) {
+                    uint16_t return_addr = pop_word();
+                    regs_->pc = return_addr;
+                    cycles_ += 5;
+                    return 5;
+                } else {
+                    cycles_ += 2;
+                    return 2;
+                }
+            }
+
+        case 0xD0:  // RET NC (Return if No Carry)
+            // Retorna si el flag C está desactivado (C=0)
+            // Fuente: Pan Docs - RET NC: 5 M-Cycles si se cumple, 2 M-Cycles si no
+            {
+                if (!regs_->get_flag_c()) {
+                    uint16_t return_addr = pop_word();
+                    regs_->pc = return_addr;
+                    cycles_ += 5;
+                    return 5;
+                } else {
+                    cycles_ += 2;
+                    return 2;
+                }
+            }
+
+        case 0xD8:  // RET C (Return if Carry)
+            // Retorna si el flag C está activado (C=1)
+            // Fuente: Pan Docs - RET C: 5 M-Cycles si se cumple, 2 M-Cycles si no
+            {
+                if (regs_->get_flag_c()) {
+                    uint16_t return_addr = pop_word();
+                    regs_->pc = return_addr;
+                    cycles_ += 5;
+                    return 5;
+                } else {
+                    cycles_ += 2;
+                    return 2;
+                }
             }
 
         // ========== Control de Interrupciones ==========
@@ -1639,6 +1865,84 @@ int CPU::step() {
                 regs_->sp = hl;
                 cycles_ += 2;  // LD SP, HL consume 2 M-Cycles
                 return 2;
+            }
+
+        // ========== Restarts (RST n) ==========
+        // Step 0269: Implementación de instrucciones RST
+        // Las instrucciones RST son llamadas rápidas de 1 byte que hacen PUSH PC y saltan a una dirección fija
+        // Son críticas para Pokémon y otros juegos que las usan para funciones del sistema
+        // Fuente: Pan Docs - RST n: 4 M-Cycles
+        
+        case 0xC7:  // RST 00 (Restart to 0x0000)
+            {
+                uint16_t return_addr = regs_->pc;  // PC actual es la dirección de retorno
+                push_word(return_addr);
+                regs_->pc = 0x0000;
+                cycles_ += 4;  // RST consume 4 M-Cycles
+                return 4;
+            }
+
+        case 0xCF:  // RST 08 (Restart to 0x0008)
+            {
+                uint16_t return_addr = regs_->pc;
+                push_word(return_addr);
+                regs_->pc = 0x0008;
+                cycles_ += 4;
+                return 4;
+            }
+
+        case 0xD7:  // RST 10 (Restart to 0x0010)
+            {
+                uint16_t return_addr = regs_->pc;
+                push_word(return_addr);
+                regs_->pc = 0x0010;
+                cycles_ += 4;
+                return 4;
+            }
+
+        case 0xDF:  // RST 18 (Restart to 0x0018)
+            {
+                uint16_t return_addr = regs_->pc;
+                push_word(return_addr);
+                regs_->pc = 0x0018;
+                cycles_ += 4;
+                return 4;
+            }
+
+        case 0xE7:  // RST 20 (Restart to 0x0020)
+            {
+                uint16_t return_addr = regs_->pc;
+                push_word(return_addr);
+                regs_->pc = 0x0020;
+                cycles_ += 4;
+                return 4;
+            }
+
+        case 0xEF:  // RST 28 (Restart to 0x0028)
+            {
+                uint16_t return_addr = regs_->pc;
+                push_word(return_addr);
+                regs_->pc = 0x0028;
+                cycles_ += 4;
+                return 4;
+            }
+
+        case 0xF7:  // RST 30 (Restart to 0x0030)
+            {
+                uint16_t return_addr = regs_->pc;
+                push_word(return_addr);
+                regs_->pc = 0x0030;
+                cycles_ += 4;
+                return 4;
+            }
+
+        case 0xFF:  // RST 38 (Restart to 0x0038)
+            {
+                uint16_t return_addr = regs_->pc;
+                push_word(return_addr);
+                regs_->pc = 0x0038;
+                cycles_ += 4;
+                return 4;
             }
 
         case 0xCB:  // CB Prefix (Extended Instructions)

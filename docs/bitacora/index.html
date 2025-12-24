@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0269 - Control Flow Completion -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-23</span>
+                        <span class="tag">0269</span>
+                        <a href="entries/2025-12-23__0269__control-flow-completion.html" class="title">Control Flow Completion (Calls, Rets, RSTs)</a>
+                        <p class="summary">Este Step completa el conjunto de instrucciones de control de flujo de la CPU implementando todas las instrucciones condicionales y RST que faltaban. El diagnóstico del Step 0268 reveló que el Stack Pointer seguía corrompido (SP:210A) incluso después de implementar las matemáticas de pila. La causa raíz era un Desastre de Flujo de Control: si el juego ejecuta CALL Z o RST 28 y no están implementadas, actúan como NOPs, desbalanceando la pila (un RET posterior sacará datos erróneos) y causando el crash. Se implementaron 17 nuevas instrucciones: 4 retornos condicionales, 4 llamadas condicionales, 4 saltos absolutos condicionales, 8 restarts (RST) y 1 salto indirecto (JP HL). Sin estas instrucciones, la lógica del juego es un queso gruyère lleno de agujeros.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0268 - Stack Math Implementation -->
                     <li class="entry-item">
                         <span class="meta">2025-12-23</span>

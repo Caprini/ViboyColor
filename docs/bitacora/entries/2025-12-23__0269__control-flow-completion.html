@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control Flow Completion (Calls, Rets, RSTs) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Control Flow Completion (Calls, Rets, RSTs)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-23
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0269
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0268__stack-math-implementation.html">Anterior (0268)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step completa el conjunto de instrucciones de control de flujo de la CPU implementando todas las instrucciones condicionales y RST que faltaban.
+                </p>
+                <p>
+                    El diagnóstico del Step 0268 reveló que el Stack Pointer seguía corrompido (`SP:210A`) incluso después de implementar las matemáticas de pila. La causa raíz era un <strong>Desastre de Flujo de Control</strong>: si el juego ejecuta `CALL Z` o `RST 28` y no están implementadas, actúan como NOPs, desbalanceando la pila (un `RET` posterior sacará datos erróneos) y causando el crash.
+                </p>
+                <p>
+                    Se implementaron <strong>17 nuevas instrucciones</strong>: 4 retornos condicionales, 4 llamadas condicionales, 4 saltos absolutos condicionales, 8 restarts (RST) y 1 salto indirecto (JP HL). Sin estas instrucciones, la lógica del juego es un queso gruyère lleno de agujeros.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El control de flujo es el mecanismo que permite a la CPU cambiar el orden de ejecución de las instrucciones. En la Game Boy, hay varios tipos de instrucciones de control de flujo:
+                </p>
+
+                <h3>Retornos Condicionales (RET cc)</h3>
+                <p>
+                    Las instrucciones `RET NZ`, `RET Z`, `RET NC` y `RET C` retornan de una subrutina solo si se cumple una condición específica basada en los flags. Si la condición no se cumple, la ejecución continúa normalmente.
+                </p>
+                <ul>
+                    <li><strong>RET NZ (0xC0)</strong>: Retorna si Z=0 (Not Zero)</li>
+                    <li><strong>RET Z (0xC8)</strong>: Retorna si Z=1 (Zero)</li>
+                    <li><strong>RET NC (0xD0)</strong>: Retorna si C=0 (No Carry)</li>
+                    <li><strong>RET C (0xD8)</strong>: Retorna si C=1 (Carry)</li>
+                </ul>
+                <p>
+                    <strong>Timing:</strong> 5 M-Cycles si se cumple (hace pop y salta), 2 M-Cycles si no (continúa).
+                </p>
+
+                <h3>Llamadas Condicionales (CALL cc, nn)</h3>
+                <p>
+                    Las instrucciones `CALL NZ`, `CALL Z`, `CALL NC` y `CALL C` llaman a una subrutina solo si se cumple una condición específica. <strong>CRÍTICO:</strong> Siempre leen `nn` (para mantener el PC alineado), pero solo hacen push y saltan si la condición se cumple.
+                </p>
+                <ul>
+                    <li><strong>CALL NZ, nn (0xC4)</strong>: Llama si Z=0</li>
+                    <li><strong>CALL Z, nn (0xCC)</strong>: Llama si Z=1</li>
+                    <li><strong>CALL NC, nn (0xD4)</strong>: Llama si C=0</li>
+                    <li><strong>CALL C, nn (0xDC)</strong>: Llama si C=1</li>
+                </ul>
+                <p>
+                    <strong>Timing:</strong> 6 M-Cycles si se cumple (push y salta), 3 M-Cycles si no (lee nn y continúa).
+                </p>
+
+                <h3>Saltos Absolutos Condicionales (JP cc, nn)</h3>
+                <p>
+                    Similar a las llamadas condicionales, pero sin modificar la pila. Solo saltan si se cumple la condición.
+                </p>
+                <ul>
+                    <li><strong>JP NZ, nn (0xC2)</strong>: Salta si Z=0</li>
+                    <li><strong>JP Z, nn (0xCA)</strong>: Salta si Z=1</li>
+                    <li><strong>JP NC, nn (0xD2)</strong>: Salta si C=0</li>
+                    <li><strong>JP C, nn (0xDA)</strong>: Salta si C=1</li>
+                </ul>
+                <p>
+                    <strong>Timing:</strong> 4 M-Cycles si salta, 3 M-Cycles si no.
+                </p>
+
+                <h3>Restarts (RST n) - CRÍTICO PARA POKÉMON</h3>
+                <p>
+                    Las instrucciones RST son llamadas rápidas de <strong>1 byte</strong> que hacen `PUSH PC` y saltan a una dirección fija. Son extremadamente eficientes y Pokémon las usa intensivamente para funciones del sistema (cambio de bancos de memoria, manejo de gráficos, etc.).
+                </p>
+                <p>
+                    Hay 8 instrucciones RST, cada una salta a una dirección específica:
+                </p>
+                <ul>
+                    <li><strong>RST 00 (0xC7)</strong>: Salta a 0x0000</li>
+                    <li><strong>RST 08 (0xCF)</strong>: Salta a 0x0008</li>
+                    <li><strong>RST 10 (0xD7)</strong>: Salta a 0x0010</li>
+                    <li><strong>RST 18 (0xDF)</strong>: Salta a 0x0018</li>
+                    <li><strong>RST 20 (0xE7)</strong>: Salta a 0x0020</li>
+                    <li><strong>RST 28 (0xEF)</strong>: Salta a 0x0028 (muy usado en Pokémon)</li>
+                    <li><strong>RST 30 (0xF7)</strong>: Salta a 0x0030</li>
+                    <li><strong>RST 38 (0xFF)</strong>: Salta a 0x0038</li>
+                </ul>
+                <p>
+                    <strong>Timing:</strong> 4 M-Cycles (todas).
+                </p>
+                <p>
+                    <strong>Implementación:</strong> `push_word(regs_->pc); regs_->pc = 0x00XX;`
+                </p>
+
+                <h3>Salto Indirecto (JP HL)</h3>
+                <p>
+                    La instrucción `JP (HL)` (0xE9) permite saltar a una dirección calculada dinámicamente almacenada en HL. Es útil para tablas de saltos y funciones virtuales.
+                </p>
+                <p>
+                    <strong>Timing:</strong> 1 M-Cycle.
+                </p>
+
+                <h3>¿Por qué son críticas?</h3>
+                <p>
+                    Si estas instrucciones faltan o están mal implementadas:
+                </p>
+                <ol>
+                    <li>El juego intenta llamar a una función vital usando `CALL NZ, aaaa`.</li>
+                    <li>Si no está implementada, la CPU trata ese byte como un opcode no reconocido (o NOP), avanza el PC, <strong>pero no empuja nada al Stack ni salta</strong>.</li>
+                    <li>El juego sigue ejecutando linealmente.</li>
+                    <li>De repente se encuentra un `RET` (que sí tenemos implementado).</li>
+                    <li>Hace `POP` de la pila. Pero como nunca hicimos el `PUSH` del `CALL`, sacamos basura (o underflow).</li>
+                    <li><strong>SP se rompe. PC salta a la basura (210A en ROM).</strong></li>
+                </ol>
+
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "CPU Instruction Set", "Control Flow Instructions", "RST Instructions"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron 17 nuevas instrucciones en el método <code>step()</code> de <code>CPU.cpp</code>, organizadas en secciones lógicas dentro del switch.
+                </p>
+
+                <h3>Retornos Condicionales</h3>
+                <pre><code>case 0xC0:  // RET NZ
+{
+    if (!regs_-&gt;get_flag_z()) {
+        uint16_t return_addr = pop_word();
+        regs_-&gt;pc = return_addr;
+        cycles_ += 5;
+        return 5;
+    } else {
+        cycles_ += 2;
+        return 2;
+    }
+}</code></pre>
+                <p>
+                    (Similar para RET Z, RET NC, RET C)
+                </p>
+
+                <h3>Llamadas Condicionales</h3>
+                <pre><code>case 0xC4:  // CALL NZ, nn
+{
+    uint16_t target = fetch_word();  // Siempre leer nn para mantener PC alineado
+    
+    if (!regs_-&gt;get_flag_z()) {
+        uint16_t return_addr = regs_-&gt;pc;
+        push_word(return_addr);
+        regs_-&gt;pc = target;
+        cycles_ += 6;
+        return 6;
+    } else {
+        cycles_ += 3;
+        return 3;
+    }
+}</code></pre>
+                <p>
+                    <strong>Nota crítica:</strong> Siempre leemos `nn` incluso si la condición no se cumple, para mantener el PC alineado correctamente.
+                </p>
+
+                <h3>Saltos Absolutos Condicionales</h3>
+                <pre><code>case 0xC2:  // JP NZ, nn
+{
+    uint16_t target = fetch_word();  // Siempre leer nn
+    
+    if (!regs_-&gt;get_flag_z()) {
+        regs_-&gt;pc = target;
+        cycles_ += 4;
+        return 4;
+    } else {
+        cycles_ += 3;
+        return 3;
+    }
+}</code></pre>
+
+                <h3>Restarts (RST)</h3>
+                <pre><code>case 0xEF:  // RST 28 (Restart to 0x0028)
+{
+    uint16_t return_addr = regs_-&gt;pc;
+    push_word(return_addr);
+    regs_-&gt;pc = 0x0028;
+    cycles_ += 4;
+    return 4;
+}</code></pre>
+                <p>
+                    (Similar para los otros 7 RST: 0xC7, 0xCF, 0xD7, 0xDF, 0xE7, 0xF7, 0xFF)
+                </p>
+
+                <h3>Salto Indirecto</h3>
+                <pre><code>case 0xE9:  // JP (HL)
+{
+    uint16_t hl = regs_-&gt;get_hl();
+    regs_-&gt;pc = hl;
+    cycles_ += 1;
+    return 1;
+}</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Lectura de operandos:</strong> En instrucciones condicionales, siempre leemos los operandos (nn) incluso si la condición no se cumple, para mantener el PC alineado correctamente. Esto replica el comportamiento del hardware real.</li>
+                    <li><strong>Organización del código:</strong> Las instrucciones se agrupan en secciones lógicas (Retornos, Llamadas, Saltos, RST) para facilitar el mantenimiento.</li>
+                    <li><strong>Timing preciso:</strong> Cada instrucción retorna el número exacto de M-Cycles según Pan Docs, diferenciando entre cuando la condición se cumple y cuando no.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Agregadas 17 nuevas instrucciones de control de flujo en el método <code>step()</code>:
+                        <ul>
+                            <li>4 retornos condicionales (0xC0, 0xC8, 0xD0, 0xD8)</li>
+                            <li>4 llamadas condicionales (0xC4, 0xCC, 0xD4, 0xDC)</li>
+                            <li>4 saltos absolutos condicionales (0xC2, 0xCA, 0xD2, 0xDA)</li>
+                            <li>8 restarts (0xC7, 0xCF, 0xD7, 0xDF, 0xE7, 0xEF, 0xF7, 0xFF)</li>
+                            <li>1 salto indirecto (0xE9)</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Las instrucciones se implementaron directamente en C++ y requieren recompilación.
+                </p>
+                <p>
+                    <strong>Comando de compilación:</strong>
+                </p>
+                <pre><code>.\rebuild_cpp.ps1</code></pre>
+                <p>
+                    <strong>Comando de prueba:</strong>
+                </p>
+                <pre><code>python main.py roms/pkmn.gb</code></pre>
+                <p>
+                    <strong>Verificaciones esperadas:</strong>
+                </p>
+                <ul>
+                    <li>El Stack Pointer debería tener valores "sanos" como <code>DFFX</code> o <code>FFFX</code> (en WRAM o HRAM), no <code>210A</code>.</li>
+                    <li>El juego debería avanzar más allá del bucle de espera y mostrar gráficos nuevos en pantalla.</li>
+                    <li>Si esto funciona, es el <strong>Jaque Mate</strong>: Pokémon usa RST intensivamente para cambiar bancos de memoria y manejar gráficos.</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> Los tests unitarios completos se pueden implementar en un Step futuro, siguiendo el patrón de tests existentes.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - Conditional Calls</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - Conditional Returns</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - Conditional Jumps</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - RST Instructions</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - JP (HL)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Desastre de Flujo de Control:</strong> Si una instrucción condicional (como CALL Z) no está implementada, actúa como NOP, desbalanceando la pila. Cuando luego se ejecuta un RET, saca datos erróneos y corrompe el SP.</li>
+                        <li><strong>Lectura de Operandos:</strong> En instrucciones condicionales, siempre debemos leer los operandos (nn) incluso si la condición no se cumple, para mantener el PC alineado correctamente.</li>
+                        <li><strong>RST en Pokémon:</strong> Las instrucciones RST son críticas para Pokémon, que las usa intensivamente para funciones del sistema como cambio de bancos de memoria y manejo de gráficos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Validación con ROMs reales:</strong> Necesitamos ejecutar el emulador con Pokémon Red y verificar que el SP ya no se corrompe y que el juego avanza correctamente.</li>
+                        <li><strong>Tests unitarios:</strong> Implementar tests unitarios completos que validen el comportamiento de las instrucciones condicionales en casos límite.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que la implementación es correcta basándonos en la documentación de Pan Docs. Sin embargo, la validación final requiere ejecutar el emulador con ROMs reales y verificar que el comportamiento es correcto. Si el SP sigue corrompido después de este Step, necesitaremos investigar otras causas posibles (como instrucciones CB faltantes o problemas en la gestión de memoria).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con <code>.\rebuild_cpp.ps1</code></li>
+                    <li>[ ] Ejecutar el emulador con Pokémon Red y verificar que el SP ya no se corrompe</li>
+                    <li>[ ] Verificar que el juego avanza más allá del bucle de espera y muestra gráficos</li>
+                    <li>[ ] Si el SP sigue corrompido, investigar otras causas posibles (instrucciones CB faltantes, problemas en gestión de memoria, etc.)</li>
+                    <li>[ ] Implementar tests unitarios completos para las nuevas instrucciones (opcional, puede ser un Step futuro)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
