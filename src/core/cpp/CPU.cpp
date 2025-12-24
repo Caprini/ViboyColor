@@ -570,12 +570,61 @@ int CPU::step() {
                 return 2;
             }
         
+        case 0x27:  // DAA (Decimal Adjust Accumulator)
+            // Ajusta el registro A para que sea un número BCD válido tras una suma/resta
+            // Esta es la instrucción más compleja de emular correctamente
+            // Fuente: Pan Docs - DAA: 1 M-Cycle (4 cycles)
+            {
+                uint16_t a = regs_->a;
+                bool n = regs_->get_flag_n();
+                bool h = regs_->get_flag_h();
+                bool c = regs_->get_flag_c();
+                
+                if (!n) {  // Después de suma
+                    if (c || a > 0x99) {
+                        a += 0x60;
+                        regs_->set_flag_c(true);
+                    }
+                    if (h || (a & 0x0F) > 0x09) {
+                        a += 0x06;
+                    }
+                } else {  // Después de resta
+                    if (c) {
+                        a -= 0x60;
+                    }
+                    if (h) {
+                        a -= 0x06;
+                    }
+                }
+                
+                regs_->a = static_cast<uint8_t>(a);
+                regs_->set_flag_z(regs_->a == 0);
+                regs_->set_flag_h(false);  // H siempre se limpia en DAA
+                // C se mantiene o se setea si hubo overflow en el ajuste (ya se actualizó arriba)
+                
+                cycles_ += 1;  // DAA consume 1 M-Cycle
+                return 1;
+            }
+        
         case 0x2E:  // LD L, d8
             {
                 uint8_t value = fetch_byte();
                 regs_->l = value;
                 cycles_ += 2;
                 return 2;
+            }
+        
+        case 0x2F:  // CPL (Complement A)
+            // Invierte todos los bits del registro A (A = ~A)
+            // Fuente: Pan Docs - CPL: 1 M-Cycle (4 cycles)
+            {
+                regs_->a = ~regs_->a;
+                // Flags: Z (preservado), N=1, H=1, C (preservado)
+                regs_->set_flag_n(true);
+                regs_->set_flag_h(true);
+                // Z y C no se modifican
+                cycles_ += 1;  // CPL consume 1 M-Cycle
+                return 1;
             }
 
         case 0x3E:  // LD A, d8 (Load A with immediate 8-bit value)
@@ -586,6 +635,19 @@ int CPU::step() {
                 cycles_ += 2;  // LD A, d8 consume 2 M-Cycles
                 return 2;
             }
+        
+        case 0x3F:  // CCF (Complement Carry Flag)
+            // Invierte el flag Carry (C = !C)
+            // Fuente: Pan Docs - CCF: 1 M-Cycle (4 cycles)
+            {
+                // Flags: Z (preservado), N=0, H=0, C=!C
+                regs_->set_flag_n(false);
+                regs_->set_flag_h(false);
+                regs_->set_flag_c(!regs_->get_flag_c());
+                // Z no se modifica
+                cycles_ += 1;  // CCF consume 1 M-Cycle
+                return 1;
+            }
 
         // LD (HL), n (Load memory at HL with immediate 8-bit value)
         case 0x36:  // LD (HL), d8
@@ -595,6 +657,19 @@ int CPU::step() {
                 mmu_->write(addr, value);
                 cycles_ += 3;  // LD (HL), d8 consume 3 M-Cycles
                 return 3;
+            }
+        
+        case 0x37:  // SCF (Set Carry Flag)
+            // Activa el flag Carry (C = 1)
+            // Fuente: Pan Docs - SCF: 1 M-Cycle (4 cycles)
+            {
+                // Flags: Z (preservado), N=0, H=0, C=1
+                regs_->set_flag_n(false);
+                regs_->set_flag_h(false);
+                regs_->set_flag_c(true);
+                // Z no se modifica
+                cycles_ += 1;  // SCF consume 1 M-Cycle
+                return 1;
             }
 
         // ========== Loads Indirectas con Auto-incremento/Decremento ==========

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Misc Instructions Implementation (DAA, CPL, SCF, CCF) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Misc Instructions Implementation (DAA, CPL, SCF, CCF)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-24
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0271
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-23__0270__stack-operations-completion.html">Anterior (0270)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa las instrucciones misceláneas del bloque bajo que faltaban: <code>DAA</code> (0x27), <code>CPL</code> (0x2F), <code>SCF</code> (0x37) y <code>CCF</code> (0x3F). El diagnóstico del Step 0270 reveló que el emulador caía en un bucle infinito de <code>RST 38</code> (opcode <code>0xFF</code>), el "Pantallazo Azul" de la Game Boy.
+                </p>
+                <p>
+                    La causa raíz era la <strong>desincronización del PC</strong> debido a instrucciones faltantes. Si falta una instrucción crítica como <code>DAA</code> (Decimal Adjust Accumulator), el juego calcula direcciones de memoria erróneas y crashea. Pokémon usa aritmética BCD (Binary Coded Decimal) intensivamente para la salud, el dinero y los puntos. Si <code>DAA</code> no está implementada, los cálculos salen mal, el juego hace <code>JP HL</code> a una dirección equivocada, aterriza en una zona vacía de memoria (llena de <code>0xFF</code>), y entra en un bucle infinito de <code>RST 38</code>.
+                </p>
+                <p>
+                    Se implementaron <strong>4 nuevas instrucciones</strong>: <code>DAA</code> (0x27) - la más compleja, ajusta A para BCD tras suma/resta; <code>CPL</code> (0x2F) - complementa A (invierte bits); <code>SCF</code> (0x37) - activa el flag Carry; y <code>CCF</code> (0x3F) - invierte el flag Carry.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Las instrucciones misceláneas son operaciones especiales que no encajan en las categorías estándar de Load, Aritmética, Control de Flujo, etc. Son "raras" pero vitales para el funcionamiento correcto de muchos juegos.
+                </p>
+
+                <h3>DAA (Decimal Adjust Accumulator) - 0x27</h3>
+                <p>
+                    <code>DAA</code> es la instrucción más compleja de emular correctamente. Ajusta el registro A para que sea un número BCD (Binary Coded Decimal) válido tras una suma o resta.
+                </p>
+                <p>
+                    <strong>¿Qué es BCD?</strong> BCD es un sistema de codificación donde cada dígito decimal (0-9) se representa con 4 bits. Por ejemplo, el número decimal 45 se representa como <code>0100 0101</code> (4 en el nibble alto, 5 en el nibble bajo).
+                </p>
+                <p>
+                    <strong>¿Por qué es necesario DAA?</strong> Cuando sumas dos números BCD, el resultado puede no ser un BCD válido. Por ejemplo, si sumas 0x09 + 0x01 = 0x0A, el nibble bajo es 0xA (10 en decimal), que no es un dígito BCD válido. <code>DAA</code> ajusta el resultado sumando 0x06 al nibble bajo si es mayor que 9, o al nibble alto si es mayor que 0x99.
+                </p>
+                <p>
+                    <strong>Lógica de DAA:</strong>
+                </p>
+                <ul>
+                    <li><strong>Después de suma (N=0):</strong>
+                        <ul>
+                            <li>Si C=1 o A > 0x99: suma 0x60 y activa C</li>
+                            <li>Si H=1 o (A & 0x0F) > 0x09: suma 0x06</li>
+                        </ul>
+                    </li>
+                    <li><strong>Después de resta (N=1):</strong>
+                        <ul>
+                            <li>Si C=1: resta 0x60</li>
+                            <li>Si H=1: resta 0x06</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Flags:</strong> Z según resultado, N (preservado), H=0 (siempre), C (actualizado si hubo overflow).
+                </p>
+                <p>
+                    <strong>Timing:</strong> 1 M-Cycle (4 cycles).
+                </p>
+
+                <h3>CPL (Complement A) - 0x2F</h3>
+                <p>
+                    <code>CPL</code> invierte todos los bits del registro A (A = ~A). Es equivalente a hacer un NOT lógico bit a bit.
+                </p>
+                <p>
+                    <strong>Ejemplo:</strong> Si A = 0b10101010, después de <code>CPL</code>, A = 0b01010101.
+                </p>
+                <p>
+                    <strong>Flags:</strong> Z (preservado), N=1, H=1, C (preservado).
+                </p>
+                <p>
+                    <strong>Timing:</strong> 1 M-Cycle (4 cycles).
+                </p>
+
+                <h3>SCF (Set Carry Flag) - 0x37</h3>
+                <p>
+                    <code>SCF</code> activa el flag Carry (C = 1). Es útil para inicializar el carry antes de operaciones ADC (Add with Carry) o SBC (Subtract with Carry).
+                </p>
+                <p>
+                    <strong>Flags:</strong> Z (preservado), N=0, H=0, C=1.
+                </p>
+                <p>
+                    <strong>Timing:</strong> 1 M-Cycle (4 cycles).
+                </p>
+
+                <h3>CCF (Complement Carry Flag) - 0x3F</h3>
+                <p>
+                    <code>CCF</code> invierte el flag Carry (C = !C). Es útil para cambiar el estado del carry sin conocer su valor actual.
+                </p>
+                <p>
+                    <strong>Flags:</strong> Z (preservado), N=0, H=0, C=!C.
+                </p>
+                <p>
+                    <strong>Timing:</strong> 1 M-Cycle (4 cycles).
+                </p>
+
+                <h3>¿Por qué son críticas?</h3>
+                <p>
+                    Si estas instrucciones faltan o están mal implementadas:
+                </p>
+                <ol>
+                    <li>El juego intenta hacer cálculos BCD usando <code>DAA</code>.</li>
+                    <li>Si no está implementada, la CPU trata ese byte como un opcode no reconocido (o NOP), <strong>pero no ajusta A</strong>.</li>
+                    <li>El juego continúa ejecutando con valores incorrectos en A.</li>
+                    <li>Los cálculos de direcciones de memoria salen mal (por ejemplo, <code>JP HL</code> salta a una dirección equivocada).</li>
+                    <li>El juego aterriza en una zona vacía de memoria (llena de <code>0xFF</code>).</li>
+                    <li>Lee <code>0xFF</code>, ejecuta <code>RST 38</code>, empuja el PC a la pila, salta a <code>0038</code>, lee <code>0xFF</code> otra vez... <strong>Bucle infinito de RST 38</strong>.</li>
+                </ol>
+
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "CPU Instruction Set", "DAA Instruction", "CPL Instruction", "SCF Instruction", "CCF Instruction"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron 4 nuevas instrucciones en el método <code>step()</code> de <code>CPU.cpp</code>, insertadas en los lugares apropiados del switch según sus opcodes.
+                </p>
+
+                <h3>DAA (0x27)</h3>
+                <pre><code>case 0x27:  // DAA (Decimal Adjust Accumulator)
+{
+    uint16_t a = regs_->a;
+    bool n = regs_->get_flag_n();
+    bool h = regs_->get_flag_h();
+    bool c = regs_->get_flag_c();
+    
+    if (!n) {  // Después de suma
+        if (c || a > 0x99) {
+            a += 0x60;
+            regs_->set_flag_c(true);
+        }
+        if (h || (a & 0x0F) > 0x09) {
+            a += 0x06;
+        }
+    } else {  // Después de resta
+        if (c) {
+            a -= 0x60;
+        }
+        if (h) {
+            a -= 0x06;
+        }
+    }
+    
+    regs_->a = static_cast&lt;uint8_t&gt;(a);
+    regs_->set_flag_z(regs_->a == 0);
+    regs_->set_flag_h(false);  // H siempre se limpia en DAA
+    // C se mantiene o se setea si hubo overflow en el ajuste (ya se actualizó arriba)
+    
+    cycles_ += 1;  // DAA consume 1 M-Cycle
+    return 1;
+}</code></pre>
+
+                <h3>CPL (0x2F)</h3>
+                <pre><code>case 0x2F:  // CPL (Complement A)
+{
+    regs_->a = ~regs_->a;
+    // Flags: Z (preservado), N=1, H=1, C (preservado)
+    regs_->set_flag_n(true);
+    regs_->set_flag_h(true);
+    // Z y C no se modifican
+    cycles_ += 1;  // CPL consume 1 M-Cycle
+    return 1;
+}</code></pre>
+
+                <h3>SCF (0x37)</h3>
+                <pre><code>case 0x37:  // SCF (Set Carry Flag)
+{
+    // Flags: Z (preservado), N=0, H=0, C=1
+    regs_->set_flag_n(false);
+    regs_->set_flag_h(false);
+    regs_->set_flag_c(true);
+    // Z no se modifica
+    cycles_ += 1;  // SCF consume 1 M-Cycle
+    return 1;
+}</code></pre>
+
+                <h3>CCF (0x3F)</h3>
+                <pre><code>case 0x3F:  // CCF (Complement Carry Flag)
+{
+    // Flags: Z (preservado), N=0, H=0, C=!C
+    regs_->set_flag_n(false);
+    regs_->set_flag_h(false);
+    regs_->set_flag_c(!regs_->get_flag_c());
+    // Z no se modifica
+    cycles_ += 1;  // CCF consume 1 M-Cycle
+    return 1;
+}</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Implementación de DAA:</strong> La lógica de DAA es compleja y depende del flag N (si fue suma o resta) y de los flags H y C. Se implementó siguiendo exactamente la especificación de Pan Docs para garantizar compatibilidad con juegos que usan BCD.</li>
+                    <li><strong>Preservación de flags:</strong> CPL, SCF y CCF preservan el flag Z, lo cual es crítico para mantener el estado correcto de las comparaciones anteriores.</li>
+                    <li><strong>Organización del código:</strong> Las instrucciones se insertaron en los lugares apropiados del switch según sus opcodes para mantener la coherencia y facilitar el mantenimiento.</li>
+                    <li><strong>Timing preciso:</strong> Todas las instrucciones consumen 1 M-Cycle (4 cycles) según Pan Docs.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Agregadas 4 nuevas instrucciones misceláneas en el método <code>step()</code>:
+                        <ul>
+                            <li>DAA (0x27) - 1 M-Cycle - Ajusta A para BCD tras suma/resta</li>
+                            <li>CPL (0x2F) - 1 M-Cycle - Complementa A (invierte bits)</li>
+                            <li>SCF (0x37) - 1 M-Cycle - Activa el flag Carry</li>
+                            <li>CCF (0x3F) - 1 M-Cycle - Invierte el flag Carry</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Las instrucciones se implementaron directamente en C++ y requieren recompilación.
+                </p>
+                <p>
+                    <strong>Comando de compilación:</strong>
+                </p>
+                <pre><code>.\rebuild_cpp.ps1</code></pre>
+                <p>
+                    <strong>Comando de prueba:</strong>
+                </p>
+                <pre><code>python main.py roms/pkmn.gb</code></pre>
+                <p>
+                    <strong>Verificaciones esperadas:</strong>
+                </p>
+                <ul>
+                    <li>El bucle infinito de <code>RST 38</code> (<code>PC:0038</code>) debería desaparecer.</li>
+                    <li>El juego debería avanzar más allá del bucle de espera y mostrar la intro (estrellas, Game Freak, Gengar).</li>
+                    <li>Si <code>DAA</code> era el problema (sospechoso principal), esto estabilizará el sistema definitivamente.</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> Los tests unitarios completos se pueden implementar en un Step futuro, siguiendo el patrón de tests existentes. Especialmente importante sería testear <code>DAA</code> con diferentes combinaciones de flags y valores de A.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - DAA Instruction</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - CPL Instruction</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - SCF Instruction</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - CCF Instruction</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - BCD Arithmetic</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Bucle RST 38:</strong> Si el juego "descarrila" y salta a una zona vacía, lee <code>0xFF</code>, ejecuta <code>RST 38</code>, empuja el PC a la pila, salta a <code>0038</code>, lee <code>0xFF</code> otra vez (si <code>0038</code> no tiene código válido), vuelve a empujar... Esto causa un Stack Overflow (el SP baja hasta dar la vuelta).</li>
+                        <li><strong>DAA y BCD:</strong> Pokémon usa aritmética BCD intensivamente para la salud, el dinero y los puntos. Si <code>DAA</code> no está implementada, los cálculos salen mal, el juego hace <code>JP HL</code> a una dirección equivocada, y aterriza en una zona vacía de memoria (llena de <code>0xFF</code>).</li>
+                        <li><strong>Desincronización del PC:</strong> Cuando falta una instrucción, la CPU puede "descarrilarse" (desincronizarse del flujo de instrucciones correcto). Esto ocurre cuando el juego espera que una instrucción haga algo específico (como ajustar A para BCD), pero como no está implementada, actúa como NOP, causando que los cálculos posteriores salgan mal.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Validación con ROMs reales:</strong> Necesitamos ejecutar el emulador con Pokémon Red y verificar que el bucle de <code>RST 38</code> desaparece y que el juego avanza correctamente.</li>
+                        <li><strong>Tests unitarios:</strong> Implementar tests unitarios completos que validen el comportamiento de <code>DAA</code> con diferentes combinaciones de flags y valores de A, especialmente casos límite (sumas que producen carry, restas que producen borrow, etc.).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que la falta de <code>DAA</code> era la causa principal del bucle infinito de <code>RST 38</code>. Si el problema persiste después de este Step, necesitaremos investigar otras causas posibles (como otras instrucciones faltantes o problemas en la gestión de memoria).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el módulo C++ con <code>.\rebuild_cpp.ps1</code></li>
+                    <li>[ ] Ejecutar el emulador con Pokémon Red y verificar que el bucle de <code>RST 38</code> desaparece</li>
+                    <li>[ ] Verificar que el juego avanza más allá del bucle de espera y muestra la intro (estrellas, Game Freak, Gengar)</li>
+                    <li>[ ] Si el problema persiste, investigar otras causas posibles (otras instrucciones faltantes, problemas en gestión de memoria, etc.)</li>
+                    <li>[ ] Implementar tests unitarios completos para <code>DAA</code> con diferentes combinaciones de flags y valores de A (opcional, puede ser un Step futuro)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
