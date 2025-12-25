@@ -530,6 +530,38 @@ int CPU::step() {
             }
 
         // LD r, n (Load register with immediate 8-bit value)
+        case 0x02:  // LD (BC), A
+            {
+                uint16_t addr = regs_->get_bc();
+                mmu_->write(addr, regs_->a);
+                cycles_ += 2;  // LD (BC), A consume 2 M-Cycles
+                return 2;
+            }
+
+        case 0x12:  // LD (DE), A
+            {
+                uint16_t addr = regs_->get_de();
+                mmu_->write(addr, regs_->a);
+                cycles_ += 2;  // LD (DE), A consume 2 M-Cycles
+                return 2;
+            }
+
+        case 0x0A:  // LD A, (BC)
+            {
+                uint16_t addr = regs_->get_bc();
+                regs_->a = mmu_->read(addr);
+                cycles_ += 2;  // LD A, (BC) consume 2 M-Cycles
+                return 2;
+            }
+
+        case 0x1A:  // LD A, (DE)
+            {
+                uint16_t addr = regs_->get_de();
+                regs_->a = mmu_->read(addr);
+                cycles_ += 2;  // LD A, (DE) consume 2 M-Cycles
+                return 2;
+            }
+
         case 0x06:  // LD B, d8
             {
                 uint8_t value = fetch_byte();
@@ -692,6 +724,26 @@ int CPU::step() {
                 mmu_->write(addr, regs_->a);
                 regs_->set_hl((addr - 1) & 0xFFFF);  // Decrementar HL con wrap-around
                 cycles_ += 2;
+                return 2;
+            }
+
+        case 0x2A:  // LDI A, (HL) (o LD A, (HL+))
+            // Lee de (HL) y luego incrementa HL
+            {
+                uint16_t addr = regs_->get_hl();
+                regs_->a = mmu_->read(addr);
+                regs_->set_hl((addr + 1) & 0xFFFF);
+                cycles_ += 2;  // LDI A, (HL) consume 2 M-Cycles
+                return 2;
+            }
+
+        case 0x3A:  // LDD A, (HL) (o LD A, (HL-))
+            // Lee de (HL) y luego decrementa HL
+            {
+                uint16_t addr = regs_->get_hl();
+                regs_->a = mmu_->read(addr);
+                regs_->set_hl((addr - 1) & 0xFFFF);
+                cycles_ += 2;  // LDD A, (HL) consume 2 M-Cycles
                 return 2;
             }
 
@@ -1780,6 +1832,17 @@ int CPU::step() {
                 return 4;
             }
 
+        case 0xD9:  // RETI (Return and Enable Interrupts)
+            // Retorna de una rutina de interrupción y reactiva IME
+            // Fuente: Pan Docs - RETI: 4 M-Cycles
+            {
+                uint16_t return_addr = pop_word();
+                regs_->pc = return_addr;
+                ime_ = true;  // IME se reactiva automáticamente
+                cycles_ += 4;  // RETI consume 4 M-Cycles
+                return 4;
+            }
+
         // ========== Retornos Condicionales (RET cc) ==========
         // Step 0269: Implementación de retornos condicionales
         // Estas instrucciones son críticas para el flujo de control correcto
@@ -1879,6 +1942,19 @@ int CPU::step() {
             // Fuente: Pan Docs - HALT: 1 M-Cycle
             // Retornamos -1 para señalar "avance rápido" (el orquestador puede saltar ciclos).
             {
+                // HALT bug: si IME=0 y hay interrupción pendiente (IE & IF != 0),
+                // el CPU NO se detiene; simplemente continúa la ejecución.
+                constexpr uint16_t ADDR_IF = 0xFF0F;
+                constexpr uint16_t ADDR_IE = 0xFFFF;
+                uint8_t if_reg = mmu_->read(ADDR_IF) & 0x1F;
+                uint8_t ie_reg = mmu_->read(ADDR_IE) & 0x1F;
+                bool pending = (if_reg & ie_reg) != 0;
+
+                if (!ime_ && pending) {
+                    cycles_ += 1;  // Consume 1 M-Cycle pero no entra en HALT
+                    return 1;      // Continúa con la instrucción siguiente (HALT bug)
+                }
+
                 halted_ = true;
                 cycles_ += 1;  // HALT consume 1 M-Cycle
                 return -1;  // HALT devuelve -1 para señalar avance rápido
@@ -1911,6 +1987,38 @@ int CPU::step() {
                 regs_->a = mmu_->read(addr);
                 cycles_ += 3;  // LDH A, (n) consume 3 M-Cycles
                 return 3;
+            }
+
+        case 0xE2:  // LDH (C), A (Load A to 0xFF00 + C)
+            {
+                uint16_t addr = 0xFF00 + static_cast<uint16_t>(regs_->c);
+                mmu_->write(addr, regs_->a);
+                cycles_ += 2;  // LDH (C), A consume 2 M-Cycles
+                return 2;
+            }
+
+        case 0xF2:  // LDH A, (C) (Load from 0xFF00 + C to A)
+            {
+                uint16_t addr = 0xFF00 + static_cast<uint16_t>(regs_->c);
+                regs_->a = mmu_->read(addr);
+                cycles_ += 2;  // LDH A, (C) consume 2 M-Cycles
+                return 2;
+            }
+
+        case 0xEA:  // LD (nn), A (Load A to absolute 16-bit address)
+            {
+                uint16_t addr = fetch_word();
+                mmu_->write(addr, regs_->a);
+                cycles_ += 4;  // LD (nn), A consume 4 M-Cycles
+                return 4;
+            }
+
+        case 0xFA:  // LD A, (nn) (Load from absolute 16-bit address to A)
+            {
+                uint16_t addr = fetch_word();
+                regs_->a = mmu_->read(addr);
+                cycles_ += 4;  // LD A, (nn) consume 4 M-Cycles
+                return 4;
             }
 
         // ========== Stack Math (Aritmética de Pila) ==========
@@ -2082,6 +2190,23 @@ int CPU::step() {
 
         case 0xFF:  // RST 38 (Restart to 0x0038)
             {
+                // Diagnóstico puntual: traza la primera vez que se ejecuta 0xFF para
+                // identificar el origen del "pantallazo azul" (loop en 0x0038).
+                static bool rst38_logged = false;
+                if (!rst38_logged) {
+                    rst38_logged = true;
+                    uint16_t origin_pc = (regs_->pc - 1) & 0xFFFF;  // PC apunta al siguiente byte tras el fetch
+                    printf("[RST38-TRACE] opcode FF en PC:%04X SP:%04X AF:%04X BC:%04X DE:%04X HL:%04X IE:%02X IF:%02X IME:%d\n",
+                           origin_pc,
+                           regs_->sp,
+                           regs_->get_af(),
+                           regs_->get_bc(),
+                           regs_->get_de(),
+                           regs_->get_hl(),
+                           mmu_->read(0xFFFF),
+                           mmu_->read(0xFF0F),
+                           ime_ ? 1 : 0);
+                }
                 uint16_t return_addr = regs_->pc;
                 push_word(return_addr);
                 regs_->pc = 0x0038;

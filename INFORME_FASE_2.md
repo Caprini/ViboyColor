@@ -35,12 +35,13 @@
 ### 2025-12-24 - Step 0271: Misc Instructions Implementation (DAA, CPL, SCF, CCF)
 **Estado**: ✅ IMPLEMENTADO
 
-Este Step implementa las instrucciones misceláneas del bloque bajo que faltaban.
+Este Step implementa las instrucciones misceláneas del bloque bajo y los loads básicos que seguían faltando.
 
 **Objetivo:**
 - Implementar las instrucciones misceláneas faltantes: `DAA` (0x27), `CPL` (0x2F), `SCF` (0x37) y `CCF` (0x3F).
-- Corregir el bucle infinito de `RST 38` (`PC:0038`) causado por la desincronización del PC debido a instrucciones faltantes.
-- Asegurar que `DAA` ajuste correctamente el registro A para BCD tras suma/resta.
+- Implementar loads críticos: `LD (BC), A`, `LD (DE), A`, `LD A, (BC)`, `LD A, (DE)`, `LDI/LD A, (HL±)`, `LDH (C), A`, `LDH A, (C)`, `LD (nn), A`, `LD A, (nn)`.
+- Corregir el bucle infinito de `RST 38` (`PC:0038`) causado por la desincronización del PC debido a instrucciones faltantes (BCD y E/S 0xFF00).
+- Asegurar que `DAA` ajuste correctamente el registro A para BCD tras suma/resta y que los accesos a registros de hardware funcionen.
 
 **Implementación:**
 1. **Modificado `src/core/cpp/CPU.cpp`**: 
@@ -48,18 +49,21 @@ Este Step implementa las instrucciones misceláneas del bloque bajo que faltaban
    - Agregado `CPL` (0x2F): 1 M-Cycle. Invierte todos los bits del registro A (A = ~A). Flags: Z (preservado), N=1, H=1, C (preservado).
    - Agregado `SCF` (0x37): 1 M-Cycle. Activa el flag Carry (C = 1). Flags: Z (preservado), N=0, H=0, C=1.
    - Agregado `CCF` (0x3F): 1 M-Cycle. Invierte el flag Carry (C = !C). Flags: Z (preservado), N=0, H=0, C=!C.
+   - Agregados loads básicos: `LD (BC), A`, `LD (DE), A`, `LD A, (BC)`, `LD A, (DE)`, `LDI/LD A, (HL±)` (auto-incremento/decremento), `LDH (C), A`, `LDH A, (C)` para 0xFF00 + C, y `LD (nn), A` / `LD A, (nn)` para direcciones absolutas (2 o 4 M-Cycles según el caso).
+   - Interrupciones: `RETI` (0xD9) para reactivar IME al salir de la rutina.
+   - HALT bug: si IME=0 y hay interrupción pendiente (IE & IF != 0), HALT no detiene la CPU (equivale a NOP) para evitar bucles con IME desactivado.
 
 **Concepto de Hardware:**
 **Bucle RST 38**: Si el juego "descarrila" y salta a una zona vacía, lee `0xFF`, ejecuta `RST 38`, empuja el PC a la pila, salta a `0038`, lee `0xFF` otra vez (si `0038` no tiene código válido), vuelve a empujar... Esto causa un Stack Overflow (el SP baja hasta dar la vuelta).
 
 **DAA y BCD**: Pokémon usa aritmética BCD (Binary Coded Decimal) intensivamente para la salud, el dinero y los puntos. Si `DAA` no está implementada, los cálculos salen mal, el juego hace `JP HL` a una dirección equivocada, aterriza en una zona vacía de memoria (llena de `0xFF`), y entra en un bucle infinito de `RST 38`.
 
-**Desincronización del PC**: Cuando falta una instrucción, la CPU puede "descarrilarse" (desincronizarse del flujo de instrucciones correcto). Esto ocurre cuando el juego espera que una instrucción haga algo específico (como ajustar A para BCD), pero como no está implementada, actúa como NOP, causando que los cálculos posteriores salgan mal.
+**Desincronización del PC**: Cuando faltan instrucciones (BCD o loads de E/S), la CPU puede "descarrilarse" (desincronizarse del flujo de instrucciones correcto). Si un load a 0xFF00 falla, los registros de hardware quedan sin inicializar y el juego termina saltando a direcciones inválidas.
 
-**Fuente:** Pan Docs - "CPU Instruction Set", "DAA Instruction", "CPL Instruction", "SCF Instruction", "CCF Instruction", "BCD Arithmetic"
+**Fuente:** Pan Docs - "CPU Instruction Set", "DAA Instruction", "CPL Instruction", "SCF Instruction", "CCF Instruction", "BCD Arithmetic", "LDH (C), A / LDH A, (C)"
 
 **Archivos Afectados:**
-- `src/core/cpp/CPU.cpp` - Agregadas 4 nuevas instrucciones misceláneas en el método `step()` (Step 0271).
+- `src/core/cpp/CPU.cpp` - Agregadas 14 instrucciones (misceláneas y loads 8-bit) en el método `step()` (Step 0271).
 
 **Próximos Pasos:**
 - Recompilar el módulo C++ con `.\rebuild_cpp.ps1`.

@@ -43,13 +43,13 @@
             <section id="resumen">
                 <h2>Resumen</h2>
                 <p>
-                    Este Step implementa las instrucciones misceláneas del bloque bajo que faltaban: <code>DAA</code> (0x27), <code>CPL</code> (0x2F), <code>SCF</code> (0x37) y <code>CCF</code> (0x3F). El diagnóstico del Step 0270 reveló que el emulador caía en un bucle infinito de <code>RST 38</code> (opcode <code>0xFF</code>), el "Pantallazo Azul" de la Game Boy.
+                    Este Step implementa las instrucciones misceláneas del bloque bajo que faltaban (<code>DAA</code> 0x27, <code>CPL</code> 0x2F, <code>SCF</code> 0x37 y <code>CCF</code> 0x3F) y, además, los loads básicos que seguían ausentes: <code>LD (BC), A</code>, <code>LD A, (BC)</code>, <code>LD (DE), A</code>, <code>LD A, (DE)</code>, <code>LDI/LD A, (HL±)</code>, <code>LDH (C), A</code>, <code>LDH A, (C)</code>, <code>LD (nn), A</code> y <code>LD A, (nn)</code>. El diagnóstico del Step 0270 reveló que el emulador caía en un bucle infinito de <code>RST 38</code> (opcode <code>0xFF</code>), el "Pantallazo Azul" de la Game Boy.
                 </p>
                 <p>
-                    La causa raíz era la <strong>desincronización del PC</strong> debido a instrucciones faltantes. Si falta una instrucción crítica como <code>DAA</code> (Decimal Adjust Accumulator), el juego calcula direcciones de memoria erróneas y crashea. Pokémon usa aritmética BCD (Binary Coded Decimal) intensivamente para la salud, el dinero y los puntos. Si <code>DAA</code> no está implementada, los cálculos salen mal, el juego hace <code>JP HL</code> a una dirección equivocada, aterriza en una zona vacía de memoria (llena de <code>0xFF</code>), y entra en un bucle infinito de <code>RST 38</code>.
+                    La causa raíz era la <strong>desincronización del PC</strong> debido a instrucciones faltantes. Si falta una instrucción crítica como <code>DAA</code> (Decimal Adjust Accumulator) o un load de memoria alta (por ejemplo <code>LDH (C), A</code> para los registros de E/S), el juego calcula direcciones de memoria erróneas y crashea. Pokémon usa aritmética BCD (Binary Coded Decimal) intensivamente para la salud, el dinero y los puntos, y accede constantemente a registros en 0xFF00. Si estas instrucciones no están implementadas, los cálculos salen mal, el juego hace <code>JP HL</code> a una dirección equivocada, aterriza en una zona vacía de memoria (llena de <code>0xFF</code>), y entra en un bucle infinito de <code>RST 38</code>.
                 </p>
                 <p>
-                    Se implementaron <strong>4 nuevas instrucciones</strong>: <code>DAA</code> (0x27) - la más compleja, ajusta A para BCD tras suma/resta; <code>CPL</code> (0x2F) - complementa A (invierte bits); <code>SCF</code> (0x37) - activa el flag Carry; y <code>CCF</code> (0x3F) - invierte el flag Carry.
+                    Se implementaron <strong>14 instrucciones</strong>: las 4 misceláneas (DAA, CPL, SCF, CCF) y 10 loads críticos (BC/DE directos, LDI/LDD A, HL±, LDH (C), A/LDH A, (C), LD (nn), A y LD A, (nn)).
                 </p>
             </section>
 
@@ -152,7 +152,7 @@
             <section id="implementacion">
                 <h2>Implementación</h2>
                 <p>
-                    Se implementaron 4 nuevas instrucciones en el método <code>step()</code> de <code>CPU.cpp</code>, insertadas en los lugares apropiados del switch según sus opcodes.
+                    Se implementaron 14 instrucciones en el método <code>step()</code> de <code>CPU.cpp</code>: las 4 misceláneas (DAA, CPL, SCF, CCF) y 10 loads que estaban ausentes (BC/DE directos, LDI/LDD A, HL±, LDH (C), A / LDH A, (C), LD (nn), A y LD A, (nn)), insertadas en los lugares apropiados del switch según sus opcodes.
                 </p>
 
                 <h3>DAA (0x27)</h3>
@@ -225,12 +225,22 @@
     return 1;
 }</code></pre>
 
+                <h3>Loads 8-bit críticos</h3>
+                <p>Incorporados para habilitar accesos tempranos a registros y memoria alta:</p>
+                <ul>
+                    <li><code>LD (BC), A</code> / <code>LD (DE), A</code> y <code>LD A, (BC)</code> / <code>LD A, (DE)</code> (2 M-Cycles).</li>
+                    <li><code>LDI/LD A, (HL±)</code> (incremento/decremento automático de HL).</li>
+                    <li><code>LDH (C), A</code> y <code>LDH A, (C)</code> para 0xFF00 + C (registros de E/S), 2 M-Cycles.</li>
+                    <li><code>LD (nn), A</code> y <code>LD A, (nn)</code> para direcciones absolutas de 16 bits, 4 M-Cycles.</li>
+                </ul>
+
                 <h3>Decisiones de Diseño</h3>
                 <ul>
                     <li><strong>Implementación de DAA:</strong> La lógica de DAA es compleja y depende del flag N (si fue suma o resta) y de los flags H y C. Se implementó siguiendo exactamente la especificación de Pan Docs para garantizar compatibilidad con juegos que usan BCD.</li>
                     <li><strong>Preservación de flags:</strong> CPL, SCF y CCF preservan el flag Z, lo cual es crítico para mantener el estado correcto de las comparaciones anteriores.</li>
                     <li><strong>Organización del código:</strong> Las instrucciones se insertaron en los lugares apropiados del switch según sus opcodes para mantener la coherencia y facilitar el mantenimiento.</li>
                     <li><strong>Timing preciso:</strong> Todas las instrucciones consumen 1 M-Cycle (4 cycles) según Pan Docs.</li>
+                    <li><strong>HALT bug:</strong> Si IME=0 y existe una interrupción pendiente (IE &amp; IF != 0), HALT no detiene la CPU (se comporta como NOP) para evitar loops con IME desactivado.</li>
                 </ul>
             </section>
 
@@ -238,12 +248,14 @@
             <section id="archivos">
                 <h2>Archivos Afectados</h2>
                 <ul>
-                    <li><code>src/core/cpp/CPU.cpp</code> - Agregadas 4 nuevas instrucciones misceláneas en el método <code>step()</code>:
+                    <li><code>src/core/cpp/CPU.cpp</code> - Agregadas 14 instrucciones al método <code>step()</code>:
                         <ul>
-                            <li>DAA (0x27) - 1 M-Cycle - Ajusta A para BCD tras suma/resta</li>
-                            <li>CPL (0x2F) - 1 M-Cycle - Complementa A (invierte bits)</li>
-                            <li>SCF (0x37) - 1 M-Cycle - Activa el flag Carry</li>
-                            <li>CCF (0x3F) - 1 M-Cycle - Invierte el flag Carry</li>
+                            <li>Misceláneas: DAA (0x27), CPL (0x2F), SCF (0x37), CCF (0x3F).</li>
+                            <li>Interrupciones: RETI (0xD9) reactiva IME al salir de la rutina.</li>
+                            <li>Loads básicos: LD (BC), A / LD (DE), A / LD A, (BC) / LD A, (DE).</li>
+                            <li>Loads con auto-incremento/decremento: LDI/LD A, (HL±).</li>
+                            <li>High memory I/O: LDH (C), A y LDH A, (C).</li>
+                            <li>Dirección absoluta: LD (nn), A y LD A, (nn).</li>
                         </ul>
                     </li>
                 </ul>
