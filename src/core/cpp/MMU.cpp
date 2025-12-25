@@ -543,6 +543,14 @@ void MMU::write(uint16_t addr, uint8_t value) {
         return;
     }
 
+    // --- Step 0274: IE-WRITE - Rastreo del Registro de Habilitación de Interrupciones ---
+    // Queremos capturar CADA escritura en el registro IE (0xFFFF) para identificar
+    // quién deshabilita las interrupciones y cuándo ocurre.
+    if (addr == 0xFFFF) {
+        printf("[IE-WRITE] Nuevo valor: 0x%02X desde PC: 0x%04X (Banco:%d)\n",
+               value, debug_current_pc, current_rom_bank_);
+    }
+
     // Escritura directa
     static int d732_log_count = 0;
     if (addr == 0xD732 && d732_log_count < 20) {

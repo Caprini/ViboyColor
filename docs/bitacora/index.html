@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0274 - Operación IE Hunter: Rastreo del Registro IE e Interrupciones -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-25</span>
+                        <span class="tag">0274</span>
+                        <a href="entries/2025-12-25__0274__rastreo-registro-ie-e-interrupciones.html" class="title">Operación IE Hunter: Rastreo del Registro IE e Interrupciones</a>
+                        <p class="summary">Implementación de la "Operación IE Hunter" para rastrear quién y cuándo modifica el registro de habilitación de interrupciones (IE, 0xFFFF). El análisis del Step 0273 reveló que IE=0x00 (todas las interrupciones deshabilitadas) mientras que IF=0x01 (V-Blank pendiente), causando un deadlock. Se añadió instrumentación en tres puntos: (1) captura de cada escritura en 0xFFFF en MMU.cpp, (2) rastreo del flujo post-limpieza VRAM (PC:36E9) en CPU.cpp, y (3) logging de instrucciones EI/DI. El objetivo es identificar el momento exacto en que IE se deshabilita y qué código lo causa.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0273 - Operación Sniper: Disección de Bucles Críticos -->
                     <li class="entry-item">
                         <span class="meta">2025-12-25</span>

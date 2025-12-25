@@ -32,6 +32,60 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0274: Operación IE Hunter: Rastreo del Registro IE e Interrupciones
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa la "Operación IE Hunter" para rastrear quién y cuándo modifica el registro de habilitación de interrupciones (IE, dirección `0xFFFF`). El análisis del Step 0273 reveló que `IE = 0x00` (todas las interrupciones deshabilitadas) mientras que `IF = 0x01` (V-Blank pendiente), lo que impide que el juego procese interrupciones y causa un deadlock en bucles de espera.
+
+**Objetivo:**
+- Implementar instrumentación que capture cada escritura en el registro IE (`0xFFFF`) para identificar qué código lo modifica y cuándo ocurre.
+- Rastrear el flujo de ejecución después de que termine el bucle de limpieza de VRAM (PC:36E3) para ver qué código se ejecuta a continuación.
+- Monitorear las instrucciones `EI` (Enable Interrupts) y `DI` (Disable Interrupts) para rastrear el estado del IME (Interrupt Master Enable).
+- Identificar el momento exacto en que el registro IE se deshabilita y qué código lo causa.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/MMU.cpp`**:
+   - Agregado bloque de instrumentación `[IE-WRITE]` en el método `write()` que detecta cada escritura en `0xFFFF`.
+   - Imprime: nuevo valor escrito, PC desde el cual se ejecutó la escritura, banco ROM actual.
+   - No tiene límite de impresiones (crítico ver todas las escrituras en IE).
+
+2. **Modificado `src/core/cpp/CPU.cpp`**:
+   - Agregado sistema de "trail" (rastro) post-limpieza VRAM que se activa cuando el PC llega a `0x36E9` (asumiendo que el bucle de limpieza tiene 6 bytes).
+   - Imprime `[VRAM-CLEAR-EXIT]` cuando se detecta la salida del bucle.
+   - Imprime `[TRAIL]` con el estado completo de la CPU (PC, opcode, registros, IE, IF) para las siguientes 100 instrucciones.
+   - Agregado logging `[CPU] DI/EI` en los casos de las instrucciones `DI` (0xF3) y `EI` (0xFB) para rastrear cuándo se intenta activar o desactivar el IME.
+
+**Concepto de Hardware:**
+**Sistema de Interrupciones de Dos Niveles**: El sistema de interrupciones de la Game Boy tiene dos niveles de control independientes que deben estar activos simultáneamente:
+
+1. **IME (Interrupt Master Enable)**: Flag interno de la CPU controlado por las instrucciones `EI` y `DI`. La instrucción `EI` activa el IME después de ejecutar la siguiente instrucción, permitiendo secuencias atómicas.
+
+2. **IE (Interrupt Enable Register)**: Registro mapeado en `0xFFFF` que controla qué tipos de interrupciones están habilitadas. Cada bit corresponde a un tipo de interrupción (V-Blank, STAT, Timer, Serial, Joypad).
+
+**Condición para Procesar una Interrupción**: Para que una interrupción se procese, se deben cumplir tres condiciones simultáneas:
+- IME = 1 (flag interno activo)
+- IE[bit] = 1 (bit correspondiente en IE activo)
+- IF[bit] = 1 (bit correspondiente en IF activo - solicitud pendiente)
+
+Si cualquiera de estas condiciones falla, la interrupción no se procesa. En el caso de Pokémon Red, `IE = 0x00` (todos los bits deshabilitados) mientras que `IF = 0x01` (V-Blank pendiente), lo que significa que el juego está esperando una interrupción que nunca se puede procesar porque IE está apagado.
+
+**Tests y Verificación:**
+- Comando: `python main.py roms/pkmn.gb`
+- Buscar líneas `[IE-WRITE]` para ver cada escritura en `0xFFFF`, especialmente si se escribe `0x00`.
+- Buscar línea `[VRAM-CLEAR-EXIT]` para confirmar que el bucle de limpieza terminó.
+- Buscar líneas `[TRAIL]` para ver el flujo de ejecución después de la limpieza.
+- Buscar líneas `[CPU] DI/EI` para ver cuándo se intenta activar o desactivar el IME.
+- Validación de módulo compilado C++: La compilación debe completarse sin errores y los logs deben aparecer durante la ejecución.
+
+**Próximos Pasos:**
+- Ejecutar el emulador con Pokémon Red y analizar los logs generados.
+- Identificar el momento exacto en que IE se deshabilita (buscar `[IE-WRITE]` con valor `0x00`).
+- Analizar el `[TRAIL]` para ver qué código se ejecuta después de la limpieza de VRAM.
+- Verificar si hay una instrucción `DI` que desactiva el IME sin reactivarlo.
+- Si se identifica el código culpable, implementar corrección o ajuste en el emulador.
+
+---
+
 ### 2025-12-25 - Step 0273: Operación Sniper: Disección de Bucles Críticos
 **Estado**: ✅ IMPLEMENTADO
 

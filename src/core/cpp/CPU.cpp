@@ -1943,6 +1943,8 @@ int CPU::step() {
             // Esta instrucción se usa típicamente al inicio de rutinas críticas
             // Fuente: Pan Docs - DI: 1 M-Cycle
             {
+                // --- Step 0274: Monitor de Instrucciones DI ---
+                printf("[CPU] DI (Disable Interrupts) en PC:0x%04X\n", (regs_->pc - 1) & 0xFFFF);
                 ime_ = false;
                 ime_scheduled_ = false;  // Cancelar cualquier EI pendiente
                 cycles_ += 1;  // DI consume 1 M-Cycle
@@ -1956,6 +1958,8 @@ int CPU::step() {
             // Esto permite que la instrucción siguiente a EI se ejecute sin interrupciones
             // Fuente: Pan Docs - EI: 1 M-Cycle
             {
+                // --- Step 0274: Monitor de Instrucciones EI ---
+                printf("[CPU] EI (Enable Interrupts) en PC:0x%04X\n", (regs_->pc - 1) & 0xFFFF);
                 ime_scheduled_ = true;  // Activar IME después de la siguiente instrucción
                 cycles_ += 1;  // EI consume 1 M-Cycle
                 return 1;
@@ -2259,6 +2263,29 @@ int CPU::step() {
             // Volvemos a devolver 0 ciclos para permitir que el trazado capture el bucle.
             cycles_ += 0;
             return 0;
+    }
+    
+    // --- Step 0274: Seguimiento Post-Limpieza VRAM ---
+    // El bucle de limpieza de VRAM en PC:36E3 termina cuando BC llega a 0.
+    // Queremos rastrear qué instrucciones siguen después de que el bucle termine.
+    // El bucle probablemente tiene 6 bytes (22 0B 78 + JR NZ), así que la salida
+    // debería estar en PC:36E9 (36E3 + 6).
+    static bool tracing_after_vram_clear = false;
+    static int trace_count = 0;
+    
+    // Trigger: El bucle en 0x36E3 termina y la ejecución sigue en 0x36E9
+    if (regs_->pc == 0x36E9 && !tracing_after_vram_clear) {
+        printf("[VRAM-CLEAR-EXIT] El bucle de limpieza ha terminado. Iniciando Trail...\n");
+        tracing_after_vram_clear = true;
+    }
+    
+    // Rastrear las siguientes 100 instrucciones después de salir del bucle
+    if (tracing_after_vram_clear && trace_count < 100) {
+        printf("[TRAIL] PC:%04X OP:%02X AF:%04X BC:%04X DE:%04X HL:%04X IE:%02X IF:%02X\n",
+               regs_->pc, mmu_->read(regs_->pc),
+               regs_->get_af(), regs_->get_bc(), regs_->get_de(), regs_->get_hl(),
+               mmu_->read(0xFFFF), mmu_->read(0xFF0F));
+        trace_count++;
     }
     
     // --- Step 0267: SP CORRUPTION WATCHDOG ---

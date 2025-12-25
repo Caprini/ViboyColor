@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Operación IE Hunter: Rastreo del Registro IE e Interrupciones - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Operación IE Hunter: Rastreo del Registro IE e Interrupciones</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0274
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0273__sniper-traces-bucles-criticos.html">Anterior (0273)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa la "Operación IE Hunter" para rastrear quién y cuándo modifica el registro
+                    de habilitación de interrupciones (IE, dirección <code>0xFFFF</code>). El análisis del Step 0273
+                    reveló que <code>IE = 0x00</code> (todas las interrupciones deshabilitadas) mientras que
+                    <code>IF = 0x01</code> (V-Blank pendiente), lo que impide que el juego procese interrupciones
+                    y causa un deadlock en bucles de espera.
+                </p>
+                <p>
+                    Se añadió instrumentación en tres puntos críticos: (1) captura de cada escritura en <code>0xFFFF</code>
+                    en <code>MMU.cpp</code>, (2) rastreo del flujo de ejecución después de que termine el bucle de limpieza
+                    de VRAM (PC:36E3), y (3) logging de las instrucciones <code>EI</code> (Enable Interrupts) y <code>DI</code>
+                    (Disable Interrupts) en <code>CPU.cpp</code>. El objetivo es identificar el momento exacto en que el
+                    registro IE se deshabilita y qué código lo causa.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El sistema de interrupciones de la Game Boy tiene <strong>dos niveles de control</strong> que deben
+                    estar activos simultáneamente para que una interrupción se procese:
+                </p>
+                
+                <h3>1. IME (Interrupt Master Enable) - Flag Interno de la CPU</h3>
+                <p>
+                    El IME es un flag interno de la CPU que se controla mediante las instrucciones <code>EI</code> (0xFB)
+                    y <code>DI</code> (0xF3). Este flag determina si la CPU puede procesar interrupciones en el siguiente
+                    ciclo de instrucción. La instrucción <code>EI</code> tiene un comportamiento especial: activa el IME
+                    <strong>después</strong> de ejecutar la siguiente instrucción, permitiendo que esa instrucción se ejecute
+                    sin interrupciones. Esto es crítico para rutinas que necesitan ejecutar una secuencia atómica.
+                </p>
+                
+                <h3>2. IE (Interrupt Enable Register) - Registro Mapeado en 0xFFFF</h3>
+                <p>
+                    El registro IE es un registro de hardware mapeado en la dirección <code>0xFFFF</code> que controla
+                    qué tipos de interrupciones están habilitadas. Cada bit corresponde a un tipo de interrupción:
+                </p>
+                <ul>
+                    <li><strong>Bit 0:</strong> V-Blank Interrupt</li>
+                    <li><strong>Bit 1:</strong> LCD STAT Interrupt</li>
+                    <li><strong>Bit 2:</strong> Timer Interrupt</li>
+                    <li><strong>Bit 3:</strong> Serial Interrupt</li>
+                    <li><strong>Bit 4:</strong> Joypad Interrupt</li>
+                </ul>
+                <p>
+                    Si un bit está en <code>0</code>, ese tipo de interrupción está deshabilitado, incluso si el hardware
+                    solicita la interrupción (activando el bit correspondiente en IF).
+                </p>
+                
+                <h3>Condición para Procesar una Interrupción</h3>
+                <p>
+                    Para que una interrupción se procese, se deben cumplir <strong>tres condiciones simultáneas</strong>:
+                </p>
+                <ol>
+                    <li><strong>IME = 1:</strong> El flag interno de la CPU debe estar activo.</li>
+                    <li><strong>IE[bit] = 1:</strong> El bit correspondiente en IE debe estar activo.</li>
+                    <li><strong>IF[bit] = 1:</strong> El bit correspondiente en IF debe estar activo (solicitud pendiente).</li>
+                </ol>
+                <p>
+                    Si cualquiera de estas condiciones falla, la interrupción no se procesa, aunque el hardware siga
+                    solicitándola. En el caso de Pokémon Red, el análisis del Step 0273 reveló que <code>IE = 0x00</code>
+                    (todos los bits deshabilitados) mientras que <code>IF = 0x01</code> (V-Blank pendiente), lo que significa
+                    que el juego está esperando una interrupción que nunca se puede procesar porque IE está apagado.
+                </p>
+                
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Interrupts Section. El registro IE es de lectura/escritura y se
+                    puede modificar en cualquier momento mediante una instrucción <code>LD (0xFFFF), A</code> o similar.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron tres sistemas de instrumentación complementarios para rastrear el estado de las
+                    interrupciones y el flujo de ejecución:
+                </p>
+                
+                <h3>1. Rastreo de Escrituras en IE (MMU.cpp)</h3>
+                <p>
+                    Se añadió un bloque de instrumentación en el método <code>MMU::write()</code> que detecta cada
+                    escritura en la dirección <code>0xFFFF</code> (registro IE). El log incluye:
+                </p>
+                <ul>
+                    <li>El nuevo valor escrito en IE</li>
+                    <li>El PC desde donde se ejecutó la escritura</li>
+                    <li>El banco ROM actual</li>
+                </ul>
+                <p>
+                    Esto permite identificar exactamente qué código está modificando IE y cuándo ocurre.
+                </p>
+                <pre><code>// --- Step 0274: IE-WRITE - Rastreo del Registro de Habilitación de Interrupciones ---
+if (addr == 0xFFFF) {
+    printf("[IE-WRITE] Nuevo valor: 0x%02X desde PC: 0x%04X (Banco:%d)\n",
+           value, debug_current_pc, current_rom_bank_);
+}</code></pre>
+                
+                <h3>2. Rastreo Post-Limpieza VRAM (CPU.cpp)</h3>
+                <p>
+                    Se añadió un sistema de "trail" (rastro) que se activa cuando el PC sale del bucle de limpieza
+                    de VRAM en <code>0x36E3</code>. El sistema asume que el bucle tiene 6 bytes (3 bytes de instrucciones
+                    + 3 bytes de salto condicional), por lo que la salida debería estar en <code>PC:36E9</code>.
+                </p>
+                <p>
+                    Cuando se detecta que el PC llega a <code>0x36E9</code>, se activa el modo de rastreo y se imprimen
+                    las siguientes 100 instrucciones con el estado completo de la CPU (registros, opcodes, IE, IF).
+                    Esto permite ver qué camino toma el juego después de limpiar la VRAM y si hay código que deshabilita
+                    IE en ese momento.
+                </p>
+                <pre><code>// --- Step 0274: Seguimiento Post-Limpieza VRAM ---
+static bool tracing_after_vram_clear = false;
+static int trace_count = 0;
+
+if (regs_->pc == 0x36E9 && !tracing_after_vram_clear) {
+    printf("[VRAM-CLEAR-EXIT] El bucle de limpieza ha terminado. Iniciando Trail...\n");
+    tracing_after_vram_clear = true;
+}
+
+if (tracing_after_vram_clear && trace_count < 100) {
+    printf("[TRAIL] PC:%04X OP:%02X AF:%04X BC:%04X DE:%04X HL:%04X IE:%02X IF:%02X\n",
+           regs_->pc, mmu_->read(regs_->pc),
+           regs_->get_af(), regs_->get_bc(), regs_->get_de(), regs_->get_hl(),
+           mmu_->read(0xFFFF), mmu_->read(0xFF0F));
+    trace_count++;
+}</code></pre>
+                
+                <h3>3. Monitor de Instrucciones EI/DI (CPU.cpp)</h3>
+                <p>
+                    Se añadió logging en los casos de las instrucciones <code>EI</code> (0xFB) y <code>DI</code> (0xF3)
+                    para rastrear cuándo el código intenta activar o desactivar el IME. Esto complementa el rastreo de IE,
+                    ya que ambas condiciones (IME e IE) deben estar activas para procesar interrupciones.
+                </p>
+                <pre><code>case 0xF3:  // DI (Disable Interrupts)
+    printf("[CPU] DI (Disable Interrupts) en PC:0x%04X\n", (regs_->pc - 1) & 0xFFFF);
+    ime_ = false;
+    ime_scheduled_ = false;
+    cycles_ += 1;
+    return 1;
+
+case 0xFB:  // EI (Enable Interrupts)
+    printf("[CPU] EI (Enable Interrupts) en PC:0x%04X\n", (regs_->pc - 1) & 0xFFFF);
+    ime_scheduled_ = true;
+    cycles_ += 1;
+    return 1;</code></pre>
+                
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Límite de 100 trazas:</strong> El rastreo post-limpieza se limita a 100 instrucciones
+                        para evitar saturación de logs. Si el problema ocurre más tarde, se puede aumentar el límite.</li>
+                    <li><strong>PC:36E9 como trigger:</strong> Se asume que el bucle de limpieza tiene 6 bytes basándose
+                        en el análisis del Step 0273. Si el trigger no se activa, se puede ajustar la dirección.</li>
+                    <li><strong>Logging sin límite para IE-WRITE:</strong> Las escrituras en IE son críticas y relativamente
+                        infrecuentes, por lo que no se limita el número de logs para no perder información.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Añadido rastreo de escrituras en IE (0xFFFF)</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido rastreo post-limpieza VRAM y logging de EI/DI</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La instrumentación se valida mediante ejecución del emulador con Pokémon Red y análisis de los logs
+                    generados. Los logs deben mostrar:
+                </p>
+                <ul>
+                    <li><strong>[IE-WRITE]:</strong> Cada vez que se escribe en 0xFFFF, especialmente si se escribe 0x00</li>
+                    <li><strong>[VRAM-CLEAR-EXIT]:</strong> Cuando el bucle de limpieza termina</li>
+                    <li><strong>[TRAIL]:</strong> Las siguientes 100 instrucciones después de salir del bucle</li>
+                    <li><strong>[CPU] DI/EI:</strong> Cada vez que se ejecuta una instrucción DI o EI</li>
+                </ul>
+                <p>
+                    <strong>Comando de prueba:</strong>
+                </p>
+                <pre><code>python main.py roms/pkmn.gb</code></pre>
+                <p>
+                    <strong>Validación esperada:</strong> Los logs deben revelar si hay código que escribe <code>0x00</code>
+                    en <code>0xFFFF</code> después de la limpieza de VRAM, o si el IME se desactiva mediante una instrucción
+                    <code>DI</code> sin que se reactive posteriormente.
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> La compilación debe completarse sin errores
+                    y los logs deben aparecer durante la ejecución del emulador.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts Section</a> - Explicación del sistema de interrupciones, IME, IE e IF</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">CPU Instruction Set</a> - Comportamiento de las instrucciones EI y DI</li>
+                    <li>Análisis del Step 0273: Identificación del problema de IE=0x00 e IF=0x01</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Sistema de interrupciones de dos niveles:</strong> El IME (flag interno) y el IE
+                            (registro mapeado) son independientes y ambos deben estar activos para procesar interrupciones.
+                            Esto permite un control fino del sistema de interrupciones.</li>
+                        <li><strong>Comportamiento de EI:</strong> La instrucción EI activa el IME después de ejecutar
+                            la siguiente instrucción, permitiendo secuencias atómicas. Esto es crítico para rutinas que
+                            necesitan ejecutar código sin interrupciones.</li>
+                        <li><strong>Deadlock por IE=0:</strong> Si el registro IE está en 0x00, ninguna interrupción se
+                            puede procesar, incluso si el hardware solicita interrupciones (IF) y el IME está activo.
+                            Esto puede causar bucles infinitos si el juego espera una interrupción que nunca se procesa.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Momento exacto de deshabilitación:</strong> Necesitamos identificar qué código escribe
+                            0x00 en 0xFFFF y cuándo ocurre. Los logs de [IE-WRITE] deberían revelar esto.</li>
+                        <li><strong>Flujo post-limpieza:</strong> El rastreo [TRAIL] debe mostrar qué camino toma el juego
+                            después de limpiar la VRAM y si hay código que deshabilita IE en ese momento.</li>
+                        <li><strong>Estado de IME:</strong> Los logs de [CPU] DI/EI deben mostrar si el IME se desactiva
+                            y no se reactiva, o si el problema es solo el registro IE.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego deshabilita IE (escribe 0x00 en 0xFFFF) durante
+                        o después de la limpieza de VRAM, y nunca lo reactiva antes de entrar en el bucle de espera.
+                        Esto causa que el juego espere una interrupción que nunca se puede procesar.
+                    </p>
+                    <p>
+                        <strong>Suposición sobre PC:36E9:</strong> Asumimos que el bucle de limpieza tiene 6 bytes basándonos
+                        en el análisis del Step 0273. Si el trigger no se activa, puede ser que el bucle tenga una longitud
+                        diferente o que el PC salte a otra dirección.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con Pokémon Red y analizar los logs generados</li>
+                    <li>[ ] Identificar el momento exacto en que IE se deshabilita (buscar [IE-WRITE] con valor 0x00)</li>
+                    <li>[ ] Analizar el [TRAIL] para ver qué código se ejecuta después de la limpieza de VRAM</li>
+                    <li>[ ] Verificar si hay una instrucción DI que desactiva el IME sin reactivarlo</li>
+                    <li>[ ] Si se identifica el código culpable, implementar corrección o ajuste en el emulador</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
