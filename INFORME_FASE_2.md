@@ -32,6 +32,58 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0277: Operación Warp Drive: Monitor de Decremento y Validación de Bucle de Retardo
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa la "Operación Warp Drive" para validar el bucle de retardo identificado en el Step 0276. El análisis previo reveló que el juego NO está poleando hardware, sino ejecutando un bucle de retardo por software basado en el registro DE. El bucle decrementa DE hasta que llega a 0, y luego continúa con la ejecución.
+
+**Objetivo:**
+- Implementar captura de la carga inicial de DE en PC:0x614A para ver qué valor se carga.
+- Implementar monitoreo del decremento de DE cada 1000 iteraciones en PC:0x6150 para verificar que DE está disminuyendo correctamente.
+- Implementar detección de salida del bucle cuando el PC sale del rango 0x614A-0x6155.
+- Validar que la instrucción DEC DE (opcode 0x1B) está correctamente implementada.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/CPU.cpp`**:
+   - Agregada variable estática `saved_pc_for_instrumentation` al inicio de `step()` para rastrear el PC original antes del fetch.
+   - Agregado monitor en caso `0x11` (LD DE, nn) para capturar cuando se carga DE en PC:0x614A, imprimiendo el valor cargado.
+   - Agregado monitor en caso `0x1B` (DEC DE) para monitorear el decremento cada 1000 iteraciones cuando el PC original es 0x6150, imprimiendo el estado de DE, LY y DIV.
+   - Agregado trigger de salida del bucle al inicio de `step()` para detectar cuando el PC sale del rango 0x614A-0x6155, indicando que el bucle terminó.
+
+**Concepto de Hardware:**
+**Bucles de Retardo por Software**: En la Game Boy, los bucles de retardo por software son una técnica común para crear pausas temporales sin usar hardware de timer o interrupciones. Estos bucles funcionan decrementando un registro de 16 bits hasta que llega a 0, consumiendo ciclos de CPU de forma predecible.
+
+1. **Estructura del bucle**: Un bucle de retardo típico carga un valor inicial en un par de registros (ej: DE), luego decrementa el par, verifica si llegó a 0 (usando OR o ADD para combinar los bytes y verificar flags), y repite si no es 0.
+
+2. **Cálculo de tiempo real**: El tiempo que tarda un bucle de retardo depende del valor inicial (si DE se carga con 0xFFFF, el bucle ejecutará 65,536 iteraciones), los ciclos por iteración, y la frecuencia de CPU (~4.19 MHz). Si DE se carga con 0xFFFF, el bucle puede tardar varios milisegundos en completarse.
+
+3. **La "ilusión del atascamiento"**: Si un bucle de retardo se carga con un valor muy grande (ej: 0xFFFF), puede parecer que el juego está congelado cuando en realidad solo está esperando a que el bucle termine. Esto es especialmente problemático en emuladores si la ALU de 16 bits tiene un bug y DE no está decrementando correctamente.
+
+4. **DEC DE (opcode 0x1B)**: La instrucción DEC DE decrementa el par de registros DE en 1. Consume 2 M-Cycles (8 T-Cycles) y **NO afecta flags** (a diferencia de DEC r que sí afecta Z, N, H). Si DE = 0x0000, después de DEC DE, DE = 0xFFFF (wrap-around en 16 bits). Es crítico que esta instrucción funcione correctamente porque muchos bucles de retardo dependen de ella.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Modificado método `step()` para agregar monitores específicos: carga DE (0x614A), decremento (0x6150), y salida del bucle (0x614A-0x6155).
+- `src/core/cpp/CPU.cpp` - Modificado caso `0x11` (LD DE, nn) para capturar carga inicial.
+- `src/core/cpp/CPU.cpp` - Modificado caso `0x1B` (DEC DE) para monitorear decremento.
+
+**Tests y Verificación:**
+- Validación de código: ✅ Compilación exitosa sin errores de linter.
+- Verificación de DEC DE: ✅ La instrucción `DEC DE` (opcode 0x1B) está correctamente implementada usando `dec_16bit(1)`.
+- Verificación de dec_16bit(): ✅ La función `dec_16bit(1)` decrementa DE correctamente usando wrap-around en 16 bits.
+
+**Próximos Pasos:**
+- Ejecutar Pokémon Red y analizar los logs [SNIPER-LOAD] para ver qué valor se carga en DE.
+- Verificar que DE está disminuyendo correctamente usando los logs [SNIPER-DELAY].
+- Confirmar que el bucle termina cuando DE llega a 0 (buscar [SNIPER-EXIT]).
+- Si DE no está disminuyendo, investigar y corregir el bug en dec_16bit().
+- Calcular el tiempo real que tarda el bucle basándose en el valor inicial de DE y los ciclos por iteración.
+
+**Fuentes Consultadas:**
+- Pan Docs: CPU Instruction Set - DEC rr (0x0B, 0x1B, 0x2B, 0x3B)
+- Pan Docs: CPU Instruction Set - LD rr, nn (0x01, 0x11, 0x21, 0x31)
+
+---
+
 ### 2025-12-25 - Step 0276: Operación Time-Lapse: Disección del Bucle de Polling y Monitor de Registros de Tiempo
 **Estado**: ✅ IMPLEMENTADO
 

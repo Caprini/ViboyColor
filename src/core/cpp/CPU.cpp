@@ -427,20 +427,19 @@ void CPU::add_hl(uint16_t value) {
 }
 
 int CPU::step() {
-    // --- Step 0276: Sniper Trace del Bucle de Polling (614D-6155) - ANTES de interrupciones ---
+    // --- Step 0277: Monitor de Decremento y Salida de Bucle - ANTES de interrupciones ---
     // Capturamos el PC ANTES de procesar interrupciones para poder ver el estado del bucle
     // incluso cuando hay interrupciones que interrumpen la ejecución
+    
+    // Trigger de salida del bucle (cuando el PC sale del rango 614A-6155)
+    static uint16_t last_pc_in_loop = 0;
+    if (last_pc_in_loop >= 0x614A && last_pc_in_loop <= 0x6155 && 
+        !(regs_->pc >= 0x614A && regs_->pc <= 0x6155)) {
+        printf("[SNIPER-EXIT] ¡LIBERTAD! El bucle de retardo ha terminado en PC:0x%04X. DE:0x%04X\n", 
+               regs_->pc, regs_->get_de());
+    }
     if (regs_->pc >= 0x614A && regs_->pc <= 0x6155) {
-        static int loop_trace_count = 0;
-        if (loop_trace_count < 40) {
-            uint8_t current_op = mmu_->read(regs_->pc);
-            printf("[SNIPER-LOOP] PC:%04X OP:%02X | A:%02X BC:%04X HL:%04X | LY:%02X DIV:%02X STAT:%02X | D732:%02X\n",
-                   regs_->pc, current_op,
-                   regs_->a, regs_->get_bc(), regs_->get_hl(),
-                   mmu_->read(0xFF44), mmu_->read(0xFF04), mmu_->read(0xFF41),
-                   mmu_->read(0xD732));
-            loop_trace_count++;
-        }
+        last_pc_in_loop = regs_->pc;
     }
     // -----------------------------------------
     
@@ -492,6 +491,11 @@ int CPU::step() {
     // de que el PC avance durante la ejecución de la instrucción
     uint16_t original_pc = regs_->pc;
     bool is_critical_pc = (original_pc == 0x36E3 || original_pc == 0x6150 || original_pc == 0x6152);
+    
+    // --- Step 0277: Guardar PC original para instrumentación en casos específicos ---
+    // Guardamos el PC original (antes del fetch) para usarlo en los casos específicos del switch
+    static uint16_t saved_pc_for_instrumentation = 0;
+    saved_pc_for_instrumentation = original_pc;
     // -----------------------------------------
     
     // Fetch: Leer opcode de memoria
@@ -825,6 +829,19 @@ int CPU::step() {
             {
                 uint16_t value = fetch_word();
                 regs_->set_de(value);
+                
+                // --- Step 0277: Capturar carga inicial de DE en PC:0x614A ---
+                // saved_pc_for_instrumentation contiene el PC original (antes del fetch)
+                if (saved_pc_for_instrumentation == 0x614A) {
+                    // El valor se carga desde memoria en formato little-endian
+                    // 0x614A: opcode 0x11
+                    // 0x614B: LSB del valor
+                    // 0x614C: MSB del valor
+                    printf("[SNIPER-LOAD] PC:0x614A | Cargando DE con valor: 0x%04X (desde memoria 0x614B:0x%02X 0x614C:0x%02X)\n",
+                           value, mmu_->read(0x614B), mmu_->read(0x614C));
+                }
+                // -----------------------------------------
+                
                 cycles_ += 3;
                 return 3;
             }
@@ -870,6 +887,20 @@ int CPU::step() {
         case 0x1B:  // DEC DE
             {
                 dec_16bit(1);  // 1 = DE
+                
+                // --- Step 0277: Monitorizar decremento cada 1000 iteraciones en PC:0x6150 ---
+                // saved_pc_for_instrumentation contiene el PC original (antes del fetch)
+                if (saved_pc_for_instrumentation == 0x6150) {
+                    static uint32_t loop_counter = 0;
+                    loop_counter++;
+                    if (loop_counter % 1000 == 0) {
+                        printf("[SNIPER-DELAY] Iteración:%u | DE:0x%04X | LY:%d DIV:0x%02X\n",
+                               loop_counter, regs_->get_de(), 
+                               mmu_->read(0xFF44), mmu_->read(0xFF04));
+                    }
+                }
+                // -----------------------------------------
+                
                 cycles_ += 2;
                 return 2;
             }
