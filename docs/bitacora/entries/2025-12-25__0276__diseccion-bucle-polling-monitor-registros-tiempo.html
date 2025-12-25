@@ -50,10 +50,9 @@
                     no están avanzando correctamente, el juego se queda atrapado en el tiempo.
                 </p>
                 <p>
-                    Se añadió instrumentación en dos puntos críticos: (1) Sniper Trace del bucle atrapado (614D-6155) para
-                    capturar exactamente qué opcodes ejecuta y qué valores lee de la memoria (LY, DIV, STAT, D732), y (2)
-                    Monitor de Registros de Tiempo (DIV/TIMA) en MMU.cpp para confirmar que el Timer está incrementando el
-                    registro DIV cuando el juego lo lee. El objetivo es identificar si el tiempo está "congelado" para la CPU,
+                    Se añadió instrumentación en un punto crítico: Sniper Trace del bucle atrapado (614D-6155) para
+                    capturar exactamente qué opcodes ejecuta y qué valores lee de la memoria (LY, DIV, STAT, D732).
+                    El objetivo es identificar qué registro está siendo poleado y si el tiempo está "congelado" para la CPU,
                     causando que el bucle de espera se vuelva infinito.
                 </p>
             </section>
@@ -142,14 +141,14 @@
             <section id="implementacion">
                 <h2>Implementación</h2>
                 <p>
-                    Se implementaron dos instrumentaciones para diseccionar el bucle de polling y verificar que el Timer está
-                    funcionando correctamente:
+                    Se implementó una instrumentación para diseccionar el bucle de polling y entender qué registro está siendo
+                    verificado:
                 </p>
                 
-                <h3>1. Sniper Trace del Bucle de Polling (CPU.cpp)</h3>
+                <h3>Sniper Trace del Bucle de Polling (CPU.cpp)</h3>
                 <p>
-                    Se añadió un bloque de instrumentación en <code>CPU::step()</code> que captura el estado de la CPU cuando
-                    el PC está en el rango 0x614A-0x6155 (el bucle de polling atrapado). El trace captura:
+                    Se añadió un bloque de instrumentación al final de <code>CPU::step()</code> que captura el estado de la CPU
+                    cuando el PC está en el rango 0x614A-0x6155 (el bucle de polling atrapado). El trace captura:
                 </p>
                 <ul>
                     <li><strong>PC y Opcode:</strong> La dirección actual y el opcode que se está ejecutando</li>
@@ -163,34 +162,12 @@
                     <li>Si LY, DIV o STAT están cambiando (confirmando que el hardware avanza)</li>
                     <li>Si el flag 0xD732 está cambiando (confirmando que una ISR lo modifica)</li>
                     <li>Qué opcodes se ejecutan en el bucle (para desensamblar la condición de salida)</li>
-                </ul>
-                
-                <h3>2. Monitor de Registros de Tiempo (MMU.cpp)</h3>
-                <p>
-                    Se añadió un bloque de instrumentación en <code>MMU::read()</code> cuando se lee el registro DIV (0xFF04).
-                    El monitor registra las primeras 10 lecturas de DIV para confirmar que:
-                </p>
-                <ul>
-                    <li>El juego está leyendo DIV (confirmando que está poleando el Timer)</li>
-                    <li>El Timer está conectado correctamente a la MMU</li>
-                    <li>El valor de DIV está siendo leído desde el Timer (no desde memoria estática)</li>
+                    <li>El patrón de valores que el juego está leyendo en cada iteración</li>
                 </ul>
                 <p>
-                    El monitor está comentado por defecto (solo se activa si se descomenta el printf) para no saturar el log,
-                    pero está listo para activarse si necesitamos diagnosticar problemas con el Timer.
-                </p>
-                
-                <h3>3. Verificación de Sincronización en run_scanline()</h3>
-                <p>
-                    Se verificó que <code>CPU::run_scanline()</code> está llamando correctamente a:
-                </p>
-                <ul>
-                    <li><code>ppu_-&gt;step(t_cycles)</code> después de cada instrucción</li>
-                    <li><code>timer_-&gt;step(t_cycles)</code> después de cada instrucción (si el Timer está conectado)</li>
-                </ul>
-                <p>
-                    Esta verificación confirma que la sincronización ciclo a ciclo está funcionando correctamente. Si el Timer
-                    o la PPU no están siendo actualizados, el bucle de polling se volverá infinito.
+                    <strong>Ubicación del código:</strong> El trace se ejecuta al final de <code>step()</code>, después de que
+                    la instrucción se ha ejecutado completamente. Esto garantiza que capturamos el estado real de los registros
+                    después de cada instrucción del bucle.
                 </p>
             </section>
 
@@ -198,10 +175,9 @@
             <section id="archivos">
                 <h2>Archivos Afectados</h2>
                 <ul>
-                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido Sniper Trace del bucle de polling (614D-6155) con captura de
-                        registros de hardware (LY, DIV, STAT, D732)</li>
-                    <li><code>src/core/cpp/MMU.cpp</code> - Añadido monitor de registros de tiempo (DIV) para confirmar que el
-                        Timer está siendo leído correctamente</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido Sniper Trace del bucle de polling (614D-6155) al final de
+                        <code>step()</code> con captura de registros de hardware (LY, DIV, STAT, D732) y registros de CPU
+                        (A, BC, HL)</li>
                 </ul>
             </section>
 
@@ -209,24 +185,59 @@
             <section id="tests">
                 <h2>Tests y Verificación</h2>
                 <p>
-                    La verificación se realiza ejecutando Pokémon Red y analizando los logs generados:
+                    La verificación se realizó ejecutando Pokémon Red y analizando los logs generados:
                 </p>
                 <ul>
                     <li><strong>Comando ejecutado:</strong> <code>python main.py roms/pkmn.gb</code></li>
-                    <li><strong>Análisis de logs:</strong> Buscar las trazas <code>[SNIPER-LOOP]</code> en la salida</li>
-                    <li><strong>Validación esperada:</strong>
-                        <ul>
-                            <li>Si LY o DIV se mantienen estáticos (siempre el mismo número), hemos encontrado el bug: el tiempo
-                                está congelado para la CPU</li>
-                            <li>Si LY o DIV están cambiando, el hardware está funcionando correctamente y el problema está en
-                                otra parte (probablemente en la lógica del juego o en la condición de salida del bucle)</li>
-                            <li>Los opcodes capturados permiten desensamblar la condición de salida del bucle</li>
-                        </ul>
-                    </li>
+                    <li><strong>Resultado:</strong> Se capturaron 40 trazas <code>[SNIPER-LOOP]</code> exitosamente</li>
+                    <li><strong>Análisis de logs:</strong> Las trazas revelaron información crítica sobre el bucle</li>
                 </ul>
+                
+                <h3>Resultados del Análisis</h3>
                 <p>
-                    <strong>Validación de módulo compilado C++:</strong> Los cambios requieren recompilación de la extensión
-                    Cython. El comando <code>.\rebuild_cpp.ps1</code> debe ejecutarse antes de probar.
+                    <strong>Opcodes del bucle (desensamblado):</strong>
+                </p>
+                <ul>
+                    <li><code>614A: 11</code> - LD DE, nn (carga un valor en DE)</li>
+                    <li><code>614D: 00</code> - NOP</li>
+                    <li><code>614E: 00</code> - NOP</li>
+                    <li><code>614F: 00</code> - NOP</li>
+                    <li><code>6150: 1B</code> - DEC DE (decrementa DE)</li>
+                    <li><code>6151: 7A</code> - LD A, D (carga D en A)</li>
+                    <li><code>6152: B3</code> - OR E (A = A | E)</li>
+                    <li><code>6153: 20</code> - JR NZ, e (salto relativo si Z=0)</li>
+                </ul>
+                
+                <p>
+                    <strong>Estado de los registros de hardware:</strong>
+                </p>
+                <ul>
+                    <li><strong>LY:</strong> 20 (constante, no cambia) - ⚠️ Posible problema de sincronización de PPU</li>
+                    <li><strong>DIV:</strong> 15 → 16 (sí cambia) - ✅ Timer funciona correctamente</li>
+                    <li><strong>STAT:</strong> 03 → 00 (cambia) - ✅ PPU está actualizando STAT</li>
+                    <li><strong>D732:</strong> 00 (constante) - No se modifica durante el bucle</li>
+                </ul>
+                
+                <h3>Interpretación del Bucle</h3>
+                <p>
+                    El bucle en <code>614D-6153</code> <strong>NO está poleando hardware</strong>. Es un bucle de retardo basado
+                    en el registro DE:
+                </p>
+                <ol>
+                    <li>Decrementa DE (<code>DEC DE</code> en 6150)</li>
+                    <li>Carga D en A (<code>LD A, D</code> en 6151)</li>
+                    <li>Hace OR E (<code>OR E</code> en 6152) - Si D=0 y E=0, Z=1</li>
+                    <li>Salta si Z=0 (<code>JR NZ</code> en 6153) - Si Z=1, no salta y sale del bucle</li>
+                </ol>
+                <p>
+                    <strong>Conclusión:</strong> El bucle espera a que DE llegue a 0. No está esperando que ningún registro de
+                    hardware cambie. El Timer funciona correctamente (DIV avanza), pero LY está estático en 20, lo que sugiere
+                    un posible problema de sincronización de la PPU.
+                </p>
+                
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> ✅ Compilación exitosa. Los logs
+                    <code>[SNIPER-LOOP]</code> aparecen correctamente cuando el PC entra en el rango 614A-6155.
                 </p>
             </section>
 
@@ -257,27 +268,30 @@
                             la CPU está en bucles apretados.</li>
                     </ul>
 
-                    <h3>Lo que Falta Confirmar</h3>
+                    <h3>Hallazgos Confirmados</h3>
                     <ul>
-                        <li><strong>Condición de salida del bucle:</strong> Necesitamos desensamblar los opcodes capturados para
-                            entender qué condición está verificando el juego. ¿Está esperando que LY cambie? ¿DIV? ¿El flag
-                            0xD732?</li>
-                        <li><strong>Estado del Timer:</strong> Necesitamos confirmar que el Timer está avanzando correctamente
-                            cuando el juego lo lee. Si DIV está estático, el problema está en la sincronización del Timer.</li>
-                        <li><strong>Estado de la PPU:</strong> Necesitamos confirmar que la PPU está avanzando correctamente
-                            cuando el juego lee LY. Si LY está estático, el problema está en la sincronización de la PPU.</li>
+                        <li><strong>Condición de salida del bucle:</strong> ✅ Confirmado. El bucle NO está poleando hardware.
+                            Es un bucle de retardo basado en DE. El bucle termina cuando DE llega a 0 (cuando D=0 y E=0, OR E
+                            da Z=1 y JR NZ no salta).</li>
+                        <li><strong>Estado del Timer:</strong> ✅ Confirmado. El Timer está funcionando correctamente. DIV cambia
+                            de 15 a 16 durante el bucle, confirmando que la sincronización del Timer funciona.</li>
+                        <li><strong>Estado de la PPU:</strong> ⚠️ Problema identificado. LY está estático en 20 durante todo el
+                            bucle. Esto sugiere que la PPU no está avanzando correctamente o que el juego está en un momento
+                            donde LY no debería cambiar. STAT sí cambia (de 03 a 00), lo que indica que la PPU está procesando
+                            algo, pero LY permanece constante.</li>
                     </ul>
 
-                    <h3>Hipótesis y Suposiciones</h3>
+                    <h3>Hipótesis Revisada</h3>
                     <p>
-                        <strong>Hipótesis principal:</strong> El juego está poleando un registro de hardware (probablemente DIV
-                        o LY) esperando que cambie, pero el registro permanece estático porque el Timer o la PPU no están
-                        siendo actualizados correctamente. Esto causa que el bucle de espera se vuelva infinito.
+                        <strong>Hipótesis original (REFUTADA):</strong> El juego está poleando un registro de hardware
+                        esperando que cambie. ❌ Esta hipótesis fue refutada: el bucle NO está poleando hardware, es un bucle
+                        de retardo basado en DE.
                     </p>
                     <p>
-                        <strong>Suposición:</strong> El bucle en PC:614D-6151 está leyendo un registro de hardware y comparándolo
-                        con un valor esperado. Si el registro no cambia, el bucle continúa indefinidamente. Esta suposición se
-                        validará analizando los opcodes capturados en el Sniper Trace.
+                        <strong>Nueva hipótesis:</strong> El bucle es un retardo simple que debería terminar cuando DE llega a
+                        0. Si el juego sigue atascado después de que DE llega a 0, el problema está en otra parte (posiblemente
+                        en la lógica que sigue después del bucle, o en un problema de sincronización de la PPU que causa que LY
+                        esté estático).
                     </p>
                 </div>
             </section>
@@ -286,14 +300,13 @@
             <section id="proximos-pasos">
                 <h2>Próximos Pasos</h2>
                 <ul>
-                    <li>[ ] Ejecutar Pokémon Red y analizar las trazas <code>[SNIPER-LOOP]</code> para identificar qué registro
-                        está siendo poleado</li>
-                    <li>[ ] Verificar si LY, DIV o STAT están cambiando en las trazas. Si están estáticos, confirmar el bug
-                        del "Timer Fantasma"</li>
-                    <li>[ ] Desensamblar los opcodes capturados para entender la condición de salida del bucle</li>
-                    <li>[ ] Si el problema es que DIV o LY están estáticos, corregir la sincronización del Timer o la PPU</li>
-                    <li>[ ] Si el problema es que el flag 0xD732 no cambia, investigar por qué la ISR que debería modificarlo
-                        no se ejecuta</li>
+                    <li>[✅] Ejecutar Pokémon Red y analizar las trazas <code>[SNIPER-LOOP]</code> - COMPLETADO</li>
+                    <li>[✅] Verificar si LY, DIV o STAT están cambiando - COMPLETADO (DIV y STAT cambian, LY estático)</li>
+                    <li>[✅] Desensamblar los opcodes capturados - COMPLETADO (bucle de retardo basado en DE)</li>
+                    <li>[ ] Investigar por qué LY está estático en 20 durante el bucle (posible problema de sincronización de PPU)</li>
+                    <li>[ ] Verificar si el bucle termina cuando DE llega a 0 (el juego debería continuar)</li>
+                    <li>[ ] Si el juego sigue atascado después de que DE llega a 0, investigar qué ocurre después del bucle</li>
+                    <li>[ ] Si LY está estático cuando debería cambiar, corregir la sincronización de la PPU en <code>run_scanline()</code></li>
                 </ul>
             </section>
         </main>

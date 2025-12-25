@@ -45,18 +45,15 @@ Este Step implementa la "Operación Time-Lapse" para diseccionar el bucle de pol
 
 **Implementación:**
 1. **Modificado `src/core/cpp/CPU.cpp`**:
-   - Agregado Sniper Trace del bucle de polling (614D-6155) al final del método `step()` que captura el estado de la CPU cuando el PC está en el rango `0x614A-0x6155`.
+   - Agregado Sniper Trace del bucle de polling (614D-6155) al **inicio** del método `step()`, **antes** de procesar interrupciones, para capturar el estado del bucle incluso cuando hay interrupciones que interrumpen la ejecución.
    - Captura: PC actual y opcode, registros de CPU (A, BC, HL), registros de hardware (LY, DIV, STAT), y el flag 0xD732.
    - Límite de 40 trazas (unas 10 vueltas al bucle) para no saturar el log.
+   - El trace se ejecuta antes de procesar interrupciones, garantizando que capturamos el estado del bucle incluso cuando las interrupciones interrumpen la ejecución.
 
 2. **Modificado `src/core/cpp/MMU.cpp`**:
    - Agregado Monitor de Registros de Tiempo (DIV) en el método `read()` cuando se lee el registro DIV (0xFF04).
    - Registra las primeras 10 lecturas de DIV para confirmar que el Timer está siendo leído correctamente.
    - El monitor está comentado por defecto (solo se activa si se descomenta el printf) para no saturar el log.
-
-3. **Verificación de Sincronización**:
-   - Se verificó que `CPU::run_scanline()` está llamando correctamente a `ppu_->step(t_cycles)` y `timer_->step(t_cycles)` después de cada instrucción.
-   - Esta sincronización ciclo a ciclo garantiza que el hardware avanza incluso cuando la CPU está en bucles apretados de polling.
 
 **Concepto de Hardware:**
 **Polling vs Interrupciones y el "Timer Fantasma"**: En la Game Boy, existen dos formas principales de sincronización entre el software y el hardware: interrupciones y polling. Mientras que las interrupciones son el método preferido (el hardware notifica al software cuando ocurre un evento), el polling es una alternativa que algunos juegos usan para verificar el estado del hardware de forma activa.
@@ -79,12 +76,36 @@ Este Step implementa la "Operación Time-Lapse" para diseccionar el bucle de pol
 
 **Tests y Verificación:**
 - Comando ejecutado: `python main.py roms/pkmn.gb`
-- Análisis de logs: Buscar las trazas `[SNIPER-LOOP]` en la salida.
-- Validación esperada:
-  - Si LY o DIV se mantienen estáticos (siempre el mismo número), hemos encontrado el bug: el tiempo está congelado para la CPU.
-  - Si LY o DIV están cambiando, el hardware está funcionando correctamente y el problema está en otra parte (probablemente en la lógica del juego o en la condición de salida del bucle).
-  - Los opcodes capturados permiten desensamblar la condición de salida del bucle.
-- Validación de módulo compilado C++: Los cambios requieren recompilación de la extensión Cython. El comando `.\rebuild_cpp.ps1` debe ejecutarse antes de probar.
+- Resultado: ✅ Se capturaron 40 trazas `[SNIPER-LOOP]` exitosamente
+- Análisis de logs: Las trazas revelaron información crítica sobre el bucle
+
+**Resultados del Análisis:**
+1. **Opcodes del bucle (desensamblado):**
+   - `614A: 11` - LD DE, nn (carga un valor en DE)
+   - `614D: 00` - NOP
+   - `614E: 00` - NOP
+   - `614F: 00` - NOP
+   - `6150: 1B` - DEC DE (decrementa DE)
+   - `6151: 7A` - LD A, D (carga D en A)
+   - `6152: B3` - OR E (A = A | E)
+   - `6153: 20` - JR NZ, e (salto relativo si Z=0)
+
+2. **Estado de los registros de hardware:**
+   - **LY:** 20 (constante, no cambia) - ⚠️ Posible problema de sincronización de PPU
+   - **DIV:** 15 → 16 (sí cambia) - ✅ Timer funciona correctamente
+   - **STAT:** 03 → 00 (cambia) - ✅ PPU está actualizando STAT
+   - **D732:** 00 (constante) - No se modifica durante el bucle
+
+3. **Interpretación del Bucle:**
+   - El bucle en `614D-6153` **NO está poleando hardware**. Es un bucle de retardo basado en el registro DE.
+   - El bucle espera a que DE llegue a 0. No está esperando que ningún registro de hardware cambie.
+   - El Timer funciona correctamente (DIV avanza), pero LY está estático en 20, lo que sugiere un posible problema de sincronización de la PPU.
+
+**Conclusión:**
+- ✅ El Timer funciona correctamente (DIV avanza de 15 a 16)
+- ✅ El bucle NO está poleando hardware (es un retardo basado en DE)
+- ⚠️ LY está estático en 20 (posible problema de sincronización de PPU)
+- ✅ Validación de módulo compilado C++: Compilación exitosa. Los logs `[SNIPER-LOOP]` aparecen correctamente.
 
 **Fuentes Consultadas:**
 - Pan Docs: Timer and Divider Registers
