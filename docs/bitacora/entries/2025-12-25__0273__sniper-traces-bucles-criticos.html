@@ -276,36 +276,45 @@
                     <ul>
                         <li><strong>Busy Loops y Flags de Sincronización:</strong> Los juegos usan bucles ocupados que leen
                             flags en WRAM repetidamente hasta que una ISR los modifica. Si la ISR no se ejecuta o no modifica
-                            el flag, el bucle se vuelve infinito.</li>
+                            el flag, el bucle se vuelve infinito. <strong>Confirmado:</strong> El flag <code>0xD732</code> solo se escribe
+                            una vez con <code>0x00</code> y nunca cambia porque la ISR no se ejecuta (IE=0).</li>
                         <li><strong>Instrumentación Quirúrgica:</strong> En lugar de logs masivos que saturan la salida, es más
                             efectivo instrumentar solo puntos críticos con límites de impresión para capturar el estado exacto
-                            en el momento del problema.</li>
+                            en el momento del problema. <strong>Resultado:</strong> Capturamos 50 trazas precisas que revelaron el problema.</li>
                         <li><strong>Importancia del Banco ROM:</strong> Si el código está leyendo instrucciones de un banco ROM
-                            incorrecto, el comportamiento será errático. Verificar el banco en puntos críticos ayuda a detectar
-                            problemas de MBC.</li>
+                            incorrecto, el comportamiento será errático. <strong>Verificado:</strong> El banco ROM reportado (1) es correcto.</li>
+                        <li><strong>Estado de Interrupciones:</strong> El registro IE (Interrupt Enable) controla si las interrupciones
+                            se pueden procesar. Si IE=0, ninguna ISR se ejecuta, incluso si hay interrupciones pendientes en IF.
+                            <strong>Hallazgo crítico:</strong> IE=0x00 explica por qué el flag <code>0xD732</code> nunca cambia.</li>
+                        <li><strong>Desensamblado de Opcodes:</strong> Los opcodes <code>22 0B 78</code> se desensamblan como
+                            <code>LD (HL+), A | DEC BC | LD A, B</code>, formando un bucle típico de limpieza de memoria.</li>
                     </ul>
 
-                    <h3>Lo que Falta Confirmar</h3>
+                    <h3>Lo que Confirmamos</h3>
                     <ul>
-                        <li><strong>Opcodes en direcciones críticas:</strong> Necesitamos ver los opcodes reales que se ejecutan
-                            en <code>0x36E3</code>, <code>0x6150</code> y <code>0x6152</code> para entender qué condición está verificando
-                            el juego.</li>
-                        <li><strong>Origen de escrituras a D732:</strong> El trigger D732 mostrará si hay intentos de escribir en este
-                            flag y desde qué PC, permitiendo identificar si la ISR que debería modificar el flag se está ejecutando.</li>
-                        <li><strong>Banco ROM correcto:</strong> Verificar que el banco ROM reportado en las trazas coincide con el
-                            esperado según el análisis del código del juego.</li>
+                        <li><strong>Opcodes en PC:36E3:</strong> <code>22 0B 78</code> → Rutina de limpieza de VRAM que escribe <code>0x00</code>
+                            desde <code>0x8000</code> usando <code>BC</code> como contador y <code>HL</code> como puntero.</li>
+                        <li><strong>Origen de escrituras a D732:</strong> Solo hay UNA escritura desde <code>PC:1F80</code> con valor <code>00</code>.
+                            Ninguna ISR modifica el flag porque IE=0.</li>
+                        <li><strong>Banco ROM correcto:</strong> El banco ROM reportado (1) coincide con el esperado.</li>
+                        <li><strong>Causa raíz identificada:</strong> IE=0x00 (interrupciones deshabilitadas) impide que las ISR se ejecuten,
+                            causando que el flag <code>0xD732</code> nunca cambie y el bucle de espera se vuelva infinito.</li>
                     </ul>
 
-                    <h3>Hipótesis y Suposiciones</h3>
+                    <h3>Hipótesis Confirmada</h3>
                     <p>
-                        <strong>Hipótesis principal:</strong> El juego está esperando que una ISR modifique <code>0xD732</code>, pero
-                        esta interrupción no se está disparando o no se está procesando correctamente. Las trazas de Sniper permitirán
-                        verificar si el código está leyendo el flag correctamente y si el banco ROM es el esperado.
+                        <strong>Hipótesis principal (CONFIRMADA):</strong> El juego está esperando que una ISR modifique <code>0xD732</code>,
+                        pero esta interrupción no se está procesando correctamente porque <strong>IE=0x00</strong> (todas las interrupciones
+                        deshabilitadas). Las trazas de Sniper confirmaron que:
                     </p>
+                    <ul>
+                        <li>El código en <code>PC:36E3</code> se ejecuta correctamente (banco ROM 1, opcodes válidos)</li>
+                        <li>El flag <code>0xD732</code> solo se escribe una vez y nunca cambia</li>
+                        <li>IE=0x00 impide que las ISR se ejecuten, incluso con IF=0x01 (V-Blank pendiente)</li>
+                    </ul>
                     <p>
-                        <strong>Suposición:</strong> Asumimos que las direcciones <code>0x36E3</code>, <code>0x6150</code> y <code>0x6152</code>
-                        son realmente críticas basándonos en análisis previos. Si el juego no llega a estas direcciones, las trazas
-                        no aparecerán y sabremos que el problema está en otra parte del código.
+                        <strong>Próxima investigación:</strong> Buscar dónde se deshabilita IE (escritura de <code>0x00</code> en <code>0xFFFF</code>)
+                        y verificar si el juego debería habilitar IE antes del bucle de espera.
                     </p>
                 </div>
             </section>
