@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Operación Rebirth: Disección de la Rutina de Inicialización y Watchdog de HALT - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Operación Rebirth: Disección de la Rutina de Inicialización y Watchdog de HALT</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0275
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0274__rastreo-registro-ie-e-interrupciones.html">Anterior (0274)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa la "Operación Rebirth" para diseccionar la rutina de inicialización de Pokémon Red
+                    donde se desactivan las interrupciones. El análisis del Step 0274 reveló que el juego ejecuta <code>DI</code>
+                    (0xF3) en <code>PC:1F54</code> y escribe <code>0x00</code> en <code>0xFFFF</code> (IE) en <code>PC:1F58</code>,
+                    causando un "suicidio técnico" que bloquea el juego en un estado de coma permanente.
+                </p>
+                <p>
+                    Se añadió instrumentación en tres puntos críticos: (1) Sniper Trace de la zona de muerte (1F54-1F60) para
+                    capturar la secuencia exacta de opcodes, (2) Monitor de Salto de Banco (Bank Watcher) para detectar cambios
+                    de banco MBC que puedan desorientar el rastreo, y (3) Watchdog de "HALT of Death" para detectar cuando la
+                    CPU entra en HALT con IE=0 e IME=0, un estado de huelga permanente. El objetivo es entender por qué el
+                    juego no reactiva las interrupciones después de desactivarlas.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El sistema de interrupciones de la Game Boy es crítico para el funcionamiento del juego. Cuando un juego
+                    desactiva todas las interrupciones (tanto IME como IE), entra en un estado de "aislamiento sensorial" donde
+                    ningún evento externo puede despertar la CPU. Esto es especialmente peligroso cuando se combina con la
+                    instrucción <code>HALT</code>.
+                </p>
+                
+                <h3>1. La Instrucción HALT (0x76)</h3>
+                <p>
+                    La instrucción <code>HALT</code> pone la CPU en un estado de bajo consumo donde deja de ejecutar instrucciones
+                    hasta que ocurre una interrupción. Sin embargo, hay un comportamiento especial conocido como "HALT bug":
+                </p>
+                <ul>
+                    <li><strong>Si IME=1:</strong> La CPU entra en HALT y espera una interrupción. Cuando ocurre, la CPU sale de
+                        HALT y procesa la interrupción normalmente.</li>
+                    <li><strong>Si IME=0 pero hay interrupción pendiente (IE & IF != 0):</strong> La CPU NO entra en HALT.
+                        Simplemente continúa ejecutando la siguiente instrucción. Este es el "HALT bug" documentado en Pan Docs.</li>
+                    <li><strong>Si IME=0 e IE=0:</strong> La CPU entra en HALT y <strong>nunca sale</strong>. Este es un estado
+                        de "huelga permanente" que bloquea el juego completamente.</li>
+                </ul>
+                
+                <h3>2. El Peligro de los Estados de Espera Infinitos</h3>
+                <p>
+                    Cuando un juego desactiva todas las interrupciones (IE=0x00) y luego ejecuta <code>HALT</code>, la CPU entra
+                    en un estado de coma permanente. Ningún evento externo puede despertarla porque:
+                </p>
+                <ol>
+                    <li><strong>IME=0:</strong> La CPU no procesa interrupciones incluso si están habilitadas en IE.</li>
+                    <li><strong>IE=0:</strong> Ninguna interrupción está habilitada, incluso si el hardware las solicita.</li>
+                    <li><strong>HALT activo:</strong> La CPU está en estado de espera y no ejecuta instrucciones.</li>
+                </ol>
+                <p>
+                    Este es un estado de "muerte técnica" del juego. El único escape sería que el hardware resetee la consola,
+                    pero en un emulador esto no ocurre automáticamente.
+                </p>
+                
+                <h3>3. Cambios de Banco ROM (MBC)</h3>
+                <p>
+                    Los juegos con múltiples bancos ROM (MBC1, MBC2, MBC3, MBC5) pueden cambiar de banco escribiendo en el rango
+                    <code>0x2000-0x3FFF</code>. Cuando esto ocurre, el mismo PC apunta a código diferente. Si el juego cambia de
+                    banco justo después de desactivar interrupciones, el rastreo puede perderse porque el código que se espera
+                    ver en un banco puede estar en otro.
+                </p>
+                <p>
+                    Es crítico monitorear estos cambios de banco para entender el flujo de ejecución real del juego.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron tres sistemas de instrumentación para diseccionar la rutina de inicialización y detectar
+                    estados de bloqueo permanente:
+                </p>
+                
+                <h3>1. Sniper Trace de la Zona de Muerte (1F54-1F60)</h3>
+                <p>
+                    Se añadió un bloque de instrumentación al final del método <code>step()</code> en <code>CPU.cpp</code> que
+                    captura el estado de la CPU cuando el PC está en el rango <code>0x1F50-0x1F65</code>. Esta zona contiene la
+                    secuencia crítica donde se ejecuta <code>DI</code> y se escribe <code>0x00</code> en <code>0xFFFF</code>.
+                </p>
+                <p>
+                    El trace captura:
+                </p>
+                <ul>
+                    <li>PC actual y los siguientes 3 opcodes</li>
+                    <li>Estado de todos los registros (AF, BC, DE, HL)</li>
+                    <li>Estado del IME (0 o 1)</li>
+                    <li>Valor de IE (0xFFFF) e IF (0xFF0F)</li>
+                </ul>
+                <p>
+                    Se limita a 100 trazas para evitar saturar los logs, pero es suficiente para ver la secuencia completa de
+                    la rutina de inicialización.
+                </p>
+                
+                <h3>2. Monitor de Salto de Banco (Bank Watcher)</h3>
+                <p>
+                    Se añadió un bloque de instrumentación en el método <code>write()</code> de <code>MMU.cpp</code> que detecta
+                    cualquier escritura en el rango <code>0x2000-0x3FFF</code>, que es el área de control del MBC para cambios
+                    de banco ROM.
+                </p>
+                <p>
+                    El monitor imprime:
+                </p>
+                <ul>
+                    <li>Valor escrito (el nuevo banco solicitado)</li>
+                    <li>PC desde el cual se ejecutó la escritura</li>
+                    <li>Banco ROM actual antes del cambio</li>
+                </ul>
+                <p>
+                    Esto permite rastrear si el juego cambia de banco justo después de desactivar interrupciones, lo que podría
+                    explicar por qué el rastreo se pierde.
+                </p>
+                
+                <h3>3. Watchdog de "HALT of Death"</h3>
+                <p>
+                    Se añadió un bloque de detección en el <code>case 0x76</code> (HALT) de <code>CPU.cpp</code> que detecta
+                    cuando la CPU intenta entrar en HALT con <code>IE=0</code> e <code>IME=0</code>. Este es el estado de
+                    "huelga permanente" que bloquea el juego.
+                </p>
+                <p>
+                    El watchdog imprime una advertencia crítica con el PC donde ocurrió el HALT, permitiendo identificar
+                    exactamente dónde el juego se suicida técnicamente.
+                </p>
+                
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Límite de 100 trazas para Sniper-INIT:</strong> La zona de inicialización se ejecuta una vez al
+                    inicio del juego, por lo que 100 trazas son más que suficientes para capturar toda la secuencia. Esto evita
+                    saturar los logs con información redundante.
+                </p>
+                <p>
+                    <strong>Sin límite para Bank Watcher:</strong> Los cambios de banco pueden ocurrir en cualquier momento
+                    durante la ejecución, pero son relativamente infrecuentes. No se limita el número de logs para asegurar
+                    que no se pierda ningún cambio crítico.
+                </p>
+                <p>
+                    <strong>Detección temprana de HALT of Death:</strong> El watchdog se ejecuta antes de que la CPU entre en
+                    HALT, permitiendo capturar el PC exacto donde ocurre el problema. Esto es crítico para el diagnóstico.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido Sniper Trace de zona de muerte (1F54-1F60) y Watchdog de HALT of Death</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Añadido Monitor de Salto de Banco (Bank Watcher)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La instrumentación se valida mediante ejecución del emulador con Pokémon Red y análisis de los logs
+                    generados. Los logs deben mostrar:
+                </p>
+                <ul>
+                    <li><strong>[SNIPER-INIT]:</strong> La secuencia exacta de opcodes en la zona de muerte (1F54-1F60),
+                        incluyendo el <code>DI</code> (0xF3) y la escritura a IE (0xFFFF).</li>
+                    <li><strong>[MBC-WRITE]:</strong> Cualquier cambio de banco ROM que ocurra durante o después de la
+                        desactivación de interrupciones.</li>
+                    <li><strong>[CRITICAL WARNING]:</strong> Si el juego entra en HALT con IE=0 e IME=0, confirmando el
+                        "suicidio técnico".</li>
+                </ul>
+                <p>
+                    <strong>Comando de prueba:</strong>
+                </p>
+                <pre><code>python main.py roms/pkmn.gb</code></pre>
+                <p>
+                    <strong>Validación esperada:</strong> Los logs deben revelar:
+                </p>
+                <ol>
+                    <li>La secuencia exacta de opcodes que acompañan al apagado de interrupciones.</li>
+                    <li>Si el juego cambia de banco ROM justo después de desactivar interrupciones.</li>
+                    <li>Si el juego entra en HALT con IE=0 e IME=0, confirmando el bloqueo permanente.</li>
+                </ol>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> La compilación debe completarse sin errores
+                    y los logs deben aparecer durante la ejecución del emulador. Los logs [SNIPER-INIT] deben aparecer
+                    al inicio de la ejecución cuando el PC pasa por la zona de inicialización.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">CPU Instruction Set</a> - Comportamiento de la instrucción HALT y el HALT bug</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts Section</a> - Sistema de interrupciones y condiciones para procesar interrupciones</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/MBCs.html">Memory Bank Controllers</a> - Control de bancos ROM mediante escrituras en 0x2000-0x3FFF</li>
+                    <li>Análisis del Step 0274: Identificación de PC:1F54 (DI) y PC:1F58 (IE=0x00) como zona de muerte</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>HALT bug y estados de bloqueo:</strong> La instrucción HALT tiene un comportamiento
+                            especial cuando IME=0. Si hay interrupciones pendientes, la CPU no entra en HALT (bug documentado).
+                            Pero si IE=0 e IME=0, la CPU entra en HALT y nunca sale, causando un bloqueo permanente.</li>
+                        <li><strong>Zona de muerte (1F54-1F60):</strong> Esta zona contiene la secuencia crítica donde el
+                            juego desactiva todas las interrupciones. Capturar esta secuencia es esencial para entender por qué
+                            el juego no reactiva las interrupciones después.</li>
+                        <li><strong>Cambios de banco ROM:</strong> Los juegos pueden cambiar de banco ROM en cualquier momento,
+                            lo que puede desorientar el rastreo si no se monitorea. Es crítico detectar estos cambios para
+                            entender el flujo real de ejecución.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Secuencia exacta de opcodes:</strong> Los logs [SNIPER-INIT] deben revelar la secuencia
+                            completa de opcodes en la zona de muerte. Esto permitirá desensamblar el código exacto que el
+                            juego ejecuta y entender por qué no reactiva las interrupciones.</li>
+                        <li><strong>Cambios de banco:</strong> Los logs [MBC-WRITE] deben mostrar si el juego cambia de banco
+                            justo después de desactivar interrupciones. Si esto ocurre, puede explicar por qué el rastreo se
+                            pierde.</li>
+                        <li><strong>Confirmación de HALT of Death:</strong> Si aparece [CRITICAL WARNING], confirmaremos que
+                            el juego entra en HALT con IE=0 e IME=0, causando el bloqueo permanente. Esto confirmaría la
+                            hipótesis del "suicidio técnico".</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego desactiva interrupciones en la zona de muerte (1F54-1F58)
+                        para realizar tareas críticas (como limpiar VRAM), pero luego no las reactiva antes de entrar en un
+                        bucle de espera. Esto causa que el juego espere una interrupción que nunca se puede procesar, bloqueando
+                        el juego permanentemente.
+                    </p>
+                    <p>
+                        <strong>Suposición sobre cambios de banco:</strong> Asumimos que el juego no cambia de banco durante la
+                        rutina de inicialización, pero el Bank Watcher confirmará o refutará esto. Si hay cambios de banco, puede
+                        explicar por qué el rastreo se pierde.
+                    </p>
+                    <p>
+                        <strong>Suposición sobre HALT:</strong> Asumimos que el juego puede entrar en HALT con IE=0 e IME=0,
+                        causando el bloqueo. El watchdog confirmará si esto ocurre y en qué PC exacto.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con Pokémon Red y analizar los logs generados</li>
+                    <li>[ ] Desensamblar la secuencia de opcodes capturada por [SNIPER-INIT] para entender el flujo exacto</li>
+                    <li>[ ] Verificar si hay cambios de banco ROM durante la rutina de inicialización ([MBC-WRITE])</li>
+                    <li>[ ] Confirmar si el juego entra en HALT con IE=0 e IME=0 ([CRITICAL WARNING])</li>
+                    <li>[ ] Si se identifica el problema, implementar corrección o ajuste en el emulador</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

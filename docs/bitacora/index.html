@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0275 - Operación Rebirth: Disección de la Rutina de Inicialización y Watchdog de HALT -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-25</span>
+                        <span class="tag">0275</span>
+                        <a href="entries/2025-12-25__0275__diseccion-rutina-inicializacion-watchdog-halt.html" class="title">Operación Rebirth: Disección de la Rutina de Inicialización y Watchdog de HALT</a>
+                        <p class="summary">Implementación de la "Operación Rebirth" para diseccionar la rutina de inicialización de Pokémon Red donde se desactivan las interrupciones. El análisis del Step 0274 reveló que el juego ejecuta DI (0xF3) en PC:1F54 y escribe 0x00 en 0xFFFF (IE) en PC:1F58, causando un "suicidio técnico". Se añadió instrumentación en tres puntos: (1) Sniper Trace de la zona de muerte (1F54-1F60) para capturar la secuencia exacta de opcodes, (2) Monitor de Salto de Banco (Bank Watcher) para detectar cambios de banco MBC, y (3) Watchdog de "HALT of Death" para detectar cuando la CPU entra en HALT con IE=0 e IME=0, un estado de huelga permanente.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0274 - Operación IE Hunter: Rastreo del Registro IE e Interrupciones -->
                     <li class="entry-item">
                         <span class="meta">2025-12-25</span>

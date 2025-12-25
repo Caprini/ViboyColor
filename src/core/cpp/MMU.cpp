@@ -420,6 +420,15 @@ void MMU::write(uint16_t addr, uint8_t value) {
         return;
     }
 
+    // --- Step 0275: Monitor de Salto de Banco (Bank Watcher) ---
+    // Es posible que el juego cambie de banco y el PC se pierda.
+    // Vamos a loguear cualquier escritura en el área de control del MBC (0x2000-0x3FFF).
+    if (addr >= 0x2000 && addr <= 0x3FFF) {
+        printf("[MBC-WRITE] Cambio de Banco solicitado: 0x%02X en PC:0x%04X (Banco actual: %d)\n", 
+               value, debug_current_pc, get_current_rom_bank());
+    }
+    // -----------------------------------------
+
     // --- Control de MBC / ROM banking ---
     if (addr < 0x8000) {
         switch (mbc_type_) {

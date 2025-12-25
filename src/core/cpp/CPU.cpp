@@ -1981,6 +1981,14 @@ int CPU::step() {
                 uint8_t ie_reg = mmu_->read(ADDR_IE) & 0x1F;
                 bool pending = (if_reg & ie_reg) != 0;
 
+                // --- Step 0275: Watchdog de "HALT of Death" ---
+                // Si la CPU hace HALT con IE=0 e IME=0, se cuelga para siempre.
+                // Esto es un estado de "huelga de CPU permanente" que bloquea el juego.
+                if (!ime_ && ie_reg == 0) {
+                    printf("[CRITICAL WARNING] HALT detectado con IE=0 e IME=0 en PC:0x%04X. ¡Huelga de CPU permanente!\n", (regs_->pc - 1) & 0xFFFF);
+                }
+                // -----------------------------------------
+
                 if (!ime_ && pending) {
                     cycles_ += 1;  // Consume 1 M-Cycle pero no entra en HALT
                     return 1;      // Continúa con la instrucción siguiente (HALT bug)
@@ -2618,5 +2626,23 @@ void CPU::run_scanline() {
     // Al final de la scanline, hemos acumulado exactamente 456 T-Cycles
     // La PPU ya ha sido actualizada después de cada instrucción, por lo que
     // está sincronizada correctamente con la CPU
+    
+    // --- Step 0275: Sniper Trace de la Zona de Muerte (1F54-1F60) ---
+    // Queremos ver la secuencia exacta de opcodes que acompañan al apagado de interrupciones.
+    // Esta zona es crítica porque contiene DI (0xF3) y la escritura a IE (0xFFFF).
+    if (regs_->pc >= 0x1F50 && regs_->pc <= 0x1F65) {
+        static int init_trace_count = 0;
+        if (init_trace_count < 100) {
+            uint8_t current_op = mmu_->read(regs_->pc);
+            uint8_t next_op1 = mmu_->read((regs_->pc + 1) & 0xFFFF);
+            uint8_t next_op2 = mmu_->read((regs_->pc + 2) & 0xFFFF);
+            printf("[SNIPER-INIT] PC:%04X OP:%02X %02X %02X | AF:%04X BC:%04X DE:%04X HL:%04X | IME:%d IE:%02X IF:%02X\n",
+                   regs_->pc, current_op, next_op1, next_op2,
+                   regs_->get_af(), regs_->get_bc(), regs_->get_de(), regs_->get_hl(),
+                   ime_ ? 1 : 0, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
+            init_trace_count++;
+        }
+    }
+    // -----------------------------------------
 }
 

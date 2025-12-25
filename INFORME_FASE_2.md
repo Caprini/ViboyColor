@@ -32,6 +32,59 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0275: Operación Rebirth: Disección de la Rutina de Inicialización y Watchdog de HALT
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa la "Operación Rebirth" para diseccionar la rutina de inicialización de Pokémon Red donde se desactivan las interrupciones. El análisis del Step 0274 reveló que el juego ejecuta `DI` (0xF3) en `PC:1F54` y escribe `0x00` en `0xFFFF` (IE) en `PC:1F58`, causando un "suicidio técnico" que bloquea el juego en un estado de coma permanente.
+
+**Objetivo:**
+- Implementar Sniper Trace de la zona de muerte (1F54-1F60) para capturar la secuencia exacta de opcodes que acompañan al apagado de interrupciones.
+- Implementar Monitor de Salto de Banco (Bank Watcher) para detectar cambios de banco ROM que puedan desorientar el rastreo.
+- Implementar Watchdog de "HALT of Death" para detectar cuando la CPU entra en HALT con IE=0 e IME=0, un estado de huelga permanente.
+- Entender por qué el juego no reactiva las interrupciones después de desactivarlas.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/CPU.cpp`**:
+   - Agregado Sniper Trace de la zona de muerte (1F54-1F60) al final del método `step()` que captura el estado de la CPU cuando el PC está en el rango `0x1F50-0x1F65`.
+   - Captura: PC actual y los siguientes 3 opcodes, estado de todos los registros (AF, BC, DE, HL), estado del IME, valor de IE e IF.
+   - Límite de 100 trazas para evitar saturar los logs.
+   - Agregado Watchdog de "HALT of Death" en el `case 0x76` (HALT) que detecta cuando la CPU intenta entrar en HALT con `IE=0` e `IME=0`.
+   - Imprime advertencia crítica con el PC donde ocurrió el HALT.
+
+2. **Modificado `src/core/cpp/MMU.cpp`**:
+   - Agregado Monitor de Salto de Banco (Bank Watcher) en el método `write()` que detecta cualquier escritura en el rango `0x2000-0x3FFF` (área de control del MBC).
+   - Imprime: valor escrito (nuevo banco solicitado), PC desde el cual se ejecutó la escritura, banco ROM actual antes del cambio.
+   - Sin límite de impresiones para asegurar que no se pierda ningún cambio crítico.
+
+**Concepto de Hardware:**
+**La Instrucción HALT (0x76) y Estados de Bloqueo**: La instrucción `HALT` pone la CPU en un estado de bajo consumo donde deja de ejecutar instrucciones hasta que ocurre una interrupción. Sin embargo, hay comportamientos especiales:
+
+1. **Si IME=1**: La CPU entra en HALT y espera una interrupción. Cuando ocurre, la CPU sale de HALT y procesa la interrupción normalmente.
+
+2. **Si IME=0 pero hay interrupción pendiente (IE & IF != 0)**: La CPU NO entra en HALT. Simplemente continúa ejecutando la siguiente instrucción. Este es el "HALT bug" documentado en Pan Docs.
+
+3. **Si IME=0 e IE=0**: La CPU entra en HALT y **nunca sale**. Este es un estado de "huelga permanente" que bloquea el juego completamente.
+
+**El Peligro de los Estados de Espera Infinitos**: Cuando un juego desactiva todas las interrupciones (IE=0x00) y luego ejecuta `HALT`, la CPU entra en un estado de coma permanente. Ningún evento externo puede despertarla porque IME=0, IE=0 y HALT está activo. Este es un estado de "muerte técnica" del juego.
+
+**Cambios de Banco ROM (MBC)**: Los juegos con múltiples bancos ROM pueden cambiar de banco escribiendo en el rango `0x2000-0x3FFF`. Cuando esto ocurre, el mismo PC apunta a código diferente. Si el juego cambia de banco justo después de desactivar interrupciones, el rastreo puede perderse porque el código que se espera ver en un banco puede estar en otro.
+
+**Tests y Verificación:**
+- Comando: `python main.py roms/pkmn.gb`
+- Buscar líneas `[SNIPER-INIT]` para ver la secuencia exacta de opcodes en la zona de muerte (1F54-1F60), incluyendo el `DI` (0xF3) y la escritura a IE (0xFFFF).
+- Buscar líneas `[MBC-WRITE]` para ver cualquier cambio de banco ROM que ocurra durante o después de la desactivación de interrupciones.
+- Buscar líneas `[CRITICAL WARNING]` para confirmar si el juego entra en HALT con IE=0 e IME=0, confirmando el "suicidio técnico".
+- Validación de módulo compilado C++: La compilación debe completarse sin errores y los logs deben aparecer durante la ejecución del emulador.
+
+**Próximos Pasos:**
+- Ejecutar el emulador con Pokémon Red y analizar los logs generados.
+- Desensamblar la secuencia de opcodes capturada por [SNIPER-INIT] para entender el flujo exacto.
+- Verificar si hay cambios de banco ROM durante la rutina de inicialización ([MBC-WRITE]).
+- Confirmar si el juego entra en HALT con IE=0 e IME=0 ([CRITICAL WARNING]).
+- Si se identifica el problema, implementar corrección o ajuste en el emulador.
+
+---
+
 ### 2025-12-25 - Step 0274: Operación IE Hunter: Rastreo del Registro IE e Interrupciones
 **Estado**: ✅ IMPLEMENTADO
 
