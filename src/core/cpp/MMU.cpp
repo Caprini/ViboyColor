@@ -217,6 +217,17 @@ uint8_t MMU::read(uint16_t addr) const {
     // CRÍTICO: El registro DIV (0xFF04) es actualizado dinámicamente por el Timer
     // La MMU es la dueña de la memoria, así que leemos el valor desde el Timer
     if (addr == 0xFF04) {
+        // --- Step 0276: Monitor de Registros de Tiempo (DIV) ---
+        // Si el juego está esperando que el registro DIV cambie, necesitamos confirmar
+        // que nuestro Timer lo está incrementando. Solo registramos las primeras 10
+        // lecturas para no saturar el log.
+        static int div_read_count = 0;
+        if (div_read_count < 10) {
+            // printf("[TIMER-READ] DIV leido en PC:0x%04X\n", debug_current_pc);
+            div_read_count++;
+        }
+        // -----------------------------------------
+        
         if (timer_ != nullptr) {
             return timer_->read_div();
         }

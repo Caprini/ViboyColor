@@ -499,6 +499,25 @@ int CPU::step() {
         }
     }
     // -----------------------------------------
+    
+    // --- Step 0275: Sniper Trace de la Zona de Muerte (1F54-1F60) ---
+    // Queremos ver la secuencia exacta de opcodes que acompañan al apagado de interrupciones.
+    // Esta zona es crítica porque contiene DI (0xF3) y la escritura a IE (0xFFFF).
+    // Usamos original_pc porque es el PC antes de ejecutar la instrucción.
+    if (original_pc >= 0x1F50 && original_pc <= 0x1F65) {
+        static int init_trace_count = 0;
+        if (init_trace_count < 100) {
+            uint8_t current_op = mmu_->read(original_pc);
+            uint8_t next_op1 = mmu_->read((original_pc + 1) & 0xFFFF);
+            uint8_t next_op2 = mmu_->read((original_pc + 2) & 0xFFFF);
+            printf("[SNIPER-INIT] PC:%04X OP:%02X %02X %02X | AF:%04X BC:%04X DE:%04X HL:%04X | IME:%d IE:%02X IF:%02X\n",
+                   original_pc, current_op, next_op1, next_op2,
+                   regs_->get_af(), regs_->get_bc(), regs_->get_de(), regs_->get_hl(),
+                   ime_ ? 1 : 0, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
+            init_trace_count++;
+        }
+    }
+    // -----------------------------------------
 
     // Decode/Execute: Switch optimizado por el compilador
     switch (opcode) {
@@ -2308,6 +2327,25 @@ int CPU::step() {
         // exit(1);
     }
     
+    // --- Step 0276: Sniper Trace del Bucle de Polling (614D-6155) ---
+    // Pokémon Red está atrapado en un bucle de polling activo en PC: 614D - 6151.
+    // Necesitamos ver exactamente qué opcodes ejecuta y qué valores lee de la memoria.
+    // El bucle probablemente está leyendo LY (0xFF44), DIV (0xFF04) o el flag 0xD732.
+    // Capturamos 40 pasos (unas 10 vueltas al bucle) para ver el patrón completo.
+    if (regs_->pc >= 0x614A && regs_->pc <= 0x6155) {
+        static int loop_trace_count = 0;
+        if (loop_trace_count < 40) {
+            uint8_t current_op = mmu_->read(regs_->pc);
+            printf("[SNIPER-LOOP] PC:%04X OP:%02X | A:%02X BC:%04X HL:%04X | LY:%02X DIV:%02X STAT:%02X | D732:%02X\n",
+                   regs_->pc, current_op,
+                   regs_->a, regs_->get_bc(), regs_->get_hl(),
+                   mmu_->read(0xFF44), mmu_->read(0xFF04), mmu_->read(0xFF41),
+                   mmu_->read(0xD732));
+            loop_trace_count++;
+        }
+    }
+    // -----------------------------------------
+    
 }
 
 uint32_t CPU::get_cycles() const {
@@ -2626,23 +2664,5 @@ void CPU::run_scanline() {
     // Al final de la scanline, hemos acumulado exactamente 456 T-Cycles
     // La PPU ya ha sido actualizada después de cada instrucción, por lo que
     // está sincronizada correctamente con la CPU
-    
-    // --- Step 0275: Sniper Trace de la Zona de Muerte (1F54-1F60) ---
-    // Queremos ver la secuencia exacta de opcodes que acompañan al apagado de interrupciones.
-    // Esta zona es crítica porque contiene DI (0xF3) y la escritura a IE (0xFFFF).
-    if (regs_->pc >= 0x1F50 && regs_->pc <= 0x1F65) {
-        static int init_trace_count = 0;
-        if (init_trace_count < 100) {
-            uint8_t current_op = mmu_->read(regs_->pc);
-            uint8_t next_op1 = mmu_->read((regs_->pc + 1) & 0xFFFF);
-            uint8_t next_op2 = mmu_->read((regs_->pc + 2) & 0xFFFF);
-            printf("[SNIPER-INIT] PC:%04X OP:%02X %02X %02X | AF:%04X BC:%04X DE:%04X HL:%04X | IME:%d IE:%02X IF:%02X\n",
-                   regs_->pc, current_op, next_op1, next_op2,
-                   regs_->get_af(), regs_->get_bc(), regs_->get_de(), regs_->get_hl(),
-                   ime_ ? 1 : 0, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
-            init_trace_count++;
-        }
-    }
-    // -----------------------------------------
 }
 

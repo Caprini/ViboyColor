@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Operación Time-Lapse: Disección del Bucle de Polling y Monitor de Registros de Tiempo - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Operación Time-Lapse: Disección del Bucle de Polling y Monitor de Registros de Tiempo</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0276
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0275__diseccion-rutina-inicializacion-watchdog-halt.html">Anterior (0275)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa la "Operación Time-Lapse" para diseccionar el bucle de polling activo en el que
+                    Pokémon Red está atrapado (PC: 614D - 6151). El análisis del Step 0275 reveló que el juego no está en
+                    HALT, sino que está poleando (revisando constantemente) una condición. La hipótesis es que el juego está
+                    esperando que un registro de hardware (como LY, DIV o el flag 0xD732) cambie, pero si nuestro Timer o PPU
+                    no están avanzando correctamente, el juego se queda atrapado en el tiempo.
+                </p>
+                <p>
+                    Se añadió instrumentación en dos puntos críticos: (1) Sniper Trace del bucle atrapado (614D-6155) para
+                    capturar exactamente qué opcodes ejecuta y qué valores lee de la memoria (LY, DIV, STAT, D732), y (2)
+                    Monitor de Registros de Tiempo (DIV/TIMA) en MMU.cpp para confirmar que el Timer está incrementando el
+                    registro DIV cuando el juego lo lee. El objetivo es identificar si el tiempo está "congelado" para la CPU,
+                    causando que el bucle de espera se vuelva infinito.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, existen dos formas principales de sincronización entre el software y el hardware:
+                    <strong>interrupciones</strong> y <strong>polling</strong>. Mientras que las interrupciones son el método
+                    preferido (el hardware notifica al software cuando ocurre un evento), el polling es una alternativa que
+                    algunos juegos usan para verificar el estado del hardware de forma activa.
+                </p>
+                
+                <h3>1. Polling vs Interrupciones</h3>
+                <p>
+                    <strong>Interrupciones:</strong> El hardware notifica a la CPU cuando ocurre un evento (como V-Blank).
+                    La CPU puede estar ejecutando otras tareas y será interrumpida automáticamente cuando el evento ocurra.
+                    Esto es eficiente porque la CPU no necesita verificar constantemente el estado del hardware.
+                </p>
+                <p>
+                    <strong>Polling:</strong> El software verifica activamente el estado del hardware leyendo registros
+                    repetidamente hasta que el valor cambia. Esto consume ciclos de CPU pero puede ser necesario cuando:
+                </p>
+                <ul>
+                    <li>Las interrupciones están deshabilitadas (IE=0 o IME=0)</li>
+                    <li>El juego necesita sincronización precisa con un evento específico</li>
+                    <li>El juego está en una rutina crítica donde no puede permitir interrupciones</li>
+                </ul>
+                
+                <h3>2. Registros de Hardware que se Pueden Pollar</h3>
+                <p>
+                    Los juegos pueden leer varios registros de hardware para sincronización:
+                </p>
+                <ul>
+                    <li><strong>LY (0xFF44):</strong> Línea de escaneo actual (0-153). Se incrementa automáticamente por la PPU
+                        cada 456 T-Cycles. Los juegos pueden leer este registro para esperar a que la PPU complete un frame
+                        o llegue a una línea específica.</li>
+                    <li><strong>DIV (0xFF04):</strong> Registro de división del Timer. Se incrementa automáticamente cada
+                        256 T-Cycles (frecuencia base del Timer). Los juegos pueden leer este registro para implementar
+                        retardos de tiempo o esperar a que pase un intervalo específico.</li>
+                    <li><strong>STAT (0xFF41):</strong> Estado de la PPU (modo actual, flags de coincidencia). Los juegos
+                        pueden leer este registro para esperar a que la PPU entre en un modo específico (como V-Blank).</li>
+                    <li><strong>Flags personalizados (ej: 0xD732):</strong> Algunos juegos usan flags en WRAM/HRAM para
+                        comunicación entre rutinas. Una ISR puede modificar estos flags, y el código principal puede pollarlos.</li>
+                </ul>
+                
+                <h3>3. El Peligro del "Timer Fantasma"</h3>
+                <p>
+                    Si un juego está poleando un registro de hardware (como DIV o LY) esperando que cambie, pero el emulador
+                    no está actualizando ese registro correctamente, el juego se queda atrapado en un bucle infinito. Esto es
+                    especialmente peligroso cuando:
+                </p>
+                <ol>
+                    <li><strong>El Timer no avanza:</strong> Si el Timer no está siendo actualizado con los T-Cycles consumidos
+                        por la CPU, el registro DIV permanece estático. El juego lee DIV repetidamente esperando que cambie,
+                        pero nunca lo hace.</li>
+                    <li><strong>La PPU no avanza:</strong> Si la PPU no está siendo actualizada después de cada instrucción,
+                        el registro LY permanece estático. El juego lee LY repetidamente esperando que cambie, pero nunca lo hace.</li>
+                    <li><strong>El bucle es muy apretado:</strong> Si el bucle de polling consume todos los ciclos de CPU sin
+                        dar tiempo a que el Timer o la PPU avancen, el tiempo se "congela" desde la perspectiva del juego.</li>
+                </ol>
+                <p>
+                    Este es el concepto del "Timer Fantasma": el hardware debería estar avanzando, pero desde la perspectiva del
+                    software, el tiempo está congelado.
+                </p>
+                
+                <h3>4. Sincronización en run_scanline()</h3>
+                <p>
+                    La función <code>run_scanline()</code> es crítica para evitar el "Timer Fantasma". Esta función ejecuta
+                    instrucciones de la CPU hasta acumular 456 T-Cycles (una scanline completa), pero <strong>después de cada
+                    instrucción</strong> actualiza la PPU y el Timer con los ciclos consumidos. Esto garantiza que:
+                </p>
+                <ul>
+                    <li>La PPU avanza correctamente, actualizando LY y los modos de la PPU</li>
+                    <li>El Timer avanza correctamente, actualizando DIV y TIMA</li>
+                    <li>Incluso si la CPU está en un bucle apretado de polling, el hardware sigue avanzando</li>
+                </ul>
+                <p>
+                    Si esta sincronización no está funcionando correctamente, el juego puede quedar atrapado en bucles de polling
+                    infinitos esperando que el hardware haga algo que nunca ocurre.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron dos instrumentaciones para diseccionar el bucle de polling y verificar que el Timer está
+                    funcionando correctamente:
+                </p>
+                
+                <h3>1. Sniper Trace del Bucle de Polling (CPU.cpp)</h3>
+                <p>
+                    Se añadió un bloque de instrumentación en <code>CPU::step()</code> que captura el estado de la CPU cuando
+                    el PC está en el rango 0x614A-0x6155 (el bucle de polling atrapado). El trace captura:
+                </p>
+                <ul>
+                    <li><strong>PC y Opcode:</strong> La dirección actual y el opcode que se está ejecutando</li>
+                    <li><strong>Registros de CPU:</strong> A, BC, HL (los registros más relevantes para el bucle)</li>
+                    <li><strong>Registros de Hardware:</strong> LY (0xFF44), DIV (0xFF04), STAT (0xFF41), y el flag 0xD732</li>
+                </ul>
+                <p>
+                    El trace se limita a 40 pasos (unas 10 vueltas al bucle) para no saturar el log. Esto nos permite ver:
+                </p>
+                <ul>
+                    <li>Si LY, DIV o STAT están cambiando (confirmando que el hardware avanza)</li>
+                    <li>Si el flag 0xD732 está cambiando (confirmando que una ISR lo modifica)</li>
+                    <li>Qué opcodes se ejecutan en el bucle (para desensamblar la condición de salida)</li>
+                </ul>
+                
+                <h3>2. Monitor de Registros de Tiempo (MMU.cpp)</h3>
+                <p>
+                    Se añadió un bloque de instrumentación en <code>MMU::read()</code> cuando se lee el registro DIV (0xFF04).
+                    El monitor registra las primeras 10 lecturas de DIV para confirmar que:
+                </p>
+                <ul>
+                    <li>El juego está leyendo DIV (confirmando que está poleando el Timer)</li>
+                    <li>El Timer está conectado correctamente a la MMU</li>
+                    <li>El valor de DIV está siendo leído desde el Timer (no desde memoria estática)</li>
+                </ul>
+                <p>
+                    El monitor está comentado por defecto (solo se activa si se descomenta el printf) para no saturar el log,
+                    pero está listo para activarse si necesitamos diagnosticar problemas con el Timer.
+                </p>
+                
+                <h3>3. Verificación de Sincronización en run_scanline()</h3>
+                <p>
+                    Se verificó que <code>CPU::run_scanline()</code> está llamando correctamente a:
+                </p>
+                <ul>
+                    <li><code>ppu_-&gt;step(t_cycles)</code> después de cada instrucción</li>
+                    <li><code>timer_-&gt;step(t_cycles)</code> después de cada instrucción (si el Timer está conectado)</li>
+                </ul>
+                <p>
+                    Esta verificación confirma que la sincronización ciclo a ciclo está funcionando correctamente. Si el Timer
+                    o la PPU no están siendo actualizados, el bucle de polling se volverá infinito.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido Sniper Trace del bucle de polling (614D-6155) con captura de
+                        registros de hardware (LY, DIV, STAT, D732)</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Añadido monitor de registros de tiempo (DIV) para confirmar que el
+                        Timer está siendo leído correctamente</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realiza ejecutando Pokémon Red y analizando los logs generados:
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>python main.py roms/pkmn.gb</code></li>
+                    <li><strong>Análisis de logs:</strong> Buscar las trazas <code>[SNIPER-LOOP]</code> en la salida</li>
+                    <li><strong>Validación esperada:</strong>
+                        <ul>
+                            <li>Si LY o DIV se mantienen estáticos (siempre el mismo número), hemos encontrado el bug: el tiempo
+                                está congelado para la CPU</li>
+                            <li>Si LY o DIV están cambiando, el hardware está funcionando correctamente y el problema está en
+                                otra parte (probablemente en la lógica del juego o en la condición de salida del bucle)</li>
+                            <li>Los opcodes capturados permiten desensamblar la condición de salida del bucle</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Los cambios requieren recompilación de la extensión
+                    Cython. El comando <code>.\rebuild_cpp.ps1</code> debe ejecutarse antes de probar.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Timer_and_Divider_Registers.html">Timer and Divider Registers</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/STAT.html">LCD Status Register (STAT)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts</a> - Sección sobre polling vs interrupciones</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Polling vs Interrupciones:</strong> Los juegos pueden usar polling cuando las interrupciones
+                            están deshabilitadas o cuando necesitan sincronización precisa. El polling consume ciclos de CPU
+                            pero es necesario en ciertos contextos.</li>
+                        <li><strong>Timer Fantasma:</strong> Si el Timer o la PPU no están siendo actualizados correctamente,
+                            los registros de hardware (DIV, LY) permanecen estáticos, causando que los bucles de polling se
+                            vuelvan infinitos.</li>
+                        <li><strong>Sincronización ciclo a ciclo:</strong> La función <code>run_scanline()</code> debe actualizar
+                            la PPU y el Timer después de cada instrucción para garantizar que el hardware avanza incluso cuando
+                            la CPU está en bucles apretados.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Condición de salida del bucle:</strong> Necesitamos desensamblar los opcodes capturados para
+                            entender qué condición está verificando el juego. ¿Está esperando que LY cambie? ¿DIV? ¿El flag
+                            0xD732?</li>
+                        <li><strong>Estado del Timer:</strong> Necesitamos confirmar que el Timer está avanzando correctamente
+                            cuando el juego lo lee. Si DIV está estático, el problema está en la sincronización del Timer.</li>
+                        <li><strong>Estado de la PPU:</strong> Necesitamos confirmar que la PPU está avanzando correctamente
+                            cuando el juego lee LY. Si LY está estático, el problema está en la sincronización de la PPU.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego está poleando un registro de hardware (probablemente DIV
+                        o LY) esperando que cambie, pero el registro permanece estático porque el Timer o la PPU no están
+                        siendo actualizados correctamente. Esto causa que el bucle de espera se vuelva infinito.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> El bucle en PC:614D-6151 está leyendo un registro de hardware y comparándolo
+                        con un valor esperado. Si el registro no cambia, el bucle continúa indefinidamente. Esta suposición se
+                        validará analizando los opcodes capturados en el Sniper Trace.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar Pokémon Red y analizar las trazas <code>[SNIPER-LOOP]</code> para identificar qué registro
+                        está siendo poleado</li>
+                    <li>[ ] Verificar si LY, DIV o STAT están cambiando en las trazas. Si están estáticos, confirmar el bug
+                        del "Timer Fantasma"</li>
+                    <li>[ ] Desensamblar los opcodes capturados para entender la condición de salida del bucle</li>
+                    <li>[ ] Si el problema es que DIV o LY están estáticos, corregir la sincronización del Timer o la PPU</li>
+                    <li>[ ] Si el problema es que el flag 0xD732 no cambia, investigar por qué la ISR que debería modificarlo
+                        no se ejecuta</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

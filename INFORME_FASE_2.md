@@ -32,6 +32,67 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0276: Operación Time-Lapse: Disección del Bucle de Polling y Monitor de Registros de Tiempo
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa la "Operación Time-Lapse" para diseccionar el bucle de polling activo en el que Pokémon Red está atrapado (PC: 614D - 6151). El análisis del Step 0275 reveló que el juego no está en HALT, sino que está poleando (revisando constantemente) una condición. La hipótesis es que el juego está esperando que un registro de hardware (como LY, DIV o el flag 0xD732) cambie, pero si nuestro Timer o PPU no están avanzando correctamente, el juego se queda atrapado en el tiempo.
+
+**Objetivo:**
+- Implementar Sniper Trace del bucle atrapado (614D-6155) para capturar exactamente qué opcodes ejecuta y qué valores lee de la memoria (LY, DIV, STAT, D732).
+- Implementar Monitor de Registros de Tiempo (DIV/TIMA) en MMU.cpp para confirmar que el Timer está incrementando el registro DIV cuando el juego lo lee.
+- Verificar que la sincronización en `run_scanline()` está funcionando correctamente (PPU y Timer se actualizan después de cada instrucción).
+- Identificar si el tiempo está "congelado" para la CPU, causando que el bucle de espera se vuelva infinito.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/CPU.cpp`**:
+   - Agregado Sniper Trace del bucle de polling (614D-6155) al final del método `step()` que captura el estado de la CPU cuando el PC está en el rango `0x614A-0x6155`.
+   - Captura: PC actual y opcode, registros de CPU (A, BC, HL), registros de hardware (LY, DIV, STAT), y el flag 0xD732.
+   - Límite de 40 trazas (unas 10 vueltas al bucle) para no saturar el log.
+
+2. **Modificado `src/core/cpp/MMU.cpp`**:
+   - Agregado Monitor de Registros de Tiempo (DIV) en el método `read()` cuando se lee el registro DIV (0xFF04).
+   - Registra las primeras 10 lecturas de DIV para confirmar que el Timer está siendo leído correctamente.
+   - El monitor está comentado por defecto (solo se activa si se descomenta el printf) para no saturar el log.
+
+3. **Verificación de Sincronización**:
+   - Se verificó que `CPU::run_scanline()` está llamando correctamente a `ppu_->step(t_cycles)` y `timer_->step(t_cycles)` después de cada instrucción.
+   - Esta sincronización ciclo a ciclo garantiza que el hardware avanza incluso cuando la CPU está en bucles apretados de polling.
+
+**Concepto de Hardware:**
+**Polling vs Interrupciones y el "Timer Fantasma"**: En la Game Boy, existen dos formas principales de sincronización entre el software y el hardware: interrupciones y polling. Mientras que las interrupciones son el método preferido (el hardware notifica al software cuando ocurre un evento), el polling es una alternativa que algunos juegos usan para verificar el estado del hardware de forma activa.
+
+1. **Polling**: El software verifica activamente el estado del hardware leyendo registros repetidamente hasta que el valor cambia. Esto consume ciclos de CPU pero puede ser necesario cuando las interrupciones están deshabilitadas o cuando el juego necesita sincronización precisa.
+
+2. **Registros que se pueden pollar**: Los juegos pueden leer varios registros de hardware para sincronización:
+   - **LY (0xFF44)**: Línea de escaneo actual (0-153). Se incrementa automáticamente por la PPU cada 456 T-Cycles.
+   - **DIV (0xFF04)**: Registro de división del Timer. Se incrementa automáticamente cada 256 T-Cycles (frecuencia base del Timer).
+   - **STAT (0xFF41)**: Estado de la PPU (modo actual, flags de coincidencia).
+   - **Flags personalizados (ej: 0xD732)**: Algunos juegos usan flags en WRAM/HRAM para comunicación entre rutinas.
+
+3. **El Peligro del "Timer Fantasma"**: Si un juego está poleando un registro de hardware (como DIV o LY) esperando que cambie, pero el emulador no está actualizando ese registro correctamente, el juego se queda atrapado en un bucle infinito. Esto es especialmente peligroso cuando el Timer o la PPU no están siendo actualizados con los T-Cycles consumidos por la CPU.
+
+4. **Sincronización en run_scanline()**: La función `run_scanline()` es crítica para evitar el "Timer Fantasma". Esta función ejecuta instrucciones de la CPU hasta acumular 456 T-Cycles (una scanline completa), pero **después de cada instrucción** actualiza la PPU y el Timer con los ciclos consumidos. Esto garantiza que incluso si la CPU está en un bucle apretado de polling, el hardware sigue avanzando.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Añadido Sniper Trace del bucle de polling (614D-6155) con captura de registros de hardware (LY, DIV, STAT, D732).
+- `src/core/cpp/MMU.cpp` - Añadido monitor de registros de tiempo (DIV) para confirmar que el Timer está siendo leído correctamente.
+
+**Tests y Verificación:**
+- Comando ejecutado: `python main.py roms/pkmn.gb`
+- Análisis de logs: Buscar las trazas `[SNIPER-LOOP]` en la salida.
+- Validación esperada:
+  - Si LY o DIV se mantienen estáticos (siempre el mismo número), hemos encontrado el bug: el tiempo está congelado para la CPU.
+  - Si LY o DIV están cambiando, el hardware está funcionando correctamente y el problema está en otra parte (probablemente en la lógica del juego o en la condición de salida del bucle).
+  - Los opcodes capturados permiten desensamblar la condición de salida del bucle.
+- Validación de módulo compilado C++: Los cambios requieren recompilación de la extensión Cython. El comando `.\rebuild_cpp.ps1` debe ejecutarse antes de probar.
+
+**Fuentes Consultadas:**
+- Pan Docs: Timer and Divider Registers
+- Pan Docs: LCD Status Register (STAT)
+- Pan Docs: Interrupts - Sección sobre polling vs interrupciones
+
+---
+
 ### 2025-12-25 - Step 0275: Operación Rebirth: Disección de la Rutina de Inicialización y Watchdog de HALT
 **Estado**: ✅ IMPLEMENTADO
 

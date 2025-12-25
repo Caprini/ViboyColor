@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0276 - Operación Time-Lapse: Disección del Bucle de Polling y Monitor de Registros de Tiempo -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-25</span>
+                        <span class="tag">0276</span>
+                        <a href="entries/2025-12-25__0276__diseccion-bucle-polling-monitor-registros-tiempo.html" class="title">Operación Time-Lapse: Disección del Bucle de Polling y Monitor de Registros de Tiempo</a>
+                        <p class="summary">Implementación de la "Operación Time-Lapse" para diseccionar el bucle de polling activo en el que Pokémon Red está atrapado (PC: 614D - 6151). El análisis del Step 0275 reveló que el juego no está en HALT, sino que está poleando (revisando constantemente) una condición. La hipótesis es que el juego está esperando que un registro de hardware (como LY, DIV o el flag 0xD732) cambie, pero si nuestro Timer o PPU no están avanzando correctamente, el juego se queda atrapado en el tiempo. Se añadió instrumentación en dos puntos: (1) Sniper Trace del bucle atrapado (614D-6155) para capturar exactamente qué opcodes ejecuta y qué valores lee de la memoria (LY, DIV, STAT, D732), y (2) Monitor de Registros de Tiempo (DIV/TIMA) en MMU.cpp para confirmar que el Timer está incrementando el registro DIV cuando el juego lo lee.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0275 - Operación Rebirth: Disección de la Rutina de Inicialización y Watchdog de HALT -->
                     <li class="entry-item">
                         <span class="meta">2025-12-25</span>
