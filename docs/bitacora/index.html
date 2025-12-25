@@ -32,6 +32,14 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0278 - Operación Ghost in the Machine: Rastreo de Flujo Post-Retardo y Depuración de Patrones de PPU -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-25</span>
+                        <span class="tag">0278</span>
+                        <a href="entries/2025-12-25__0278__rastreo-flujo-post-retardo-depuracion-patrones-ppu.html" class="title">Operación Ghost in the Machine: Rastreo de Flujo Post-Retardo y Depuración de Patrones de PPU</a>
+                        <p class="summary">Implementación de la "Operación Ghost in the Machine" para rastrear el flujo de ejecución después de que el bucle de retardo identificado en el Step 0277 termina. El análisis previo confirmó que el bucle de retardo funciona correctamente (DE decrementa hasta 0), pero el juego no activa la intro después del retardo. Además, la pantalla muestra un patrón de franjas verticales erróneo. Se añadió instrumentación en dos puntos críticos: (1) trail de ejecución post-retardo que captura las siguientes 200 instrucciones después de que el PC sale de 0x6155, y (2) inspección de la PPU en el centro de la pantalla (LY=72, X=80) para ver qué Tile ID está leyendo realmente. El objetivo es identificar si el juego intenta habilitar las interrupciones después del retardo, y entender por qué la PPU está renderizando un patrón erróneo.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0277 - Operación Warp Drive: Monitor de Decremento y Validación de Bucle de Retardo -->
                     <li class="entry-item">
                         <span class="meta">2025-12-25</span>

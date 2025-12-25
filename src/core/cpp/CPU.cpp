@@ -2375,6 +2375,27 @@ int CPU::step() {
         // exit(1);
     }
     
+    // --- Step 0278: Trail de Ejecución Post-Retardo (0x6155) ---
+    // Queremos ver las siguientes 200 instrucciones después de que el bucle de retardo finaliza
+    // El código original usa original_pc que se capturó al inicio de step() (antes del fetch)
+    static bool post_delay_trace = false;
+    static int post_delay_count = 0;
+    
+    if (original_pc == 0x6155 && !post_delay_trace) {
+        printf("[SNIPER-AWAKE] ¡Saliendo del bucle de retardo! Iniciando rastreo de flujo...\n");
+        post_delay_trace = true;
+        post_delay_count = 0;
+    }
+    
+    if (post_delay_trace && post_delay_count < 200) {
+        uint8_t current_op = mmu_->read(original_pc);
+        printf("[POST-DELAY] PC:%04X OP:%02X | A:%02X HL:%04X | IE:%02X IME:%d\n",
+               original_pc, current_op, regs_->a, regs_->get_hl(),
+               mmu_->read(0xFFFF), ime_ ? 1 : 0);
+        post_delay_count++;
+    }
+    // -----------------------------------------
+    
 }
 
 uint32_t CPU::get_cycles() const {

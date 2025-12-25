@@ -32,6 +32,61 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0278: Operación Ghost in the Machine: Rastreo de Flujo Post-Retardo y Depuración de Patrones de PPU
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa la "Operación Ghost in the Machine" para rastrear el flujo de ejecución después de que el bucle de retardo identificado en el Step 0277 termina. El análisis previo confirmó que el bucle de retardo funciona correctamente (DE decrementa hasta 0), pero el juego no activa la intro (el combate Nidorino vs Gengar) después del retardo. Además, la pantalla muestra un patrón de franjas verticales erróneo, sugiriendo un problema en el renderizado de la PPU.
+
+**Objetivo:**
+- Implementar trail de ejecución post-retardo que capture las siguientes 200 instrucciones después de que el PC sale de 0x6155 (donde termina el bucle de retardo).
+- Implementar inspección de la PPU en el centro de la pantalla (LY=72, X=80) para ver qué Tile ID está leyendo realmente cuando renderiza el fondo.
+- Identificar si el juego intenta habilitar las interrupciones después del retardo (buscando opcode 0xFB - EI o escrituras en 0xFFFF).
+- Entender por qué la PPU está renderizando un patrón erróneo de franjas verticales.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/CPU.cpp`**:
+   - Agregado trail de ejecución post-retardo al final del método `step()` que captura las siguientes 200 instrucciones después de que el PC sale de 0x6155.
+   - Usa `original_pc` (capturado al inicio de `step()` antes del fetch) para detectar cuando se ejecuta la instrucción en 0x6155.
+   - Captura: PC original, opcode, registros A y HL, registro IE (0xFFFF), y estado de IME.
+   - Límite de 200 instrucciones para evitar saturar el log.
+
+2. **Modificado `src/core/cpp/PPU.cpp`**:
+   - Agregada inspección de PPU en el método `render_scanline()` que se ejecuta una sola vez cuando se renderiza el centro de la pantalla (LY=72, X=80).
+   - Captura: Tile Map Address, Tile ID leído, y Tile Data Base configurado.
+   - Permite verificar si la PPU está leyendo Tile IDs correctos del tilemap o si está leyendo basura.
+
+**Concepto de Hardware:**
+**Rutinas de Inicialización de Juegos**: En los juegos originales de Game Boy desarrollados por compañías como Game Freak (Pokémon), las rutinas de inicialización siguen un patrón específico para gestionar el hardware antes de ceder el control al motor de juego principal.
+
+1. **Secuencia de inicialización**: Una rutina típica incluye: reset de hardware, configuración de registros, desactivación de interrupciones (DI), bucles de retardo, activación de interrupciones (EI), e inicio del motor de juego.
+
+2. **El "silencio post-retardo"**: Si un juego ejecuta un bucle de retardo pero nunca habilita interrupciones después, el juego se queda "mudo": la CPU puede ejecutar instrucciones, pero las interrupciones de hardware (V-Blank, Timer) nunca se procesan. Esto causa que la intro no arranque, la PPU no se sincronice, y el Timer no funcione.
+
+3. **Patrones de renderizado erróneos**: Si la PPU está renderizando franjas verticales erróneas, esto puede indicar problemas de direccionamiento, tilemap no inicializado, Tile Data Base incorrecto, o scroll incorrecto. Si la VRAM fue borrada a 0x00 y el Tilemap tiene 0x7F, la PPU está intentando renderizar el Tile 0x7F. Si el Tile 0x7F está vacío, la pantalla debería ser de un color sólido, no mostrar franjas.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Modificado método `step()` al final para agregar trail de ejecución post-retardo (0x6155).
+- `src/core/cpp/PPU.cpp` - Modificado método `render_scanline()` para agregar inspección de Tile ID en el centro de la pantalla (LY=72, X=80).
+
+**Tests y Verificación:**
+- Validación de código: ✅ Compilación exitosa sin errores de linter.
+- Verificación de instrumentación: ✅ El trail post-retardo se activa cuando el PC sale de 0x6155 y captura las siguientes 200 instrucciones.
+- Verificación de PPU: ✅ La inspección de PPU se ejecuta una sola vez cuando se renderiza el centro de la pantalla.
+
+**Próximos Pasos:**
+- Ejecutar Pokémon Red y analizar los logs [POST-DELAY] para ver qué instrucciones se ejecutan después del retardo.
+- Buscar si aparece `EI` (0xFB) o escrituras en 0xFFFF en los logs [POST-DELAY].
+- Analizar el log [PPU-DEBUG] para ver qué Tile ID está leyendo la PPU en el centro de la pantalla.
+- Si el juego no habilita interrupciones, investigar por qué (¿hay un bug en el código del juego?, ¿estamos saltando código accidentalmente?).
+- Si hay franjas verticales, investigar el error de direccionamiento en la PPU o el tilemap.
+- Si el juego habilita interrupciones pero la intro no arranca, investigar por qué las interrupciones V-Blank no se procesan correctamente.
+
+**Fuentes Consultadas:**
+- Pan Docs: Game Boy Programming Manual - Interrupts, PPU, LCD Control
+- Pan Docs: CPU Instruction Set - EI (0xFB), DI (0xF3)
+
+---
+
 ### 2025-12-25 - Step 0277: Operación Warp Drive: Monitor de Decremento y Validación de Bucle de Retardo
 **Estado**: ✅ IMPLEMENTADO
 

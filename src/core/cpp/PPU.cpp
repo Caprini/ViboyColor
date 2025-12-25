@@ -416,6 +416,19 @@ void PPU::render_scanline() {
         uint16_t tile_map_addr = tile_map_base + (map_y / 8) * 32 + (map_x / 8);
         uint8_t tile_id = mmu_->read(tile_map_addr);
 
+        // --- Step 0278: Inspección de PPU en el centro de la pantalla ---
+        // Log puntual para ver qué Tile ID está leyendo realmente cuando dibuja el centro
+        static int ppu_debug_count = 0;
+        if (ly_ == 72 && ppu_debug_count < 1) {
+            // Solo una vez en el medio de la pantalla (LY=72 de 144 líneas)
+            if (x == 80) {  // Centro horizontal (80 de 160 píxeles)
+                printf("[PPU-DEBUG] LY:72 X:80 | TileMapAddr:%04X | TileID:%02X | TileDataBase:%04X\n",
+                       tile_map_addr, tile_id, tile_data_base);
+                ppu_debug_count++;
+            }
+        }
+        // -----------------------------------------
+
         uint16_t tile_addr;
         if (signed_addressing) {
             tile_addr = tile_data_base + ((int8_t)tile_id * 16);
