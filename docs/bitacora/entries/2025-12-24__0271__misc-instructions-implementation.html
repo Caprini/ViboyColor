@@ -43,13 +43,13 @@
             <section id="resumen">
                 <h2>Resumen</h2>
                 <p>
-                    Este Step implementa las instrucciones misceláneas del bloque bajo que faltaban (<code>DAA</code> 0x27, <code>CPL</code> 0x2F, <code>SCF</code> 0x37 y <code>CCF</code> 0x3F) y, además, los loads básicos que seguían ausentes: <code>LD (BC), A</code>, <code>LD A, (BC)</code>, <code>LD (DE), A</code>, <code>LD A, (DE)</code>, <code>LDI/LD A, (HL±)</code>, <code>LDH (C), A</code>, <code>LDH A, (C)</code>, <code>LD (nn), A</code> y <code>LD A, (nn)</code>. El diagnóstico del Step 0270 reveló que el emulador caía en un bucle infinito de <code>RST 38</code> (opcode <code>0xFF</code>), el "Pantallazo Azul" de la Game Boy.
+                    Este Step implementa las instrucciones misceláneas del bloque bajo (<code>DAA</code> 0x27, <code>CPL</code> 0x2F, <code>SCF</code> 0x37, <code>CCF</code> 0x3F), los loads básicos ausentes (<code>LD (BC/DE), A</code>, <code>LD A, (BC/DE)</code>, <code>LDI/LD A, (HL±)</code>, <code>LDH (C), A</code>, <code>LDH A, (C)</code>, <code>LD (nn), A</code>, <code>LD A, (nn)</code>), añade <code>RETI</code> (0xD9) y corrige el <strong>HALT bug</strong> (IME=0 con IF&IE≠0 no se detiene). El diagnóstico del Step 0270 reveló el bucle infinito de <code>RST 38</code>; con estas instrucciones el PC ya no cae en 0x0038 ni desborda la pila.
                 </p>
                 <p>
                     La causa raíz era la <strong>desincronización del PC</strong> debido a instrucciones faltantes. Si falta una instrucción crítica como <code>DAA</code> (Decimal Adjust Accumulator) o un load de memoria alta (por ejemplo <code>LDH (C), A</code> para los registros de E/S), el juego calcula direcciones de memoria erróneas y crashea. Pokémon usa aritmética BCD (Binary Coded Decimal) intensivamente para la salud, el dinero y los puntos, y accede constantemente a registros en 0xFF00. Si estas instrucciones no están implementadas, los cálculos salen mal, el juego hace <code>JP HL</code> a una dirección equivocada, aterriza en una zona vacía de memoria (llena de <code>0xFF</code>), y entra en un bucle infinito de <code>RST 38</code>.
                 </p>
                 <p>
-                    Se implementaron <strong>14 instrucciones</strong>: las 4 misceláneas (DAA, CPL, SCF, CCF) y 10 loads críticos (BC/DE directos, LDI/LDD A, HL±, LDH (C), A/LDH A, (C), LD (nn), A y LD A, (nn)).
+                    Se implementaron <strong>15 instrucciones</strong>: 4 misceláneas, 10 loads críticos y <code>RETI</code>; además se corrigió el HALT bug.
                 </p>
             </section>
 
@@ -152,7 +152,7 @@
             <section id="implementacion">
                 <h2>Implementación</h2>
                 <p>
-                    Se implementaron 14 instrucciones en el método <code>step()</code> de <code>CPU.cpp</code>: las 4 misceláneas (DAA, CPL, SCF, CCF) y 10 loads que estaban ausentes (BC/DE directos, LDI/LDD A, HL±, LDH (C), A / LDH A, (C), LD (nn), A y LD A, (nn)), insertadas en los lugares apropiados del switch según sus opcodes.
+                    Se implementaron 15 instrucciones en el método <code>step()</code> de <code>CPU.cpp</code>: las 4 misceláneas (DAA, CPL, SCF, CCF), 10 loads que estaban ausentes (BC/DE directos, LDI/LDD A, HL±, LDH (C), A / LDH A, (C), LD (nn), A y LD A, (nn)) y <code>RETI</code>. Se añadió también el fix del HALT bug (IME=0 con interrupción pendiente no se detiene).
                 </p>
 
                 <h3>DAA (0x27)</h3>
@@ -248,7 +248,7 @@
             <section id="archivos">
                 <h2>Archivos Afectados</h2>
                 <ul>
-                    <li><code>src/core/cpp/CPU.cpp</code> - Agregadas 14 instrucciones al método <code>step()</code>:
+                    <li><code>src/core/cpp/CPU.cpp</code> - Agregadas 15 instrucciones al método <code>step()</code> y fix de HALT bug:
                         <ul>
                             <li>Misceláneas: DAA (0x27), CPL (0x2F), SCF (0x37), CCF (0x3F).</li>
                             <li>Interrupciones: RETI (0xD9) reactiva IME al salir de la rutina.</li>
@@ -267,25 +267,18 @@
                 <p>
                     <strong>Validación de módulo compilado C++:</strong> Las instrucciones se implementaron directamente en C++ y requieren recompilación.
                 </p>
-                <p>
-                    <strong>Comando de compilación:</strong>
-                </p>
-                <pre><code>.\rebuild_cpp.ps1</code></pre>
-                <p>
-                    <strong>Comando de prueba:</strong>
-                </p>
-                <pre><code>python main.py roms/pkmn.gb</code></pre>
-                <p>
-                    <strong>Verificaciones esperadas:</strong>
-                </p>
+                <p><strong>Comandos ejecutados:</strong></p>
+                <pre><code>.\rebuild_cpp.ps1
+python main.py roms/pkmn.gb
+python main.py roms/pkmn.gb --verbose</code></pre>
+                <p><strong>Resultados:</strong></p>
                 <ul>
-                    <li>El bucle infinito de <code>RST 38</code> (<code>PC:0038</code>) debería desaparecer.</li>
-                    <li>El juego debería avanzar más allá del bucle de espera y mostrar la intro (estrellas, Game Freak, Gengar).</li>
-                    <li>Si <code>DAA</code> era el problema (sospechoso principal), esto estabilizará el sistema definitivamente.</li>
+                    <li>El bucle de <code>RST 38</code> desapareció; SP estable, sin desbordes.</li>
+                    <li>PC oscila en 0x614D–0x6151 con IME activo; interrupciones atendidas (RETI implementado).</li>
+                    <li>Pantalla aún verde: flujo en rutina 0x613C–0x6153; falta inspeccionar HRAM/WRAM (p.ej. 0xD732) para destrabar.</li>
                 </ul>
-                <p>
-                    <strong>Nota:</strong> Los tests unitarios completos se pueden implementar en un Step futuro, siguiendo el patrón de tests existentes. Especialmente importante sería testear <code>DAA</code> con diferentes combinaciones de flags y valores de A.
-                </p>
+                <p><strong>Validación de módulo compilado C++:</strong> Sí (rebuild_cpp.ps1).</p>
+                <p><strong>Pendiente:</strong> Tests unitarios para <code>DAA</code> y loads/LDH.</p>
             </section>
 
             <!-- 6. Fuentes Consultadas -->
@@ -313,13 +306,13 @@
 
                     <h3>Lo que Falta Confirmar</h3>
                     <ul>
-                        <li><strong>Validación con ROMs reales:</strong> Necesitamos ejecutar el emulador con Pokémon Red y verificar que el bucle de <code>RST 38</code> desaparece y que el juego avanza correctamente.</li>
-                        <li><strong>Tests unitarios:</strong> Implementar tests unitarios completos que validen el comportamiento de <code>DAA</code> con diferentes combinaciones de flags y valores de A, especialmente casos límite (sumas que producen carry, restas que producen borrow, etc.).</li>
+                        <li><strong>HRAM/WRAM en el bucle 0x613C–0x6153:</strong> Inspeccionar bytes como 0xD732 para confirmar la condición de salida del bucle que mantiene la pantalla verde.</li>
+                        <li><strong>Tests unitarios:</strong> Implementar tests para <code>DAA</code> con combinaciones de flags/valores y para loads/LDH.</li>
                     </ul>
 
                     <h3>Hipótesis y Suposiciones</h3>
                     <p>
-                        Asumimos que la falta de <code>DAA</code> era la causa principal del bucle infinito de <code>RST 38</code>. Si el problema persiste después de este Step, necesitaremos investigar otras causas posibles (como otras instrucciones faltantes o problemas en la gestión de memoria).
+                        Asumimos que la falta de <code>DAA</code>, loads y RETI explicaba el bucle <code>RST 38</code>. Ahora el PC progresa pero la pantalla sigue verde; la hipótesis es un flag en HRAM/WRAM que no cumple la condición de salida. Próximo paso: leer 0xD732 y confirmar la lógica del handler de VBlank/STAT.
                     </p>
                 </div>
             </section>
@@ -328,11 +321,11 @@
             <section id="proximos-pasos">
                 <h2>Próximos Pasos</h2>
                 <ul>
-                    <li>[ ] Recompilar el módulo C++ con <code>.\rebuild_cpp.ps1</code></li>
-                    <li>[ ] Ejecutar el emulador con Pokémon Red y verificar que el bucle de <code>RST 38</code> desaparece</li>
-                    <li>[ ] Verificar que el juego avanza más allá del bucle de espera y muestra la intro (estrellas, Game Freak, Gengar)</li>
-                    <li>[ ] Si el problema persiste, investigar otras causas posibles (otras instrucciones faltantes, problemas en gestión de memoria, etc.)</li>
-                    <li>[ ] Implementar tests unitarios completos para <code>DAA</code> con diferentes combinaciones de flags y valores de A (opcional, puede ser un Step futuro)</li>
+                    <li>[x] Recompilar el módulo C++ con <code>.\rebuild_cpp.ps1</code></li>
+                    <li>[x] Ejecutar el emulador con Pokémon Red y confirmar que el bucle de <code>RST 38</code> desaparece</li>
+                    <li>[ ] Instrumentar/leer HRAM/WRAM (p.ej. 0xD732) en el bucle 0x614D–0x6151 para destrabar la pantalla verde</li>
+                    <li>[ ] Verificar visualmente la intro (logo/Game Freak) tras la lectura del flag</li>
+                    <li>[ ] Implementar tests unitarios completos para <code>DAA</code> y loads/LDH</li>
                 </ul>
             </section>
         </main>

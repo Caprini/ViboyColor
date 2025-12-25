@@ -37,7 +37,7 @@
                         <span class="meta">2025-12-24</span>
                         <span class="tag">0271</span>
                         <a href="entries/2025-12-24__0271__misc-instructions-implementation.html" class="title">Misc Instructions Implementation (DAA, CPL, SCF, CCF)</a>
-                        <p class="summary">Este Step implementa las instrucciones misceláneas del bloque bajo que faltaban (DAA 0x27, CPL 0x2F, SCF 0x37, CCF 0x3F) y los loads básicos ausentes: LD (BC), A / LD (DE), A / LD A, (BC) / LD A, (DE), LDI/LD A, (HL±), LDH (C), A / LDH A, (C), LD (nn), A y LD A, (nn). El diagnóstico del Step 0270 reveló un bucle infinito de RST 38 (opcode 0xFF) por desincronización del PC al faltar instrucciones críticas de BCD y de acceso a registros 0xFF00. Estas instrucciones corrigen los cálculos BCD y los accesos de E/S tempranos.</p>
+                        <p class="summary">Este Step implementa las misceláneas (DAA, CPL, SCF, CCF), los loads básicos (BC/DE, LDI/LDD A,(HL±), LDH (C), A / LDH A, (C), LD (nn), A / LD A, (nn)), añade RETI y corrige el HALT bug (IME=0 con IF&IE≠0). El bucle de RST 38 desaparece; la CPU progresa pero la pantalla sigue verde, pendiente de leer un flag en HRAM/WRAM.</p>
                         <span class="status-badge status-draft">DRAFT</span>
                     </li>
                     <!-- Entrada 0270 - Stack Operations Completion -->
