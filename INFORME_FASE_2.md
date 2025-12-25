@@ -32,6 +32,79 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0273: Operación Sniper: Disección de Bucles Críticos
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa un sistema de "Sniper Traces" (trazas de francotirador) para capturar instantáneas precisas del estado de la CPU en puntos críticos del código de Pokémon Red.
+
+**Objetivo:**
+- Implementar instrumentación quirúrgica que capture el estado completo de la CPU (registros, opcodes, banco ROM, flags de interrupción) solo cuando el PC coincide con direcciones críticas: `0x36E3` (limpieza de VRAM), `0x6150` y `0x6152` (espera del flag `0xD732`).
+- Añadir un "trigger" que detecte cualquier intento de escritura en `0xD732`, permitiendo identificar qué código intenta modificar este flag de sincronización.
+- Implementar método `get_current_rom_bank()` en MMU para reportar el banco ROM actual en las trazas.
+- Limitar la salida a 50 trazas por dirección para evitar saturación de logs.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/CPU.cpp`**: 
+   - Agregado bloque de Sniper Traces al final del método `step()` (antes del cierre de la función).
+   - Detecta cuando el PC coincide con `0x36E3`, `0x6150` o `0x6152`.
+   - Imprime traza completa: PC, banco ROM, 3 bytes siguientes (opcode + 2 bytes), SP, AF, BC, DE, HL, IE, IF.
+   - Usa variable estática `sniper_limit` para limitar a 50 trazas por dirección.
+
+2. **Modificado `src/core/cpp/MMU.cpp`**:
+   - Agregado trigger D732 en método `write()` que detecta escrituras en `0xD732`.
+   - Imprime: valor escrito, PC desde el cual se realiza la escritura, banco ROM actual.
+   - No tiene límite de impresiones (crítico ver todos los intentos de escritura).
+
+3. **Modificado `src/core/cpp/MMU.hpp` y `MMU.cpp`**:
+   - Agregado método público `get_current_rom_bank()` que retorna `bankN_rom_` (banco mapeado en `0x4000-0x7FFF`).
+   - Permite que la CPU acceda al banco ROM actual para reportarlo en las trazas.
+
+**Concepto de Hardware:**
+**Busy Loops y Flags de Sincronización**: Los juegos de Game Boy utilizan patrones de sincronización basados en "busy loops" (bucles ocupados) y flags en WRAM para coordinar el código principal con las ISR (Interrupt Service Routines). Cuando el código principal necesita esperar a que una interrupción complete una tarea, establece un flag en WRAM y entra en un bucle que lee ese flag repetidamente hasta que la ISR lo modifica.
+
+En el caso de Pokémon Red, el juego espera en `PC ≈ 0x6150` a que la dirección `0xD732` cambie de valor. Si este flag permanece en `0x00`, el bucle nunca termina y el juego se congela. Las causas posibles son: ISR no se ejecuta, banco ROM incorrecto, o condición de hardware no detectada.
+
+**Tests y Verificación:**
+- Comando: `python main.py roms/pkmn.gb`
+- Buscar líneas `[SNIPER]` para ver el estado de la CPU en direcciones críticas.
+- Buscar líneas `[TRIGGER-D732]` para ver todos los intentos de escritura en `0xD732`.
+- Verificar el banco ROM reportado: si el banco en `0x36E3` no es el esperado, podría indicar un problema de MBC.
+- Analizar los opcodes impresos para desensamblar mentalmente la instrucción.
+
+**Resultados del Análisis:**
+- **Total de trazas capturadas**: 52
+  - **Trazas [SNIPER]**: 50 (todas en PC:36E3)
+  - **Trazas [TRIGGER-D732]**: 1 (desde PC:1F80)
+
+**Hallazgos Críticos:**
+1. **PC:36E3 - Rutina de Limpieza de VRAM**:
+   - Opcodes: `22 0B 78` → `LD (HL+), A | DEC BC | LD A, B`
+   - Limpia VRAM escribiendo `0x00` desde `0x8000` usando `BC` como contador (2000 iteraciones = 8KB)
+   - Banco ROM: 1 (correcto)
+
+2. **Interrupciones Deshabilitadas (IE=00)**:
+   - `IE = 0x00`: TODAS las interrupciones están deshabilitadas
+   - `IF = 0x01`: V-Blank pendiente pero no se procesa porque IE=0
+   - **Causa raíz identificada**: Las ISR no se pueden ejecutar, por lo que el flag `0xD732` nunca cambia
+
+3. **Flag 0xD732**:
+   - Solo se escribe UNA vez desde `PC:1F80` con valor `00`
+   - Nunca se modifica después porque ninguna ISR se ejecuta (IE=0)
+
+4. **PC:6150/6152**:
+   - 0 trazas capturadas: el juego no llega a estas direcciones
+   - Se queda atascado antes del bucle de espera
+
+**Conclusión:**
+El juego deshabilita todas las interrupciones (`IE=0x00`) y espera que una ISR (probablemente V-Blank) modifique `0xD732` a un valor distinto de `0x00`. Como IE=0, la ISR nunca se ejecuta, y el flag nunca cambia, causando un bucle de espera infinito.
+
+**Próximos Pasos:**
+- Buscar dónde se deshabilita IE: Analizar el código antes de `PC:36E3` para encontrar dónde se escribe `0x00` en `0xFFFF`.
+- Verificar el bucle de espera: Desensamblar el código en `0x6150`/`0x6152` para confirmar que lee `0xD732`.
+- Implementar corrección: Si el juego debería tener IE habilitado, corregir el código que lo deshabilita incorrectamente.
+
+---
+
 ### 2025-12-24 - Step 0271: Misc Instructions Implementation (DAA, CPL, SCF, CCF)
 **Estado**: ✅ IMPLEMENTADO
 

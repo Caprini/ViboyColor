@@ -106,6 +106,17 @@ public:
     void request_interrupt(uint8_t bit);
 
     /**
+     * Step 0273: Sniper Traces - Getter para banco ROM actual
+     * 
+     * Retorna el banco ROM actualmente mapeado en el rango 0x4000-0x7FFF.
+     * Este método es necesario para la instrumentación de diagnóstico que
+     * necesita saber en qué banco de ROM se está ejecutando el código.
+     * 
+     * @return Número del banco ROM actual (1-based)
+     */
+    uint16_t get_current_rom_bank() const;
+
+    /**
      * Step 0247: Memory Timeline & PC Tracker
      * 
      * Campo público para rastrear el Program Counter (PC) actual de la CPU.
@@ -129,19 +140,43 @@ private:
     static constexpr size_t MEMORY_SIZE = 0x10000;
     
     /**
-     * --- Step 0260: MBC1 ROM BANKING ---
-     * Almacena el cartucho ROM completo (puede ser >32KB).
-     * Se usa para acceder a bancos de ROM conmutables.
+     * Tipos de MBC soportados.
+     */
+    enum class MBCType {
+        ROM_ONLY,
+        MBC1,
+        MBC2,
+        MBC3,
+        MBC5
+    };
+
+    /**
+     * --- Gestión de ROM / MBC ---
      */
     std::vector<uint8_t> rom_data_;
-    
+    MBCType mbc_type_;
+    size_t rom_bank_count_;
+    uint16_t current_rom_bank_;   // Hasta 9 bits (MBC5)
+    uint16_t bank0_rom_;          // Banco mapeado en 0x0000-0x3FFF
+    uint16_t bankN_rom_;          // Banco mapeado en 0x4000-0x7FFF
+
+    // Estado específico de MBC1
+    uint8_t mbc1_bank_low5_;
+    uint8_t mbc1_bank_high2_;
+    uint8_t mbc1_mode_;           // 0 = ROM banking, 1 = RAM banking
+
+    // Estado específico de MBC3 (RTC sin implementar, solo stub)
+    uint8_t mbc3_rtc_reg_;
+    bool mbc3_latch_ready_;
+
     /**
-     * --- Step 0260: MBC1 ROM BANKING ---
-     * Banco de ROM actualmente seleccionado para el rango 0x4000-0x7FFF.
-     * Inicializado a 1 (el banco 0 está siempre mapeado en 0x0000-0x3FFF).
-     * Nota: En MBC1, el banco 0 se trata como banco 1 cuando se selecciona.
+     * --- Gestión de RAM externa ---
      */
-    uint8_t current_rom_bank_;
+    std::vector<uint8_t> ram_data_;
+    size_t ram_bank_size_;
+    size_t ram_bank_count_;
+    uint8_t ram_bank_;
+    bool ram_enabled_;
     
     /**
      * Puntero a la PPU para lectura dinámica del registro STAT (0xFF41).
@@ -166,6 +201,12 @@ private:
      * o escribe el registro P1 para obtener/actualizar el estado de los botones.
      */
     Joypad* joypad_;
+
+    // Helpers internos de MBC
+    void update_bank_mapping();
+    uint16_t normalize_rom_bank(uint16_t bank) const;
+    void configure_mbc_from_header(uint8_t cart_type, uint8_t rom_size_code, uint8_t ram_size_code);
+    void allocate_ram_from_header(uint8_t ram_size_code);
 };
 
 #endif // MMU_HPP

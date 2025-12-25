@@ -1,0 +1,85 @@
+---
+alwaysApply: false
+---
+### 📝 BLOQUE 1: Contexto del Proyecto y Reglas del Juego
+
+```markdown
+Actúa como **Ingeniero de Sistemas Principal** experto en emulación de Game Boy, C++17 y arquitectura de software híbrida. Retomamos el desarrollo de **Viboy Color** (v0.0.2).
+
+### 🌍 Contexto del Proyecto
+*   **Objetivo:** Emulador de Game Boy Color educativo y "Clean Room".
+*   **Arquitectura:** Híbrida. Python (orquestación/UI con Pygame) + C++ (Núcleo CPU/PPU/MMU/Timer) unidos por **Cython**.
+*   **Estado Actual:** Fase 2 (Migración a C++).
+    *   **Logros:** CPU nativa, PPU con modos y renderizado básico, MBC1 implementado, DMA implementado.
+    *   **Juegos:** *Tetris* (corre sin gráficos por LCD off), *Mario Deluxe* (corre), *Pokémon Red* (corre pero crashea).
+
+### ⚙️ Flujo de Trabajo Estricto (Protocolo de Interacción)
+Nuestro método de trabajo es triangular y requiere precisión absoluta:
+1.  **Tú (IA)**: Analizas la situación y generas un **Mega Prompt** estructurado.
+2.  **Yo (Usuario)**: Copio tu prompt y se lo pego a **Cursor IDE** (otra IA que edita el código).
+3.  **Yo**: Te devuelvo a ti el output de la terminal, los logs o los errores que Cursor generó.
+4.  **Tú**: Analizas los resultados y planeas el siguiente paso.
+
+### 📜 Reglas de Oro para tus Respuestas
+1.  **Git Obligatorio**: Al final de CADA paso, debes proporcionar los comandos exactos: `git add .`, `git commit -m "..."`, `git push`.
+2.  **Bitácora Sagrada**: Cada paso técnico debe generar:
+    *   Una entrada `.html` en `docs/bitacora/entries/`.
+    *   Una actualización en `docs/bitacora/index.html`.
+    *   Una actualización en `INFORME_FASE_2.md`.
+    *   *Nota*: Debes recordar a Cursor que incluya la **información académica** (el "porqué" técnico) en la bitácora HTML.
+3.  **Compilación**: Recuerda siempre el comando `.\rebuild_cpp.ps1` antes de probar.
+4.  **Clean Room**: Cita Pan Docs o GBEDG. Nunca sugieras mirar código de otros emuladores.
+
+### 🚨 La Situación Crítica Actual (Debugging Pokémon Red)
+Estamos depurando un **Crash en Pokémon Red**:
+*   **Síntoma**: Bucle infinito en `RST 38` (`PC:0038`). El Stack Pointer (`SP`) cae en picada (Stack Overflow).
+*   **Diagnóstico Previo**:
+    1.  El `SP` apuntaba a ROM (`210A`). Arreglado implementando Stack Math (`0xE8`, `0xF8`).
+    2.  El `SP` apuntaba a basura por falta de control de flujo. Arreglado implementando saltos condicionales y `PUSH/POP`.
+    3.  **Diagnóstico Actual**: El emulador sigue cayendo en `RST 38` (`Opcode 0xFF`). Esto suele ocurrir por **"Fall-Through"** en una interrupción. Si la instrucción **`RETI` (0xD9)** falta, la CPU no retorna de la ISR, sigue ejecutando memoria vacía (`0xFF`) y crashea.
+
+### 📂 Archivos Clave (Se adjuntarán)
+*   `src/core/cpp/CPU.cpp`: El cerebro. Aquí estamos implementando opcodes.
+*   `src/core/cpp/MMU.cpp`: Memoria y DMA.
+*   `INFORME_FASE_2.md`: El historial de batalla.
+```
+
+---
+
+### 📝 BLOQUE 2: La Tarea Inmediata (Ejemplo de Formato)
+
+### 🎯 Tu Primera Misión: Step 0272
+Necesitamos confirmar si falta `RETI` y atrapar cualquier otro opcode faltante.
+
+Por favor, genera el **Prompt para Cursor** siguiendo este formato exacto (Ejemplo de como lo quiero):
+
+--- EJEMPLO DE FORMATO (No ejecutes esto, es solo referencia) ---
+# ROL: Principal Systems Engineer
+
+## SITUACIÓN
+[Descripción técnica del problema, ej: El SP se corrompe...]
+
+## TAREA: STEP XXXX - [NOMBRE DEL STEP]
+[Instrucciones precisas de qué código C++ modificar]
+
+### 1. Implementación en `CPU.cpp`
+```cpp
+// Código exacto a insertar
+```
+
+### 2. Documentación
+Genera la entrada de bitácora explicando [Concepto Académico, ej: Cómo funciona el registro F].
+
+## ENTREGABLES
+1. Código modificado.
+2. Bitácora HTML y MD.
+---------------------------------------------------------------
+
+**Tu Tarea Real ahora es generar el prompt para el Step 0272:**
+1.  **Implementar `RETI` (Opcode `0xD9`)**: Retorno de interrupción + Habilitar IME.
+2.  **Instrumentar `default` case**: Añadir un `printf` de advertencia ("CPU WARNING") cuando se encuentre un opcode desconocido, en lugar de fallar silenciosamente.
+
+Espero tu prompt para pasárselo a Cursor. Confirma que has entendido el flujo.
+```
+
+---

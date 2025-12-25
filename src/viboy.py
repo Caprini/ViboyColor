@@ -988,11 +988,21 @@ class Viboy:
                         # Leer muestras masivas para ver si hay vida
                         # Nota: Esto es lento, pero solo ocurre 1 vez por segundo
                         vram_sum = 0
+                        tile_sum = 0
+                        map_sum = 0
                         # Muestreo rápido: leer cada 16 bytes para no matar el rendimiento
                         for addr in range(0x8000, 0xA000, 16):
-                            vram_sum += self._mmu.read(addr)
+                            val = self._mmu.read(addr)
+                            vram_sum += val
+                            if addr < 0x9800:
+                                tile_sum += val
+                            else:
+                                map_sum += val
                         
                         logger.info(f"[MEMORY] VRAM_SUM: {vram_sum} (Si es 0, no hay gráficos)")
+                        logger.info(f"[MEMORY] VRAM_TILE_SUM: {tile_sum} | VRAM_MAP_SUM: {map_sum}")
+                        flag_d732 = self._mmu.read(0xD732)
+                        logger.info(f"[WRAM] D732: {flag_d732:02X}")
                         # -------------------------------------------------
                     elif not self._use_cpp and self._cpu is not None and self._mmu is not None:
                         # Fallback para modo Python
@@ -1031,11 +1041,21 @@ class Viboy:
                         # Leer muestras masivas para ver si hay vida
                         # Nota: Esto es lento, pero solo ocurre 1 vez por segundo
                         vram_sum = 0
+                        tile_sum = 0
+                        map_sum = 0
                         # Muestreo rápido: leer cada 16 bytes para no matar el rendimiento
                         for addr in range(0x8000, 0xA000, 16):
-                            vram_sum += self._mmu.read(addr)
+                            val = self._mmu.read(addr)
+                            vram_sum += val
+                            if addr < 0x9800:
+                                tile_sum += val
+                            else:
+                                map_sum += val
                         
                         logger.info(f"[MEMORY] VRAM_SUM: {vram_sum} (Si es 0, no hay gráficos)")
+                        logger.info(f"[MEMORY] VRAM_TILE_SUM: {tile_sum} | VRAM_MAP_SUM: {map_sum}")
+                        flag_d732 = self._mmu.read(0xD732)
+                        logger.info(f"[WRAM] D732: {flag_d732:02X}")
                         # -------------------------------------------------
                 # -------------------------------------------------
         

@@ -3,6 +3,7 @@
 #include "Timer.hpp"
 #include "Joypad.hpp"
 #include <cstring>
+#include <algorithm>
 
 // --- Step 0206: Datos del Logo Personalizado "Viboy Color" en Formato Tile (2bpp) ---
 // Convertido desde la imagen 'viboy_logo_48x8_debug.png' (48x8px) a formato de Tile (2bpp).
@@ -39,7 +40,26 @@ static const uint8_t VIBOY_LOGO_MAP[32] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-MMU::MMU() : memory_(MEMORY_SIZE, 0), ppu_(nullptr), timer_(nullptr), joypad_(nullptr), debug_current_pc(0), current_rom_bank_(1) {
+MMU::MMU()
+    : memory_(MEMORY_SIZE, 0)
+    , ppu_(nullptr)
+    , timer_(nullptr)
+    , joypad_(nullptr)
+    , debug_current_pc(0)
+    , mbc_type_(MBCType::ROM_ONLY)
+    , rom_bank_count_(1)
+    , current_rom_bank_(1)
+    , bank0_rom_(0)
+    , bankN_rom_(1)
+    , mbc1_bank_low5_(1)
+    , mbc1_bank_high2_(0)
+    , mbc1_mode_(0)
+    , mbc3_rtc_reg_(0)
+    , mbc3_latch_ready_(false)
+    , ram_bank_size_(0x2000)
+    , ram_bank_count_(0)
+    , ram_bank_(0)
+    , ram_enabled_(false) {
     // Inicializar memoria a 0
     // --- Step 0189: Inicialización de Registros de Hardware (Post-BIOS) ---
     // Estos son los valores que los registros de I/O tienen después de que la
@@ -259,263 +279,313 @@ uint8_t MMU::read(uint16_t addr) const {
         return 0;
     }
     
-    // --- Step 0260: MBC1 ROM BANKING ---
-    // Implementación básica de MBC1 para soportar cartuchos grandes (>32KB).
-    // 
-    // MBC1 Banking:
-    // - 0x0000-0x3FFF: Siempre mapea al Banco 0 (fijo)
-    // - 0x4000-0x7FFF: Mapea al banco seleccionado (current_rom_bank_)
-    // 
-    // El banco se selecciona escribiendo en 0x2000-0x3FFF (ver método write).
-    // Fuente: Pan Docs - "MBC1", "Memory Bank Controllers"
-    
-    // Si hay datos ROM cargados, usar banking
+    // --- ROM / Banking ---
     if (!rom_data_.empty()) {
-        if (addr >= 0x0000 && addr <= 0x3FFF) {
-            // Banco 0 fijo: leer desde el principio de la ROM
-            if (addr < rom_data_.size()) {
-                return rom_data_[addr];
+        if (addr < 0x4000) {
+            size_t rom_addr = static_cast<size_t>(bank0_rom_) * 0x4000 + addr;
+            if (rom_addr < rom_data_.size()) {
+                return rom_data_[rom_addr];
             }
-            return 0x00;  // Fuera de rango
-        } else if (addr >= 0x4000 && addr <= 0x7FFF) {
-            // Banco conmutable: calcular offset
-            // Offset = (banco * 0x4000) + (addr - 0x4000)
-            size_t bank_offset = static_cast<size_t>(current_rom_bank_) * 0x4000;
-            size_t rom_addr = bank_offset + (addr - 0x4000);
-            
-            // --- Step 0261: Log de seguridad para lecturas fuera de rango ---
-            if (rom_addr >= rom_data_.size()) {
-                printf("[MBC1 CRITICAL] Intento de lectura fuera de ROM! Offset: %zu, Size: %zu, Bank: %d, Addr: 0x%04X\n", 
-                       rom_addr, rom_data_.size(), current_rom_bank_, addr);
-                return 0xFF;
+            return 0xFF;
+        } else if (addr < 0x8000) {
+            size_t rom_addr = static_cast<size_t>(bankN_rom_) * 0x4000 + (addr - 0x4000);
+            if (rom_addr < rom_data_.size()) {
+                return rom_data_[rom_addr];
             }
-            
-            // --- Step 0262: ROM READ PROBE ---
-            // COMENTADO EN STEP 0263: Limpieza de logs para reducir ruido
-            // Instrumentar las primeras 50 lecturas del área de ROM conmutada para verificar
-            // qué valores está devolviendo la MMU. Si devuelve ceros, la carga de ROM o el
-            // cálculo de offset está fallando. Si devuelve valores variados, la lectura es correcta.
-            /*
-            static int rom_read_counter = 0;
-            if (rom_read_counter < 50) {
-                uint8_t val = rom_data_[rom_addr];
-                printf("[ROM-READ] PC:%04X -> Read ROM[%04X] (Bank %d, Offset %zu) = %02X\n", 
-                       debug_current_pc, addr, current_rom_bank_, rom_addr, val);
-                rom_read_counter++;
-            }
-            */
-            // -----------------------------------------
-            
-            return rom_data_[rom_addr];
+            return 0xFF;
         }
     }
-    
-    // Para direcciones fuera de ROM o si no hay ROM cargada, usar memoria normal
-    // Acceso directo al array: O(1), sin overhead de Python
+
+    // --- RAM Externa (0xA000-0xBFFF) ---
+    if (addr >= 0xA000 && addr <= 0xBFFF) {
+        if (!ram_enabled_ || ram_data_.empty()) {
+            return 0xFF;
+        }
+
+        size_t bank_index = 0;
+        switch (mbc_type_) {
+            case MBCType::MBC1:
+                bank_index = (mbc1_mode_ == 1) ? ram_bank_ : 0;
+                break;
+            case MBCType::MBC3:
+                if (mbc3_rtc_reg_ >= 0x08 && mbc3_rtc_reg_ <= 0x0C) {
+                    // RTC no implementado todavía
+                    return 0x00;
+                }
+                bank_index = ram_bank_;
+                break;
+            case MBCType::MBC5:
+                bank_index = ram_bank_;
+                break;
+            case MBCType::MBC2:
+                bank_index = 0;
+                break;
+            default:
+                bank_index = 0;
+                break;
+        }
+
+        size_t offset = bank_index * ram_bank_size_ + (addr - 0xA000);
+        if (offset < ram_data_.size()) {
+            if (mbc_type_ == MBCType::MBC2) {
+                // RAM de 4 bits: los bits altos suelen leerse como 1
+                return 0xF0 | (ram_data_[offset] & 0x0F);
+            }
+            return ram_data_[offset];
+        }
+        return 0xFF;
+    }
+
+    static int d732_read_log_count = 0;
+    if (addr == 0xD732 && d732_read_log_count < 20) {
+        printf("[WRAM] Read  D732 -> %02X PC:%04X\n", memory_[addr], debug_current_pc);
+        d732_read_log_count++;
+    }
+
+    // Resto de direcciones: memoria plana
     return memory_[addr];
 }
 
 void MMU::write(uint16_t addr, uint8_t value) {
     // Asegurar que la dirección esté en el rango válido
     addr &= 0xFFFF;
-    
+
     // --- Step 0239: IMPLEMENTACIÓN DE ECHO RAM ---
-    // Echo RAM (0xE000-0xFDFF) es un espejo de WRAM (0xC000-0xDDFF)
-    // Escribir en el espejo debe modificar la memoria real
-    // Fuente: Pan Docs - Memory Map, Echo RAM
     if (addr >= 0xE000 && addr <= 0xFDFF) {
-        addr = addr - 0x2000;  // Redirigir a WRAM: 0xE645 -> 0xC645
+        addr = addr - 0x2000;  // Redirigir a WRAM
     }
-    // -----------------------------------------
-    
-    // Enmascarar el valor a 8 bits
+
     value &= 0xFF;
-    
+
     // --- Step 0251: IMPLEMENTACIÓN DMA (OAM TRANSFER) ---
-    // Cuando se escribe un valor XX en 0xFF46, se inicia una transferencia DMA
-    // que copia 160 bytes desde la dirección XX00 hasta OAM (0xFE00-0xFE9F)
-    // Fuente: Pan Docs - "DMA Transfer"
-    // 
-    // En hardware real, la transferencia tarda ~160 microsegundos (640 ciclos),
-    // pero para simplificar implementamos una copia instantánea.
-    // Durante la transferencia real, la CPU solo puede acceder a HRAM (0xFF80-0xFFFE),
-    // pero por ahora ignoramos esta restricción.
     if (addr == 0xFF46) {
-        // 1. Calcular dirección origen: value * 0x100 (ej: 0xC0 -> 0xC000)
         uint16_t source_base = static_cast<uint16_t>(value) << 8;
-        
-        // 2. Copiar 160 bytes (0xA0) a OAM (0xFE00-0xFE9F)
         for (int i = 0; i < 160; i++) {
             uint16_t source_addr = source_base + i;
-            // Leer desde la dirección fuente (puede ser ROM, RAM, VRAM, etc.)
             uint8_t data = read(source_addr);
-            // Escribir directamente en OAM
-            // Validar que la dirección de destino esté dentro de los límites
             if ((0xFE00 + i) < MEMORY_SIZE) {
                 memory_[0xFE00 + i] = data;
             }
         }
+        // Escribir también el valor en el registro DMA
+        memory_[addr] = value;
+        return;
     }
-    // -----------------------------------------
-    
-    // --- Step 0259: VRAM WRITE MONITOR ---
-    // COMENTADO EN STEP 0263: Limpieza de logs para reducir ruido
-    // Monitorizar las primeras 50 escrituras en VRAM para ver qué datos llegan
-    // Si la VRAM está vacía (ceros), la PPU renderizará píxeles de índice 0 (verdes/blancos).
-    // Si vemos valores distintos de cero, significa que la CPU está copiando datos.
-    // Si solo vemos ceros, el problema está en la carga de datos gráficos (posiblemente MBC).
-    /*
-    static int vram_write_counter = 0;
-    if (addr >= 0x8000 && addr <= 0x9FFF) {
-        if (vram_write_counter < 50) {
-            printf("[VRAM] PC:%04X -> Write VRAM [%04X] = %02X\n", debug_current_pc, addr, value);
-            vram_write_counter++;
-        }
-    }
-    */
-    // -----------------------------------------
-    
-    // CRÍTICO: El registro DIV (0xFF04) tiene comportamiento especial
-    // Cualquier escritura en 0xFF04 resetea el contador del Timer a 0
-    // El valor escrito es ignorado
+
+    // --- Step 0259: VRAM WRITE MONITOR --- (comentado)
+
+    // Registros especiales del Timer
     if (addr == 0xFF04) {
         if (timer_ != nullptr) {
             timer_->write_div();
         }
-        // No escribimos en memoria porque DIV no es un registro de memoria real
-        // Es un registro de hardware que se lee/escribe dinámicamente
         return;
     }
-    
-    // CRÍTICO: Los registros TIMA (0xFF05), TMA (0xFF06) y TAC (0xFF07) son controlados por el Timer
-    // Estos registros pueden ser leídos y escritos por el juego, pero están almacenados
-    // en el hardware del Timer, no en la memoria
+
     if (addr == 0xFF05) {
         if (timer_ != nullptr) {
             timer_->write_tima(value);
         }
-        // No escribimos en memoria porque TIMA no es un registro de memoria real
         return;
     }
-    
+
     if (addr == 0xFF06) {
         if (timer_ != nullptr) {
             timer_->write_tma(value);
         }
-        // No escribimos en memoria porque TMA no es un registro de memoria real
         return;
     }
-    
+
     if (addr == 0xFF07) {
         if (timer_ != nullptr) {
             timer_->write_tac(value);
         }
-        // No escribimos en memoria porque TAC no es un registro de memoria real
         return;
     }
-    
-    // CRÍTICO: El registro P1 (0xFF00) es controlado por el Joypad
-    // La CPU escribe en P1 para seleccionar qué fila de botones leer
+
+    // Joypad P1
     if (addr == 0xFF00) {
         if (joypad_ != nullptr) {
             joypad_->write_p1(value);
         }
-        // No escribimos en memoria porque P1 no es un registro de memoria real
-        // Es un registro de hardware que se lee/escribe dinámicamente
         return;
     }
-    
-    // --- Step 0265: LYC REGISTER INTERCEPTION ---
-    // El registro LYC (0xFF45) es controlado por la PPU.
-    // Cuando el juego escribe en LYC, debemos actualizar la PPU inmediatamente
-    // para que pueda verificar si LY == LYC y actualizar el bit 2 de STAT.
-    // Fuente: Pan Docs - LYC Register (0xFF45)
+
+    // LYC se propaga a la PPU
     if (addr == 0xFF45) {
         if (ppu_ != nullptr) {
             ppu_->set_lyc(value);
         }
-        // También guardar en memoria para consistencia (aunque la PPU es la fuente de verdad)
         memory_[addr] = value & 0xFF;
         return;
     }
-    // -----------------------------------------
-    
-    // --- Step 0260: MBC1 ROM BANKING ---
-    // En hardware real, la ROM (0x0000-0x7FFF) es de solo lectura.
-    // Escribir en este rango no modifica los datos de la ROM, sino que se envía
-    // al MBC (Memory Bank Controller) del cartucho para controlar el cambio de bancos.
-    // 
-    // MBC1 Banking Control:
-    // - 0x2000-0x3FFF: Selección de banco ROM (bits 0-4, banco 0 se trata como 1)
-    // - 0x0000-0x1FFF: Habilitación/deshabilitación de RAM (ignoramos por ahora)
-    // 
-    // Fuente: Pan Docs - "MBC1", "Memory Bank Controllers"
+
+    // --- Control de MBC / ROM banking ---
     if (addr < 0x8000) {
-        // ROM es de solo lectura: NO escribir en memory_
-        
-        // --- Step 0260: MBC1 ROM BANK SELECTION ---
-        // Interceptar escrituras en 0x2000-0x3FFF para cambiar el banco ROM
-        // --- Step 0261: MBC ACTIVITY MONITOR ---
-        // Instrumentar cambios de banco ROM para diagnosticar si el juego está
-        // seleccionando bancos correctamente. Solo logueamos cuando el banco cambia.
-        if (addr >= 0x2000 && addr <= 0x3FFF) {
-            // Selección de banco ROM (bits 0-4 del valor escrito)
-            uint8_t new_bank = value & 0x1F;  // Máscara para bits 0-4
-            
-            // En MBC1, el banco 0 se trata como banco 1
-            if (new_bank == 0) {
-                new_bank = 1;
-            }
-            
-            // Validar que el banco no exceda el tamaño de la ROM
-            // Cada banco es de 16KB (0x4000 bytes)
-            size_t max_banks = rom_data_.size() / 0x4000;
-            if (max_banks > 0 && new_bank >= max_banks) {
-                new_bank = max_banks - 1;  // Limitar al último banco disponible
-            }
-            
-            // --- Step 0261: Log solo si el banco cambia para no saturar ---
-            // COMENTADO EN STEP 0263: Limpieza de logs para reducir ruido
-            /*
-            if (new_bank != current_rom_bank_) {
-                printf("[MBC1] PC:%04X -> ROM Bank Switch: %d -> %d\n", 
-                       debug_current_pc, current_rom_bank_, new_bank);
-            }
-            */
-            
-            current_rom_bank_ = new_bank;
+        switch (mbc_type_) {
+            case MBCType::MBC1:
+                if (addr < 0x2000) {
+                    ram_enabled_ = ((value & 0x0F) == 0x0A);
+                } else if (addr < 0x4000) {
+                    mbc1_bank_low5_ = value & 0x1F;
+                    if ((mbc1_bank_low5_ & 0x1F) == 0) {
+                        mbc1_bank_low5_ = 1;  // banco 0 se mapea a 1
+                    }
+                    update_bank_mapping();
+                } else if (addr < 0x6000) {
+                    mbc1_bank_high2_ = value & 0x03;
+                    update_bank_mapping();
+                } else {  // 0x6000-0x7FFF
+                    mbc1_mode_ = value & 0x01;
+                    update_bank_mapping();
+                }
+                return;
+
+            case MBCType::MBC2:
+                if (addr < 0x2000) {
+                    ram_enabled_ = ((value & 0x0F) == 0x0A);
+                } else if (addr < 0x4000) {
+                    uint16_t bank = value & 0x0F;
+                    if (bank == 0) bank = 1;
+                    current_rom_bank_ = bank;
+                    update_bank_mapping();
+                }
+                return;
+
+            case MBCType::MBC3:
+                if (addr < 0x2000) {
+                    ram_enabled_ = ((value & 0x0F) == 0x0A);
+                    return;
+                } else if (addr < 0x4000) {
+                    uint16_t bank = value & 0x7F;
+                    if (bank == 0) bank = 1;
+                    current_rom_bank_ = bank;
+                    update_bank_mapping();
+                    return;
+                } else if (addr < 0x6000) {
+                    if (value <= 0x03) {
+                        ram_bank_ = value & 0x03;
+                        mbc3_rtc_reg_ = 0;
+                    } else if (value >= 0x08 && value <= 0x0C) {
+                        // RTC registro seleccionado (stub)
+                        mbc3_rtc_reg_ = value;
+                    }
+                    return;
+                } else {  // 0x6000-0x7FFF latch clock (stub)
+                    mbc3_latch_ready_ = (value == 0x01);
+                    return;
+                }
+
+            case MBCType::MBC5:
+                if (addr < 0x2000) {
+                    ram_enabled_ = ((value & 0x0F) == 0x0A);
+                    return;
+                } else if (addr < 0x3000) {
+                    uint16_t lower = value;
+                    current_rom_bank_ = (current_rom_bank_ & 0x100) | lower;
+                    update_bank_mapping();
+                    return;
+                } else if (addr < 0x4000) {
+                    uint16_t high = value & 0x01;
+                    current_rom_bank_ = (current_rom_bank_ & 0xFF) | (high << 8);
+                    update_bank_mapping();
+                    return;
+                } else if (addr < 0x6000) {
+                    ram_bank_ = value & 0x0F;
+                    return;
+                } else {
+                    return;
+                }
+
+            case MBCType::ROM_ONLY:
+            default:
+                return;
         }
-        // -----------------------------------------
-        
-        // No escribir en memoria para evitar corrupción
+    }
+
+    // --- RAM Externa (0xA000-0xBFFF) ---
+    if (addr >= 0xA000 && addr <= 0xBFFF) {
+        if (!ram_enabled_ || ram_data_.empty()) {
+            return;
+        }
+
+        size_t bank_index = 0;
+        switch (mbc_type_) {
+            case MBCType::MBC1:
+                bank_index = (mbc1_mode_ == 1) ? ram_bank_ : 0;
+                break;
+            case MBCType::MBC3:
+                if (mbc3_rtc_reg_ >= 0x08 && mbc3_rtc_reg_ <= 0x0C) {
+                    // RTC no implementado
+                    return;
+                }
+                bank_index = ram_bank_;
+                break;
+            case MBCType::MBC5:
+                bank_index = ram_bank_;
+                break;
+            case MBCType::MBC2:
+                bank_index = 0;
+                break;
+            default:
+                bank_index = 0;
+                break;
+        }
+
+        size_t offset = bank_index * ram_bank_size_ + (addr - 0xA000);
+        if (offset < ram_data_.size()) {
+            if (mbc_type_ == MBCType::MBC2) {
+                ram_data_[offset] = value & 0x0F;
+            } else {
+                ram_data_[offset] = value;
+            }
+        }
         return;
     }
-    // -----------------------------------------
+
+    // Escritura directa
+    static int d732_log_count = 0;
+    if (addr == 0xD732 && d732_log_count < 20) {
+        printf("[WRAM] Write D732=%02X PC:%04X\n", value, debug_current_pc);
+        d732_log_count++;
+    }
     
-    // Escritura directa: O(1), sin overhead de Python
+    // --- Step 0273: Trigger D732 - Instrumentación de Escritura ---
+    // Queremos saber QUIÉN intenta escribir en 0xD732 aunque sea un cero,
+    // o si alguien intenta escribir algo distinto de cero.
+    if (addr == 0xD732) {
+        printf("[TRIGGER-D732] Write %02X from PC:%04X (Bank:%d)\n",
+               value, debug_current_pc, current_rom_bank_);
+    }
+
+    static int vram_write_log_count = 0;
+    if (addr >= 0x8000 && addr <= 0x9FFF && vram_write_log_count < 100) {
+        printf("[VRAM] Write %04X=%02X PC:%04X\n", addr, value, debug_current_pc);
+        vram_write_log_count++;
+    }
+
     memory_[addr] = value;
 }
 
 void MMU::load_rom(const uint8_t* data, size_t size) {
-    // --- Step 0260: MBC1 ROM BANKING ---
-    // Cargar toda la ROM en rom_data_ para soportar cartuchos grandes (>32KB).
-    // El banco 0 se carga también en memory_[0x0000-0x3FFF] para compatibilidad
-    // con código que accede directamente a memory_.
-    // 
-    // Fuente: Pan Docs - "MBC1", "Memory Bank Controllers"
-    
-    // Redimensionar rom_data_ y copiar toda la ROM
+    // Copiar toda la ROM a rom_data_
     rom_data_.resize(size);
     std::memcpy(rom_data_.data(), data, size);
-    
-    // También copiar el banco 0 (primeros 16KB) a memory_ para compatibilidad
+
+    // Copiar Banco 0 a memory_ para compatibilidad
     size_t bank0_size = (size > 0x4000) ? 0x4000 : size;
     std::memcpy(memory_.data(), data, bank0_size);
-    
-    // Inicializar el banco actual a 1 (banco 0 está siempre mapeado en 0x0000-0x3FFF)
-    current_rom_bank_ = 1;
-    
-    printf("[MBC1] ROM loaded: %zu bytes (%zu banks)\n", size, size / 0x4000);
+
+    // Leer Header para detectar tipo de cartucho / tamaños
+    uint8_t cart_type = (size > 0x0147) ? data[0x0147] : 0x00;
+    uint8_t rom_size_code = (size > 0x0148) ? data[0x0148] : 0x00;
+    uint8_t ram_size_code = (size > 0x0149) ? data[0x0149] : 0x00;
+
+    configure_mbc_from_header(cart_type, rom_size_code, ram_size_code);
+    update_bank_mapping();
+
+    printf("[MBC] ROM loaded: %zu bytes (%zu banks) | Type: 0x%02X\n",
+           size, rom_bank_count_, cart_type);
 }
 
 void MMU::setPPU(PPU* ppu) {
@@ -544,5 +614,148 @@ void MMU::request_interrupt(uint8_t bit) {
     
     // Escribir el valor actualizado de vuelta a memoria
     write(0xFF0F, if_reg);
+
+    static int irq_log_count = 0;
+    if (irq_log_count < 30) {
+        printf("[IRQ] Request bit=%u IF:%02X PC:%04X\n", bit, if_reg, debug_current_pc);
+        irq_log_count++;
+    }
+}
+
+void MMU::configure_mbc_from_header(uint8_t cart_type, uint8_t rom_size_code, uint8_t ram_size_code) {
+    // Detectar tipo de MBC según el header
+    if (cart_type == 0x00 || cart_type == 0x08 || cart_type == 0x09) {
+        mbc_type_ = MBCType::ROM_ONLY;
+    } else if (cart_type >= 0x01 && cart_type <= 0x03) {
+        mbc_type_ = MBCType::MBC1;
+    } else if (cart_type == 0x05 || cart_type == 0x06) {
+        mbc_type_ = MBCType::MBC2;
+    } else if (cart_type >= 0x0F && cart_type <= 0x13) {
+        mbc_type_ = MBCType::MBC3;
+    } else if (cart_type >= 0x19 && cart_type <= 0x1E) {
+        mbc_type_ = MBCType::MBC5;
+    } else {
+        mbc_type_ = MBCType::ROM_ONLY;
+    }
+
+    // Calcular número de bancos de ROM disponibles
+    rom_bank_count_ = std::max<size_t>(1, (rom_data_.size() + 0x3FFF) / 0x4000);
+
+    // Reset de estado MBC
+    current_rom_bank_ = 1;
+    bank0_rom_ = 0;
+    bankN_rom_ = 1;
+    mbc1_bank_low5_ = 1;
+    mbc1_bank_high2_ = 0;
+    mbc1_mode_ = 0;
+    mbc3_rtc_reg_ = 0;
+    mbc3_latch_ready_ = false;
+    ram_bank_ = 0;
+    ram_enabled_ = false;
+
+    allocate_ram_from_header(ram_size_code);
+}
+
+void MMU::allocate_ram_from_header(uint8_t ram_size_code) {
+    ram_bank_size_ = 0x2000;  // 8KB por banco (estándar)
+    ram_bank_count_ = 0;
+
+    if (mbc_type_ == MBCType::MBC2) {
+        // MBC2 tiene RAM interna de 512 x 4 bits
+        ram_bank_size_ = 0x200;
+        ram_bank_count_ = 1;
+    } else {
+        switch (ram_size_code) {
+            case 0x00:  // No RAM
+                ram_bank_count_ = 0;
+                break;
+            case 0x01:  // 2KB
+                ram_bank_size_ = 0x800;
+                ram_bank_count_ = 1;
+                break;
+            case 0x02:  // 8KB
+                ram_bank_size_ = 0x2000;
+                ram_bank_count_ = 1;
+                break;
+            case 0x03:  // 32KB (4 bancos)
+                ram_bank_size_ = 0x2000;
+                ram_bank_count_ = 4;
+                break;
+            case 0x04:  // 128KB (16 bancos)
+                ram_bank_size_ = 0x2000;
+                ram_bank_count_ = 16;
+                break;
+            case 0x05:  // 64KB (8 bancos)
+                ram_bank_size_ = 0x2000;
+                ram_bank_count_ = 8;
+                break;
+            default:
+                ram_bank_count_ = 0;
+                break;
+        }
+    }
+
+    if (ram_bank_count_ == 0) {
+        ram_data_.clear();
+    } else {
+        ram_data_.assign(ram_bank_size_ * ram_bank_count_, 0);
+    }
+}
+
+uint16_t MMU::normalize_rom_bank(uint16_t bank) const {
+    if (rom_bank_count_ == 0) {
+        return bank;
+    }
+    uint16_t normalized = static_cast<uint16_t>(bank % static_cast<uint16_t>(rom_bank_count_));
+    return normalized;
+}
+
+void MMU::update_bank_mapping() {
+    switch (mbc_type_) {
+        case MBCType::MBC1: {
+            uint8_t low = mbc1_bank_low5_ & 0x1F;
+            if (low == 0) {
+                low = 1;  // Banco 0 -> 1
+            }
+            uint8_t high = mbc1_bank_high2_ & 0x03;
+
+            if (mbc1_mode_ == 0) {
+                // Mode 0: upper bits se suman al banco conmutable, banco0 fijo
+                bank0_rom_ = 0;
+                bankN_rom_ = normalize_rom_bank(static_cast<uint16_t>((high << 5) | low));
+            } else {
+                // Mode 1: upper bits seleccionan banco para 0x0000-0x3FFF y RAM bank
+                bank0_rom_ = normalize_rom_bank(static_cast<uint16_t>(high << 5));
+                bankN_rom_ = normalize_rom_bank(static_cast<uint16_t>(low));
+            }
+            break;
+        }
+
+        case MBCType::MBC3: {
+            uint16_t bank = current_rom_bank_;
+            if (bank == 0) bank = 1;
+            bank0_rom_ = 0;
+            bankN_rom_ = normalize_rom_bank(bank);
+            break;
+        }
+
+        case MBCType::MBC5: {
+            bank0_rom_ = 0;
+            bankN_rom_ = normalize_rom_bank(current_rom_bank_);
+            break;
+        }
+
+        case MBCType::MBC2:
+        case MBCType::ROM_ONLY:
+        default:
+            bank0_rom_ = 0;
+            bankN_rom_ = 1;
+            break;
+    }
+}
+
+uint16_t MMU::get_current_rom_bank() const {
+    // Retornar el banco mapeado en 0x4000-0x7FFF (bankN_rom_)
+    return bankN_rom_;
 }
 

@@ -169,6 +169,11 @@ void PPU::step(int cpu_cycles) {
             // INDEPENDIENTEMENTE del estado de IME (Interrupt Master Enable).
             // Usamos request_interrupt() para mantener consistencia con otras interrupciones.
             mmu_->request_interrupt(0);  // Bit 0 = V-Blank Interrupt
+            static int vblank_log = 0;
+            if (vblank_log < 10) {
+                printf("[PPU] VBlank IRQ at LY=%u\n", ly_);
+                vblank_log++;
+            }
             
             // CRÍTICO: Marcar frame como listo para renderizar
             frame_ready_ = true;

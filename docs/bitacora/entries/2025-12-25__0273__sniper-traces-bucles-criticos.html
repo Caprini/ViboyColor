@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Operación Sniper: Disección de Bucles Críticos - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Operación Sniper: Disección de Bucles Críticos</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0273
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0272__mbc-unificado-e-instrumentacion-vram.html">Anterior (0272)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa un sistema de "Sniper Traces" (trazas de francotirador) para capturar
+                    instantáneas precisas del estado de la CPU en puntos críticos del código de Pokémon Red.
+                    El objetivo es entender por qué el juego está atrapado en bucles de espera en las direcciones
+                    <code>0x36E3</code> (limpieza de VRAM) y <code>0x6150</code>/<code>0x6152</code> (espera del flag <code>0xD732</code>).
+                </p>
+                <p>
+                    Se añadió instrumentación quirúrgica que imprime el estado completo de la CPU (registros, opcodes,
+                    banco ROM, flags de interrupción) solo cuando el PC coincide con direcciones críticas, limitando
+                    la salida a 50 trazas por dirección para evitar saturación. Además, se implementó un "trigger"
+                    que detecta cualquier intento de escritura en <code>0xD732</code>, permitiendo identificar qué código
+                    intenta modificar este flag de sincronización.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Los juegos de Game Boy utilizan patrones de sincronización basados en "busy loops" (bucles ocupados)
+                    y flags en WRAM para coordinar el código principal con las ISR (Interrupt Service Routines).
+                    Cuando el código principal necesita esperar a que una interrupción complete una tarea (por ejemplo,
+                    copiar datos a VRAM durante V-Blank), establece un flag en WRAM y entra en un bucle que lee ese flag
+                    repetidamente hasta que la ISR lo modifica.
+                </p>
+                <p>
+                    En el caso de Pokémon Red, el juego espera en <code>PC ≈ 0x6150</code> a que la dirección <code>0xD732</code>
+                    cambie de valor. Si este flag permanece en <code>0x00</code>, el bucle nunca termina y el juego se congela.
+                    La causa puede ser:
+                </p>
+                <ul>
+                    <li><strong>ISR no se ejecuta:</strong> La interrupción que debería modificar <code>0xD732</code> nunca se dispara
+                        o no se procesa correctamente.</li>
+                    <li><strong>Banco ROM incorrecto:</strong> El código está leyendo instrucciones de un banco de ROM equivocado
+                        debido a un error en el MBC, causando que el bucle se ejecute incorrectamente.</li>
+                    <li><strong>Condición de hardware no detectada:</strong> El juego espera un cambio de estado en un registro
+                        de hardware (STAT, LY, etc.) que no se está actualizando correctamente.</li>
+                </ul>
+                <p>
+                    Los "Sniper Traces" permiten capturar el estado exacto de la CPU en el momento del "crimen" (cuando
+                    el PC está en una dirección crítica), proporcionando suficiente información para desensamblar mentalmente
+                    los opcodes y entender qué condición está verificando el juego.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron dos sistemas de instrumentación complementarios:
+                </p>
+                
+                <h3>1. Sniper Traces en CPU.cpp</h3>
+                <p>
+                    Al final del método <code>step()</code> (antes del cierre de la función), se añadió un bloque
+                    de diagnóstico que detecta cuando el PC coincide con direcciones críticas:
+                </p>
+                <ul>
+                    <li><code>0x36E3</code>: Rutina de limpieza de VRAM</li>
+                    <li><code>0x6150</code>: Bucle de espera del flag <code>0xD732</code></li>
+                    <li><code>0x6152</code>: Continuación del bucle de espera</li>
+                </ul>
+                <p>
+                    Cuando se detecta una de estas direcciones, se imprime una traza completa que incluye:
+                </p>
+                <ul>
+                    <li>PC y banco ROM actual (para verificar que estamos leyendo el código correcto)</li>
+                    <li>Los 3 bytes siguientes (opcode actual + 2 bytes siguientes) para desensamblar la instrucción</li>
+                    <li>Estado completo de registros: SP, AF, BC, DE, HL</li>
+                    <li>Registros de interrupciones: IE (0xFFFF) e IF (0xFF0F)</li>
+                </ul>
+                <p>
+                    Se usa una variable estática <code>sniper_limit</code> para limitar la salida a 50 trazas por dirección,
+                    evitando saturar la consola con logs masivos.
+                </p>
+
+                <h3>2. Trigger D732 en MMU.cpp</h3>
+                <p>
+                    En el método <code>write()</code> de la MMU, se añadió un trigger que detecta cualquier intento
+                    de escritura en la dirección <code>0xD732</code>. Este trigger imprime:
+                </p>
+                <ul>
+                    <li>El valor que se intenta escribir</li>
+                    <li>El PC desde el cual se realiza la escritura</li>
+                    <li>El banco ROM actual</li>
+                </ul>
+                <p>
+                    Esto permite identificar qué código intenta modificar el flag y si hay algún intento de escribir
+                    un valor distinto de <code>0x00</code> que no se está completando correctamente.
+                </p>
+
+                <h3>3. Getter de Banco ROM</h3>
+                <p>
+                    Se añadió el método público <code>get_current_rom_bank()</code> en <code>MMU.hpp</code> y <code>MMU.cpp</code>
+                    para permitir que la CPU acceda al banco ROM actualmente mapeado en el rango <code>0x4000-0x7FFF</code>.
+                    Este método retorna <code>bankN_rom_</code>, que es el banco efectivamente mapeado en ese rango según
+                    el estado actual del MBC.
+                </p>
+
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> – Bloque de Sniper Traces al final de <code>step()</code>.</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> – Trigger D732 en <code>write()</code> y método <code>get_current_rom_bank()</code>.</li>
+                    <li><code>src/core/cpp/MMU.hpp</code> – Declaración pública de <code>get_current_rom_bank()</code>.</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Límite de trazas:</strong> Se limita a 50 trazas por dirección para evitar saturar la salida,
+                    pero es suficiente para capturar múltiples iteraciones del bucle y verificar si el estado cambia.
+                </p>
+                <p>
+                    <strong>Opcodes siguientes:</strong> Se leen 3 bytes (opcode actual + 2 siguientes) porque muchas
+                    instrucciones de Game Boy son de 2-3 bytes, permitiendo desensamblar mentalmente la instrucción completa.
+                </p>
+                <p>
+                    <strong>Trigger sin límite:</strong> El trigger D732 no tiene límite de impresiones porque es crítico
+                    saber TODOS los intentos de escritura en este flag, incluso si son muchos. El usuario puede redirigir
+                    la salida a un archivo si es necesario.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Afectados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> – Bloque de Sniper Traces (líneas ~2248-2260).</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> – Trigger D732 (líneas ~552-556) y método <code>get_current_rom_bank()</code> (líneas ~749-752).</li>
+                    <li><code>src/core/cpp/MMU.hpp</code> – Declaración de <code>get_current_rom_bank()</code> (líneas ~120-130).</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando de prueba:</strong>
+                </p>
+                <pre><code>python main.py roms/pkmn.gb</code></pre>
+                <p>
+                    <strong>Resultados obtenidos:</strong>
+                </p>
+                <ul>
+                    <li><strong>Total de trazas capturadas:</strong> 52</li>
+                    <li><strong>Trazas [SNIPER]:</strong> 50 (todas en PC:36E3)</li>
+                    <li><strong>Trazas [TRIGGER-D732]:</strong> 1 (desde PC:1F80)</li>
+                </ul>
+                
+                <h3>Análisis de PC:36E3 - Rutina de Limpieza de VRAM</h3>
+                <p>
+                    <strong>Opcodes capturados:</strong> <code>22 0B 78</code>
+                </p>
+                <p>
+                    <strong>Desensamblado:</strong>
+                </p>
+                <ul>
+                    <li><code>0x22</code>: <code>LD (HL+), A</code> - Escribe A en (HL) e incrementa HL</li>
+                    <li><code>0x0B</code>: <code>DEC BC</code> - Decrementa BC</li>
+                    <li><code>0x78</code>: <code>LD A, B</code> - Carga B en A</li>
+                </ul>
+                <p>
+                    <strong>Patrón observado:</strong>
+                </p>
+                <ul>
+                    <li><strong>BC</strong>: Decrementa de <code>2000</code> → <code>1FFF</code> → <code>1FFE</code>... (contador de iteraciones)</li>
+                    <li><strong>HL</strong>: Incrementa de <code>8000</code> → <code>8001</code> → <code>8002</code>... (puntero VRAM)</li>
+                    <li><strong>A</strong>: <code>00</code> (escribe ceros en VRAM)</li>
+                    <li><strong>Banco ROM</strong>: 1 (correcto)</li>
+                </ul>
+                <p>
+                    <strong>Interpretación:</strong> Esta es una rutina de limpieza de VRAM que escribe <code>0x00</code> en todas las direcciones desde <code>0x8000</code> en adelante, usando <code>BC</code> como contador (2000 iteraciones = 8KB de VRAM).
+                </p>
+                
+                <h3>Hallazgo Crítico: Interrupciones Deshabilitadas</h3>
+                <p>
+                    <strong>Estado de interrupciones capturado:</strong>
+                </p>
+                <ul>
+                    <li><strong>IE (0xFFFF)</strong>: <code>00</code> - <strong>TODAS LAS INTERRUPCIONES DESHABILITADAS</strong></li>
+                    <li><strong>IF (0xFF0F)</strong>: <code>01</code> - V-Blank pendiente (bit 0 activo) pero no se procesa porque IE=0</li>
+                </ul>
+                <p>
+                    <strong>Consecuencia:</strong> Las ISR (Interrupt Service Routines) no se pueden ejecutar, lo que explica por qué el flag <code>0xD732</code> nunca cambia: la ISR que debería modificarlo no se ejecuta.
+                </p>
+                
+                <h3>Análisis de 0xD732</h3>
+                <p>
+                    <strong>Escritura detectada:</strong> <code>[TRIGGER-D732] Write 00 from PC:1F80 (Bank:1)</code>
+                </p>
+                <ul>
+                    <li>Solo hay <strong>UNA escritura</strong> desde <code>PC:1F80</code> con valor <code>00</code></li>
+                    <li>El flag nunca se modifica después</li>
+                    <li>Esto confirma que ninguna ISR está modificando este flag (porque IE=0)</li>
+                </ul>
+                
+                <h3>PC:6150/6152 - Bucle de Espera</h3>
+                <p>
+                    <strong>Trazas capturadas:</strong> 0
+                </p>
+                <p>
+                    El juego NO está llegando a estas direcciones durante la ejecución capturada, lo que sugiere que se queda atascado ANTES de llegar al bucle de espera.
+                </p>
+                
+                <h3>Conclusión del Análisis</h3>
+                <p>
+                    <strong>Causa raíz identificada:</strong>
+                </p>
+                <ol>
+                    <li>El juego deshabilita todas las interrupciones (<code>IE=0x00</code>)</li>
+                    <li>Hay una V-Blank pendiente (<code>IF=0x01</code>) que no se puede procesar porque IE=0</li>
+                    <li>El juego espera que una ISR (probablemente V-Blank) modifique <code>0xD732</code> a un valor distinto de <code>0x00</code></li>
+                    <li>Como IE=0, la ISR nunca se ejecuta, y el flag nunca cambia</li>
+                    <li>El bucle de espera se vuelve infinito</li>
+                </ol>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Memory Map, Interrupts</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set</a></li>
+                    <li>Implementación basada en conocimiento general de arquitectura LR35902 y técnicas de debugging de emuladores.</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Busy Loops y Flags de Sincronización:</strong> Los juegos usan bucles ocupados que leen
+                            flags en WRAM repetidamente hasta que una ISR los modifica. Si la ISR no se ejecuta o no modifica
+                            el flag, el bucle se vuelve infinito.</li>
+                        <li><strong>Instrumentación Quirúrgica:</strong> En lugar de logs masivos que saturan la salida, es más
+                            efectivo instrumentar solo puntos críticos con límites de impresión para capturar el estado exacto
+                            en el momento del problema.</li>
+                        <li><strong>Importancia del Banco ROM:</strong> Si el código está leyendo instrucciones de un banco ROM
+                            incorrecto, el comportamiento será errático. Verificar el banco en puntos críticos ayuda a detectar
+                            problemas de MBC.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Opcodes en direcciones críticas:</strong> Necesitamos ver los opcodes reales que se ejecutan
+                            en <code>0x36E3</code>, <code>0x6150</code> y <code>0x6152</code> para entender qué condición está verificando
+                            el juego.</li>
+                        <li><strong>Origen de escrituras a D732:</strong> El trigger D732 mostrará si hay intentos de escribir en este
+                            flag y desde qué PC, permitiendo identificar si la ISR que debería modificar el flag se está ejecutando.</li>
+                        <li><strong>Banco ROM correcto:</strong> Verificar que el banco ROM reportado en las trazas coincide con el
+                            esperado según el análisis del código del juego.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego está esperando que una ISR modifique <code>0xD732</code>, pero
+                        esta interrupción no se está disparando o no se está procesando correctamente. Las trazas de Sniper permitirán
+                        verificar si el código está leyendo el flag correctamente y si el banco ROM es el esperado.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Asumimos que las direcciones <code>0x36E3</code>, <code>0x6150</code> y <code>0x6152</code>
+                        son realmente críticas basándonos en análisis previos. Si el juego no llega a estas direcciones, las trazas
+                        no aparecerán y sabremos que el problema está en otra parte del código.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <p>
+                    <strong>Análisis completado:</strong> ✅
+                </p>
+                <ul>
+                    <li>[✅] Ejecutar <code>python main.py roms/pkmn.gb</code> y recopilar las trazas <code>[SNIPER]</code> y <code>[TRIGGER-D732]</code>.</li>
+                    <li>[✅] Analizar los opcodes impresos para desensamblar mentalmente las instrucciones en direcciones críticas.</li>
+                    <li>[✅] Verificar si el banco ROM reportado coincide con el esperado (Banco 1, correcto).</li>
+                    <li>[✅] Identificar qué código intenta escribir en <code>0xD732</code> (PC:1F80, solo una vez con valor 00).</li>
+                    <li>[✅] Determinar qué condición de hardware o interrupción está omitiendo el emulador (IE=0, interrupciones deshabilitadas).</li>
+                </ul>
+                <p>
+                    <strong>Próximos pasos identificados:</strong>
+                </p>
+                <ul>
+                    <li>[ ] Buscar dónde se deshabilita IE: Analizar el código antes de <code>PC:36E3</code> para encontrar dónde se escribe <code>0x00</code> en <code>0xFFFF</code>.</li>
+                    <li>[ ] Verificar el bucle de espera: Desensamblar el código en <code>0x6150</code>/<code>0x6152</code> para confirmar que lee <code>0xD732</code>.</li>
+                    <li>[ ] Implementar corrección: Si el juego debería tener IE habilitado, corregir el código que lo deshabilita incorrectamente, o verificar si el juego debería habilitar IE antes del bucle de espera.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
+

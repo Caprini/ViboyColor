@@ -470,8 +470,35 @@ int CPU::step() {
     mmu_->debug_current_pc = regs_->pc;
     // -----------------------------------------
     
+    // --- Step 0273: Sniper Trace - Capturar PC original antes del fetch ---
+    // Guardamos el PC original para poder detectar direcciones críticas después
+    // de que el PC avance durante la ejecución de la instrucción
+    uint16_t original_pc = regs_->pc;
+    bool is_critical_pc = (original_pc == 0x36E3 || original_pc == 0x6150 || original_pc == 0x6152);
+    // -----------------------------------------
+    
     // Fetch: Leer opcode de memoria
     uint8_t opcode = fetch_byte();
+    
+    // --- Step 0273: Sniper Trace - Ejecutar verificación ANTES del switch ---
+    // Ejecutamos la verificación aquí para capturar el estado ANTES de ejecutar la instrucción
+    if (is_critical_pc) {
+        static int sniper_limit = 0;
+        if (sniper_limit < 50) {
+            // Leer opcodes desde el PC original (donde comenzó la instrucción)
+            uint8_t current_op = mmu_->read(original_pc);
+            uint8_t next_op1 = mmu_->read(original_pc + 1);
+            uint8_t next_op2 = mmu_->read(original_pc + 2);
+            
+            printf("[SNIPER] PC:%04X Bank:%d | OP: %02X %02X %02X | SP:%04X AF:%04X BC:%04X DE:%04X HL:%04X | IE:%02X IF:%02X\n",
+                   original_pc, mmu_->get_current_rom_bank(),
+                   current_op, next_op1, next_op2,
+                   regs_->sp, regs_->get_af(), regs_->get_bc(), regs_->get_de(), regs_->get_hl(),
+                   mmu_->read(0xFFFF), mmu_->read(0xFF0F));
+            sniper_limit++;
+        }
+    }
+    // -----------------------------------------
 
     // Decode/Execute: Switch optimizado por el compilador
     switch (opcode) {
@@ -2245,6 +2272,7 @@ int CPU::step() {
         // Opcional: exit(1) para detenerlo en el acto (comentado para permitir logging)
         // exit(1);
     }
+    
 }
 
 uint32_t CPU::get_cycles() const {
@@ -2328,11 +2356,19 @@ uint8_t CPU::handle_interrupts() {
         uint8_t new_if = if_reg & ~interrupt_bit;
         mmu_->write(ADDR_IF, new_if);
         
+        uint16_t prev_pc = regs_->pc;
+
         // Guardar PC en la pila (dirección de retorno)
-        push_word(regs_->pc);
+        push_word(prev_pc);
         
         // Saltar al vector de interrupción
         regs_->pc = vector;
+
+        static int irq_service_log = 0;
+        if (irq_service_log < 20) {
+            printf("[IRQ] Service bit=%u IF:%02X IE:%02X prevPC:%04X -> vector:%04X\n", interrupt_bit, if_reg, ie_reg, prev_pc, vector);
+            irq_service_log++;
+        }
         
         // Retornar 5 M-Cycles consumidos por el procesamiento de interrupción
         return 5;

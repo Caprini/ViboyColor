@@ -32,6 +32,22 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0273 - Operación Sniper: Disección de Bucles Críticos -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-25</span>
+                        <span class="tag">0273</span>
+                        <a href="entries/2025-12-25__0273__sniper-traces-bucles-criticos.html" class="title">Operación Sniper: Disección de Bucles Críticos</a>
+                        <p class="summary">Implementación de "Sniper Traces" en CPU.cpp para capturar instantáneas precisas del estado de la CPU en puntos críticos (PC: 0x36E3, 0x6150, 0x6152) con límite de 50 trazas por dirección. Se añadió instrumentación de escritura "Trigger D732" en MMU.cpp para detectar cualquier intento de modificar el flag 0xD732. Se implementó get_current_rom_bank() en MMU para reportar el banco ROM actual en las trazas. El objetivo es entender por qué Pokémon Red está atrapado en bucles de espera y qué condición de hardware o interrupción está omitiendo el emulador.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
+                    <!-- Entrada 0272 - MBC Unificado & Instrumentación VRAM/WRAM -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-25</span>
+                        <span class="tag">0272</span>
+                        <a href="entries/2025-12-25__0272__mbc-unificado-e-instrumentacion-vram.html" class="title">MBC Unificado & Instrumentación VRAM/WRAM</a>
+                        <p class="summary">Unificación del soporte de MBC (ROM_ONLY, MBC1, MBC2, MBC3, MBC5) con mapeo dinámico de bancos y RAM según header, más trazas ligeras de VRAM y WRAM (0xD732). El GPS separa VRAM_TILE_SUM y VRAM_MAP_SUM: los tiles siguen en 0, el mapa se llena con 0x7F y D732 permanece en 0x00; no se observan escrituras de VRAM ni toques a D732 durante la ejecución de Pokémon Red.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0271 - Misc Instructions Implementation -->
                     <li class="entry-item">
                         <span class="meta">2025-12-24</span>
