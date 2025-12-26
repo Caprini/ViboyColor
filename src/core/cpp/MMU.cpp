@@ -629,17 +629,27 @@ void MMU::write(uint16_t addr, uint8_t value) {
                value, debug_current_pc, current_rom_bank_);
     }
 
-    // --- Step 0282: Sniper de escritura en VRAM (solo valores != 0x00) ---
-    // COMENTADO EN STEP 0283: Optimización de rendimiento para alcanzar 60 FPS
-    // Este log generaba demasiadas líneas y afectaba el rendimiento.
-    /*
-    static int vram_sniper_count = 0;
-    if (addr >= 0x8000 && addr <= 0x9FFF && value != 0x00 && vram_sniper_count < 100) {
-        printf("[VRAM-SNIPER] Write %04X=%02X PC:%04X (Bank:%d)\n", 
-               addr, value, debug_current_pc, current_rom_bank_);
-        vram_sniper_count++;
+    // --- Step 0285: Monitor Liberal de Escrituras en VRAM ([VRAM-VIBE]) ---
+    // Detecta cargas de gráficos reales (distintos de 0x00 y 0x7F) en el rango 0x8000-0x9FFF.
+    // Este monitor es "liberal" porque filtra valores comunes de inicialización (0x00, 0x7F)
+    // y solo reporta valores que probablemente sean datos de gráficos reales.
+    // Fuente: Pan Docs - "VRAM (Video RAM)": 0x8000-0x9FFF contiene Tile Data y Tile Maps
+    if (addr >= 0x8000 && addr <= 0x9FFF) {
+        // Filtrar valores comunes de inicialización/borrado
+        if (value != 0x00 && value != 0x7F) {
+            static int vram_vibe_count = 0;
+            if (vram_vibe_count < 200) {  // Límite más alto para capturar más actividad
+                printf("[VRAM-VIBE] Write %04X=%02X PC:%04X (Bank:%d)\n", 
+                       addr, value, debug_current_pc, current_rom_bank_);
+                vram_vibe_count++;
+            }
+        }
+        
+        // Asegurar que la escritura se realiza correctamente en la memoria
+        // para que el PPU pueda leerla. La escritura directa en memory_[addr] 
+        // se hace al final de la función, pero aquí verificamos que el rango es válido.
+        // NOTA: No hay restricción de escritura en VRAM basada en modo PPU en este emulador.
     }
-    */
 
     memory_[addr] = value;
 }

@@ -460,6 +460,34 @@ int CPU::step() {
         printf("[VBLANK-TRACE] Vector 0x0040: JP 0x%04X detectado. Iniciando rastreo del handler...\n", jump_target);
     }
     
+    // --- Step 0285: Sniper de Ejecución del Handler (MOVIDO AL INICIO) ---
+    // Este monitor se ejecuta ANTES de cualquier early return para asegurar
+    // que capturamos todas las ejecuciones del handler, incluso cuando hay interrupciones
+    // que causan retornos anticipados. Usa original_pc para leer el opcode.
+    static bool in_vblank_handler = false;
+    static int handler_step_count = 0;
+    
+    // Activar flag al entrar en el vector
+    if (original_pc == 0x0040) {
+        in_vblank_handler = true;
+        handler_step_count = 0;
+    }
+    
+    // Rastrear instrucciones dentro del handler
+    if (in_vblank_handler && handler_step_count < 100) {
+        uint8_t op = mmu_->read(original_pc);
+        printf("[HANDLER-EXEC] PC:0x%04X OP:0x%02X | A:0x%02X HL:0x%04X | IME:%d\n",
+               original_pc, op, regs_->a, regs_->get_hl(), ime_ ? 1 : 0);
+        handler_step_count++;
+        
+        // El handler termina con RETI (0xD9) o si alcanzamos el límite
+        if (op == 0xD9) {
+            printf("[HANDLER-EXIT] RETI detectado en PC:0x%04X. Fin del rastreo del handler.\n", original_pc);
+            in_vblank_handler = false;
+        }
+    }
+    // -----------------------------------------
+    
     // --- Step 0280: Sniper de Polling con Estado de IE ---
     // Monitoreamos el bucle de polling (PC: 0x614D-0x6153) para ver si alguien
     // está escribiendo en IE (0xFFFF) durante la espera, o si IE cambia mágicamente
@@ -2441,32 +2469,6 @@ int CPU::step() {
         // Opcional: exit(1) para detenerlo en el acto (comentado para permitir logging)
         // exit(1);
     }
-    
-    // --- Step 0281: Sniper de Ejecución del Handler ---
-    // (Este monitor se mantiene aquí porque necesita el opcode después del fetch)
-    static bool in_vblank_handler = false;
-    static int handler_step_count = 0;
-    
-    // Activar flag al entrar en el vector
-    if (original_pc == 0x0040) {
-        in_vblank_handler = true;
-        handler_step_count = 0;
-    }
-    
-    // Rastrear instrucciones dentro del handler
-    if (in_vblank_handler && handler_step_count < 100) {
-        uint8_t op = mmu_->read(original_pc);
-        printf("[HANDLER-EXEC] PC:0x%04X OP:0x%02X | A:0x%02X HL:0x%04X | IME:%d\n",
-               original_pc, op, regs_->a, regs_->get_hl(), ime_ ? 1 : 0);
-        handler_step_count++;
-        
-        // El handler termina con RETI (0xD9) o si alcanzamos el límite
-        if (op == 0xD9) {
-            printf("[HANDLER-EXIT] RETI detectado en PC:0x%04X. Fin del rastreo del handler.\n", original_pc);
-            in_vblank_handler = false;
-        }
-    }
-    // -----------------------------------------
     
 }
 

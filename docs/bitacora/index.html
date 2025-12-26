@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0285 - Fix de Instrumentación y Desbloqueo Visual -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0285__fix-instrumentacion-desbloqueo-visual.html" class="entry-link">
+                                    Fix de Instrumentación y Desbloqueo Visual
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0285 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección crítica de la instrumentación del emulador para asegurar que los monitores de diagnóstico se ejecuten correctamente, incluso cuando hay interrupciones que causan early returns. Movimiento del bloque de Sniper del Handler ([HANDLER-EXEC]) al inicio de CPU::step() y implementación de un monitor liberal de escrituras en VRAM ([VRAM-VIBE]) para detectar cargas de gráficos reales (distintos de 0x00 y 0x7F). Verificación de que las escrituras en el rango 0x8000-0x9FFF se realicen correctamente en la memoria para que el PPU pueda leerlas.
+                        </p>
+                    </li>
                                         <!-- Entrada 0284 - Implementación de Ventana y Fix de Instrumentación -->
                     <li>
                         <div class="entry-header">

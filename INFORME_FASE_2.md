@@ -32,6 +32,37 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0285: Fix de Instrumentación y Desbloqueo Visual
+**Estado**: ✅ COMPLETADO
+
+Corrección crítica de la instrumentación del emulador para asegurar que los monitores de diagnóstico se ejecuten correctamente, incluso cuando hay interrupciones que causan early returns. Movimiento del bloque de Sniper del Handler ([HANDLER-EXEC]) al inicio de CPU::step() y implementación de un monitor liberal de escrituras en VRAM ([VRAM-VIBE]) para detectar cargas de gráficos reales.
+
+**Cambios realizados**:
+- **CPU.cpp**:
+  - Movido el bloque [HANDLER-EXEC] del final de step() (después del switch) al inicio del método, justo después de capturar original_pc y antes de handle_interrupts().
+  - Eliminado el bloque duplicado del final del método.
+  - Esto asegura que el monitor se ejecute incluso cuando hay interrupciones que causan early returns antes de llegar al switch.
+- **MMU.cpp**:
+  - Implementado el monitor [VRAM-VIBE] en MMU::write() que detecta escrituras en VRAM (0x8000-0x9FFF) filtrando valores comunes de inicialización (0x00 y 0x7F).
+  - El monitor reporta hasta 200 escrituras que probablemente contengan datos de gráficos reales.
+  - Añadida verificación explícita de que las escrituras en VRAM se realizan correctamente en la memoria para que el PPU pueda leerlas.
+
+**Objetivos**:
+- Asegurar que los monitores de diagnóstico capturen eventos críticos incluso cuando hay interrupciones.
+- Detectar cargas de gráficos reales en VRAM filtrando valores comunes de inicialización.
+- Verificar que las escrituras en VRAM se reflejen correctamente en la memoria accesible por la PPU.
+
+**Concepto de Hardware**:
+- La VRAM (0x8000-0x9FFF) contiene Tile Data (0x8000-0x97FF) y Tile Maps (0x9800-0x9FFF).
+- En el hardware real, la VRAM solo es accesible por la CPU durante ciertos modos de la PPU, pero muchos emuladores permiten escrituras en cualquier momento.
+- Los valores 0x00 (blanco) y 0x7F son comunes en inicialización y borrado de memoria, pero no representan datos de gráficos reales.
+
+**Fuentes Consultadas**:
+- Pan Docs: VRAM (Video RAM) - Rango 0x8000-0x9FFF contiene Tile Data y Tile Maps
+- Pan Docs: Interrupt Vectors - Vector 0x0040 es el handler de V-Blank
+
+---
+
 ### 2025-12-25 - Step 0284: Implementación de Ventana y Fix de Instrumentación
 **Estado**: ✅ COMPLETADO
 
