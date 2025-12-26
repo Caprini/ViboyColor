@@ -433,13 +433,29 @@ int CPU::step() {
     
     // Trigger de salida del bucle (cuando el PC sale del rango 614A-6155)
     static uint16_t last_pc_in_loop = 0;
+    static bool post_delay_trace_active = false;  // Step 0278: Flag para activar trail post-retardo
+    static int post_delay_count = 0;  // Step 0278: Contador de instrucciones rastreadas
+    
     if (last_pc_in_loop >= 0x614A && last_pc_in_loop <= 0x6155 && 
         !(regs_->pc >= 0x614A && regs_->pc <= 0x6155)) {
         printf("[SNIPER-EXIT] ¡LIBERTAD! El bucle de retardo ha terminado en PC:0x%04X. DE:0x%04X\n", 
                regs_->pc, regs_->get_de());
+        // Step 0278: Activar trail post-retardo cuando se detecta la salida del bucle
+        post_delay_trace_active = true;
+        post_delay_count = 0;
+        printf("[SNIPER-AWAKE] ¡Saliendo del bucle de retardo! Iniciando rastreo de flujo...\n");
     }
     if (regs_->pc >= 0x614A && regs_->pc <= 0x6155) {
         last_pc_in_loop = regs_->pc;
+    }
+    
+    // Step 0278: Trail de ejecución post-retardo (ejecutar incluso si hay interrupciones)
+    if (post_delay_trace_active && post_delay_count < 200) {
+        uint8_t current_op = mmu_->read(regs_->pc);  // Leer opcode del PC actual (antes del fetch)
+        printf("[POST-DELAY] PC:%04X OP:%02X | A:%02X HL:%04X | IE:%02X IME:%d\n",
+               regs_->pc, current_op, regs_->a, regs_->get_hl(),
+               mmu_->read(0xFFFF), ime_ ? 1 : 0);
+        post_delay_count++;
     }
     // -----------------------------------------
     
@@ -2025,8 +2041,13 @@ int CPU::step() {
             // Esto permite que la instrucción siguiente a EI se ejecute sin interrupciones
             // Fuente: Pan Docs - EI: 1 M-Cycle
             {
-                // --- Step 0274: Monitor de Instrucciones EI ---
-                printf("[CPU] EI (Enable Interrupts) en PC:0x%04X\n", (regs_->pc - 1) & 0xFFFF);
+                // --- Step 0280: Rastreo Ultra-Preciso de EI e IME ---
+                // Capturamos el estado exacto de IE e IME cuando se intenta habilitar
+                // Esto nos permite identificar si el problema es que IE está en 0x00
+                // cuando se ejecuta EI, o si IME no se activa correctamente
+                uint8_t ie_val = mmu_->read(0xFFFF);
+                printf("[CPU-EI] Instrucción EI en PC:0x%04X | IE Actual:0x%02X | IME previo:%d | IME programado:%d\n",
+                       original_pc, ie_val, ime_ ? 1 : 0, ime_scheduled_ ? 1 : 0);
                 ime_scheduled_ = true;  // Activar IME después de la siguiente instrucción
                 cycles_ += 1;  // EI consume 1 M-Cycle
                 return 1;
@@ -2375,24 +2396,42 @@ int CPU::step() {
         // exit(1);
     }
     
-    // --- Step 0278: Trail de Ejecución Post-Retardo (0x6155) ---
-    // Queremos ver las siguientes 200 instrucciones después de que el bucle de retardo finaliza
-    // El código original usa original_pc que se capturó al inicio de step() (antes del fetch)
-    static bool post_delay_trace = false;
-    static int post_delay_count = 0;
-    
-    if (original_pc == 0x6155 && !post_delay_trace) {
-        printf("[SNIPER-AWAKE] ¡Saliendo del bucle de retardo! Iniciando rastreo de flujo...\n");
-        post_delay_trace = true;
-        post_delay_count = 0;
+    // --- Step 0279: Monitor de Reinicio (Reset Loop Detection) ---
+    // Detecta cuando el PC pasa por los vectores de reinicio (0x0000 o 0x0100)
+    // Esto indica que el juego está en un bucle de reinicio, posiblemente debido a:
+    // - Pila corrupta
+    // - Banco ROM mal mapeado (MBC1 en modo incorrecto)
+    // - Error fatal que causa un RST 00 o salto a 0x0000
+    // Fuente: Pan Docs - "Reset Vectors": 0x0000 (Boot ROM) y 0x0100 (Cartridge Entry)
+    if (original_pc == 0x0000 || original_pc == 0x0100) {
+        static uint32_t reset_count = 0;
+        printf("[RESET-WATCH] Pasando por PC:0x%04X (Contador: %u) | SP:0x%04X Bank:%d | IME:%d IE:%02X IF:%02X\n",
+               original_pc, ++reset_count, regs_->sp, mmu_->get_current_rom_bank(),
+               ime_ ? 1 : 0, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
     }
     
-    if (post_delay_trace && post_delay_count < 200) {
-        uint8_t current_op = mmu_->read(original_pc);
-        printf("[POST-DELAY] PC:%04X OP:%02X | A:%02X HL:%04X | IE:%02X IME:%d\n",
-               original_pc, current_op, regs_->a, regs_->get_hl(),
-               mmu_->read(0xFFFF), ime_ ? 1 : 0);
-        post_delay_count++;
+    // --- Step 0279: Seguimiento del Handler de V-Blank ---
+    // Detecta cuando el código entra al handler de V-Blank (0x0040)
+    // Esto nos permite verificar si el handler se ejecuta correctamente y qué hace
+    // Fuente: Pan Docs - "Interrupt Vectors": 0x0040 es el vector de V-Blank
+    if (original_pc == 0x0040) {
+        printf("[VBLANK-ENTRY] Vector 0x0040 alcanzado. SP:0x%04X | HL:0x%04X | A:0x%02X | Bank:%d\n",
+               regs_->sp, regs_->get_hl(), regs_->a, mmu_->get_current_rom_bank());
+    }
+    // -----------------------------------------
+    
+    // --- Step 0280: Sniper de Polling con Estado de IE ---
+    // Monitoreamos el bucle de polling (PC: 0x614D-0x6153) para ver si alguien
+    // está escribiendo en IE (0xFFFF) durante la espera, o si IE cambia mágicamente
+    // Esto nos ayudará a entender por qué IE se queda en 0x00 cuando debería estar habilitado
+    // Fuente: Análisis del Step 0279 - El juego está atascado esperando que 0xD732 cambie
+    if (original_pc >= 0x614D && original_pc <= 0x6153) {
+        static int polling_watch_count = 0;
+        if (polling_watch_count < 20) {
+            printf("[POLLING-WATCH] PC:%04X | IE:0x%02X | IF:0x%02X | IME:%d | D732:0x%02X\n",
+                   original_pc, mmu_->read(0xFFFF), mmu_->read(0xFF0F), ime_ ? 1 : 0, mmu_->read(0xD732));
+            polling_watch_count++;
+        }
     }
     // -----------------------------------------
     

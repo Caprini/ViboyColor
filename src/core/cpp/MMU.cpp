@@ -456,7 +456,20 @@ void MMU::write(uint16_t addr, uint8_t value) {
                     mbc1_bank_high2_ = value & 0x03;
                     update_bank_mapping();
                 } else {  // 0x6000-0x7FFF
-                    mbc1_mode_ = value & 0x01;
+                    // --- Step 0279: Monitor de Cambio de Modo MBC1 ---
+                    // El MBC1 tiene dos modos:
+                    // - Modo 0: Banco 0 siempre mapeado en 0x0000-0x3FFF (ROM banking)
+                    // - Modo 1: Banco 0 puede ser reemplazado por RAM banking
+                    // Si el modo 1 se activa accidentalmente, el Banco 0 podría desaparecer
+                    // de 0x0000-0x3FFF, rompiendo los vectores de interrupción (0x0000, 0x0040, etc.)
+                    // Fuente: Pan Docs - "MBC1": Modo 0/1 controla si 0x0000-0x3FFF es ROM o RAM
+                    uint8_t new_mode = value & 0x01;
+                    if (mbc1_mode_ != new_mode) {
+                        printf("[MBC1-MODE] Cambio de modo detectado: %d -> %d en PC:0x%04X | Bank0:%d BankN:%d\n",
+                               mbc1_mode_, new_mode, debug_current_pc, bank0_rom_, bankN_rom_);
+                    }
+                    // -----------------------------------------
+                    mbc1_mode_ = new_mode;
                     update_bank_mapping();
                 }
                 return;

@@ -32,6 +32,22 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0280 - Operación "Interrupt Awakening" - Depuración de Activación de Interrupciones -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-25</span>
+                        <span class="tag">0280</span>
+                        <a href="entries/2025-12-25__0280__depuracion-activacion-interrupciones-polling-ie.html" class="title">Operación "Interrupt Awakening" - Depuración de Activación de Interrupciones</a>
+                        <p class="summary">Implementación de la Operación "Interrupt Awakening" para investigar por qué Pokémon Red está atrapado en un bucle infinito esperando que el flag 0xD732 cambie. El análisis del Step 0279 confirmó que el problema NO es un Reset Loop, sino un "coma inducido": el juego está atascado en el bucle de polling (PC: 0x614D-0x6153) esperando que una ISR de V-Blank modifique el flag, pero las interrupciones están deshabilitadas (IE=0x00). Aunque se detectó un EI en PC:0x60A6, las interrupciones no parecen estar activas durante el polling. Este Step añade instrumentación ultra-precisa para rastrear el estado de IE e IME cuando se ejecuta EI, y monitorea el bucle de polling para detectar si alguien está escribiendo en IE durante la espera.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
+                    <!-- Entrada 0279 - Investigación de Bucle de Reinicio y MBC1 -->
+                    <li class="entry-item">
+                        <span class="meta">2025-12-25</span>
+                        <span class="tag">0279</span>
+                        <a href="entries/2025-12-25__0279__investigacion-bucle-reinicio-mbc1.html" class="title">Investigación de Bucle de Reinicio y MBC1</a>
+                        <p class="summary">Implementación de instrumentación avanzada para detectar si Pokémon Red está atrapado en un Bucle de Reinicio (Reset Loop). El análisis del Step 0278 reveló que se detectaron más de 300,000 salidas del bucle de retardo en solo 12 segundos, lo que sugiere fuertemente que el juego está reiniciándose continuamente. Se añadieron tres monitores críticos: (1) detector de paso por los vectores de reinicio (0x0000 y 0x0100) para confirmar la teoría del Reset Loop, (2) seguimiento del handler de V-Blank (0x0040) para verificar si las interrupciones se procesan correctamente, y (3) monitor de cambio de modo MBC1 para detectar si el mapeo de memoria se corrompe y desplaza el Banco 0 fuera de 0x0000-0x3FFF, rompiendo los vectores de interrupción.</p>
+                        <span class="status-badge status-draft">DRAFT</span>
+                    </li>
                     <!-- Entrada 0278 - Operación Ghost in the Machine: Rastreo de Flujo Post-Retardo y Depuración de Patrones de PPU -->
                     <li class="entry-item">
                         <span class="meta">2025-12-25</span>

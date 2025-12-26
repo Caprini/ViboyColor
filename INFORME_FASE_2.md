@@ -32,6 +32,104 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0280: Operación "Interrupt Awakening" - Depuración de Activación de Interrupciones
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa la **Operación "Interrupt Awakening"** para investigar por qué Pokémon Red está atrapado en un bucle infinito esperando que el flag `0xD732` cambie. El análisis del Step 0279 confirmó que el problema **NO es un Reset Loop**, sino un **"coma inducido"**: el juego está atascado en el bucle de polling (PC: 0x614D-0x6153) esperando que una ISR de V-Blank modifique el flag, pero las interrupciones están deshabilitadas (`IE=0x00`). Aunque se detectó un `EI` en `PC:0x60A6`, las interrupciones no parecen estar activas durante el polling.
+
+**Objetivo:**
+- Implementar rastreo ultra-preciso de `EI` e `IME` para capturar el estado exacto de `IE` e `IME` cuando se intenta habilitar las interrupciones.
+- Implementar sniper de polling con estado de `IE` para monitorear el bucle de espera y detectar si alguien está escribiendo en `IE` durante la espera.
+- Verificar que la lógica de `handle_interrupts()` no modifica `IE` incorrectamente.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/CPU.cpp`**:
+   - Modificado `case 0xFB` (EI) para agregar rastreo detallado de `IE` e `IME` cuando se ejecuta `EI`.
+   - Captura: PC original, valor de IE actual, estado de IME previo, y estado de IME programado.
+   - Agregado sniper de polling al final del método `step()` que monitorea el bucle de espera (PC: 0x614D-0x6153).
+   - Captura: PC, IE, IF, IME, y valor del flag 0xD732 durante la espera.
+   - Límite de 20 logs para evitar saturar el log, pero suficiente para ver el patrón del bucle.
+
+2. **Verificación de `handle_interrupts()`**:
+   - Confirmado que `handle_interrupts()` no modifica `IE` (solo lo lee).
+   - La función solo lee `IE` para calcular interrupciones pendientes (`pending = IE & IF`), pero nunca escribe en `IE`.
+
+**Concepto de Hardware:**
+**El Retraso de un Ciclo de la Instrucción EI**: La instrucción `EI` (Enable Interrupts, opcode `0xFB`) tiene un comportamiento especial en el hardware real del Game Boy: el Interrupt Master Enable (IME) se activa **DESPUÉS de ejecutar la siguiente instrucción**, no inmediatamente. Este retraso de un ciclo es crítico porque permite que la instrucción siguiente a `EI` se ejecute sin interrupciones, lo cual es necesario para configuraciones atómicas o para evitar condiciones de carrera.
+
+1. **Flujo de activación de interrupciones**:
+   - Ejecución de `EI`: El opcode `0xFB` se ejecuta, pero `IME` no se activa inmediatamente. En su lugar, se marca una bandera interna (`ime_scheduled_`) que indica que `IME` debe activarse después de la siguiente instrucción.
+   - Ejecución de la siguiente instrucción: La instrucción que sigue a `EI` se ejecuta con `IME=false`, garantizando que no se interrumpa.
+   - Activación de `IME`: Al inicio del siguiente ciclo de instrucción, antes del fetch, se verifica si `ime_scheduled_` es `true`. Si lo es, se activa `IME` y se limpia la bandera.
+   - Procesamiento de interrupciones: Una vez que `IME` está activo, el sistema puede procesar interrupciones pendientes si `IE & IF != 0`.
+
+2. **Registros de Interrupciones**:
+   - **IE (0xFFFF) - Interrupt Enable**: Registro de habilitación de fuentes de interrupciones. Cada bit habilita una fuente específica (V-Blank, LCD STAT, Timer, Serial, Joypad).
+   - **IF (0xFF0F) - Interrupt Flag**: Registro de flags de interrupciones pendientes. Cada bit indica si una interrupción está pendiente.
+   - **IME (Interrupt Master Enable)**: Flag interno de la CPU que controla si las interrupciones pueden ser procesadas. Solo se puede activar mediante `EI` (con retraso) o desactivar mediante `DI` (inmediato).
+
+**Condición para procesar una interrupción**: `IME == true && (IE & IF) != 0`
+
+**Fuente**: Pan Docs - "EI Instruction": "Interrupts are enabled after the instruction following EI."
+
+**Próximos Pasos:**
+- Ejecutar el emulador con la nueva instrumentación y analizar los logs `[CPU-EI]` y `[POLLING-WATCH]`.
+- Verificar si `IE` está en `0x00` cuando se ejecuta `EI` en `PC:0x60A6`.
+- Verificar si `IE` cambia durante el bucle de polling.
+- Si `IE` está en `0x00`, buscar en el código del juego dónde debería habilitarse.
+- Si `IE` cambia a `0x00` durante el polling, identificar qué código está escribiendo en `IE`.
+- Implementar corrección basada en los hallazgos.
+
+---
+
+### 2025-12-25 - Step 0279: Investigación de Bucle de Reinicio y MBC1
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa instrumentación avanzada para detectar si Pokémon Red está atrapado en un **Bucle de Reinicio (Reset Loop)**. El análisis del Step 0278 reveló que se detectaron más de 300,000 salidas del bucle de retardo en solo 12 segundos, lo que sugiere fuertemente que el juego está reiniciándose continuamente. Es probable que, tras salir del retardo, el juego encuentre una condición de error (como una pila corrupta o un banco de ROM mal mapeado) y salte de nuevo a 0x0000 o ejecute un RST 00.
+
+**Objetivo:**
+- Implementar detector de paso por los vectores de reinicio (0x0000 y 0x0100) para confirmar la teoría del Reset Loop.
+- Implementar seguimiento del handler de V-Blank (0x0040) para verificar si las interrupciones se procesan correctamente.
+- Implementar monitor de cambio de modo MBC1 para detectar si el mapeo de memoria se corrompe y desplaza el Banco 0 fuera de 0x0000-0x3FFF, rompiendo los vectores de interrupción.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/CPU.cpp`**:
+   - Agregado monitor de reinicio al final del método `step()` que detecta cuando el PC pasa por los vectores de reinicio (0x0000 o 0x0100).
+   - Captura: PC original, contador de reinicios, Stack Pointer, banco ROM actual, estado de IME, y registros IE/IF.
+   - Agregado seguimiento del handler de V-Blank (0x0040) que detecta cuando el código entra al handler.
+   - Captura: Stack Pointer, registro HL, registro A, y banco ROM actual.
+
+2. **Modificado `src/core/cpp/MMU.cpp`**:
+   - Agregado monitor de cambio de modo MBC1 en el rango 0x6000-0x7FFF que detecta cuando el MBC1 cambia de modo (0 = ROM Banking, 1 = RAM Banking).
+   - Captura: modo anterior y nuevo modo, PC donde ocurre el cambio, y bancos 0 y N actuales.
+   - Permite detectar si el MBC1 se cambia accidentalmente al Modo 1, lo que podría desplazar el Banco 0 fuera de 0x0000-0x3FFF y romper los vectores de interrupción.
+
+**Concepto de Hardware:**
+**Bucles de Reinicio**: Los bucles de reinicio ocurren cuando el código del juego intenta ejecutar una instrucción o acceder a memoria que no está disponible o está corrupta, causando que el juego salte al vector de reinicio (0x0000 o 0x0100) y reinicie la ejecución desde el principio.
+
+1. **Vectores de Reinicio**: El Game Boy tiene dos vectores principales: 0x0000 (Boot ROM) y 0x0100 (Cartridge Entry). Cuando el PC alcanza estos vectores, el juego está reiniciando.
+
+2. **MBC1 y Mapeo de Memoria**: El MBC1 tiene dos modos: Modo 0 (ROM Banking, estándar) y Modo 1 (RAM Banking, raro). Si el MBC1 se cambia accidentalmente al Modo 1, el Banco 0 de ROM podría desaparecer de 0x0000-0x3FFF, rompiendo los vectores de interrupción (0x0000, 0x0040, 0x0048, 0x0050, 0x0058, 0x0060).
+
+3. **Vectores de Interrupción**: Todos los vectores de interrupción están en el Banco 0 de ROM. Si el Banco 0 no está mapeado correctamente, estos vectores apuntarán a datos incorrectos, causando que las interrupciones ejecuten código corrupto o basura, lo que puede llevar a un reinicio del sistema.
+
+**Archivos Afectados:**
+- `src/core/cpp/CPU.cpp` - Modificado método `step()` al final para agregar monitores de reinicio (0x0000/0x0100) y seguimiento de V-Blank (0x0040).
+- `src/core/cpp/MMU.cpp` - Modificado método `write()` en el rango 0x6000-0x7FFF para agregar monitor de cambio de modo MBC1.
+
+**Tests y Verificación:**
+- Validación de código: ✅ Compilación exitosa sin errores de linter.
+- Verificación de instrumentación: ✅ Los monitores se activan automáticamente durante la ejecución del emulador.
+- Validación de módulo compilado C++: ✅ Requiere recompilación con `python setup.py build_ext --inplace`.
+
+**Próximos Pasos:**
+- Ejecutar Pokémon Red con los monitores activos y analizar los logs `[RESET-WATCH]` para confirmar si hay un bucle de reinicio.
+- Verificar si hay mensajes `[MBC1-MODE]` que indiquen cambios de modo incorrectos.
+- Analizar los logs `[VBLANK-ENTRY]` para verificar si el handler de V-Blank se ejecuta correctamente.
+- Si se confirma un bucle de reinicio, identificar la causa raíz (MBC1, pila, opcode) y corregirla.
+
+---
+
 ### 2025-12-25 - Step 0278: Operación Ghost in the Machine: Rastreo de Flujo Post-Retardo y Depuración de Patrones de PPU
 **Estado**: ✅ IMPLEMENTADO
 
