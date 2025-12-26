@@ -2417,6 +2417,35 @@ int CPU::step() {
     if (original_pc == 0x0040) {
         printf("[VBLANK-ENTRY] Vector 0x0040 alcanzado. SP:0x%04X | HL:0x%04X | A:0x%02X | Bank:%d\n",
                regs_->sp, regs_->get_hl(), regs_->a, mmu_->get_current_rom_bank());
+        
+        // --- Step 0281: Rastreo del Destino del Salto en 0x0040 ---
+        // Leemos la dirección de salto (JP nn) que suele estar en el vector de interrupción
+        uint16_t jump_target = mmu_->read(0x0041) | (static_cast<uint16_t>(mmu_->read(0x0042)) << 8);
+        printf("[VBLANK-TRACE] Vector 0x0040: JP 0x%04X detectado. Iniciando rastreo del handler...\n", jump_target);
+    }
+    
+    // --- Step 0281: Sniper de Ejecución del Handler ---
+    static bool in_vblank_handler = false;
+    static int handler_step_count = 0;
+    
+    // Activar flag al entrar en el vector
+    if (original_pc == 0x0040) {
+        in_vblank_handler = true;
+        handler_step_count = 0;
+    }
+    
+    // Rastrear instrucciones dentro del handler
+    if (in_vblank_handler && handler_step_count < 100) {
+        uint8_t op = mmu_->read(original_pc);
+        printf("[HANDLER-EXEC] PC:0x%04X OP:0x%02X | A:0x%02X HL:0x%04X | IME:%d\n",
+               original_pc, op, regs_->a, regs_->get_hl(), ime_ ? 1 : 0);
+        handler_step_count++;
+        
+        // El handler termina con RETI (0xD9) o si alcanzamos el límite
+        if (op == 0xD9) {
+            printf("[HANDLER-EXIT] RETI detectado en PC:0x%04X. Fin del rastreo del handler.\n", original_pc);
+            in_vblank_handler = false;
+        }
     }
     // -----------------------------------------
     

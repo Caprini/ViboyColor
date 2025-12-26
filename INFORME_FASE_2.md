@@ -32,6 +32,30 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0281: Operación "Deep Handler Audit" - Auditoría del Handler de V-Blank
+**Estado**: ✅ IMPLEMENTADO
+
+Este Step implementa la **Operación "Deep Handler Audit"** para investigar el flujo de ejecución desde el vector de interrupción de V-Blank (0x0040). El análisis anterior confirmó que las interrupciones están habilitadas pero el juego sigue atrapado en el bucle de polling.
+
+**Objetivo:**
+- Rastrear el destino del salto (`JP nn`) en el vector 0x0040.
+- Capturar las instrucciones ejecutadas dentro del handler de V-Blank.
+- Identificar si el handler intenta modificar el flag de progreso en `0xD732`.
+
+**Implementación:**
+1. **Modificado `src/core/cpp/CPU.cpp`**:
+   - Implementado un rastreador que identifica la dirección de destino del salto (JP) en el vector 0x0040.
+   - Añadido un Sniper de ejecución para capturar las instrucciones dentro de la rutina de V-Blank hasta encontrar un `RETI` (0xD9).
+   - El sniper captura: PC original, opcode, registros A y HL, y estado de IME.
+
+**Resultados esperados:**
+- Identificación de la rutina real de V-Blank y su comportamiento.
+- Confirmación de si el juego intenta comunicarse con el bucle principal a través de `0xD732`.
+
+**Bitácora**: `docs/bitacora/entries/2025-12-25__0281__auditoria-handler-vblank.html`
+
+---
+
 ### 2025-12-25 - Step 0280: Operación "Interrupt Awakening" - Depuración de Activación de Interrupciones
 **Estado**: ✅ IMPLEMENTADO
 
