@@ -514,6 +514,19 @@ private:
     int vblank_handler_steps_;    // Contador de pasos dentro del handler
     bool post_delay_trace_active_; // Flag para activar trail post-retardo
     int post_delay_count_;        // Contador de instrucciones rastreadas post-retardo
+    
+    // ========== Estado de Diagnóstico (Step 0293) ==========
+    // Monitores de rastreo post-limpieza de VRAM
+    bool in_post_cleanup_trace_;  // Flag para activar rastreo post-limpieza
+    int post_cleanup_trace_count_; // Contador de instrucciones rastreadas
+    bool reg_trace_active_;       // Flag para activar rastreo de registros
+    uint16_t last_af_, last_bc_, last_de_, last_hl_; // Valores anteriores de registros
+    int reg_trace_count_;         // Contador de muestras de registros
+    bool jump_trace_active_;      // Flag para activar rastreo de saltos
+    int jump_trace_count_;        // Contador de saltos rastreados
+    bool hw_state_trace_active_;  // Flag para activar rastreo de estado de hardware
+    int hw_state_samples_;        // Contador de muestras de hardware
+    int hw_state_sample_counter_; // Contador interno para muestreo
 };
 
 #endif // CPU_HPP

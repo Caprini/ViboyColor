@@ -12,6 +12,7 @@ PPU::PPU(MMU* mmu)
     , stat_interrupt_line_(0)
     , scanline_rendered_(false)
     , framebuffer_(FRAMEBUFFER_SIZE, 0)  // Inicializar a índice 0 (blanco por defecto con paleta estándar)
+    , frame_counter_(0)  // Step 0291: Inicializar contador de frames
 {
     // --- Step 0201: Garantizar estado inicial limpio (RAII) ---
     // En C++, el principio de RAII (Resource Acquisition Is Initialization) dicta que
@@ -182,6 +183,8 @@ void PPU::step(int cpu_cycles) {
         // Si pasamos la última línea (153), reiniciar a 0 (nuevo frame)
         if (ly_ > 153) {
             ly_ = 0;
+            // --- Step 0291: Incrementar contador de frames ---
+            frame_counter_++;
             // Reiniciar flag de interrupción STAT al cambiar de frame
             stat_interrupt_line_ = 0;
             // --- Step 0200: Limpieza Sincrónica del Framebuffer ---
@@ -320,6 +323,10 @@ uint8_t PPU::get_mode() const {
 
 uint8_t PPU::get_lyc() const {
     return lyc_;
+}
+
+uint64_t PPU::get_frame_counter() const {
+    return frame_counter_;
 }
 
 void PPU::set_lyc(uint8_t value) {

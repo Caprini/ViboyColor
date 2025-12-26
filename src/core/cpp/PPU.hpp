@@ -145,6 +145,14 @@ public:
     uint8_t get_lyc() const;
     
     /**
+     * Step 0291: Obtiene el contador de frames actual.
+     * Se incrementa cada vez que LY vuelve a 0 (nuevo frame).
+     * 
+     * @return Número de frame actual (0-based)
+     */
+    uint64_t get_frame_counter() const;
+    
+    /**
      * Establece el valor del registro LYC (LY Compare).
      * 
      * Cuando LYC cambia, se verifica inmediatamente si LY == LYC para
@@ -223,6 +231,12 @@ private:
      * con el que se compara LY para generar interrupciones STAT.
      */
     uint8_t lyc_;
+    
+    /**
+     * Contador de frames: Se incrementa cada vez que LY vuelve a 0 (nuevo frame).
+     * Step 0291: Necesario para rastrear el timing de carga de tiles.
+     */
+    uint64_t frame_counter_;
     
     /**
      * Máscara de bits para rastrear condiciones de interrupción STAT activas.

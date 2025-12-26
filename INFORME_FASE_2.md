@@ -32,6 +32,101 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0293: Investigación de Flujo de Ejecución Post-Limpieza
+**Estado**: ✅ COMPLETADO
+
+Implementación de cinco monitores de diagnóstico para investigar por qué el juego nunca carga datos de tiles en VRAM después de limpiarla. El análisis del Step 0291 confirmó que solo se detectan escrituras de limpieza (0x00) desde PC:0x36E3 y ninguna carga de datos reales. Los nuevos monitores rastrean el flujo de ejecución después de la limpieza para identificar qué código se ejecuta (o debería ejecutarse pero no se ejecuta) y si hay condiciones que impiden la carga de tiles.
+
+**Monitores implementados**:
+- **[PC-TRACE]**: Rastrea las siguientes 500 instrucciones después de la limpieza, capturando PC, opcodes, registros y banco ROM. Detecta posibles cargas de tiles (LD (HL+), A o LD (HL-), A con HL en rango VRAM).
+- **[REG-TRACE]**: Rastrea cambios significativos en registros (AF, BC, DE, HL, SP) y flags después de la limpieza. Solo reporta cambios mayores a 0x100 para evitar saturación.
+- **[JUMP-TRACE]**: Rastrea saltos, llamadas y retornos después de la limpieza para ver si el juego salta a código que debería cargar tiles pero no lo hace. Detecta JP, JR, CALL, RET y JP HL.
+- **[BANK-CHANGE]**: Detecta cambios de banco ROM después de la limpieza para verificar si el código que carga tiles está en otro banco que no se activa.
+- **[HARDWARE-STATE]**: Rastrea el estado de registros de hardware críticos (LCDC, BGP, IE, IF, IME, LY) después de la limpieza. Muestrea cada 10 instrucciones aproximadamente.
+
+**Cambios realizados**:
+- **CPU.hpp/CPU.cpp**:
+  - Añadidos nuevos miembros de clase para mantener el estado de los monitores (siguiendo el patrón del Step 0287).
+  - Implementados monitores [PC-TRACE], [REG-TRACE], [JUMP-TRACE] y [HARDWARE-STATE] en `CPU::step()`.
+  - Los monitores se activan cuando se detecta la rutina de limpieza (PC:0x36E0-0x36F0) y rastrean el flujo después.
+- **MMU.cpp**:
+  - Mejorado el monitor [BANK-CHANGE] en `MMU::update_bank_mapping()` para activarse solo después de la limpieza (PC > 0x36F0).
+
+**Hipótesis a investigar**:
+1. **Hipótesis A**: El código que carga tiles existe pero no se ejecuta debido a condiciones no cumplidas (timing, interrupciones, registros de hardware).
+2. **Hipótesis B**: El código que carga tiles existe pero está en un banco ROM diferente que no se activa.
+3. **Hipótesis C**: El juego espera un estado de hardware específico antes de cargar tiles (ej: cierto número de frames, V-Blanks, etc.).
+4. **Hipótesis D**: Hay un bug en la emulación que impide que el código de carga se ejecute (ej: saltos incorrectos, condiciones falsas, etc.).
+
+**Próximos pasos**: Ejecutar el emulador con los nuevos monitores activos y analizar los logs generados para determinar cuál de las hipótesis es correcta y aplicar las correcciones correspondientes.
+
+---
+
+### 2025-12-25 - Step 0292: Verificación Step 0291 - Análisis de Monitores
+**Estado**: ✅ COMPLETADO
+
+Ejecución del plan de verificación del Step 0291 para analizar los monitores de diagnóstico implementados. Se ejecutó el emulador con Pokémon Red durante 15 segundos y se capturaron los logs de los cinco monitores: [VRAM-INIT], [TILE-LOAD-EXTENDED], [CLEANUP-TRACE], [BLOCK-WRITE], y el contador de frames en PPU. El análisis revela que **el juego nunca carga datos de tiles reales en VRAM**, solo se detectan escrituras de limpieza (0x00) desde la rutina en PC:0x36E3. Ninguna de las hipótesis iniciales es correcta, lo que indica que el problema es más fundamental.
+
+**Resultados del análisis**:
+- **[VRAM-INIT]**: VRAM está completamente vacía al inicio (0 bytes no-cero, checksum 0x0000) - ✅ Correcto
+- **[TILE-LOAD-EXTENDED]**: 1000 escrituras capturadas, pero **0 escrituras de datos** (100% CLEAR) - ❌ Crítico
+- **[CLEANUP-TRACE]**: Rutina de limpieza en PC:0x36E3 funciona correctamente (loop que escribe 0x00) - ✅ Correcto
+- **[BLOCK-WRITE]**: Solo 1 detección (parte de la limpieza) - ❌ No hay cargas en bloque de datos
+
+**Evaluación de hipótesis**:
+- ❌ Hipótesis 1 (Timing): Rechazada - No hay escrituras de datos durante Init:YES ni después
+- ❌ Hipótesis 2 (Borrado): Rechazada - Los tiles nunca se cargan, por lo tanto no pueden borrarse
+- ❌ Hipótesis 3 (Métodos Alternativos): Rechazada - No hay cargas en bloque de datos reales
+- ❌ Hipótesis 4 (Estado Inicial): Rechazada - VRAM está correctamente vacía, el problema es que no se cargan tiles después
+
+**Nueva hipótesis**: El problema es más fundamental. Posibles causas:
+1. El juego no llega a la rutina de carga de tiles (posible bug en emulación)
+2. El juego usa un método de carga que no estamos detectando (DMA, carga desde ROM, etc.)
+3. Problema de sincronización o timing (el juego espera condiciones específicas)
+4. El juego espera que los tiles estén en la ROM y se rendericen directamente
+
+**Archivos creados**:
+- `test_step_0291_verification.py`: Script de verificación que ejecuta el emulador con timeout
+- `debug_step_0291.log`: Log completo de ejecución (~100MB)
+- `ANALISIS_STEP_0291_VERIFICACION.md`: Documento de análisis completo
+
+**Recomendaciones**:
+1. Implementar monitor [PC-TRACE] para rastrear ejecución después de limpieza
+2. Verificar otros puntos de entrada a VRAM
+3. Analizar desensamblado del juego para entender cómo carga tiles
+4. Implementar monitor [REG-TRACE] para rastrear cambios en registros críticos
+5. Verificar comportamiento con emulador de referencia (solo para verificación)
+
+---
+
+### 2025-12-25 - Step 0291: Investigación de Carga de Tiles y Corrección
+**Estado**: ✅ COMPLETADO
+
+Implementación de un conjunto completo de monitores de diagnóstico para investigar por qué los tiles no se están cargando en VRAM. El análisis del Step 0290 confirmó que [TILE-LOAD] detecta 0 cargas de tiles, lo que significa que el juego no está escribiendo datos de tiles en VRAM. Se implementaron cinco monitores nuevos: [VRAM-INIT] para verificar el estado inicial de VRAM, [TILE-LOAD-EXTENDED] para capturar TODAS las escrituras con contexto de timing, [CLEANUP-TRACE] para rastrear la rutina de limpieza VRAM (PC:0x36E3), [BLOCK-WRITE] para detectar cargas de tiles consecutivas, y un contador de frames en PPU para rastrear el timing de las operaciones.
+
+**Cambios realizados**:
+- **PPU.hpp/PPU.cpp**:
+  - Añadido contador de frames global (`frame_counter_`) que se incrementa cada vez que LY vuelve a 0 (nuevo frame).
+  - Implementado método público `get_frame_counter()` para obtener el frame actual.
+  - El contador es necesario para rastrear el timing de carga de tiles y determinar si los tiles se cargan antes del frame 0 o durante la inicialización.
+- **MMU.hpp/MMU.cpp**:
+  - Implementada función `inspect_vram_initial_state()` que se llama desde `MMU::load_rom()` después de cargar la ROM.
+  - La función verifica el estado inicial de VRAM (0x8000-0x97FF) y reporta cuántos bytes no-cero hay, la primera dirección con datos no-cero, y el checksum del tilemap inicial (0x9800).
+  - Extendido el monitor [TILE-LOAD] a [TILE-LOAD-EXTENDED] que captura TODAS las escrituras en Tile Data (0x8000-0x97FF), incluyendo limpieza (0x00) pero marcándolas diferente.
+  - El monitor ahora rastrea el frame actual usando el contador de frames de PPU y marca si la escritura ocurre durante la inicialización (primeras 100 escrituras) o después.
+  - Implementado monitor [CLEANUP-TRACE] que rastrea la ejecución alrededor de PC:0x36E3 para entender qué hace esta rutina y si hay código después que carga tiles.
+  - Implementado monitor [BLOCK-WRITE] que detecta escrituras consecutivas en VRAM que podrían ser carga de tiles en bloque (como un loop de copia).
+
+**Hipótesis a investigar**:
+1. **Hipótesis 1: Timing** - ¿Los tiles se cargan antes del frame 0 (durante inicialización antes de que los monitores se activen)?
+2. **Hipótesis 2: Borrado** - ¿Los tiles se cargan pero luego se borran inmediatamente después?
+3. **Hipótesis 3: Métodos alternativos** - ¿El juego usa DMA o compresión para cargar tiles que no detectamos?
+4. **Hipótesis 4: Estado inicial** - ¿Debería VRAM tener datos desde el inicio (desde el constructor)?
+
+**Próximos pasos**: Ejecutar el emulador con los nuevos monitores activos y analizar los logs generados para determinar cuál de las hipótesis es correcta (o si es una combinación de ellas), y luego aplicar las correcciones correspondientes.
+
+---
+
 ### 2025-12-25 - Step 0290: Verificación de LCDC, Paleta y Carga de Tiles
 **Estado**: ✅ COMPLETADO
 

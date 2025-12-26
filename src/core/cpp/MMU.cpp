@@ -666,34 +666,75 @@ void MMU::write(uint16_t addr, uint8_t value) {
     // --- Step 0273: Trigger D732 - Instrumentación de Escritura ---
     // Queremos saber QUIÉN intenta escribir en 0xD732 aunque sea un cero,
     // o si alguien intenta escribir algo distinto de cero.
-    // --- Step 0273: Trigger D732 - Instrumentación de Escritura ---
-    // Queremos saber QUIÉN intenta escribir en 0xD732 aunque sea un cero,
-    // o si alguien intenta escribir algo distinto de cero.
     if (addr == 0xD732) {
         printf("[TRIGGER-D732] Write %02X from PC:%04X (Bank:%d)\n",
                value, debug_current_pc, current_rom_bank_);
     }
+    
+    // --- Step 0291: Rastreo de Rutina de Limpieza VRAM (PC:0x36E3) ---
+    // Rastrear la ejecución alrededor de PC:0x36E3 para entender
+    // qué hace esta rutina y si hay código después que carga tiles.
+    // El Step 0288 identificó que PC:0x36E3 está escribiendo ceros en VRAM.
+    if (debug_current_pc >= 0x36E0 && debug_current_pc <= 0x36F0) {
+        static int cleanup_trace_count = 0;
+        if (cleanup_trace_count < 200) {
+            uint8_t op = read(debug_current_pc);
+            printf("[CLEANUP-TRACE] PC:0x%04X OP:0x%02X | Bank:%d\n",
+                   debug_current_pc, op, current_rom_bank_);
+            cleanup_trace_count++;
+        }
+    }
+    
+    // --- Step 0291: Monitor de Escrituras en Bloque ([BLOCK-WRITE]) ---
+    // Detecta escrituras consecutivas en VRAM que podrían ser carga de tiles
+    // en bloque (como un loop de copia).
+    if (addr >= 0x8000 && addr <= 0x97FF) {
+        static uint16_t last_vram_addr = 0xFFFF;
+        static int consecutive_writes = 0;
+        if (addr == last_vram_addr + 1) {
+            consecutive_writes++;
+            if (consecutive_writes == 16) {  // Un tile completo
+                printf("[BLOCK-WRITE] Posible carga de tile en bloque: 0x%04X-0x%04X desde PC:0x%04X\n",
+                       addr - 15, addr, debug_current_pc);
+            }
+        } else {
+            consecutive_writes = 0;
+        }
+        last_vram_addr = addr;
+    }
 
-    // --- Step 0290: Monitor de Carga de Tiles ([TILE-LOAD]) ---
-    // Detecta escrituras en el área de Tile Data (0x8000-0x97FF) que probablemente
-    // sean carga de datos de tiles (distintos de 0x00, que es limpieza).
-    // Este monitor es crítico porque los hallazgos del Step 0289 confirmaron que
-    // los tiles referenciados por el tilemap están vacíos (solo ceros).
+    // --- Step 0291: Monitor Extendido de Carga de Tiles ([TILE-LOAD-EXTENDED]) ---
+    // Extensión del monitor [TILE-LOAD] para capturar TODAS las escrituras en Tile Data,
+    // incluyendo limpieza (0x00) pero marcándolas diferente, y rastrear el frame/scanline
+    // cuando ocurren usando un contador de frames.
     // Fuente: Pan Docs - "Tile Data": 0x8000-0x97FF contiene 384 tiles de 16 bytes cada uno
     if (addr >= 0x8000 && addr <= 0x97FF) {
-        // Filtrar valores comunes de inicialización/borrado para detectar datos reales
-        if (value != 0x00 && value != 0x7F) {
-            static int tile_load_count = 0;
-            if (tile_load_count < 500) {  // Límite alto para capturar actividad completa
-                // Calcular Tile ID aproximado basado en la dirección
-                // Cada tile ocupa 16 bytes, Tile 0 empieza en 0x8000 (unsigned) o 0x9000 (signed)
-                uint16_t tile_offset = addr - 0x8000;
-                uint8_t tile_id_approx = tile_offset / 16;
-                
-                printf("[TILE-LOAD] Write %04X=%02X (TileID~%d, Byte:%d) PC:%04X (Bank:%d)\n",
-                       addr, value, tile_id_approx, tile_offset % 16, debug_current_pc, current_rom_bank_);
-                tile_load_count++;
-            }
+        // Obtener contador de frames desde PPU si está disponible
+        uint64_t frame_counter = 0;
+        if (ppu_ != nullptr) {
+            frame_counter = ppu_->get_frame_counter();
+        }
+        
+        // Marcar el fin de la inicialización (aproximadamente después de 100 escrituras)
+        static int write_count = 0;
+        static bool is_initialization = true;
+        write_count++;
+        if (write_count > 100) {
+            is_initialization = false;
+        }
+        
+        // Capturar TODAS las escrituras, marcando si son limpieza o datos reales
+        static int tile_load_extended_count = 0;
+        if (tile_load_extended_count < 1000) {  // Límite más alto
+            bool is_data = (value != 0x00 && value != 0x7F);
+            uint16_t tile_offset = addr - 0x8000;
+            uint8_t tile_id_approx = tile_offset / 16;
+            
+            printf("[TILE-LOAD-EXT] %s | Write %04X=%02X (TileID~%d) PC:%04X Frame:%llu Init:%s\n",
+                   is_data ? "DATA" : "CLEAR",
+                   addr, value, tile_id_approx, debug_current_pc, frame_counter,
+                   is_initialization ? "YES" : "NO");
+            tile_load_extended_count++;
         }
     }
 
@@ -767,6 +808,12 @@ void MMU::load_rom(const uint8_t* data, size_t size) {
 
     printf("[MBC] ROM loaded: %zu bytes (%zu banks) | Type: 0x%02X\n",
            size, rom_bank_count_, cart_type);
+    
+    // --- Step 0291: Inspección de Estado Inicial de VRAM ---
+    // Verificar el estado inicial de VRAM después de cargar la ROM
+    // para entender si el juego espera que VRAM tenga datos desde el inicio
+    // o si la carga es responsabilidad del juego.
+    inspect_vram_initial_state();
 }
 
 void MMU::setPPU(PPU* ppu) {
@@ -942,10 +989,59 @@ void MMU::update_bank_mapping() {
         printf("[BANK-AUDIT] Cambio de mapeo: Banco0:%d->%d | BancoN:%d->%d (Modo MBC1:%d) en PC:0x%04X\n",
                old_bank0, bank0_rom_, old_bankN, bankN_rom_, mbc1_mode_, debug_current_pc);
     }
+    
+    // --- Step 0293: Monitor [BANK-CHANGE] - Cambios de Banco ROM Post-Limpieza ---
+    // Detecta cambios de banco ROM después de la limpieza para verificar
+    // si el código que carga tiles está en otro banco.
+    // Solo activar si estamos después de la rutina de limpieza (PC > 0x36F0)
+    if (debug_current_pc > 0x36F0) {
+        static int bank_change_count = 0;
+        if (bank_change_count < 50) {
+            if (old_bankN != bankN_rom_) {
+                printf("[BANK-CHANGE] Banco ROM: %d -> %d en PC:0x%04X\n",
+                       old_bankN, bankN_rom_, debug_current_pc);
+                bank_change_count++;
+            }
+        }
+    }
 }
 
 uint16_t MMU::get_current_rom_bank() const {
     // Retornar el banco mapeado en 0x4000-0x7FFF (bankN_rom_)
     return bankN_rom_;
+}
+
+// --- Step 0291: Inspección de Estado Inicial de VRAM ---
+// Verificar el estado inicial de VRAM después de cargar la ROM
+// y en el constructor para ver si hay datos o está vacía.
+// Esto ayuda a entender si el juego espera que VRAM tenga datos
+// desde el inicio o si la carga es responsabilidad del juego.
+void MMU::inspect_vram_initial_state() {
+    // Verificar si VRAM tiene datos no-cero
+    int non_zero_count = 0;
+    uint16_t first_non_zero_addr = 0xFFFF;
+    for (uint16_t addr = 0x8000; addr <= 0x97FF; addr++) {
+        if (memory_[addr] != 0x00 && memory_[addr] != 0x7F) {
+            non_zero_count++;
+            if (first_non_zero_addr == 0xFFFF) {
+                first_non_zero_addr = addr;
+            }
+        }
+    }
+    
+    printf("[VRAM-INIT] Estado inicial de VRAM: %d bytes no-cero (0x8000-0x97FF)\n", non_zero_count);
+    if (first_non_zero_addr != 0xFFFF) {
+        printf("[VRAM-INIT] Primer byte no-cero en: 0x%04X (valor: 0x%02X)\n",
+               first_non_zero_addr, memory_[first_non_zero_addr]);
+    } else {
+        printf("[VRAM-INIT] VRAM está completamente vacía (solo ceros)\n");
+    }
+    
+    // Verificar checksum del tilemap inicial
+    uint16_t tilemap_checksum = 0;
+    for (int i = 0; i < 1024; i++) {
+        tilemap_checksum += memory_[0x9800 + i];
+    }
+    printf("[VRAM-INIT] Checksum del tilemap (0x9800): 0x%04X\n", tilemap_checksum);
 }
 

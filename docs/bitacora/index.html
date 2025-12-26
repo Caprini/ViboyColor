@@ -32,6 +32,60 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0293 - Investigación de Flujo de Ejecución Post-Limpieza -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0293__investigacion-flujo-ejecucion-post-limpieza.html" class="entry-link">
+                                    Investigación de Flujo de Ejecución Post-Limpieza
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0293 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de cinco monitores de diagnóstico para investigar por qué el juego nunca carga datos de tiles en VRAM después de limpiarla. El análisis del Step 0291 confirmó que solo se detectan escrituras de limpieza (0x00) desde PC:0x36E3 y ninguna carga de datos reales. Los nuevos monitores rastrean el flujo de ejecución después de la limpieza para identificar qué código se ejecuta (o debería ejecutarse pero no se ejecuta) y si hay condiciones que impiden la carga de tiles. Se implementaron los monitores [PC-TRACE], [REG-TRACE], [JUMP-TRACE], [BANK-CHANGE] y [HARDWARE-STATE].
+                        </p>
+                    </li>
+                                        <!-- Entrada 0292 - Verificación Step 0291 - Análisis de Monitores -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0292__verificacion-step-0291-analisis-monitores.html" class="entry-link">
+                                    Verificación Step 0291 - Análisis de Monitores
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0292 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Ejecución del plan de verificación del Step 0291 para analizar los monitores de diagnóstico implementados. Se ejecutó el emulador con Pokémon Red durante 15 segundos y se capturaron los logs de los cinco monitores: [VRAM-INIT], [TILE-LOAD-EXTENDED], [CLEANUP-TRACE], [BLOCK-WRITE], y el contador de frames en PPU. El análisis revela que el juego nunca carga datos de tiles reales en VRAM, solo se detectan escrituras de limpieza (0x00) desde la rutina en PC:0x36E3. Ninguna de las hipótesis iniciales es correcta, lo que indica que el problema es más fundamental.
+                        </p>
+                    </li>
+                                        <!-- Entrada 0291 - Investigación de Carga de Tiles y Corrección -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0291__investigacion-carga-tiles-correccion.html" class="entry-link">
+                                    Investigación de Carga de Tiles y Corrección
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0291 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de un conjunto completo de monitores de diagnóstico para investigar por qué los tiles no se están cargando en VRAM. El análisis del Step 0290 confirmó que [TILE-LOAD] detecta 0 cargas de tiles, lo que significa que el juego no está escribiendo datos de tiles en VRAM. Se implementaron cinco monitores nuevos: [VRAM-INIT] para verificar el estado inicial de VRAM, [TILE-LOAD-EXTENDED] para capturar TODAS las escrituras con contexto de timing, [CLEANUP-TRACE] para rastrear la rutina de limpieza VRAM (PC:0x36E3), [BLOCK-WRITE] para detectar cargas de tiles consecutivas, y un contador de frames en PPU para rastrear el timing de las operaciones.
+                        </p>
+                    </li>
                                         <!-- Entrada 0290 - Verificación de LCDC, Paleta y Carga de Tiles -->
                     <li>
                         <div class="entry-header">

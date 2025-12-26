@@ -115,6 +115,15 @@ public:
      * @return Número del banco ROM actual (1-based)
      */
     uint16_t get_current_rom_bank() const;
+    
+    /**
+     * Step 0291: Inspección de Estado Inicial de VRAM
+     * 
+     * Verifica el estado inicial de VRAM después de cargar la ROM
+     * para entender si el juego espera que VRAM tenga datos desde el inicio
+     * o si la carga es responsabilidad del juego.
+     */
+    void inspect_vram_initial_state();
 
     /**
      * Step 0247: Memory Timeline & PC Tracker

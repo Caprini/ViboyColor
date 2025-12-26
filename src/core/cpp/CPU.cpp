@@ -6,11 +6,16 @@
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false),
-      in_vblank_handler_(false), vblank_handler_steps_(0), post_delay_trace_active_(false), post_delay_count_(0) {
+      in_vblank_handler_(false), vblank_handler_steps_(0), post_delay_trace_active_(false), post_delay_count_(0),
+      in_post_cleanup_trace_(false), post_cleanup_trace_count_(0), reg_trace_active_(false),
+      last_af_(0xFFFF), last_bc_(0xFFFF), last_de_(0xFFFF), last_hl_(0xFFFF), reg_trace_count_(0),
+      jump_trace_active_(false), jump_trace_count_(0), hw_state_trace_active_(false),
+      hw_state_samples_(0), hw_state_sample_counter_(0) {
     // Validación básica (en producción, podríamos usar assert)
     // Por ahora, confiamos en que Python pasa punteros válidos
     // IME inicia en false por seguridad (el juego lo activará si lo necesita)
     // Step 0287: Inicialización de miembros de diagnóstico (reemplazan variables static)
+    // Step 0293: Inicialización de monitores de rastreo post-limpieza
 }
 
 CPU::~CPU() {
@@ -512,6 +517,163 @@ int CPU::step() {
             printf("[POLLING-WATCH] PC:%04X | IE:0x%02X | IF:0x%02X | IME:%d | D732:0x%02X\n",
                    original_pc, mmu_->read(0xFFFF), mmu_->read(0xFF0F), ime_ ? 1 : 0, mmu_->read(0xD732));
             polling_watch_count++;
+        }
+    }
+    // -----------------------------------------
+    
+    // --- Step 0293: Monitor [PC-TRACE] - Rastreo de Ejecución Post-Limpieza ---
+    // Rastrea la ejecución después de que la rutina de limpieza termina (después de PC:0x36F0)
+    // para ver qué código se ejecuta a continuación y si hay código que debería cargar tiles.
+    // Activar rastreo cuando salimos de la zona de limpieza
+    if (original_pc >= 0x36E0 && original_pc <= 0x36F0) {
+        // Estamos en la rutina de limpieza
+        in_post_cleanup_trace_ = true;
+        post_cleanup_trace_count_ = 0;
+    } else if (in_post_cleanup_trace_) {
+        // Rastrear las siguientes 500 instrucciones después de la limpieza
+        if (post_cleanup_trace_count_ < 500) {
+            uint8_t op = mmu_->read(original_pc);
+            uint8_t next_byte1 = mmu_->read(original_pc + 1);
+            uint8_t next_byte2 = mmu_->read(original_pc + 2);
+            
+            printf("[PC-TRACE] PC:0x%04X OP:0x%02X %02X %02X | A:0x%02X BC:0x%04X DE:0x%04X HL:0x%04X | SP:0x%04X Bank:%d\n",
+                   original_pc, op, next_byte1, next_byte2,
+                   regs_->a, regs_->get_bc(), regs_->get_de(), regs_->get_hl(),
+                   regs_->sp, mmu_->get_current_rom_bank());
+            
+            post_cleanup_trace_count_++;
+            
+            // Detectar posibles cargas de tiles (escrituras a VRAM)
+            // Esto se detectará también por [TILE-LOAD-EXTENDED], pero aquí lo marcamos
+            if (op == 0x22 || op == 0x32) {  // LD (HL+), A o LD (HL-), A
+                uint16_t hl_val = regs_->get_hl();
+                if (hl_val >= 0x8000 && hl_val <= 0x97FF) {
+                    printf("[PC-TRACE] ⚠️ POSIBLE CARGA DE TILE: LD (HL), A con HL=0x%04X\n", hl_val);
+                }
+            }
+            
+            // Desactivar si detectamos un salto muy lejos o retorno
+            if (op == 0xC9 || op == 0xC3 || op == 0x18) {  // RET, JP, JR
+                if (post_cleanup_trace_count_ > 50) {  // Ya rastreamos suficiente
+                    in_post_cleanup_trace_ = false;
+                }
+            }
+        } else {
+            in_post_cleanup_trace_ = false;
+        }
+    }
+    // -----------------------------------------
+    
+    // --- Step 0293: Monitor [REG-TRACE] - Rastreo de Registros Críticos ---
+    // Rastrea cambios en registros críticos (AF, BC, DE, HL, SP) y flags después de la limpieza
+    // para identificar si hay condiciones que impiden la carga de tiles.
+    if (original_pc >= 0x36E0 && original_pc <= 0x36F0) {
+        reg_trace_active_ = true;
+        last_af_ = regs_->get_af();
+        last_bc_ = regs_->get_bc();
+        last_de_ = regs_->get_de();
+        last_hl_ = regs_->get_hl();
+        reg_trace_count_ = 0;
+    } else if (reg_trace_active_ && original_pc > 0x36F0) {
+        // Solo rastrear cambios significativos
+        uint16_t current_af = regs_->get_af();
+        uint16_t current_bc = regs_->get_bc();
+        uint16_t current_de = regs_->get_de();
+        uint16_t current_hl = regs_->get_hl();
+        
+        bool changed = false;
+        if (abs((int16_t)(current_af - last_af_)) > 0x100) changed = true;
+        if (abs((int16_t)(current_bc - last_bc_)) > 0x100) changed = true;
+        if (abs((int16_t)(current_de - last_de_)) > 0x100) changed = true;
+        if (abs((int16_t)(current_hl - last_hl_)) > 0x100) changed = true;
+        
+        if (changed) {
+            if (reg_trace_count_ < 100) {
+                printf("[REG-TRACE] PC:0x%04X | AF:%04X BC:%04X DE:%04X HL:%04X SP:%04X | Z:%d N:%d H:%d C:%d\n",
+                       original_pc, current_af, current_bc, current_de, current_hl, regs_->sp,
+                       regs_->get_flag_z() ? 1 : 0, regs_->get_flag_n() ? 1 : 0,
+                       regs_->get_flag_h() ? 1 : 0, regs_->get_flag_c() ? 1 : 0);
+                reg_trace_count_++;
+                
+                last_af_ = current_af;
+                last_bc_ = current_bc;
+                last_de_ = current_de;
+                last_hl_ = current_hl;
+            } else {
+                reg_trace_active_ = false;
+            }
+        }
+    }
+    // -----------------------------------------
+    
+    // --- Step 0293: Monitor [JUMP-TRACE] - Rastreo de Saltos y Llamadas ---
+    // Rastrea saltos, llamadas y retornos después de la limpieza para ver si el juego
+    // salta a código que debería cargar tiles pero no lo hace.
+    // Activar después de la limpieza
+    if (original_pc >= 0x36E0 && original_pc <= 0x36F0) {
+        jump_trace_active_ = true;
+        jump_trace_count_ = 0;
+    }
+    
+    if (jump_trace_active_ && jump_trace_count_ < 200) {
+        uint8_t op = mmu_->read(original_pc);
+        
+        // Detectar opcodes de salto
+        if (op == 0xC3 || op == 0xC2 || op == 0xCA || op == 0xD2 || op == 0xDA ||  // JP variants
+            op == 0xE9 || op == 0x18 || op == 0x20 || op == 0x28 || op == 0x30 || op == 0x38 ||  // JP HL, JR variants
+            op == 0xCD || op == 0xC4 || op == 0xCC || op == 0xD4 || op == 0xDC ||  // CALL variants
+            op == 0xC9 || op == 0xC0 || op == 0xC8 || op == 0xD0 || op == 0xD8) {  // RET variants
+            
+            uint16_t jump_target = 0x0000;
+            if (op == 0xC3 || op == 0xCD || op == 0xC2 || op == 0xCA || op == 0xD2 || op == 0xDA ||
+                op == 0xC4 || op == 0xCC || op == 0xD4 || op == 0xDC) {
+                // JP/CALL nn - 16-bit immediate
+                jump_target = mmu_->read(original_pc + 1) | (static_cast<uint16_t>(mmu_->read(original_pc + 2)) << 8);
+            } else if (op == 0xE9) {
+                // JP HL
+                jump_target = regs_->get_hl();
+            } else if (op == 0x18 || op == 0x20 || op == 0x28 || op == 0x30 || op == 0x38) {
+                // JR e - 8-bit signed relative
+                int8_t offset = static_cast<int8_t>(mmu_->read(original_pc + 1));
+                jump_target = original_pc + 2 + offset;
+            }
+            
+            printf("[JUMP-TRACE] PC:0x%04X OP:0x%02X -> 0x%04X | Bank:%d | SP:0x%04X\n",
+                   original_pc, op, jump_target, mmu_->get_current_rom_bank(), regs_->sp);
+            jump_trace_count_++;
+        }
+    }
+    // -----------------------------------------
+    
+    // --- Step 0293: Monitor [HARDWARE-STATE] - Estado de Hardware Crítico ---
+    // Rastrea el estado de registros de hardware críticos (LCDC, BGP, IE, IF, IME) después
+    // de la limpieza para ver si hay condiciones que impiden la carga.
+    if (original_pc >= 0x36E0 && original_pc <= 0x36F0) {
+        hw_state_trace_active_ = true;
+        hw_state_samples_ = 0;
+        hw_state_sample_counter_ = 0;
+    }
+    
+    if (hw_state_trace_active_ && hw_state_samples_ < 100) {
+        // Muestrear cada 10 instrucciones aproximadamente
+        hw_state_sample_counter_++;
+        if (hw_state_sample_counter_ >= 10) {
+            hw_state_sample_counter_ = 0;
+            
+            uint8_t lcdc = mmu_->read(0xFF40);
+            uint8_t bgp = mmu_->read(0xFF47);
+            uint8_t ie = mmu_->read(0xFFFF);
+            uint8_t if_reg = mmu_->read(0xFF0F);
+            bool ime = get_ime();
+            
+            printf("[HARDWARE-STATE] PC:0x%04X | LCDC:0x%02X BGP:0x%02X IE:0x%02X IF:0x%02X IME:%d | LY:%d\n",
+                   original_pc, lcdc, bgp, ie, if_reg, ime ? 1 : 0, mmu_->read(0xFF44));
+            
+            hw_state_samples_++;
+            
+            if (hw_state_samples_ >= 100) {
+                hw_state_trace_active_ = false;
+            }
         }
     }
     // -----------------------------------------
