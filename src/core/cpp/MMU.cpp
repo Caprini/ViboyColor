@@ -384,6 +384,13 @@ void MMU::write(uint16_t addr, uint8_t value) {
 
     // --- Step 0251: IMPLEMENTACIÓN DMA (OAM TRANSFER) ---
     if (addr == 0xFF46) {
+        // --- Step 0286: Monitor de Disparo de OAM DMA ([DMA-TRIGGER]) ---
+        // Detecta cuando se activa el DMA para transferir datos a OAM (0xFE00-0xFE9F)
+        // El DMA copia 160 bytes desde la dirección (value << 8) a OAM
+        // Fuente: Pan Docs - "DMA Transfer": Escritura en 0xFF46 inicia transferencia
+        printf("[DMA-TRIGGER] DMA activado: Source=0x%02X00 (0x%04X-0x%04X) -> OAM (0xFE00-0xFE9F) | PC:0x%04X\n",
+               value, static_cast<uint16_t>(value) << 8, (static_cast<uint16_t>(value) << 8) + 159, debug_current_pc);
+        
         uint16_t source_base = static_cast<uint16_t>(value) << 8;
         for (int i = 0; i < 160; i++) {
             uint16_t source_addr = source_base + i;
@@ -643,6 +650,17 @@ void MMU::write(uint16_t addr, uint8_t value) {
                        addr, value, debug_current_pc, current_rom_bank_);
                 vram_vibe_count++;
             }
+        }
+        
+        // --- Step 0286: Monitor Temporal Sin Filtros para VRAM ([VRAM-TOTAL]) ---
+        // Captura TODAS las escrituras en VRAM sin filtros para detectar cualquier actividad sospechosa.
+        // Este monitor es temporal y se usa para diagnóstico cuando hay problemas con la carga de gráficos.
+        // Fuente: Pan Docs - "VRAM (Video RAM)": 0x8000-0x9FFF contiene Tile Data y Tile Maps
+        static int vram_total_count = 0;
+        if (vram_total_count < 500) {  // Límite alto para capturar actividad completa
+            printf("[VRAM-TOTAL] Write %04X=%02X PC:%04X (Bank:%d)\n", 
+                   addr, value, debug_current_pc, current_rom_bank_);
+            vram_total_count++;
         }
         
         // Asegurar que la escritura se realiza correctamente en la memoria

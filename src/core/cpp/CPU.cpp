@@ -474,15 +474,21 @@ int CPU::step() {
     }
     
     // Rastrear instrucciones dentro del handler
-    if (in_vblank_handler && handler_step_count < 100) {
+    // --- Step 0286: Aumentado límite a 500 instrucciones para capturar flujo completo ---
+    if (in_vblank_handler && handler_step_count < 500) {
         uint8_t op = mmu_->read(original_pc);
         printf("[HANDLER-EXEC] PC:0x%04X OP:0x%02X | A:0x%02X HL:0x%04X | IME:%d\n",
                original_pc, op, regs_->a, regs_->get_hl(), ime_ ? 1 : 0);
         handler_step_count++;
         
-        // El handler termina con RETI (0xD9) o si alcanzamos el límite
+        // --- Step 0286: Detección de RET (0xC9) además de RETI (0xD9) ---
+        // Algunos handlers pueden terminar con RET sin habilitar IME, lo cual es un bug
+        // pero debemos detectarlo para entender el flujo completo del handler
         if (op == 0xD9) {
             printf("[HANDLER-EXIT] RETI detectado en PC:0x%04X. Fin del rastreo del handler.\n", original_pc);
+            in_vblank_handler = false;
+        } else if (op == 0xC9) {
+            printf("[HANDLER-EXIT] RET detectado en PC:0x%04X (SIN habilitar IME). Fin del rastreo del handler.\n", original_pc);
             in_vblank_handler = false;
         }
     }

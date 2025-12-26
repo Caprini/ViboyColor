@@ -32,6 +32,40 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0286: Auditoría Extendida de Interrupciones y DMA
+**Estado**: ✅ COMPLETADO
+
+Extensión de la instrumentación de diagnóstico del emulador para capturar el flujo completo de ejecución de handlers de interrupciones y monitorear operaciones críticas de DMA y VRAM. Aumento del límite del Sniper del Handler a 500 instrucciones, detección de RET (0xC9) además de RETI (0xD9), implementación de monitor específico para disparo de OAM DMA ([DMA-TRIGGER]) y monitor temporal sin filtros para VRAM ([VRAM-TOTAL]).
+
+**Cambios realizados**:
+- **CPU.cpp**:
+  - Aumentado el límite del Sniper del Handler ([HANDLER-EXEC]) de 100 a 500 instrucciones para capturar el flujo completo hasta el retorno.
+  - Implementada detección de RET (0xC9) además de RETI (0xD9) para identificar handlers que terminan sin habilitar IME.
+  - Esto permite detectar bugs potenciales donde los handlers no rehabilitan correctamente las interrupciones.
+- **MMU.cpp**:
+  - Implementado el monitor [DMA-TRIGGER] que detecta cuando se activa el DMA para transferir datos a OAM (0xFE00-0xFE9F).
+  - El monitor reporta la dirección fuente, el rango de direcciones que se copiarán y el PC donde se activó el DMA.
+  - Implementado el monitor [VRAM-TOTAL] que captura TODAS las escrituras en VRAM sin filtros para detectar cualquier actividad sospechosa.
+  - El monitor tiene un límite de 500 reportes para evitar saturación de logs.
+
+**Objetivos**:
+- Capturar el flujo completo de ejecución de handlers de interrupciones hasta el retorno.
+- Detectar handlers que terminan incorrectamente con RET en lugar de RETI.
+- Monitorear operaciones de DMA para entender cuándo y cómo se cargan los sprites.
+- Detectar cualquier actividad sospechosa en VRAM que pueda estar causando problemas de renderizado.
+
+**Concepto de Hardware**:
+- Los handlers de interrupciones deben terminar con RETI (0xD9) para restaurar el estado y rehabilitar interrupciones. RET (0xC9) no es suficiente porque no habilita IME.
+- El registro DMA (0xFF46) permite transferir 160 bytes desde cualquier dirección de memoria a OAM en un solo ciclo. Es crítico para cargar sprites en el juego.
+- La VRAM (0x8000-0x9FFF) contiene los datos de tiles y mapas de tiles que la PPU lee para renderizar. Monitorear todas las escrituras permite detectar problemas de carga de gráficos.
+
+**Fuentes Consultadas**:
+- Pan Docs: Interrupts - Vectores de interrupción y comportamiento de RETI
+- Pan Docs: DMA Transfer - Operación del registro DMA (0xFF46)
+- Pan Docs: VRAM (Video RAM) - Región de memoria 0x8000-0x9FFF
+
+---
+
 ### 2025-12-25 - Step 0285: Fix de Instrumentación y Desbloqueo Visual
 **Estado**: ✅ COMPLETADO
 
