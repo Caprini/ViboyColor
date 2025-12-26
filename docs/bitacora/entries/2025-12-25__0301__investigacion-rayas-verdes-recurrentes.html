@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Rayas Verdes Recurrentes - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Rayas Verdes Recurrentes</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0301
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0300__correccion-paleta-debug-renderer.html">Anterior (0300)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Investigación de por qué las rayas verdes vuelven a aparecer después de unos minutos de ejecución,
+                    a pesar de la corrección implementada en el Step 0300. Se implementaron 3 monitores de diagnóstico
+                    para rastrear el uso de paletas y cambios en el modo de renderizado, y se corrigió <code>self.COLORS</code>
+                    que aún tenía valores verdes para el índice 0.
+                </p>
+                <p>
+                    <strong>Objetivo</strong>: Identificar la causa raíz de las rayas verdes recurrentes y corregir
+                    cualquier código que use paletas con valores verdes en lugar de la paleta debug corregida.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>Múltiples Fuentes de Paleta en el Renderer</h3>
+                <p>
+                    El renderer puede usar múltiples fuentes de paleta durante la ejecución:
+                </p>
+                <ul>
+                    <li><strong>Paleta debug (local)</strong>: Variable local <code>palette</code> definida en <code>render_frame()</code>
+                        con valores corregidos (blanco para índice 0).</li>
+                    <li><strong>Paleta de clase (<code>self.palette</code>)</strong>: Atributo de instancia inicializado desde
+                        <code>self.COLORS</code> que puede ser modificado durante la ejecución.</li>
+                    <li><strong>Paleta del hardware (BGP)</strong>: Registro 0xFF47 que mapea índices a colores según la configuración del juego.</li>
+                </ul>
+                <p>
+                    Si el renderer cambia entre diferentes fuentes de paleta, los colores pueden cambiar dinámicamente.
+                    El problema identificado es que <code>self.COLORS</code> y <code>self.palette</code> aún tenían valores
+                    verdes para el índice 0, lo que podría causar que algún código los use en lugar de la paleta debug local.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "Background Palette (BGP)", "Palette"
+                </p>
+
+                <h3>Modo C++ vs Modo Python</h3>
+                <p>
+                    El renderer puede operar en dos modos:
+                </p>
+                <ul>
+                    <li><strong><code>use_cpp_ppu=True</code></strong>: Usa el framebuffer de C++ directamente (más rápido).
+                        La paleta debug se aplica al mapear índices del framebuffer a colores RGB.</li>
+                    <li><strong><code>use_cpp_ppu=False</code></strong>: Calcula tiles desde VRAM en Python (más lento pero más flexible).
+                        Usa la paleta debug local para decodificar tiles.</li>
+                </ul>
+                <p>
+                    Si el renderer cambia de modo durante la ejecución, puede usar diferentes rutas de código que tienen
+                    diferentes paletas. Los monitores implementados detectan estos cambios para identificar si hay una
+                    relación con la aparición de rayas verdes.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "LCD Control Register", "PPU Rendering"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron correcciones preventivas y 3 monitores de diagnóstico para rastrear el uso de paletas
+                    y cambios en el modo de renderizado.
+                </p>
+                
+                <h3>Corrección de <code>self.COLORS</code></h3>
+                <p>
+                    Se corrigió <code>self.COLORS</code> en <code>__init__()</code> para que el índice 0 sea blanco
+                    en lugar de verde:
+                </p>
+                <pre><code># Antes (Step 0300):
+self.COLORS = [
+    (224, 248, 208),  # 0: Blanco/Verde claro (VERDE)
+    ...
+]
+
+# Después (Step 0301):
+self.COLORS = [
+    (255, 255, 255),  # 0: White (Color 0) - Corregido Step 0301
+    ...
+]</code></pre>
+                <p>
+                    Esta corrección asegura que si algún código usa <code>self.COLORS</code> o <code>self.palette</code>
+                    (que se inicializa desde <code>self.COLORS</code>), los valores sean correctos.
+                </p>
+
+                <h3>Monitor [PALETTE-USE-TRACE]</h3>
+                <p>
+                    Monitor que rastrea qué paleta se usa en cada frame. Se implementa en ambas rutas de renderizado
+                    (C++ y Python) y registra:
+                </p>
+                <ul>
+                    <li>Número de frame</li>
+                    <li>Estado de <code>use_cpp_ppu</code></li>
+                    <li>Color del índice 0 en la paleta debug local</li>
+                    <li>Color del índice 0 en <code>self.palette</code></li>
+                </ul>
+                <pre><code># Monitor implementado en render_frame()
+if self._palette_trace_count < 100 or (self._palette_trace_count % 1000 == 0):
+    use_cpp = self.use_cpp_ppu
+    palette_0_debug = palette[0]  # Paleta debug local
+    palette_0_self = self._palette[0]  # self.palette
+    print(f"[PALETTE-USE-TRACE] Frame {self._palette_trace_count} | use_cpp_ppu={use_cpp} | debug_palette[0]={palette_0_debug} | self.palette[0]={palette_0_self}")
+self._palette_trace_count += 1</code></pre>
+                <p>
+                    El monitor registra los primeros 100 frames y luego cada 1000 frames para no saturar los logs.
+                </p>
+
+                <h3>Monitor [PALETTE-SELF-CHANGE]</h3>
+                <p>
+                    Monitor que detecta cambios en <code>self.palette</code> usando una propiedad con setter.
+                    Si algún código modifica <code>self.palette</code>, el monitor registra el cambio y un stack trace:
+                </p>
+                <pre><code>@property
+def palette(self):
+    """Getter para self.palette (usado por monitores Step 0301)."""
+    return self._palette
+
+@palette.setter
+def palette(self, value):
+    """Setter para self.palette con monitor de cambios (Step 0301)."""
+    old_0 = self._palette[0] if self._palette else None
+    self._palette = value
+    new_0 = value[0] if value else None
+    if old_0 != new_0:
+        import traceback
+        print(f"[PALETTE-SELF-CHANGE] self.palette[0] cambió: {old_0} -> {new_0}")
+        print(f"[PALETTE-SELF-CHANGE] Stack trace:")
+        traceback.print_stack(limit=5)</code></pre>
+                <p>
+                    Este monitor requiere cambiar <code>self.palette</code> a <code>self._palette</code> en <code>__init__()</code>
+                    para usar la propiedad.
+                </p>
+
+                <h3>Monitor [CPP-PPU-TOGGLE]</h3>
+                <p>
+                    Monitor que detecta cambios en <code>use_cpp_ppu</code> durante la ejecución:
+                </p>
+                <pre><code># Monitor implementado en render_frame()
+if self._last_use_cpp_ppu is None:
+    self._last_use_cpp_ppu = self.use_cpp_ppu
+elif self._last_use_cpp_ppu != self.use_cpp_ppu:
+    print(f"[CPP-PPU-TOGGLE] use_cpp_ppu cambió: {self._last_use_cpp_ppu} -> {self.use_cpp_ppu}")
+    self._last_use_cpp_ppu = self.use_cpp_ppu</code></pre>
+                <p>
+                    Este monitor ayuda a identificar si el renderer cambia entre modo C++ y modo Python, lo que podría
+                    causar que se use una paleta diferente.
+                </p>
+
+                <h3>Búsqueda de Código que Use <code>self.palette</code></h3>
+                <p>
+                    Se realizó una búsqueda exhaustiva en <code>src/gpu/renderer.py</code> para identificar todos los
+                    lugares donde se usa <code>self.palette</code> o <code>self.COLORS</code>:
+                </p>
+                <ul>
+                    <li><strong>Línea 198</strong>: <code>self._palette = list(self.COLORS)</code> - Inicialización (corregida)</li>
+                    <li><strong>Líneas 349-387</strong>: <code>update_tile_cache(palette)</code> - Usa paleta como parámetro (variable local)</li>
+                    <li><strong>Líneas 701, 705, 791, 867</strong>: Uso de <code>palette</code> como variable local en <code>render_frame()</code></li>
+                </ul>
+                <p>
+                    <strong>Conclusión</strong>: No se encontró ningún código que use <code>self.palette</code> directamente
+                    durante el renderizado. Todas las referencias a <code>palette</code> son variables locales definidas
+                    en <code>render_frame()</code> con la paleta debug corregida. La corrección de <code>self.COLORS</code>
+                    es preventiva para asegurar que si algún código futuro usa <code>self.palette</code>, los valores sean correctos.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Corrección de <code>self.COLORS</code> e implementación de 3 monitores de diagnóstico</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La implementación se verificó mediante:
+                </p>
+                <ul>
+                    <li><strong>Análisis estático de código</strong>: Búsqueda exhaustiva de usos de <code>self.palette</code> y <code>self.COLORS</code></li>
+                    <li><strong>Linter</strong>: Sin errores de sintaxis o tipo</li>
+                    <li><strong>Validación de monitores</strong>: Los 3 monitores están implementados y listos para capturar logs durante ejecución extendida</li>
+                </ul>
+                <p>
+                    <strong>Próximo paso</strong>: Ejecutar el emulador durante varios minutos y analizar los logs generados
+                    por los monitores para identificar cuándo y por qué vuelven las rayas verdes.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "Background Palette (BGP)" - Gestión de paletas en Game Boy</li>
+                    <li>Pan Docs: "LCD Control Register" - Modos de renderizado</li>
+                    <li>Pan Docs: "PPU Rendering" - Renderizado de gráficos</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Múltiples fuentes de paleta</strong>: El renderer puede usar diferentes paletas según el contexto.
+                            La paleta debug local es la que se usa durante el renderizado, pero <code>self.palette</code> podría
+                            ser usada en otros lugares.</li>
+                        <li><strong>Monitores de diagnóstico</strong>: Los monitores permiten rastrear cambios dinámicos en el estado
+                            del renderer que podrían causar problemas visuales. Son herramientas esenciales para debugging.</li>
+                        <li><strong>Corrección preventiva</strong>: Aunque no se encontró código que use <code>self.palette</code> durante
+                            el renderizado, corregir <code>self.COLORS</code> asegura que cualquier código futuro use valores correctos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Causa raíz de rayas recurrentes</strong>: Los monitores deben ejecutarse durante varios minutos
+                            para identificar cuándo y por qué vuelven las rayas verdes. Posibles causas:
+                            <ul>
+                                <li>Cambio en <code>use_cpp_ppu</code> durante la ejecución</li>
+                                <li>Modificación de <code>self.palette</code> por código externo</li>
+                                <li>Uso de una paleta diferente en algún código no identificado</li>
+                            </ul>
+                        </li>
+                        <li><strong>Análisis de logs</strong>: Los logs generados por los monitores deben analizarse para identificar
+                            patrones que coincidan con la aparición de rayas verdes.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal</strong>: Las rayas verdes recurrentes podrían deberse a que algún código
+                        modifica <code>self.palette</code> o cambia el modo de renderizado después de unos minutos. Los monitores
+                        implementados deberían capturar estos cambios.
+                    </p>
+                    <p>
+                        <strong>Suposición</strong>: Si la corrección de <code>self.COLORS</code> no resuelve el problema, el análisis
+                        de logs de los monitores debería revelar la causa raíz.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador durante varios minutos con los monitores activos</li>
+                    <li>[ ] Analizar logs generados por los monitores para identificar patrones</li>
+                    <li>[ ] Si se identifica la causa raíz, implementar corrección específica</li>
+                    <li>[ ] Si las rayas desaparecen, verificar que no vuelvan con pruebas extendidas</li>
+                    <li>[ ] Si persisten, investigar más a fondo otros posibles lugares donde se use paleta verde</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -32,6 +32,33 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0301: Investigación de Rayas Verdes Recurrentes
+**Estado**: ✅ COMPLETADO
+
+Investigación de por qué las rayas verdes vuelven a aparecer después de unos minutos de ejecución, a pesar de la corrección implementada en el Step 0300. Se implementaron 3 monitores de diagnóstico para rastrear el uso de paletas y cambios en el modo de renderizado, y se corrigió `self.COLORS` que aún tenía valores verdes para el índice 0.
+
+**Problema identificado**:
+- Las rayas verdes vuelven a aparecer después de unos minutos de ejecución
+- `self.COLORS` y `self.palette` aún tenían valores verdes `(224, 248, 208)` para el índice 0
+- Posible uso de `self.palette` en lugar de la paleta debug local corregida
+
+**Correcciones y monitores implementados**:
+1. **Corrección de `self.COLORS`**: Cambiado el color del índice 0 de verde `(224, 248, 208)` a blanco `(255, 255, 255)` en `__init__()`
+2. **Monitor [PALETTE-USE-TRACE]**: Rastrea qué paleta se usa en cada frame (primeros 100 frames + cada 1000 frames)
+3. **Monitor [PALETTE-SELF-CHANGE]**: Detecta cambios en `self.palette` usando una propiedad con setter y stack trace
+4. **Monitor [CPP-PPU-TOGGLE]**: Detecta cambios en `use_cpp_ppu` durante la ejecución
+
+**Búsqueda de código**:
+- Búsqueda exhaustiva confirmó que no hay código que use `self.palette` durante el renderizado
+- Todas las referencias a `palette` son variables locales con la paleta debug corregida
+- La corrección de `self.COLORS` es preventiva para asegurar valores correctos en el futuro
+
+**Próximos pasos**:
+- Ejecutar el emulador durante varios minutos con los monitores activos
+- Analizar logs generados para identificar patrones que coincidan con la aparición de rayas verdes
+
+---
+
 ### 2025-12-25 - Step 0300: Corrección de Paleta Debug Renderer
 **Estado**: ✅ COMPLETADO
 

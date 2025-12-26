@@ -186,23 +186,48 @@ class Renderer:
         # --- FIX STEP 0216: Definición Explícita de Colores ---
         # Game Boy original: 0=Más claro, 3=Más oscuro
         # Paleta estándar de Game Boy (verde/amarillo original)
+        # --- FIX STEP 0301: Corrección de Color 0 de Verde a Blanco ---
         self.COLORS = [
-            (224, 248, 208),  # 0: Blanco/Verde claro (White)
+            (255, 255, 255),  # 0: White (Color 0) - Corregido Step 0301
             (136, 192, 112),  # 1: Gris claro (Light Gray)
             (52, 104, 86),    # 2: Gris oscuro (Dark Gray)
             (8, 24, 32)       # 3: Negro/Verde oscuro (Black)
         ]
         # Paleta actual mapeada (índice -> RGB)
-        self.palette = list(self.COLORS)
+        # Usar _palette para permitir monitor de cambios
+        self._palette = list(self.COLORS)
         
         # Flag para log de depuración (una sola vez)
         self.debug_palette_printed = False
+        # ----------------------------------------
+        
+        # --- STEP 0301: Monitores de Diagnóstico ---
+        # Variables estáticas para monitores (persisten entre frames)
+        self._palette_trace_count = 0
+        self._last_use_cpp_ppu = None
         # ----------------------------------------
         
         logger.info(f"Renderer inicializado: {self.window_width}x{self.window_height} (scale={scale})")
         
         # Mostrar pantalla de carga
         self._show_loading_screen()
+    
+    @property
+    def palette(self):
+        """Getter para self.palette (usado por monitores Step 0301)."""
+        return self._palette
+    
+    @palette.setter
+    def palette(self, value):
+        """Setter para self.palette con monitor de cambios (Step 0301)."""
+        old_0 = self._palette[0] if self._palette else None
+        self._palette = value
+        new_0 = value[0] if value else None
+        if old_0 != new_0:
+            import traceback
+            print(f"[PALETTE-SELF-CHANGE] self.palette[0] cambió: {old_0} -> {new_0}")
+            print(f"[PALETTE-SELF-CHANGE] Stack trace:")
+            traceback.print_stack(limit=5)
 
     def _show_loading_screen(self, duration: float = 3.5) -> None:
         """
@@ -483,6 +508,23 @@ class Renderer:
                 ]
                 # ----------------------------------------
                 
+                # --- STEP 0301: Monitor de Uso de Paleta ([PALETTE-USE-TRACE]) ---
+                if self._palette_trace_count < 100 or (self._palette_trace_count % 1000 == 0):
+                    use_cpp = self.use_cpp_ppu
+                    palette_0_debug = palette[0]  # Paleta debug local
+                    palette_0_self = self._palette[0]  # self.palette
+                    print(f"[PALETTE-USE-TRACE] Frame {self._palette_trace_count} | use_cpp_ppu={use_cpp} | debug_palette[0]={palette_0_debug} | self.palette[0]={palette_0_self}")
+                self._palette_trace_count += 1
+                # ----------------------------------------
+                
+                # --- STEP 0301: Monitor de Cambios en use_cpp_ppu ([CPP-PPU-TOGGLE]) ---
+                if self._last_use_cpp_ppu is None:
+                    self._last_use_cpp_ppu = self.use_cpp_ppu
+                elif self._last_use_cpp_ppu != self.use_cpp_ppu:
+                    print(f"[CPP-PPU-TOGGLE] use_cpp_ppu cambió: {self._last_use_cpp_ppu} -> {self.use_cpp_ppu}")
+                    self._last_use_cpp_ppu = self.use_cpp_ppu
+                # ----------------------------------------
+                
                 # Log de paleta desactivado para producción
                 
                 # --- STEP 0218: IMPLEMENTACIÓN CON DIAGNÓSTICO Y BLIT ESTÁNDAR ---
@@ -549,6 +591,23 @@ class Renderer:
             debug_palette_map[2],
             debug_palette_map[3]
         ]
+        # ----------------------------------------
+        
+        # --- STEP 0301: Monitor de Uso de Paleta ([PALETTE-USE-TRACE]) ---
+        if self._palette_trace_count < 100 or (self._palette_trace_count % 1000 == 0):
+            use_cpp = self.use_cpp_ppu
+            palette_0_debug = palette[0]  # Paleta debug local
+            palette_0_self = self._palette[0]  # self.palette
+            print(f"[PALETTE-USE-TRACE] Frame {self._palette_trace_count} | use_cpp_ppu={use_cpp} | debug_palette[0]={palette_0_debug} | self.palette[0]={palette_0_self}")
+        self._palette_trace_count += 1
+        # ----------------------------------------
+        
+        # --- STEP 0301: Monitor de Cambios en use_cpp_ppu ([CPP-PPU-TOGGLE]) ---
+        if self._last_use_cpp_ppu is None:
+            self._last_use_cpp_ppu = self.use_cpp_ppu
+        elif self._last_use_cpp_ppu != self.use_cpp_ppu:
+            print(f"[CPP-PPU-TOGGLE] use_cpp_ppu cambió: {self._last_use_cpp_ppu} -> {self.use_cpp_ppu}")
+            self._last_use_cpp_ppu = self.use_cpp_ppu
         # ----------------------------------------
         
         # Logs de diagnóstico desactivados para mejorar rendimiento
