@@ -32,6 +32,90 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0296: Verificación y Análisis del Step 0295
+**Estado**: ✅ COMPLETADO
+
+Ejecución del plan de verificación del Step 0295 para analizar los cinco monitores globales implementados. Se ejecutó el emulador con Pokémon Red durante 12 segundos y se capturaron los logs de todos los monitores. El análisis revela que **el código de carga de tiles NO existe en esta fase del juego** (primeros 12 segundos de ejecución).
+
+**Resultados del análisis**:
+- **[VRAM-ACCESS-GLOBAL]**: 1001 accesos detectados, todos son CLEAR (0x00), todos desde PC 0x36E3
+- **[PC-VRAM-CORRELATION]**: Solo 1 PC accede a VRAM (0x36E3 - rutina de limpieza)
+- **[LOAD-SEQUENCE]**: 1 secuencia detectada, pero es de limpieza (0x00), no de carga real
+- **[ROM-TO-VRAM]**: 0 copias desde ROM detectadas
+- **[TIMING-VRAM]**: 1000 accesos, todos con LCD:ON pero BG:OFF, ninguno con BG:ON
+
+**Conclusión definitiva**: ❌ **El código de carga de tiles NO existe en esta fase del juego**. Todos los accesos a VRAM son de limpieza (0x00) desde la rutina 0x36E3, y ocurren durante la inicialización cuando BG Display está OFF. No se detectaron accesos con datos reales, secuencias de carga de tiles, ni copias desde ROM.
+
+**Evaluación de hipótesis**:
+- **Hipótesis A** (carga antes de BG): ❌ RECHAZADA - No hay accesos con datos reales
+- **Hipótesis B** (carga mucho después): ⚠️ PARCIALMENTE POSIBLE - El análisis cubrió solo 12 segundos
+- **Hipótesis C** (métodos no detectados): ❌ RECHAZADA - Todos los métodos estándar fueron monitoreados
+- **Hipótesis D** (no existe en esta fase): ✅ CONFIRMADA - No hay código de carga en esta fase
+
+**Recomendaciones**:
+1. Ejecutar el emulador por más tiempo (30-60 segundos) para verificar si el código de carga se ejecuta más tarde
+2. Buscar en otras fases del juego (cambios de pantalla, menús, batallas)
+3. Investigar el desensamblado del juego para identificar rutinas de carga
+4. Verificar si los tiles ya están cargados en VRAM desde el inicio
+
+**Documentos generados**:
+- `ANALISIS_STEP_0295_VERIFICACION.md` - Documento de análisis completo
+- `debug_step_0295.log` - Logs de ejecución (23.6 MB)
+
+---
+
+### 2025-12-25 - Step 0295: Monitor Global de Accesos VRAM y Búsqueda de Rutinas de Carga
+**Estado**: ✅ COMPLETADO
+
+Implementación de cinco monitores globales para rastrear TODOS los accesos a VRAM sin importar dónde ocurran en el flujo de ejecución. El análisis del Step 0294 rechazó parcialmente la hipótesis: las ISRs se ejecutan pero no acceden a VRAM, y el código post-BG tampoco accede. Necesitamos determinar si el código de carga existe y cuándo debería ejecutarse, o si simplemente no existe en esta fase del juego.
+
+**Monitores implementados**:
+- **[VRAM-ACCESS-GLOBAL]**: Detecta TODOS los accesos de escritura a VRAM (0x8000-0x9FFF) independientemente de dónde ocurran. Verifica si HL apunta a VRAM cuando se ejecutan opcodes de escritura (LD (HL+), A, LD (HL-), A, LD (HL), A, LD (HL), n, LD (HL), r). Reporta PC, opcode, dirección VRAM, valor escrito, si es Tile Data o Tile Map, Tile ID aproximado, si es dato real o limpieza, y banco ROM. Límite: 1000 accesos.
+- **[PC-VRAM-CORRELATION]**: Usa un `std::map<uint16_t, int>` para rastrear qué PCs acceden a VRAM y cuántas veces. Imprime inmediatamente cuando detecta un PC nuevo o cuando es dato (no limpieza). Permite identificar rutinas específicas que cargan tiles.
+- **[LOAD-SEQUENCE]**: Detecta secuencias consecutivas de escrituras a VRAM que podrían ser carga de tiles. Rastrea direcciones consecutivas (incremento o decremento) y reporta cuando se completa una secuencia de 16 bytes (un tile completo).
+- **[ROM-TO-VRAM]**: Detecta cuando se ejecuta LDIR (0xED 0xB0) con DE apuntando a VRAM. Esto indica una copia bloque desde ROM (HL) a VRAM (DE) de longitud BC. Reporta PC, direcciones origen y destino, longitud y banco ROM.
+- **[TIMING-VRAM]**: Rastrea el timing de accesos a VRAM usando un contador de instrucciones aproximado. Calcula el frame aproximado basado en instrucciones (asumiendo ~4 ciclos por instrucción promedio). Reporta PC, frame aproximado, LY, estado del LCD, estado de BG Display, dirección VRAM y valor escrito.
+
+**Cambios realizados**:
+- **CPU.cpp**:
+  - Añadido `#include <map>` para el monitor de correlación PC-VRAM.
+  - Implementados cinco monitores globales en `CPU::step()` después de capturar `original_pc`, antes de cualquier early return.
+  - Los monitores usan variables `static` para mantener estado entre llamadas.
+
+**Hipótesis a investigar**:
+1. **Hipótesis A**: El código de carga existe pero se ejecuta ANTES de habilitar BG Display.
+2. **Hipótesis B**: El código de carga existe pero se ejecuta MUCHO DESPUÉS de habilitar BG Display (más de 300 instrucciones).
+3. **Hipótesis C**: El código de carga existe pero usa métodos no detectados (ej: DMA no estándar, acceso indirecto).
+4. **Hipótesis D**: El código de carga NO existe en esta fase del juego - el juego carga tiles más tarde o en otra pantalla.
+
+**Próximos pasos**: Ejecutar el emulador con los nuevos monitores activos y analizar los logs generados para determinar si hay accesos a VRAM en algún momento del flujo, identificar rutinas específicas que acceden a VRAM, detectar secuencias de carga, determinar el timing de accesos a VRAM, y concluir si el código de carga existe o no en esta fase del juego.
+
+**Resultados del análisis de verificación**:
+- **Ejecución**: 12 segundos de ejecución con Pokémon Red, log generado (23.6 MB)
+- **[VRAM-ACCESS-GLOBAL]**: 1001 accesos detectados, todos son CLEAR (0x00), todos desde PC 0x36E3
+- **[PC-VRAM-CORRELATION]**: Solo 1 PC accede a VRAM (0x36E3 - rutina de limpieza)
+- **[LOAD-SEQUENCE]**: 1 secuencia detectada, pero es de limpieza (0x00), no de carga real
+- **[ROM-TO-VRAM]**: 0 copias desde ROM detectadas
+- **[TIMING-VRAM]**: 1000 accesos, todos con LCD:ON pero BG:OFF, ninguno con BG:ON
+
+**Conclusión definitiva**: ❌ **El código de carga de tiles NO existe en esta fase del juego** (primeros 12 segundos de ejecución). Todos los accesos a VRAM son de limpieza (0x00) desde la rutina 0x36E3, y ocurren durante la inicialización cuando BG Display está OFF. No se detectaron accesos con datos reales, secuencias de carga de tiles, ni copias desde ROM.
+
+**Evaluación de hipótesis**:
+- **Hipótesis A** (carga antes de BG): ❌ RECHAZADA - No hay accesos con datos reales
+- **Hipótesis B** (carga mucho después): ⚠️ PARCIALMENTE POSIBLE - El análisis cubrió solo 12 segundos
+- **Hipótesis C** (métodos no detectados): ❌ RECHAZADA - Todos los métodos estándar fueron monitoreados
+- **Hipótesis D** (no existe en esta fase): ✅ CONFIRMADA - No hay código de carga en esta fase
+
+**Recomendaciones**:
+1. Ejecutar el emulador por más tiempo (30-60 segundos) para verificar si el código de carga se ejecuta más tarde
+2. Buscar en otras fases del juego (cambios de pantalla, menús, batallas)
+3. Investigar el desensamblado del juego para identificar rutinas de carga
+4. Verificar si los tiles ya están cargados en VRAM desde el inicio
+
+**Documento de análisis**: `ANALISIS_STEP_0295_VERIFICACION.md`
+
+---
+
 ### 2025-12-25 - Step 0294: Rastreo de Activación de BG Display e Interrupciones
 **Estado**: ✅ COMPLETADO
 

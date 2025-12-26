@@ -192,6 +192,8 @@ logs/
 *.txt
 !requirements.txt
 !pytest.ini
+!tools/viboy_logo_tiles.txt
+!tools/viboy_logo_header.txt
 
 # Tests temporales y de verificación
 tests/temp/

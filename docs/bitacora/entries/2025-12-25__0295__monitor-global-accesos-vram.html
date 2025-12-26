@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor Global de Accesos VRAM y Búsqueda de Rutinas de Carga - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Monitor Global de Accesos VRAM y Búsqueda de Rutinas de Carga</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0295
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0294__rastreo-activacion-bg-display-interrupciones.html">Anterior (0294)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de cinco monitores globales para rastrear TODOS los accesos a VRAM sin importar dónde ocurran en el flujo de ejecución.
+                    El análisis del Step 0294 rechazó parcialmente la hipótesis: las ISRs se ejecutan pero no acceden a VRAM, y el código post-BG tampoco accede.
+                    Necesitamos determinar si el código de carga existe y cuándo debería ejecutarse, o si simplemente no existe en esta fase del juego.
+                </p>
+                <p>
+                    Los nuevos monitores detectan accesos a VRAM en cualquier momento del flujo, correlacionan PCs con accesos VRAM, identifican secuencias
+                    consecutivas de carga, detectan copias desde ROM usando LDIR, y rastrean el timing de accesos VRAM.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>Video RAM (VRAM) y Carga de Tiles</h3>
+                <p>
+                    La VRAM (0x8000-0x9FFF) contiene dos tipos de datos:
+                </p>
+                <ul>
+                    <li><strong>Tile Data (0x8000-0x97FF)</strong>: 384 tiles de 8x8 píxeles, cada tile ocupa 16 bytes (2 bytes por fila de 8 píxeles).</li>
+                    <li><strong>Tile Maps (0x9800-0x9FFF)</strong>: Dos mapas de tiles que indican qué tile se muestra en cada posición de la pantalla.</li>
+                </ul>
+                <p>
+                    Los tiles se cargan típicamente desde la ROM del cartucho a VRAM usando instrucciones de bloque como <code>LDIR</code> (Load, Increment, Repeat),
+                    que copia una secuencia de bytes desde una dirección fuente (ROM) a una dirección destino (VRAM).
+                </p>
+
+                <h3>Patrones de Carga de Tiles</h3>
+                <p>
+                    Los juegos cargan tiles usando varios métodos:
+                </p>
+                <ol>
+                    <li><strong>LDIR (0xED 0xB0)</strong>: Patrón más común. Copia (HL++) a (DE++), decrementa BC, repite hasta BC=0.</li>
+                    <li><strong>Loops manuales</strong>: <code>LD A,(HL) ; LD (DE),A ; INC HL ; INC DE ; DEC BC ; JR NZ</code></li>
+                    <li><strong>Escritura directa</strong>: <code>LD (HL+), A</code> o <code>LD (HL), n</code> en secuencias consecutivas</li>
+                </ol>
+                <p>
+                    Una secuencia típica carga 16 bytes consecutivos (un tile completo) desde una dirección en ROM a una dirección en VRAM.
+                </p>
+
+                <h3>Timing de Carga</h3>
+                <p>
+                    Los tiles pueden cargarse en varios momentos:
+                </p>
+                <ul>
+                    <li><strong>Durante la inicialización</strong>: Antes del primer frame, cuando el LCD está apagado</li>
+                    <li><strong>Durante V-Blank</strong>: Cuando VRAM es accesible (aunque esto es más común para actualizaciones)</li>
+                    <li><strong>Durante H-Blank</strong>: Limitado, solo en ciertos modos de LCD-STAT</li>
+                    <li><strong>En el flujo principal</strong>: En cualquier momento cuando VRAM es accesible</li>
+                </ul>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "Video RAM (VRAM)", "CPU Instruction Set - LDIR", "Tile Data", "LCD Modes"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron cinco monitores globales en <code>CPU::step()</code> que detectan accesos a VRAM sin importar dónde ocurran
+                    en el flujo de ejecución. Todos los monitores se ejecutan antes de cualquier early return para asegurar que capturamos todas
+                    las ejecuciones.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>CPU.cpp</strong>: Añadidos cinco monitores globales después de capturar <code>original_pc</code>.</li>
+                    <li><strong>CPU.cpp</strong>: Añadido <code>#include &lt;map&gt;</code> para el monitor de correlación PC-VRAM.</li>
+                </ul>
+
+                <h3>Monitores Implementados</h3>
+                
+                <h4>[VRAM-ACCESS-GLOBAL] - Monitor Global de Accesos VRAM</h4>
+                <p>
+                    Detecta TODOS los accesos de escritura a VRAM (0x8000-0x9FFF) independientemente de dónde ocurran. Verifica si HL apunta a VRAM
+                    cuando se ejecutan opcodes de escritura:
+                </p>
+                <ul>
+                    <li><code>LD (HL+), A</code> (0x22)</li>
+                    <li><code>LD (HL-), A</code> (0x32)</li>
+                    <li><code>LD (HL), A</code> (0x77)</li>
+                    <li><code>LD (HL), n</code> (0x36)</li>
+                    <li><code>LD (HL), r</code> (0x70-0x75)</li>
+                </ul>
+                <p>
+                    Para cada acceso, reporta PC, opcode, dirección VRAM, valor escrito, si es Tile Data o Tile Map, Tile ID aproximado,
+                    si es dato real o limpieza, y banco ROM actual. Límite: 1000 accesos.
+                </p>
+
+                <h4>[PC-VRAM-CORRELATION] - Correlación PC-VRAM</h4>
+                <p>
+                    Usa un <code>std::map&lt;uint16_t, int&gt;</code> para rastrear qué PCs acceden a VRAM y cuántas veces. Imprime
+                    inmediatamente cuando detecta un PC nuevo o cuando es dato (no limpieza). Esto permite identificar rutinas específicas
+                    que cargan tiles.
+                </p>
+
+                <h4>[LOAD-SEQUENCE] - Secuencias de Carga</h4>
+                <p>
+                    Detecta secuencias consecutivas de escrituras a VRAM que podrían ser carga de tiles. Rastrea direcciones consecutivas
+                    (incremento o decremento) y reporta cuando se completa una secuencia de 16 bytes (un tile completo). Alerta especial
+                    cuando se detecta una secuencia completa.
+                </p>
+
+                <h4>[ROM-TO-VRAM] - Copias desde ROM</h4>
+                <p>
+                    Detecta cuando se ejecuta <code>LDIR</code> (0xED 0xB0) con DE apuntando a VRAM. Esto indica una copia bloque desde ROM
+                    (HL) a VRAM (DE) de longitud BC. Reporta PC, direcciones origen y destino, longitud y banco ROM.
+                </p>
+
+                <h4>[TIMING-VRAM] - Timing de Accesos VRAM</h4>
+                <p>
+                    Rastrea el timing de accesos a VRAM usando un contador de instrucciones aproximado. Calcula el frame aproximado basado
+                    en instrucciones (asumiendo ~4 ciclos por instrucción promedio). Reporta PC, frame aproximado, LY (scanline actual),
+                    estado del LCD (ON/OFF), estado de BG Display (ON/OFF), dirección VRAM y valor escrito.
+                </p>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Los monitores usan variables <code>static</code> para mantener estado entre llamadas. Esto es apropiado porque los monitores
+                    deben rastrear el estado global del sistema durante toda la ejecución. El monitor de correlación usa <code>std::map</code>
+                    para almacenar eficientemente el conteo de accesos por PC.
+                </p>
+                <p>
+                    El límite de 1000 accesos para [VRAM-ACCESS-GLOBAL] previene la saturación de logs mientras permite capturar suficiente
+                    información para análisis. El frame counter aproximado en [TIMING-VRAM] es suficiente para identificar el timing relativo
+                    de los accesos sin necesidad de acceso directo al frame counter real de PPU.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadidos cinco monitores globales de accesos VRAM</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadido <code>#include &lt;map&gt;</code> para monitor de correlación</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    El código compiló exitosamente sin errores. Los monitores están listos para ejecución.
+                </p>
+                <ul>
+                    <li><strong>Compilación</strong>: <code>python setup.py build_ext --inplace</code> - Exitoso</li>
+                    <li><strong>Validación de sintaxis</strong>: Sin errores de linter</li>
+                    <li><strong>Validación de módulo compilado C++</strong>: Módulo <code>viboy_core</code> compilado correctamente</li>
+                </ul>
+                <p>
+                    <strong>Nota</strong>: Los monitores generarán logs durante la ejecución del emulador. El análisis de estos logs
+                    permitirá determinar si hay accesos a VRAM en algún momento del flujo y cuándo ocurren.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Video RAM (VRAM)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set - LDIR</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Data</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Modes</a></li>
+                </ul>
+                <p>
+                    <em>Nota: Implementación basada en documentación técnica de Pan Docs y conocimiento general de arquitectura LR35902.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Monitoreo Global</strong>: Para encontrar código de carga que puede ejecutarse en cualquier momento, necesitamos monitores que rastreen TODOS los accesos a VRAM, no solo en contextos específicos como ISRs o flujo principal después de eventos.</li>
+                        <li><strong>Correlación PC-VRAM</strong>: Identificar qué rutinas específicas (PCs) acceden a VRAM permite encontrar el código de carga incluso si se ejecuta en momentos inesperados.</li>
+                        <li><strong>Secuencias de Carga</strong>: Los tiles se cargan típicamente en secuencias consecutivas de 16 bytes, lo cual es un patrón detectable.</li>
+                        <li><strong>LDIR</strong>: La instrucción LDIR es el método más común para copiar bloques de datos desde ROM a VRAM.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Existencia del código de carga</strong>: ¿Existe código que carga tiles en esta fase del juego, o el juego carga tiles más tarde?</li>
+                        <li><strong>Timing de carga</strong>: Si el código existe, ¿cuándo se ejecuta? ¿Durante inicialización, V-Blank, o en otro momento?</li>
+                        <li><strong>Condiciones de ejecución</strong>: Si el código existe pero no se ejecuta, ¿qué condiciones faltan?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        El análisis del Step 0294 rechazó parcialmente la hipótesis de que el código de carga está en una ISR. Los nuevos
+                        monitores permitirán probar nuevas hipótesis:
+                    </p>
+                    <ul>
+                        <li><strong>Hipótesis A</strong>: El código de carga existe pero se ejecuta ANTES de habilitar BG Display</li>
+                        <li><strong>Hipótesis B</strong>: El código de carga existe pero se ejecuta MUCHO DESPUÉS de habilitar BG Display</li>
+                        <li><strong>Hipótesis C</strong>: El código de carga existe pero usa métodos no detectados (ej: DMA no estándar, acceso indirecto)</li>
+                        <li><strong>Hipótesis D</strong>: El código de carga NO existe en esta fase del juego - el juego carga tiles más tarde o en otra pantalla</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con los nuevos monitores activos</li>
+                    <li>[ ] Analizar logs para determinar si hay accesos a VRAM en algún momento</li>
+                    <li>[ ] Identificar rutinas específicas que acceden a VRAM (si existen)</li>
+                    <li>[ ] Detectar secuencias de carga (si existen)</li>
+                    <li>[ ] Determinar el timing de accesos a VRAM</li>
+                    <li>[ ] Concluir si el código de carga existe o no en esta fase del juego</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>

@@ -3,6 +3,7 @@
 #include "Registers.hpp"
 #include "PPU.hpp"
 #include "Timer.hpp"
+#include <map>
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false),
@@ -542,6 +543,179 @@ int CPU::step() {
     }
     
     last_lcdc = current_lcdc;
+    
+    // --- Step 0295: Monitor Global de Accesos VRAM ([VRAM-ACCESS-GLOBAL]) ---
+    // Detecta TODOS los accesos de escritura a VRAM (0x8000-0x9FFF) sin importar
+    // dónde ocurran en el flujo de ejecución. Esto permite identificar si hay
+    // código que carga tiles en algún momento, incluso fuera de ISRs o flujo principal.
+    // 
+    // Este monitor verifica si HL apunta a VRAM cuando se ejecutan opcodes de escritura.
+    // Fuente: Pan Docs - "Video RAM (VRAM)": 0x8000-0x97FF contiene Tile Data y 0x9800-0x9FFF contiene Tile Maps
+    static int vram_access_global_count = 0;
+    static bool vram_access_global_active = true;  // Siempre activo
+    static std::map<uint16_t, int> pc_vram_access_map;  // Para [PC-VRAM-CORRELATION]
+    static int pc_vram_correlation_count = 0;  // Para [PC-VRAM-CORRELATION]
+    static uint16_t last_vram_addr = 0xFFFF;  // Para [LOAD-SEQUENCE]
+    static uint16_t sequence_start_addr = 0xFFFF;  // Para [LOAD-SEQUENCE]
+    static int sequence_length = 0;  // Para [LOAD-SEQUENCE]
+    static uint16_t sequence_start_pc = 0x0000;  // Para [LOAD-SEQUENCE]
+    static int load_sequence_count = 0;  // Para [LOAD-SEQUENCE]
+    static uint64_t instruction_counter = 0;  // Para [TIMING-VRAM]
+    
+    instruction_counter++;
+    
+    if (vram_access_global_active && vram_access_global_count < 1000) {
+        uint8_t op = mmu_->read(original_pc);
+        uint16_t hl_val = regs_->get_hl();
+        
+        // Detectar opcodes que escriben a memoria apuntada por HL
+        bool is_write_op = false;
+        uint16_t write_addr = 0x0000;
+        uint8_t write_value = 0x00;
+        
+        if (op == 0x22) {  // LD (HL+), A
+            is_write_op = true;
+            write_addr = hl_val;
+            write_value = regs_->a;
+        } else if (op == 0x32) {  // LD (HL-), A
+            is_write_op = true;
+            write_addr = hl_val;
+            write_value = regs_->a;
+        } else if (op == 0x77) {  // LD (HL), A
+            is_write_op = true;
+            write_addr = hl_val;
+            write_value = regs_->a;
+        } else if (op == 0x36) {  // LD (HL), n
+            is_write_op = true;
+            write_addr = hl_val;
+            write_value = mmu_->read(original_pc + 1);
+        } else if (op >= 0x70 && op <= 0x75) {  // LD (HL), r (B, C, D, E, H, L)
+            is_write_op = true;
+            write_addr = hl_val;
+            // Extraer el registro (bits 0-2 del opcode)
+            uint8_t reg_idx = op & 0x07;
+            switch(reg_idx) {
+                case 0: write_value = regs_->b; break;
+                case 1: write_value = regs_->c; break;
+                case 2: write_value = regs_->d; break;
+                case 3: write_value = regs_->e; break;
+                case 4: write_value = regs_->h; break;
+                case 5: write_value = regs_->l; break;
+                default: write_value = 0x00; break;
+            }
+        }
+        
+        // Verificar si la dirección de escritura está en VRAM
+        if (is_write_op && write_addr >= 0x8000 && write_addr <= 0x9FFF) {
+            // Determinar si es Tile Data o Tile Map
+            bool is_tile_data = (write_addr >= 0x8000 && write_addr <= 0x97FF);
+            bool is_tile_map = (write_addr >= 0x9800 && write_addr <= 0x9FFF);
+            
+            // Calcular Tile ID aproximado si es Tile Data
+            uint8_t tile_id_approx = 0xFF;
+            if (is_tile_data) {
+                uint16_t tile_offset = write_addr - 0x8000;
+                tile_id_approx = tile_offset / 16;
+            }
+            
+            // Verificar si es dato real o limpieza
+            bool is_data = (write_value != 0x00 && write_value != 0x7F);
+            
+            // [VRAM-ACCESS-GLOBAL]: Reportar acceso
+            printf("[VRAM-ACCESS-GLOBAL] PC:0x%04X OP:0x%02X | Write %04X=%02X (%s, TileID~%d) | %s | Bank:%d\n",
+                   original_pc, op, write_addr, write_value,
+                   is_tile_data ? "TileData" : "TileMap",
+                   tile_id_approx, is_data ? "DATA" : "CLEAR",
+                   mmu_->get_current_rom_bank());
+            
+            vram_access_global_count++;
+            
+            if (vram_access_global_count >= 1000) {
+                printf("[VRAM-ACCESS-GLOBAL] Límite alcanzado (1000 accesos). Monitor desactivado.\n");
+                vram_access_global_active = false;
+            }
+            
+            // --- Step 0295: Monitor [PC-VRAM-CORRELATION] - Correlación PC-VRAM ---
+            // Registrar este PC en el mapa
+            pc_vram_access_map[original_pc]++;
+            pc_vram_correlation_count++;
+            
+            // Imprimir inmediatamente si es un PC nuevo o si es dato (no limpieza)
+            if (pc_vram_access_map[original_pc] == 1 || is_data) {
+                printf("[PC-VRAM-CORRELATION] PC:0x%04X accede a VRAM %04X (acceso #%d) | %s\n",
+                       original_pc, write_addr, pc_vram_access_map[original_pc],
+                       is_data ? "DATA" : "CLEAR");
+            }
+            
+            // --- Step 0295: Monitor [LOAD-SEQUENCE] - Secuencias de Carga ---
+            // Detecta secuencias consecutivas de escrituras a VRAM que podrían ser carga de tiles
+            if (write_addr == last_vram_addr + 1 || (last_vram_addr != 0xFFFF && write_addr == last_vram_addr - 1)) {
+                sequence_length++;
+                if (sequence_length == 1) {
+                    sequence_start_addr = write_addr;
+                    sequence_start_pc = original_pc;
+                }
+                
+                // Si la secuencia alcanza 16 bytes (un tile completo), reportar
+                if (sequence_length == 16) {
+                    load_sequence_count++;
+                    printf("[LOAD-SEQUENCE] ⚠️ SECUENCIA DE CARGA DETECTADA: PC:0x%04X | Rango: 0x%04X-0x%04X (%d bytes) | Tile completo\n",
+                           sequence_start_pc, sequence_start_addr, write_addr, sequence_length);
+                }
+            } else {
+                // Nueva secuencia o secuencia terminada
+                if (sequence_length >= 16) {
+                    printf("[LOAD-SEQUENCE] Secuencia terminada: %d bytes desde 0x%04X\n",
+                           sequence_length, sequence_start_addr);
+                }
+                sequence_length = 1;
+                sequence_start_addr = write_addr;
+                sequence_start_pc = original_pc;
+            }
+            
+            last_vram_addr = write_addr;
+            
+            // --- Step 0295: Monitor [TIMING-VRAM] - Timing de Accesos VRAM ---
+            // Rastrea el timing de accesos a VRAM (frame, relación con eventos)
+            uint8_t ly = mmu_->read(0xFF44);
+            uint8_t lcdc = mmu_->read(0xFF40);
+            bool lcd_on = (lcdc & 0x80) != 0;
+            bool bg_display = (lcdc & 0x01) != 0;
+            
+            // Aproximar frame basado en instrucciones (456 ciclos por scanline * 144 scanlines = 65,664 ciclos por frame)
+            // Asumiendo ~4 ciclos por instrucción promedio, ~16,416 instrucciones por frame
+            uint64_t approx_frame = instruction_counter / 16416;
+            
+            printf("[TIMING-VRAM] PC:0x%04X | Frame:~%llu | LY:%d | LCD:%s BG:%s | Write %04X=%02X\n",
+                   original_pc, approx_frame, ly, lcd_on ? "ON" : "OFF", bg_display ? "ON" : "OFF",
+                   write_addr, write_value);
+        }
+    }
+    
+    // --- Step 0295: Monitor [ROM-TO-VRAM] - Copias desde ROM ---
+    // Detecta cuando se copian datos desde ROM a VRAM usando LDIR (Load, Increment, Repeat)
+    // Patrón común: LD HL, <rom_addr> ; LD DE, <vram_addr> ; LD BC, <length> ; LDIR
+    static int rom_to_vram_count = 0;
+    
+    uint8_t op = mmu_->read(original_pc);
+    
+    // Detectar LDIR (0xED 0xB0) - Copy (HL++) to (DE++), decrement BC, repeat
+    if (op == 0xED) {
+        uint8_t next_byte = mmu_->read(original_pc + 1);
+        if (next_byte == 0xB0) {  // LDIR
+            uint16_t hl_val = regs_->get_hl();
+            uint16_t de_val = regs_->get_de();
+            uint16_t bc_val = regs_->get_bc();
+            
+            // Verificar si DE apunta a VRAM
+            if (de_val >= 0x8000 && de_val <= 0x9FFF) {
+                rom_to_vram_count++;
+                printf("[ROM-TO-VRAM] ⚠️ LDIR detectado: PC:0x%04X | ROM:0x%04X -> VRAM:0x%04X | Length:%d | Bank:%d\n",
+                       original_pc, hl_val, de_val, bc_val, mmu_->get_current_rom_bank());
+            }
+        }
+    }
+    // -----------------------------------------
     
     // --- Step 0285: Sniper de Ejecución del Handler (MOVIDO AL INICIO) ---
     // Este monitor se ejecuta ANTES de cualquier early return para asegurar
