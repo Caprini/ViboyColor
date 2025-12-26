@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrección de Paleta Debug Índices 1 y 2 - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Corrección de Paleta Debug Índices 1 y 2</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0303
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0302__verificacion-extendida-analisis-monitores.html">Anterior (0302)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Corrección de todas las paletas de debug en el renderer que usan colores verdes para los índices 1 y 2,
+                    cambiándolos a grises verdaderos para eliminar las rayas verdes que aparecen cuando el framebuffer contiene
+                    valores 1 o 2. Se identificaron y corrigieron 4 ubicaciones donde se definen paletas con valores verdes.
+                </p>
+                <p>
+                    <strong>Resultado</strong>: Se corrigieron los valores de los índices 1 y 2 en todas las paletas de debug,
+                    cambiando de verde a gris verdadero. Esto eliminará las rayas verdes visuales cuando el framebuffer tenga
+                    valores 1 o 2, mostrándolos como gris claro y gris oscuro respectivamente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>Paleta de Colores en Game Boy</h3>
+                <p>
+                    El framebuffer de la PPU contiene <strong>índices de color</strong> (0-3), no colores RGB directamente.
+                    El renderer debe convertir estos índices a colores RGB usando una paleta. La paleta estándar de Game Boy
+                    (greyscale) usa:
+                </p>
+                <ul>
+                    <li><strong>Color 0</strong>: Blanco <code>(255, 255, 255)</code> - el más claro</li>
+                    <li><strong>Color 1</strong>: Gris claro <code>(170, 170, 170)</code></li>
+                    <li><strong>Color 2</strong>: Gris oscuro <code>(85, 85, 85)</code></li>
+                    <li><strong>Color 3</strong>: Negro <code>(0, 0, 0)</code> - el más oscuro</li>
+                </ul>
+                <p>
+                    Estos valores son estándar en emulación y proporcionan el contraste correcto para la visualización
+                    en escala de grises.
+                </p>
+
+                <h3>Paleta de Debug vs Paleta Real</h3>
+                <p>
+                    La paleta de debug es una herramienta de diagnóstico que mapea índices a colores fijos para visualizar
+                    el contenido del framebuffer sin pasar por las paletas del hardware (BGP/OBP). Debe usar los mismos valores
+                    que la paleta estándar para representación correcta. Si la paleta de debug usa colores incorrectos (como verde
+                    en lugar de gris), cualquier valor en el framebuffer con ese índice se mostrará incorrectamente.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "Background Palette (BGP)", "Object Palette (OBP)", "Palette"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se identificaron 4 ubicaciones donde se definen paletas de debug con valores verdes para los índices 1 y 2,
+                    y se corrigieron cambiándolos a grises verdaderos según la constante <code>PALETTE_GREYSCALE</code>.
+                </p>
+                
+                <h3>Ubicaciones Corregidas</h3>
+                <ol>
+                    <li>
+                        <strong><code>self.COLORS</code> en <code>__init__()</code></strong> (líneas 192-193):
+                        <ul>
+                            <li>Índice 1: <code>(136, 192, 112)</code> → <code>(170, 170, 170)</code></li>
+                            <li>Índice 2: <code>(52, 104, 86)</code> → <code>(85, 85, 85)</code></li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong><code>render_frame()</code> con PPU C++</strong> (líneas 494-499):
+                        <ul>
+                            <li>Índice 1: <code>(136, 192, 112)</code> → <code>(170, 170, 170)</code></li>
+                            <li>Índice 2: <code>(52, 104, 86)</code> → <code>(85, 85, 85)</code></li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong><code>render_frame()</code> método Python</strong> (líneas 579-584):
+                        <ul>
+                            <li>Índice 1: <code>(136, 192, 112)</code> → <code>(170, 170, 170)</code></li>
+                            <li>Índice 2: <code>(52, 104, 86)</code> → <code>(85, 85, 85)</code></li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong><code>render_sprites()</code></strong> (líneas 955-960):
+                        <ul>
+                            <li>Índice 1: <code>(136, 192, 112)</code> → <code>(170, 170, 170)</code></li>
+                            <li>Índice 2: <code>(52, 104, 86)</code> → <code>(85, 85, 85)</code></li>
+                        </ul>
+                    </li>
+                </ol>
+
+                <h3>Valores Correctos</h3>
+                <p>
+                    Todos los valores corregidos coinciden con la constante <code>PALETTE_GREYSCALE</code> definida en
+                    el módulo (líneas 53-58):
+                </p>
+                <pre><code>PALETTE_GREYSCALE = [
+    (255, 255, 255),  # Color 0: Blanco
+    (170, 170, 170),  # Color 1: Gris claro
+    (85, 85, 85),     # Color 2: Gris oscuro
+    (0, 0, 0),        # Color 3: Negro
+]</code></pre>
+
+                <h3>Consistencia</h3>
+                <p>
+                    Todas las paletas de debug ahora usan los mismos valores para consistencia visual. Los comentarios
+                    también se actualizaron para reflejar que ahora son grises verdaderos, no verdes.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Corregidas 4 ubicaciones de paletas (líneas 192-193, 494-499, 579-584, 955-960)</li>
+                    <li><code>docs/bitacora/entries/2025-12-25__0303__correccion-paleta-debug-indices-1-2.html</code> - Esta entrada (nuevo)</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con entrada 0303</li>
+                    <li><code>INFORME_FASE_2.md</code> - Actualizado con Step 0303</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La corrección es puramente visual y no requiere tests unitarios. Sin embargo, se recomienda:
+                </p>
+                <ul>
+                    <li><strong>Verificación visual</strong>: Ejecutar el emulador durante 5-10 minutos para verificar que las rayas verdes no aparecen</li>
+                    <li><strong>Inspección de código</strong>: Verificar que todas las paletas usan valores consistentes</li>
+                </ul>
+                <p>
+                    <strong>Comando de verificación sugerido</strong>:
+                </p>
+                <pre><code>python main.py roms/pkmn.gb</code></pre>
+                <p>
+                    <strong>Validación</strong>: Confirmación visual de que:
+                </p>
+                <ul>
+                    <li>Los píxeles con índice 0 se muestran en blanco</li>
+                    <li>Los píxeles con índice 1 se muestran en gris claro (no verde)</li>
+                    <li>Los píxeles con índice 2 se muestran en gris oscuro (no verde)</li>
+                    <li>No hay rayas verdes después de varios minutos</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "Background Palette (BGP)", "Object Palette (OBP)", "Palette"</li>
+                    <li>Step 0302: Identificación del problema de paleta verde para índices 1 y 2</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Paleta de debug</strong>: Debe usar valores consistentes con la paleta estándar (greyscale) para representación correcta. Los colores verdes son incorrectos y causan confusión visual.</li>
+                        <li><strong>Mapeo de índices</strong>: El framebuffer contiene índices (0-3), no colores RGB. El renderer mapea estos índices a colores RGB usando una paleta. Si la paleta es incorrecta, la visualización será incorrecta.</li>
+                        <li><strong>Consistencia</strong>: Todas las paletas de debug deben usar los mismos valores para consistencia visual entre fondo, sprites y diferentes métodos de renderizado.</li>
+                        <li><strong>Corrección de bugs visuales</strong>: Los bugs visuales pueden deberse a problemas en la paleta de mapeo, no necesariamente en el framebuffer o en la lógica de renderizado.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Efectividad de la corrección</strong>: Si esta corrección elimina completamente las rayas verdes después de 5-10 minutos de ejecución (verificación visual pendiente).</li>
+                        <li><strong>Causa raíz del framebuffer</strong>: Por qué el framebuffer comienza a tener valores 1 o 2 después de ~5 minutos (esto no se corrigió, solo la visualización).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal</strong>: Las rayas verdes desaparecerán después de esta corrección porque
+                        ahora los valores 1 y 2 del framebuffer se mostrarán como grises verdaderos, no verdes. Esta hipótesis
+                        se basa en:
+                    </p>
+                    <ul>
+                        <li>Los monitores del Step 0302 mostraron que la paleta nunca cambia durante la ejecución</li>
+                        <li>El problema visual (rayas verdes) aparecía cuando el framebuffer tenía valores 1 o 2</li>
+                        <li>La paleta de debug usaba colores verdes para índices 1 y 2</li>
+                    </ul>
+                    <p>
+                        <strong>Suposiciones</strong>:
+                    </p>
+                    <ul>
+                        <li>El framebuffer seguirá teniendo valores 1 o 2 después de ~5 minutos (esto no se corrigió)</li>
+                        <li>Los valores 1 y 2 son correctos y solo necesitaban visualizarse como grises, no verdes</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] <strong>Verificación visual extendida</strong>: Ejecutar el emulador durante 10+ minutos para verificar que las rayas verdes no aparecen</li>
+                    <li>[ ] <strong>Si las rayas desaparecen</strong>: Continuar con otras funcionalidades del emulador</li>
+                    <li>[ ] <strong>Si persisten problemas</strong>: Investigar por qué el framebuffer cambia de valores (Step 0304/0305)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

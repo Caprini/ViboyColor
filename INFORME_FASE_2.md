@@ -32,6 +32,42 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0303: Corrección de Paleta Debug Índices 1 y 2
+**Estado**: ✅ COMPLETADO
+
+Corrección de todas las paletas de debug en el renderer que usan colores verdes para los índices 1 y 2, cambiándolos a grises verdaderos para eliminar las rayas verdes que aparecen cuando el framebuffer contiene valores 1 o 2.
+
+**Problema identificado en Step 0302**:
+- La paleta de debug usa colores **verdes** para los índices 1 y 2, no grises:
+  - Índice 1: `(136, 192, 112)` - VERDE, debería ser gris claro `(170, 170, 170)`
+  - Índice 2: `(52, 104, 86)` - VERDE, debería ser gris oscuro `(85, 85, 85)`
+- Después de ~5 minutos, el framebuffer comienza a tener valores 1 o 2, que se muestran como verde
+
+**Ubicaciones corregidas** (4 lugares):
+1. **`self.COLORS` en `__init__()`** (líneas 192-193)
+2. **`render_frame()` con PPU C++** (líneas 494-499)
+3. **`render_frame()` método Python** (líneas 579-584)
+4. **`render_sprites()`** (líneas 955-960)
+
+**Valores corregidos**:
+- Índice 1: `(136, 192, 112)` → `(170, 170, 170)` - Gris claro
+- Índice 2: `(52, 104, 86)` → `(85, 85, 85)` - Gris oscuro
+
+**Archivos modificados**:
+- `src/gpu/renderer.py` - Corregidas 4 ubicaciones de paletas
+- `docs/bitacora/entries/2025-12-25__0303__correccion-paleta-debug-indices-1-2.html` - Entrada HTML de bitácora
+- `docs/bitacora/index.html` - Actualizado con entrada 0303
+- `INFORME_FASE_2.md` - Esta entrada
+
+**Resultado esperado**: Los píxeles con índice 1 o 2 ahora deberían mostrarse en gris (claro u oscuro), no verde, eliminando las rayas verdes visuales cuando el framebuffer tiene estos valores.
+
+**Próximos pasos**:
+- Verificación visual extendida (10+ minutos) para confirmar que las rayas verdes no aparecen
+- Si las rayas desaparecen: Continuar con otras funcionalidades
+- Si persisten problemas: Investigar por qué el framebuffer cambia de valores (Step 0304/0305)
+
+---
+
 ### 2025-12-25 - Step 0302: Verificación Extendida y Análisis de Monitores
 **Estado**: ✅ COMPLETADO
 

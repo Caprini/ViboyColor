@@ -187,10 +187,11 @@ class Renderer:
         # Game Boy original: 0=Más claro, 3=Más oscuro
         # Paleta estándar de Game Boy (verde/amarillo original)
         # --- FIX STEP 0301: Corrección de Color 0 de Verde a Blanco ---
+        # --- FIX STEP 0303: Corrección de Índices 1 y 2 de Verde a Gris ---
         self.COLORS = [
             (255, 255, 255),  # 0: White (Color 0) - Corregido Step 0301
-            (136, 192, 112),  # 1: Gris claro (Light Gray)
-            (52, 104, 86),    # 2: Gris oscuro (Dark Gray)
+            (170, 170, 170),  # 1: Gris claro (Light Gray) - Corregido Step 0303
+            (85, 85, 85),     # 2: Gris oscuro (Dark Gray) - Corregido Step 0303
             (8, 24, 32)       # 3: Negro/Verde oscuro (Black)
         ]
         # Paleta actual mapeada (índice -> RGB)
@@ -493,8 +494,8 @@ class Renderer:
                 # Formato RGB (Pygame surface)
                 debug_palette_map = {
                     0: (255, 255, 255),  # 00: White (Color 0) - Corregido Step 0300
-                    1: (136, 192, 112),  # 01: Light Gray (Color 1)
-                    2: (52, 104, 86),    # 10: Dark Gray (Color 2)
+                    1: (170, 170, 170),  # 01: Light Gray (Color 1) - Corregido Step 0303
+                    2: (85, 85, 85),     # 10: Dark Gray (Color 2) - Corregido Step 0303
                     3: (8, 24, 32)       # 11: Black (Color 3)
                 }
                 
@@ -578,8 +579,8 @@ class Renderer:
         # Formato RGB (Pygame surface)
         debug_palette_map = {
             0: (255, 255, 255),  # 00: White (Color 0) - Corregido Step 0300
-            1: (136, 192, 112),  # 01: Light Gray (Color 1)
-            2: (52, 104, 86),    # 10: Dark Gray (Color 2)
+            1: (170, 170, 170),  # 01: Light Gray (Color 1) - Corregido Step 0303
+            2: (85, 85, 85),     # 10: Dark Gray (Color 2) - Corregido Step 0303
             3: (8, 24, 32)       # 11: Black (Color 3)
         }
         
@@ -954,8 +955,8 @@ class Renderer:
         # Usamos la misma paleta de debug que el fondo para consistencia visual.
         debug_palette_map = {
             0: (255, 255, 255),  # 00: White (Color 0 - transparente en sprites) - Corregido Step 0300
-            1: (136, 192, 112),  # 01: Light Gray (Color 1)
-            2: (52, 104, 86),    # 10: Dark Gray (Color 2)
+            1: (170, 170, 170),  # 01: Light Gray (Color 1) - Corregido Step 0303
+            2: (85, 85, 85),     # 10: Dark Gray (Color 2) - Corregido Step 0303
             3: (8, 24, 32)       # 11: Black (Color 3)
         }
         
