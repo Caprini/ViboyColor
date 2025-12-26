@@ -183,6 +183,13 @@ class Renderer:
         # Este buffer se escribe píxel a píxel y luego se escala a la ventana
         self.buffer = pygame.Surface((GB_WIDTH, GB_HEIGHT))
         
+        # --- STEP 0307: Cache de Scaling ---
+        # Cache para evitar recalcular pygame.transform.scale() si el tamaño no cambia
+        self._scaled_surface_cache = None
+        self._cache_screen_size = None
+        self._cache_source_hash = None  # Hash del contenido del framebuffer
+        # ----------------------------------------
+        
         # --- FIX STEP 0216: Definición Explícita de Colores ---
         # Game Boy original: 0=Más claro, 3=Más oscuro
         # Paleta estándar de Game Boy (verde/amarillo original)
@@ -504,20 +511,26 @@ class Renderer:
         # OPTIMIZACIÓN: Si usamos PPU C++, hacer blit directo del framebuffer
         if self.use_cpp_ppu and self.cpp_ppu is not None:
             try:
-                # --- Step 0219: SNAPSHOT INMUTABLE ---
+                # --- STEP 0307: SNAPSHOT INMUTABLE DEL FRAMEBUFFER ---
                 # Si se proporciona framebuffer_data, usar ese snapshot en lugar de leer desde PPU
                 if framebuffer_data is not None:
+                    # Ya es un snapshot inmutable (bytearray)
                     frame_indices = framebuffer_data
                 else:
                     # Obtener framebuffer como memoryview (Zero-Copy)
                     # El framebuffer es ahora uint8_t con índices de color (0-3) en formato 1D
                     # Organización: píxel (y, x) está en índice [y * 160 + x]
-                    frame_indices = self.cpp_ppu.get_framebuffer()  # 1D array de 23040 elementos
-                
-                # CRÍTICO: Verificar que el framebuffer sea válido
-                if frame_indices is None:
-                    logger.error("[Renderer] Framebuffer es None - PPU puede no estar inicializada")
-                    return
+                    frame_indices_mv = self.cpp_ppu.get_framebuffer()  # 1D array de 23040 elementos
+                    
+                    # CRÍTICO: Verificar que el framebuffer sea válido
+                    if frame_indices_mv is None:
+                        logger.error("[Renderer] Framebuffer es None - PPU puede no estar inicializada")
+                        return
+                    
+                    # Crear snapshot inmutable convirtiendo memoryview a lista
+                    # Esto copia los datos y evita desincronización entre C++ y Python
+                    frame_indices = list(frame_indices_mv)  # Snapshot inmutable
+                # ----------------------------------------
                 
                 # Diagnóstico desactivado para producción
                 
@@ -612,14 +625,12 @@ class Renderer:
                 
                 # Log de paleta desactivado para producción
                 
-                # --- STEP 0218: IMPLEMENTACIÓN CON DIAGNÓSTICO Y BLIT ESTÁNDAR ---
+                # --- STEP 0307: RENDERIZADO OPTIMIZADO ---
                 # Crear superficie de Pygame para el frame (160x144)
                 # Usamos self.surface si existe, sino creamos una nueva
                 if not hasattr(self, 'surface'):
                     self.surface = pygame.Surface((GB_WIDTH, GB_HEIGHT))
                 
-                # Renderizado robusto
-                px_array = pygame.PixelArray(self.surface)
                 WIDTH, HEIGHT = 160, 144
                 
                 # --- STEP 0305: Verificación de PixelArray y Scaling ([PIXEL-VERIFY]) ---
@@ -636,22 +647,69 @@ class Renderer:
                     self._pixel_verify_count += 1
                 # ----------------------------------------
                 
-                for y in range(HEIGHT):
-                    for x in range(WIDTH):
-                        idx = y * WIDTH + x
-                        color_index = frame_indices[idx] & 0x03
-                        color_rgb = palette[color_index]
-                        px_array[x, y] = color_rgb
+                # Intentar usar numpy para renderizado vectorizado (más rápido)
+                try:
+                    import numpy as np
+                    import pygame.surfarray as surfarray
+                    
+                    # Crear array numpy con índices (144x160) - formato (y, x)
+                    # frame_indices está en formato [y * 160 + x], así que reshape es (144, 160)
+                    indices_array = np.array(frame_indices, dtype=np.uint8).reshape(144, 160)
+                    
+                    # Crear array RGB (144x160x3) - formato (height, width, channels)
+                    rgb_array = np.zeros((144, 160, 3), dtype=np.uint8)
+                    
+                    # Mapear índices a RGB usando operaciones vectorizadas
+                    for i, rgb in enumerate(palette):
+                        mask = indices_array == i
+                        rgb_array[mask] = rgb
+                    
+                    # Blit directo usando surfarray - necesita formato (width, height, channels)
+                    # surfarray espera (width, height, channels), así que necesitamos (160, 144, 3)
+                    rgb_array_swapped = np.swapaxes(rgb_array, 0, 1)  # (160, 144, 3)
+                    surfarray.blit_array(self.surface, rgb_array_swapped)
+                    
+                except ImportError:
+                    # Fallback: PixelArray optimizado (más rápido que bucle simple)
+                    # Crear PixelArray una sola vez y reutilizarlo
+                    if not hasattr(self, '_px_array_surface'):
+                        self._px_array_surface = pygame.Surface((160, 144))
+                    
+                    px_array = pygame.PixelArray(self._px_array_surface)
+                    
+                    # Renderizar en chunks para mejor rendimiento
+                    for y in range(HEIGHT):
+                        row_start = y * WIDTH
+                        row_indices = frame_indices[row_start:row_start + WIDTH]
+                        for x in range(WIDTH):
+                            color_index = row_indices[x] & 0x03
+                            px_array[x, y] = palette[color_index]
+                    
+                    px_array.close()
+                    self.surface = self._px_array_surface
+                # ----------------------------------------
                 
-                px_array.close()
+                # --- STEP 0307: CACHE DE SCALING ---
+                # Cachear la superficie escalada para evitar recalcular cuando el tamaño no cambia
+                current_screen_size = self.screen.get_size()
                 
-                # 4. CAMBIO A BLIT ESTÁNDAR (Más seguro que scale con dest)
-                # Escalamos a una nueva superficie temporal
-                scaled_surface = pygame.transform.scale(self.surface, self.screen.get_size())
-                # Copiamos esa superficie a la ventana
-                self.screen.blit(scaled_surface, (0, 0))
+                # Calcular hash del contenido del framebuffer (solo primeros 100 píxeles para eficiencia)
+                source_hash = hash(tuple(frame_indices[:100]))
+                
+                # Solo reescalar si el tamaño cambió o el contenido cambió significativamente
+                if (self._cache_screen_size != current_screen_size or 
+                    self._cache_source_hash != source_hash or 
+                    self._scaled_surface_cache is None):
+                    
+                    self._scaled_surface_cache = pygame.transform.scale(self.surface, current_screen_size)
+                    self._cache_screen_size = current_screen_size
+                    self._cache_source_hash = source_hash
+                
+                # Usar superficie cacheada
+                self.screen.blit(self._scaled_surface_cache, (0, 0))
                 # Actualizamos la pantalla
                 pygame.display.flip()
+                # ----------------------------------------
                 
                 # --- STEP 0306: Monitor de Rendimiento ([PERFORMANCE-TRACE]) ---
                 if self._performance_trace_enabled and frame_start is not None:

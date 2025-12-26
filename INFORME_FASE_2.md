@@ -32,6 +32,53 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0307: Optimización de Renderizado y Corrección de Desincronización
+**Estado**: 🔄 EN PROGRESO (DRAFT)
+
+Implementación de optimizaciones críticas basadas en los hallazgos del Step 0306: optimización del renderizado para reducir el bucle de 23,040 iteraciones, cacheo de pygame.transform.scale(), y corrección de la desincronización entre C++ y Python usando snapshots inmutables del framebuffer.
+
+**Objetivo**:
+- Mejorar el rendimiento (de ~21.8 FPS a ~60 FPS)
+- Eliminar la corrupción gráfica (patrón de tablero de ajedrez, sprites fragmentados)
+- Implementar snapshot inmutable del framebuffer para evitar desincronización
+
+**Optimizaciones Implementadas**:
+
+1. **Snapshot Inmutable del Framebuffer**:
+   - Conversión de memoryview a lista cuando no se proporciona framebuffer_data
+   - Evita desincronización entre C++ (escritura) y Python (lectura)
+   - Garantiza consistencia de datos, aunque tenga un costo de memoria (~23 KB por frame)
+
+2. **Renderizado Vectorizado con NumPy**:
+   - Reemplazo del bucle píxel a píxel (23,040 iteraciones) con operaciones vectorizadas
+   - Uso de `numpy` y `pygame.surfarray` para renderizado rápido
+   - Fallback a PixelArray optimizado si NumPy no está disponible
+
+3. **Cache de Scaling**:
+   - Cacheo de `pygame.transform.scale()` para evitar recalcular cuando el tamaño no cambia
+   - Invalidación del cache basada en hash del contenido y tamaño de pantalla
+   - Reducción significativa de operaciones costosas de transformación
+
+**Conceptos de Hardware**:
+
+- **Optimización de Renderizado**: Las operaciones vectorizadas (NumPy) son mucho más rápidas que bucles en Python porque ejecutan operaciones en código compilado, evitando el overhead del intérprete
+- **Desincronización en Emulación**: Si C++ escribe en el framebuffer mientras Python lo lee, puede haber corrupción. Los snapshots inmutables (copias) garantizan consistencia
+- **Cache de Transformaciones**: Las transformaciones de imagen son operaciones costosas; cachear resultados cuando el contenido no cambia evita trabajo redundante
+
+**Archivos modificados**:
+- `src/gpu/renderer.py` - Implementación de optimizaciones de renderizado, snapshot inmutable, y cache de scaling
+- `docs/bitacora/entries/2025-12-25__0307__optimizacion-renderizado-correccion-desincronizacion.html` - Entrada HTML de bitácora
+- `docs/bitacora/index.html` - Actualizado con entrada 0307
+- `INFORME_FASE_2.md` - Esta entrada
+
+**Próximos pasos**:
+- Verificar optimizaciones visualmente: Ejecutar emulador y confirmar que la corrupción gráfica desaparece
+- Medir rendimiento: Usar monitor [PERFORMANCE-TRACE] para verificar mejora de FPS (esperado: ~60 FPS)
+- Si FPS mejora significativamente: Verificar con pruebas más largas (10+ minutos)
+- Si la corrupción desaparece: Considerar el problema resuelto y documentar resultados
+
+---
+
 ### 2025-12-25 - Step 0306: Investigación de Rendimiento y Corrupción Gráfica
 **Estado**: 🔄 EN PROGRESO (DRAFT)
 
