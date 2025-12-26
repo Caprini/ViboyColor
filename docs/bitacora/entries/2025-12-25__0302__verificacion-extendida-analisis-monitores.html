@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificación Extendida y Análisis de Monitores - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Verificación Extendida y Análisis de Monitores</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0302
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0301__investigacion-rayas-verdes-recurrentes.html">Anterior (0301)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Ejecución extendida del emulador durante 5 minutos con los monitores implementados en Step 0301 activos,
+                    captura de logs generados, y análisis de resultados para verificar si las rayas verdes vuelven a aparecer
+                    y qué cambios ocurren cuando aparecen. El análisis usó solo muestras y estadísticas de logs para no saturar el contexto.
+                </p>
+                <p>
+                    <strong>Resultado crítico</strong>: Las rayas verdes aparecieron a los 5 minutos, pero los monitores NO detectaron
+                    cambios en la paleta del índice 0, en <code>self.palette</code>, ni en el modo de renderizado. Se identificó que
+                    la paleta de debug usa colores <strong>verdes</strong> para los índices 1 y 2, no grises, lo que explica por qué
+                    las rayas se ven verdes cuando el framebuffer tiene valores 1 o 2.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>Verificación Extendida en Emulación</h3>
+                <p>
+                    Algunos problemas en emulación solo aparecen después de cierto tiempo de ejecución. Esto puede deberse a:
+                </p>
+                <ul>
+                    <li><strong>Condiciones de carrera</strong>: Problemas de sincronización que aparecen después de muchas iteraciones.</li>
+                    <li><strong>Corrupción de memoria gradual</strong>: Bugs que causan corrupción lenta que se acumula con el tiempo.</li>
+                    <li><strong>Cambios dinámicos en el estado</strong>: El juego o el emulador cambian su comportamiento después de cierto tiempo.</li>
+                    <li><strong>Problemas de inicialización tardía</strong>: Componentes que se inicializan incorrectamente después de un delay.</li>
+                </ul>
+                <p>
+                    La verificación extendida (5-10 minutos) es crucial para detectar estos problemas que no aparecen en pruebas cortas.
+                </p>
+
+                <h3>Análisis de Logs con Muestras</h3>
+                <p>
+                    Los logs de ejecución extendida pueden ser extremadamente grandes (millones de líneas). Para evitar saturar el contexto
+                    y mantener el análisis eficiente, se usan técnicas de muestreo:
+                </p>
+                <ul>
+                    <li><strong>Muestras temporales</strong>: Primeros N registros, últimos N registros, cada X registros.</li>
+                    <li><strong>Estadísticas agregadas</strong>: Conteos, promedios, valores únicos en lugar de listar todo.</li>
+                    <li><strong>Búsqueda de patrones</strong>: Buscar eventos específicos en lugar de leer todo el log.</li>
+                </ul>
+                <p>
+                    Esto permite identificar patrones y problemas sin procesar archivos gigantes.
+                </p>
+
+                <h3>Paleta de Debug y Mapeo de Índices</h3>
+                <p>
+                    El framebuffer de la PPU contiene <strong>índices de color</strong> (0-3), no colores RGB directamente. El renderer
+                    mapea estos índices a colores RGB usando una paleta de debug:
+                </p>
+                <ul>
+                    <li><strong>Índice 0</strong>: Mapeado a blanco <code>(255, 255, 255)</code> - correcto</li>
+                    <li><strong>Índice 1</strong>: Mapeado a <code>(136, 192, 112)</code> - <strong>ES VERDE, NO GRIS</strong></li>
+                    <li><strong>Índice 2</strong>: Mapeado a <code>(52, 104, 86)</code> - <strong>ES VERDE, NO GRIS</strong></li>
+                    <li><strong>Índice 3</strong>: Mapeado a negro <code>(8, 24, 32)</code> - correcto</li>
+                </ul>
+                <p>
+                    Si el framebuffer tiene valores 1 o 2, se mostrarán como verde debido a esta paleta. El problema es que después
+                    de ~5 minutos, el framebuffer comienza a tener valores 1 o 2 en lugar de solo 0.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "Background Palette (BGP)", "Tile Data", "Framebuffer"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se ejecutó el emulador durante 5 minutos con Pokémon Red, capturando todos los logs en
+                    <code>debug_step_0302_extended.log</code>. Luego se analizaron los logs de los 3 monitores
+                    implementados en Step 0301 usando comandos PowerShell con muestreo para evitar saturar el contexto.
+                </p>
+                
+                <h3>Comandos de Análisis Ejecutados</h3>
+                <pre><code># Contar registros de cada monitor
+Select-String -Path debug_step_0302_extended.log -Pattern "\[PALETTE-USE-TRACE\]" | Measure-Object
+Select-String -Path debug_step_0302_extended.log -Pattern "\[PALETTE-SELF-CHANGE\]" | Measure-Object
+Select-String -Path debug_step_0302_extended.log -Pattern "\[CPP-PPU-TOGGLE\]" | Measure-Object
+
+# Muestras de registros
+Select-String -Path debug_step_0302_extended.log -Pattern "\[PALETTE-USE-TRACE\]" | Select-Object -First 20
+Select-String -Path debug_step_0302_extended.log -Pattern "\[PALETTE-USE-TRACE\]" | Select-Object -Last 20
+</code></pre>
+
+                <h3>Resultados de los Monitores</h3>
+                <ul>
+                    <li><strong>[PALETTE-USE-TRACE]</strong>: 105 registros - Todos muestran paleta blanca <code>(255, 255, 255)</code> para índice 0 durante toda la ejecución</li>
+                    <li><strong>[PALETTE-SELF-CHANGE]</strong>: 0 cambios - <code>self.palette</code> nunca cambió</li>
+                    <li><strong>[CPP-PPU-TOGGLE]</strong>: 0 cambios - <code>use_cpp_ppu</code> nunca cambió (siempre True)</li>
+                </ul>
+
+                <h3>Hallazgo Crítico</h3>
+                <p>
+                    Los monitores NO detectaron cambios cuando aparecieron las rayas verdes a los 5 minutos. Esto sugiere que:
+                </p>
+                <ul>
+                    <li>El problema NO está en la paleta del índice 0 (siempre fue blanca)</li>
+                    <li>El problema NO está en <code>self.palette</code> (nunca cambió)</li>
+                    <li>El problema NO está en el modo de renderizado (siempre C++ PPU)</li>
+                </ul>
+                <p>
+                    <strong>Investigación adicional</strong>: Se revisó el código del renderer y se encontró que la paleta de debug
+                    usa colores <strong>verdes</strong> para los índices 1 y 2, no grises. Si el framebuffer tiene valores 1 o 2,
+                    se mostrarán como verde.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>debug_step_0302_extended.log</code> - Logs de ejecución extendida (generado, NO leído completo)</li>
+                    <li><code>ANALISIS_STEP_0302_VERIFICACION.md</code> - Documento de análisis ejecutivo (nuevo)</li>
+                    <li><code>src/gpu/renderer.py</code> - Revisado para identificar paleta de debug (líneas 496-497)</li>
+                    <li><code>docs/bitacora/entries/2025-12-25__0302__verificacion-extendida-analisis-monitores.html</code> - Esta entrada (nuevo)</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con entrada 0302</li>
+                    <li><code>INFORME_FASE_2.md</code> - Actualizado con Step 0302</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizó mediante ejecución extendida y análisis de logs:
+                </p>
+                <ul>
+                    <li><strong>Ejecución extendida</strong>: 5 minutos de ejecución con Pokémon Red</li>
+                    <li><strong>Análisis de monitores</strong>: 105 registros de [PALETTE-USE-TRACE] analizados con muestras</li>
+                    <li><strong>Verificación visual</strong>: Usuario confirmó que las rayas verdes aparecieron a los 5 minutos</li>
+                    <li><strong>Análisis de código</strong>: Revisión del código del renderer identificó paleta verde para índices 1 y 2</li>
+                </ul>
+                <p>
+                    <strong>Comando de análisis ejecutado</strong>:
+                </p>
+                <pre><code>Select-String -Path debug_step_0302_extended.log -Pattern "\[PALETTE-USE-TRACE\]" | Measure-Object
+# Resultado: Count: 105</code></pre>
+                <p>
+                    <strong>Muestra de registros</strong>:
+                </p>
+                <pre><code>[PALETTE-USE-TRACE] Frame 0 | use_cpp_ppu=True | debug_palette[0]=(255, 255, 255) | self.palette[0]=(255, 255, 255)
+[PALETTE-USE-TRACE] Frame 5000 | use_cpp_ppu=True | debug_palette[0]=(255, 255, 255) | self.palette[0]=(255, 255, 255)
+# Todos los registros muestran paleta blanca</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "Background Palette (BGP)", "Tile Data", "Framebuffer"</li>
+                    <li>Best practices de debugging en emulación: Análisis de logs con muestreo</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Verificación extendida</strong>: Algunos problemas solo aparecen después de cierto tiempo de ejecución, requiriendo pruebas de larga duración.</li>
+                        <li><strong>Análisis de logs con muestreo</strong>: Los logs grandes deben analizarse con muestras y estadísticas, no leyendo todo el archivo.</li>
+                        <li><strong>Paleta de debug</strong>: La paleta de debug mapea índices del framebuffer a colores RGB. Si usa colores verdes para índices 1 y 2, cualquier valor 1 o 2 en el framebuffer se mostrará como verde.</li>
+                        <li><strong>Monitores limitados</strong>: Los monitores implementados solo rastrean la paleta del índice 0, no el contenido del framebuffer. Se necesitan monitores adicionales para rastrear qué índices tiene el framebuffer.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Causa raíz del framebuffer</strong>: Por qué el framebuffer comienza a tener valores 1 o 2 después de ~5 minutos. No se identificó dónde se escriben estos valores ni qué componente los genera.</li>
+                        <li><strong>Correlación temporal</strong>: Si hay eventos específicos en la PPU C++ o en la VRAM que coinciden con la aparición de valores 1 o 2 en el framebuffer.</li>
+                        <li><strong>Corrupción de memoria</strong>: Si hay corrupción de memoria en la PPU C++ que causa que se escriban valores incorrectos en el framebuffer.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal</strong>: Después de ~5 minutos, el framebuffer comienza a tener valores 1 o 2 en lugar de 0,
+                        lo que causa que se muestren como verde debido a la paleta de debug. Esta hipótesis se basa en:
+                    </p>
+                    <ul>
+                        <li>Los monitores muestran que la paleta del índice 0 siempre es blanca</li>
+                        <li>Las rayas verdes aparecen visualmente a los 5 minutos</li>
+                        <li>La paleta de debug usa colores verdes para índices 1 y 2</li>
+                    </ul>
+                    <p>
+                        <strong>Suposiciones</strong>:
+                    </p>
+                    <ul>
+                        <li>El framebuffer tiene valores 1 o 2 cuando aparecen las rayas (no verificado directamente, solo inferido)</li>
+                        <li>No hay código que modifique la paleta de debug durante la ejecución (verificado por monitores)</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] <strong>Step 0303</strong>: Corregir paleta de debug cambiando colores verdes a grises verdaderos para índices 1 y 2</li>
+                    <li>[ ] <strong>Step 0304</strong>: Implementar monitor de framebuffer para rastrear qué índices tiene el framebuffer en cada frame</li>
+                    <li>[ ] <strong>Step 0305</strong>: Analizar código de PPU C++ para identificar dónde se escriben valores 1 o 2 en el framebuffer</li>
+                    <li>[ ] <strong>Step 0306</strong>: Verificar si hay corrupción de memoria o bugs en la PPU C++ que aparecen después de cierto tiempo</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

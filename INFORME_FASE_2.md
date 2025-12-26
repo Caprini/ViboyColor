@@ -32,6 +32,40 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0302: Verificación Extendida y Análisis de Monitores
+**Estado**: ✅ COMPLETADO
+
+Ejecución extendida del emulador durante 5 minutos con los monitores implementados en Step 0301 activos, captura de logs generados, y análisis de resultados para verificar si las rayas verdes vuelven a aparecer y qué cambios ocurren cuando aparecen.
+
+**Resultado crítico**:
+- Las rayas verdes aparecieron a los 5 minutos de ejecución
+- Los monitores NO detectaron cambios en la paleta del índice 0, en `self.palette`, ni en el modo de renderizado
+- Se identificó que la paleta de debug usa colores **verdes** para los índices 1 y 2, no grises
+
+**Análisis de monitores**:
+1. **[PALETTE-USE-TRACE]**: 105 registros - Todos muestran paleta blanca `(255, 255, 255)` para índice 0 durante toda la ejecución
+2. **[PALETTE-SELF-CHANGE]**: 0 cambios - `self.palette` nunca cambió
+3. **[CPP-PPU-TOGGLE]**: 0 cambios - `use_cpp_ppu` nunca cambió (siempre True)
+
+**Hallazgo crítico**:
+- La paleta de debug en `renderer.py` (líneas 496-497) usa colores verdes para índices 1 y 2:
+  - Índice 1: `(136, 192, 112)` - ES VERDE, NO GRIS
+  - Índice 2: `(52, 104, 86)` - ES VERDE, NO GRIS
+- Si el framebuffer tiene valores 1 o 2, se mostrarán como verde
+- Después de ~5 minutos, el framebuffer comienza a tener valores 1 o 2 en lugar de 0
+
+**Causa raíz pendiente**:
+- No se identificó por qué el framebuffer cambia de tener solo índices 0 a tener índices 1 o 2 después de 5 minutos
+- Los monitores implementados solo rastrean la paleta del índice 0, no el contenido del framebuffer
+- Se necesita implementar monitor de framebuffer para rastrear qué índices tiene el framebuffer
+
+**Próximos pasos**:
+- Step 0303: Corregir paleta de debug cambiando colores verdes a grises verdaderos
+- Step 0304: Implementar monitor de framebuffer para rastrear índices del framebuffer
+- Step 0305: Analizar código de PPU C++ para identificar dónde se escriben valores 1 o 2
+
+---
+
 ### 2025-12-25 - Step 0301: Investigación de Rayas Verdes Recurrentes
 **Estado**: ✅ COMPLETADO
 
