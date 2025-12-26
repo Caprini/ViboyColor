@@ -39,21 +39,42 @@ Verificar que las correcciones de paleta del Step 0303 eliminaron las rayas verd
 ## Verificación Visual Extendida
 
 ### Estado
-⏳ **PENDIENTE DE EJECUCIÓN**
+✅ **COMPLETADA**
 
-### Instrucciones
-Ver archivo `INSTRUCCIONES_VERIFICACION_STEP_0304.md` para los pasos detallados.
+### Resultado
+- **¿Aparecen rayas verdes?**: ✅ **SÍ**
+- **¿Cuándo aparecen?**: Después de **2 minutos** de ejecución
+- **¿Cómo se ven?**: Rayas **verticales**
+- **¿Persisten?**: Sí, después de 10 minutos siguen ahí
 
-### Resultado Esperado
-- **Si NO aparecen rayas verdes**: ✅ Problema resuelto. Continuar con documentación del éxito.
-- **Si SÍ aparecen rayas verdes**: ⚠️ Continuar con activación de monitores y análisis de logs.
+### Observaciones
+- Las rayas verdes aparecen después de aproximadamente 2 minutos
+- Son rayas verticales persistentes
+- Las correcciones del Step 0303 NO resolvieron el problema completamente
 
 ---
 
-## Análisis de Monitores (Si se Necesita)
+## Análisis de Monitores
 
 ### Estado
-⏳ **PENDIENTE** (Solo si las rayas aparecen)
+✅ **COMPLETADO**
+
+### Resultados del Monitor [FRAMEBUFFER-INDEX-TRACE]
+- **Total de entradas**: 1
+- **Única entrada encontrada**:
+  ```
+  Frame 0 | Index counts: 0=23040 1=0 2=0 3=0 | Has non-zero: False
+  ```
+- **Entradas con valores no-cero**: **0** (ninguna)
+
+### Resultados del Monitor [FRAMEBUFFER-DETAILED]
+- **Entradas encontradas**: Múltiples
+- **Ejemplo de entrada**:
+  ```
+  Frame 0 LY:72 | Non-zero pixels: 0/160
+  Sample pixels (first 32): 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+  ```
+- **Observación**: Todos los píxeles muestran índice 0 (blanco)
 
 ### Comandos de Análisis
 ```powershell
@@ -71,12 +92,24 @@ Select-String -Path debug_step_0304_framebuffer.log -Pattern "\[FRAMEBUFFER-DETA
 
 ## Conclusiones
 
-### Pendiente de Verificación
-La verificación visual extendida aún no se ha ejecutado. Una vez completada, se actualizará este documento con:
-- Resultado de verificación visual (rayas aparecen o no)
-- Análisis de monitores (si se activaron)
-- Cuándo cambia el framebuffer (si aplica)
-- Próximos pasos recomendados
+### Hallazgo Crítico
+**El framebuffer de la PPU C++ NO contiene valores 1 o 2**. Los monitores muestran que:
+- Todos los píxeles en el framebuffer tienen índice 0 (blanco)
+- No se detectaron valores 1, 2 o 3 en ningún momento durante la ejecución
+- El monitor [FRAMEBUFFER-INDEX-TRACE] solo registró el Frame 0 (cada 1000 frames o cuando hay cambios)
+
+### Implicaciones
+Si las rayas verdes aparecen visualmente pero el framebuffer solo tiene índices 0, el problema **NO está en la PPU C++**, sino posiblemente en:
+1. **Renderizado en Python**: Cómo se mapean los índices del framebuffer a colores RGB
+2. **Paleta aplicada**: Aunque las paletas de debug fueron corregidas, puede haber otro lugar donde se aplica una paleta incorrecta
+3. **Sincronización**: Puede haber un problema de sincronización entre el framebuffer y el renderizado
+4. **Otro componente**: El problema puede estar en otro lugar del pipeline de renderizado
+
+### Hipótesis
+Las rayas verdes que aparecen visualmente **NO provienen del framebuffer de la PPU C++**, ya que el framebuffer solo contiene índices 0. El problema debe estar en:
+- El proceso de renderizado en `renderer.py` que convierte índices a colores RGB
+- Algún otro lugar donde se aplica una paleta con valores verdes
+- Un problema de sincronización o timing que causa que se muestren valores incorrectos
 
 ---
 
@@ -92,12 +125,12 @@ La verificación visual extendida aún no se ha ejecutado. Una vez completada, s
 - [ ] Continuar con otras funcionalidades
 
 ### Si SÍ aparecen rayas verdes
-- [ ] Activar monitores (cambiar flags a `True`)
-- [ ] Recompilar extensión C++ (si se activó monitor en PPU.cpp)
-- [ ] Ejecutar con logs capturados: `python main.py roms/pkmn.gb > debug_step_0304_framebuffer.log 2>&1`
-- [ ] Analizar logs usando comandos de análisis
-- [ ] Actualizar este resumen con hallazgos
-- [ ] Step 0305: Investigar código de PPU C++ para identificar dónde se escriben valores 1 o 2
+- [x] Activar monitores (cambiar flags a `True`) - ✅ COMPLETADO
+- [x] Recompilar extensión C++ (si se activó monitor en PPU.cpp) - ✅ COMPLETADO
+- [x] Ejecutar con logs capturados - ✅ COMPLETADO
+- [x] Analizar logs usando comandos de análisis - ✅ COMPLETADO
+- [x] Actualizar este resumen con hallazgos - ✅ COMPLETADO
+- [ ] **Step 0305**: Investigar código de renderizado en Python para identificar por qué aparecen rayas verdes cuando el framebuffer solo tiene índices 0
 
 ---
 

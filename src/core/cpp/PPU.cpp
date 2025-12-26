@@ -596,7 +596,7 @@ void PPU::render_scanline() {
     // Para activar, cambiar ENABLE_FRAMEBUFFER_DETAILED_TRACE a true.
     // 
     // Fuente: Pan Docs - "Framebuffer", "Background Palette (BGP)"
-    static constexpr bool ENABLE_FRAMEBUFFER_DETAILED_TRACE = false;  // Cambiar a true si se necesitan logs
+    static constexpr bool ENABLE_FRAMEBUFFER_DETAILED_TRACE = true;  // ACTIVADO: Rayas verdes aparecen después de 2 minutos
     static int detailed_trace_count = 0;
     static int last_frame_with_non_zero = 0;
     

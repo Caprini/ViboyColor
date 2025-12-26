@@ -211,7 +211,7 @@ class Renderer:
         # --- STEP 0304: Monitor de Framebuffer ([FRAMEBUFFER-INDEX-TRACE]) ---
         # Flag de activación: Solo activar si las rayas verdes aparecen después de la verificación visual
         # Para activar, cambiar a True después de confirmar que las rayas aparecen
-        self._framebuffer_trace_enabled = False
+        self._framebuffer_trace_enabled = True  # ACTIVADO: Rayas verdes aparecen después de 2 minutos
         self._framebuffer_trace_count = 0
         # ----------------------------------------
         
