@@ -241,11 +241,23 @@ Select-String -Path debug_step_0305_renderer.log -Pattern "\[PALETTE-VERIFY\]" |
                     <li>✅ <strong>[PALETTE-MODIFIED]</strong>: Implementado y activo</li>
                 </ul>
 
-                <h3>Estado de Ejecución</h3>
+                <h3>Análisis de Ejecución y Captura de Pantalla</h3>
+                <p>
+                    <strong>Observaciones de la captura de pantalla</strong>:
+                </p>
                 <ul>
-                    <li>⏳ <strong>Ejecución en progreso</strong>: Emulador ejecutándose en segundo plano</li>
-                    <li>⏳ <strong>Análisis pendiente</strong>: Esperando logs para análisis completo</li>
+                    <li>✅ <strong>Sprites visibles</strong>: Se pueden ver sprites de Pokémon (aunque fragmentados) y texto "RED"</li>
+                    <li>✅ <strong>Problema de rayas verdes</strong>: <strong>No se observaron rayas verdes</strong> en la captura (posiblemente resuelto)</li>
+                    <li>⚠️ <strong>Rendimiento crítico</strong>: FPS 21.8 (debería ser ~60 FPS) - problema nuevo identificado</li>
+                    <li>⚠️ <strong>Corrupción gráfica</strong>: Patrón de tablero de ajedrez en sección inferior, líneas verticales en superior, sprites fragmentados</li>
                 </ul>
+                <p>
+                    <strong>Conclusión</strong>: El problema original de rayas verdes parece estar resuelto, pero se identificaron dos nuevos problemas críticos:
+                </p>
+                <ol>
+                    <li><strong>Rendimiento</strong>: FPS extremadamente bajo (21.8 vs 60 esperado)</li>
+                    <li><strong>Corrupción gráfica</strong>: Patrones anómalos y sprites fragmentados</li>
+                </ol>
             </section>
 
             <!-- 7. Fuentes Consultadas -->
@@ -294,14 +306,42 @@ Select-String -Path debug_step_0305_renderer.log -Pattern "\[PALETTE-VERIFY\]" |
             <!-- 9. Próximos Pasos -->
             <section id="proximos-pasos">
                 <h2>Próximos Pasos</h2>
+                
+                <h3>Prioridad Alta</h3>
                 <ul>
-                    <li>[ ] Analizar logs generados cuando estén disponibles</li>
-                    <li>[ ] Verificar si [PALETTE-VERIFY] muestra cambios en la paleta</li>
-                    <li>[ ] Verificar si [PIXEL-VERIFY] muestra problemas con el mapeo de píxeles</li>
-                    <li>[ ] Verificar si [PALETTE-MODIFIED] detecta modificaciones de paleta</li>
-                    <li>[ ] Identificar causa raíz basándose en los monitores</li>
-                    <li>[ ] Implementar corrección específica si se identifica el problema</li>
-                    <li>[ ] Verificar corrección con pruebas extendidas</li>
+                    <li>[ ] <strong>Investigar Rendimiento (FPS 21.8)</strong>:
+                        <ul>
+                            <li>Profilar el bucle de renderizado</li>
+                            <li>Verificar si hay bloqueos en el código Python</li>
+                            <li>Optimizar operaciones costosas (PixelArray, scaling)</li>
+                            <li>Verificar sincronización CPU-PPU</li>
+                        </ul>
+                    </li>
+                    <li>[ ] <strong>Investigar Corrupción Gráfica</strong>:
+                        <ul>
+                            <li>Verificar integridad del framebuffer</li>
+                            <li>Investigar el patrón de tablero de ajedrez (posible problema con tiles o VRAM)</li>
+                            <li>Verificar sincronización de tiles y sprites</li>
+                            <li>Revisar el código de renderizado de sprites</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Prioridad Media</h3>
+                <ul>
+                    <li>[ ] <strong>Verificar Problema de Rayas Verdes</strong>:
+                        <ul>
+                            <li>Ejecutar sesión extendida (10-15 minutos) para confirmar que las rayas verdes no aparecen</li>
+                            <li>Si aparecen, usar los monitores implementados para diagnosticar</li>
+                        </ul>
+                    </li>
+                    <li>[ ] <strong>Mejorar Monitores</strong>:
+                        <ul>
+                            <li>Asegurar que los logs se generen correctamente</li>
+                            <li>Agregar monitores de rendimiento (FPS, tiempo de frame)</li>
+                            <li>Agregar monitores de corrupción gráfica</li>
+                        </ul>
+                    </li>
                 </ul>
             </section>
         </main>

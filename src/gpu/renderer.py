@@ -230,6 +230,12 @@ class Renderer:
         self._last_palette_checked = None
         # ----------------------------------------
         
+        # --- STEP 0306: Monitor de Rendimiento ([PERFORMANCE-TRACE]) ---
+        # Flag de activación: Solo activar si se necesita investigar rendimiento
+        self._performance_trace_enabled = True  # ACTIVADO para Step 0306
+        self._performance_trace_count = 0
+        # ----------------------------------------
+        
         logger.info(f"Renderer inicializado: {self.window_width}x{self.window_height} (scale={scale})")
         
         # Mostrar pantalla de carga
@@ -488,6 +494,13 @@ class Renderer:
         
         Fuente: Pan Docs - LCD Control Register, Background Tile Map, Window
         """
+        # --- STEP 0306: Monitor de Rendimiento ([PERFORMANCE-TRACE]) ---
+        frame_start = None
+        if self._performance_trace_enabled:
+            import time
+            frame_start = time.time()
+        # ----------------------------------------
+        
         # OPTIMIZACIÓN: Si usamos PPU C++, hacer blit directo del framebuffer
         if self.use_cpp_ppu and self.cpp_ppu is not None:
             try:
@@ -639,6 +652,19 @@ class Renderer:
                 self.screen.blit(scaled_surface, (0, 0))
                 # Actualizamos la pantalla
                 pygame.display.flip()
+                
+                # --- STEP 0306: Monitor de Rendimiento ([PERFORMANCE-TRACE]) ---
+                if self._performance_trace_enabled and frame_start is not None:
+                    import time
+                    frame_end = time.time()
+                    frame_time = (frame_end - frame_start) * 1000  # en milisegundos
+                    if self._performance_trace_count % 60 == 0:  # Cada 60 frames (1 segundo a 60 FPS)
+                        fps = 1000.0 / frame_time if frame_time > 0 else 0
+                        print(f"[PERFORMANCE-TRACE] Frame {self._performance_trace_count} | "
+                              f"Frame time: {frame_time:.2f}ms | FPS: {fps:.1f}")
+                    self._performance_trace_count += 1
+                # ----------------------------------------
+                
                 return
             except Exception as e:
                 # Fallback a método Python si hay error
@@ -967,6 +993,19 @@ class Renderer:
         
         # Actualizar la pantalla
         pygame.display.flip()
+        
+        # --- STEP 0306: Monitor de Rendimiento ([PERFORMANCE-TRACE]) ---
+        if self._performance_trace_enabled and frame_start is not None:
+            import time
+            frame_end = time.time()
+            frame_time = (frame_end - frame_start) * 1000  # en milisegundos
+            if self._performance_trace_count % 60 == 0:  # Cada 60 frames (1 segundo a 60 FPS)
+                fps = 1000.0 / frame_time if frame_time > 0 else 0
+                print(f"[PERFORMANCE-TRACE] Frame {self._performance_trace_count} | "
+                      f"Frame time: {frame_time:.2f}ms | FPS: {fps:.1f}")
+            self._performance_trace_count += 1
+        # ----------------------------------------
+        
         # Logs de frame desactivados para mejorar rendimiento
 
     def _draw_tile_with_palette(self, x: int, y: int, tile_addr: int, palette: list[tuple[int, int, int]]) -> None:

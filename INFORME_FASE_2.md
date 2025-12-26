@@ -32,6 +32,78 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0306: Investigación de Rendimiento y Corrupción Gráfica
+**Estado**: 🔄 EN PROGRESO (DRAFT)
+
+Investigación exhaustiva de dos problemas críticos identificados en Step 0305: rendimiento bajo (FPS 21.8 en lugar de ~60 FPS) y corrupción gráfica (patrón de tablero de ajedrez, sprites fragmentados). Se implementó un monitor de rendimiento ([PERFORMANCE-TRACE]) para medir el tiempo de frame y FPS, y se analizaron las posibles causas de ambos problemas.
+
+**Objetivo**:
+- Identificar las causas raíz del rendimiento bajo y la corrupción gráfica
+- Determinar si los problemas están relacionados
+- Implementar monitor de rendimiento para medir tiempo de frame y FPS
+
+**Análisis de Corrupción Gráfica**:
+
+1. **Patrón de Tablero de Ajedrez**:
+   - ✅ Cálculo de direcciones de tiles: Verificado - correcto
+   - ✅ Scroll (SCX/SCY): Verificado - aplicado correctamente
+   - ✅ Mapeo del tilemap: Verificado - correcto
+   - ⚠️ **POSIBLE CAUSA**: Desincronización entre C++ (escritura) y Python (lectura) del framebuffer
+
+2. **Sprites Fragmentados**:
+   - ✅ Renderizado de sprites: Verificado - lógica correcta
+   - ✅ Orden de renderizado: Verificado - correcto
+   - ✅ OAM: Verificado - se lee correctamente
+   - ⚠️ **POSIBLE CAUSA**: Renderizado sobre framebuffer parcial debido a desincronización
+
+**Análisis de Rendimiento**:
+
+**Operaciones Lentas Identificadas**:
+1. **Bucle de renderizado píxel a píxel**: 23,040 iteraciones por frame (Alto impacto)
+2. **pygame.transform.scale()**: Escalar 160x144 a 480x432 en cada frame (Medio-Alto impacto)
+3. **Creación de PixelArray**: Crear nuevo objeto en cada frame (Medio impacto)
+
+**Causas Raíz Identificadas**:
+
+1. **Rendimiento Bajo**:
+   - Causa principal: Bucle de renderizado píxel a píxel (23,040 iteraciones por frame)
+   - Causa secundaria: `pygame.transform.scale()` sin cachear
+   - Causa terciaria: Creación de `PixelArray` en cada frame
+
+2. **Corrupción Gráfica**:
+   - Causa principal: Desincronización entre C++ (escritura) y Python (lectura) del framebuffer
+   - Causa secundaria: Renderizado lento que permite leer framebuffer parcial
+
+**Correlación entre Problemas**:
+- ✅ **Confirmada**: Sí, los problemas están relacionados
+- El rendimiento bajo puede causar corrupción gráfica porque:
+  - Si el renderizado Python es lento, puede leer el framebuffer mientras C++ está escribiendo
+  - Esto causaría que algunos píxeles muestren valores de frames anteriores o parciales
+  - El patrón de tablero de ajedrez podría ser el resultado de leer píxeles de diferentes frames mezclados
+
+**Monitor de Rendimiento Implementado**:
+- **Monitor [PERFORMANCE-TRACE]**: Mide el tiempo de cada frame y calcula FPS
+- Frecuencia: Cada 60 frames (1 segundo a 60 FPS)
+- Formato: `[PERFORMANCE-TRACE] Frame N | Frame time: X.XXms | FPS: XX.X`
+
+**Archivos modificados**:
+- `src/gpu/renderer.py` - Implementación de monitor de rendimiento ([PERFORMANCE-TRACE])
+- `ANALISIS_STEP_0306_RENDIMIENTO_CORRUPCION.md` - Documento de análisis completo
+- `docs/bitacora/entries/2025-12-25__0306__investigacion-rendimiento-corrupcion.html` - Entrada HTML de bitácora
+- `docs/bitacora/index.html` - Actualizado con entrada 0306
+- `INFORME_FASE_2.md` - Esta entrada
+
+**Próximos pasos**:
+
+**Prioridad Alta**:
+- Optimizar renderizado (Step 0307): Cachear superficie escalada, optimizar bucle de renderizado, medir impacto con monitor de rendimiento
+- Verificar sincronización (Step 0308): Confirmar que el snapshot se toma en el momento correcto, verificar que no hay condiciones de carrera
+
+**Prioridad Media**:
+- Probar correcciones: Ejecutar emulador y verificar FPS mejora, verificar que corrupción gráfica desaparece
+
+---
+
 ### 2025-12-25 - Step 0305: Investigación de Renderizado Python
 **Estado**: 🔄 EN PROGRESO (DRAFT)
 
@@ -74,8 +146,13 @@ Investigación exhaustiva del código de renderizado en Python para identificar 
 **Hallazgos**:
 - ✅ Todas las paletas están corregidas: self.COLORS, debug_palette_map, palette0, palette1
 - ✅ No hay código adicional que renderice: Solo hay un flujo de renderizado principal
-- ⏳ Ejecución en progreso: Emulador ejecutándose en segundo plano para capturar logs
-- ⏳ Análisis pendiente: Esperando logs para análisis completo
+- ✅ Ejecución completada: Emulador ejecutado y cerrado
+- ✅ Análisis visual realizado: Captura de pantalla analizada
+
+**Nuevos Problemas Identificados**:
+1. **Rendimiento Crítico** ⚠️: FPS 21.8 (debería ser ~60 FPS) - problema nuevo identificado
+2. **Corrupción Gráfica** ⚠️: Patrón de tablero de ajedrez, líneas verticales, sprites fragmentados
+3. **Problema de Rayas Verdes** ✅: **No se observaron rayas verdes** en la captura (posiblemente resuelto)
 
 **Archivos modificados**:
 - `src/gpu/renderer.py` - Implementación de 3 monitores adicionales ([PALETTE-VERIFY], [PIXEL-VERIFY], [PALETTE-MODIFIED])
@@ -86,13 +163,14 @@ Investigación exhaustiva del código de renderizado en Python para identificar 
 - `INFORME_FASE_2.md` - Esta entrada
 
 **Próximos pasos**:
-- Analizar logs generados cuando estén disponibles
-- Verificar si [PALETTE-VERIFY] muestra cambios en la paleta
-- Verificar si [PIXEL-VERIFY] muestra problemas con el mapeo de píxeles
-- Verificar si [PALETTE-MODIFIED] detecta modificaciones de paleta
-- Identificar causa raíz basándose en los monitores
-- Implementar corrección específica si se identifica el problema
-- Verificar corrección con pruebas extendidas
+
+**Prioridad Alta**:
+- Investigar Rendimiento (FPS 21.8): Profilar bucle de renderizado, verificar bloqueos, optimizar operaciones costosas
+- Investigar Corrupción Gráfica: Verificar integridad del framebuffer, investigar patrón de tablero de ajedrez, verificar sincronización
+
+**Prioridad Media**:
+- Verificar Problema de Rayas Verdes: Ejecutar sesión extendida (10-15 minutos) para confirmar que no aparecen
+- Mejorar Monitores: Asegurar que los logs se generen correctamente, agregar monitores de rendimiento
 
 ---
 

@@ -12,6 +12,8 @@ __pycache__/
 # Cython generated files
 *.c
 *.cpp
+# Des-ignorar directorio primero para que las negaciones funcionen
+!src/core/cpp/
 !src/core/cpp/*.cpp
 !src/core/cpp/*.hpp
 

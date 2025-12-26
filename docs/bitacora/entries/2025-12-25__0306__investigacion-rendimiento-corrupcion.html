@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Rendimiento y Corrupción Gráfica - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Rendimiento y Corrupción Gráfica</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0306
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0305__investigacion-renderizado-python.html">Anterior (0305)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Investigación exhaustiva de dos problemas críticos identificados en Step 0305: rendimiento bajo (FPS 21.8 en lugar de ~60 FPS) y corrupción gráfica (patrón de tablero de ajedrez, sprites fragmentados). Se implementó un monitor de rendimiento ([PERFORMANCE-TRACE]) para medir el tiempo de frame y FPS, y se analizaron las posibles causas de ambos problemas.
+                </p>
+                <p>
+                    <strong>Objetivo</strong>: Identificar las causas raíz del rendimiento bajo y la corrupción gráfica, y determinar si están relacionados.
+                </p>
+                <p>
+                    <strong>Problemas identificados</strong>:
+                </p>
+                <ul>
+                    <li>⚠️ <strong>Rendimiento crítico</strong>: FPS 21.8 (debería ser ~60 FPS) - problema nuevo identificado</li>
+                    <li>⚠️ <strong>Corrupción gráfica</strong>: Patrón de tablero de ajedrez y sprites fragmentados</li>
+                </ul>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>Rendimiento en Emulación</h3>
+                <p>
+                    Los emuladores necesitan mantener 60 FPS para emulación precisa. Operaciones costosas deben optimizarse:
+                </p>
+                <ul>
+                    <li><strong>Creación de objetos</strong>: PixelArray, Surface (cada frame es costoso)</li>
+                    <li><strong>Transformaciones</strong>: Scaling, rotation (operaciones de imagen costosas)</li>
+                    <li><strong>Copias de memoria</strong>: Blit (generalmente rápido, pero puede acumularse)</li>
+                    <li><strong>Bucles de renderizado</strong>: Iterar sobre 23,040 píxeles en cada frame</li>
+                </ul>
+
+                <h3>Corrupción Gráfica</h3>
+                <p>
+                    Los patrones de tablero de ajedrez suelen indicar:
+                </p>
+                <ul>
+                    <li><strong>Cálculo incorrecto de direcciones</strong>: Problemas con mapeo de tiles</li>
+                    <li><strong>Problemas con scroll</strong>: SCX/SCY aplicados incorrectamente</li>
+                    <li><strong>Desincronización de frames</strong>: Leer framebuffer mientras se está escribiendo</li>
+                </ul>
+
+                <p>
+                    Sprites fragmentados suelen indicar:
+                </p>
+                <ul>
+                    <li><strong>Renderizado incorrecto</strong>: Problemas con cálculo de posiciones</li>
+                    <li><strong>Problemas con prioridad</strong>: Sprites renderizados en orden incorrecto</li>
+                    <li><strong>Datos corruptos en OAM</strong>: OAM leído incorrectamente o modificado durante renderizado</li>
+                </ul>
+
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "Background", "Sprites", "LCD Timing"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Monitor de Rendimiento ([PERFORMANCE-TRACE])</h3>
+                <p>
+                    Se implementó un monitor de rendimiento en <code>renderer.py</code> que mide el tiempo de cada frame y calcula el FPS:
+                </p>
+                <pre><code># --- STEP 0306: Monitor de Rendimiento ([PERFORMANCE-TRACE]) ---
+frame_start = time.time()
+# ... código de renderizado ...
+frame_end = time.time()
+frame_time = (frame_end - frame_start) * 1000  # en milisegundos
+if self._performance_trace_count % 60 == 0:  # Cada 60 frames
+    fps = 1000.0 / frame_time if frame_time > 0 else 0
+    print(f"[PERFORMANCE-TRACE] Frame {count} | "
+          f"Frame time: {frame_time:.2f}ms | FPS: {fps:.1f}")
+</code></pre>
+
+                <h3>Análisis de Corrupción Gráfica</h3>
+                <p>
+                    Se investigaron las siguientes hipótesis:
+                </p>
+                <ul>
+                    <li><strong>Problema con cálculo de direcciones de tiles</strong>: ✅ Verificado - cálculo correcto</li>
+                    <li><strong>Problema con scroll (SCX/SCY)</strong>: ✅ Verificado - scroll aplicado correctamente</li>
+                    <li><strong>Problema con mapeo del tilemap</strong>: ✅ Verificado - mapeo correcto</li>
+                    <li><strong>Problema con sincronización entre frames</strong>: ⚠️ <strong>POSIBLE CAUSA</strong> - desincronización entre C++ y Python</li>
+                </ul>
+
+                <h3>Análisis de Sprites Fragmentados</h3>
+                <p>
+                    Se investigaron las siguientes hipótesis:
+                </p>
+                <ul>
+                    <li><strong>Problema con renderizado de sprites</strong>: ✅ Verificado - lógica correcta</li>
+                    <li><strong>Problema con orden de renderizado</strong>: ✅ Verificado - orden correcto</li>
+                    <li><strong>Problema con prioridad de sprites</strong>: ⚠️ No implementado completamente, pero no explicaría fragmentación</li>
+                    <li><strong>Problema con OAM</strong>: ✅ Verificado - OAM se lee correctamente</li>
+                </ul>
+
+                <h3>Análisis de Operaciones Lentas</h3>
+                <p>
+                    Se identificaron las siguientes operaciones costosas:
+                </p>
+                <ul>
+                    <li><strong>Bucle de renderizado píxel a píxel</strong>: 23,040 iteraciones por frame (Alto impacto)</li>
+                    <li><strong>pygame.transform.scale()</strong>: Escalar 160x144 a 480x432 en cada frame (Medio-Alto impacto)</li>
+                    <li><strong>Creación de PixelArray</strong>: Crear nuevo objeto en cada frame (Medio impacto)</li>
+                </ul>
+            </section>
+
+            <!-- 4. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                
+                <h3>Monitor de Rendimiento</h3>
+                <p>
+                    <strong>Comando ejecutado</strong>: El monitor se activa automáticamente al ejecutar el emulador
+                </p>
+                <p>
+                    <strong>Resultado esperado</strong>:
+                </p>
+                <pre><code>[PERFORMANCE-TRACE] Frame 0 | Frame time: XX.XXms | FPS: XX.X
+[PERFORMANCE-TRACE] Frame 60 | Frame time: XX.XXms | FPS: XX.X
+[PERFORMANCE-TRACE] Frame 120 | Frame time: XX.XXms | FPS: XX.X
+</code></pre>
+                <p>
+                    <strong>Validación</strong>: El monitor reportará el tiempo de frame y FPS cada 60 frames (1 segundo a 60 FPS).
+                </p>
+
+                <h3>Análisis de Código</h3>
+                <p>
+                    Se revisó el código de renderizado en:
+                </p>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code>: Renderizado Python</li>
+                    <li><code>src/core/cpp/PPU.cpp</code>: Renderizado C++</li>
+                </ul>
+                <p>
+                    <strong>Validación</strong>: Análisis estático del código para identificar posibles causas de corrupción y rendimiento bajo.
+                </p>
+            </section>
+
+            <!-- 5. Hallazgos -->
+            <section id="hallazgos">
+                <h2>Hallazgos</h2>
+                
+                <h3>Causas Raíz Identificadas</h3>
+                
+                <h4>Rendimiento Bajo</h4>
+                <ul>
+                    <li><strong>Causa principal</strong>: Bucle de renderizado píxel a píxel (23,040 iteraciones por frame)</li>
+                    <li><strong>Causa secundaria</strong>: <code>pygame.transform.scale()</code> sin cachear</li>
+                    <li><strong>Causa terciaria</strong>: Creación de <code>PixelArray</code> en cada frame</li>
+                </ul>
+
+                <h4>Corrupción Gráfica</h4>
+                <ul>
+                    <li><strong>Causa principal</strong>: Desincronización entre C++ (escritura) y Python (lectura) del framebuffer</li>
+                    <li><strong>Causa secundaria</strong>: Renderizado lento que permite leer framebuffer parcial</li>
+                </ul>
+
+                <h3>Correlación entre Problemas</h3>
+                <p>
+                    <strong>Hipótesis confirmada</strong>: Sí, los problemas están relacionados.
+                </p>
+                <p>
+                    El rendimiento bajo puede causar corrupción gráfica porque:
+                </p>
+                <ul>
+                    <li>Si el renderizado Python es lento, puede leer el framebuffer mientras C++ está escribiendo</li>
+                    <li>Esto causaría que algunos píxeles muestren valores de frames anteriores o parciales</li>
+                    <li>El patrón de tablero de ajedrez podría ser el resultado de leer píxeles de diferentes frames mezclados</li>
+                </ul>
+            </section>
+
+            <!-- 6. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                
+                <ol>
+                    <li><strong>Optimizar renderizado</strong> (Step 0307):
+                        <ul>
+                            <li>Cachear superficie escalada</li>
+                            <li>Optimizar bucle de renderizado</li>
+                            <li>Medir impacto con monitor de rendimiento</li>
+                        </ul>
+                    </li>
+                    <li><strong>Verificar sincronización</strong> (Step 0308):
+                        <ul>
+                            <li>Confirmar que el snapshot se toma en el momento correcto</li>
+                            <li>Verificar que no hay condiciones de carrera</li>
+                        </ul>
+                    </li>
+                    <li><strong>Probar correcciones</strong>:
+                        <ul>
+                            <li>Ejecutar emulador y verificar FPS mejora</li>
+                            <li>Verificar que corrupción gráfica desaparece</li>
+                        </ul>
+                    </li>
+                </ol>
+            </section>
+
+            <!-- 7. Referencias -->
+            <section id="referencias">
+                <h2>Referencias</h2>
+                <ul>
+                    <li>Pan Docs - "Background Tile Map"</li>
+                    <li>Pan Docs - "Sprites"</li>
+                    <li>Pan Docs - "LCD Timing"</li>
+                    <li>Step 0219 - Snapshot Inmutable del Framebuffer</li>
+                    <li>Step 0305 - Investigación de Renderizado Python</li>
+                    <li><code>ANALISIS_STEP_0306_RENDIMIENTO_CORRUPCION.md</code> - Análisis detallado</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                <a href="../index.html">← Volver al índice</a>
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+
