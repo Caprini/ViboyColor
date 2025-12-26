@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0290 - Verificación de LCDC, Paleta y Carga de Tiles -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0290__verificacion-lcdc-paleta-carga-tiles.html" class="entry-link">
+                                    Verificación de LCDC, Paleta y Carga de Tiles
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0290 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de tres monitores adicionales para verificar la configuración de LCDC, la aplicación de la paleta BGP durante el renderizado, y críticamente, detectar cuándo y dónde el juego carga datos de tiles en VRAM. Los hallazgos del Step 0289 confirmaron que el problema está en que los tiles referenciados por el tilemap están vacíos (solo ceros), por lo que necesitamos rastrear si el juego está cargando tiles en VRAM y cuándo lo hace. Se implementaron los monitores [LCDC-CHANGE], [PALETTE-APPLY] y [TILE-LOAD].
+                        </p>
+                    </li>
                                         <!-- Entrada 0289 - Diagnóstico de VRAM y Tilemap -->
                     <li>
                         <div class="entry-header">

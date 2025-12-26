@@ -32,6 +32,38 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0290: Verificación de LCDC, Paleta y Carga de Tiles
+**Estado**: ✅ COMPLETADO
+
+Implementación de tres monitores adicionales para verificar la configuración de LCDC, la aplicación de la paleta BGP durante el renderizado, y críticamente, detectar cuándo y dónde el juego carga datos de tiles en VRAM. Los hallazgos del Step 0289 confirmaron que el problema está en que los tiles referenciados por el tilemap están vacíos (solo ceros), por lo que necesitamos rastrear si el juego está cargando tiles en VRAM y cuándo lo hace. Se implementaron los monitores [LCDC-CHANGE], [PALETTE-APPLY] y [TILE-LOAD].
+
+**Cambios realizados**:
+- **MMU.cpp**:
+  - Implementado el monitor [LCDC-CHANGE] en `MMU::write()` que captura todos los cambios en el registro LCDC (0xFF40).
+  - El monitor reporta el valor anterior, el valor nuevo, el PC que originó el cambio, el banco ROM actual, y el estado de bits críticos (LCD Enable, BG Display Enable, Window Display Enable).
+  - Implementado el monitor [TILE-LOAD] en `MMU::write()` que detecta escrituras en el área de Tile Data (0x8000-0x97FF) que probablemente sean carga de datos de tiles (distintos de 0x00, que es limpieza).
+  - El monitor reporta la dirección escrita, el valor escrito, el Tile ID aproximado (calculado dividiendo el offset por 16), el byte dentro del tile (0-15), el PC que originó la escritura, y el banco ROM actual.
+  - Tiene un límite de 500 escrituras para capturar actividad completa.
+- **PPU.cpp**:
+  - Implementado el monitor [PALETTE-APPLY] en `PPU::render_scanline()` que captura cómo se aplica la paleta BGP durante el renderizado.
+  - El monitor se ejecuta solo en el centro de la pantalla (LY=72, X=80) y en los primeros 3 frames para no saturar los logs.
+  - Reporta el índice de color crudo del tile, el índice final después de aplicar BGP, y el valor de BGP usado.
+
+**Objetivos**:
+- Verificar la configuración del LCD y detectar cambios sospechosos en LCDC.
+- Verificar que la paleta BGP se está aplicando correctamente durante el renderizado.
+- Detectar cuándo y dónde el juego carga datos de tiles en VRAM. Este es el monitor más importante porque necesitamos saber si el juego está cargando tiles y cuándo lo hace.
+
+**Concepto de Hardware**:
+- LCDC (LCD Control Register - 0xFF40) controla el estado del LCD y las características de renderizado. Si el LCD está apagado (bit 7 = 0), no se renderiza nada. Si el BG Display está apagado (bit 0 = 0), no se renderiza el fondo. El bit 4 afecta cómo se calculan las direcciones de tiles.
+- BGP (Background Palette - 0xFF47) mapea índices de color (0-3) a otros índices (0-3). Si BGP = 0x00, todos los colores se mapean a índice 0 (blanco/verde), causando una pantalla monocromática.
+- Los tiles se cargan en el área Tile Data (0x8000-0x97FF). Si los tiles no se cargan, el tilemap referenciará tiles vacíos (solo ceros), resultando en una pantalla en blanco o con un solo color.
+
+**Fuentes Consultadas**:
+- Pan Docs: "LCD Control Register (LCDC)", "Background Palette (BGP)", "Tile Data", "Video RAM (VRAM)"
+
+---
+
 ### 2025-12-25 - Step 0289: Diagnóstico de VRAM y Tilemap
 **Estado**: ✅ COMPLETADO
 

@@ -486,6 +486,19 @@ void PPU::render_scanline() {
             // color_index 2 -> (BGP >> 4) & 3 = 2
             // color_index 3 -> (BGP >> 6) & 3 = 3
             uint8_t final_color = (bgp >> (color_index * 2)) & 0x03;
+            
+            // --- Step 0290: Monitor de Aplicación de Paleta ([PALETTE-APPLY]) ---
+            // Captura cómo se aplica la paleta BGP durante el renderizado.
+            // Solo se activa en el centro de la pantalla (LY=72, X=80) y en los primeros 3 frames
+            // para no saturar los logs.
+            // Fuente: Pan Docs - "Background Palette (BGP)"
+            static int palette_apply_count = 0;
+            if (ly_ == 72 && x == 80 && palette_apply_count < 3) {
+                printf("[PALETTE-APPLY] LY:72 X:80 | ColorIndex:%d -> FinalColor:%d | BGP:0x%02X\n",
+                       color_index, final_color, bgp);
+                palette_apply_count++;
+            }
+            
             framebuffer_[line_start_index + x] = final_color;
             // -------------------------------------------------------------
 

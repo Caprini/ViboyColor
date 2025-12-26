@@ -620,6 +620,29 @@ void MMU::write(uint16_t addr, uint8_t value) {
                value, debug_current_pc, current_rom_bank_);
     }
 
+    // --- Step 0290: Monitor de Cambios en LCDC ([LCDC-CHANGE]) ---
+    // Captura todos los cambios en LCDC (0xFF40) para verificar la configuración del LCD.
+    // LCDC controla el estado del LCD y las características de renderizado:
+    // - Bit 7: LCD Enable (1=ON, 0=OFF)
+    // - Bit 6: Window Tile Map (0=0x9800, 1=0x9C00)
+    // - Bit 5: Window Display Enable (1=ON, 0=OFF)
+    // - Bit 4: Tile Data Base (0=0x8800 signed, 1=0x8000 unsigned)
+    // - Bit 3: BG Tile Map (0=0x9800, 1=0x9C00)
+    // - Bit 2: Sprite Size (0=8x8, 1=8x16)
+    // - Bit 1: Sprite Display Enable (1=ON, 0=OFF)
+    // - Bit 0: BG Display Enable (1=ON, 0=OFF)
+    // Fuente: Pan Docs - "LCD Control Register (LCDC)"
+    if (addr == 0xFF40) {
+        uint8_t old_lcdc = memory_[addr];
+        if (old_lcdc != value) {
+            printf("[LCDC-CHANGE] 0x%02X -> 0x%02X en PC:0x%04X (Bank:%d) | LCD:%s BG:%s Window:%s\n",
+                   old_lcdc, value, debug_current_pc, current_rom_bank_,
+                   (value & 0x80) ? "ON" : "OFF",
+                   (value & 0x01) ? "ON" : "OFF",
+                   (value & 0x20) ? "ON" : "OFF");
+        }
+    }
+
     // --- Step 0283: Monitor de Cambios en BGP (Background Palette) ---
     // El registro BGP (0xFF47) controla la paleta de colores del fondo.
     // Queremos capturar TODOS los cambios en este registro para verificar
@@ -649,6 +672,29 @@ void MMU::write(uint16_t addr, uint8_t value) {
     if (addr == 0xD732) {
         printf("[TRIGGER-D732] Write %02X from PC:%04X (Bank:%d)\n",
                value, debug_current_pc, current_rom_bank_);
+    }
+
+    // --- Step 0290: Monitor de Carga de Tiles ([TILE-LOAD]) ---
+    // Detecta escrituras en el área de Tile Data (0x8000-0x97FF) que probablemente
+    // sean carga de datos de tiles (distintos de 0x00, que es limpieza).
+    // Este monitor es crítico porque los hallazgos del Step 0289 confirmaron que
+    // los tiles referenciados por el tilemap están vacíos (solo ceros).
+    // Fuente: Pan Docs - "Tile Data": 0x8000-0x97FF contiene 384 tiles de 16 bytes cada uno
+    if (addr >= 0x8000 && addr <= 0x97FF) {
+        // Filtrar valores comunes de inicialización/borrado para detectar datos reales
+        if (value != 0x00 && value != 0x7F) {
+            static int tile_load_count = 0;
+            if (tile_load_count < 500) {  // Límite alto para capturar actividad completa
+                // Calcular Tile ID aproximado basado en la dirección
+                // Cada tile ocupa 16 bytes, Tile 0 empieza en 0x8000 (unsigned) o 0x9000 (signed)
+                uint16_t tile_offset = addr - 0x8000;
+                uint8_t tile_id_approx = tile_offset / 16;
+                
+                printf("[TILE-LOAD] Write %04X=%02X (TileID~%d, Byte:%d) PC:%04X (Bank:%d)\n",
+                       addr, value, tile_id_approx, tile_offset % 16, debug_current_pc, current_rom_bank_);
+                tile_load_count++;
+            }
+        }
     }
 
     // --- Step 0285: Monitor Liberal de Escrituras en VRAM ([VRAM-VIBE]) ---
