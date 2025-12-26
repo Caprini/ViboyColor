@@ -32,6 +32,42 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0298: Ejecución con Interacción y Decisión sobre Enfoque
+**Estado**: ✅ COMPLETADO
+
+Ejecución del emulador con Pokémon Red durante 60 segundos con simulación de entrada del usuario (presionar botones automáticamente) para verificar si la interacción activa la carga de tiles. El análisis de los logs confirma que **NO se detectan accesos VRAM con datos reales** incluso después de 60 segundos con interacción simulada.
+
+**Resultados del análisis (60 segundos)**:
+- **Total de líneas en log**: 1,882,587
+- **[SIM-INPUT]**: 0 (la simulación no generó logs visibles)
+- **[VRAM-ACCESS-GLOBAL.*DATA]**: 0 (ningún acceso con datos != 0x00)
+- **[ROM-TO-VRAM]**: 0 (ninguna copia desde ROM)
+- **[LOAD-SEQUENCE]**: 1 (solo la rutina de limpieza en PC:0x36E3)
+- **[TIMELINE-VRAM]**: 200 (todos accesos de limpieza)
+- **[STATE-CHANGE]**: 79 (saltos grandes de PC detectados - el juego ejecuta código normalmente)
+- **[SCREEN-TRANSITION]**: 1 (una transición de pantalla detectada)
+
+**Hallazgos clave**:
+1. Todos los accesos VRAM son de limpieza (0x00) desde PC:0x36E3
+2. No hay carga de datos reales en 60 segundos
+3. El juego ejecuta código normalmente (79 cambios de estado, 1 transición de pantalla)
+4. La simulación de entrada no generó logs visibles
+
+**Decisión estratégica**: Implementar **carga manual de tiles como hack temporal** para permitir avanzar con el desarrollo del emulador, mientras se investiga en paralelo el desensamblado del juego y posibles bugs sutiles en la emulación.
+
+**Implementación**:
+- Corregida firma de `load_cartridge()` en `src/viboy.py` para aceptar `load_test_tiles`
+- Verificada función `load_test_tiles()` en `src/core/cpp/MMU.cpp` (ya estaba implementada)
+- Creado documento de decisión estratégica: `DECISION_ESTRATEGICA_STEP_0298.md`
+
+**Próximos pasos**:
+1. Verificar que `load_test_tiles()` funciona correctamente con `--load-test-tiles`
+2. Continuar con otras funcionalidades del emulador mientras se investiga el problema en paralelo
+3. Investigar desensamblado del juego para identificar rutinas de carga de tiles
+4. Investigar posibles bugs sutiles en la emulación
+
+---
+
 ### 2025-12-25 - Step 0296: Verificación y Análisis del Step 0295
 **Estado**: ✅ COMPLETADO
 

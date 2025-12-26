@@ -1120,3 +1120,86 @@ void MMU::dump_vram_initial_state() {
     printf("[VRAM-INIT-DUMP] Fin del dump inicial\n");
 }
 
+// --- Step 0298: Hack Temporal - Carga Manual de Tiles ---
+void MMU::load_test_tiles() {
+    // Esta función carga tiles básicos de prueba en VRAM para poder avanzar
+    // con el desarrollo del emulador mientras se investiga por qué el juego
+    // no carga tiles automáticamente.
+    //
+    // Fuente: Pan Docs - "Tile Data", "Tile Map"
+    // Formato Tile: 2bpp, 8x8 píxeles, 16 bytes por tile
+    
+    printf("[LOAD-TEST-TILES] Cargando tiles de prueba en VRAM...\n");
+    
+    // Tile 0 (0x8000-0x800F): Blanco puro (todos 0x00)
+    // Ya está inicializado a 0x00, no necesitamos hacer nada
+    
+    // Tile 1 (0x8010-0x801F): Patrón de cuadros alternados (checkerboard)
+    // Cada línea alterna entre 0xAA (10101010) y 0x55 (01010101)
+    uint8_t tile1_data[16] = {
+        0xAA, 0x55,  // Línea 0: 10101010, 01010101
+        0xAA, 0x55,  // Línea 1
+        0xAA, 0x55,  // Línea 2
+        0xAA, 0x55,  // Línea 3
+        0xAA, 0x55,  // Línea 4
+        0xAA, 0x55,  // Línea 5
+        0xAA, 0x55,  // Línea 6
+        0xAA, 0x55,  // Línea 7
+    };
+    for (int i = 0; i < 16; i++) {
+        memory_[0x8010 + i] = tile1_data[i];
+    }
+    
+    // Tile 2 (0x8020-0x802F): Líneas horizontales
+    // Líneas pares: 0xFF (negro), líneas impares: 0x00 (blanco)
+    uint8_t tile2_data[16] = {
+        0xFF, 0xFF,  // Línea 0: negra
+        0x00, 0x00,  // Línea 1: blanca
+        0xFF, 0xFF,  // Línea 2: negra
+        0x00, 0x00,  // Línea 3: blanca
+        0xFF, 0xFF,  // Línea 4: negra
+        0x00, 0x00,  // Línea 5: blanca
+        0xFF, 0xFF,  // Línea 6: negra
+        0x00, 0x00,  // Línea 7: blanca
+    };
+    for (int i = 0; i < 16; i++) {
+        memory_[0x8020 + i] = tile2_data[i];
+    }
+    
+    // Tile 3 (0x8030-0x803F): Líneas verticales
+    // Columnas alternadas: 0xAA (10101010) para columnas impares, 0x55 para pares
+    uint8_t tile3_data[16] = {
+        0xAA, 0x55,  // Línea 0: columnas alternadas
+        0xAA, 0x55,  // Línea 1
+        0xAA, 0x55,  // Línea 2
+        0xAA, 0x55,  // Línea 3
+        0xAA, 0x55,  // Línea 4
+        0xAA, 0x55,  // Línea 5
+        0xAA, 0x55,  // Línea 6
+        0xAA, 0x55,  // Línea 7
+    };
+    for (int i = 0; i < 16; i++) {
+        memory_[0x8030 + i] = tile3_data[i];
+    }
+    
+    // Configurar Tile Map básico (0x9800-0x9BFF)
+    // Llenar las primeras filas con los tiles de prueba
+    // Tile ID 0 = blanco, Tile ID 1 = checkerboard, Tile ID 2 = líneas horizontales, Tile ID 3 = líneas verticales
+    for (int y = 0; y < 18; y++) {  // 18 filas visibles
+        for (int x = 0; x < 20; x++) {  // 20 columnas visibles
+            uint16_t map_addr = 0x9800 + (y * 32) + x;
+            // Patrón simple: alternar tiles
+            uint8_t tile_id = ((x + y) % 4);
+            memory_[map_addr] = tile_id;
+        }
+    }
+    
+    printf("[LOAD-TEST-TILES] Tiles de prueba cargados:\n");
+    printf("[LOAD-TEST-TILES]   Tile 0 (0x8000): Blanco\n");
+    printf("[LOAD-TEST-TILES]   Tile 1 (0x8010): Checkerboard\n");
+    printf("[LOAD-TEST-TILES]   Tile 2 (0x8020): Lineas horizontales\n");
+    printf("[LOAD-TEST-TILES]   Tile 3 (0x8030): Lineas verticales\n");
+    printf("[LOAD-TEST-TILES]   Tile Map configurado con patron alternado\n");
+}
+// --- Fin Step 0298 ---
+

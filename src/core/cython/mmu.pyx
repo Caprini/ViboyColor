@@ -247,6 +247,26 @@ cdef class PyMMU:
         """
         self._mmu.request_interrupt(bit)
     
+    # --- Step 0298: Hack Temporal - Carga Manual de Tiles ---
+    def load_test_tiles(self):
+        """
+        Carga tiles básicos de prueba en VRAM para poder avanzar con el desarrollo
+        del emulador mientras se investiga por qué el juego no carga tiles automáticamente.
+        
+        Esta es una función temporal de desarrollo. Se eliminará una vez que se identifique
+        y corrija el problema real de carga de tiles.
+        
+        Carga:
+        - Tile 0: Blanco (todos 0x00)
+        - Tile 1: Patrón de cuadros alternados (checkerboard)
+        - Tile 2: Líneas horizontales
+        - Tile 3: Líneas verticales
+        
+        También configura el Tile Map básico para mostrar los tiles.
+        """
+        self._mmu.load_test_tiles()
+    # --- Fin Step 0298 ---
+    
     # Método para obtener el puntero C++ directamente (forma segura)
     cdef mmu.MMU* get_cpp_ptr(self):
         """

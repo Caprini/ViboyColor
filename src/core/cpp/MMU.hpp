@@ -88,6 +88,25 @@ public:
     void setJoypad(Joypad* joypad);
     
     /**
+     * --- Step 0298: Hack Temporal - Carga Manual de Tiles ---
+     * Función temporal que carga tiles básicos en VRAM para pruebas.
+     * Esto permite avanzar con el desarrollo mientras se investiga por qué
+     * el juego no carga tiles automáticamente.
+     * 
+     * Carga tiles de prueba en el área de Tile Data (0x8000-0x97FF):
+     * - Tile 0: Blanco (todos 0x00)
+     * - Tile 1: Patrón simple (cuadros alternados)
+     * - Tile 2: Patrón de líneas horizontales
+     * - Tile 3: Patrón de líneas verticales
+     * 
+     * También configura el Tile Map básico (0x9800-0x9BFF) para mostrar los tiles.
+     * 
+     * NOTA: Esta es una función temporal de desarrollo. Se eliminará una vez
+     * que se identifique y corrija el problema real de carga de tiles.
+     */
+    void load_test_tiles();
+    
+    /**
      * Solicita una interrupción activando el bit correspondiente en el registro IF (0xFF0F).
      * 
      * Este método permite que componentes del hardware (PPU, Timer, etc.) soliciten

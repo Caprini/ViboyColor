@@ -56,6 +56,16 @@ def main() -> None:
         action="store_true",
         help="Activar modo verbose (muestra mensajes INFO, incluyendo heartbeat)",
     )
+    parser.add_argument(
+        "--simulate-input",
+        action="store_true",
+        help="Simular entrada del usuario automáticamente (presionar botones en tiempos específicos)",
+    )
+    parser.add_argument(
+        "--load-test-tiles",
+        action="store_true",
+        help="Cargar tiles de prueba manualmente en VRAM (hack temporal para desarrollo)",
+    )
     
     args = parser.parse_args()
     
@@ -115,7 +125,8 @@ def main() -> None:
     
     # Inicializar sistema Viboy
     try:
-        viboy = Viboy(args.rom)
+        viboy = Viboy()
+        viboy.load_cartridge(args.rom, load_test_tiles=args.load_test_tiles)
         
         # Obtener información del cartucho
         cartridge = viboy.get_cartridge()
@@ -153,7 +164,7 @@ def main() -> None:
                 print("   (Usa --verbose para ver el heartbeat con VRAM_SUM)\n")
         
         # Ejecutar bucle principal
-        viboy.run(debug=args.debug)
+        viboy.run(debug=args.debug, simulate_input=args.simulate_input)
         
     except (FileNotFoundError, IOError, ValueError) as e:
         error_msg = f"Error al cargar ROM: {e}"

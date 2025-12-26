@@ -186,12 +186,13 @@ class Viboy:
         
         logger.info(f"Sistema Viboy inicializado ({'C++ Core' if self._use_cpp else 'Python Core'})")
 
-    def load_cartridge(self, rom_path: str | Path) -> None:
+    def load_cartridge(self, rom_path: str | Path, load_test_tiles: bool = False) -> None:
         """
         Carga un cartucho (ROM) en el sistema.
         
         Args:
             rom_path: Ruta al archivo ROM (.gb o .gbc)
+            load_test_tiles: Si es True, carga tiles de prueba manualmente en VRAM (hack temporal)
             
         Raises:
             FileNotFoundError: Si el archivo ROM no existe
@@ -271,6 +272,11 @@ class Viboy:
         
         # Simular "Post-Boot State" (sin Boot ROM)
         self._initialize_post_boot_state()
+        
+        # --- Step 0298: Carga Manual de Tiles (Hack Temporal) ---
+        if load_test_tiles and self._use_cpp and self._mmu is not None:
+            self._mmu.load_test_tiles()
+        # --- Fin Step 0298 ---
         
         # Mostrar información del cartucho cargado
         header_info = self._cartridge.get_header_info()
@@ -676,7 +682,7 @@ class Viboy:
             
             return cycles
 
-    def run(self, debug: bool = False) -> None:
+    def run(self, debug: bool = False, simulate_input: bool = False) -> None:
         """
         Ejecuta el bucle principal del emulador (Game Loop).
         
@@ -703,6 +709,7 @@ class Viboy:
         
         Args:
             debug: Si es True, activa el modo debug con trazas detalladas (no implementado aún)
+            simulate_input: Si es True, simula presionar botones automáticamente en tiempos específicos
             
         Raises:
             RuntimeError: Si el sistema no está inicializado correctamente
@@ -724,6 +731,38 @@ class Viboy:
         self.frame_count = 0
         self.running = True
         self.verbose = True  # Para heartbeat
+        
+        # --- Step 0298: Simulación de Entrada ---
+        # Mapeo de nombres de botones a índices numéricos para PyJoypad C++
+        button_index_map: dict[str, int] = {
+            "right": 0,
+            "left": 1,
+            "up": 2,
+            "down": 3,
+            "a": 4,
+            "b": 5,
+            "select": 6,
+            "start": 7,
+        }
+        
+        # Lista de acciones de simulación: (frames, botón, acción: "press" o "release")
+        # 5 segundos = 300 frames, 10 segundos = 600 frames
+        simulated_actions: list[tuple[int, str, str]] = []
+        if simulate_input:
+            simulated_actions = [
+                (300, "start", "press"),   # 5 segundos: Presionar START
+                (330, "start", "release"), # 5.5 segundos: Soltar START
+                (600, "a", "press"),       # 10 segundos: Presionar A
+                (630, "a", "release"),     # 10.5 segundos: Soltar A
+                (900, "down", "press"),    # 15 segundos: Presionar DOWN
+                (930, "down", "release"),  # 15.5 segundos: Soltar DOWN
+            ]
+            print("🎮 Modo de simulación de entrada activado")
+            print("   Acciones programadas:")
+            for frames, button, action in simulated_actions:
+                seconds = frames / 60.0
+                print(f"   - {seconds:.1f}s: {action.upper()} {button.upper()}")
+        # --- Fin Step 0298 ---
         
         print("🚀 Ejecutando el núcleo C++ con bucle de emulación nativo...")
         
@@ -940,6 +979,30 @@ class Viboy:
                 # -----------------------------------------------
                 
                 self.frame_count += 1
+                
+                # --- Step 0298: Ejecutar acciones de simulación de entrada ---
+                if simulate_input and self._joypad is not None:
+                    for frames, button, action in simulated_actions:
+                        if self.frame_count == frames:
+                            # Ejecutar la acción
+                            if isinstance(self._joypad, PyJoypad):
+                                button_index = button_index_map.get(button)
+                                if button_index is not None:
+                                    if action == "press":
+                                        self._joypad.press_button(button_index)
+                                        print(f"[SIM-INPUT] Frame {frames} ({frames/60.0:.1f}s): PRESS {button.upper()}")
+                                    else:
+                                        self._joypad.release_button(button_index)
+                                        print(f"[SIM-INPUT] Frame {frames} ({frames/60.0:.1f}s): RELEASE {button.upper()}")
+                            else:
+                                # Fallback para Joypad Python
+                                if action == "press":
+                                    self._joypad.press(button)
+                                    print(f"[SIM-INPUT] Frame {frames} ({frames/60.0:.1f}s): PRESS {button.upper()}")
+                                else:
+                                    self._joypad.release(button)
+                                    print(f"[SIM-INPUT] Frame {frames} ({frames/60.0:.1f}s): RELEASE {button.upper()}")
+                # --- Fin Step 0298 ---
                 
                 # --- Step 0240: Monitor GPS (Navegador) ---
                 # Reporta la posición de la CPU y el estado del hardware cada segundo (60 frames)
