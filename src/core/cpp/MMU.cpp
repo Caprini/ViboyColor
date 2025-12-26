@@ -304,12 +304,16 @@ uint8_t MMU::read(uint16_t addr) const {
                 uint8_t val = rom_data_[rom_addr];
                 
                 // --- Step 0282: Monitor de lecturas en bancos superiores ---
+                // COMENTADO EN STEP 0283: Optimización de rendimiento para alcanzar 60 FPS
+                // Este log generaba demasiadas líneas y afectaba el rendimiento.
+                /*
                 static int bank_read_count = 0;
                 if (bank_read_count < 20) {
                     printf("[BANK-READ] Read %04X (Bank:%d Offset:%04X) -> %02X en PC:0x%04X\n",
                            addr, bankN_rom_, (uint16_t)(addr - 0x4000), val, debug_current_pc);
                     bank_read_count++;
                 }
+                */
                 
                 return val;
             }
@@ -594,6 +598,19 @@ void MMU::write(uint16_t addr, uint8_t value) {
                value, debug_current_pc, current_rom_bank_);
     }
 
+    // --- Step 0283: Monitor de Cambios en BGP (Background Palette) ---
+    // El registro BGP (0xFF47) controla la paleta de colores del fondo.
+    // Queremos capturar TODOS los cambios en este registro para verificar
+    // si el juego está configurando la paleta correctamente.
+    // Fuente: Pan Docs - "LCD Monochrome Palettes (BGP, OBP0, OBP1)"
+    if (addr == 0xFF47) {
+        uint8_t old_bgp = memory_[addr];
+        if (old_bgp != value) {
+            printf("[BGP-CHANGE] 0x%02X -> 0x%02X en PC:0x%04X (Bank:%d)\n",
+                   old_bgp, value, debug_current_pc, current_rom_bank_);
+        }
+    }
+
     // Escritura directa
     static int d732_log_count = 0;
     if (addr == 0xD732 && d732_log_count < 20) {
@@ -613,14 +630,16 @@ void MMU::write(uint16_t addr, uint8_t value) {
     }
 
     // --- Step 0282: Sniper de escritura en VRAM (solo valores != 0x00) ---
-    // Reemplazamos el monitor genérico por uno que solo captura datos reales.
-    // Esto nos permite ver CUÁNDO se intentan cargar los gráficos reales.
+    // COMENTADO EN STEP 0283: Optimización de rendimiento para alcanzar 60 FPS
+    // Este log generaba demasiadas líneas y afectaba el rendimiento.
+    /*
     static int vram_sniper_count = 0;
     if (addr >= 0x8000 && addr <= 0x9FFF && value != 0x00 && vram_sniper_count < 100) {
         printf("[VRAM-SNIPER] Write %04X=%02X PC:%04X (Bank:%d)\n", 
                addr, value, debug_current_pc, current_rom_bank_);
         vram_sniper_count++;
     }
+    */
 
     memory_[addr] = value;
 }

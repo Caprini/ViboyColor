@@ -32,6 +32,27 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0283: Optimización de Rendimiento y Hack de Paleta
+**Estado**: ✅ COMPLETADO
+
+Optimización crítica de rendimiento comentando los logs de alta frecuencia que impedían alcanzar los 60 FPS, y verificación/mejora del hack de inicialización de la paleta BGP.
+
+**Cambios realizados**:
+- **MMU.cpp**:
+  - Comentados los logs `[BANK-READ]` y `[VRAM-SNIPER]` que generaban miles de líneas por segundo y afectaban el rendimiento.
+  - Verificado que el registro BGP (0xFF47) está inicializado con 0xFC en el constructor (ya estaba correcto).
+  - Implementación de monitor `[BGP-CHANGE]` para capturar todos los cambios en el registro de paleta de fondo durante la ejecución.
+- **Bitácora**: Creada entrada 0283 documentando las optimizaciones y el hack de paleta.
+
+**Objetivos**:
+- Eliminar el cuello de botella de I/O en el bucle crítico para alcanzar 60 FPS.
+- Asegurar visibilidad inicial de los gráficos mediante inicialización correcta de BGP.
+- Capturar cambios en la paleta para diagnosticar problemas de visualización.
+
+**Bitácora**: `docs/bitacora/entries/2025-12-25__0283__optimizacion-rendimiento-hack-paleta.html`
+
+---
+
 ### 2025-12-25 - Step 0282: Auditoría de Bancos MBC1 y Carga de VRAM
 **Estado**: ✅ COMPLETADO
 
