@@ -32,6 +32,51 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0304: Verificación Extendida y Monitor de Framebuffer
+**Estado**: 🔄 EN PROGRESO (DRAFT)
+
+Implementación de monitores de framebuffer con flags de activación para rastrear qué índices tiene el framebuffer en cada frame y detectar cuándo cambia de tener solo índices 0 a tener índices 1 o 2. Los monitores están preparados pero desactivados por defecto, y solo se activarán si la verificación visual extendida (10-15 minutos) confirma que las rayas verdes persisten después de las correcciones del Step 0303.
+
+**Objetivo**:
+- Verificar que las correcciones de paleta del Step 0303 eliminaron las rayas verdes durante una sesión extendida
+- Si las rayas aparecen, identificar cuándo y qué valores tiene el framebuffer
+- Implementar monitores adicionales si es necesario para diagnosticar cambios en el framebuffer
+
+**Monitores implementados**:
+
+1. **Monitor en Python (`renderer.py`) - [FRAMEBUFFER-INDEX-TRACE]**:
+   - Cuenta cuántos píxeles tienen cada índice (0, 1, 2, 3)
+   - Detecta si hay valores no-cero (1, 2 o 3)
+   - Registra información solo cuando hay cambios o cada 1000 frames
+   - Limita a 100 registros para no saturar los logs
+   - Flag de activación: `self._framebuffer_trace_enabled = False` (cambiar a `True` si se necesitan logs)
+
+2. **Monitor en C++ (`PPU.cpp`) - [FRAMEBUFFER-DETAILED]**:
+   - Rastrea la línea central (LY=72) cada 1000 frames
+   - Cuenta píxeles no-cero en la línea central
+   - Muestra una muestra de los primeros 32 píxeles
+   - Limita a 100 registros para no saturar los logs
+   - Flag de activación: `ENABLE_FRAMEBUFFER_DETAILED_TRACE = false` (cambiar a `true` si se necesitan logs)
+
+**Archivos modificados**:
+- `src/gpu/renderer.py` - Implementación del monitor [FRAMEBUFFER-INDEX-TRACE] con flag de activación
+- `src/core/cpp/PPU.cpp` - Implementación del monitor [FRAMEBUFFER-DETAILED] con flag de activación
+- `INSTRUCCIONES_VERIFICACION_STEP_0304.md` - Instrucciones para la verificación visual extendida
+- `docs/bitacora/entries/2025-12-25__0304__verificacion-extendida-monitor-framebuffer.html` - Entrada HTML de bitácora
+- `docs/bitacora/index.html` - Actualizado con entrada 0304
+- `INFORME_FASE_2.md` - Esta entrada
+
+**Próximos pasos**:
+- Ejecutar verificación visual extendida (10-15 minutos) con Pokémon Red
+- Registrar observaciones: ¿Aparecen rayas verdes? ¿Cuándo? ¿Cómo se ven?
+- Si NO aparecen rayas: Documentar éxito y continuar con otras funcionalidades
+- Si SÍ aparecen rayas: Activar monitores y ejecutar con logs capturados
+- Analizar logs (si se capturaron) para identificar cuándo y por qué cambia el framebuffer
+- Generar resumen ejecutivo con hallazgos y conclusiones
+- Step 0305 (si se necesita): Investigar código de PPU C++ para identificar dónde se escriben valores 1 o 2
+
+---
+
 ### 2025-12-25 - Step 0303: Corrección de Paleta Debug Índices 1 y 2
 **Estado**: ✅ COMPLETADO
 

@@ -588,6 +588,46 @@ void PPU::render_scanline() {
     }
     // -----------------------------------------
     
+    // --- STEP 0304: Monitor de Framebuffer Detallado ([FRAMEBUFFER-DETAILED]) ---
+    // Monitorear el framebuffer desde el lado C++ para detectar cuándo se escriben valores 1 o 2.
+    // Solo rastrear algunos píxeles o líneas específicas para no afectar el rendimiento.
+    // 
+    // FLAG DE ACTIVACIÓN: Solo activar si las rayas verdes aparecen después de la verificación visual extendida.
+    // Para activar, cambiar ENABLE_FRAMEBUFFER_DETAILED_TRACE a true.
+    // 
+    // Fuente: Pan Docs - "Framebuffer", "Background Palette (BGP)"
+    static constexpr bool ENABLE_FRAMEBUFFER_DETAILED_TRACE = false;  // Cambiar a true si se necesitan logs
+    static int detailed_trace_count = 0;
+    static int last_frame_with_non_zero = 0;
+    
+    if (ENABLE_FRAMEBUFFER_DETAILED_TRACE && ly_ == 72 && detailed_trace_count % 1000 == 0) {
+        int non_zero_count = 0;
+        size_t line_start = ly_ * 160;
+        
+        // Contar índices no-cero en la línea central
+        for (int x = 0; x < 160; x++) {
+            uint8_t idx = framebuffer_[line_start + x] & 0x03;
+            if (idx != 0) non_zero_count++;
+        }
+        
+        if (non_zero_count > 0 || detailed_trace_count < 10) {
+            if (detailed_trace_count < 100) {
+                printf("[FRAMEBUFFER-DETAILED] Frame %d LY:72 | Non-zero pixels: %d/160\n",
+                       detailed_trace_count, non_zero_count);
+                
+                // Mostrar algunos píxeles de ejemplo
+                printf("[FRAMEBUFFER-DETAILED] Sample pixels (first 32): ");
+                for (int x = 0; x < 32; x++) {
+                    printf("%d ", framebuffer_[line_start + x] & 0x03);
+                }
+                printf("\n");
+            }
+            last_frame_with_non_zero = detailed_trace_count;
+        }
+        detailed_trace_count++;
+    }
+    // -----------------------------------------
+    
     // --- Step 0284: Renderizar Window después del Background ---
     // La Window se dibuja encima del Background pero debajo de los Sprites
     // Solo se renderiza si está habilitada (LCDC bit 5) y las condiciones WY/WX se cumplen

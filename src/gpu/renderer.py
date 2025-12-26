@@ -208,6 +208,13 @@ class Renderer:
         self._last_use_cpp_ppu = None
         # ----------------------------------------
         
+        # --- STEP 0304: Monitor de Framebuffer ([FRAMEBUFFER-INDEX-TRACE]) ---
+        # Flag de activación: Solo activar si las rayas verdes aparecen después de la verificación visual
+        # Para activar, cambiar a True después de confirmar que las rayas aparecen
+        self._framebuffer_trace_enabled = False
+        self._framebuffer_trace_count = 0
+        # ----------------------------------------
+        
         logger.info(f"Renderer inicializado: {self.window_width}x{self.window_height} (scale={scale})")
         
         # Mostrar pantalla de carga
@@ -516,6 +523,33 @@ class Renderer:
                     palette_0_self = self._palette[0]  # self.palette
                     print(f"[PALETTE-USE-TRACE] Frame {self._palette_trace_count} | use_cpp_ppu={use_cpp} | debug_palette[0]={palette_0_debug} | self.palette[0]={palette_0_self}")
                 self._palette_trace_count += 1
+                # ----------------------------------------
+                
+                # --- STEP 0304: Monitor de Framebuffer ([FRAMEBUFFER-INDEX-TRACE]) ---
+                # Rastrear qué índices tiene el framebuffer en cada frame para detectar cuándo cambia
+                # de tener solo índices 0 a tener índices 1 o 2.
+                # Solo activar si las rayas verdes aparecen después de la verificación visual extendida.
+                if self._framebuffer_trace_enabled and frame_indices is not None:
+                    # Contar índices en el framebuffer
+                    index_counts = {0: 0, 1: 0, 2: 0, 3: 0}
+                    for idx in range(len(frame_indices)):
+                        color_idx = frame_indices[idx] & 0x03
+                        if color_idx in index_counts:
+                            index_counts[color_idx] += 1
+                    
+                    # Detectar si hay valores 1 o 2 (no solo 0)
+                    has_non_zero = index_counts[1] > 0 or index_counts[2] > 0 or index_counts[3] > 0
+                    
+                    # Rastrear solo cuando hay cambio o cada 1000 frames
+                    if has_non_zero or self._framebuffer_trace_count % 1000 == 0:
+                        if self._framebuffer_trace_count < 100:  # Limitar a 100 registros
+                            print(f"[FRAMEBUFFER-INDEX-TRACE] Frame {self._framebuffer_trace_count} | "
+                                  f"Index counts: 0={index_counts[0]} 1={index_counts[1]} "
+                                  f"2={index_counts[2]} 3={index_counts[3]} | "
+                                  f"Has non-zero: {has_non_zero}")
+                        self._framebuffer_trace_count += 1
+                    else:
+                        self._framebuffer_trace_count += 1
                 # ----------------------------------------
                 
                 # --- STEP 0301: Monitor de Cambios en use_cpp_ppu ([CPP-PPU-TOGGLE]) ---

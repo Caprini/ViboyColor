@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificación Extendida y Monitor de Framebuffer - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Verificación Extendida y Monitor de Framebuffer</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0304
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0303__correccion-paleta-debug-indices-1-2.html">Anterior (0303)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de monitores de framebuffer con flags de activación para rastrear qué índices tiene el framebuffer
+                    en cada frame y detectar cuándo cambia de tener solo índices 0 a tener índices 1 o 2. Los monitores están preparados
+                    pero desactivados por defecto, y solo se activarán si la verificación visual extendida (10-15 minutos) confirma que
+                    las rayas verdes persisten después de las correcciones del Step 0303.
+                </p>
+                <p>
+                    <strong>Objetivo</strong>: Verificar que las correcciones de paleta eliminaron las rayas verdes durante una sesión
+                    extendida. Si las rayas aparecen, los monitores permitirán identificar cuándo y por qué cambia el framebuffer.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>Framebuffer e Índices de Color</h3>
+                <p>
+                    El framebuffer contiene <strong>índices de color</strong> (0-3), no colores RGB directamente. Estos índices se mapean
+                    a colores usando una paleta. Si el framebuffer cambia de tener solo índices 0 a tener índices 1 o 2, significa que la
+                    PPU está escribiendo diferentes valores en el framebuffer.
+                </p>
+                <p>
+                    En condiciones normales, el framebuffer debería tener principalmente índices 0 (blanco) cuando no hay gráficos, o una
+                    mezcla de índices 0-3 cuando hay gráficos renderizados. Si aparecen rayas verdes después de unos minutos, significa
+                    que el framebuffer está recibiendo valores 1 o 2 que se están mapeando incorrectamente a verde (en lugar de gris).
+                </p>
+
+                <h3>Rastreo de Framebuffer</h3>
+                <p>
+                    Monitorear el contenido del framebuffer permite identificar cuándo y dónde se escriben valores específicos. Los monitores
+                    deben ser eficientes para no afectar el rendimiento, por lo que solo rastrean cuando hay cambios o a intervalos regulares
+                    (cada 1000 frames).
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "Framebuffer", "Background Palette (BGP)"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron dos monitores de framebuffer con flags de activación:
+                </p>
+                
+                <h3>Monitor en Python (renderer.py)</h3>
+                <p>
+                    Monitor <code>[FRAMEBUFFER-INDEX-TRACE]</code> que rastrea qué índices tiene el framebuffer en cada frame:
+                </p>
+                <ul>
+                    <li>Cuenta cuántos píxeles tienen cada índice (0, 1, 2, 3)</li>
+                    <li>Detecta si hay valores no-cero (1, 2 o 3)</li>
+                    <li>Registra información solo cuando hay cambios o cada 1000 frames</li>
+                    <li>Limita a 100 registros para no saturar los logs</li>
+                </ul>
+                <p>
+                    <strong>Flag de activación</strong>: <code>self._framebuffer_trace_enabled = False</code> (cambiar a <code>True</code> si se necesitan logs)
+                </p>
+
+                <h3>Monitor en C++ (PPU.cpp)</h3>
+                <p>
+                    Monitor <code>[FRAMEBUFFER-DETAILED]</code> que monitorea el framebuffer desde el lado C++:
+                </p>
+                <ul>
+                    <li>Rastrea la línea central (LY=72) cada 1000 frames</li>
+                    <li>Cuenta píxeles no-cero en la línea central</li>
+                    <li>Muestra una muestra de los primeros 32 píxeles</li>
+                    <li>Limita a 100 registros para no saturar los logs</li>
+                </ul>
+                <p>
+                    <strong>Flag de activación</strong>: <code>ENABLE_FRAMEBUFFER_DETAILED_TRACE = false</code> (cambiar a <code>true</code> si se necesitan logs)
+                </p>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Flags de activación</strong>: Los monitores están desactivados por defecto para no afectar el rendimiento. Solo se activan si la verificación visual confirma que las rayas aparecen.</li>
+                    <li><strong>Límites de registro</strong>: Se limitan a 100 registros para evitar saturar el contexto y los logs.</li>
+                    <li><strong>Intervalos de rastreo</strong>: Solo rastrean cada 1000 frames o cuando hay cambios, para minimizar el overhead.</li>
+                    <li><strong>Línea central</strong>: El monitor C++ rastrea la línea central (LY=72) como muestra representativa del framebuffer.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Implementación del monitor [FRAMEBUFFER-INDEX-TRACE] con flag de activación</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementación del monitor [FRAMEBUFFER-DETAILED] con flag de activación</li>
+                    <li><code>INSTRUCCIONES_VERIFICACION_STEP_0304.md</code> - Instrucciones para la verificación visual extendida</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Verificación Visual Extendida</strong>: Pendiente de ejecución. El usuario debe ejecutar el emulador durante
+                    10-15 minutos para verificar si las rayas verdes aparecen después de las correcciones del Step 0303.
+                </p>
+                <p>
+                    <strong>Instrucciones</strong>: Ver archivo <code>INSTRUCCIONES_VERIFICACION_STEP_0304.md</code> para los pasos detallados
+                    de verificación.
+                </p>
+                <p>
+                    <strong>Monitores</strong>: Los monitores están implementados pero desactivados por defecto. Solo se activarán si la
+                    verificación visual confirma que las rayas aparecen.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "Framebuffer", "Background Palette (BGP)"</li>
+                    <li>Step 0303: Corrección de Paleta Debug Índices 1 y 2</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Framebuffer e índices</strong>: El framebuffer contiene índices de color (0-3), no colores RGB. Estos índices se mapean a colores usando una paleta.</li>
+                        <li><strong>Monitoreo eficiente</strong>: Los monitores deben ser eficientes para no afectar el rendimiento. Solo rastrean cuando hay cambios o a intervalos regulares.</li>
+                        <li><strong>Flags de activación</strong>: Los monitores están desactivados por defecto y solo se activan si se necesitan, para evitar overhead innecesario.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Verificación visual</strong>: ¿Las correcciones del Step 0303 eliminaron las rayas verdes? Pendiente de verificación extendida (10-15 minutos).</li>
+                        <li><strong>Origen de valores 1 y 2</strong>: Si las rayas aparecen, los monitores ayudarán a identificar cuándo y por qué el framebuffer cambia de tener solo índices 0 a tener índices 1 o 2.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis</strong>: Las correcciones del Step 0303 deberían eliminar las rayas verdes, ya que todas las paletas
+                        de debug ahora usan grises verdaderos en lugar de verde para los índices 1 y 2. Si las rayas persisten, significa que
+                        hay otro origen del problema (posiblemente en la PPU C++ o en cómo se escriben los valores en el framebuffer).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar verificación visual extendida (10-15 minutos) con Pokémon Red</li>
+                    <li>[ ] Registrar observaciones: ¿Aparecen rayas verdes? ¿Cuándo? ¿Cómo se ven?</li>
+                    <li>[ ] Si NO aparecen rayas: Documentar éxito y continuar con otras funcionalidades</li>
+                    <li>[ ] Si SÍ aparecen rayas: Activar monitores y ejecutar con logs capturados</li>
+                    <li>[ ] Analizar logs (si se capturaron) para identificar cuándo y por qué cambia el framebuffer</li>
+                    <li>[ ] Generar resumen ejecutivo con hallazgos y conclusiones</li>
+                    <li>[ ] Step 0305 (si se necesita): Investigar código de PPU C++ para identificar dónde se escriben valores 1 o 2</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
