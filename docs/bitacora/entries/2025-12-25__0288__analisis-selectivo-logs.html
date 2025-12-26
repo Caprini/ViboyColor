@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análisis Selectivo de Logs - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Análisis Selectivo de Logs</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0288
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0287__estabilizacion-motor-auditoria-hram.html">Anterior</a></li>
+                    <li><a href="2025-12-25__0289__diagnostico-vram-tilemap.html">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Análisis selectivo de los logs de diagnóstico del emulador para identificar la causa raíz del problema de pantalla verde/blanca en Pokémon Red. Se analizaron los monitores activos ([VRAM-VIBE], [VRAM-TOTAL], [DMA-TRIGGER], [BGP-CHANGE], [HANDLER-EXEC], [VBLANK-TRACE]) y se identificaron dos problemas críticos: VRAM está siendo escrita solo con ceros (0x00) y BGP se pone temporalmente a 0x00 durante la ejecución.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>VRAM (Video RAM) y Carga de Gráficos:</strong> VRAM (0x8000-0x9FFF, 8KB) es la memoria de video de la Game Boy. Contiene dos áreas principales: Tile Data (0x8000-0x97FF, 384 tiles de 16 bytes cada uno) y Tile Maps (0x9800-0x9FFF, 2 mapas de 32x32 tiles). Para que la pantalla muestre gráficos, el juego debe cargar datos de tiles en la sección Tile Data y luego configurar el Tile Map para referenciar esos tiles. Si VRAM está vacía (solo ceros), el PPU leerá tiles vacíos y renderizará una pantalla en blanco o con un solo color.
+                </p>
+                <p>
+                    <strong>BGP (Background Palette) y Mapeo de Colores:</strong> BGP (0xFF47) es un registro de 8 bits que mapea índices de color (0-3) a otros índices (0-3). Cada par de bits representa un mapeo: bits 0-1 para índice 0, bits 2-3 para índice 1, etc. Si BGP = 0x00 (00000000), todos los índices se mapean a color 0 (blanco/verde), lo que causa una pantalla monocromática. El valor estándar es 0xE4 (11100100), que es un mapeo identidad.
+                </p>
+                <p>
+                    <strong>DMA (Direct Memory Access) y OAM:</strong> OAM (Object Attribute Memory, 0xFE00-0xFE9F) contiene los atributos de los sprites (posición, tile ID, paleta, etc.). El juego puede copiar datos a OAM usando DMA, que transfiere 160 bytes desde una dirección fuente a OAM en 160 ciclos. Si los sprites no se renderizan, puede ser porque OAM está vacío o porque los tiles referenciados no existen en VRAM.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Video RAM (VRAM)", "LCD Control Register (LCDC)", "Background Palette (BGP)", "OAM DMA"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se realizó un análisis selectivo de los logs de diagnóstico usando grep/Select-String para buscar patrones clave en el archivo `informe3_actualizado.md` (más de 200MB). Se analizaron los siguientes monitores:
+                </p>
+                
+                <h3>Monitores Analizados</h3>
+                <ul>
+                    <li><strong>[VRAM-VIBE]</strong>: Escrituras en VRAM con valores != 0x00 y != 0x7F (datos de gráficos reales)</li>
+                    <li><strong>[VRAM-TOTAL]</strong>: Todas las escrituras en VRAM sin filtros (hasta 500 eventos)</li>
+                    <li><strong>[DMA-TRIGGER]</strong>: Activación de OAM DMA</li>
+                    <li><strong>[BGP-CHANGE]</strong>: Cambios en el registro de paleta de fondo</li>
+                    <li><strong>[HANDLER-EXEC]</strong>: Ejecución del handler de V-Blank (hasta 500 instrucciones)</li>
+                    <li><strong>[VBLANK-TRACE]</strong>: Rastreo del vector de V-Blank (0x0040)</li>
+                </ul>
+
+                <h3>Hallazgos Críticos</h3>
+                
+                <h4>1. VRAM Solo Recibe Ceros</h4>
+                <p>
+                    <strong>Resultado:</strong> 500 escrituras detectadas, todas con valor 0x00.
+                </p>
+                <p>
+                    Todas las escrituras provienen del mismo PC: 0x36E3 (Bank:1) y ocurren en el rango 0x8000-0x8030 (Tile Data Area). Esto sugiere que el juego está <strong>limpiando/borrando VRAM</strong> en lugar de cargar gráficos.
+                </p>
+                <p>
+                    <strong>Ejemplo de log:</strong>
+                </p>
+                <pre><code>[VRAM-TOTAL] Write 8000=00 PC:36E3 (Bank:1)
+[VRAM-TOTAL] Write 8001=00 PC:36E3 (Bank:1)
+[VRAM-TOTAL] Write 8002=00 PC:36E3 (Bank:1)
+...</code></pre>
+
+                <h4>2. BGP Temporalmente a 0x00</h4>
+                <p>
+                    <strong>Resultado:</strong> 3 cambios detectados, uno problemático.
+                </p>
+                <p>
+                    BGP cambia de 0xE4 a 0x00 en PC:0x1F6A y se restaura a 0xE4 en PC:0x1F85. Si esto ocurre durante el renderizado, causará pantalla verde/blanca porque todos los colores se mapean a índice 0.
+                </p>
+                <p>
+                    <strong>Secuencia de cambios:</strong>
+                </p>
+                <pre><code>[BGP-CHANGE] 0xFC -> 0xE4 en PC:0x0000 (Bank:1)  // Inicialización
+[BGP-CHANGE] 0xE4 -> 0x00 en PC:0x1F6A (Bank:1)  // PROBLEMA
+[BGP-CHANGE] 0x00 -> 0xE4 en PC:0x1F85 (Bank:1)  // Restauración</code></pre>
+
+                <h4>3. Aspectos Positivos</h4>
+                <ul>
+                    <li><strong>DMA:</strong> 49 activaciones detectadas, funcionando correctamente</li>
+                    <li><strong>Handler de V-Blank:</strong> 49 ejecuciones detectadas, funcionando correctamente</li>
+                    <li><strong>LCDC:</strong> Valor constante 0xE3, configuración correcta</li>
+                    <li><strong>V-Blank Trace:</strong> 49 rastreos detectados, funcionando correctamente</li>
+                </ul>
+
+                <h3>Problema Raíz Identificado</h3>
+                <p>
+                    El problema principal es que <strong>VRAM está vacía (solo ceros)</strong>. Cuando el PPU renderiza, lee tiles vacíos y aplica la paleta, resultando en pantalla verde/blanca. El problema secundario es que BGP se pone temporalmente a 0x00, lo que agrava el problema.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>ANALISIS_LOGS_STEP_0288.md</code> - Análisis ejecutivo con hallazgos detallados</li>
+                    <li><code>informe3_actualizado.md</code> - Archivo de logs analizado (más de 200MB)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    El análisis se realizó mediante búsqueda de patrones en los logs usando herramientas de línea de comandos:
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>grep -i "\[VRAM-VIBE\]" informe3_actualizado.md</code></li>
+                    <li><strong>Resultado:</strong> 0 matches (crítico: no hay escrituras de datos de gráficos reales)</li>
+                </ul>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>Select-String -Path "informe3_actualizado.md" -Pattern "\[VRAM-TOTAL\]" | Measure-Object</code></li>
+                    <li><strong>Resultado:</strong> 500 escrituras detectadas, todas con valor 0x00</li>
+                </ul>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>grep -i "\[BGP-CHANGE\]" informe3_actualizado.md</code></li>
+                    <li><strong>Resultado:</strong> 3 cambios detectados, uno problemático (0xE4 -> 0x00)</li>
+                </ul>
+                <p>
+                    <strong>Validación:</strong> Los monitores de diagnóstico implementados en pasos anteriores (0285-0287) funcionan correctamente y proporcionan información valiosa para el diagnóstico.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Video RAM (VRAM)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Control Register (LCDC)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Background Palette (BGP)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">OAM DMA</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>VRAM y Renderizado:</strong> Para que la pantalla muestre gráficos, VRAM debe contener datos de tiles. Si VRAM está vacía, el PPU leerá tiles vacíos y renderizará una pantalla en blanco o con un solo color.</li>
+                        <li><strong>BGP y Mapeo de Colores:</strong> BGP mapea índices de color a otros índices. Si BGP = 0x00, todos los colores se mapean a índice 0, causando una pantalla monocromática.</li>
+                        <li><strong>Análisis de Logs:</strong> Los monitores de diagnóstico son esenciales para entender el comportamiento del emulador. El análisis selectivo de logs grandes requiere herramientas de línea de comandos (grep, Select-String) para buscar patrones específicos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿Por qué VRAM solo recibe ceros?</strong> ¿Es un bug del emulador o un comportamiento esperado del juego que requiere condiciones adicionales? Necesitamos investigar el código en PC:0x36E3.</li>
+                        <li><strong>¿Cuándo ocurre el cambio de BGP a 0x00?</strong> ¿Ocurre durante el renderizado o antes? Necesitamos verificar el timing del cambio en relación con el renderizado.</li>
+                        <li><strong>¿Qué lee la PPU de VRAM?</strong> Necesitamos implementar un monitor de lectura de VRAM para ver qué direcciones lee la PPU y qué valores obtiene.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis 1:</strong> El juego está en una fase de inicialización que limpia VRAM antes de cargar gráficos. Si el emulador no cumple alguna condición (ej: timing, interrupciones), el juego nunca carga los gráficos.
+                    </p>
+                    <p>
+                        <strong>Hipótesis 2:</strong> Hay un bug en el emulador que impide que el juego cargue gráficos (ej: acceso a VRAM bloqueado durante cierto período, timing incorrecto de interrupciones).
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> El cambio de BGP a 0x00 es intencional (ej: fade out/fade in), pero si ocurre durante el renderizado, causará problemas visuales.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Step 0289: Implementar monitor de lectura de VRAM ([VRAM-READ]) para capturar qué direcciones lee la PPU</li>
+                    <li>[ ] Step 0289: Implementar inspector de Tilemap ([TILEMAP-INSPECT]) para verificar qué tile IDs se están usando</li>
+                    <li>[ ] Step 0289: Implementar inspector de Tile Data ([TILEDATA-INSPECT]) para verificar si los tiles contienen datos != 0x00</li>
+                    <li>[ ] Step 0290: Implementar monitor de cambios en LCDC ([LCDC-CHANGE]) para verificar la configuración del LCD</li>
+                    <li>[ ] Step 0290: Implementar monitor de aplicación de paleta ([PALETTE-APPLY]) para verificar cómo se aplica BGP durante el renderizado</li>
+                    <li>[ ] Step 0291: Aplicar correcciones basadas en los hallazgos de los pasos anteriores</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

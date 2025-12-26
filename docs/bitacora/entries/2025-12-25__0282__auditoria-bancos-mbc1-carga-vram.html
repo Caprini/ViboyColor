@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auditoría de Bancos MBC1 y Carga de VRAM - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Auditoría de Bancos MBC1 y Carga de VRAM</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0282
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0281__auditoria-handler-vblank.html">Anterior (0281)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <section id="contexto">
+                <h2>Contexto Técnico</h2>
+                <p>
+                    Tras implementar la auditoría del handler de V-Blank (Step 0281), observamos que el juego salta correctamente a los vectores de interrupción, pero la pantalla sigue mostrando un color sólido (verde DMG). El análisis de los logs indica que, aunque la CPU está "viva", no se están cargando los gráficos reales del juego en la VRAM después de la limpieza inicial.
+                </p>
+                <p>
+                    Este Step se centra en auditar el Memory Bank Controller (MBC1), específicamente el mapeo de bancos de ROM y la carga de datos en VRAM, para identificar si el problema radica en un mapeo incorrecto que impide a la CPU leer los datos de gráficos de la ROM.
+                </p>
+            </section>
+
+            <section id="implementacion">
+                <h2>Implementación de Diagnósticos</h2>
+                
+                <h3>1. Monitor de Lecturas en Bancos Superiores (0x4000-0x7FFF)</h3>
+                <p>
+                    Se ha añadido un monitor <code>[BANK-READ]</code> en <code>MMU::read</code> que captura las primeras 20 lecturas en el rango de bancos conmutables. Esto nos permite verificar que la CPU está intentando leer de la ROM y qué banco está realmente mapeado.
+                </p>
+                <pre><code>// MMU.cpp
+if (addr < 0x8000) {
+    size_t rom_addr = static_cast<size_t>(bankN_rom_) * 0x4000 + (addr - 0x4000);
+    // ... instrumentación ...
+    printf("[BANK-READ] Read %04X (Bank:%d Offset:%04X) -> %02X en PC:0x%04X\n", ...);
+}</code></pre>
+
+                <h3>2. Sniper de Escritura en VRAM (Valores != 0x00)</h3>
+                <p>
+                    Para evitar el ruido de las rutinas de limpieza de VRAM (que escriben miles de ceros), se ha implementado <code>[VRAM-SNIPER]</code>. Este monitor solo captura escrituras de valores distintos de cero, lo que nos indicará el momento exacto en que el juego intenta cargar azulejos (tiles) o mapas de fondo reales.
+                </p>
+                <pre><code>// MMU.cpp
+if (addr >= 0x8000 && addr <= 0x9FFF && value != 0x00) {
+    printf("[VRAM-SNIPER] Write %04X=%02X PC:%04X (Bank:%d)\n", ...);
+}</code></pre>
+
+                <h3>3. Auditoría de update_bank_mapping</h3>
+                <p>
+                    Se ha instrumentado la función <code>update_bank_mapping()</code> para registrar cada vez que el mapeo de bancos (Banco 0 o Banco N) cambia. Esto es vital para confirmar que el MBC1 está operando en el modo correcto y que los cálculos de banco (incluyendo la normalización) son precisos.
+                </p>
+                <pre><code>// MMU.cpp
+if (old_bank0 != bank0_rom_ || old_bankN != bankN_rom_) {
+    printf("[BANK-AUDIT] Cambio de mapeo: Banco0:%d->%d | BancoN:%d->%d (Modo MBC1:%d) en PC:0x%04X\n", ...);
+}</code></pre>
+            </section>
+
+            <section id="conceptos">
+                <h2>Conceptos Académicos</h2>
+                <p>
+                    <strong>MBC1 ROM Banking:</strong> El MBC1 permite direccionar hasta 2MB de ROM dividiéndola en bancos de 16KB. El área 0x0000-0x3FFF suele estar fija al Banco 0, mientras que 0x4000-0x7FFF puede conmutar entre los bancos restantes. Un error común en emuladores es no manejar correctamente el "modo" del MBC1, lo que puede causar que el Banco 0 sea reemplazado, rompiendo el acceso a los vectores de interrupción.
+                </p>
+                <p>
+                    <strong>VRAM Timing:</strong> Los juegos suelen cargar datos en VRAM durante el periodo de V-Blank o cuando el LCD está apagado. Si la CPU está atascada en un bucle esperando una interrupción que nunca ocurre (o que ocurre pero no se comunica), la carga de VRAM nunca sucederá.
+                </p>
+            </section>
+
+            <section id="verificacion">
+                <h2>Pruebas y Verificación</h2>
+                <p>
+                    <strong>Comando:</strong> <code>python main.py roms/pkmn.gb > informe2.md 2>&1</code>
+                </p>
+                <p>
+                    <strong>Resultados en informe2.md:</strong>
+                </p>
+                <ul>
+                    <li><code>[BANK-AUDIT]</code>: Confirmará si el juego cambia de banco tras la inicialización.</li>
+                    <li><code>[BANK-READ]</code>: Verificará si las lecturas de ROM devuelven datos válidos (distintos de 0xFF/0x00).</li>
+                    <li><code>[VRAM-SNIPER]</code>: Si este log no aparece, confirmamos que el juego NUNCA intenta cargar gráficos reales, lo que sugiere un bloqueo lógico previo.</li>
+                </ul>
+            </section>
+        </main>
+
+        <footer>
+            <p><strong>Viboy Color</strong> - Ingeniero de Sistemas Principal</p>
+        </footer>
+    </div>
+</body>
+</html>
+

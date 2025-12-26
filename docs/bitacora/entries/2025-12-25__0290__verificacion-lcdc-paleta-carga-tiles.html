@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificación de LCDC, Paleta y Carga de Tiles - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Verificación de LCDC, Paleta y Carga de Tiles</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0290
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0289__diagnostico-vram-tilemap.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de tres monitores adicionales para verificar la configuración de LCDC, la aplicación de la paleta BGP durante el renderizado, y críticamente, detectar cuándo y dónde el juego carga datos de tiles en VRAM. Los hallazgos del Step 0289 confirmaron que el problema está en que los tiles referenciados por el tilemap están vacíos (solo ceros), por lo que necesitamos rastrear si el juego está cargando tiles en VRAM y cuándo lo hace. Se implementaron los monitores [LCDC-CHANGE], [PALETTE-APPLY] y [TILE-LOAD].
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>LCDC (LCD Control Register - 0xFF40):</strong> El registro LCDC controla el estado del LCD y las características de renderizado. Los bits críticos son: Bit 7 (LCD Enable: 1=ON, 0=OFF), Bit 0 (BG Display Enable: 1=ON, 0=OFF), y Bit 4 (Tile Data Base: 0=0x8800 signed, 1=0x8000 unsigned). Si el LCD está apagado (bit 7 = 0), no se renderiza nada. Si el BG Display está apagado (bit 0 = 0), no se renderiza el fondo. El bit 4 afecta cómo se calculan las direcciones de tiles: en modo signed, Tile ID 0 está en 0x9000 y se usa aritmética con signo; en modo unsigned, Tile ID 0 está en 0x8000 y se multiplica directamente por 16.
+                </p>
+                <p>
+                    <strong>BGP (Background Palette - 0xFF47):</strong> El registro BGP mapea índices de color (0-3) a otros índices (0-3). Cada par de bits representa un mapeo: bits 0-1 mapean color 0, bits 2-3 mapean color 1, bits 4-5 mapean color 2, y bits 6-7 mapean color 3. El valor estándar es 0xE4 (11100100), que es un mapeo identidad (0→0, 1→1, 2→2, 3→3). Si BGP = 0x00, todos los colores se mapean a índice 0 (blanco/verde), causando una pantalla monocromática. Durante el renderizado, la PPU lee el índice de color crudo del tile (0-3) y lo mapea usando BGP para obtener el índice final que se escribe en el framebuffer.
+                </p>
+                <p>
+                    <strong>Carga de Tiles en VRAM:</strong> Los tiles se cargan en el área Tile Data (0x8000-0x97FF). Cada tile ocupa 16 bytes (2 bytes por línea, 8 líneas). El juego puede cargar tiles desde ROM (datos comprimidos que se descomprimen), RAM (datos pre-cargados), o mediante DMA (transferencias masivas). Si los tiles no se cargan, el tilemap referenciará tiles vacíos (solo ceros), resultando en una pantalla en blanco o con un solo color. El monitor [TILE-LOAD] detecta escrituras en el área Tile Data que probablemente sean carga de datos de tiles (distintos de 0x00, que es limpieza).
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "LCD Control Register (LCDC)", "Background Palette (BGP)", "Tile Data", "Video RAM (VRAM)"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>1. Monitor [LCDC-CHANGE] en MMU.cpp</h3>
+                <p>
+                    Se implementó un monitor en la función <code>MMU::write()</code> que captura todos los cambios en el registro LCDC (0xFF40). El monitor reporta el valor anterior, el valor nuevo, el PC que originó el cambio, el banco ROM actual, y el estado de bits críticos (LCD Enable, BG Display Enable, Window Display Enable). Esto permite verificar si el juego está configurando el LCD correctamente y si hay cambios sospechosos en la configuración.
+                </p>
+                <pre><code>// --- Step 0290: Monitor de Cambios en LCDC ([LCDC-CHANGE]) ---
+// Captura todos los cambios en LCDC (0xFF40) para verificar la configuración del LCD.
+// LCDC controla el estado del LCD y las características de renderizado:
+// - Bit 7: LCD Enable (1=ON, 0=OFF)
+// - Bit 6: Window Tile Map (0=0x9800, 1=0x9C00)
+// - Bit 5: Window Display Enable (1=ON, 0=OFF)
+// - Bit 4: Tile Data Base (0=0x8800 signed, 1=0x8000 unsigned)
+// - Bit 3: BG Tile Map (0=0x9800, 1=0x9C00)
+// - Bit 2: Sprite Size (0=8x8, 1=8x16)
+// - Bit 1: Sprite Display Enable (1=ON, 0=OFF)
+// - Bit 0: BG Display Enable (1=ON, 0=OFF)
+// Fuente: Pan Docs - "LCD Control Register (LCDC)"
+if (addr == 0xFF40) {
+    uint8_t old_lcdc = memory_[addr];
+    if (old_lcdc != value) {
+        printf("[LCDC-CHANGE] 0x%02X -> 0x%02X en PC:0x%04X (Bank:%d) | LCD:%s BG:%s Window:%s\n",
+               old_lcdc, value, debug_current_pc, current_rom_bank_,
+               (value & 0x80) ? "ON" : "OFF",
+               (value & 0x01) ? "ON" : "OFF",
+               (value & 0x20) ? "ON" : "OFF");
+    }
+}</code></pre>
+
+                <h3>2. Monitor [PALETTE-APPLY] en PPU.cpp</h3>
+                <p>
+                    Se implementó un monitor en la función <code>PPU::render_scanline()</code> que captura cómo se aplica la paleta BGP durante el renderizado. El monitor se ejecuta solo en el centro de la pantalla (LY=72, X=80) y en los primeros 3 frames para no saturar los logs. Reporta el índice de color crudo del tile, el índice final después de aplicar BGP, y el valor de BGP usado. Esto permite verificar que la paleta se está aplicando correctamente durante el renderizado.
+                </p>
+                <pre><code>// --- Step 0290: Monitor de Aplicación de Paleta ([PALETTE-APPLY]) ---
+// Captura cómo se aplica la paleta BGP durante el renderizado.
+// Solo se activa en el centro de la pantalla (LY=72, X=80) y en los primeros 3 frames
+// para no saturar los logs.
+// Fuente: Pan Docs - "Background Palette (BGP)"
+static int palette_apply_count = 0;
+if (ly_ == 72 && x == 80 && palette_apply_count < 3) {
+    printf("[PALETTE-APPLY] LY:72 X:80 | ColorIndex:%d -> FinalColor:%d | BGP:0x%02X\n",
+           color_index, final_color, bgp);
+    palette_apply_count++;
+}</code></pre>
+
+                <h3>3. Monitor [TILE-LOAD] en MMU.cpp (CRÍTICO)</h3>
+                <p>
+                    Se implementó un monitor crítico en la función <code>MMU::write()</code> que detecta escrituras en el área de Tile Data (0x8000-0x97FF) que probablemente sean carga de datos de tiles (distintos de 0x00, que es limpieza). Este monitor es crítico porque los hallazgos del Step 0289 confirmaron que los tiles referenciados por el tilemap están vacíos (solo ceros). El monitor reporta la dirección escrita, el valor escrito, el Tile ID aproximado (calculado dividiendo el offset por 16), el byte dentro del tile (0-15), el PC que originó la escritura, y el banco ROM actual. Tiene un límite de 500 escrituras para capturar actividad completa.
+                </p>
+                <pre><code>// --- Step 0290: Monitor de Carga de Tiles ([TILE-LOAD]) ---
+// Detecta escrituras en el área de Tile Data (0x8000-0x97FF) que probablemente
+// sean carga de datos de tiles (distintos de 0x00, que es limpieza).
+// Este monitor es crítico porque los hallazgos del Step 0289 confirmaron que
+// los tiles referenciados por el tilemap están vacíos (solo ceros).
+// Fuente: Pan Docs - "Tile Data": 0x8000-0x97FF contiene 384 tiles de 16 bytes cada uno
+if (addr >= 0x8000 && addr <= 0x97FF) {
+    // Filtrar valores comunes de inicialización/borrado para detectar datos reales
+    if (value != 0x00 && value != 0x7F) {
+        static int tile_load_count = 0;
+        if (tile_load_count < 500) {  // Límite alto para capturar actividad completa
+            // Calcular Tile ID aproximado basado en la dirección
+            // Cada tile ocupa 16 bytes, Tile 0 empieza en 0x8000 (unsigned) o 0x9000 (signed)
+            uint16_t tile_offset = addr - 0x8000;
+            uint8_t tile_id_approx = tile_offset / 16;
+            
+            printf("[TILE-LOAD] Write %04X=%02X (TileID~%d, Byte:%d) PC:%04X (Bank:%d)\n",
+                   addr, value, tile_id_approx, tile_offset % 16, debug_current_pc, current_rom_bank_);
+            tile_load_count++;
+        }
+    }
+}</code></pre>
+
+                <h3>Objetivos de los Monitores</h3>
+                <ul>
+                    <li><strong>[LCDC-CHANGE]:</strong> Verificar la configuración del LCD y detectar cambios sospechosos. Si el LCD está apagado o el BG Display está apagado, no se renderizará nada o solo se renderizarán sprites.</li>
+                    <li><strong>[PALETTE-APPLY]:</strong> Verificar que la paleta BGP se está aplicando correctamente durante el renderizado. Si BGP está mal configurado, todos los colores se mapearán a índice 0 (blanco/verde).</li>
+                    <li><strong>[TILE-LOAD]:</strong> Detectar cuándo y dónde el juego carga datos de tiles en VRAM. Este es el monitor más importante porque necesitamos saber si el juego está cargando tiles y cuándo lo hace. Si no se detectan escrituras de tiles, significa que el juego no está cargando tiles o que se están cargando pero se borran después.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Implementación de los monitores [LCDC-CHANGE] y [TILE-LOAD]</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementación del monitor [PALETTE-APPLY]</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Los monitores se activarán durante la ejecución del emulador y generarán logs con los prefijos correspondientes. Para verificar que funcionan correctamente:
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>python setup.py build_ext --inplace</code></li>
+                    <li><strong>Resultado:</strong> Módulo C++ compilado sin errores</li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Los monitores están implementados en código C++ y se compilarán como parte del módulo Cython. No hay tests unitarios específicos para estos monitores, ya que son herramientas de diagnóstico que se activan durante la ejecución del emulador.
+                </p>
+                <p>
+                    <strong>Comando de prueba:</strong> <code>python main.py roms/pkmn.gb > debug_step_0290.log 2>&1</code>
+                </p>
+                <p>
+                    <strong>Resultado esperado:</strong> Los logs deberían contener:
+                </p>
+                <ul>
+                    <li>Líneas con prefijo <code>[LCDC-CHANGE]</code> cada vez que cambie el registro LCDC</li>
+                    <li>Hasta 3 líneas con prefijo <code>[PALETTE-APPLY]</code> (una por cada uno de los primeros 3 frames en el centro de la pantalla)</li>
+                    <li>Hasta 500 líneas con prefijo <code>[TILE-LOAD]</code> cuando se detecten escrituras de datos de tiles en VRAM</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Control Register (LCDC)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Background Palette (BGP)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Data</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Video RAM (VRAM)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>LCDC (LCD Control Register):</strong> Controla el estado del LCD y las características de renderizado. Si el LCD está apagado (bit 7 = 0), no se renderiza nada. Si el BG Display está apagado (bit 0 = 0), no se renderiza el fondo. El bit 4 afecta cómo se calculan las direcciones de tiles.</li>
+                        <li><strong>BGP (Background Palette):</strong> Mapea índices de color (0-3) a otros índices (0-3). El valor estándar es 0xE4 (mapeo identidad). Si BGP = 0x00, todos los colores se mapean a índice 0 (blanco/verde), causando una pantalla monocromática.</li>
+                        <li><strong>Carga de Tiles en VRAM:</strong> Los tiles se cargan en el área Tile Data (0x8000-0x97FF). Si los tiles no se cargan, el tilemap referenciará tiles vacíos (solo ceros), resultando en una pantalla en blanco o con un solo color.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿Se está configurando LCDC correctamente?</strong> El monitor [LCDC-CHANGE] permitirá verificar si el juego está configurando el LCD correctamente y si hay cambios sospechosos.</li>
+                        <li><strong>¿Se está aplicando la paleta correctamente?</strong> El monitor [PALETTE-APPLY] permitirá verificar que la paleta BGP se está aplicando correctamente durante el renderizado.</li>
+                        <li><strong>¿Se están cargando tiles en VRAM?</strong> El monitor [TILE-LOAD] permitirá detectar cuándo y dónde el juego carga datos de tiles en VRAM. Este es el monitor más importante porque necesitamos saber si el juego está cargando tiles y cuándo lo hace.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis:</strong> Basado en los hallazgos del Step 0289, esperamos que los monitores confirmen que:
+                    </p>
+                    <ul>
+                        <li>LCDC está configurado correctamente (LCD ON, BG Display ON)</li>
+                        <li>BGP se está aplicando correctamente durante el renderizado</li>
+                        <li>El juego NO está cargando tiles en VRAM, o los tiles se cargan pero se borran después (confirmando que el problema está en la carga de datos)</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con Pokémon Red y analizar los logs generados por los nuevos monitores</li>
+                    <li>[ ] Analizar logs de [LCDC-CHANGE] para verificar configuración de LCD</li>
+                    <li>[ ] Analizar logs de [PALETTE-APPLY] para verificar aplicación de paleta</li>
+                    <li>[ ] <strong>Análisis crítico de [TILE-LOAD]:</strong>
+                        <ul>
+                            <li>¿Se detectan escrituras de tiles en VRAM?</li>
+                            <li>¿Cuándo ocurren (PC, frame, timing)?</li>
+                            <li>¿Qué Tile IDs se están cargando?</li>
+                            <li>¿Se cargan tiles pero se borran después?</li>
+                            <li>¿Hay alguna condición que impide la carga?</li>
+                        </ul>
+                    </li>
+                    <li>[ ] Step 0291: Aplicar correcciones basadas en los hallazgos</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

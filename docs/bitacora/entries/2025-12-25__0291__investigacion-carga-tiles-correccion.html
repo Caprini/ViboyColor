@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Carga de Tiles y Corrección - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Carga de Tiles y Corrección</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0291
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0290__verificacion-lcdc-paleta-carga-tiles.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de un conjunto completo de monitores de diagnóstico para investigar por qué los tiles no se están cargando en VRAM. El análisis del Step 0290 confirmó que [TILE-LOAD] detecta 0 cargas de tiles, lo que significa que el juego no está escribiendo datos de tiles en VRAM. Se implementaron cinco monitores nuevos: [VRAM-INIT] para verificar el estado inicial de VRAM, [TILE-LOAD-EXTENDED] para capturar TODAS las escrituras con contexto de timing, [CLEANUP-TRACE] para rastrear la rutina de limpieza VRAM (PC:0x36E3), [BLOCK-WRITE] para detectar cargas de tiles consecutivas, y un contador de frames en PPU para rastrear el timing de las operaciones.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Carga de Tiles en VRAM:</strong> Los tiles se cargan típicamente durante la inicialización del juego. Pueden cargarse desde ROM (directo o comprimido), desde RAM (datos pre-procesados), o usando DMA (aunque normalmente DMA es para OAM). Los tiles pueden cargarse antes del primer frame o durante V-Blank. Si los monitores se activan solo después de empezar a renderizar, pueden perderse cargas tempranas.
+                </p>
+                <p>
+                    <strong>Timing de Carga:</strong> La carga puede ocurrir durante la inicialización (antes del primer frame), durante V-Blank (cuando VRAM es accesible), o durante H-Blank (en algunos casos). Si los monitores se activan solo después de empezar a renderizar, pueden perderse cargas tempranas.
+                </p>
+                <p>
+                    <strong>Estado Inicial de VRAM:</strong> En hardware real, VRAM está inicializada a valores aleatorios al encender. Los juegos suelen limpiar VRAM antes de cargar sus propios datos. Algunos juegos esperan que VRAM tenga valores específicos (raro). El monitor [VRAM-INIT] verifica el estado inicial de VRAM después de cargar la ROM para entender si el juego espera que VRAM tenga datos desde el inicio o si la carga es responsabilidad del juego.
+                </p>
+                <p>
+                    <strong>Rutinas de Limpieza:</strong> Muchos juegos ejecutan rutinas de limpieza que escriben ceros en VRAM antes de cargar sus propios datos. El Step 0288 identificó que PC:0x36E3 está escribiendo ceros en VRAM. El monitor [CLEANUP-TRACE] rastrea esta rutina para entender qué hace exactamente y si hay código después que debería cargar tiles.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Video RAM (VRAM)", "Tile Data", "DMA Transfer", "LCD Timing"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>1. Contador de Frames en PPU</h3>
+                <p>
+                    Se añadió un contador de frames global en PPU que se incrementa cada vez que LY vuelve a 0 (nuevo frame). Este contador es necesario para rastrear el timing de carga de tiles y determinar si los tiles se cargan antes del frame 0 o durante la inicialización.
+                </p>
+                <pre><code>// En PPU.hpp
+uint64_t frame_counter_;
+
+// En PPU.cpp constructor
+frame_counter_(0)
+
+// En PPU.cpp step(), cuando LY > 153
+if (ly_ > 153) {
+    ly_ = 0;
+    frame_counter_++;  // Incrementar contador de frames
+    // ...
+}
+
+// Método público para obtener el frame actual
+uint64_t PPU::get_frame_counter() const {
+    return frame_counter_;
+}</code></pre>
+
+                <h3>2. Monitor [VRAM-INIT] - Inspección de Estado Inicial</h3>
+                <p>
+                    Se implementó la función <code>MMU::inspect_vram_initial_state()</code> que se llama desde <code>MMU::load_rom()</code> después de cargar la ROM. Esta función verifica el estado inicial de VRAM (0x8000-0x97FF) y reporta cuántos bytes no-cero hay, la primera dirección con datos no-cero, y el checksum del tilemap inicial (0x9800).
+                </p>
+                <pre><code>void MMU::inspect_vram_initial_state() {
+    // Verificar si VRAM tiene datos no-cero
+    int non_zero_count = 0;
+    uint16_t first_non_zero_addr = 0xFFFF;
+    for (uint16_t addr = 0x8000; addr <= 0x97FF; addr++) {
+        if (memory_[addr] != 0x00 && memory_[addr] != 0x7F) {
+            non_zero_count++;
+            if (first_non_zero_addr == 0xFFFF) {
+                first_non_zero_addr = addr;
+            }
+        }
+    }
+    
+    printf("[VRAM-INIT] Estado inicial de VRAM: %d bytes no-cero (0x8000-0x97FF)\n", non_zero_count);
+    if (first_non_zero_addr != 0xFFFF) {
+        printf("[VRAM-INIT] Primer byte no-cero en: 0x%04X (valor: 0x%02X)\n",
+               first_non_zero_addr, memory_[first_non_zero_addr]);
+    } else {
+        printf("[VRAM-INIT] VRAM está completamente vacía (solo ceros)\n");
+    }
+    
+    // Verificar checksum del tilemap inicial
+    uint16_t tilemap_checksum = 0;
+    for (int i = 0; i < 1024; i++) {
+        tilemap_checksum += memory_[0x9800 + i];
+    }
+    printf("[VRAM-INIT] Checksum del tilemap (0x9800): 0x%04X\n", tilemap_checksum);
+}</code></pre>
+
+                <h3>3. Monitor [TILE-LOAD-EXTENDED] - Captura Extendida</h3>
+                <p>
+                    Se extendió el monitor [TILE-LOAD] para capturar TODAS las escrituras en Tile Data (0x8000-0x97FF), incluyendo limpieza (0x00) pero marcándolas diferente. El monitor ahora rastrea el frame actual usando el contador de frames de PPU y marca si la escritura ocurre durante la inicialización (primeras 100 escrituras) o después.
+                </p>
+                <pre><code>// --- Step 0291: Monitor Extendido de Carga de Tiles ([TILE-LOAD-EXTENDED]) ---
+if (addr >= 0x8000 && addr <= 0x97FF) {
+    // Obtener contador de frames desde PPU si está disponible
+    uint64_t frame_counter = 0;
+    if (ppu_ != nullptr) {
+        frame_counter = ppu_->get_frame_counter();
+    }
+    
+    // Marcar el fin de la inicialización (aproximadamente después de 100 escrituras)
+    static int write_count = 0;
+    static bool is_initialization = true;
+    write_count++;
+    if (write_count > 100) {
+        is_initialization = false;
+    }
+    
+    // Capturar TODAS las escrituras, marcando si son limpieza o datos reales
+    static int tile_load_extended_count = 0;
+    if (tile_load_extended_count < 1000) {
+        bool is_data = (value != 0x00 && value != 0x7F);
+        uint16_t tile_offset = addr - 0x8000;
+        uint8_t tile_id_approx = tile_offset / 16;
+        
+        printf("[TILE-LOAD-EXT] %s | Write %04X=%02X (TileID~%d) PC:%04X Frame:%llu Init:%s\n",
+               is_data ? "DATA" : "CLEAR",
+               addr, value, tile_id_approx, debug_current_pc, frame_counter,
+               is_initialization ? "YES" : "NO");
+        tile_load_extended_count++;
+    }
+}</code></pre>
+
+                <h3>4. Monitor [CLEANUP-TRACE] - Rastreo de Rutina de Limpieza</h3>
+                <p>
+                    Se implementó un monitor que rastrea la ejecución alrededor de PC:0x36E3 para entender qué hace esta rutina y si hay código después que carga tiles. El Step 0288 identificó que PC:0x36E3 está escribiendo ceros en VRAM. El monitor captura el opcode en cada dirección alrededor de 0x36E3.
+                </p>
+                <pre><code>// --- Step 0291: Rastreo de Rutina de Limpieza VRAM (PC:0x36E3) ---
+if (debug_current_pc >= 0x36E0 && debug_current_pc <= 0x36F0) {
+    static int cleanup_trace_count = 0;
+    if (cleanup_trace_count < 200) {
+        uint8_t op = read(debug_current_pc);
+        printf("[CLEANUP-TRACE] PC:0x%04X OP:0x%02X | Bank:%d\n",
+               debug_current_pc, op, current_rom_bank_);
+        cleanup_trace_count++;
+    }
+}</code></pre>
+
+                <h3>5. Monitor [BLOCK-WRITE] - Detección de Escrituras Consecutivas</h3>
+                <p>
+                    Se implementó un monitor que detecta escrituras consecutivas en VRAM que podrían ser carga de tiles en bloque (como un loop de copia). El monitor detecta cuando se escriben 16 bytes consecutivos (un tile completo) y reporta el rango de direcciones y el PC que originó la escritura.
+                </p>
+                <pre><code>// --- Step 0291: Monitor de Escrituras en Bloque ([BLOCK-WRITE]) ---
+if (addr >= 0x8000 && addr <= 0x97FF) {
+    static uint16_t last_vram_addr = 0xFFFF;
+    static int consecutive_writes = 0;
+    if (addr == last_vram_addr + 1) {
+        consecutive_writes++;
+        if (consecutive_writes == 16) {  // Un tile completo
+            printf("[BLOCK-WRITE] Posible carga de tile en bloque: 0x%04X-0x%04X desde PC:0x%04X\n",
+                   addr - 15, addr, debug_current_pc);
+        }
+    } else {
+        consecutive_writes = 0;
+    }
+    last_vram_addr = addr;
+}</code></pre>
+
+                <h3>Hipótesis a Investigar</h3>
+                <p>
+                    Los monitores implementados permiten investigar cuatro hipótesis principales:
+                </p>
+                <ol>
+                    <li><strong>Hipótesis 1: Timing</strong> - ¿Los tiles se cargan antes del frame 0 (durante inicialización antes de que los monitores se activen)? El monitor [TILE-LOAD-EXTENDED] con contador de frames permite verificar esto.</li>
+                    <li><strong>Hipótesis 2: Borrado</strong> - ¿Los tiles se cargan pero luego se borran inmediatamente después? El monitor [CLEANUP-TRACE] rastrea la rutina de limpieza para verificar esto.</li>
+                    <li><strong>Hipótesis 3: Métodos alternativos</strong> - ¿El juego usa DMA o compresión para cargar tiles que no detectamos? El monitor [BLOCK-WRITE] detecta cargas en bloque.</li>
+                    <li><strong>Hipótesis 4: Estado inicial</strong> - ¿Debería VRAM tener datos desde el inicio (desde el constructor)? El monitor [VRAM-INIT] verifica el estado inicial.</li>
+                </ol>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Añadido contador de frames y método getter</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementación del contador de frames</li>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Añadida función inspect_vram_initial_state()</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Implementación de todos los monitores de diagnóstico</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La implementación se validó mediante compilación exitosa del módulo C++/Cython:
+                </p>
+                <pre><code>python setup.py build_ext --inplace</code></pre>
+                <p>
+                    <strong>Resultado:</strong> Compilación exitosa sin errores (solo warnings menores no críticos).
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El módulo se compiló correctamente y está listo para ejecutarse con los nuevos monitores activos. Los monitores se activarán automáticamente cuando se ejecute el emulador y generarán logs que permitirán analizar las hipótesis planteadas.
+                </p>
+                <p>
+                    <strong>Próximos pasos de verificación:</strong> Ejecutar el emulador con una ROM de prueba y analizar los logs generados por los monitores para determinar cuál de las hipótesis es correcta (o si es una combinación de ellas).
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Video RAM (VRAM)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Data</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">DMA Transfer</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Timing</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Timing de Carga de Tiles:</strong> Los tiles pueden cargarse en diferentes momentos: durante la inicialización (antes del primer frame), durante V-Blank, o durante H-Blank. Si los monitores se activan solo después de empezar a renderizar, pueden perderse cargas tempranas.</li>
+                        <li><strong>Estado Inicial de VRAM:</strong> En hardware real, VRAM está inicializada a valores aleatorios al encender. Los juegos suelen limpiar VRAM antes de cargar sus propios datos. Algunos juegos esperan que VRAM tenga valores específicos (raro).</li>
+                        <li><strong>Rutinas de Limpieza:</strong> Muchos juegos ejecutan rutinas de limpieza que escriben ceros en VRAM antes de cargar sus propios datos. Estas rutinas pueden ser críticas para entender el flujo de carga de tiles.</li>
+                        <li><strong>Métodos Alternativos de Carga:</strong> Los juegos pueden usar métodos alternativos para cargar tiles, como DMA (aunque normalmente DMA es para OAM), compresión/decompresión, o escrituras en bloque mediante loops.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Análisis de Logs:</strong> Necesitamos ejecutar el emulador con los nuevos monitores activos y analizar los logs generados para determinar cuál de las hipótesis es correcta (o si es una combinación de ellas).</li>
+                        <li><strong>Correcciones Basadas en Hallazgos:</strong> Una vez que identifiquemos la causa raíz del problema, necesitaremos aplicar las correcciones correspondientes (modificar timing de monitores, prevenir borrado prematuro, cargar tiles iniciales, implementar soporte para métodos alternativos, etc.).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que el problema está relacionado con el timing de carga de tiles o con métodos alternativos de carga que no estamos detectando. Los monitores implementados están diseñados para capturar todos los escenarios posibles y permitir un análisis exhaustivo del problema.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con los nuevos monitores activos</li>
+                    <li>[ ] Analizar los logs generados por los monitores</li>
+                    <li>[ ] Determinar cuál de las hipótesis es correcta (o si es una combinación)</li>
+                    <li>[ ] Aplicar las correcciones correspondientes según los hallazgos</li>
+                    <li>[ ] Verificar que los tiles se carguen correctamente después de las correcciones</li>
+                    <li>[ ] Confirmar que la pantalla muestre gráficos correctamente</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

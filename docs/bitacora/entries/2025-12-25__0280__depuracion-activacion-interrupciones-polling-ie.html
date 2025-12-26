@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Operación "Interrupt Awakening" - Depuración de Activación de Interrupciones - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Operación "Interrupt Awakening" - Depuración de Activación de Interrupciones</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0280
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0279__investigacion-bucle-reinicio-mbc1.html">Anterior (0279)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa la <strong>Operación "Interrupt Awakening"</strong> para investigar por qué Pokémon Red está atrapado en un bucle infinito esperando que el flag <code>0xD732</code> cambie. El análisis del Step 0279 confirmó que el problema <strong>NO es un Reset Loop</strong>, sino un <strong>"coma inducido"</strong>: el juego está atascado en el bucle de polling (PC: 0x614D-0x6153) esperando que una ISR de V-Blank modifique el flag, pero las interrupciones están deshabilitadas (<code>IE=0x00</code>). Aunque se detectó un <code>EI</code> en <code>PC:0x60A6</code>, las interrupciones no parecen estar activas durante el polling. Este Step añade instrumentación ultra-precisa para rastrear el estado de <code>IE</code> e <code>IME</code> cuando se ejecuta <code>EI</code>, y monitorea el bucle de polling para detectar si alguien está escribiendo en <code>IE</code> durante la espera.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>El Retraso de un Ciclo de la Instrucción EI</h3>
+                <p>
+                    La instrucción <code>EI</code> (Enable Interrupts, opcode <code>0xFB</code>) tiene un comportamiento especial en el hardware real del Game Boy: <strong>el Interrupt Master Enable (IME) se activa DESPUÉS de ejecutar la siguiente instrucción</strong>, no inmediatamente. Este retraso de un ciclo es crítico porque permite que la instrucción siguiente a <code>EI</code> se ejecute sin interrupciones, lo cual es necesario para configuraciones atómicas o para evitar condiciones de carrera.
+                </p>
+                <p>
+                    <strong>Flujo de activación de interrupciones:</strong>
+                </p>
+                <ol>
+                    <li><strong>Ejecución de EI</strong>: El opcode <code>0xFB</code> se ejecuta, pero <code>IME</code> no se activa inmediatamente. En su lugar, se marca una bandera interna (<code>ime_scheduled_</code>) que indica que <code>IME</code> debe activarse después de la siguiente instrucción.</li>
+                    <li><strong>Ejecución de la siguiente instrucción</strong>: La instrucción que sigue a <code>EI</code> se ejecuta con <code>IME=false</code>, garantizando que no se interrumpa.</li>
+                    <li><strong>Activación de IME</strong>: Al inicio del siguiente ciclo de instrucción, antes del fetch, se verifica si <code>ime_scheduled_</code> es <code>true</code>. Si lo es, se activa <code>IME</code> y se limpia la bandera.</li>
+                    <li><strong>Procesamiento de interrupciones</strong>: Una vez que <code>IME</code> está activo, el sistema puede procesar interrupciones pendientes si <code>IE & IF != 0</code>.</li>
+                </ol>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "EI Instruction": "Interrupts are enabled after the instruction following EI."
+                </p>
+                <h3>Registros de Interrupciones</h3>
+                <p>
+                    El Game Boy tiene dos registros críticos para el manejo de interrupciones:
+                </p>
+                <ul>
+                    <li><strong>IE (0xFFFF) - Interrupt Enable</strong>: Registro de habilitación de fuentes de interrupciones. Cada bit habilita una fuente específica:
+                        <ul>
+                            <li>Bit 0: V-Blank</li>
+                            <li>Bit 1: LCD STAT</li>
+                            <li>Bit 2: Timer</li>
+                            <li>Bit 3: Serial</li>
+                            <li>Bit 4: Joypad</li>
+                        </ul>
+                    </li>
+                    <li><strong>IF (0xFF0F) - Interrupt Flag</strong>: Registro de flags de interrupciones pendientes. Cada bit indica si una interrupción está pendiente.</li>
+                    <li><strong>IME (Interrupt Master Enable)</strong>: Flag interno de la CPU que controla si las interrupciones pueden ser procesadas. Solo se puede activar mediante <code>EI</code> (con retraso) o desactivar mediante <code>DI</code> (inmediato).</li>
+                </ul>
+                <p>
+                    <strong>Condición para procesar una interrupción:</strong> <code>IME == true && (IE & IF) != 0</code>
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Interrupts": "An interrupt is processed if IME is set and the corresponding bit in both IE and IF is set."
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Este Step añade dos instrumentaciones críticas para depurar el problema de activación de interrupciones:
+                </p>
+                
+                <h3>1. Rastreo Ultra-Preciso de EI e IME</h3>
+                <p>
+                    Se modificó el caso <code>0xFB</code> (EI) en <code>CPU.cpp</code> para capturar el estado exacto de <code>IE</code> e <code>IME</code> cuando se intenta habilitar las interrupciones. Esto nos permite identificar si el problema es que <code>IE</code> está en <code>0x00</code> cuando se ejecuta <code>EI</code>, o si <code>IME</code> no se activa correctamente.
+                </p>
+                <pre><code>case 0xFB:  // EI (Enable Interrupts)
+{
+    // --- Step 0280: Rastreo Ultra-Preciso de EI e IME ---
+    uint8_t ie_val = mmu_->read(0xFFFF);
+    printf("[CPU-EI] Instrucción EI en PC:0x%04X | IE Actual:0x%02X | IME previo:%d | IME programado:%d\n",
+           original_pc, ie_val, ime_ ? 1 : 0, ime_scheduled_ ? 1 : 0);
+    ime_scheduled_ = true;
+    cycles_ += 1;
+    return 1;
+}</code></pre>
+                <p>
+                    <strong>Información capturada:</strong>
+                </p>
+                <ul>
+                    <li><strong>PC original</strong>: Dirección donde se ejecutó <code>EI</code></li>
+                    <li><strong>IE Actual</strong>: Valor del registro IE en el momento de ejecutar <code>EI</code></li>
+                    <li><strong>IME previo</strong>: Estado de IME antes de ejecutar <code>EI</code></li>
+                    <li><strong>IME programado</strong>: Si ya había un <code>EI</code> pendiente (debería ser 0 normalmente)</li>
+                </ul>
+
+                <h3>2. Sniper de Polling con Estado de IE</h3>
+                <p>
+                    Se añadió un monitor del bucle de polling (PC: 0x614D-0x6153) que captura el estado de <code>IE</code>, <code>IF</code>, <code>IME</code> y el flag <code>0xD732</code> durante la espera. Esto nos permite ver si alguien está escribiendo en <code>IE</code> durante la espera, o si <code>IE</code> cambia mágicamente a cero.
+                </p>
+                <pre><code>// --- Step 0280: Sniper de Polling con Estado de IE ---
+if (original_pc >= 0x614D && original_pc <= 0x6153) {
+    static int polling_watch_count = 0;
+    if (polling_watch_count < 20) {
+        printf("[POLLING-WATCH] PC:%04X | IE:0x%02X | IF:0x%02X | IME:%d | D732:0x%02X\n",
+               original_pc, mmu_->read(0xFFFF), mmu_->read(0xFF0F), 
+               ime_ ? 1 : 0, mmu_->read(0xD732));
+        polling_watch_count++;
+    }
+}</code></pre>
+                <p>
+                    <strong>Información capturada:</strong>
+                </p>
+                <ul>
+                    <li><strong>PC</strong>: Dirección actual dentro del bucle de polling</li>
+                    <li><strong>IE</strong>: Valor del registro IE durante la espera</li>
+                    <li><strong>IF</strong>: Valor del registro IF (interrupciones pendientes)</li>
+                    <li><strong>IME</strong>: Estado del Interrupt Master Enable</li>
+                    <li><strong>D732</strong>: Valor del flag que el juego está esperando que cambie</li>
+                </ul>
+
+                <h3>3. Verificación de la Lógica de handle_interrupts</h3>
+                <p>
+                    Se verificó que la función <code>handle_interrupts()</code> no modifica el registro <code>IE</code> (solo lo lee). La función solo lee <code>IE</code> para calcular las interrupciones pendientes (<code>pending = IE & IF</code>), pero nunca escribe en <code>IE</code>. Esto confirma que el problema no está en el procesamiento de interrupciones, sino en la activación de <code>IE</code> o <code>IME</code>.
+                </p>
+
+                <h3>Componentes modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code>:
+                        <ul>
+                            <li>Modificado <code>case 0xFB</code> (EI) para agregar rastreo detallado de IE e IME</li>
+                            <li>Agregado sniper de polling al final de <code>step()</code> para monitorear el bucle de espera</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Límite de 20 logs en polling</strong>: Se limita el número de logs del sniper de polling a 20 para evitar saturar el log, pero es suficiente para ver el patrón del bucle.</li>
+                    <li><strong>Captura de IE en tiempo real</strong>: Se lee <code>IE</code> directamente de la MMU en cada log para capturar cambios en tiempo real, no se usa un valor cacheado.</li>
+                    <li><strong>Uso de original_pc</strong>: Se usa <code>original_pc</code> (PC antes del fetch) para asegurar que capturamos la dirección correcta, incluso si el PC avanza durante la ejecución de la instrucción.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Modificado caso 0xFB (EI) y agregado sniper de polling</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizará mediante análisis de logs durante la ejecución de Pokémon Red:
+                </p>
+                <ul>
+                    <li><strong>Logs [CPU-EI]</strong>: Deben aparecer cuando el juego ejecuta <code>EI</code>. Si <code>IE Actual</code> es <code>0x00</code> en el momento del <code>EI</code>, confirmaremos que el problema es que el juego está habilitando el maestro (<code>IME</code>) pero no ha habilitado ninguna fuente individual (<code>IE</code>).</li>
+                    <li><strong>Logs [POLLING-WATCH]</strong>: Deben aparecer cuando el juego entra al bucle de polling. Si <code>IE</code> cambia mágicamente a cero durante la espera, sabremos que algo está escribiendo en <code>IE</code> incorrectamente.</li>
+                    <li><strong>Validación de módulo compilado C++</strong>: El código se compila sin errores y el módulo se genera correctamente.</li>
+                </ul>
+                <p>
+                    <strong>Comando de prueba:</strong>
+                </p>
+                <pre><code>python setup.py build_ext --inplace
+python main.py roms/pkmn.gb > debug_step_0280.log 2>&1</code></pre>
+                <p>
+                    <strong>Análisis esperado:</strong>
+                </p>
+                <ul>
+                    <li>Buscar <code>[CPU-EI]</code> en el log para ver el estado de IE cuando se ejecuta EI</li>
+                    <li>Buscar <code>[POLLING-WATCH]</code> para ver el estado de IE durante el bucle de espera</li>
+                    <li>Verificar si IE cambia entre el momento del EI y el bucle de polling</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Registers_and_Flags.html#ei-enable-interrupts">EI Instruction - Enable Interrupts</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts</a></li>
+                    <li>Análisis del Step 0279: Confirmación de que el problema NO es un Reset Loop, sino un bucle de espera infinito</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Retraso de un ciclo de EI</strong>: La instrucción <code>EI</code> no activa <code>IME</code> inmediatamente, sino después de ejecutar la siguiente instrucción. Esto es un comportamiento del hardware real, no una limitación de nuestra implementación.</li>
+                        <li><strong>Diferencia entre IE e IME</strong>: <code>IE</code> (0xFFFF) habilita fuentes específicas de interrupciones, mientras que <code>IME</code> es un flag interno que controla si las interrupciones pueden ser procesadas. Ambos deben estar activos para que una interrupción se procese.</li>
+                        <li><strong>El problema real</strong>: El juego está atascado en un bucle de espera porque <code>IE=0x00</code>, lo que impide que las interrupciones se procesen, incluso si <code>IME</code> está activo y hay interrupciones pendientes en <code>IF</code>.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿Por qué IE se queda en 0x00?</strong>: Necesitamos verificar si el juego nunca escribe en <code>IE</code> después del <code>EI</code>, o si algo está escribiendo <code>0x00</code> en <code>IE</code> incorrectamente.</li>
+                        <li><strong>¿El EI se ejecuta correctamente?</strong>: Necesitamos verificar si el <code>EI</code> en <code>PC:0x60A6</code> realmente programa <code>IME</code> correctamente, y si <code>IME</code> se activa después de la siguiente instrucción.</li>
+                        <li><strong>¿Hay escrituras en IE durante el polling?</strong>: El sniper de polling nos dirá si alguien está escribiendo en <code>IE</code> durante la espera, lo cual podría explicar por qué <code>IE</code> se queda en <code>0x00</code>.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego ejecuta <code>EI</code> en <code>PC:0x60A6</code>, pero <code>IE</code> está en <code>0x00</code> en ese momento. El juego espera que algo más (probablemente una ISR o código de inicialización) habilite las fuentes de interrupciones en <code>IE</code>, pero eso nunca ocurre porque las interrupciones están deshabilitadas.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> El juego debería escribir en <code>IE</code> (por ejemplo, <code>LD A, 0x0D; LDH (0xFF), A</code> para habilitar V-Blank y Timer) antes o después del <code>EI</code>, pero por alguna razón no lo hace o se ejecuta incorrectamente.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con la nueva instrumentación y analizar los logs <code>[CPU-EI]</code> y <code>[POLLING-WATCH]</code></li>
+                    <li>[ ] Verificar si <code>IE</code> está en <code>0x00</code> cuando se ejecuta <code>EI</code> en <code>PC:0x60A6</code></li>
+                    <li>[ ] Verificar si <code>IE</code> cambia durante el bucle de polling</li>
+                    <li>[ ] Si <code>IE</code> está en <code>0x00</code>, buscar en el código del juego dónde debería habilitarse</li>
+                    <li>[ ] Si <code>IE</code> cambia a <code>0x00</code> durante el polling, identificar qué código está escribiendo en <code>IE</code></li>
+                    <li>[ ] Implementar corrección basada en los hallazgos</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

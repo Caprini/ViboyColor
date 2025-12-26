@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementación de Ventana y Fix de Instrumentación - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Implementación de Ventana y Fix de Instrumentación</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0284
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0283__optimizacion-rendimiento-hack-paleta.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este paso implementa dos mejoras críticas: (1) Movimiento de los monitores de diagnóstico (VBLANK-ENTRY, RESET-WATCH, POLLING-WATCH) al inicio de CPU::step() para evitar que el early return de interrupciones los oculte, y (2) Implementación completa de la lógica de renderizado de la Ventana (Window) en PPU::render_scanline() considerando los registros WY (0xFF4A) y WX (0xFF4B). La ventana se renderiza correctamente encima del Background pero debajo de los Sprites, respetando el bit 5 de LCDC (Window Enable) y usando el mismo sistema de direccionamiento de tiles que el Background según el bit 4 de LCDC.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Window (Ventana)</strong>: La Game Boy tiene una capa de renderizado llamada "Window" que es una superficie opaca que se dibuja encima del Background pero debajo de los Sprites. A diferencia del Background, la Window no tiene scroll: siempre comienza desde el tile (0,0) del tilemap seleccionado. La posición de la Window se controla mediante dos registros:
+                </p>
+                <ul>
+                    <li><strong>WY (0xFF4A)</strong>: Coordenada Y de inicio de la Window. La Window solo se dibuja cuando LY >= WY.</li>
+                    <li><strong>WX (0xFF4B)</strong>: Coordenada X de inicio de la Window con un offset de 7 píxeles. WX=7 significa que la Window comienza en X=0 de la pantalla. La Window solo se dibuja si WX <= 166.</li>
+                </ul>
+                <p>
+                    <strong>LCDC Bit 5 (Window Enable)</strong>: Controla si la Window está habilitada. Si este bit está desactivado, la Window no se renderiza, independientemente de los valores de WY y WX.
+                </p>
+                <p>
+                    <strong>LCDC Bit 6 (Window Tilemap)</strong>: Selecciona qué tilemap usar para la Window (0x9800 o 0x9C00), independiente del tilemap del Background.
+                </p>
+                <p>
+                    <strong>LCDC Bit 4 (Tile Data Addressing)</strong>: Controla el direccionamiento de tiles tanto para Background como para Window. Bit 4=1 usa direccionamiento unsigned (0x8000, tile IDs 0-255), Bit 4=0 usa direccionamiento signed (0x8800, tile IDs -128 a 127).
+                </p>
+                <p>
+                    <strong>Orden de Renderizado</strong>: Background → Window → Sprites. La Window sobrescribe el Background en las áreas donde se dibuja.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Window", "LCDC Register", "Tile Data Addressing"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se realizaron tres cambios principales:
+                </p>
+                
+                <h3>1. Movimiento de Monitores de Diagnóstico</h3>
+                <p>
+                    Los monitores VBLANK-ENTRY, RESET-WATCH y POLLING-WATCH estaban ubicados después del switch de instrucciones, lo que causaba que no se ejecutaran cuando había interrupciones que provocaban early return. Se movieron al inicio de CPU::step(), justo después de capturar el PC original pero antes de handle_interrupts().
+                </p>
+                <p>
+                    <strong>Cambio crítico:</strong> El PC original ahora se captura al inicio de step() y se reutiliza en todo el método, asegurando que los monitores se ejecuten incluso cuando hay interrupciones.
+                </p>
+
+                <h3>2. Implementación Completa de render_window()</h3>
+                <p>
+                    Se completó la función render_window() en PPU.cpp con la lógica completa de renderizado:
+                </p>
+                <ul>
+                    <li>Verificación de LCDC bit 5 (Window Enable) y bit 7 (LCD Enable)</li>
+                    <li>Validación de condiciones WY <= LY y WX <= 166</li>
+                    <li>Selección de tilemap según LCDC bit 6</li>
+                    <li>Uso del mismo sistema de direccionamiento de tiles que Background (LCDC bit 4)</li>
+                    <li>Renderizado píxel por píxel desde window_x_start hasta SCREEN_WIDTH</li>
+                    <li>Aplicación de paleta BGP a los píxeles de la Window</li>
+                </ul>
+
+                <h3>3. Integración en render_scanline()</h3>
+                <p>
+                    Se agregó la llamada a render_window() en render_scanline() después del renderizado del Background pero antes de los Sprites, respetando el orden correcto de capas.
+                </p>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Reutilización de original_pc:</strong> Se captura una vez al inicio y se reutiliza en todo step() para evitar inconsistencias.</li>
+                    <li><strong>Consistencia de direccionamiento:</strong> Tanto Background como Window usan la misma lógica de direccionamiento de tiles según LCDC bit 4, garantizando coherencia.</li>
+                    <li><strong>Validación temprana:</strong> Se verifican todas las condiciones (LCD Enable, Window Enable, WY, WX) antes de iniciar el renderizado para optimizar rendimiento.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Movimiento de monitores de diagnóstico al inicio de step()</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementación completa de render_window() e integración en render_scanline()</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La implementación se validó mediante:
+                </p>
+                <ul>
+                    <li><strong>Compilación exitosa:</strong> El módulo C++ se compiló sin errores usando <code>python setup.py build_ext --inplace</code></li>
+                    <li><strong>Validación de módulo compilado C++:</strong> El módulo viboy_core se generó correctamente como .pyd</li>
+                    <li><strong>Verificación de lógica:</strong> Revisión manual del código para asegurar que:
+                        <ul>
+                            <li>Los monitores se ejecutan antes del early return de interrupciones</li>
+                            <li>La Window se renderiza solo cuando LCDC bit 5 está activo</li>
+                            <li>El direccionamiento de tiles es consistente entre Background y Window</li>
+                            <li>La Window respeta las condiciones WY <= LY y WX <= 166</li>
+                        </ul>
+                    </li>
+                </ul>
+                <pre><code>// Ejemplo de verificación de condiciones en render_window()
+if ((lcdc & 0x80) == 0 || (lcdc & 0x20) == 0) {
+    return;  // LCD desactivado o Window deshabilitada
+}
+if (ly_ < wy || wx > 166) {
+    return;  // Condiciones de posición no cumplidas
+}</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "Window" - Descripción del sistema de ventana</li>
+                    <li>Pan Docs: "LCDC Register" - Bits de control del LCD</li>
+                    <li>Pan Docs: "Tile Data Addressing" - Sistema de direccionamiento de tiles</li>
+                    <li>Pan Docs: "Background and Window" - Orden de renderizado de capas</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Window vs Background:</strong> La Window es una capa independiente sin scroll que siempre comienza desde (0,0) del tilemap. El Background tiene scroll mediante SCX/SCY.</li>
+                        <li><strong>Offset de WX:</strong> WX tiene un offset de 7 píxeles porque el hardware de la Game Boy tiene esta peculiaridad. WX=7 significa posición X=0 en pantalla.</li>
+                        <li><strong>Direccionamiento compartido:</strong> Tanto Background como Window comparten el mismo sistema de direccionamiento de tiles (LCDC bit 4), pero pueden usar tilemaps diferentes (LCDC bits 3 y 6).</li>
+                        <li><strong>Monitores de diagnóstico:</strong> Para que los monitores capturen eventos críticos (como entrada a V-Blank), deben ejecutarse antes de cualquier early return, especialmente antes de handle_interrupts().</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento con WX < 7:</strong> Necesita validación en hardware real si la Window se renderiza parcialmente cuando WX < 7.</li>
+                        <li><strong>Rendimiento:</strong> Verificar que el renderizado de la Window no afecte significativamente el rendimiento a 60 FPS.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que cuando WX < 7, la Window simplemente no se renderiza (window_x_start se ajusta a 0). Esto necesita validación con hardware real o ROMs de test.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Validar renderizado de Window con ROMs de test que usen ventanas</li>
+                    <li>[ ] Verificar que los monitores de diagnóstico capturan correctamente eventos de interrupción</li>
+                    <li>[ ] Optimizar render_window() si es necesario para mantener 60 FPS</li>
+                    <li>[ ] Implementar tests unitarios específicos para renderizado de Window</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

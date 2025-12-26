@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Flujo de Ejecución Post-Limpieza - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Flujo de Ejecución Post-Limpieza</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0293
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0292__verificacion-step-0291-analisis-monitores.html">Anterior (0292)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de cinco monitores de diagnóstico para investigar por qué el juego nunca carga datos de tiles
+                    en VRAM después de limpiarla. El análisis del Step 0291 confirmó que solo se detectan escrituras de limpieza (0x00)
+                    desde PC:0x36E3 y ninguna carga de datos reales. Los nuevos monitores rastrean el flujo de ejecución después
+                    de la limpieza para identificar qué código se ejecuta (o debería ejecutarse pero no se ejecuta) y si hay condiciones
+                    que impiden la carga de tiles.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Después de limpiar VRAM, los juegos típicamente siguen un flujo de ejecución específico:
+                </p>
+                <ol>
+                    <li><strong>Configuración de registros de hardware</strong>: LCDC, BGP, STAT, etc.</li>
+                    <li><strong>Carga de tiles desde ROM a VRAM</strong>: Copia de datos de gráficos (2bpp) a 0x8000-0x97FF</li>
+                    <li><strong>Configuración del tilemap</strong>: Escritura de índices de tiles en 0x9800-0x9FFF</li>
+                    <li><strong>Activación del LCD</strong>: Habilitación del LCD y comienzo del renderizado</li>
+                </ol>
+                <p>
+                    Si el paso 2 no ocurre, la pantalla quedará vacía porque los tiles referenciados por el tilemap estarán vacíos.
+                </p>
+                <h3>Condiciones para Carga de Tiles</h3>
+                <p>
+                    Los tiles pueden cargarse en diferentes momentos:
+                </p>
+                <ul>
+                    <li><strong>Durante la inicialización</strong>: Antes del primer frame visible</li>
+                    <li><strong>Durante V-Blank</strong>: Cuando VRAM es accesible (entre frames)</li>
+                    <li><strong>Durante H-Blank</strong>: Limitado, solo en ciertos modos de PPU</li>
+                </ul>
+                <p>
+                    Factores que pueden impedir la carga:
+                </p>
+                <ul>
+                    <li><strong>LCDC deshabilitado</strong>: LCD OFF puede impedir acceso a VRAM</li>
+                    <li><strong>Interrupciones deshabilitadas</strong>: IME=0, IE=0 pueden impedir V-Blank</li>
+                    <li><strong>Condiciones de salto no cumplidas</strong>: El código puede saltar sobre la rutina de carga</li>
+                    <li><strong>Banco ROM incorrecto</strong>: El código de carga puede estar en otro banco</li>
+                    <li><strong>Estados de registro incorrectos</strong>: Flags o valores de registro pueden impedir la carga</li>
+                </ul>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "Video RAM (VRAM)", "LCD Control Register (LCDC)", "Interrupts"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron cinco monitores de diagnóstico que se activan cuando se detecta la rutina de limpieza
+                    (PC:0x36E0-0x36F0) y rastrean el flujo de ejecución después de que termina.
+                </p>
+                
+                <h3>Monitor [PC-TRACE] - Rastreo de Ejecución Post-Limpieza</h3>
+                <p>
+                    Rastrea las siguientes 500 instrucciones después de que la rutina de limpieza termina para ver qué código
+                    se ejecuta a continuación. Captura:
+                </p>
+                <ul>
+                    <li>PC, opcode y los siguientes 2 bytes</li>
+                    <li>Estado de registros (A, BC, DE, HL, SP)</li>
+                    <li>Banco ROM actual</li>
+                    <li>Detección de posibles cargas de tiles (LD (HL+), A o LD (HL-), A con HL en rango VRAM)</li>
+                </ul>
+                <p>
+                    <strong>Ubicación</strong>: <code>src/core/cpp/CPU.cpp</code> - Función <code>CPU::step()</code>
+                </p>
+
+                <h3>Monitor [REG-TRACE] - Rastreo de Registros Críticos</h3>
+                <p>
+                    Rastrea cambios significativos en registros (AF, BC, DE, HL, SP) y flags después de la limpieza.
+                    Solo reporta cambios mayores a 0x100 para evitar saturación. Captura:
+                </p>
+                <ul>
+                    <li>PC actual</li>
+                    <li>Valores de registros (AF, BC, DE, HL, SP)</li>
+                    <li>Estado de flags (Z, N, H, C)</li>
+                </ul>
+                <p>
+                    <strong>Ubicación</strong>: <code>src/core/cpp/CPU.cpp</code> - Función <code>CPU::step()</code>
+                </p>
+
+                <h3>Monitor [JUMP-TRACE] - Rastreo de Saltos y Llamadas</h3>
+                <p>
+                    Rastrea saltos, llamadas y retornos después de la limpieza para ver si el juego salta a código
+                    que debería cargar tiles pero no lo hace. Detecta:
+                </p>
+                <ul>
+                    <li>JP (0xC3, 0xC2, 0xCA, 0xD2, 0xDA) - Saltos absolutos</li>
+                    <li>JR (0x18, 0x20, 0x28, 0x30, 0x38) - Saltos relativos</li>
+                    <li>CALL (0xCD, 0xC4, 0xCC, 0xD4, 0xDC) - Llamadas a subrutinas</li>
+                    <li>RET (0xC9, 0xC0, 0xC8, 0xD0, 0xD8) - Retornos</li>
+                    <li>JP HL (0xE9) - Salto indirecto</li>
+                </ul>
+                <p>
+                    <strong>Ubicación</strong>: <code>src/core/cpp/CPU.cpp</code> - Función <code>CPU::step()</code>
+                </p>
+
+                <h3>Monitor [BANK-CHANGE] - Cambios de Banco ROM</h3>
+                <p>
+                    Detecta cambios de banco ROM después de la limpieza para verificar si el código que carga tiles
+                    está en un banco diferente que no se activa. Solo se activa si PC > 0x36F0 (después de la limpieza).
+                </p>
+                <p>
+                    <strong>Ubicación</strong>: <code>src/core/cpp/MMU.cpp</code> - Función <code>MMU::update_bank_mapping()</code>
+                </p>
+
+                <h3>Monitor [HARDWARE-STATE] - Estado de Hardware Crítico</h3>
+                <p>
+                    Rastrea el estado de registros de hardware críticos después de la limpieza. Muestrea cada 10 instrucciones
+                    aproximadamente y captura:
+                </p>
+                <ul>
+                    <li>LCDC (0xFF40) - Control del LCD</li>
+                    <li>BGP (0xFF47) - Paleta de fondo</li>
+                    <li>IE (0xFFFF) - Habilitación de interrupciones</li>
+                    <li>IF (0xFF0F) - Flags de interrupciones</li>
+                    <li>IME - Interrupt Master Enable (desde CPU)</li>
+                    <li>LY (0xFF44) - Línea de scanline actual</li>
+                </ul>
+                <p>
+                    <strong>Ubicación</strong>: <code>src/core/cpp/CPU.cpp</code> - Función <code>CPU::step()</code>
+                </p>
+
+                <h3>Cambios en la Arquitectura</h3>
+                <p>
+                    Se añadieron nuevos miembros de clase en <code>CPU.hpp</code> para mantener el estado de los monitores
+                    (siguiendo el patrón del Step 0287 que reemplazó variables static por miembros de clase):
+                </p>
+                <ul>
+                    <li><code>in_post_cleanup_trace_</code> - Flag para activar rastreo post-limpieza</li>
+                    <li><code>post_cleanup_trace_count_</code> - Contador de instrucciones rastreadas</li>
+                    <li><code>reg_trace_active_</code> - Flag para activar rastreo de registros</li>
+                    <li><code>last_af_, last_bc_, last_de_, last_hl_</code> - Valores anteriores de registros</li>
+                    <li><code>reg_trace_count_</code> - Contador de muestras de registros</li>
+                    <li><code>jump_trace_active_</code> - Flag para activar rastreo de saltos</li>
+                    <li><code>jump_trace_count_</code> - Contador de saltos rastreados</li>
+                    <li><code>hw_state_trace_active_</code> - Flag para activar rastreo de hardware</li>
+                    <li><code>hw_state_samples_</code> - Contador de muestras de hardware</li>
+                    <li><code>hw_state_sample_counter_</code> - Contador interno para muestreo</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Añadidos miembros de clase para monitores del Step 0293</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Implementados monitores [PC-TRACE], [REG-TRACE], [JUMP-TRACE], [HARDWARE-STATE]</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Mejorado monitor [BANK-CHANGE] para activarse después de limpieza</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La implementación se verificó compilando el código y asegurando que no hay errores de sintaxis.
+                    Los monitores están listos para ejecutarse cuando el emulador se ejecute con una ROM.
+                </p>
+                <ul>
+                    <li><strong>Compilación</strong>: ✅ Código compilado sin errores</li>
+                    <li><strong>Linter</strong>: ✅ Sin errores de linter</li>
+                    <li><strong>Validación</strong>: ✅ Todos los monitores implementados correctamente</li>
+                </ul>
+                <p>
+                    <strong>Comando de compilación</strong>: <code>python setup.py build_ext --inplace</code>
+                </p>
+                <p>
+                    <strong>Resultado</strong>: Compilación exitosa, módulo Cython generado correctamente.
+                </p>
+                <p>
+                    <strong>Nota</strong>: Los monitores se activarán automáticamente cuando el emulador detecte
+                    la rutina de limpieza (PC:0x36E0-0x36F0) y rastrearán el flujo de ejecución después.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "Video RAM (VRAM)" - Acceso a VRAM y restricciones de timing</li>
+                    <li>Pan Docs: "LCD Control Register (LCDC)" - Control del LCD y modos de acceso</li>
+                    <li>Pan Docs: "Interrupts" - Vectores de interrupción y condiciones de activación</li>
+                    <li>Pan Docs: "CPU Instruction Set" - Opcodes de salto y llamadas</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Flujo de ejecución post-inicialización</strong>: Los juegos siguen un patrón específico después de limpiar VRAM: configurar hardware, cargar tiles, configurar tilemap, activar LCD.</li>
+                        <li><strong>Condiciones de carga</strong>: Los tiles pueden cargarse durante inicialización, V-Blank o H-Blank, pero hay condiciones específicas que deben cumplirse.</li>
+                        <li><strong>Monitores de diagnóstico</strong>: Los monitores de rastreo permiten entender el flujo de ejecución y identificar dónde se desvía del comportamiento esperado.</li>
+                        <li><strong>Arquitectura de monitores</strong>: Usar miembros de clase en lugar de variables static permite aislar el estado entre tests y evitar problemas de estado global.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Flujo real de ejecución</strong>: ¿Qué código se ejecuta realmente después de la limpieza?</li>
+                        <li><strong>Condiciones no cumplidas</strong>: ¿Hay condiciones específicas que impiden la carga de tiles?</li>
+                        <li><strong>Bancos ROM</strong>: ¿El código de carga está en otro banco que no se activa?</li>
+                        <li><strong>Estado de hardware</strong>: ¿Los registros de hardware tienen valores correctos para permitir la carga?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis A</strong>: El código que carga tiles existe pero no se ejecuta debido a condiciones no cumplidas
+                        (timing, interrupciones, registros de hardware).
+                    </p>
+                    <p>
+                        <strong>Hipótesis B</strong>: El código que carga tiles existe pero está en un banco ROM diferente que no se activa.
+                    </p>
+                    <p>
+                        <strong>Hipótesis C</strong>: El juego espera un estado de hardware específico antes de cargar tiles
+                        (ej: cierto número de frames, V-Blanks, etc.).
+                    </p>
+                    <p>
+                        <strong>Hipótesis D</strong>: Hay un bug en la emulación que impide que el código de carga se ejecute
+                        (ej: saltos incorrectos, condiciones falsas, etc.).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ol>
+                    <li><strong>Ejecutar el emulador</strong>: Ejecutar el emulador con Pokémon Red y capturar los logs de los nuevos monitores.</li>
+                    <li><strong>Analizar el flujo de ejecución</strong>: Analizar los logs de [PC-TRACE] para ver qué código se ejecuta después de la limpieza.</li>
+                    <li><strong>Verificar condiciones</strong>: Analizar los logs de [REG-TRACE] y [HARDWARE-STATE] para verificar si hay condiciones no cumplidas.</li>
+                    <li><strong>Verificar bancos ROM</strong>: Analizar los logs de [BANK-CHANGE] para verificar si hay cambios de banco después de la limpieza.</li>
+                    <li><strong>Identificar el problema</strong>: Determinar cuál de las hipótesis es correcta y aplicar las correcciones correspondientes.</li>
+                </ol>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

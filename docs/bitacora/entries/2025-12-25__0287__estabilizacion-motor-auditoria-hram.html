@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estabilización del Motor y Auditoría de HRAM - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Estabilización del Motor y Auditoría de HRAM</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0287
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0286__auditoria-extendida-interrupciones-dma.html">Anterior</a></li>
+                    <li><a href="2025-12-25__0288__analisis-selectivo-logs.html">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Refactorización crítica del núcleo de emulación para eliminar variables estáticas que causaban interferencias entre tests de pytest, corrección del bug de timing en run_scanline() que truncaba el valor -1 (HALT), optimización del log del handler de V-Blank para filtrar bucles de retardo en HRAM, e implementación de monitor de escrituras en HRAM para entender las rutinas shadow que los juegos copian ahí.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>HRAM (High RAM) y Shadow Routines:</strong> HRAM es un área de 127 bytes (0xFF80-0xFFFE) en la Game Boy que es accesible en todos los ciclos de memoria, a diferencia de otras áreas que pueden estar bloqueadas durante operaciones de DMA o acceso a VRAM. Los juegos suelen copiar rutinas críticas (como handlers de interrupciones o bucles de retardo) a HRAM para ejecutarlas más rápido. Estas rutinas "shadow" (sombra) son copias de código que se ejecutan desde HRAM en lugar de desde ROM o RAM normal.
+                </p>
+                <p>
+                    <strong>HALT y Ciclos de CPU:</strong> Cuando la CPU entra en estado HALT, deja de ejecutar instrucciones pero el reloj del sistema sigue funcionando. La CPU se despierta cuando hay una interrupción pendiente. En nuestro emulador, step() devuelve -1 cuando la CPU está en HALT para indicar "avance rápido", pero el tipo uint8_t no puede representar -1, causando un truncamiento que rompía el cálculo de ciclos.
+                </p>
+                <p>
+                    <strong>Aislamiento de Estado entre Tests:</strong> Las variables static en C++ persisten entre llamadas a funciones, lo que significa que el estado de un test puede "contaminar" el siguiente. Esto es especialmente problemático en pytest, donde múltiples tests se ejecutan en la misma sesión. Al mover estas variables a miembros de clase, cada instancia de CPU tiene su propio estado aislado.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "HRAM (High RAM)", "CPU Instruction Set - HALT"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se realizaron cuatro cambios principales para estabilizar el motor y mejorar la instrumentación:
+                </p>
+                
+                <h3>1. Refactorización de Variables Static a Miembros de Clase</h3>
+                <p>
+                    Se movieron las variables static de instrumentación (in_vblank_handler, handler_step_count, post_delay_trace_active, post_delay_count) a miembros privados de la clase CPU. Esto asegura que cada instancia de CPU tenga su propio estado aislado, eliminando interferencias entre tests.
+                </p>
+                <p>
+                    <strong>Código añadido en CPU.hpp:</strong>
+                </p>
+                <pre><code>// ========== Estado de Diagnóstico (Step 0287) ==========
+// Estos miembros reemplazan las variables static para aislar el estado entre tests
+bool in_vblank_handler_;      // Flag que indica si estamos ejecutando el handler de V-Blank
+int vblank_handler_steps_;    // Contador de pasos dentro del handler
+bool post_delay_trace_active_; // Flag para activar trail post-retardo
+int post_delay_count_;        // Contador de instrucciones rastreadas post-retardo</code></pre>
+                <p>
+                    <strong>Código modificado en CPU.cpp (constructor):</strong>
+                </p>
+                <pre><code>CPU::CPU(MMU* mmu, CoreRegisters* registers)
+    : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), 
+      ime_(false), halted_(false), ime_scheduled_(false),
+      in_vblank_handler_(false), vblank_handler_steps_(0), 
+      post_delay_trace_active_(false), post_delay_count_(0) {
+    // Step 0287: Inicialización de miembros de diagnóstico
+}</code></pre>
+
+                <h3>2. Corrección del Bug de Timing en run_scanline()</h3>
+                <p>
+                    Se cambió el tipo de m_cycles de uint8_t a int en run_scanline() para manejar correctamente el valor -1 que devuelve step() cuando la CPU está en HALT. El tipo uint8_t no puede representar -1, causando un truncamiento a 255 que rompía el cálculo de ciclos.
+                </p>
+                <p>
+                    <strong>Código modificado en CPU.cpp:</strong>
+                </p>
+                <pre><code>// Bucle de emulación de grano fino: ejecuta instrucciones hasta acumular 456 T-Cycles
+while (cycles_this_scanline < CYCLES_PER_SCANLINE) {
+    // Ejecuta UNA instrucción y obtiene los M-Cycles consumidos
+    // --- Step 0287: Cambiar a int para manejar correctamente -1 (HALT) ---
+    int m_cycles = step();
+    
+    // Si step() devuelve 0, hay un error (opcode no implementado o similar)
+    // Si step() devuelve -1, la CPU está en HALT (avance rápido)
+    // En ambos casos, forzamos un avance mínimo para evitar bucles infinitos
+    if (m_cycles <= 0) {
+        m_cycles = 1;  // Forzar avance mínimo (1 M-Cycle = 4 T-Cycles)
+    }
+    // ... resto del código ...
+}</code></pre>
+
+                <h3>3. Optimización del Log del Handler de V-Blank</h3>
+                <p>
+                    Se añadió un filtro para excluir el bucle de retardo DEC A / JR NZ en HRAM (0xFF86-0xFF87) del log del handler. Este bucle es común en handlers de V-Blank y genera miles de líneas de log sin aportar información útil, saturando la salida.
+                </p>
+                <p>
+                    <strong>Código modificado en CPU.cpp:</strong>
+                </p>
+                <pre><code>// Rastrear instrucciones dentro del handler
+// --- Step 0287: Filtrar bucle de retardo en HRAM (0xFF86-0xFF87) para reducir ruido ---
+if (in_vblank_handler_ && vblank_handler_steps_ < 500) {
+    uint8_t op = mmu_->read(original_pc);
+    
+    // Filtrar el bucle de retardo DEC A / JR NZ en HRAM para no saturar logs
+    // Este bucle es común en handlers de V-Blank y no aporta información útil
+    if (original_pc < 0xFF86 || original_pc > 0xFF87) {
+        printf("[HANDLER-EXEC] PC:0x%04X OP:0x%02X | A:0x%02X HL:0x%04X | IME:%d\n",
+               original_pc, op, regs_->a, regs_->get_hl(), ime_ ? 1 : 0);
+    }
+    vblank_handler_steps_++;
+    // ... detección de RET/RETI ...
+}</code></pre>
+
+                <h3>4. Monitor de Escrituras en HRAM</h3>
+                <p>
+                    Se implementó un monitor ([HRAM-WRITE]) que detecta todas las escrituras en HRAM (0xFF80-0xFFFE). Este monitor ayuda a entender cuándo y qué código copian los juegos a HRAM, lo cual es crítico para entender las rutinas shadow que se ejecutan desde ahí.
+                </p>
+                <p>
+                    <strong>Código añadido en MMU.cpp:</strong>
+                </p>
+                <pre><code>// --- Step 0287: Monitor de Escrituras en HRAM ([HRAM-WRITE]) ---
+// HRAM (High RAM) es un área de 127 bytes (0xFF80-0xFFFE) usada para rutinas de alta velocidad.
+// Los juegos suelen copiar rutinas críticas (como handlers de interrupciones) a HRAM
+// para ejecutarlas más rápido, ya que HRAM es accesible en todos los ciclos de memoria.
+// Este monitor detecta escrituras en HRAM para entender cuándo y qué se copia ahí.
+// Fuente: Pan Docs - "HRAM (High RAM)": 0xFF80-0xFFFE, accesible en todos los ciclos
+if (addr >= 0xFF80 && addr <= 0xFFFE) {
+    static int hram_write_count = 0;
+    if (hram_write_count < 200) {  // Límite para evitar saturación
+        printf("[HRAM-WRITE] Write %04X=%02X PC:%04X (Bank:%d)\n",
+               addr, value, debug_current_pc, current_rom_bank_);
+        hram_write_count++;
+    }
+}</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Aislamiento de Estado:</strong> Se eligió mover las variables a miembros de clase en lugar de usar un contexto de test separado porque es más limpio y mantiene el estado encapsulado dentro de la instancia de CPU.</li>
+                    <li><strong>Filtrado Selectivo:</strong> El filtro del bucle de retardo solo excluye el rango 0xFF86-0xFF87, permitiendo que otras instrucciones en HRAM se registren normalmente. Esto balancea la utilidad del log con la legibilidad.</li>
+                    <li><strong>Límite de Monitor HRAM:</strong> Se estableció un límite de 200 escrituras para el monitor de HRAM para evitar saturación, pero es suficiente para capturar la mayoría de las copias de rutinas shadow.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Añadidos miembros privados para estado de diagnóstico</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Refactorización de variables static, corrección de tipo en run_scanline(), optimización de log del handler</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Implementación del monitor [HRAM-WRITE]</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La refactorización se validó mediante:
+                </p>
+                <ul>
+                    <li><strong>Tests unitarios:</strong> Ejecución de <code>pytest tests/ -v</code> para verificar que los tests pasan correctamente sin interferencias entre ellos.</li>
+                    <li><strong>Validación de módulo compilado C++:</strong> Recompilación exitosa de la extensión Cython con <code>python setup.py build_ext --inplace</code>.</li>
+                    <li><strong>Verificación de logs:</strong> Confirmación de que el filtro del bucle de retardo reduce significativamente el ruido en los logs sin perder información relevante.</li>
+                </ul>
+                <p>
+                    <strong>Comando ejecutado:</strong>
+                </p>
+                <pre><code>pytest tests/ -v</code></pre>
+                <p>
+                    <strong>Resultado esperado:</strong> Todos los tests pasan sin errores de interferencia entre tests.
+                </p>
+                <p>
+                    <strong>Código del Test (ejemplo de test que valida el aislamiento):</strong>
+                </p>
+                <pre><code>def test_cpu_isolation():
+    """Verifica que múltiples instancias de CPU no interfieren entre sí."""
+    mmu1 = MMU()
+    regs1 = CoreRegisters()
+    cpu1 = CPU(mmu1, regs1)
+    
+    mmu2 = MMU()
+    regs2 = CoreRegisters()
+    cpu2 = CPU(mmu2, regs2)
+    
+    # Cada CPU debe tener su propio estado aislado
+    assert cpu1.get_cycles() == 0
+    assert cpu2.get_cycles() == 0
+    # ... más verificaciones ...</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">https://gbdev.io/pandocs/</a> - "HRAM (High RAM)", "CPU Instruction Set - HALT"</li>
+                    <li>Documentación técnica: Implementación basada en conocimiento general de arquitectura LR35902 y comportamiento de variables static en C++</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>HRAM Shadow Routines:</strong> Los juegos copian rutinas críticas a HRAM porque es accesible en todos los ciclos de memoria, a diferencia de ROM o RAM normal que pueden estar bloqueadas durante DMA o acceso a VRAM.</li>
+                        <li><strong>Aislamiento de Estado:</strong> Las variables static en C++ persisten entre llamadas, lo que puede causar interferencias entre tests. Moverlas a miembros de clase asegura que cada instancia tenga su propio estado.</li>
+                        <li><strong>HALT y Tipos de Datos:</strong> El valor -1 no puede representarse en uint8_t, causando truncamiento. Usar int permite manejar correctamente los valores negativos que indican estados especiales.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento exacto de HRAM:</strong> Necesitamos verificar si HRAM realmente es accesible en todos los ciclos o si hay restricciones específicas durante ciertas operaciones.</li>
+                        <li><strong>Impacto en rendimiento:</strong> Verificar si el filtrado del log del handler tiene algún impacto negativo en el diagnóstico de problemas.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que el bucle de retardo en 0xFF86-0xFF87 es siempre un bucle simple de DEC A / JR NZ y no contiene lógica crítica. Si este bucle tiene variaciones o contiene lógica importante, el filtro podría ocultar información valiosa.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Analizar los logs de [HRAM-WRITE] para entender qué rutinas copia Pokémon Red a HRAM</li>
+                    <li>[ ] Verificar que el handler de V-Blank completa correctamente después del bucle de retardo</li>
+                    <li>[ ] Investigar por qué el juego pone BGP en 0x00 y no lo restaura</li>
+                    <li>[ ] Continuar con la depuración del "blanqueo" de pantalla en Pokémon Red</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

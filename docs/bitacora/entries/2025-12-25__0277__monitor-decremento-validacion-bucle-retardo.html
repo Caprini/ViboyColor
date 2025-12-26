@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Operación Warp Drive: Monitor de Decremento y Validación de Bucle de Retardo - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Operación Warp Drive: Monitor de Decremento y Validación de Bucle de Retardo</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0277
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0276__diseccion-bucle-polling-monitor-registros-tiempo.html">Anterior (0276)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa la "Operación Warp Drive" para validar el bucle de retardo identificado en el Step 0276.
+                    El análisis previo reveló que el juego NO está poleando hardware, sino ejecutando un bucle de retardo por
+                    software basado en el registro DE. El bucle decrementa DE hasta que llega a 0, y luego continúa con la ejecución.
+                </p>
+                <p>
+                    Se añadió instrumentación específica en tres puntos críticos: (1) captura de la carga inicial de DE en PC:0x614A,
+                    (2) monitoreo del decremento de DE cada 1000 iteraciones en PC:0x6150, y (3) detección de salida del bucle cuando
+                    el PC sale del rango 0x614A-0x6155. El objetivo es confirmar que DE está disminuyendo correctamente, cuánto tiempo
+                    le falta al bucle, y validar que la instrucción DEC DE está funcionando correctamente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, los bucles de retardo por software son una técnica común para crear pausas temporales sin usar
+                    hardware de timer o interrupciones. Estos bucles funcionan decrementando un registro de 16 bits hasta que llega a 0,
+                    consumiendo ciclos de CPU de forma predecible.
+                </p>
+                
+                <h3>1. Bucles de Retardo por Software</h3>
+                <p>
+                    Un bucle de retardo típico en la Game Boy funciona así:
+                </p>
+                <ol>
+                    <li><strong>Carga inicial:</strong> Se carga un valor en un par de registros (ej: DE = 0x2000)</li>
+                    <li><strong>Bucle:</strong> Se decrementa el par de registros (DEC DE)</li>
+                    <li><strong>Verificación:</strong> Se verifica si el par llegó a 0 (usando OR o ADD para combinar los bytes y verificar flags)</li>
+                    <li><strong>Repetición:</strong> Si no es 0, se repite el bucle</li>
+                </ol>
+                <p>
+                    <strong>Ejemplo de código:</strong>
+                </p>
+                <pre><code>LD DE, 0x2000    ; Carga valor inicial
+.loop:
+    DEC DE       ; Decrementa DE
+    LD A, D      ; Carga D en A
+    OR E         ; A = D | E (si D=0 y E=0, entonces A=0 y Z=1)
+    JR NZ, .loop ; Salta si Z=0 (si DE != 0)</code></pre>
+                
+                <h3>2. Cálculo de Tiempo Real</h3>
+                <p>
+                    El tiempo que tarda un bucle de retardo depende de:
+                </p>
+                <ul>
+                    <li><strong>Valor inicial:</strong> Si DE se carga con 0xFFFF, el bucle ejecutará 65,536 iteraciones</li>
+                    <li><strong>Ciclos por iteración:</strong> Cada iteración consume varios M-Cycles (T-Cycles / 4)</li>
+                    <li><strong>Frecuencia de CPU:</strong> La Game Boy funciona a ~4.19 MHz (4,194,304 Hz)</li>
+                </ul>
+                <p>
+                    <strong>Ejemplo de cálculo:</strong> Si cada iteración consume 10 T-Cycles y DE se carga con 0x2000 (8,192):
+                </p>
+                <ul>
+                    <li>Total de T-Cycles: 8,192 × 10 = 81,920 T-Cycles</li>
+                    <li>Tiempo real: 81,920 / 4,194,304 ≈ 19.5 ms</li>
+                </ul>
+                <p>
+                    En un emulador, si el bucle está mal implementado o si la ALU de 16 bits tiene un bug, DE podría no decrementar
+                    correctamente, causando un bucle infinito (la "ilusión del atascamiento").
+                </p>
+                
+                <h3>3. Validación de DEC DE (Opcode 0x1B)</h3>
+                <p>
+                    La instrucción <code>DEC DE</code> (opcode 0x1B) decrementa el par de registros DE en 1. Según la especificación
+                    del LR35902:
+                </p>
+                <ul>
+                    <li><strong>Ciclos:</strong> 2 M-Cycles (8 T-Cycles)</li>
+                    <li><strong>Flags:</strong> NO afecta flags (a diferencia de DEC r que sí afecta Z, N, H)</li>
+                    <li><strong>Wrap-around:</strong> Si DE = 0x0000, después de DEC DE, DE = 0xFFFF (wrap-around en 16 bits)</li>
+                </ul>
+                <p>
+                    Es crítico que esta instrucción funcione correctamente porque muchos bucles de retardo dependen de ella. Si DEC DE
+                    no decrementa correctamente, el bucle se vuelve infinito y el juego se congela.
+                </p>
+                
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">CPU Instruction Set</a> - DEC rr
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron tres puntos de instrumentación en <code>CPU.cpp</code> para monitorear el bucle de retardo:
+                </p>
+                
+                <h3>1. Captura de Carga Inicial de DE (PC:0x614A)</h3>
+                <p>
+                    En el caso <code>0x11</code> (LD DE, nn), se agregó una verificación para detectar cuando el PC original (antes del fetch)
+                    era 0x614A. Cuando se detecta esta condición, se imprime el valor que se está cargando en DE junto con los bytes
+                    de memoria desde donde se lee (0x614B y 0x614C, en formato little-endian).
+                </p>
+                <pre><code>case 0x11:  // LD DE, d16
+{
+    uint16_t value = fetch_word();
+    regs_->set_de(value);
+    
+    // Step 0277: Capturar carga inicial de DE en PC:0x614A
+    if (saved_pc_for_instrumentation == 0x614A) {
+        printf("[SNIPER-LOAD] PC:0x614A | Cargando DE con valor: 0x%04X ...\n", value);
+    }
+    ...
+}</code></pre>
+                
+                <h3>2. Monitor de Decremento (PC:0x6150)</h3>
+                <p>
+                    En el caso <code>0x1B</code> (DEC DE), se agregó un monitor que imprime el estado de DE cada 1000 iteraciones cuando
+                    el PC original era 0x6150. Esto permite verificar que DE está disminuyendo correctamente sin saturar el log con
+                    demasiadas líneas.
+                </p>
+                <pre><code>case 0x1B:  // DEC DE
+{
+    dec_16bit(1);  // 1 = DE
+    
+    // Step 0277: Monitorizar decremento cada 1000 iteraciones
+    if (saved_pc_for_instrumentation == 0x6150) {
+        static uint32_t loop_counter = 0;
+        loop_counter++;
+        if (loop_counter % 1000 == 0) {
+            printf("[SNIPER-DELAY] Iteración:%u | DE:0x%04X | LY:%d DIV:0x%02X\n", ...);
+        }
+    }
+    ...
+}</code></pre>
+                
+                <h3>3. Trigger de Salida del Bucle</h3>
+                <p>
+                    Al inicio de <code>step()</code>, antes de procesar interrupciones, se agregó una verificación para detectar cuando
+                    el PC sale del rango 0x614A-0x6155. Esto indica que el bucle de retardo ha terminado y el juego continúa con la
+                    ejecución normal.
+                </p>
+                <pre><code>// Step 0277: Trigger de salida del bucle
+static uint16_t last_pc_in_loop = 0;
+if (last_pc_in_loop >= 0x614A && last_pc_in_loop <= 0x6155 && 
+    !(regs_->pc >= 0x614A && regs_->pc <= 0x6155)) {
+    printf("[SNIPER-EXIT] ¡LIBERTAD! El bucle de retardo ha terminado...\n");
+}</code></pre>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>CPU.cpp:</strong> Se modificó el método <code>step()</code> para agregar los tres puntos de instrumentación</li>
+                    <li><strong>CPU.cpp:</strong> Se agregó una variable estática <code>saved_pc_for_instrumentation</code> para rastrear el PC original antes del fetch</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Uso de variable estática para PC original:</strong> Se usa una variable estática <code>saved_pc_for_instrumentation</code>
+                    que se actualiza al inicio de <code>step()</code> con el PC original (antes del fetch). Esta variable es accesible desde
+                    los casos del switch, permitiendo verificar si una instrucción específica se ejecutó en una dirección crítica.
+                </p>
+                <p>
+                    <strong>Muestreo cada 1000 iteraciones:</strong> El monitor de decremento solo imprime cada 1000 iteraciones para evitar
+                    saturar el log. Si DE se carga con 0xFFFF, esto generará aproximadamente 65 líneas de log, lo cual es manejable.
+                </p>
+                <p>
+                    <strong>Verificación de salida del bucle:</strong> Se verifica si el PC sale del rango 0x614A-0x6155 comparando el PC
+                    actual con el PC de la iteración anterior. Esto permite detectar cuando el juego sale del bucle sin necesidad de
+                    instrumentar cada instrucción fuera del bucle.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Modificado método <code>step()</code> para agregar monitores específicos:
+                        carga DE (0x614A), decremento (0x6150), y salida del bucle (0x614A-0x6155)</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Modificado caso <code>0x11</code> (LD DE, nn) para capturar carga inicial</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Modificado caso <code>0x1B</code> (DEC DE) para monitorear decremento</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizará ejecutando Pokémon Red y analizando los logs generados:
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>python main.py roms/pkmn.gb</code></li>
+                    <li><strong>Resultado esperado:</strong> Se deberían ver tres tipos de mensajes en el log:
+                        <ul>
+                            <li><code>[SNIPER-LOAD]</code>: Muestra el valor inicial cargado en DE</li>
+                            <li><code>[SNIPER-DELAY]</code>: Muestra el estado de DE cada 1000 iteraciones (si DE se carga con 0xFFFF, debería haber ~65 mensajes)</li>
+                            <li><code>[SNIPER-EXIT]</code>: Indica que el bucle terminó y el juego continúa</li>
+                        </ul>
+                    </li>
+                </ul>
+                
+                <h3>Validación de DEC DE</h3>
+                <p>
+                    Se verificó que la instrucción <code>DEC DE</code> (opcode 0x1B) está correctamente implementada en el código:
+                </p>
+                <pre><code>case 0x1B:  // DEC DE
+{
+    dec_16bit(1);  // 1 = DE
+    cycles_ += 2;
+    return 2;
+}</code></pre>
+                <p>
+                    La función <code>dec_16bit(1)</code> está correctamente implementada y decrementa DE usando wrap-around en 16 bits:
+                </p>
+                <pre><code>case 1: {  // DE
+    uint16_t de = regs_->get_de();
+    de = (de - 1) & 0xFFFF;
+    regs_->set_de(de);
+    break;
+}</code></pre>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> ✅ Compilación exitosa sin errores de linter. La instrumentación
+                    está lista para ser probada en ejecución.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">CPU Instruction Set</a> - DEC rr (0x0B, 0x1B, 0x2B, 0x3B)</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">CPU Instruction Set</a> - LD rr, nn (0x01, 0x11, 0x21, 0x31)</li>
+                </ul>
+                <p>
+                    <em>Nota: Implementación basada en conocimiento general de arquitectura LR35902 y especificaciones de Pan Docs.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Bucles de retardo por software:</strong> Son una técnica común para crear pausas temporales sin usar
+                            hardware de timer o interrupciones. Funcionan decrementando un registro de 16 bits hasta que llega a 0.</li>
+                        <li><strong>Cálculo de tiempo real:</strong> El tiempo que tarda un bucle de retardo depende del valor inicial,
+                            los ciclos por iteración, y la frecuencia de CPU (~4.19 MHz). Si DE se carga con 0xFFFF, el bucle puede tardar
+                            varios milisegundos en completarse.</li>
+                        <li><strong>La "ilusión del atascamiento":</strong> Si un bucle de retardo se carga con un valor muy grande
+                            (ej: 0xFFFF), puede parecer que el juego está congelado cuando en realidad solo está esperando a que el bucle
+                            termine. Esto es especialmente problemático en emuladores si la ALU de 16 bits tiene un bug.</li>
+                        <li><strong>DEC DE no afecta flags:</strong> A diferencia de DEC r (que afecta Z, N, H), DEC DE (y otros DEC rr)
+                            NO afecta flags. Esto es importante para la lógica de los bucles de retardo.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Valor inicial de DE:</strong> ¿Qué valor se carga en DE en PC:0x614A? Si es 0xFFFF, el bucle tardará
+                            ~65,536 iteraciones. Si es un valor más pequeño, el bucle terminará más rápido.</li>
+                        <li><strong>Decremento correcto:</strong> ¿DE está disminuyendo correctamente? Si los mensajes [SNIPER-DELAY]
+                            muestran que DE no cambia o se queda clavado en un valor, hay un bug en dec_16bit().</li>
+                        <li><strong>Salida del bucle:</strong> ¿El juego sale del bucle cuando DE llega a 0? Si vemos [SNIPER-EXIT],
+                            confirmamos que el bucle terminó correctamente. Si no lo vemos, el juego podría estar atascado por otra razón.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El "bloqueo" es en realidad un bucle de retardo por software que debería
+                        terminar cuando DE llega a 0. Si el juego sigue atascado después de que DE llega a 0, el problema está en otra
+                        parte (posiblemente en la lógica que sigue después del bucle, o en un problema de sincronización de la PPU).
+                    </p>
+                    <p>
+                        <strong>Suposición sobre el valor inicial:</strong> Asumimos que DE se carga con un valor razonable (no 0xFFFF),
+                        pero esto necesita confirmarse con los logs [SNIPER-LOAD]. Si DE se carga con 0xFFFF, el bucle tardará un tiempo
+                        considerable en completarse.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar Pokémon Red y analizar los logs [SNIPER-LOAD] para ver qué valor se carga en DE</li>
+                    <li>[ ] Verificar que DE está disminuyendo correctamente usando los logs [SNIPER-DELAY]</li>
+                    <li>[ ] Confirmar que el bucle termina cuando DE llega a 0 (buscar [SNIPER-EXIT])</li>
+                    <li>[ ] Si DE no está disminuyendo, investigar y corregir el bug en dec_16bit()</li>
+                    <li>[ ] Si el bucle termina pero el juego sigue atascado, investigar qué ocurre después del bucle</li>
+                    <li>[ ] Calcular el tiempo real que tarda el bucle basándose en el valor inicial de DE y los ciclos por iteración</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

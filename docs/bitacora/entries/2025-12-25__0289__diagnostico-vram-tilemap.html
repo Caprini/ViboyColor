@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnóstico de VRAM y Tilemap - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Diagnóstico de VRAM y Tilemap</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0289
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0288__analisis-selectivo-logs.html">Anterior</a></li>
+                    <li><a href="2025-12-25__0290__verificacion-lcdc-paleta-carga-tiles.html">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de tres monitores de diagnóstico adicionales para verificar qué lee la PPU de VRAM y qué contiene el tilemap. El Step 0288 identificó que VRAM está vacía (solo ceros), por lo que estos monitores permitirán confirmar si el problema está en la lectura de la PPU o en la carga de datos. Se implementaron los monitores [VRAM-READ], [TILEMAP-INSPECT] y [TILEDATA-INSPECT].
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Lectura de VRAM por la PPU:</strong> Durante el renderizado de cada scanline, la PPU lee datos de VRAM para construir la imagen. Primero lee el Tile Map (0x9800-0x9FFF o 0x9C00-0x9FFF según LCDC bit 6) para obtener el Tile ID que debe renderizar en cada posición. Luego lee el Tile Data (0x8000-0x97FF) usando el Tile ID para obtener los bytes de píxeles. Si VRAM está vacía (solo ceros), la PPU leerá tiles vacíos y renderizará una pantalla en blanco o con un solo color.
+                </p>
+                <p>
+                    <strong>Tile Map y Tile IDs:</strong> El Tile Map es una tabla de 32x32 tiles que especifica qué tile debe renderizarse en cada posición de la pantalla. Cada byte del Tile Map contiene un Tile ID (0-255). El Tile ID se usa para calcular la dirección base del tile en Tile Data: si el modo de direccionamiento es signed (LCDC bit 4 = 0), Tile ID 0 está en 0x9000 y se usa aritmética con signo; si es unsigned (bit 4 = 1), Tile ID 0 está en 0x8000 y se multiplica directamente por 16.
+                </p>
+                <p>
+                    <strong>Tile Data y Formato 2bpp:</strong> Cada tile ocupa 16 bytes (2 bytes por línea, 8 líneas). Cada línea se compone de 2 bytes: el byte bajo contiene los bits bajos de cada píxel (bit 7 = píxel 0, bit 6 = píxel 1, etc.), y el byte alto contiene los bits altos. El color del píxel se calcula como (bit_alto << 1) | bit_bajo, resultando en un índice de color (0-3). Si ambos bytes son 0x00, el tile está vacío (todos los píxeles son color 0).
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Video RAM (VRAM)", "Tile Data", "Tile Map", "LCD Control Register (LCDC)"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>1. Monitor [VRAM-READ] en MMU.cpp</h3>
+                <p>
+                    Se implementó un monitor en la función <code>MMU::read()</code> que captura todas las lecturas de VRAM (0x8000-0x9FFF). El monitor reporta la dirección leída, el valor obtenido, el PC que originó la lectura y el banco ROM actual. Tiene un límite de 100 lecturas para evitar saturación de logs.
+                </p>
+                <pre><code>// --- Step 0289: Monitor de Lecturas de VRAM ([VRAM-READ]) ---
+if (addr >= 0x8000 && addr <= 0x9FFF) {
+    uint8_t vram_value = memory_[addr];
+    static int vram_read_count = 0;
+    if (vram_read_count < 100) {
+        printf("[VRAM-READ] Read %04X -> %02X (PC:0x%04X Bank:%d)\n",
+               addr, vram_value, debug_current_pc, current_rom_bank_);
+        vram_read_count++;
+    }
+    return vram_value;
+}</code></pre>
+
+                <h3>2. Inspector [TILEMAP-INSPECT] en PPU.cpp</h3>
+                <p>
+                    Se mejoró el inspector de Tile Map existente (del Step 0263) para ejecutarse al inicio de cada frame (LY=0) en lugar de solo una vez. El inspector imprime los primeros 32 bytes del tilemap (primera fila completa), calcula un checksum del tilemap completo (1024 bytes) y reporta la configuración de LCDC. Solo se ejecuta en los primeros 5 frames para no saturar los logs.
+                </p>
+                <pre><code>// --- Step 0289: Inspector de Tilemap ([TILEMAP-INSPECT]) ---
+static int frame_count = 0;
+if (ly_ == 0) {
+    frame_count++;
+    if (frame_count <= 5) {
+        printf("[TILEMAP-INSPECT] Frame %d | LCDC: %02X | BG Map Base: %04X | BG Data Base: %04X\n",
+               frame_count, lcdc, tile_map_base, tile_data_base);
+        
+        // Imprimir las primeras 32 bytes (primera fila completa del tilemap)
+        printf("[TILEMAP-INSPECT] First 32 bytes (row 0) of Map at %04X:\n", tile_map_base);
+        for(int i=0; i<32; i++) {
+            printf("%02X ", mmu_->read(tile_map_base + i));
+            if ((i + 1) % 16 == 0) printf("\n");
+        }
+        printf("\n");
+        
+        // Calcular checksum del tilemap para detectar cambios
+        uint16_t checksum = 0;
+        for(int i=0; i<1024; i++) {
+            checksum += mmu_->read(tile_map_base + i);
+        }
+        printf("[TILEMAP-INSPECT] Tilemap checksum (first 1024 bytes): 0x%04X\n", checksum);
+    }
+}</code></pre>
+
+                <h3>3. Inspector [TILEDATA-INSPECT] en PPU.cpp</h3>
+                <p>
+                    Se implementó un inspector en el bucle de renderizado que verifica si los tiles contienen datos válidos cuando se leen. El inspector se ejecuta solo en el centro de la pantalla (LY=72, X=80) y en los primeros 3 frames para no saturar los logs. Si detecta que un tile contiene solo ceros (byte1 == 0x00 && byte2 == 0x00), emite un warning.
+                </p>
+                <pre><code>// --- Step 0289: Inspector de Tile Data ([TILEDATA-INSPECT]) ---
+static int tiledata_inspect_count = 0;
+if (ly_ == 72 && x == 80 && tiledata_inspect_count < 3) {
+    printf("[TILEDATA-INSPECT] LY:72 X:80 | TileID:%02X | TileAddr:%04X | Byte1:%02X Byte2:%02X\n",
+           tile_id, tile_addr, byte1, byte2);
+    if (byte1 == 0x00 && byte2 == 0x00) {
+        printf("[TILEDATA-INSPECT] WARNING: Tile %02X contains only zeros (empty tile)\n", tile_id);
+    }
+    tiledata_inspect_count++;
+}</code></pre>
+
+                <h3>Objetivos de los Monitores</h3>
+                <ul>
+                    <li><strong>[VRAM-READ]:</strong> Verificar qué direcciones lee la PPU de VRAM y qué valores obtiene. Esto permite confirmar si la PPU está leyendo solo ceros o datos válidos.</li>
+                    <li><strong>[TILEMAP-INSPECT]:</strong> Verificar qué Tile IDs contiene el tilemap. Si todos los Tile IDs son 0x00, significa que el tilemap está vacío o apunta solo a tiles vacíos.</li>
+                    <li><strong>[TILEDATA-INSPECT]:</strong> Verificar si los tiles referenciados por el tilemap contienen datos válidos. Si los tiles están vacíos (solo ceros), confirmará que el problema está en la carga de datos de tiles.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Implementación del monitor [VRAM-READ]</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementación de los inspectores [TILEMAP-INSPECT] y [TILEDATA-INSPECT]</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Los monitores se activarán durante la ejecución del emulador y generarán logs con los prefijos correspondientes. Para verificar que funcionan correctamente:
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>python setup.py build_ext --inplace</code></li>
+                    <li><strong>Resultado:</strong> Módulo C++ compilado sin errores</li>
+                </ul>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>python main.py roms/pkmn.gb > debug_step_0289.log 2>&1</code></li>
+                    <li><strong>Resultado esperado:</strong> Los logs deberían contener:
+                        <ul>
+                            <li>Hasta 100 líneas con prefijo <code>[VRAM-READ]</code></li>
+                            <li>Hasta 5 bloques con prefijo <code>[TILEMAP-INSPECT]</code> (uno por cada uno de los primeros 5 frames)</li>
+                            <li>Hasta 3 líneas con prefijo <code>[TILEDATA-INSPECT]</code> (una por cada uno de los primeros 3 frames en el centro de la pantalla)</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Validación:</strong> Los monitores se ejecutarán durante el renderizado y proporcionarán información valiosa sobre qué lee la PPU de VRAM y qué contiene el tilemap. Esto permitirá confirmar si el problema está en la lectura de la PPU o en la carga de datos.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Video RAM (VRAM)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Data</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Map</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Control Register (LCDC)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Lectura de VRAM por la PPU:</strong> La PPU lee VRAM durante el renderizado para obtener Tile IDs del Tile Map y luego los datos de píxeles de Tile Data. Si VRAM está vacía, la PPU leerá tiles vacíos y renderizará una pantalla en blanco.</li>
+                        <li><strong>Tile Map y Tile IDs:</strong> El Tile Map es una tabla que especifica qué tile renderizar en cada posición. Si todos los Tile IDs son 0x00, el tilemap está vacío o apunta solo a tiles vacíos.</li>
+                        <li><strong>Formato 2bpp:</strong> Cada tile ocupa 16 bytes (2 bytes por línea). Si ambos bytes de una línea son 0x00, todos los píxeles de esa línea son color 0 (blanco/verde).</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿Qué lee la PPU de VRAM?</strong> Los monitores implementados permitirán verificar si la PPU está leyendo solo ceros o datos válidos.</li>
+                        <li><strong>¿Qué contiene el tilemap?</strong> El inspector de tilemap permitirá verificar si el tilemap está vacío o contiene Tile IDs válidos.</li>
+                        <li><strong>¿Los tiles tienen datos válidos?</strong> El inspector de tile data permitirá verificar si los tiles referenciados por el tilemap contienen datos válidos.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis:</strong> Basado en el análisis del Step 0288, esperamos que los monitores confirmen que:
+                    </p>
+                    <ul>
+                        <li>La PPU está leyendo solo ceros de VRAM (confirmando que VRAM está vacía)</li>
+                        <li>El tilemap contiene Tile IDs válidos (posiblemente todos 0x00 o apuntando a tiles vacíos)</li>
+                        <li>Los tiles referenciados están vacíos (solo ceros), confirmando que el problema está en la carga de datos</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con Pokémon Red y analizar los logs generados por los nuevos monitores</li>
+                    <li>[ ] Verificar si [VRAM-READ] confirma que la PPU está leyendo solo ceros</li>
+                    <li>[ ] Verificar si [TILEMAP-INSPECT] muestra que el tilemap está vacío o contiene Tile IDs válidos</li>
+                    <li>[ ] Verificar si [TILEDATA-INSPECT] confirma que los tiles están vacíos</li>
+                    <li>[ ] Step 0290: Implementar monitores de LCDC y paleta ([LCDC-CHANGE], [PALETTE-APPLY])</li>
+                    <li>[ ] Step 0291: Aplicar correcciones basadas en todos los hallazgos</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

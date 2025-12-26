@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Bucle de Reinicio y MBC1 - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Bucle de Reinicio y MBC1</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0279
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0278__rastreo-flujo-post-retardo-depuracion-patrones-ppu.html">Anterior (0278)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa instrumentación avanzada para detectar si Pokémon Red está atrapado en un <strong>Bucle de Reinicio (Reset Loop)</strong>.
+                    El análisis del Step 0278 reveló que se detectaron más de 300,000 salidas del bucle de retardo en solo 12 segundos, lo que sugiere fuertemente
+                    que el juego está reiniciándose continuamente. Es probable que, tras salir del retardo, el juego encuentre una condición de error
+                    (como una pila corrupta o un banco de ROM mal mapeado) y salte de nuevo a 0x0000 o ejecute un RST 00.
+                </p>
+                <p>
+                    Se añadieron tres monitores críticos: (1) detector de paso por los vectores de reinicio (0x0000 y 0x0100) para confirmar la teoría del Reset Loop,
+                    (2) seguimiento del handler de V-Blank (0x0040) para verificar si las interrupciones se procesan correctamente, y (3) monitor de cambio de modo
+                    MBC1 para detectar si el mapeo de memoria se corrompe y desplaza el Banco 0 fuera de 0x0000-0x3FFF, rompiendo los vectores de interrupción.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Los bucles de reinicio son un problema común en emuladores cuando hay errores en la emulación de hardware crítico. Estos bucles ocurren cuando
+                    el código del juego intenta ejecutar una instrucción o acceder a memoria que no está disponible o está corrupta, causando que el juego salte
+                    al vector de reinicio (0x0000 o 0x0100) y reinicie la ejecución desde el principio.
+                </p>
+                
+                <h3>1. Vectores de Reinicio en Game Boy</h3>
+                <p>
+                    El Game Boy tiene dos vectores de reinicio principales:
+                </p>
+                <ul>
+                    <li><strong>0x0000:</strong> Vector de Boot ROM. Si el sistema tiene una Boot ROM activa, este vector apunta al inicio de la Boot ROM.
+                        Si no hay Boot ROM, este vector apunta directamente al código del cartucho.</li>
+                    <li><strong>0x0100:</strong> Vector de entrada del cartucho. Este es el punto de entrada estándar para el código del juego después de que
+                        la Boot ROM termina (o si no hay Boot ROM).</li>
+                </ul>
+                <p>
+                    Cuando el PC alcanza 0x0000 o 0x0100, el juego está reiniciando. Si esto ocurre repetidamente, el juego está atrapado en un bucle de reinicio.
+                </p>
+                
+                <h3>2. MBC1 y Mapeo de Memoria</h3>
+                <p>
+                    El MBC1 (Memory Bank Controller 1) es el controlador de memoria más común en cartuchos de Game Boy. Tiene dos modos de operación:
+                </p>
+                <ul>
+                    <li><strong>Modo 0 (ROM Banking):</strong> El Banco 0 siempre está mapeado en 0x0000-0x3FFF. Los bancos superiores se mapean en 0x4000-0x7FFF.
+                        Este es el modo estándar y el más común.</li>
+                    <li><strong>Modo 1 (RAM Banking):</strong> El Banco 0 puede ser reemplazado por un banco de RAM en 0x0000-0x3FFF. Este modo se usa raramente
+                        y solo en cartuchos con RAM grande.</li>
+                </ul>
+                <p>
+                    <strong>Problema crítico:</strong> Si el MBC1 se cambia accidentalmente al Modo 1, el Banco 0 de ROM podría desaparecer de 0x0000-0x3FFF.
+                    Esto rompería los vectores de interrupción (0x0000, 0x0040, 0x0048, 0x0050, 0x0058, 0x0060) porque estos vectores están en el Banco 0.
+                    Si el juego intenta saltar a uno de estos vectores y el Banco 0 no está mapeado, leerá datos incorrectos o basura, causando un crash o reinicio.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "MBC1": El modo 0/1 controla si 0x0000-0x3FFF es ROM o RAM. En modo 1, el Banco 0 de ROM puede no estar
+                    disponible en 0x0000-0x3FFF, rompiendo los vectores de interrupción.
+                </p>
+                
+                <h3>3. Vectores de Interrupción</h3>
+                <p>
+                    El Game Boy tiene 5 vectores de interrupción, todos ubicados en el Banco 0 de ROM (0x0000-0x3FFF):
+                </p>
+                <ul>
+                    <li><strong>0x0040:</strong> V-Blank Interrupt (Vertical Blanking)</li>
+                    <li><strong>0x0048:</strong> LCD STAT Interrupt</li>
+                    <li><strong>0x0050:</strong> Timer Interrupt</li>
+                    <li><strong>0x0058:</strong> Serial Interrupt</li>
+                    <li><strong>0x0060:</strong> Joypad Interrupt</li>
+                </ul>
+                <p>
+                    Si el Banco 0 no está mapeado correctamente en 0x0000-0x3FFF, estos vectores apuntarán a datos incorrectos, causando que las interrupciones
+                    ejecuten código corrupto o basura, lo que puede llevar a un reinicio del sistema.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron tres monitores de instrumentación para detectar y diagnosticar el bucle de reinicio:
+                </p>
+                
+                <h3>1. Monitor de Reinicio en CPU.cpp</h3>
+                <p>
+                    Se añadió un detector que monitorea cuando el PC pasa por los vectores de reinicio (0x0000 o 0x0100). Este monitor captura:
+                </p>
+                <ul>
+                    <li>El PC original (antes del fetch de la instrucción)</li>
+                    <li>Un contador de reinicios (para ver cuántas veces ocurre)</li>
+                    <li>El Stack Pointer (SP) para detectar corrupción de pila</li>
+                    <li>El banco ROM actual (para verificar si el mapeo es correcto)</li>
+                    <li>El estado de IME (Interrupt Master Enable)</li>
+                    <li>Los registros IE (Interrupt Enable) e IF (Interrupt Flag)</li>
+                </ul>
+                <pre><code>// --- Step 0279: Monitor de Reinicio (Reset Loop Detection) ---
+if (original_pc == 0x0000 || original_pc == 0x0100) {
+    static uint32_t reset_count = 0;
+    printf("[RESET-WATCH] Pasando por PC:0x%04X (Contador: %u) | SP:0x%04X Bank:%d | IME:%d IE:%02X IF:%02X\n",
+           original_pc, ++reset_count, regs_->sp, mmu_->get_current_rom_bank(),
+           ime_ ? 1 : 0, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
+}</code></pre>
+                
+                <h3>2. Seguimiento del Handler de V-Blank</h3>
+                <p>
+                    Se añadió un monitor que detecta cuando el código entra al handler de V-Blank (0x0040). Este monitor captura:
+                </p>
+                <ul>
+                    <li>El Stack Pointer (para verificar si la pila es válida cuando se entra al handler)</li>
+                    <li>El registro HL (para ver qué datos está manipulando el handler)</li>
+                    <li>El registro A (para ver el estado de los datos)</li>
+                    <li>El banco ROM actual (para verificar que el vector apunta al código correcto)</li>
+                </ul>
+                <pre><code>// --- Step 0279: Seguimiento del Handler de V-Blank ---
+if (original_pc == 0x0040) {
+    printf("[VBLANK-ENTRY] Vector 0x0040 alcanzado. SP:0x%04X | HL:0x%04X | A:0x%02X | Bank:%d\n",
+           regs_->sp, regs_->get_hl(), regs_->a, mmu_->get_current_rom_bank());
+}</code></pre>
+                
+                <h3>3. Monitor de Cambio de Modo MBC1 en MMU.cpp</h3>
+                <p>
+                    Se añadió un monitor que detecta cuando el MBC1 cambia de modo (0x6000-0x7FFF). Este monitor captura:
+                </p>
+                <ul>
+                    <li>El modo anterior y el nuevo modo (0 = ROM Banking, 1 = RAM Banking)</li>
+                    <li>El PC donde ocurre el cambio (para identificar qué código lo causa)</li>
+                    <li>El banco 0 y banco N actuales (para verificar el mapeo)</li>
+                </ul>
+                <pre><code>// --- Step 0279: Monitor de Cambio de Modo MBC1 ---
+uint8_t new_mode = value & 0x01;
+if (mbc1_mode_ != new_mode) {
+    printf("[MBC1-MODE] Cambio de modo detectado: %d -> %d en PC:0x%04X | Bank0:%d BankN:%d\n",
+           mbc1_mode_, new_mode, debug_current_pc, bank0_rom_, bankN_rom_);
+}
+mbc1_mode_ = new_mode;
+update_bank_mapping();</code></pre>
+                
+                <h3>Decisiones de Diseño</h3>
+                <p>
+                    <strong>Uso de <code>original_pc</code>:</strong> Se usa el PC original (capturado al inicio de <code>step()</code> antes del fetch)
+                    en lugar del PC actual, porque el PC puede cambiar durante la ejecución de la instrucción. Esto asegura que detectamos el paso por los
+                    vectores incluso si la instrucción modifica el PC.
+                </p>
+                <p>
+                    <strong>Contadores estáticos:</strong> Se usan variables estáticas para los contadores (como <code>reset_count</code>) para mantener
+                    el estado entre llamadas a <code>step()</code>. Esto permite rastrear cuántas veces ocurre un evento sin necesidad de almacenamiento externo.
+                </p>
+                <p>
+                    <strong>Logging detallado:</strong> Se captura información completa del estado del sistema (SP, bancos, interrupciones) para facilitar
+                    el diagnóstico. Esto permite identificar patrones en los reinicios y correlacionarlos con cambios en el estado del sistema.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadidos monitores de reinicio (0x0000/0x0100) y seguimiento de V-Blank (0x0040)</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Añadido monitor de cambio de modo MBC1 en el rango 0x6000-0x7FFF</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Esta implementación es puramente de instrumentación y diagnóstico. No se añadieron tests unitarios porque los monitores son herramientas
+                    de depuración que se activan durante la ejecución del emulador con ROMs reales.
+                </p>
+                <p>
+                    <strong>Validación:</strong> Los monitores se validarán ejecutando Pokémon Red y observando los logs en la consola. Si el juego está en un
+                    bucle de reinicio, deberíamos ver múltiples mensajes <code>[RESET-WATCH]</code> con el contador incrementándose. Si el MBC1 cambia de modo
+                    incorrectamente, deberíamos ver mensajes <code>[MBC1-MODE]</code> indicando el cambio.
+                </p>
+                <p>
+                    <strong>Comando de ejecución:</strong> Los monitores se activan automáticamente durante la ejecución normal del emulador. Para ver los logs,
+                    ejecutar el emulador con Pokémon Red y observar la salida de la consola.
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Los cambios requieren recompilación de la extensión Cython. Ejecutar:
+                </p>
+                <pre><code>python setup.py build_ext --inplace</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">https://gbdev.io/pandocs/</a> - Sección "MBC1" (modos de operación y mapeo de memoria)</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">https://gbdev.io/pandocs/</a> - Sección "Interrupts" (vectores de interrupción en 0x0040-0x0060)</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">https://gbdev.io/pandocs/</a> - Sección "Reset Vectors" (vectores de reinicio en 0x0000 y 0x0100)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Bucles de Reinicio:</strong> Ocurren cuando el juego salta repetidamente a los vectores de reinicio (0x0000 o 0x0100),
+                            generalmente debido a errores en la emulación de hardware crítico (pila corrupta, mapeo de memoria incorrecto, vectores de
+                            interrupción rotos).</li>
+                        <li><strong>MBC1 Modo 1:</strong> Si el MBC1 se cambia al Modo 1 (RAM Banking), el Banco 0 de ROM puede desaparecer de 0x0000-0x3FFF,
+                            rompiendo los vectores de interrupción. Esto puede causar que las interrupciones ejecuten código corrupto o basura, llevando a un
+                            reinicio del sistema.</li>
+                        <li><strong>Vectores de Interrupción:</strong> Todos los vectores de interrupción (0x0040-0x0060) están en el Banco 0 de ROM. Si el
+                            Banco 0 no está mapeado correctamente, estos vectores apuntarán a datos incorrectos, causando crashes o reinicios.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Frecuencia de reinicios:</strong> ¿Con qué frecuencia ocurren los reinicios? ¿Es constante o intermitente? Los logs de
+                            <code>[RESET-WATCH]</code> nos dirán esto.</li>
+                        <li><strong>Causa del reinicio:</strong> ¿Es el MBC1 cambiando de modo, una pila corrupta, o algo más? Los logs de <code>[MBC1-MODE]</code>
+                            y el estado de SP en <code>[RESET-WATCH]</code> nos ayudarán a identificar la causa.</li>
+                        <li><strong>Estado del handler de V-Blank:</strong> ¿Se ejecuta el handler de V-Blank correctamente, o nunca se alcanza? Los logs de
+                            <code>[VBLANK-ENTRY]</code> nos dirán si el vector 0x0040 es accesible.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El juego está en un bucle de reinicio causado por uno de estos problemas:
+                    </p>
+                    <ol>
+                        <li>El MBC1 cambia accidentalmente al Modo 1, desplazando el Banco 0 fuera de 0x0000-0x3FFF y rompiendo los vectores de interrupción.</li>
+                        <li>La pila se corrompe, causando que un RET o POP ejecute código corrupto que salta a 0x0000.</li>
+                        <li>Un opcode no implementado o mal emulado causa un comportamiento inesperado que lleva a un salto a 0x0000.</li>
+                    </ol>
+                    <p>
+                        Los monitores implementados nos permitirán confirmar o refutar estas hipótesis observando los logs durante la ejecución.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar Pokémon Red con los monitores activos y analizar los logs de <code>[RESET-WATCH]</code> para confirmar si hay un bucle de reinicio</li>
+                    <li>[ ] Verificar si hay mensajes de <code>[MBC1-MODE]</code> que indiquen cambios de modo incorrectos</li>
+                    <li>[ ] Analizar los logs de <code>[VBLANK-ENTRY]</code> para verificar si el handler de V-Blank se ejecuta correctamente</li>
+                    <li>[ ] Si se confirma un bucle de reinicio, identificar la causa raíz (MBC1, pila, opcode) y corregirla</li>
+                    <li>[ ] Si el MBC1 está cambiando de modo incorrectamente, investigar qué código del juego lo causa y por qué</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

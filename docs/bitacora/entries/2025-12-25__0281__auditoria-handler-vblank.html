@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auditoría del Handler de V-Blank - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Auditoría del Handler de V-Blank</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0281
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">Draft</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0280__depuracion-activacion-interrupciones-polling-ie.html">Anterior (0280)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este Step implementa la Operación "Deep Handler Audit" para investigar el flujo de ejecución desde el vector de interrupción de V-Blank (0x0040).
+                    El análisis del Step 0280 confirmó que las interrupciones están habilitadas correctamente (IE=0x0D, IME=1) y que la CPU salta al vector 0x0040 constantemente.
+                    Sin embargo, el juego sigue atrapado en el bucle de polling porque el handler de V-Blank no parece estar actualizando el flag de progreso en 0xD732.
+                </p>
+                <p>
+                    Se implementó un rastreador que identifica la dirección de destino del salto (JP) en el vector 0x0040 y un Sniper de ejecución que captura las instrucciones
+                    dentro de la rutina de V-Blank hasta encontrar un RETI (0xD9). Esto permitirá identificar qué hace el código del juego una vez que entra en la interrupción
+                    y por qué no se comunica con el bucle principal.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El Game Boy utiliza vectores de interrupción fijos en la memoria baja (Banco 0) para manejar eventos de hardware. Cuando ocurre una interrupción habilitada,
+                    el hardware realiza automáticamente un PUSH PC, desactiva el IME y salta a una dirección específica:
+                </p>
+                <ul>
+                    <li><strong>0x0040:</strong> V-Blank (Vertical Blanking)</li>
+                    <li><strong>0x0048:</strong> LCD STAT</li>
+                    <li><strong>0x0050:</strong> Timer</li>
+                    <li><strong>0x0058:</strong> Serial</li>
+                    <li><strong>0x0060:</strong> Joypad</li>
+                </ul>
+                <p>
+                    Como estos vectores solo disponen de 8 bytes de espacio antes del siguiente vector, la práctica estándar de los desarrolladores es colocar una instrucción
+                    <code>JP nn</code> (3 bytes) que salta a una rutina más larga ubicada en otra parte de la ROM. La rutina de interrupción (ISR) debe terminar con
+                    <code>RETI</code> (Return and Enable Interrupts), que recupera el PC de la pila y reactiva el maestro de interrupciones (IME).
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Interrupts": "When an interrupt is serviced, the PC is pushed onto the stack and the CPU jumps to the interrupt vector.
+                    The IME flag is reset... The ISR usually finishes with a RETI instruction."
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se añadieron dos mecanismos de rastreo en <code>CPU.cpp</code>:
+                </p>
+                
+                <h3>1. Rastreo del Destino del Salto en 0x0040</h3>
+                <p>
+                    Cuando la CPU alcanza el vector de V-Blank, leemos los dos bytes siguientes en memoria (Little-Endian) para identificar a qué dirección salta el <code>JP nn</code>.
+                </p>
+                <pre><code>// Ubicación: CPU::step()
+if (original_pc == 0x0040) {
+    uint16_t jump_target = mmu_->read(0x0041) | (static_cast<uint16_t>(mmu_->read(0x0042)) << 8);
+    printf("[VBLANK-TRACE] Vector 0x0040: JP 0x%04X detectado. Iniciando rastreo del handler...\n", jump_target);
+}</code></pre>
+                
+                <h3>2. Sniper de Ejecución del Handler</h3>
+                <p>
+                    Se implementó un Sniper que captura las instrucciones ejecutadas dentro del handler. El rastreo se activa al entrar en 0x0040 y se detiene cuando se encuentra
+                    la instrucción <code>RETI</code> (0xD9) o se alcanza un límite de 100 instrucciones.
+                </p>
+                <pre><code>// Ubicación: CPU::step()
+static bool in_vblank_handler = false;
+static int handler_step_count = 0;
+
+if (original_pc == 0x0040) {
+    in_vblank_handler = true;
+    handler_step_count = 0;
+}
+
+if (in_vblank_handler && handler_step_count < 100) {
+    uint8_t op = mmu_->read(original_pc);
+    printf("[HANDLER-EXEC] PC:0x%04X OP:0x%02X | A:0x%02X HL:0x%04X | IME:%d\n",
+           original_pc, op, regs_->a, regs_->get_hl(), ime_ ? 1 : 0);
+    handler_step_count++;
+    
+    if (op == 0xD9) {
+        printf("[HANDLER-EXIT] RETI detectado en PC:0x%04X. Fin del rastreo del handler.\n", original_pc);
+        in_vblank_handler = false;
+    }
+}</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Implementación del rastreador del destino del salto y Sniper de ejecución del handler de V-Blank</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación se realizará ejecutando Pokémon Red y analizando el flujo de instrucciones dentro del handler.
+                </p>
+                <p>
+                    <strong>Comando ejecutado:</strong>
+                </p>
+                <pre><code>python main.py roms/pkmn.gb > debug_step_0281.log 2>&1</code></pre>
+                <p>
+                    <strong>Validación:</strong>
+                    Si el log muestra el mensaje <code>[VBLANK-TRACE]</code> seguido de múltiples <code>[HANDLER-EXEC]</code>, habremos capturado el flujo del handler.
+                    Buscaremos instrucciones de escritura en memoria (como <code>LD (HL), A</code> o <code>LD (nnnn), A</code>) que afecten a la dirección 0xD732.
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong>
+                </p>
+                <pre><code>python setup.py build_ext --inplace</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">https://gbdev.io/pandocs/</a> - Sección "Interrupts"</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">https://gbdev.io/pandocs/</a> - Sección "CPU Instruction Set"</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Vectores de Interrupción:</strong> Son direcciones fijas donde la CPU salta cuando ocurre un evento. Debido a su tamaño limitado, suelen contener saltos a rutinas más complejas.</li>
+                        <li><strong>Handler de V-Blank:</strong> Es el responsable de realizar las actualizaciones gráficas y de lógica de juego que deben sincronizarse con el final del dibujado de la pantalla.</li>
+                        <li><strong>RETI:</strong> Es la instrucción crítica que cierra el ciclo de la interrupción, recuperando el flujo normal y reactivando la capacidad de recibir nuevas interrupciones.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Recompilar el núcleo C++ y ejecutar Pokémon Red</li>
+                    <li>[ ] Analizar el log <code>[HANDLER-EXEC]</code> para identificar a dónde salta el V-Blank</li>
+                    <li>[ ] Verificar si el handler intenta modificar 0xD732</li>
+                    <li>[ ] Si el handler salta a una zona vacía o corrupta, investigar por qué el banco de ROM 0 no es accesible</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

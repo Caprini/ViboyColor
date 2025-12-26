@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auditoría Extendida de Interrupciones y DMA - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Auditoría Extendida de Interrupciones y DMA</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0286
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0285__fix-instrumentacion-desbloqueo-visual.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Extensión de la instrumentación de diagnóstico del emulador para capturar el flujo completo de ejecución de handlers de interrupciones y monitorear operaciones críticas de DMA y VRAM. Aumento del límite del Sniper del Handler a 500 instrucciones, detección de RET (0xC9) además de RETI (0xD9), implementación de monitor específico para disparo de OAM DMA ([DMA-TRIGGER]) y monitor temporal sin filtros para VRAM ([VRAM-TOTAL]).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Handlers de Interrupciones:</strong> Cuando una interrupción se dispara en la Game Boy, la CPU salta automáticamente a un vector de interrupción específico (ej: 0x0040 para V-Blank). El código en ese vector (el "handler") debe ejecutarse completamente y terminar con una instrucción RETI (Return and Enable Interrupts, 0xD9) que restaura el estado anterior y rehabilita las interrupciones. Algunos handlers mal implementados pueden usar RET (0xC9) en lugar de RETI, lo que no habilita las interrupciones y puede causar problemas.
+                </p>
+                <p>
+                    <strong>DMA (Direct Memory Access):</strong> El registro DMA (0xFF46) permite transferir 160 bytes desde cualquier dirección de memoria a OAM (Object Attribute Memory, 0xFE00-0xFE9F) en un solo ciclo. Cuando se escribe un valor en 0xFF46, el hardware copia automáticamente 160 bytes desde la dirección (valor << 8) a OAM. Esta operación es crítica para cargar sprites en el juego.
+                </p>
+                <p>
+                    <strong>VRAM (Video RAM):</strong> La región 0x8000-0x9FFF contiene los datos de tiles y mapas de tiles que la PPU lee para renderizar. Monitorear todas las escrituras en VRAM (sin filtros) permite detectar cualquier actividad sospechosa que pueda estar causando problemas de renderizado.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Interrupts", "DMA Transfer", "VRAM (Video RAM)"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se realizaron cuatro mejoras principales en la instrumentación de diagnóstico:
+                </p>
+                
+                <h3>1. Aumento del Límite del Sniper del Handler</h3>
+                <p>
+                    El límite del Sniper del Handler ([HANDLER-EXEC]) se aumentó de 100 a 500 instrucciones para capturar el flujo completo de ejecución del handler hasta el retorno. Esto es necesario porque algunos handlers pueden ser más largos de lo esperado y necesitamos ver todo el flujo de ejecución.
+                </p>
+                <p>
+                    <strong>Código modificado en CPU.cpp:</strong>
+                </p>
+                <pre><code>// Rastrear instrucciones dentro del handler
+// --- Step 0286: Aumentado límite a 500 instrucciones para capturar flujo completo ---
+if (in_vblank_handler && handler_step_count < 500) {
+    // ... código de rastreo ...
+}</code></pre>
+
+                <h3>2. Detección de RET (0xC9) además de RETI (0xD9)</h3>
+                <p>
+                    Se añadió detección de la instrucción RET (0xC9) además de RETI (0xD9) para identificar handlers que terminan sin habilitar IME. Esto es importante porque algunos handlers mal implementados pueden usar RET en lugar de RETI, lo que causa que las interrupciones no se rehabilen correctamente.
+                </p>
+                <p>
+                    <strong>Código modificado en CPU.cpp:</strong>
+                </p>
+                <pre><code>// --- Step 0286: Detección de RET (0xC9) además de RETI (0xD9) ---
+// Algunos handlers pueden terminar con RET sin habilitar IME, lo cual es un bug
+// pero debemos detectarlo para entender el flujo completo del handler
+if (op == 0xD9) {
+    printf("[HANDLER-EXIT] RETI detectado en PC:0x%04X. Fin del rastreo del handler.\n", original_pc);
+    in_vblank_handler = false;
+} else if (op == 0xC9) {
+    printf("[HANDLER-EXIT] RET detectado en PC:0x%04X (SIN habilitar IME). Fin del rastreo del handler.\n", original_pc);
+    in_vblank_handler = false;
+}</code></pre>
+
+                <h3>3. Monitor de Disparo de OAM DMA ([DMA-TRIGGER])</h3>
+                <p>
+                    Se implementó un monitor específico que detecta cuando se activa el DMA para transferir datos a OAM. El monitor reporta la dirección fuente, el rango de direcciones que se copiarán y el PC donde se activó el DMA.
+                </p>
+                <p>
+                    <strong>Código añadido en MMU.cpp:</strong>
+                </p>
+                <pre><code>// --- Step 0286: Monitor de Disparo de OAM DMA ([DMA-TRIGGER]) ---
+// Detecta cuando se activa el DMA para transferir datos a OAM (0xFE00-0xFE9F)
+// El DMA copia 160 bytes desde la dirección (value << 8) a OAM
+// Fuente: Pan Docs - "DMA Transfer": Escritura en 0xFF46 inicia transferencia
+printf("[DMA-TRIGGER] DMA activado: Source=0x%02X00 (0x%04X-0x%04X) -> OAM (0xFE00-0xFE9F) | PC:0x%04X\n",
+       value, static_cast&lt;uint16_t&gt;(value) &lt;&lt; 8, (static_cast&lt;uint16_t&gt;(value) &lt;&lt; 8) + 159, debug_current_pc);</code></pre>
+
+                <h3>4. Monitor Temporal Sin Filtros para VRAM ([VRAM-TOTAL])</h3>
+                <p>
+                    Se implementó un monitor temporal que captura TODAS las escrituras en VRAM sin filtros para detectar cualquier actividad sospechosa. Este monitor complementa el monitor [VRAM-VIBE] existente que filtra valores comunes de inicialización.
+                </p>
+                <p>
+                    <strong>Código añadido en MMU.cpp:</strong>
+                </p>
+                <pre><code>// --- Step 0286: Monitor Temporal Sin Filtros para VRAM ([VRAM-TOTAL]) ---
+// Captura TODAS las escrituras en VRAM sin filtros para detectar cualquier actividad sospechosa.
+// Este monitor es temporal y se usa para diagnóstico cuando hay problemas con la carga de gráficos.
+// Fuente: Pan Docs - "VRAM (Video RAM)": 0x8000-0x9FFF contiene Tile Data y Tile Maps
+static int vram_total_count = 0;
+if (vram_total_count < 500) {  // Límite alto para capturar actividad completa
+    printf("[VRAM-TOTAL] Write %04X=%02X PC:%04X (Bank:%d)\n", 
+           addr, value, debug_current_pc, current_rom_bank_);
+    vram_total_count++;
+}</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Límite de 500 instrucciones:</strong> Se eligió 500 como un balance entre capturar handlers largos y evitar saturación de logs. Si un handler necesita más de 500 instrucciones, probablemente hay un problema más grave.</li>
+                    <li><strong>Detección de RET:</strong> Se decidió detectar RET además de RETI para identificar bugs potenciales en el código del juego, aunque técnicamente RET no debería usarse en handlers de interrupciones.</li>
+                    <li><strong>Monitor temporal de VRAM:</strong> Se implementó como monitor temporal (con límite de 500 reportes) para evitar saturación de logs. Una vez que se identifique el problema, este monitor puede desactivarse o reducirse.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Aumento del límite del Sniper del Handler y detección de RET</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Implementación de monitores [DMA-TRIGGER] y [VRAM-TOTAL]</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La instrumentación se validó mediante compilación y ejecución del emulador. Los monitores generan logs que pueden analizarse para diagnosticar problemas de interrupciones, DMA y VRAM.
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Los cambios se compilaron correctamente sin errores de sintaxis o warnings. La instrumentación se ejecuta en tiempo de ejecución y genera logs cuando se activan las condiciones monitoreadas.
+                </p>
+                <p>
+                    <strong>Comando de compilación:</strong>
+                </p>
+                <pre><code>python setup.py build_ext --inplace</code></pre>
+                <p>
+                    <strong>Resultado:</strong> Compilación exitosa sin errores.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Interrupts</a> - Vectores de interrupción y comportamiento de RETI</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">DMA Transfer</a> - Operación del registro DMA (0xFF46)</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">VRAM (Video RAM)</a> - Región de memoria 0x8000-0x9FFF</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Handlers de Interrupciones:</strong> Los handlers deben terminar con RETI para restaurar el estado y rehabilitar interrupciones. RET no es suficiente porque no habilita IME.</li>
+                        <li><strong>DMA:</strong> El registro DMA permite transferir 160 bytes a OAM en un solo ciclo. Es crítico para cargar sprites en el juego.</li>
+                        <li><strong>Instrumentación:</strong> Los monitores de diagnóstico deben ejecutarse antes de cualquier early return para capturar todas las ejecuciones, incluso cuando hay interrupciones.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento real de handlers largos:</strong> ¿Es común que los handlers tengan más de 100 instrucciones? El límite de 500 debería capturar la mayoría de los casos.</li>
+                        <li><strong>Frecuencia de DMA:</strong> ¿Con qué frecuencia se activa el DMA en juegos reales? El monitor [DMA-TRIGGER] nos ayudará a entender esto.</li>
+                        <li><strong>Patrones de escritura en VRAM:</strong> El monitor [VRAM-TOTAL] nos ayudará a identificar patrones sospechosos de escritura que puedan estar causando problemas de renderizado.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que un límite de 500 instrucciones es suficiente para capturar la mayoría de los handlers de interrupciones. Si encontramos handlers más largos, podemos aumentar el límite o investigar por qué son tan largos.
+                    </p>
+                    <p>
+                        Asumimos que detectar RET en handlers es útil para identificar bugs, aunque técnicamente RET no debería usarse en handlers de interrupciones. Si encontramos muchos casos de RET, puede indicar un problema más profundo en la emulación de interrupciones.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Analizar logs generados por los nuevos monitores para identificar patrones de comportamiento</li>
+                    <li>[ ] Verificar que los handlers de interrupciones terminen correctamente con RETI</li>
+                    <li>[ ] Confirmar que el DMA se activa en los momentos esperados durante la ejecución del juego</li>
+                    <li>[ ] Revisar los patrones de escritura en VRAM para identificar posibles problemas de carga de gráficos</li>
+                    <li>[ ] Ajustar límites de monitores si es necesario basándose en los datos recopilados</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

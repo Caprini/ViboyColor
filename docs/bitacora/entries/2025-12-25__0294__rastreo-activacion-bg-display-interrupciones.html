@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rastreo de Activación de BG Display e Interrupciones - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Rastreo de Activación de BG Display e Interrupciones</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0294
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0293__investigacion-flujo-ejecucion-post-limpieza.html">Anterior (0293)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de monitores adicionales para rastrear cuándo y cómo se habilita el BG Display (LCDC bit 0)
+                    y las interrupciones (IE e IME). El análisis del Step 0293 identificó que el código de carga de tiles podría
+                    estar en una ISR que no se ejecuta debido a interrupciones deshabilitadas (IE=0, IME=0) y que BG Display está
+                    deshabilitado (LCDC bit 0 = 0). Necesitamos entender el flujo completo de inicialización para identificar
+                    cuándo deberían habilitarse estas funciones.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>BG Display y LCDC</h3>
+                <p>
+                    El registro LCDC (0xFF40) controla múltiples aspectos del LCD:
+                </p>
+                <ul>
+                    <li><strong>Bit 7: LCD Enable</strong> (1=ON, 0=OFF) - Controla si el LCD está encendido</li>
+                    <li><strong>Bit 0: BG Display Enable</strong> (1=ON, 0=OFF) - Controla si el Background se renderiza</li>
+                </ul>
+                <p>
+                    Estos bits son independientes: el LCD puede estar ON pero BG Display OFF. Muchos juegos habilitan BG Display
+                    después de cargar tiles para evitar mostrar una pantalla en blanco mientras se cargan los gráficos.
+                </p>
+
+                <h3>Interrupciones y Carga de Tiles</h3>
+                <p>
+                    Las ISRs (Interrupt Service Routines) se ejecutan cuando:
+                </p>
+                <ol>
+                    <li><strong>IME = 1</strong> (Interrupt Master Enable) - Habilitación global de interrupciones</li>
+                    <li><strong>IE[bit] = 1</strong> - La interrupción específica está habilitada en el registro IE (0xFFFF)</li>
+                    <li><strong>IF[bit] = 1</strong> - La interrupción está pendiente (registro IF, 0xFF0F)</li>
+                </ol>
+                <p>
+                    Algunos juegos cargan tiles durante V-Blank ISR para aprovechar que VRAM es accesible. Si las interrupciones
+                    están deshabilitadas (IE=0, IME=0), las ISRs no se ejecutan y el código de carga dentro de ellas nunca se ejecuta.
+                </p>
+
+                <h3>Delay de EI</h3>
+                <p>
+                    La instrucción EI (Enable Interrupts, opcode 0xFB) tiene un delay de 1 instrucción:
+                </p>
+                <ul>
+                    <li>EI programa IME para activarse DESPUÉS de ejecutar la siguiente instrucción</li>
+                    <li>Esto permite que una instrucción crítica (ej: DI) se ejecute sin interrupciones</li>
+                    <li>IME se activa realmente después de que la siguiente instrucción se completa</li>
+                </ul>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "LCD Control Register (LCDC)", "Interrupts", "EI Instruction"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron seis monitores adicionales para rastrear la activación de BG Display e interrupciones:
+                </p>
+                
+                <h3>Monitor [LCDC-TRACE] - Rastreo Detallado de LCDC</h3>
+                <p>
+                    Reemplaza el monitor [LCDC-CHANGE] anterior con información más detallada. Rastrea todos los cambios
+                    en LCDC con desglose de bits para ver cuándo se habilita BG Display (bit 0).
+                </p>
+                <p>
+                    <strong>Ubicación</strong>: <code>src/core/cpp/MMU.cpp</code> - Función <code>MMU::write()</code> cuando <code>addr == 0xFF40</code>
+                </p>
+                <p>
+                    <strong>Captura</strong>:
+                </p>
+                <ul>
+                    <li>PC y banco ROM cuando se modifica LCDC</li>
+                    <li>Valor anterior y nuevo de LCDC</li>
+                    <li>Estado de bits críticos (LCD ON/OFF, BG Display ON/OFF, Window Display ON/OFF)</li>
+                    <li>Alerta especial cuando BG Display se habilita</li>
+                </ul>
+
+                <h3>Monitor [EI-TRACE] - Rastreo de Instrucciones EI</h3>
+                <p>
+                    Mejora el monitor [CPU-EI] existente con información más detallada. Rastrea cuándo se ejecuta la instrucción
+                    EI y el estado de IE e IME cuando ocurre.
+                </p>
+                <p>
+                    <strong>Ubicación</strong>: <code>src/core/cpp/CPU.cpp</code> - Función <code>CPU::step()</code>, case <code>0xFB</code>
+                </p>
+                <p>
+                    <strong>Captura</strong>:
+                </p>
+                <ul>
+                    <li>PC y banco ROM cuando se ejecuta EI</li>
+                    <li>Valor actual de IE y estado de IME</li>
+                    <li>Desglose de qué interrupciones están habilitadas</li>
+                    <li>Advertencia si EI se ejecuta pero IE=0x00</li>
+                </ul>
+
+                <h3>Monitor [IME-ACTIVATE] - Activación Real de IME</h3>
+                <p>
+                    Rastrea cuándo IME se activa realmente después del delay de 1 instrucción de EI. Esto ayuda a entender
+                    el flujo completo de habilitación de interrupciones.
+                </p>
+                <p>
+                    <strong>Ubicación</strong>: <code>src/core/cpp/CPU.cpp</code> - Función <code>CPU::step()</code>, después de activar IME programado
+                </p>
+                <p>
+                    <strong>Captura</strong>:
+                </p>
+                <ul>
+                    <li>PC cuando IME se activa</li>
+                    <li>Valor de IE e IF en el momento de activación</li>
+                </ul>
+
+                <h3>Monitor [IE-WRITE-TRACE] - Rastreo Detallado de IE</h3>
+                <p>
+                    Mejora el monitor [IE-WRITE] anterior con desglose detallado de bits. Rastrea cambios en IE con información
+                    sobre qué interrupciones se habilitan o deshabilitan.
+                </p>
+                <p>
+                    <strong>Ubicación</strong>: <code>src/core/cpp/MMU.cpp</code> - Función <code>MMU::write()</code> cuando <code>addr == 0xFFFF</code>
+                </p>
+                <p>
+                    <strong>Captura</strong>:
+                </p>
+                <ul>
+                    <li>PC y banco ROM cuando se modifica IE</li>
+                    <li>Valor anterior y nuevo de IE</li>
+                    <li>Desglose de qué interrupciones se habilitan (V-Blank, LCD-STAT, Timer, Serial, Joypad)</li>
+                    <li>Alerta especial si V-Blank se habilita</li>
+                    <li>Advertencia si todas las interrupciones se deshabilitan</li>
+                </ul>
+
+                <h3>Monitor [ISR-VRAM-CHECK] - Verificación de VRAM en ISRs</h3>
+                <p>
+                    Verifica si las ISRs acceden a VRAM cuando se ejecutan. Esto ayuda a confirmar si el código de carga
+                    de tiles está en una ISR.
+                </p>
+                <p>
+                    <strong>Ubicación</strong>: <code>src/core/cpp/CPU.cpp</code> - Función <code>CPU::step()</code>
+                </p>
+                <p>
+                    <strong>Captura</strong>:
+                </p>
+                <ul>
+                    <li>Entrada a ISR (vectores 0x0040, 0x0048, 0x0050, 0x0058, 0x0060)</li>
+                    <li>Accesos a VRAM durante ISR (opcodes LD (HL+), A, LD (HL-), A, LD (HL), A con HL en rango 0x8000-0x97FF)</li>
+                    <li>Salida de ISR (RETI, opcode 0xD9)</li>
+                    <li>Contador de accesos a VRAM por ISR</li>
+                </ul>
+
+                <h3>Monitor [BG-ENABLE-SEQUENCE] - Secuencia de Activación de BG</h3>
+                <p>
+                    Rastrea la secuencia completa de ejecución después de habilitar BG Display (300 instrucciones) para ver
+                    si el código de carga se ejecuta después. Esto ayuda a entender la relación temporal entre habilitar BG
+                    Display y cargar tiles.
+                </p>
+                <p>
+                    <strong>Ubicación</strong>: <code>src/core/cpp/CPU.cpp</code> - Función <code>CPU::step()</code>
+                </p>
+                <p>
+                    <strong>Captura</strong>:
+                </p>
+                <ul>
+                    <li>PC donde se habilita BG Display</li>
+                    <li>PC, opcode, HL y A para las siguientes 300 instrucciones</li>
+                    <li>Detección si HL apunta a VRAM durante la secuencia</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Reemplazado [LCDC-CHANGE] con [LCDC-TRACE] y mejorado [IE-WRITE] a [IE-WRITE-TRACE]</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Mejorado [CPU-EI] a [EI-TRACE], añadido [IME-ACTIVATE], [ISR-VRAM-CHECK] y [BG-ENABLE-SEQUENCE]</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La implementación se verificó compilando el código y asegurando que no hay errores de sintaxis.
+                    Los monitores están listos para ejecutarse cuando el emulador se ejecute con una ROM.
+                </p>
+                <ul>
+                    <li><strong>Compilación</strong>: ✅ Código compilado sin errores</li>
+                    <li><strong>Linter</strong>: ✅ Sin errores de linter</li>
+                    <li><strong>Validación</strong>: ✅ Todos los monitores implementados correctamente</li>
+                </ul>
+                <p>
+                    <strong>Comando de compilación</strong>: <code>python setup.py build_ext --inplace</code>
+                </p>
+                <p>
+                    <strong>Resultado</strong>: Compilación exitosa, módulo Cython generado correctamente.
+                </p>
+                <p>
+                    <strong>Nota</strong>: Los monitores se activarán automáticamente cuando:
+                </p>
+                <ul>
+                    <li>[LCDC-TRACE] y [IE-WRITE-TRACE]: Se activan en cada escritura a LCDC e IE</li>
+                    <li>[EI-TRACE]: Se activa cuando se ejecuta la instrucción EI</li>
+                    <li>[IME-ACTIVATE]: Se activa cuando IME se activa después del delay de EI</li>
+                    <li>[ISR-VRAM-CHECK]: Se activa cuando se entra a un vector de interrupción</li>
+                    <li>[BG-ENABLE-SEQUENCE]: Se activa cuando BG Display se habilita (LCDC bit 0 cambia de 0 a 1)</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "LCD Control Register (LCDC)" - Control del LCD y bits de BG Display</li>
+                    <li>Pan Docs: "Interrupt Enable Register (IE)" - Habilitación de interrupciones específicas</li>
+                    <li>Pan Docs: "EI Instruction" - Delay de activación de IME</li>
+                    <li>Pan Docs: "Interrupts" - Vectores de interrupción y condiciones de ejecución</li>
+                    <li>Pan Docs: "Video RAM (VRAM)" - Acceso a VRAM durante ISRs</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>BG Display y LCDC</strong>: BG Display es independiente de LCD Enable. Muchos juegos habilitan BG Display después de cargar tiles.</li>
+                        <li><strong>Interrupciones y carga de tiles</strong>: Algunos juegos cargan tiles en ISRs (especialmente V-Blank). Si las interrupciones están deshabilitadas, estas ISRs no se ejecutan.</li>
+                        <li><strong>Delay de EI</strong>: EI tiene un delay de 1 instrucción. IME se activa después de ejecutar la siguiente instrucción.</li>
+                        <li><strong>Monitores de diagnóstico</strong>: Los monitores de rastreo de activación permiten entender cuándo y cómo se habilitan funciones críticas.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Momento de activación</strong>: ¿Cuándo se habilita BG Display en relación con la carga de tiles?</li>
+                        <li><strong>ISRs y carga</strong>: ¿El código de carga está realmente en una ISR? ¿Qué ISR?</li>
+                        <li><strong>Secuencia completa</strong>: ¿Cuál es la secuencia completa de inicialización que debería ocurrir?</li>
+                        <li><strong>Condiciones requeridas</strong>: ¿Qué condiciones deben cumplirse para que el código de carga se ejecute?</li>
+                    </ul>
+
+                    <h3>Hipótesis Refinada</h3>
+                    <p>
+                        El juego carga tiles en una ISR (probablemente V-Blank) que solo se ejecuta cuando:
+                    </p>
+                    <ol>
+                        <li>BG Display está habilitado (LCDC bit 0 = 1)</li>
+                        <li>Las interrupciones están habilitadas (IE != 0, IME = 1)</li>
+                        <li>La interrupción correspondiente es solicitada (IF bit activo)</li>
+                    </ol>
+                    <p>
+                        Si alguna de estas condiciones no se cumple, el código de carga nunca se ejecuta y la pantalla queda vacía.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ol>
+                    <li><strong>Ejecutar el emulador</strong>: Ejecutar el emulador con Pokémon Red y capturar los logs de los nuevos monitores.</li>
+                    <li><strong>Analizar activación de BG Display</strong>: Analizar los logs de [LCDC-TRACE] y [BG-ENABLE-SEQUENCE] para ver cuándo se habilita BG Display y qué ocurre después.</li>
+                    <li><strong>Analizar activación de interrupciones</strong>: Analizar los logs de [EI-TRACE], [IME-ACTIVATE] y [IE-WRITE-TRACE] para ver cuándo se habilitan las interrupciones.</li>
+                    <li><strong>Verificar ISRs</strong>: Analizar los logs de [ISR-VRAM-CHECK] para verificar si las ISRs acceden a VRAM.</li>
+                    <li><strong>Confirmar secuencia</strong>: Confirmar la secuencia completa de inicialización y aplicar correcciones si es necesario.</li>
+                </ol>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
