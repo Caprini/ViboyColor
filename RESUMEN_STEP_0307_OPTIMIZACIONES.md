@@ -68,7 +68,7 @@ Se implementaron optimizaciones críticas basadas en los hallazgos del Step 0306
 
 ## Verificación Pendiente
 
-Para verificar que las optimizaciones funcionan correctamente:
+**NOTA**: Las verificaciones requieren una ROM de Game Boy. Coloca una ROM (ej: `pkmn.gb`) en el directorio `roms/` antes de ejecutar las verificaciones.
 
 ### 1. Verificación Visual
 
@@ -80,27 +80,51 @@ python main.py roms/pkmn.gb
 - ✅ **FPS**: ¿Mejora a ~60 FPS o al menos >40 FPS?
 - ✅ **Corrupción gráfica**: ¿Desaparece el patrón de tablero de ajedrez?
 - ✅ **Sprites**: ¿Se renderizan correctamente sin fragmentación?
+- ✅ **Rayas verdes**: ¿Siguen apareciendo o desaparecieron?
+- ✅ **Rendimiento general**: ¿Se siente más fluido?
+
+**Registrar observaciones**:
+- FPS observado (aproximado)
+- ¿Corrupción gráfica desapareció? (Sí/No)
+- ¿Sprites se renderizan correctamente? (Sí/No)
+- ¿Rayas verdes siguen apareciendo? (Sí/No)
 
 ### 2. Medición de Rendimiento
 
 ```powershell
-# Ejecutar durante 30 segundos
+# Ejecutar durante 30 segundos (luego presionar Ctrl+C)
 python main.py roms/pkmn.gb > perf_step_0307.log 2>&1
 ```
 
-**Analizar logs**:
+**Analizar logs usando el script de análisis**:
 ```powershell
+# Usar el script de análisis automatizado
+.\tools\analizar_perf_step_0307.ps1
+
+# O análisis manual:
 # Contar entradas de rendimiento
 Select-String -Path perf_step_0307.log -Pattern "\[PERFORMANCE-TRACE\]" | Measure-Object
 
 # Ver muestras (primera y última)
-Select-String -Path perf_step_0307.log -Pattern "\[PERFORMANCE-TRACE\]" | Select-Object -First 10 -Last 10
+Select-String -Path perf_step_0307.log -Pattern "\[PERFORMANCE-TRACE\]" | Select-Object -First 10
+Select-String -Path perf_step_0307.log -Pattern "\[PERFORMANCE-TRACE\]" | Select-Object -Last 10
+
+# Calcular FPS promedio
+Select-String -Path perf_step_0307.log -Pattern "FPS: (\d+\.?\d*)" | ForEach-Object { [double]($_.Matches.Groups[1].Value) } | Measure-Object -Average -Maximum -Minimum
 ```
 
-**Calcular FPS promedio**:
-- Extraer valores de FPS de los logs
-- Calcular promedio
-- Comparar con 21.8 FPS del Step 0306
+**Resultados esperados del análisis**:
+- FPS promedio (debe ser >= 40, idealmente ~60)
+- FPS mínimo y máximo
+- Comparación con 21.8 FPS del Step 0306
+- Mejora porcentual
+
+### 3. Actualización de Resultados
+
+Después de completar las verificaciones, actualizar este documento con:
+- **Resultados de Rendimiento**: FPS medido (promedio, min, max) y comparación
+- **Resultados de Corrupción Gráfica**: Observaciones visuales
+- **Conclusiones**: ¿Las optimizaciones funcionaron? ¿FPS alcanzó el objetivo?
 
 ---
 
@@ -140,6 +164,43 @@ Después de verificar las optimizaciones:
 - **Invalidación**: Hash del contenido (primeros 100 píxeles) + tamaño de pantalla
 - **Beneficio**: Evita transformaciones redundantes
 - **Nota**: El cache puede no ayudar mucho si el contenido cambia cada frame, pero mantenerlo por si acaso
+
+---
+
+---
+
+## Resultados de Verificación
+
+**Estado**: ⏳ Pendiente de ejecución (requiere ROM)
+
+### Resultados de Rendimiento
+- **FPS Promedio**: _Pendiente de medición_
+- **FPS Mínimo**: _Pendiente de medición_
+- **FPS Máximo**: _Pendiente de medición_
+- **Mejora vs Step 0306 (21.8 FPS)**: _Pendiente de cálculo_
+
+### Resultados de Corrupción Gráfica
+- **Patrón de tablero de ajedrez**: _Pendiente de verificación_
+- **Sprites fragmentados**: _Pendiente de verificación_
+- **Rayas verdes**: _Pendiente de verificación_
+
+### Conclusiones
+_Pendiente de completar verificaciones_
+
+---
+
+## Herramientas de Verificación
+
+Se ha creado un script de análisis automatizado para facilitar la verificación:
+
+- **Script**: `tools/analizar_perf_step_0307.ps1`
+- **Uso**: `.\tools\analizar_perf_step_0307.ps1`
+- **Funcionalidad**:
+  - Cuenta registros [PERFORMANCE-TRACE]
+  - Muestra primeros y últimos 10 registros
+  - Calcula estadísticas de FPS (promedio, min, max)
+  - Compara con FPS anterior (21.8)
+  - Evalúa si se alcanzó el objetivo
 
 ---
 

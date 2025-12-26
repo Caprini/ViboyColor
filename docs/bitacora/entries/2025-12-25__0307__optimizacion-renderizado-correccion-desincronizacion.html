@@ -197,21 +197,44 @@ self.screen.blit(self._scaled_surface_cache, (0, 0))
             <section id="tests">
                 <h2>Tests y Verificación</h2>
                 <p>
-                    Las optimizaciones se verificaron mediante:
+                    Las optimizaciones se verifican mediante:
                 </p>
                 <ul>
-                    <li><strong>Verificación visual</strong>: Ejecución del emulador para confirmar que la corrupción gráfica desaparece</li>
+                    <li><strong>Verificación visual</strong>: Ejecución del emulador durante 2-3 minutos para confirmar que la corrupción gráfica desaparece</li>
                     <li><strong>Medición de rendimiento</strong>: Monitor [PERFORMANCE-TRACE] para medir FPS antes y después</li>
                 </ul>
                 <p>
-                    <strong>Comando de verificación</strong>:
+                    <strong>Comandos de verificación</strong>:
                 </p>
-                <pre><code>python main.py roms/pkmn.gb > perf_step_0307.log 2>&1
-# Ejecutar durante 30 segundos y luego analizar logs
-Select-String -Path perf_step_0307.log -Pattern "\[PERFORMANCE-TRACE\]" | Select-Object -First 10 -Last 10
+                <pre><code># 1. Verificación visual (2-3 minutos)
+python main.py roms/pkmn.gb
+
+# 2. Medición de rendimiento (30 segundos)
+python main.py roms/pkmn.gb > perf_step_0307.log 2>&1
+# Presionar Ctrl+C después de 30 segundos
+
+# 3. Análisis automatizado de logs
+.\tools\analizar_perf_step_0307.ps1
+
+# O análisis manual:
+Select-String -Path perf_step_0307.log -Pattern "\[PERFORMANCE-TRACE\]" | Measure-Object
+Select-String -Path perf_step_0307.log -Pattern "FPS: (\d+\.?\d*)" | ForEach-Object { [double]($_.Matches.Groups[1].Value) } | Measure-Object -Average -Maximum -Minimum
 </code></pre>
                 <p>
+                    <strong>Script de análisis</strong>: Se creó un script automatizado (`tools/analizar_perf_step_0307.ps1`) que:
+                </p>
+                <ul>
+                    <li>Cuenta registros [PERFORMANCE-TRACE]</li>
+                    <li>Muestra primeros y últimos 10 registros</li>
+                    <li>Calcula estadísticas de FPS (promedio, min, max)</li>
+                    <li>Compara con FPS anterior (21.8 del Step 0306)</li>
+                    <li>Evalúa si se alcanzó el objetivo</li>
+                </ul>
+                <p>
                     <strong>Validación de módulo compilado C++</strong>: Las optimizaciones funcionan con el módulo C++ existente, sin necesidad de recompilación adicional.
+                </p>
+                <p>
+                    <strong>NOTA</strong>: Las verificaciones requieren una ROM de Game Boy. Coloca una ROM (ej: `pkmn.gb`) en el directorio `roms/` antes de ejecutar las verificaciones.
                 </p>
             </section>
 
@@ -219,7 +242,7 @@ Select-String -Path perf_step_0307.log -Pattern "\[PERFORMANCE-TRACE\]" | Select
             <section id="resultados">
                 <h2>Resultados</h2>
                 <p>
-                    <strong>Pendiente de verificación</strong>: Los resultados finales se documentarán después de la ejecución del emulador y análisis de logs.
+                    <strong>Estado</strong>: ⏳ Pendiente de verificación (requiere ROM)
                 </p>
                 <p>
                     <strong>Métricas esperadas</strong>:
@@ -229,6 +252,29 @@ Select-String -Path perf_step_0307.log -Pattern "\[PERFORMANCE-TRACE\]" | Select
                     <li><strong>FPS esperado después</strong>: ~60 FPS (o al menos >40 FPS)</li>
                     <li><strong>Corrupción gráfica</strong>: Debe desaparecer completamente</li>
                 </ul>
+                <p>
+                    <strong>Resultados de Rendimiento</strong>:
+                </p>
+                <ul>
+                    <li><strong>FPS Promedio</strong>: <em>Pendiente de medición</em></li>
+                    <li><strong>FPS Mínimo</strong>: <em>Pendiente de medición</em></li>
+                    <li><strong>FPS Máximo</strong>: <em>Pendiente de medición</em></li>
+                    <li><strong>Mejora vs Step 0306</strong>: <em>Pendiente de cálculo</em></li>
+                </ul>
+                <p>
+                    <strong>Resultados de Corrupción Gráfica</strong>:
+                </p>
+                <ul>
+                    <li><strong>Patrón de tablero de ajedrez</strong>: <em>Pendiente de verificación</em></li>
+                    <li><strong>Sprites fragmentados</strong>: <em>Pendiente de verificación</em></li>
+                    <li><strong>Rayas verdes</strong>: <em>Pendiente de verificación</em></li>
+                </ul>
+                <p>
+                    <strong>Conclusiones</strong>: <em>Pendiente de completar verificaciones</em>
+                </p>
+                <p>
+                    <strong>Instrucciones para completar verificaciones</strong>: Ver sección "Tests y Verificación" arriba y el archivo `RESUMEN_STEP_0307_OPTIMIZACIONES.md` para instrucciones detalladas.
+                </p>
             </section>
 
             <!-- 7. Próximos Pasos -->
