@@ -32,6 +32,41 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0294: Rastreo de Activación de BG Display e Interrupciones
+**Estado**: ✅ COMPLETADO
+
+Implementación de monitores adicionales para rastrear cuándo y cómo se habilita el BG Display (LCDC bit 0) y las interrupciones (IE e IME). El análisis del Step 0293 identificó que el código de carga de tiles podría estar en una ISR que no se ejecuta debido a interrupciones deshabilitadas (IE=0, IME=0) y que BG Display está deshabilitado (LCDC bit 0 = 0). Necesitamos entender el flujo completo de inicialización para identificar cuándo deberían habilitarse estas funciones.
+
+**Monitores implementados**:
+- **[LCDC-TRACE]**: Reemplaza [LCDC-CHANGE] con información más detallada. Rastrea cambios en LCDC con desglose de bits (LCD ON/OFF, BG Display ON/OFF, Window Display ON/OFF). Alerta especial cuando BG Display se habilita.
+- **[EI-TRACE]**: Mejora [CPU-EI] con información más detallada. Rastrea ejecución de EI con desglose de interrupciones habilitadas y advertencia si IE=0x00.
+- **[IME-ACTIVATE]**: Rastrea cuándo IME se activa realmente después del delay de 1 instrucción de EI. Captura PC, IE e IF en el momento de activación.
+- **[IE-WRITE-TRACE]**: Mejora [IE-WRITE] con desglose detallado de bits. Rastrea cambios en IE con información sobre qué interrupciones se habilitan (V-Blank, LCD-STAT, Timer, Serial, Joypad). Alerta especial si V-Blank se habilita.
+- **[ISR-VRAM-CHECK]**: Verifica si las ISRs acceden a VRAM cuando se ejecutan. Detecta entrada a ISR (vectores 0x0040, 0x0048, 0x0050, 0x0058, 0x0060), accesos a VRAM durante ISR y salida de ISR (RETI).
+- **[BG-ENABLE-SEQUENCE]**: Rastrea la secuencia completa de ejecución después de habilitar BG Display (300 instrucciones). Captura PC, opcode, HL y A, y detecta si HL apunta a VRAM.
+
+**Cambios realizados**:
+- **MMU.cpp**:
+  - Reemplazado [LCDC-CHANGE] con [LCDC-TRACE] en `MMU::write()` cuando `addr == 0xFF40`.
+  - Mejorado [IE-WRITE] a [IE-WRITE-TRACE] en `MMU::write()` cuando `addr == 0xFFFF`.
+- **CPU.cpp**:
+  - Mejorado [CPU-EI] a [EI-TRACE] en `CPU::step()`, case `0xFB`.
+  - Añadido [IME-ACTIVATE] en `CPU::step()` después de activar IME programado.
+  - Añadido [ISR-VRAM-CHECK] en `CPU::step()` para detectar entrada a ISR y accesos VRAM.
+  - Añadido [BG-ENABLE-SEQUENCE] en `CPU::step()` para rastrear secuencia después de habilitar BG Display.
+
+**Hipótesis refinada**:
+El juego carga tiles en una ISR (probablemente V-Blank) que solo se ejecuta cuando:
+1. BG Display está habilitado (LCDC bit 0 = 1)
+2. Las interrupciones están habilitadas (IE != 0, IME = 1)
+3. La interrupción correspondiente es solicitada (IF bit activo)
+
+Si alguna de estas condiciones no se cumple, el código de carga nunca se ejecuta y la pantalla queda vacía.
+
+**Próximos pasos**: Ejecutar el emulador con los nuevos monitores activos y analizar los logs generados para identificar cuándo se habilita BG Display e interrupciones, verificar si el código de carga está en una ISR, y confirmar la secuencia completa de inicialización.
+
+---
+
 ### 2025-12-25 - Step 0293: Investigación de Flujo de Ejecución Post-Limpieza
 **Estado**: ✅ COMPLETADO
 

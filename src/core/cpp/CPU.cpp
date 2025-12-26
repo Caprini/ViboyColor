@@ -458,14 +458,90 @@ int CPU::step() {
     // Esto nos permite verificar si el handler se ejecuta correctamente y qué hace
     // Fuente: Pan Docs - "Interrupt Vectors": 0x0040 es el vector de V-Blank
     if (original_pc == 0x0040) {
-        printf("[VBLANK-ENTRY] Vector 0x0040 alcanzado. SP:0x%04X | HL:0x%04X | A:0x%02X | Bank:%d\n",
-               regs_->sp, regs_->get_hl(), regs_->a, mmu_->get_current_rom_bank());
+        printf("[VBLANK-ENTRY] Vector 0x%04X alcanzado. SP:0x%04X | HL:0x%04X | A:0x%02X | Bank:%d\n",
+               original_pc, regs_->sp, regs_->get_hl(), regs_->a, mmu_->get_current_rom_bank());
         
         // --- Step 0281: Rastreo del Destino del Salto en 0x0040 ---
         // Leemos la dirección de salto (JP nn) que suele estar en el vector de interrupción
         uint16_t jump_target = mmu_->read(0x0041) | (static_cast<uint16_t>(mmu_->read(0x0042)) << 8);
         printf("[VBLANK-TRACE] Vector 0x0040: JP 0x%04X detectado. Iniciando rastreo del handler...\n", jump_target);
     }
+    
+    // --- Step 0294: Monitor de Verificación de VRAM en ISRs ([ISR-VRAM-CHECK]) ---
+    // Verifica si las ISRs acceden a VRAM cuando se ejecutan.
+    // Esto ayuda a confirmar si el código de carga está en una ISR.
+    static bool in_isr = false;
+    static int isr_vram_access_count = 0;
+    
+    // Detectar entrada a ISR (vectores de interrupción)
+    if (original_pc == 0x0040 || original_pc == 0x0048 || original_pc == 0x0050 ||
+        original_pc == 0x0058 || original_pc == 0x0060) {
+        in_isr = true;
+        isr_vram_access_count = 0;
+        printf("[ISR-VRAM-CHECK] Entrada a ISR en vector 0x%04X\n", original_pc);
+    }
+    
+    // Detectar accesos a VRAM durante ISR
+    if (in_isr) {
+        uint8_t op = mmu_->read(original_pc);
+        // Verificar si hay escrituras a VRAM en las siguientes instrucciones
+        // Detectamos opcodes que escriben a (HL): LD (HL+), A (0x22), LD (HL-), A (0x32), LD (HL), A (0x77)
+        if (op == 0x22 || op == 0x32 || op == 0x77) {
+            uint16_t hl_val = regs_->get_hl();
+            if (hl_val >= 0x8000 && hl_val <= 0x97FF) {
+                isr_vram_access_count++;
+                printf("[ISR-VRAM-CHECK] ⚠️ ACCESO A VRAM DETECTADO en ISR: PC:0x%04X HL:0x%04X (acceso #%d)\n",
+                       original_pc, hl_val, isr_vram_access_count);
+            }
+        }
+        
+        // Detectar salida de ISR (RETI)
+        if (op == 0xD9) {  // RETI
+            printf("[ISR-VRAM-CHECK] Salida de ISR (RETI) en PC:0x%04X | Accesos a VRAM: %d\n",
+                   original_pc, isr_vram_access_count);
+            in_isr = false;
+        }
+    }
+    
+    // --- Step 0294: Monitor de Secuencia de Activación BG ([BG-ENABLE-SEQUENCE]) ---
+    // Rastrea la secuencia de ejecución después de habilitar BG Display
+    // para ver si el código de carga se ejecuta después.
+    static bool bg_enable_trace_active = false;
+    static int bg_enable_trace_count = 0;
+    static uint16_t bg_enable_pc = 0x0000;
+    static uint8_t last_lcdc = 0x00;
+    
+    // Leer LCDC actual y detectar si BG Display se acaba de habilitar
+    uint8_t current_lcdc = mmu_->read(0xFF40);
+    bool bg_just_enabled = !(last_lcdc & 0x01) && (current_lcdc & 0x01);
+    if (bg_just_enabled) {
+        bg_enable_trace_active = true;
+        bg_enable_trace_count = 0;
+        bg_enable_pc = original_pc;
+        printf("[BG-ENABLE-SEQUENCE] ⚠️ BG DISPLAY HABILITADO en PC:0x%04X. Iniciando rastreo de 300 instrucciones...\n",
+               original_pc);
+    }
+    
+    if (bg_enable_trace_active && bg_enable_trace_count < 300) {
+        uint8_t op = mmu_->read(original_pc);
+        uint16_t hl_val = regs_->get_hl();
+        
+        printf("[BG-ENABLE-SEQUENCE] PC:0x%04X OP:0x%02X | HL:0x%04X | A:0x%02X\n",
+               original_pc, op, hl_val, regs_->a);
+        
+        // Verificar si HL apunta a VRAM
+        if (hl_val >= 0x8000 && hl_val <= 0x97FF) {
+            printf("[BG-ENABLE-SEQUENCE] ⚠️ HL APUNTA A VRAM (0x%04X) después de habilitar BG\n", hl_val);
+        }
+        
+        bg_enable_trace_count++;
+        if (bg_enable_trace_count >= 300) {
+            bg_enable_trace_active = false;
+            printf("[BG-ENABLE-SEQUENCE] Fin del rastreo de secuencia de activación BG\n");
+        }
+    }
+    
+    last_lcdc = current_lcdc;
     
     // --- Step 0285: Sniper de Ejecución del Handler (MOVIDO AL INICIO) ---
     // Este monitor se ejecuta ANTES de cualquier early return para asegurar
@@ -738,7 +814,12 @@ int CPU::step() {
     // ========== FASE 3: Gestión de EI retrasado ==========
     // EI (Enable Interrupts) tiene un retraso de 1 instrucción
     // Si ime_scheduled_ es true, activar IME después de procesar esta instrucción
+    // --- Step 0294: Monitor de Activación de IME ([IME-ACTIVATE]) ---
+    // Rastrea cuándo IME se activa realmente después de que EI se ejecuta.
+    // IME se activa después de ejecutar la siguiente instrucción (delay de 1).
     if (ime_scheduled_) {
+        printf("[IME-ACTIVATE] IME activado después de delay de EI | PC:0x%04X | IE:0x%02X IF:0x%02X\n",
+               regs_->pc, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
         ime_ = true;
         ime_scheduled_ = false;
     }
@@ -2291,13 +2372,26 @@ int CPU::step() {
             // Esto permite que la instrucción siguiente a EI se ejecute sin interrupciones
             // Fuente: Pan Docs - EI: 1 M-Cycle
             {
-                // --- Step 0280: Rastreo Ultra-Preciso de EI e IME ---
-                // Capturamos el estado exacto de IE e IME cuando se intenta habilitar
-                // Esto nos permite identificar si el problema es que IE está en 0x00
-                // cuando se ejecuta EI, o si IME no se activa correctamente
+                // --- Step 0294: Monitor de Instrucciones EI ([EI-TRACE]) ---
+                // Rastrea cuándo se ejecuta EI y el estado de IE e IME.
+                // Esto ayuda a entender cuándo se habilitan las interrupciones.
                 uint8_t ie_val = mmu_->read(0xFFFF);
-                printf("[CPU-EI] Instrucción EI en PC:0x%04X | IE Actual:0x%02X | IME previo:%d | IME programado:%d\n",
-                       original_pc, ie_val, ime_ ? 1 : 0, ime_scheduled_ ? 1 : 0);
+                printf("[EI-TRACE] PC:0x%04X Bank:%d | IE:0x%02X IME:%d -> IME:1 (scheduled)\n",
+                       original_pc, mmu_->get_current_rom_bank(), ie_val, ime_ ? 1 : 0);
+                
+                // Verificar qué interrupciones están habilitadas
+                if (ie_val != 0x00) {
+                    printf("[EI-TRACE]   Interrupciones habilitadas: ");
+                    if (ie_val & 0x01) printf("V-Blank ");
+                    if (ie_val & 0x02) printf("LCD-STAT ");
+                    if (ie_val & 0x04) printf("Timer ");
+                    if (ie_val & 0x08) printf("Serial ");
+                    if (ie_val & 0x10) printf("Joypad ");
+                    printf("\n");
+                } else {
+                    printf("[EI-TRACE]   ⚠️ ADVERTENCIA: EI ejecutado pero IE=0x00 (ninguna interrupción habilitada)\n");
+                }
+                
                 ime_scheduled_ = true;  // Activar IME después de la siguiente instrucción
                 cycles_ += 1;  // EI consume 1 M-Cycle
                 return 1;

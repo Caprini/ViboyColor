@@ -612,16 +612,41 @@ void MMU::write(uint16_t addr, uint8_t value) {
         return;
     }
 
-    // --- Step 0274: IE-WRITE - Rastreo del Registro de Habilitación de Interrupciones ---
-    // Queremos capturar CADA escritura en el registro IE (0xFFFF) para identificar
-    // quién deshabilita las interrupciones y cuándo ocurre.
+    // --- Step 0294: Monitor Detallado de IE ([IE-WRITE-TRACE]) ---
+    // Rastrea cambios en IE con desglose de bits para ver qué interrupciones
+    // se habilitan y cuándo.
+    // Fuente: Pan Docs - "Interrupt Enable Register (IE)"
     if (addr == 0xFFFF) {
-        printf("[IE-WRITE] Nuevo valor: 0x%02X desde PC: 0x%04X (Banco:%d)\n",
-               value, debug_current_pc, current_rom_bank_);
+        uint8_t old_ie = memory_[addr];
+        uint8_t new_ie = value;
+        
+        if (old_ie != new_ie) {
+            printf("[IE-WRITE-TRACE] PC:0x%04X Bank:%d | 0x%02X -> 0x%02X\n",
+                   debug_current_pc, current_rom_bank_, old_ie, new_ie);
+            
+            // Desglosar qué interrupciones se habilitan/deshabilitan
+            if (new_ie != 0x00) {
+                printf("[IE-WRITE-TRACE]   Interrupciones habilitadas: ");
+                if (new_ie & 0x01) printf("V-Blank ");
+                if (new_ie & 0x02) printf("LCD-STAT ");
+                if (new_ie & 0x04) printf("Timer ");
+                if (new_ie & 0x08) printf("Serial ");
+                if (new_ie & 0x10) printf("Joypad ");
+                printf("\n");
+            } else {
+                printf("[IE-WRITE-TRACE]   ⚠️ TODAS las interrupciones DESHABILITADAS\n");
+            }
+            
+            // Alerta especial si V-Blank se habilita
+            if (!(old_ie & 0x01) && (new_ie & 0x01)) {
+                printf("[IE-WRITE-TRACE] ⚠️ V-BLANK INTERRUPT HABILITADA en PC:0x%04X\n", debug_current_pc);
+            }
+        }
     }
 
-    // --- Step 0290: Monitor de Cambios en LCDC ([LCDC-CHANGE]) ---
-    // Captura todos los cambios en LCDC (0xFF40) para verificar la configuración del LCD.
+    // --- Step 0294: Monitor Detallado de LCDC ([LCDC-TRACE]) ---
+    // Rastrea todos los cambios en LCDC con desglose detallado de bits para ver
+    // cuándo se habilita BG Display (bit 0).
     // LCDC controla el estado del LCD y las características de renderizado:
     // - Bit 7: LCD Enable (1=ON, 0=OFF)
     // - Bit 6: Window Tile Map (0=0x9800, 1=0x9C00)
@@ -634,12 +659,28 @@ void MMU::write(uint16_t addr, uint8_t value) {
     // Fuente: Pan Docs - "LCD Control Register (LCDC)"
     if (addr == 0xFF40) {
         uint8_t old_lcdc = memory_[addr];
-        if (old_lcdc != value) {
-            printf("[LCDC-CHANGE] 0x%02X -> 0x%02X en PC:0x%04X (Bank:%d) | LCD:%s BG:%s Window:%s\n",
-                   old_lcdc, value, debug_current_pc, current_rom_bank_,
-                   (value & 0x80) ? "ON" : "OFF",
-                   (value & 0x01) ? "ON" : "OFF",
-                   (value & 0x20) ? "ON" : "OFF");
+        uint8_t new_lcdc = value;
+        
+        if (old_lcdc != new_lcdc) {
+            // Desglosar bits significativos
+            bool lcd_on_old = (old_lcdc & 0x80) != 0;
+            bool lcd_on_new = (new_lcdc & 0x80) != 0;
+            bool bg_display_old = (old_lcdc & 0x01) != 0;
+            bool bg_display_new = (new_lcdc & 0x01) != 0;
+            bool window_display_old = (old_lcdc & 0x20) != 0;
+            bool window_display_new = (new_lcdc & 0x20) != 0;
+            
+            printf("[LCDC-TRACE] PC:0x%04X Bank:%d | 0x%02X -> 0x%02X\n",
+                   debug_current_pc, current_rom_bank_, old_lcdc, new_lcdc);
+            printf("[LCDC-TRACE]   LCD: %s -> %s | BG: %s -> %s | Window: %s -> %s\n",
+                   lcd_on_old ? "ON" : "OFF", lcd_on_new ? "ON" : "OFF",
+                   bg_display_old ? "ON" : "OFF", bg_display_new ? "ON" : "OFF",
+                   window_display_old ? "ON" : "OFF", window_display_new ? "ON" : "OFF");
+            
+            // Alerta especial si BG Display se habilita
+            if (!bg_display_old && bg_display_new) {
+                printf("[LCDC-TRACE] ⚠️ BG DISPLAY HABILITADO en PC:0x%04X\n", debug_current_pc);
+            }
         }
     }
 
