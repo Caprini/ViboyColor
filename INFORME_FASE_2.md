@@ -32,6 +32,26 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0282: Auditoría de Bancos MBC1 y Carga de VRAM
+**Estado**: ✅ COMPLETADO
+
+Implementación de diagnósticos avanzados para investigar la falta de carga de gráficos en Pokémon Red.
+
+**Cambios realizados**:
+- **MMU.cpp**:
+  - Implementación de `[BANK-READ]` en el rango `0x4000-0x7FFF` para verificar el mapeo de ROM.
+  - Implementación de `[VRAM-SNIPER]` para capturar escrituras en VRAM con valores distintos de `0x00`.
+  - Instrumentación de `update_bank_mapping()` con `[BANK-AUDIT]` para rastrear cambios en el direccionamiento de bancos.
+- **Bitácora**: Creada entrada 0282 detallando el funcionamiento del MBC1 y la carga de VRAM.
+
+**Hallazgos esperados**:
+- Confirmar si el MBC1 está mapeando los bancos correctos.
+- Detectar si el juego intenta cargar azulejos reales tras la limpieza de VRAM.
+
+**Bitácora**: `docs/bitacora/entries/2025-12-25__0282__auditoria-bancos-mbc1-carga-vram.html`
+
+---
+
 ### 2025-12-25 - Step 0281: Operación "Deep Handler Audit" - Auditoría del Handler de V-Blank
 **Estado**: ✅ IMPLEMENTADO
 

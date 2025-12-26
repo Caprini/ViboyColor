@@ -301,7 +301,17 @@ uint8_t MMU::read(uint16_t addr) const {
         } else if (addr < 0x8000) {
             size_t rom_addr = static_cast<size_t>(bankN_rom_) * 0x4000 + (addr - 0x4000);
             if (rom_addr < rom_data_.size()) {
-                return rom_data_[rom_addr];
+                uint8_t val = rom_data_[rom_addr];
+                
+                // --- Step 0282: Monitor de lecturas en bancos superiores ---
+                static int bank_read_count = 0;
+                if (bank_read_count < 20) {
+                    printf("[BANK-READ] Read %04X (Bank:%d Offset:%04X) -> %02X en PC:0x%04X\n",
+                           addr, bankN_rom_, (uint16_t)(addr - 0x4000), val, debug_current_pc);
+                    bank_read_count++;
+                }
+                
+                return val;
             }
             return 0xFF;
         }
@@ -594,15 +604,22 @@ void MMU::write(uint16_t addr, uint8_t value) {
     // --- Step 0273: Trigger D732 - Instrumentación de Escritura ---
     // Queremos saber QUIÉN intenta escribir en 0xD732 aunque sea un cero,
     // o si alguien intenta escribir algo distinto de cero.
+    // --- Step 0273: Trigger D732 - Instrumentación de Escritura ---
+    // Queremos saber QUIÉN intenta escribir en 0xD732 aunque sea un cero,
+    // o si alguien intenta escribir algo distinto de cero.
     if (addr == 0xD732) {
         printf("[TRIGGER-D732] Write %02X from PC:%04X (Bank:%d)\n",
                value, debug_current_pc, current_rom_bank_);
     }
 
-    static int vram_write_log_count = 0;
-    if (addr >= 0x8000 && addr <= 0x9FFF && vram_write_log_count < 100) {
-        printf("[VRAM] Write %04X=%02X PC:%04X\n", addr, value, debug_current_pc);
-        vram_write_log_count++;
+    // --- Step 0282: Sniper de escritura en VRAM (solo valores != 0x00) ---
+    // Reemplazamos el monitor genérico por uno que solo captura datos reales.
+    // Esto nos permite ver CUÁNDO se intentan cargar los gráficos reales.
+    static int vram_sniper_count = 0;
+    if (addr >= 0x8000 && addr <= 0x9FFF && value != 0x00 && vram_sniper_count < 100) {
+        printf("[VRAM-SNIPER] Write %04X=%02X PC:%04X (Bank:%d)\n", 
+               addr, value, debug_current_pc, current_rom_bank_);
+        vram_sniper_count++;
     }
 
     memory_[addr] = value;
@@ -752,6 +769,9 @@ uint16_t MMU::normalize_rom_bank(uint16_t bank) const {
 }
 
 void MMU::update_bank_mapping() {
+    uint16_t old_bank0 = bank0_rom_;
+    uint16_t old_bankN = bankN_rom_;
+
     switch (mbc_type_) {
         case MBCType::MBC1: {
             uint8_t low = mbc1_bank_low5_ & 0x1F;
@@ -792,6 +812,12 @@ void MMU::update_bank_mapping() {
             bank0_rom_ = 0;
             bankN_rom_ = 1;
             break;
+    }
+
+    // --- Step 0282: Auditoría de índices de bancos ---
+    if (old_bank0 != bank0_rom_ || old_bankN != bankN_rom_) {
+        printf("[BANK-AUDIT] Cambio de mapeo: Banco0:%d->%d | BancoN:%d->%d (Modo MBC1:%d) en PC:0x%04X\n",
+               old_bank0, bank0_rom_, old_bankN, bankN_rom_, mbc1_mode_, debug_current_pc);
     }
 }
 

@@ -132,3 +132,6 @@ marcador 0xFD que el juego busca. Necesitamos investigar:
 FIN DEL RESUMEN
 ================================================================================
 
+
+
+
