@@ -855,6 +855,10 @@ void MMU::load_rom(const uint8_t* data, size_t size) {
     // para entender si el juego espera que VRAM tenga datos desde el inicio
     // o si la carga es responsabilidad del juego.
     inspect_vram_initial_state();
+    
+    // --- Step 0297: Dump Inicial de VRAM ---
+    // Crear un dump detallado del estado inicial de VRAM
+    dump_vram_initial_state();
 }
 
 void MMU::setPPU(PPU* ppu) {
@@ -1084,5 +1088,35 @@ void MMU::inspect_vram_initial_state() {
         tilemap_checksum += memory_[0x9800 + i];
     }
     printf("[VRAM-INIT] Checksum del tilemap (0x9800): 0x%04X\n", tilemap_checksum);
+}
+
+// --- Step 0297: Dump Inicial de VRAM ([VRAM-INIT-DUMP]) ---
+// Crea un dump del estado inicial de VRAM después de cargar la ROM
+// para verificar si hay datos pre-cargados.
+void MMU::dump_vram_initial_state() {
+    printf("[VRAM-INIT-DUMP] Dump inicial de VRAM después de cargar ROM:\n");
+    printf("[VRAM-INIT-DUMP] Tile Data (0x8000-0x807F):\n");
+    for (int i = 0; i < 128; i++) {  // Primeros 128 bytes (8 tiles)
+        if (i % 16 == 0) {
+            printf("[VRAM-INIT-DUMP] %04X: ", 0x8000 + i);
+        }
+        printf("%02X ", memory_[0x8000 + i]);
+        if ((i + 1) % 16 == 0) {
+            printf("\n");
+        }
+    }
+    
+    printf("[VRAM-INIT-DUMP] Tile Map (0x9800-0x983F):\n");
+    for (int i = 0; i < 64; i++) {  // Primeros 64 bytes del tilemap
+        if (i % 16 == 0) {
+            printf("[VRAM-INIT-DUMP] %04X: ", 0x9800 + i);
+        }
+        printf("%02X ", memory_[0x9800 + i]);
+        if ((i + 1) % 16 == 0) {
+            printf("\n");
+        }
+    }
+    
+    printf("[VRAM-INIT-DUMP] Fin del dump inicial\n");
 }
 

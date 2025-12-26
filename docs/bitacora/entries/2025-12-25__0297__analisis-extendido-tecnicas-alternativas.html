@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análisis Extendido y Técnicas Alternativas - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Análisis Extendido y Técnicas Alternativas</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0297
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0296__verificacion-analisis-step-0295.html">Anterior (0296)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de técnicas alternativas de análisis para identificar cuándo se cargan los tiles en Pokémon Red.
+                    El análisis del Step 0295 confirmó que el código de carga NO existe en los primeros 12 segundos (todos los accesos son limpieza desde PC:0x36E3).
+                    Se implementaron monitores adicionales para rastrear cambios de estado, transiciones de pantalla, timeline de accesos VRAM y dump inicial de VRAM.
+                </p>
+                <p>
+                    <strong>Objetivo</strong>: Ejecutar análisis extendido (30-60 segundos) y detectar patrones que indiquen transiciones a fases del juego donde se cargarían tiles.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>Fases de Inicialización del Juego</h3>
+                <p>
+                    Los juegos de Game Boy típicamente tienen múltiples fases de inicialización:
+                </p>
+                <ol>
+                    <li><strong>Boot/Reset</strong>: Inicialización básica del hardware</li>
+                    <li><strong>Logo de Nintendo</strong>: Si hay boot ROM, muestra el logo</li>
+                    <li><strong>Pantalla de título</strong>: Menú principal del juego</li>
+                    <li><strong>Menús</strong>: Selección de opciones</li>
+                    <li><strong>Pantalla de juego principal</strong>: Donde se renderiza el juego</li>
+                </ol>
+                <p>
+                    Los tiles pueden cargarse en diferentes fases según la pantalla que se vaya a mostrar.
+                    Es posible que el código de carga no exista en la fase inicial (primeros 12 segundos) y aparezca más tarde.
+                </p>
+
+                <h3>Pre-carga de Tiles</h3>
+                <p>
+                    Algunos juegos pre-cargan tiles básicos durante la inicialización, mientras que otros cargan tiles dinámicamente cuando cambian de pantalla.
+                    Los tiles pueden estar comprimidos en la ROM y descomprimirse antes de cargarse a VRAM.
+                </p>
+                <p>
+                    Verificar el estado inicial de VRAM después de cargar la ROM permite determinar si el juego espera datos pre-cargados
+                    o si la carga es responsabilidad del código del juego.
+                </p>
+
+                <h3>Transiciones de Pantalla</h3>
+                <p>
+                    Los cambios de pantalla suelen ir acompañados de:
+                </p>
+                <ul>
+                    <li>Cambios en scroll (SCX/SCY)</li>
+                    <li>Cambios en tilemap</li>
+                    <li>Carga de nuevos tiles</li>
+                    <li>Cambios en paleta</li>
+                </ul>
+                <p>
+                    Detectar estos cambios permite identificar momentos donde podrían cargarse tiles.
+                </p>
+
+                <h3>Saltos de Código y Cambios de Estado</h3>
+                <p>
+                    Los saltos grandes en el Program Counter (PC) pueden indicar transiciones a nuevas rutinas o fases del juego.
+                    Cambios significativos en registros (ej: HL) también pueden indicar cambios de contexto.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "Video RAM (VRAM)", "Scroll Registers (SCX/SCY)", "Tile Data", "CPU Instruction Set"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron cuatro monitores adicionales y una función de dump para análisis extendido:
+                </p>
+                
+                <h3>Monitor [STATE-CHANGE] - Cambios de Estado del Juego</h3>
+                <p>
+                    Detecta cambios de estado que podrían indicar transiciones a nuevas pantallas o fases donde se cargarían tiles.
+                </p>
+                <ul>
+                    <li><strong>Saltos grandes</strong>: Detecta instrucciones JP nn (0xC3) o CALL nn (0xCD) con saltos mayores a 0x1000 bytes</li>
+                    <li><strong>Cambios en HL</strong>: Detecta cambios significativos en el registro HL (más de 0x1000 bytes de diferencia)</li>
+                    <li><strong>Límite de muestras</strong>: Reporta hasta 50 saltos grandes y 30 cambios en HL para evitar saturación</li>
+                </ul>
+                <p>
+                    <strong>Ubicación</strong>: <code>src/core/cpp/CPU.cpp</code> - Función <code>CPU::step()</code>
+                </p>
+
+                <h3>Monitor [SCREEN-TRANSITION] - Transiciones de Pantalla</h3>
+                <p>
+                    Detecta patrones que indican transiciones de pantalla, que podrían ser momentos donde se cargan nuevos tiles.
+                </p>
+                <ul>
+                    <li><strong>Verificación periódica</strong>: Verifica cambios en SCX (0xFF43) y SCY (0xFF42) cada 1000 instrucciones</li>
+                    <li><strong>Detección de cambios</strong>: Reporta cuando SCX o SCY cambian de valor</li>
+                    <li><strong>Límite de muestras</strong>: Reporta hasta 20 transiciones para evitar saturación</li>
+                </ul>
+                <p>
+                    <strong>Ubicación</strong>: <code>src/core/cpp/CPU.cpp</code> - Función <code>CPU::step()</code>
+                </p>
+
+                <h3>Monitor [TIMELINE-VRAM] - Timeline de Accesos VRAM</h3>
+                <p>
+                    Crea un timeline de accesos a VRAM con marcas de tiempo relativas para identificar patrones temporales.
+                </p>
+                <ul>
+                    <li><strong>Integración con [VRAM-ACCESS-GLOBAL]</strong>: Se reporta cuando se detecta un acceso a VRAM</li>
+                    <li><strong>Tiempo relativo</strong>: Calcula tiempo aproximado en segundos desde el inicio (basado en instruction_counter)</li>
+                    <li><strong>Formato</strong>: <code>[TIMELINE-VRAM] T+~Xs | PC:0xXXXX | Write XXXX=XX | DATA/CLEAR</code></li>
+                    <li><strong>Límite de muestras</strong>: Reporta hasta 200 muestras para evitar saturación</li>
+                </ul>
+                <p>
+                    <strong>Ubicación</strong>: <code>src/core/cpp/CPU.cpp</code> - Dentro del bloque de <code>[VRAM-ACCESS-GLOBAL]</code>
+                </p>
+
+                <h3>Función dump_vram_initial_state() - Dump Inicial de VRAM</h3>
+                <p>
+                    Crea un dump detallado del estado inicial de VRAM después de cargar la ROM para verificar si hay datos pre-cargados.
+                </p>
+                <ul>
+                    <li><strong>Tile Data</strong>: Dump de los primeros 128 bytes (8 tiles) en formato hexadecimal</li>
+                    <li><strong>Tile Map</strong>: Dump de los primeros 64 bytes del tilemap en formato hexadecimal</li>
+                    <li><strong>Formato</strong>: Dirección hexadecimal seguida de 16 bytes por línea</li>
+                </ul>
+                <p>
+                    <strong>Ubicación</strong>: <code>src/core/cpp/MMU.cpp</code> - Función <code>MMU::dump_vram_initial_state()</code>
+                </p>
+                <p>
+                    <strong>Llamada</strong>: Se llama automáticamente desde <code>MMU::load_rom()</code> después de cargar la ROM
+                </p>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Límites de muestras</strong>: Todos los monitores tienen límites para evitar saturación de logs y contexto</li>
+                    <li><strong>Verificación periódica</strong>: [SCREEN-TRANSITION] verifica cada 1000 instrucciones para balancear detección y rendimiento</li>
+                    <li><strong>Integración con monitores existentes</strong>: [TIMELINE-VRAM] se integra con [VRAM-ACCESS-GLOBAL] para no duplicar lógica</li>
+                    <li><strong>Dump inicial</strong>: Se ejecuta una sola vez al cargar la ROM para no afectar rendimiento durante ejecución</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadidos monitores [STATE-CHANGE], [SCREEN-TRANSITION] y [TIMELINE-VRAM]</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Añadida función <code>dump_vram_initial_state()</code> y llamada desde <code>load_rom()</code></li>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Añadida declaración de <code>dump_vram_initial_state()</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La implementación se validó mediante:
+                </p>
+                <ul>
+                    <li><strong>Compilación exitosa</strong>: La extensión Cython se compiló sin errores</li>
+                    <li><strong>Validación de módulo compilado C++</strong>: Los monitores están integrados en el bucle de ejecución</li>
+                </ul>
+                <p>
+                    <strong>Próximos pasos de verificación</strong>:
+                </p>
+                <ol>
+                    <li>Ejecutar el emulador durante 30-60 segundos con Pokémon Red</li>
+                    <li>Redirigir la salida a un archivo de log</li>
+                    <li>Analizar los logs para identificar:
+                        <ul>
+                            <li>Si aparecen accesos con datos después de 12 segundos</li>
+                            <li>Si se detectan cambios de estado que indiquen transiciones</li>
+                            <li>Si hay datos pre-cargados en VRAM</li>
+                            <li>Si el timeline muestra patrones temporales</li>
+                        </ul>
+                    </li>
+                </ol>
+                <p>
+                    <strong>Comando de ejecución sugerido</strong>:
+                </p>
+                <pre><code>python main.py roms/pkmn.gb > debug_step_0297_extended.log 2>&1</code></pre>
+                <p>
+                    <strong>Comandos de análisis sugeridos</strong> (PowerShell):
+                </p>
+                <pre><code># Buscar accesos con datos después de 12 segundos
+Select-String -Path "debug_step_0297_extended.log" -Pattern "\[TIMELINE-VRAM\].*T\+~1[2-9]|T\+~[2-9][0-9]|T\+~[0-9][0-9][0-9].*DATA" | Select-Object -First 50
+
+# Buscar cambios de estado
+Select-String -Path "debug_step_0297_extended.log" -Pattern "\[STATE-CHANGE\]" | Select-Object -First 50
+
+# Buscar transiciones de pantalla
+Select-String -Path "debug_step_0297_extended.log" -Pattern "\[SCREEN-TRANSITION\]" | Select-Object -First 20
+
+# Ver dump inicial de VRAM
+Select-String -Path "debug_step_0297_extended.log" -Pattern "\[VRAM-INIT-DUMP\]" | Select-Object -First 100</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Video RAM (VRAM)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Scroll Registers (SCX/SCY)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Data</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CPU Instruction Set</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Fases de inicialización</strong>: Los juegos tienen múltiples fases y los tiles pueden cargarse en diferentes momentos</li>
+                        <li><strong>Transiciones de pantalla</strong>: Los cambios en scroll y tilemap pueden indicar momentos donde se cargan tiles</li>
+                        <li><strong>Análisis temporal</strong>: Un timeline de accesos permite identificar patrones que no son visibles en análisis estáticos</li>
+                        <li><strong>Estado inicial de VRAM</strong>: Verificar si hay datos pre-cargados ayuda a entender si el juego espera datos desde el inicio</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Análisis extendido</strong>: Si el código de carga aparece después de 12 segundos de ejecución</li>
+                        <li><strong>Transiciones detectadas</strong>: Si los cambios de estado y transiciones de pantalla corresponden a momentos donde se cargan tiles</li>
+                        <li><strong>Datos pre-cargados</strong>: Si hay datos en VRAM desde el inicio o si está completamente vacía</li>
+                        <li><strong>Patrones temporales</strong>: Si el timeline muestra patrones que indiquen cuándo deberían cargarse los tiles</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis A</strong>: El juego carga tiles MÁS TARDE (después de 12 segundos) - <em>Pendiente de verificación con análisis extendido</em>
+                    </p>
+                    <p>
+                        <strong>Hipótesis B</strong>: El juego carga tiles en OTRA FASE (cambio de pantalla, menú, etc.) - <em>Los monitores [STATE-CHANGE] y [SCREEN-TRANSITION] ayudarán a verificar</em>
+                    </p>
+                    <p>
+                        <strong>Hipótesis C</strong>: El juego debería tener tiles pre-cargados desde el inicio (Boot ROM o inicialización especial) - <em>El dump inicial de VRAM ayudará a verificar</em>
+                    </p>
+                    <p>
+                        <strong>Hipótesis D</strong>: Hay un bug en la emulación que impide que el juego llegue a la fase de carga - <em>Pendiente de verificación con análisis extendido</em>
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar análisis extendido (30-60 segundos) con Pokémon Red</li>
+                    <li>[ ] Analizar logs para identificar accesos con datos después de 12 segundos</li>
+                    <li>[ ] Verificar si se detectan cambios de estado que indiquen transiciones</li>
+                    <li>[ ] Verificar si hay datos pre-cargados en VRAM (dump inicial)</li>
+                    <li>[ ] Analizar timeline de accesos VRAM para identificar patrones temporales</li>
+                    <li>[ ] Determinar si el juego carga tiles más tarde o si necesita intervención del emulador</li>
+                    <li>[ ] (Opcional) Crear script para analizar datos de tiles en ROM</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

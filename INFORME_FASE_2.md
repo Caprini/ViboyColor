@@ -64,6 +64,64 @@ Ejecución del plan de verificación del Step 0295 para analizar los cinco monit
 
 ---
 
+### 2025-12-25 - Step 0297: Análisis Extendido y Técnicas Alternativas
+**Estado**: ✅ COMPLETADO
+
+Implementación de técnicas alternativas de análisis para identificar cuándo se cargan los tiles en Pokémon Red. El análisis del Step 0295 confirmó que el código de carga NO existe en los primeros 12 segundos (todos los accesos son limpieza desde PC:0x36E3). Se implementaron monitores adicionales para rastrear cambios de estado, transiciones de pantalla, timeline de accesos VRAM y dump inicial de VRAM.
+
+**Monitores implementados**:
+- **[STATE-CHANGE]**: Detecta cambios de estado que podrían indicar transiciones a nuevas pantallas o fases donde se cargarían tiles. Detecta saltos grandes (JP nn o CALL nn con distancia > 0x1000 bytes) y cambios significativos en el registro HL (> 0x1000 bytes de diferencia). Reporta hasta 50 saltos grandes y 30 cambios en HL.
+- **[SCREEN-TRANSITION]**: Detecta patrones que indican transiciones de pantalla verificando cambios en SCX (0xFF43) y SCY (0xFF42) cada 1000 instrucciones. Reporta hasta 20 transiciones para evitar saturación.
+- **[TIMELINE-VRAM]**: Crea un timeline de accesos a VRAM con marcas de tiempo relativas. Se integra con [VRAM-ACCESS-GLOBAL] para añadir información temporal. Calcula tiempo aproximado en segundos desde el inicio basado en instruction_counter. Reporta hasta 200 muestras.
+- **[VRAM-INIT-DUMP]**: Función que crea un dump detallado del estado inicial de VRAM después de cargar la ROM. Muestra los primeros 128 bytes de Tile Data (8 tiles) y los primeros 64 bytes del Tile Map en formato hexadecimal. Se ejecuta automáticamente al cargar la ROM.
+
+**Cambios realizados**:
+- **CPU.cpp**:
+  - Añadido monitor [STATE-CHANGE] en `CPU::step()` para detectar saltos grandes y cambios en HL.
+  - Añadido monitor [SCREEN-TRANSITION] en `CPU::step()` para detectar cambios en scroll.
+  - Añadido monitor [TIMELINE-VRAM] integrado con [VRAM-ACCESS-GLOBAL] para timeline de accesos.
+- **MMU.cpp**:
+  - Añadida función `dump_vram_initial_state()` que crea dump detallado de VRAM inicial.
+  - Llamada automática desde `MMU::load_rom()` después de cargar la ROM.
+- **MMU.hpp**:
+  - Añadida declaración de `dump_vram_initial_state()`.
+
+**Hipótesis a investigar**:
+1. **Hipótesis A**: El juego carga tiles MÁS TARDE (después de 12 segundos) - Pendiente de verificación con análisis extendido.
+2. **Hipótesis B**: El juego carga tiles en OTRA FASE (cambio de pantalla, menú, etc.) - Los monitores [STATE-CHANGE] y [SCREEN-TRANSITION] ayudarán a verificar.
+3. **Hipótesis C**: El juego debería tener tiles pre-cargados desde el inicio (Boot ROM o inicialización especial) - El dump inicial de VRAM ayudará a verificar.
+4. **Hipótesis D**: Hay un bug en la emulación que impide que el juego llegue a la fase de carga - Pendiente de verificación con análisis extendido.
+
+**Próximos pasos**:
+1. Ejecutar análisis extendido (30-60 segundos) con Pokémon Red.
+2. Analizar logs para identificar accesos con datos después de 12 segundos.
+3. Verificar si se detectan cambios de estado que indiquen transiciones.
+4. Verificar si hay datos pre-cargados en VRAM (dump inicial).
+5. Analizar timeline de accesos VRAM para identificar patrones temporales.
+6. Determinar si el juego carga tiles más tarde o si necesita intervención del emulador.
+
+**Comando de ejecución sugerido**:
+```powershell
+python main.py roms/pkmn.gb > debug_step_0297_extended.log 2>&1
+```
+
+**Comandos de análisis sugeridos** (PowerShell):
+```powershell
+# Buscar accesos con datos después de 12 segundos
+Select-String -Path "debug_step_0297_extended.log" -Pattern "\[TIMELINE-VRAM\].*T\+~1[2-9]|T\+~[2-9][0-9]|T\+~[0-9][0-9][0-9].*DATA" | Select-Object -First 50
+
+# Buscar cambios de estado
+Select-String -Path "debug_step_0297_extended.log" -Pattern "\[STATE-CHANGE\]" | Select-Object -First 50
+
+# Buscar transiciones de pantalla
+Select-String -Path "debug_step_0297_extended.log" -Pattern "\[SCREEN-TRANSITION\]" | Select-Object -First 20
+
+# Ver dump inicial de VRAM
+Select-String -Path "debug_step_0297_extended.log" -Pattern "\[VRAM-INIT-DUMP\]" | Select-Object -First 100
+```
+
+---
+
 ### 2025-12-25 - Step 0295: Monitor Global de Accesos VRAM y Búsqueda de Rutinas de Carga
 **Estado**: ✅ COMPLETADO
 

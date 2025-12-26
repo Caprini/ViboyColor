@@ -628,6 +628,27 @@ int CPU::step() {
                    tile_id_approx, is_data ? "DATA" : "CLEAR",
                    mmu_->get_current_rom_bank());
             
+            // --- Step 0297: Monitor [TIMELINE-VRAM] - Timeline de Accesos VRAM ---
+            // Reportar timeline cuando se detecta acceso a VRAM
+            static uint64_t timeline_start_instructions_local = 0;
+            static bool timeline_started_local = false;
+            static int timeline_samples_local = 0;
+            
+            if (!timeline_started_local) {
+                timeline_start_instructions_local = instruction_counter;
+                timeline_started_local = true;
+            }
+            
+            uint64_t relative_instructions = instruction_counter - timeline_start_instructions_local;
+            uint64_t approx_seconds = relative_instructions / (4194304 / 4);  // Aproximado: 4.19MHz / 4 ciclos promedio
+            
+            timeline_samples_local++;
+            if (timeline_samples_local <= 200) {  // Limitar muestras
+                printf("[TIMELINE-VRAM] T+~%llus | PC:0x%04X | Write %04X=%02X | %s\n",
+                       approx_seconds, original_pc, write_addr, write_value,
+                       is_data ? "DATA" : "CLEAR");
+            }
+            
             vram_access_global_count++;
             
             if (vram_access_global_count >= 1000) {
@@ -716,6 +737,72 @@ int CPU::step() {
         }
     }
     // -----------------------------------------
+    
+    // --- Step 0297: Monitor [STATE-CHANGE] - Cambios de Estado del Juego ---
+    // Detecta cambios de estado que podrían indicar transiciones a nuevas pantallas
+    // o fases del juego donde se cargarían tiles.
+    static uint16_t last_pc_range = 0xFFFF;
+    static int state_change_count = 0;
+    
+    // Detectar saltos grandes (posibles cambios de pantalla/fase)
+    if (op == 0xC3 || op == 0xCD) {  // JP nn o CALL nn
+        uint16_t jump_target = mmu_->read(original_pc + 1) | 
+                              (static_cast<uint16_t>(mmu_->read(original_pc + 2)) << 8);
+        
+        // Detectar saltos grandes (más de 0x1000 bytes)
+        uint16_t jump_distance = (jump_target > original_pc) ? 
+                                 (jump_target - original_pc) : (original_pc - jump_target);
+        
+        if (jump_distance > 0x1000) {
+            state_change_count++;
+            if (state_change_count < 50) {
+                printf("[STATE-CHANGE] Salto grande detectado: PC:0x%04X -> 0x%04X (distancia: 0x%04X) | Bank:%d\n",
+                       original_pc, jump_target, jump_distance, mmu_->get_current_rom_bank());
+            }
+        }
+    }
+    
+    // Detectar cambios significativos en registros que podrían indicar cambio de fase
+    static uint16_t last_hl_significant = 0x0000;
+    uint16_t current_hl = regs_->get_hl();
+    uint16_t hl_diff = (current_hl > last_hl_significant) ? 
+                       (current_hl - last_hl_significant) : (last_hl_significant - current_hl);
+    
+    if (hl_diff > 0x1000) {  // Cambio grande en HL
+        static int hl_change_count = 0;
+        if (hl_change_count < 30) {
+            printf("[STATE-CHANGE] Cambio grande en HL: 0x%04X -> 0x%04X | PC:0x%04X\n",
+                   last_hl_significant, current_hl, original_pc);
+            hl_change_count++;
+        }
+        last_hl_significant = current_hl;
+    }
+    
+    // --- Step 0297: Monitor [SCREEN-TRANSITION] - Transiciones de Pantalla ---
+    // Detecta patrones que indican transiciones de pantalla, que podrían
+    // ser momentos donde se cargan nuevos tiles.
+    static uint8_t last_scx = 0xFF;
+    static uint8_t last_scy = 0xFF;
+    static int screen_transition_count = 0;
+    static int scx_scy_check_counter = 0;
+    
+    scx_scy_check_counter++;
+    if (scx_scy_check_counter >= 1000) {  // Verificar cada 1000 instrucciones
+        scx_scy_check_counter = 0;
+        
+        uint8_t current_scx = mmu_->read(0xFF43);
+        uint8_t current_scy = mmu_->read(0xFF42);
+        
+        if (current_scx != last_scx || current_scy != last_scy) {
+            screen_transition_count++;
+            if (screen_transition_count < 20) {
+                printf("[SCREEN-TRANSITION] Cambio en Scroll: SCX %02X->%02X SCY %02X->%02X | PC:0x%04X\n",
+                       last_scx, current_scx, last_scy, current_scy, original_pc);
+            }
+            last_scx = current_scx;
+            last_scy = current_scy;
+        }
+    }
     
     // --- Step 0285: Sniper de Ejecución del Handler (MOVIDO AL INICIO) ---
     // Este monitor se ejecuta ANTES de cualquier early return para asegurar

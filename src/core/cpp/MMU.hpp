@@ -124,6 +124,15 @@ public:
      * o si la carga es responsabilidad del juego.
      */
     void inspect_vram_initial_state();
+    
+    /**
+     * Step 0297: Dump Inicial de VRAM
+     * 
+     * Crea un dump detallado del estado inicial de VRAM después de cargar la ROM
+     * para verificar si hay datos pre-cargados. Muestra los primeros bytes de
+     * Tile Data y Tile Map en formato hexadecimal.
+     */
+    void dump_vram_initial_state();
 
     /**
      * Step 0247: Memory Timeline & PC Tracker
