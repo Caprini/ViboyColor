@@ -467,8 +467,16 @@ void PPU::render_scanline() {
         }
     }
     
-    // --- Step 0254: Renderizar Sprites después del Background ---
-    // Los sprites se dibujan encima del fondo (a menos que tengan prioridad)
+    // --- Step 0284: Renderizar Window después del Background ---
+    // La Window se dibuja encima del Background pero debajo de los Sprites
+    // Solo se renderiza si está habilitada (LCDC bit 5) y las condiciones WY/WX se cumplen
+    // Fuente: Pan Docs - Window, LCDC Bit 5 (Window Enable)
+    if ((lcdc & 0x20) != 0) {
+        render_window();
+    }
+    
+    // --- Step 0254: Renderizar Sprites después del Background y Window ---
+    // Los sprites se dibujan encima del fondo y la ventana (a menos que tengan prioridad)
     // Fuente: Pan Docs - Sprite Rendering, Priority
     render_sprites();
 }
@@ -554,31 +562,40 @@ void PPU::render_window() {
     
     // Leer registros necesarios
     uint8_t lcdc = mmu_->read(IO_LCDC);
+    
+    // Verificar que el LCD esté encendido y la Window esté habilitada (Bit 5 de LCDC)
+    if ((lcdc & 0x80) == 0 || (lcdc & 0x20) == 0) {
+        return;
+    }
+    
     uint8_t wy = mmu_->read(IO_WY);
     uint8_t wx = mmu_->read(IO_WX);
     
     // La Window solo se dibuja si WY <= LY y WX <= 166
     // (WX tiene un offset de 7 píxeles, así que WX=7 significa posición X=0)
+    // Fuente: Pan Docs - Window: WY debe ser <= LY, WX debe ser <= 166
     if (ly_ < wy || wx > 166) {
         return;
     }
     
-    // NOTA: render_window() no se usa en esta fase (Fase B simplificada)
-    // Se mantiene para referencia futura pero no se llama desde render_scanline()
-    
     // Determinar tilemap base para Window (Bit 6 de LCDC)
+    // Bit 6 = 1 -> Tilemap 1 (0x9C00), Bit 6 = 0 -> Tilemap 0 (0x9800)
     uint16_t map_base = (lcdc & 0x40) != 0 ? TILEMAP_1 : TILEMAP_0;
     
     // Determinar tile data base (Bit 4 de LCDC, igual que Background)
+    // Bit 4 = 1 -> 0x8000 (unsigned addressing: tile IDs 0-255)
+    // Bit 4 = 0 -> 0x8800 (signed addressing: tile IDs -128 a 127, tile 0 en 0x9000)
     bool unsigned_addressing = (lcdc & 0x10) != 0;
     uint16_t data_base = unsigned_addressing ? TILE_DATA_0 : TILE_DATA_1;
     
     // Calcular posición Y dentro de la Window (sin scroll, siempre desde 0)
+    // La Window no tiene scroll, siempre comienza desde el tile (0,0) del tilemap
     uint8_t y_pos_in_window = ly_ - wy;
     uint8_t tile_y = y_pos_in_window / TILE_SIZE;
     uint8_t line_in_tile = y_pos_in_window % TILE_SIZE;
     
     // Calcular posición X de inicio de la Window (WX - 7)
+    // WX tiene un offset de 7 píxeles: WX=7 significa que la Window comienza en X=0
     int16_t window_x_start = static_cast<int16_t>(wx) - 7;
     if (window_x_start < 0) {
         window_x_start = 0;
@@ -587,8 +604,61 @@ void PPU::render_window() {
         return;  // Window completamente fuera de pantalla
     }
     
-    // NOTA: render_window() no se usa en esta fase (Fase B simplificada)
-    // El código completo se implementará en la siguiente fase
+    // Leer paleta de fondo (BGP) para aplicar a los píxeles de la Window
+    uint8_t bgp = mmu_->read(IO_BGP);
+    
+    // Índice base en el framebuffer para la línea actual
+    size_t line_start_index = ly_ * SCREEN_WIDTH;
+    
+    // Renderizar píxeles de la Window desde window_x_start hasta el final de la pantalla
+    // La Window se dibuja encima del Background pero debajo de los Sprites
+    for (int screen_x = window_x_start; screen_x < SCREEN_WIDTH; screen_x++) {
+        // Calcular posición X dentro de la Window (sin scroll, siempre desde 0)
+        uint8_t x_pos_in_window = screen_x - window_x_start;
+        uint8_t tile_x = x_pos_in_window / TILE_SIZE;
+        uint8_t pixel_in_tile = x_pos_in_window % TILE_SIZE;
+        
+        // Obtener tile ID del tilemap de la Window (32x32 tiles = 1024 bytes)
+        uint16_t tilemap_addr = map_base + (tile_y * 32 + tile_x);
+        uint8_t tile_id = mmu_->read(tilemap_addr);
+        
+        // Calcular dirección del tile en VRAM
+        uint16_t tile_addr;
+        if (unsigned_addressing) {
+            // Unsigned: tile_id directamente (0-255)
+            tile_addr = data_base + (tile_id * 16);  // Cada tile son 16 bytes
+        } else {
+            // Signed: tile_id como int8_t (-128 a 127)
+            int8_t signed_tile_id = static_cast<int8_t>(tile_id);
+            tile_addr = data_base + ((signed_tile_id + 128) * 16);
+        }
+        
+        // Calcular dirección de la línea del tile
+        uint16_t tile_line_addr = tile_addr + (line_in_tile * 2);
+        
+        // Verificar que la dirección esté en VRAM válida
+        if (tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE) {
+            // Leer los 2 bytes que representan la línea del tile (formato 2bpp)
+            uint8_t byte1 = mmu_->read(tile_line_addr);
+            uint8_t byte2 = mmu_->read(tile_line_addr + 1);
+            
+            // Decodificar el píxel específico dentro del tile
+            uint8_t bit_index = 7 - pixel_in_tile;
+            uint8_t bit_low = (byte1 >> bit_index) & 1;
+            uint8_t bit_high = (byte2 >> bit_index) & 1;
+            uint8_t color_index = (bit_high << 1) | bit_low;
+            
+            // Aplicar paleta BGP para mapear el índice de color crudo al índice final
+            // BGP tiene 4 campos de 2 bits: [color3][color2][color1][color0]
+            uint8_t final_color = (bgp >> (color_index * 2)) & 0x03;
+            
+            // Escribir el píxel en el framebuffer (la Window sobrescribe el Background)
+            framebuffer_[line_start_index + screen_x] = final_color;
+        } else {
+            // Si la dirección no es válida, usar color 0 (transparente/blanco)
+            framebuffer_[line_start_index + screen_x] = 0;
+        }
+    }
 }
 
 void PPU::decode_tile_line(uint16_t tile_addr, uint8_t line, uint8_t* output) {

@@ -427,6 +427,54 @@ void CPU::add_hl(uint16_t value) {
 }
 
 int CPU::step() {
+    // --- Step 0284: Monitores de Diagnóstico al Inicio (ANTES de early return) ---
+    // Capturamos el PC ANTES de procesar interrupciones para que los monitores
+    // se ejecuten incluso cuando hay interrupciones que causan early return
+    uint16_t original_pc = regs_->pc;
+    
+    // --- Step 0279: Monitor de Reinicio (Reset Loop Detection) ---
+    // Detecta cuando el PC pasa por los vectores de reinicio (0x0000 o 0x0100)
+    // Esto indica que el juego está en un bucle de reinicio, posiblemente debido a:
+    // - Pila corrupta
+    // - Banco ROM mal mapeado (MBC1 en modo incorrecto)
+    // - Error fatal que causa un RST 00 o salto a 0x0000
+    // Fuente: Pan Docs - "Reset Vectors": 0x0000 (Boot ROM) y 0x0100 (Cartridge Entry)
+    if (original_pc == 0x0000 || original_pc == 0x0100) {
+        static uint32_t reset_count = 0;
+        printf("[RESET-WATCH] Pasando por PC:0x%04X (Contador: %u) | SP:0x%04X Bank:%d | IME:%d IE:%02X IF:%02X\n",
+               original_pc, ++reset_count, regs_->sp, mmu_->get_current_rom_bank(),
+               ime_ ? 1 : 0, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
+    }
+    
+    // --- Step 0279: Seguimiento del Handler de V-Blank ---
+    // Detecta cuando el código entra al handler de V-Blank (0x0040)
+    // Esto nos permite verificar si el handler se ejecuta correctamente y qué hace
+    // Fuente: Pan Docs - "Interrupt Vectors": 0x0040 es el vector de V-Blank
+    if (original_pc == 0x0040) {
+        printf("[VBLANK-ENTRY] Vector 0x0040 alcanzado. SP:0x%04X | HL:0x%04X | A:0x%02X | Bank:%d\n",
+               regs_->sp, regs_->get_hl(), regs_->a, mmu_->get_current_rom_bank());
+        
+        // --- Step 0281: Rastreo del Destino del Salto en 0x0040 ---
+        // Leemos la dirección de salto (JP nn) que suele estar en el vector de interrupción
+        uint16_t jump_target = mmu_->read(0x0041) | (static_cast<uint16_t>(mmu_->read(0x0042)) << 8);
+        printf("[VBLANK-TRACE] Vector 0x0040: JP 0x%04X detectado. Iniciando rastreo del handler...\n", jump_target);
+    }
+    
+    // --- Step 0280: Sniper de Polling con Estado de IE ---
+    // Monitoreamos el bucle de polling (PC: 0x614D-0x6153) para ver si alguien
+    // está escribiendo en IE (0xFFFF) durante la espera, o si IE cambia mágicamente
+    // Esto nos ayudará a entender por qué IE se queda en 0x00 cuando debería estar habilitado
+    // Fuente: Análisis del Step 0279 - El juego está atascado esperando que 0xD732 cambie
+    if (original_pc >= 0x614D && original_pc <= 0x6153) {
+        static int polling_watch_count = 0;
+        if (polling_watch_count < 20) {
+            printf("[POLLING-WATCH] PC:%04X | IE:0x%02X | IF:0x%02X | IME:%d | D732:0x%02X\n",
+                   original_pc, mmu_->read(0xFFFF), mmu_->read(0xFF0F), ime_ ? 1 : 0, mmu_->read(0xD732));
+            polling_watch_count++;
+        }
+    }
+    // -----------------------------------------
+    
     // --- Step 0277: Monitor de Decremento y Salida de Bucle - ANTES de interrupciones ---
     // Capturamos el PC ANTES de procesar interrupciones para poder ver el estado del bucle
     // incluso cuando hay interrupciones que interrumpen la ejecución
@@ -502,10 +550,8 @@ int CPU::step() {
     mmu_->debug_current_pc = regs_->pc;
     // -----------------------------------------
     
-    // --- Step 0273: Sniper Trace - Capturar PC original antes del fetch ---
-    // Guardamos el PC original para poder detectar direcciones críticas después
-    // de que el PC avance durante la ejecución de la instrucción
-    uint16_t original_pc = regs_->pc;
+    // --- Step 0273: Sniper Trace - Usar PC original capturado al inicio ---
+    // El original_pc ya fue capturado al inicio de step() para los monitores de diagnóstico
     bool is_critical_pc = (original_pc == 0x36E3 || original_pc == 0x6150 || original_pc == 0x6152);
     
     // --- Step 0277: Guardar PC original para instrumentación en casos específicos ---
@@ -2396,35 +2442,8 @@ int CPU::step() {
         // exit(1);
     }
     
-    // --- Step 0279: Monitor de Reinicio (Reset Loop Detection) ---
-    // Detecta cuando el PC pasa por los vectores de reinicio (0x0000 o 0x0100)
-    // Esto indica que el juego está en un bucle de reinicio, posiblemente debido a:
-    // - Pila corrupta
-    // - Banco ROM mal mapeado (MBC1 en modo incorrecto)
-    // - Error fatal que causa un RST 00 o salto a 0x0000
-    // Fuente: Pan Docs - "Reset Vectors": 0x0000 (Boot ROM) y 0x0100 (Cartridge Entry)
-    if (original_pc == 0x0000 || original_pc == 0x0100) {
-        static uint32_t reset_count = 0;
-        printf("[RESET-WATCH] Pasando por PC:0x%04X (Contador: %u) | SP:0x%04X Bank:%d | IME:%d IE:%02X IF:%02X\n",
-               original_pc, ++reset_count, regs_->sp, mmu_->get_current_rom_bank(),
-               ime_ ? 1 : 0, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
-    }
-    
-    // --- Step 0279: Seguimiento del Handler de V-Blank ---
-    // Detecta cuando el código entra al handler de V-Blank (0x0040)
-    // Esto nos permite verificar si el handler se ejecuta correctamente y qué hace
-    // Fuente: Pan Docs - "Interrupt Vectors": 0x0040 es el vector de V-Blank
-    if (original_pc == 0x0040) {
-        printf("[VBLANK-ENTRY] Vector 0x0040 alcanzado. SP:0x%04X | HL:0x%04X | A:0x%02X | Bank:%d\n",
-               regs_->sp, regs_->get_hl(), regs_->a, mmu_->get_current_rom_bank());
-        
-        // --- Step 0281: Rastreo del Destino del Salto en 0x0040 ---
-        // Leemos la dirección de salto (JP nn) que suele estar en el vector de interrupción
-        uint16_t jump_target = mmu_->read(0x0041) | (static_cast<uint16_t>(mmu_->read(0x0042)) << 8);
-        printf("[VBLANK-TRACE] Vector 0x0040: JP 0x%04X detectado. Iniciando rastreo del handler...\n", jump_target);
-    }
-    
     // --- Step 0281: Sniper de Ejecución del Handler ---
+    // (Este monitor se mantiene aquí porque necesita el opcode después del fetch)
     static bool in_vblank_handler = false;
     static int handler_step_count = 0;
     
@@ -2445,21 +2464,6 @@ int CPU::step() {
         if (op == 0xD9) {
             printf("[HANDLER-EXIT] RETI detectado en PC:0x%04X. Fin del rastreo del handler.\n", original_pc);
             in_vblank_handler = false;
-        }
-    }
-    // -----------------------------------------
-    
-    // --- Step 0280: Sniper de Polling con Estado de IE ---
-    // Monitoreamos el bucle de polling (PC: 0x614D-0x6153) para ver si alguien
-    // está escribiendo en IE (0xFFFF) durante la espera, o si IE cambia mágicamente
-    // Esto nos ayudará a entender por qué IE se queda en 0x00 cuando debería estar habilitado
-    // Fuente: Análisis del Step 0279 - El juego está atascado esperando que 0xD732 cambie
-    if (original_pc >= 0x614D && original_pc <= 0x6153) {
-        static int polling_watch_count = 0;
-        if (polling_watch_count < 20) {
-            printf("[POLLING-WATCH] PC:%04X | IE:0x%02X | IF:0x%02X | IME:%d | D732:0x%02X\n",
-                   original_pc, mmu_->read(0xFFFF), mmu_->read(0xFF0F), ime_ ? 1 : 0, mmu_->read(0xD732));
-            polling_watch_count++;
         }
     }
     // -----------------------------------------

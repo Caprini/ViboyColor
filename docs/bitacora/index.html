@@ -32,501 +32,1145 @@
                 </p>
                 
                 <ul class="entry-list">
-                    <!-- Entrada 0283 - Optimización de Rendimiento y Hack de Paleta -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-25</span>
-                        <span class="tag">0283</span>
-                        <a href="entries/2025-12-25__0283__optimizacion-rendimiento-hack-paleta.html" class="title">Optimización de Rendimiento y Hack de Paleta</a>
-                        <p class="summary">Optimización crítica de rendimiento comentando los logs de alta frecuencia ([BANK-READ], [VRAM-SNIPER]) que impedían alcanzar los 60 FPS. Verificación de la inicialización del registro BGP (0xFF47) con valor por defecto 0xFC para asegurar visibilidad inicial. Implementación de instrumentación específica [BGP-CHANGE] para capturar cambios reales en la paleta de fondo durante la ejecución.</p>
-                        <span class="status-badge status-verified">VERIFIED</span>
+                                        <!-- Entrada 0284 - Implementación de Ventana y Fix de Instrumentación -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0284__implementacion-ventana-fix-instrumentacion.html" class="entry-link">
+                                    Implementación de Ventana y Fix de Instrumentación
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0284 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Movimiento de los monitores de diagnóstico (VBLANK-ENTRY, RESET-WATCH, POLLING-WATCH) al inicio de CPU::step() para evitar que el early return de interrupciones los oculte. Implementación completa de la lógica de renderizado de la Ventana (Window) en PPU::render_scanline() considerando los registros WY (0xFF4A) y WX (0xFF4B). La ventana se renderiza correctamente encima del Background pero debajo de los Sprites, respetando el bit 5 de LCDC (Window Enable) y usando el mismo sistema de direccionamiento de tiles que el Background.
+                        </p>
                     </li>
-                    <!-- Entrada 0282 - Auditoría de Bancos MBC1 y Carga de VRAM -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-25</span>
-                        <span class="tag">0282</span>
-                        <a href="entries/2025-12-25__0282__auditoria-bancos-mbc1-carga-vram.html" class="title">Auditoría de Bancos MBC1 y Carga de VRAM</a>
-                        <p class="summary">Implementación de diagnósticos avanzados para el MBC1 y la VRAM. Se añadieron monitores para lecturas en bancos de ROM conmutables, un sniper de escrituras en VRAM filtrando valores nulos, y una auditoría del sistema de mapeo de bancos para verificar la integridad del direccionamiento de memoria en Pokémon Red.</p>
-                        <span class="status-badge status-verified">VERIFIED</span>
+                                        <!-- Entrada 0283 - Optimización de Rendimiento y Hack de Paleta -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0283__optimizacion-rendimiento-hack-paleta.html" class="entry-link">
+                                    Optimización de Rendimiento y Hack de Paleta
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0283 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Optimización crítica de rendimiento comentando los logs de alta frecuencia ([BANK-READ], [VRAM-SNIPER]) que impedían alcanzar los 60 FPS. Verificación de la inicialización del registro BGP (0xFF47) con valor por defecto 0xFC para asegurar visibilidad inicial. Implementación de instrumentación específica [BGP-CHANGE] para capturar cambios reales en la paleta de fondo durante la ejecución.
+                        </p>
+                    </li>
+                                        <!-- Entrada 0282 - Auditoría de Bancos MBC1 y Carga de VRAM -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0282__auditoria-bancos-mbc1-carga-vram.html" class="entry-link">
+                                    Auditoría de Bancos MBC1 y Carga de VRAM
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0282 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de diagnósticos avanzados para el MBC1 y la VRAM. Se añadieron monitores para lecturas en bancos de ROM conmutables, un sniper de escrituras en VRAM filtrando valores nulos, y una auditoría del sistema de mapeo de bancos para verificar la integridad del direccionamiento de memoria en Pokémon Red.
+                        </p>
                     </li>
                     <!-- Entrada 0281 - Auditoría del Handler de V-Blank -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-25</span>
-                        <span class="tag">0281</span>
-                        <a href="entries/2025-12-25__0281__auditoria-handler-vblank.html" class="title">Auditoría del Handler de V-Blank</a>
-                        <p class="summary">Implementación de la Operación "Deep Handler Audit" para investigar el flujo de ejecución desde el vector de interrupción de V-Blank (0x0040). El análisis anterior confirmó que las interrupciones están habilitadas pero el juego sigue atrapado en el bucle de polling. Este Step implementa un rastreador que identifica la dirección de destino del salto (JP) en el vector 0x0040 y un Sniper de ejecución para capturar las instrucciones dentro de la rutina de V-Blank, permitiendo identificar por qué no se está actualizando el flag de progreso en 0xD732.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                    <!-- Entrada 0281 - Auditoría del Handler de V-Blank -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0281__auditoria-handler-vblank.html" class="entry-link">
+                                    Auditoría del Handler de V-Blank
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0281 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de la Operación "Deep Handler Audit" para investigar el flujo de ejecución desde el vector de interrupción de V-Blank (0x0040). El análisis anterior confirmó que las interrupciones están habilitadas pero el juego sigue atrapado en el bucle de polling. Este Step implementa un rastreador que identifica la dirección de destino del salto (JP) en el vector 0x0040 y un Sniper de ejecución para capturar las instrucciones dentro de la rutina de V-Blank, permitiendo identificar por qué no se está actualizando el flag de progreso en 0xD732.
+                        </p>
                     </li>
                     <!-- Entrada 0280 - Operación "Interrupt Awakening" - Depuración de Activación de Interrupciones -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-25</span>
-                        <span class="tag">0280</span>
-                        <a href="entries/2025-12-25__0280__depuracion-activacion-interrupciones-polling-ie.html" class="title">Operación "Interrupt Awakening" - Depuración de Activación de Interrupciones</a>
-                        <p class="summary">Implementación de la Operación "Interrupt Awakening" para investigar por qué Pokémon Red está atrapado en un bucle infinito esperando que el flag 0xD732 cambie. El análisis del Step 0279 confirmó que el problema NO es un Reset Loop, sino un "coma inducido": el juego está atascado en el bucle de polling (PC: 0x614D-0x6153) esperando que una ISR de V-Blank modifique el flag, pero las interrupciones están deshabilitadas (IE=0x00). Aunque se detectó un EI en PC:0x60A6, las interrupciones no parecen estar activas durante el polling. Este Step añade instrumentación ultra-precisa para rastrear el estado de IE e IME cuando se ejecuta EI, y monitorea el bucle de polling para detectar si alguien está escribiendo en IE durante la espera.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                    <!-- Entrada 0280 - Operación "Interrupt Awakening" - Depuración de Activación de Interrupciones -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0280__depuracion-activacion-interrupciones-polling-ie.html" class="entry-link">
+                                    Operación "Interrupt Awakening" - Depuración de Activación de Interrupciones
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0280 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de la Operación "Interrupt Awakening" para investigar por qué Pokémon Red está atrapado en un bucle infinito esperando que el flag 0xD732 cambie. El análisis del Step 0279 confirmó que el problema NO es un Reset Loop, sino un "coma inducido": el juego está atascado en el bucle de polling (PC: 0x614D-0x6153) esperando que una ISR de V-Blank modifique el flag, pero las interrupciones están deshabilitadas (IE=0x00). Aunque se detectó un EI en PC:0x60A6, las interrupciones no parecen estar activas durante el polling. Este Step añade instrumentación ultra-precisa para rastrear el estado de IE e IME cuando se ejecuta EI, y monitorea el bucle de polling para detectar si alguien está escribiendo en IE durante la espera.
+                        </p>
                     </li>
-                    <!-- Entrada 0279 - Investigación de Bucle de Reinicio y MBC1 -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-25</span>
-                        <span class="tag">0279</span>
-                        <a href="entries/2025-12-25__0279__investigacion-bucle-reinicio-mbc1.html" class="title">Investigación de Bucle de Reinicio y MBC1</a>
-                        <p class="summary">Implementación de instrumentación avanzada para detectar si Pokémon Red está atrapado en un Bucle de Reinicio (Reset Loop). El análisis del Step 0278 reveló que se detectaron más de 300,000 salidas del bucle de retardo en solo 12 segundos, lo que sugiere fuertemente que el juego está reiniciándose continuamente. Se añadieron tres monitores críticos: (1) detector de paso por los vectores de reinicio (0x0000 y 0x0100) para confirmar la teoría del Reset Loop, (2) seguimiento del handler de V-Blank (0x0040) para verificar si las interrupciones se procesan correctamente, y (3) monitor de cambio de modo MBC1 para detectar si el mapeo de memoria se corrompe y desplaza el Banco 0 fuera de 0x0000-0x3FFF, rompiendo los vectores de interrupción.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0279 - Investigación de Bucle de Reinicio y MBC1 -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0279__investigacion-bucle-reinicio-mbc1.html" class="entry-link">
+                                    Investigación de Bucle de Reinicio y MBC1
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0279 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de instrumentación avanzada para detectar si Pokémon Red está atrapado en un Bucle de Reinicio (Reset Loop). El análisis del Step 0278 reveló que se detectaron más de 300,000 salidas del bucle de retardo en solo 12 segundos, lo que sugiere fuertemente que el juego está reiniciándose continuamente. Se añadieron tres monitores críticos: (1) detector de paso por los vectores de reinicio (0x0000 y 0x0100) para confirmar la teoría del Reset Loop, (2) seguimiento del handler de V-Blank (0x0040) para verificar si las interrupciones se procesan correctamente, y (3) monitor de cambio de modo MBC1 para detectar si el mapeo de memoria se corrompe y desplaza el Banco 0 fuera de 0x0000-0x3FFF, rompiendo los vectores de interrupción.
+                        </p>
                     </li>
                     <!-- Entrada 0278 - Operación Ghost in the Machine: Rastreo de Flujo Post-Retardo y Depuración de Patrones de PPU -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-25</span>
-                        <span class="tag">0278</span>
-                        <a href="entries/2025-12-25__0278__rastreo-flujo-post-retardo-depuracion-patrones-ppu.html" class="title">Operación Ghost in the Machine: Rastreo de Flujo Post-Retardo y Depuración de Patrones de PPU</a>
-                        <p class="summary">Implementación de la "Operación Ghost in the Machine" para rastrear el flujo de ejecución después de que el bucle de retardo identificado en el Step 0277 termina. El análisis previo confirmó que el bucle de retardo funciona correctamente (DE decrementa hasta 0), pero el juego no activa la intro después del retardo. Además, la pantalla muestra un patrón de franjas verticales erróneo. Se añadió instrumentación en dos puntos críticos: (1) trail de ejecución post-retardo que captura las siguientes 200 instrucciones después de que el PC sale de 0x6155, y (2) inspección de la PPU en el centro de la pantalla (LY=72, X=80) para ver qué Tile ID está leyendo realmente. El objetivo es identificar si el juego intenta habilitar las interrupciones después del retardo, y entender por qué la PPU está renderizando un patrón erróneo.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                    <!-- Entrada 0278 - Operación Ghost in the Machine: Rastreo de Flujo Post-Retardo y Depuración de Patrones de PPU -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0278__rastreo-flujo-post-retardo-depuracion-patrones-ppu.html" class="entry-link">
+                                    Operación Ghost in the Machine: Rastreo de Flujo Post-Retardo y Depuración de Patrones de PPU
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0278 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de la "Operación Ghost in the Machine" para rastrear el flujo de ejecución después de que el bucle de retardo identificado en el Step 0277 termina. El análisis previo confirmó que el bucle de retardo funciona correctamente (DE decrementa hasta 0), pero el juego no activa la intro después del retardo. Además, la pantalla muestra un patrón de franjas verticales erróneo. Se añadió instrumentación en dos puntos críticos: (1) trail de ejecución post-retardo que captura las siguientes 200 instrucciones después de que el PC sale de 0x6155, y (2) inspección de la PPU en el centro de la pantalla (LY=72, X=80) para ver qué Tile ID está leyendo realmente. El objetivo es identificar si el juego intenta habilitar las interrupciones después del retardo, y entender por qué la PPU está renderizando un patrón erróneo.
+                        </p>
                     </li>
-                    <!-- Entrada 0277 - Operación Warp Drive: Monitor de Decremento y Validación de Bucle de Retardo -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-25</span>
-                        <span class="tag">0277</span>
-                        <a href="entries/2025-12-25__0277__monitor-decremento-validacion-bucle-retardo.html" class="title">Operación Warp Drive: Monitor de Decremento y Validación de Bucle de Retardo</a>
-                        <p class="summary">Implementación de la "Operación Warp Drive" para validar el bucle de retardo identificado en el Step 0276. El análisis previo reveló que el juego NO está poleando hardware, sino ejecutando un bucle de retardo por software basado en el registro DE. Se añadió instrumentación específica en tres puntos críticos: (1) captura de la carga inicial de DE en PC:0x614A, (2) monitoreo del decremento de DE cada 1000 iteraciones en PC:0x6150, y (3) detección de salida del bucle cuando el PC sale del rango 0x614A-0x6155. El objetivo es confirmar que DE está disminuyendo correctamente, cuánto tiempo le falta al bucle, y validar que la instrucción DEC DE está funcionando correctamente.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0277 - Operación Warp Drive: Monitor de Decremento y Validación de Bucle de Retardo -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0277__monitor-decremento-validacion-bucle-retardo.html" class="entry-link">
+                                    Operación Warp Drive: Monitor de Decremento y Validación de Bucle de Retardo
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0277 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de la "Operación Warp Drive" para validar el bucle de retardo identificado en el Step 0276. El análisis previo reveló que el juego NO está poleando hardware, sino ejecutando un bucle de retardo por software basado en el registro DE. Se añadió instrumentación específica en tres puntos críticos: (1) captura de la carga inicial de DE en PC:0x614A, (2) monitoreo del decremento de DE cada 1000 iteraciones en PC:0x6150, y (3) detección de salida del bucle cuando el PC sale del rango 0x614A-0x6155. El objetivo es confirmar que DE está disminuyendo correctamente, cuánto tiempo le falta al bucle, y validar que la instrucción DEC DE está funcionando correctamente.
+                        </p>
                     </li>
                     <!-- Entrada 0276 - Operación Time-Lapse: Disección del Bucle de Polling y Monitor de Registros de Tiempo -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-25</span>
-                        <span class="tag">0276</span>
-                        <a href="entries/2025-12-25__0276__diseccion-bucle-polling-monitor-registros-tiempo.html" class="title">Operación Time-Lapse: Disección del Bucle de Polling y Monitor de Registros de Tiempo</a>
-                        <p class="summary">Implementación de la "Operación Time-Lapse" para diseccionar el bucle de polling activo en el que Pokémon Red está atrapado (PC: 614D - 6151). El análisis del Step 0275 reveló que el juego no está en HALT, sino que está poleando (revisando constantemente) una condición. La hipótesis es que el juego está esperando que un registro de hardware (como LY, DIV o el flag 0xD732) cambie, pero si nuestro Timer o PPU no están avanzando correctamente, el juego se queda atrapado en el tiempo. Se añadió instrumentación en un punto: Sniper Trace del bucle atrapado (614D-6155) al final de step() para capturar exactamente qué opcodes ejecuta y qué valores lee de la memoria (LY, DIV, STAT, D732), permitiendo identificar qué registro está siendo poleado y si el tiempo está "congelado" para la CPU.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                    <!-- Entrada 0276 - Operación Time-Lapse: Disección del Bucle de Polling y Monitor de Registros de Tiempo -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0276__diseccion-bucle-polling-monitor-registros-tiempo.html" class="entry-link">
+                                    Operación Time-Lapse: Disección del Bucle de Polling y Monitor de Registros de Tiempo
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0276 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de la "Operación Time-Lapse" para diseccionar el bucle de polling activo en el que Pokémon Red está atrapado (PC: 614D - 6151). El análisis del Step 0275 reveló que el juego no está en HALT, sino que está poleando (revisando constantemente) una condición. La hipótesis es que el juego está esperando que un registro de hardware (como LY, DIV o el flag 0xD732) cambie, pero si nuestro Timer o PPU no están avanzando correctamente, el juego se queda atrapado en el tiempo. Se añadió instrumentación en un punto: Sniper Trace del bucle atrapado (614D-6155) al final de step() para capturar exactamente qué opcodes ejecuta y qué valores lee de la memoria (LY, DIV, STAT, D732), permitiendo identificar qué registro está siendo poleado y si el tiempo está "congelado" para la CPU.
+                        </p>
                     </li>
-                    <!-- Entrada 0275 - Operación Rebirth: Disección de la Rutina de Inicialización y Watchdog de HALT -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-25</span>
-                        <span class="tag">0275</span>
-                        <a href="entries/2025-12-25__0275__diseccion-rutina-inicializacion-watchdog-halt.html" class="title">Operación Rebirth: Disección de la Rutina de Inicialización y Watchdog de HALT</a>
-                        <p class="summary">Implementación de la "Operación Rebirth" para diseccionar la rutina de inicialización de Pokémon Red donde se desactivan las interrupciones. El análisis del Step 0274 reveló que el juego ejecuta DI (0xF3) en PC:1F54 y escribe 0x00 en 0xFFFF (IE) en PC:1F58, causando un "suicidio técnico". Se añadió instrumentación en tres puntos: (1) Sniper Trace de la zona de muerte (1F54-1F60) para capturar la secuencia exacta de opcodes, (2) Monitor de Salto de Banco (Bank Watcher) para detectar cambios de banco MBC, y (3) Watchdog de "HALT of Death" para detectar cuando la CPU entra en HALT con IE=0 e IME=0, un estado de huelga permanente.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0275 - Operación Rebirth: Disección de la Rutina de Inicialización y Watchdog de HALT -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0275__diseccion-rutina-inicializacion-watchdog-halt.html" class="entry-link">
+                                    Operación Rebirth: Disección de la Rutina de Inicialización y Watchdog de HALT
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0275 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de la "Operación Rebirth" para diseccionar la rutina de inicialización de Pokémon Red donde se desactivan las interrupciones. El análisis del Step 0274 reveló que el juego ejecuta DI (0xF3) en PC:1F54 y escribe 0x00 en 0xFFFF (IE) en PC:1F58, causando un "suicidio técnico". Se añadió instrumentación en tres puntos: (1) Sniper Trace de la zona de muerte (1F54-1F60) para capturar la secuencia exacta de opcodes, (2) Monitor de Salto de Banco (Bank Watcher) para detectar cambios de banco MBC, y (3) Watchdog de "HALT of Death" para detectar cuando la CPU entra en HALT con IE=0 e IME=0, un estado de huelga permanente.
+                        </p>
                     </li>
-                    <!-- Entrada 0274 - Operación IE Hunter: Rastreo del Registro IE e Interrupciones -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-25</span>
-                        <span class="tag">0274</span>
-                        <a href="entries/2025-12-25__0274__rastreo-registro-ie-e-interrupciones.html" class="title">Operación IE Hunter: Rastreo del Registro IE e Interrupciones</a>
-                        <p class="summary">Implementación de la "Operación IE Hunter" para rastrear quién y cuándo modifica el registro de habilitación de interrupciones (IE, 0xFFFF). El análisis del Step 0273 reveló que IE=0x00 (todas las interrupciones deshabilitadas) mientras que IF=0x01 (V-Blank pendiente), causando un deadlock. Se añadió instrumentación en tres puntos: (1) captura de cada escritura en 0xFFFF en MMU.cpp, (2) rastreo del flujo post-limpieza VRAM (PC:36E9) en CPU.cpp, y (3) logging de instrucciones EI/DI. El objetivo es identificar el momento exacto en que IE se deshabilita y qué código lo causa.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0274 - Operación IE Hunter: Rastreo del Registro IE e Interrupciones -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0274__rastreo-registro-ie-e-interrupciones.html" class="entry-link">
+                                    Operación IE Hunter: Rastreo del Registro IE e Interrupciones
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0274 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de la "Operación IE Hunter" para rastrear quién y cuándo modifica el registro de habilitación de interrupciones (IE, 0xFFFF). El análisis del Step 0273 reveló que IE=0x00 (todas las interrupciones deshabilitadas) mientras que IF=0x01 (V-Blank pendiente), causando un deadlock. Se añadió instrumentación en tres puntos: (1) captura de cada escritura en 0xFFFF en MMU.cpp, (2) rastreo del flujo post-limpieza VRAM (PC:36E9) en CPU.cpp, y (3) logging de instrucciones EI/DI. El objetivo es identificar el momento exacto en que IE se deshabilita y qué código lo causa.
+                        </p>
                     </li>
-                    <!-- Entrada 0273 - Operación Sniper: Disección de Bucles Críticos -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-25</span>
-                        <span class="tag">0273</span>
-                        <a href="entries/2025-12-25__0273__sniper-traces-bucles-criticos.html" class="title">Operación Sniper: Disección de Bucles Críticos</a>
-                        <p class="summary">Implementación de "Sniper Traces" en CPU.cpp para capturar instantáneas precisas del estado de la CPU en puntos críticos (PC: 0x36E3, 0x6150, 0x6152) con límite de 50 trazas por dirección. Se añadió instrumentación de escritura "Trigger D732" en MMU.cpp para detectar cualquier intento de modificar el flag 0xD732. Se implementó get_current_rom_bank() en MMU para reportar el banco ROM actual en las trazas. El objetivo es entender por qué Pokémon Red está atrapado en bucles de espera y qué condición de hardware o interrupción está omitiendo el emulador.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0273 - Operación Sniper: Disección de Bucles Críticos -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0273__sniper-traces-bucles-criticos.html" class="entry-link">
+                                    Operación Sniper: Disección de Bucles Críticos
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0273 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de "Sniper Traces" en CPU.cpp para capturar instantáneas precisas del estado de la CPU en puntos críticos (PC: 0x36E3, 0x6150, 0x6152) con límite de 50 trazas por dirección. Se añadió instrumentación de escritura "Trigger D732" en MMU.cpp para detectar cualquier intento de modificar el flag 0xD732. Se implementó get_current_rom_bank() en MMU para reportar el banco ROM actual en las trazas. El objetivo es entender por qué Pokémon Red está atrapado en bucles de espera y qué condición de hardware o interrupción está omitiendo el emulador.
+                        </p>
                     </li>
-                    <!-- Entrada 0272 - MBC Unificado & Instrumentación VRAM/WRAM -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-25</span>
-                        <span class="tag">0272</span>
-                        <a href="entries/2025-12-25__0272__mbc-unificado-e-instrumentacion-vram.html" class="title">MBC Unificado & Instrumentación VRAM/WRAM</a>
-                        <p class="summary">Unificación del soporte de MBC (ROM_ONLY, MBC1, MBC2, MBC3, MBC5) con mapeo dinámico de bancos y RAM según header, más trazas ligeras de VRAM y WRAM (0xD732). El GPS separa VRAM_TILE_SUM y VRAM_MAP_SUM: los tiles siguen en 0, el mapa se llena con 0x7F y D732 permanece en 0x00; no se observan escrituras de VRAM ni toques a D732 durante la ejecución de Pokémon Red.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0272 - MBC Unificado & Instrumentación VRAM/WRAM -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-25__0272__mbc-unificado-e-instrumentacion-vram.html" class="entry-link">
+                                    MBC Unificado & Instrumentación VRAM/WRAM
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-25 | 
+                            <strong>Step ID:</strong> 0272 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Unificación del soporte de MBC (ROM_ONLY, MBC1, MBC2, MBC3, MBC5) con mapeo dinámico de bancos y RAM según header, más trazas ligeras de VRAM y WRAM (0xD732). El GPS separa VRAM_TILE_SUM y VRAM_MAP_SUM: los tiles siguen en 0, el mapa se llena con 0x7F y D732 permanece en 0x00; no se observan escrituras de VRAM ni toques a D732 durante la ejecución de Pokémon Red.
+                        </p>
                     </li>
-                    <!-- Entrada 0271 - Misc Instructions Implementation -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-24</span>
-                        <span class="tag">0271</span>
-                        <a href="entries/2025-12-24__0271__misc-instructions-implementation.html" class="title">Misc Instructions Implementation (DAA, CPL, SCF, CCF)</a>
-                        <p class="summary">Este Step implementa las misceláneas (DAA, CPL, SCF, CCF), los loads básicos (BC/DE, LDI/LDD A,(HL±), LDH (C), A / LDH A, (C), LD (nn), A / LD A, (nn)), añade RETI y corrige el HALT bug (IME=0 con IF&IE≠0). El bucle de RST 38 desaparece; la CPU progresa pero la pantalla sigue verde, pendiente de leer un flag en HRAM/WRAM.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0271 - Misc Instructions Implementation -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-24__0271__misc-instructions-implementation.html" class="entry-link">
+                                    Misc Instructions Implementation (DAA, CPL, SCF, CCF)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-24 | 
+                            <strong>Step ID:</strong> 0271 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step implementa las misceláneas (DAA, CPL, SCF, CCF), los loads básicos (BC/DE, LDI/LDD A,(HL±), LDH (C), A / LDH A, (C), LD (nn), A / LD A, (nn)), añade RETI y corrige el HALT bug (IME=0 con IF&IE≠0). El bucle de RST 38 desaparece; la CPU progresa pero la pantalla sigue verde, pendiente de leer un flag en HRAM/WRAM.
+                        </p>
                     </li>
-                    <!-- Entrada 0270 - Stack Operations Completion -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0270</span>
-                        <a href="entries/2025-12-23__0270__stack-operations-completion.html" class="title">Stack Operations Completion (DE, HL, AF)</a>
-                        <p class="summary">Este Step completa las operaciones de pila (PUSH/POP) para todos los pares de registros de la CPU. El diagnóstico del Step 0269 reveló que el Stack Pointer ya no apuntaba a la ROM (corrección exitosa), pero el CPU entraba en un bucle infinito de RST 38 (PC:0038) con el SP cayendo en picada. La causa raíz era la falta de las instrucciones PUSH/POP para los pares DE, HL y, críticamente, AF. Pokémon usa PUSH AF y POP AF constantemente para guardar y recuperar el estado de los flags. Si estas instrucciones no están implementadas, la pila se desalinea o los registros quedan con valores basura, causando saltos a direcciones inválidas (que se leen como 0xFF, ejecutando RST 38). Se implementaron 6 nuevas instrucciones: PUSH DE (0xD5), POP DE (0xD1), PUSH HL (0xE5), POP HL (0xE1), PUSH AF (0xF5) y POP AF (0xF1). La implementación de POP AF es especialmente crítica, ya que los 4 bits bajos del registro F siempre deben ser cero.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0270 - Stack Operations Completion -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0270__stack-operations-completion.html" class="entry-link">
+                                    Stack Operations Completion (DE, HL, AF)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0270 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step completa las operaciones de pila (PUSH/POP) para todos los pares de registros de la CPU. El diagnóstico del Step 0269 reveló que el Stack Pointer ya no apuntaba a la ROM (corrección exitosa), pero el CPU entraba en un bucle infinito de RST 38 (PC:0038) con el SP cayendo en picada. La causa raíz era la falta de las instrucciones PUSH/POP para los pares DE, HL y, críticamente, AF. Pokémon usa PUSH AF y POP AF constantemente para guardar y recuperar el estado de los flags. Si estas instrucciones no están implementadas, la pila se desalinea o los registros quedan con valores basura, causando saltos a direcciones inválidas (que se leen como 0xFF, ejecutando RST 38). Se implementaron 6 nuevas instrucciones: PUSH DE (0xD5), POP DE (0xD1), PUSH HL (0xE5), POP HL (0xE1), PUSH AF (0xF5) y POP AF (0xF1). La implementación de POP AF es especialmente crítica, ya que los 4 bits bajos del registro F siempre deben ser cero.
+                        </p>
                     </li>
-                    <!-- Entrada 0269 - Control Flow Completion -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0269</span>
-                        <a href="entries/2025-12-23__0269__control-flow-completion.html" class="title">Control Flow Completion (Calls, Rets, RSTs)</a>
-                        <p class="summary">Este Step completa el conjunto de instrucciones de control de flujo de la CPU implementando todas las instrucciones condicionales y RST que faltaban. El diagnóstico del Step 0268 reveló que el Stack Pointer seguía corrompido (SP:210A) incluso después de implementar las matemáticas de pila. La causa raíz era un Desastre de Flujo de Control: si el juego ejecuta CALL Z o RST 28 y no están implementadas, actúan como NOPs, desbalanceando la pila (un RET posterior sacará datos erróneos) y causando el crash. Se implementaron 17 nuevas instrucciones: 4 retornos condicionales, 4 llamadas condicionales, 4 saltos absolutos condicionales, 8 restarts (RST) y 1 salto indirecto (JP HL). Sin estas instrucciones, la lógica del juego es un queso gruyère lleno de agujeros.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0269 - Control Flow Completion -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0269__control-flow-completion.html" class="entry-link">
+                                    Control Flow Completion (Calls, Rets, RSTs)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0269 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step completa el conjunto de instrucciones de control de flujo de la CPU implementando todas las instrucciones condicionales y RST que faltaban. El diagnóstico del Step 0268 reveló que el Stack Pointer seguía corrompido (SP:210A) incluso después de implementar las matemáticas de pila. La causa raíz era un Desastre de Flujo de Control: si el juego ejecuta CALL Z o RST 28 y no están implementadas, actúan como NOPs, desbalanceando la pila (un RET posterior sacará datos erróneos) y causando el crash. Se implementaron 17 nuevas instrucciones: 4 retornos condicionales, 4 llamadas condicionales, 4 saltos absolutos condicionales, 8 restarts (RST) y 1 salto indirecto (JP HL). Sin estas instrucciones, la lógica del juego es un queso gruyère lleno de agujeros.
+                        </p>
                     </li>
-                    <!-- Entrada 0268 - Stack Math Implementation -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0268</span>
-                        <a href="entries/2025-12-23__0268__stack-math-implementation.html" class="title">Stack Math Implementation (0xE8, 0xF8, 0xF9)</a>
-                        <p class="summary">Este Step implementa las tres instrucciones críticas de aritmética de pila ("Stack Math") que faltaban en la CPU: ADD SP, e (0xE8), LD HL, SP+e (0xF8) y LD SP, HL (0xF9). El diagnóstico del Step 0267 reveló que el Stack Pointer estaba corrompido (SP:210A, apuntando a ROM). La causa más probable era la falta de estas instrucciones, que los juegos usan para gestionar variables locales en la pila. La implementación es quirúrgica: los flags H y C se calculan basándose en el byte bajo de SP (como si fuera una suma de 8 bits), no en el resultado completo de 16 bits. Este comportamiento específico del hardware LR35902 es crítico para la precisión.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0268 - Stack Math Implementation -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0268__stack-math-implementation.html" class="entry-link">
+                                    Stack Math Implementation (0xE8, 0xF8, 0xF9)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0268 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step implementa las tres instrucciones críticas de aritmética de pila ("Stack Math") que faltaban en la CPU: ADD SP, e (0xE8), LD HL, SP+e (0xF8) y LD SP, HL (0xF9). El diagnóstico del Step 0267 reveló que el Stack Pointer estaba corrompido (SP:210A, apuntando a ROM). La causa más probable era la falta de estas instrucciones, que los juegos usan para gestionar variables locales en la pila. La implementación es quirúrgica: los flags H y C se calculan basándose en el byte bajo de SP (como si fuera una suma de 8 bits), no en el resultado completo de 16 bits. Este comportamiento específico del hardware LR35902 es crítico para la precisión.
+                        </p>
                     </li>
-                    <!-- Entrada 0267 - SP Corruption Watchdog -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0267</span>
-                        <a href="entries/2025-12-23__0267__sp-corruption-watchdog.html" class="title">SP Corruption Watchdog (Stack Pointer Watchdog)</a>
-                        <p class="summary">Este Step implementa un watchdog (perro guardián) para detectar la corrupción del Stack Pointer (SP) en tiempo real. El análisis del Step 0266 reveló que el GPS muestra SP:210A, lo cual es un estado fatal: el Stack Pointer apunta a la ROM (solo lectura) cuando debería estar en RAM escribible. Este watchdog detecta el momento exacto en que el SP se corrompe, permitiendo identificar la instrucción que causa el desastre. El watchdog verifica después de cada instrucción que el SP esté en un rango válido (WRAM 0xC000-0xDFFF o HRAM 0xFF80-0xFFFE) e imprime un mensaje crítico con el valor de SP y el PC cuando detecta corrupción.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0267 - SP Corruption Watchdog -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0267__sp-corruption-watchdog.html" class="entry-link">
+                                    SP Corruption Watchdog (Stack Pointer Watchdog)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0267 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step implementa un watchdog (perro guardián) para detectar la corrupción del Stack Pointer (SP) en tiempo real. El análisis del Step 0266 reveló que el GPS muestra SP:210A, lo cual es un estado fatal: el Stack Pointer apunta a la ROM (solo lectura) cuando debería estar en RAM escribible. Este watchdog detecta el momento exacto en que el SP se corrompe, permitiendo identificar la instrucción que causa el desastre. El watchdog verifica después de cada instrucción que el SP esté en un rango válido (WRAM 0xC000-0xDFFF o HRAM 0xFF80-0xFFFE) e imprime un mensaje crítico con el valor de SP y el PC cuando detecta corrupción.
+                        </p>
                     </li>
-                    <!-- Entrada 0266 - Análisis del Bucle de Pokémon -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0266</span>
-                        <a href="entries/2025-12-23__0266__pokemon-loop-analysis.html" class="title">Análisis del Bucle de Pokémon (0x0564)</a>
-                        <p class="summary">Este Step analiza el bucle de espera en Pokémon Red usando la herramienta de desensamblado tools/dump_rom_zone.py. El Step 0265 implementó las interrupciones STAT por LYC, pero la pantalla sigue verde y el TileMap muestra 0x7F (blanco). El GPS muestra que el PC está atrapado en un bucle entre 0x0564 y 0x056D. Este Step desensambla esa región para entender qué está esperando el juego y por qué no avanza. El análisis reveló que el bucle está esperando que un contador en RAM (0xCC4B) llegue a 0, probablemente actualizado en una ISR que no se ejecuta porque IME=0.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0266 - Análisis del Bucle de Pokémon -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0266__pokemon-loop-analysis.html" class="entry-link">
+                                    Análisis del Bucle de Pokémon (0x0564)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0266 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step analiza el bucle de espera en Pokémon Red usando la herramienta de desensamblado tools/dump_rom_zone.py. El Step 0265 implementó las interrupciones STAT por LYC, pero la pantalla sigue verde y el TileMap muestra 0x7F (blanco). El GPS muestra que el PC está atrapado en un bucle entre 0x0564 y 0x056D. Este Step desensambla esa región para entender qué está esperando el juego y por qué no avanza. El análisis reveló que el bucle está esperando que un contador en RAM (0xCC4B) llegue a 0, probablemente actualizado en una ISR que no se ejecuta porque IME=0.
+                        </p>
                     </li>
-                    <!-- Entrada 0265 - LYC Coincidence & STAT IRQ Fix -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0265</span>
-                        <a href="entries/2025-12-23__0265__lyc-coincidence-stat-irq-fix.html" class="title">LYC Coincidence & STAT IRQ Fix</a>
-                        <p class="summary">Este Step implementa y corrige la lógica de comparación LYC (LY Compare) y la generación de interrupciones STAT en la PPU. El Step 0264 confirmó que el HALT funciona correctamente, pero la intro de Pokémon Red sigue sin avanzar. La hipótesis es que el juego está esperando una interrupción LCD STAT (por coincidencia LY=LYC) para sincronizar efectos visuales o avanzar la lógica, y nuestra PPU no la está disparando correctamente. Este Step asegura que cuando LY coincide con LYC y el bit 6 de STAT está habilitado, se solicite la interrupción STAT en el flanco de subida (rising edge).</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0265 - LYC Coincidence & STAT IRQ Fix -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0265__lyc-coincidence-stat-irq-fix.html" class="entry-link">
+                                    LYC Coincidence & STAT IRQ Fix
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0265 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step implementa y corrige la lógica de comparación LYC (LY Compare) y la generación de interrupciones STAT en la PPU. El Step 0264 confirmó que el HALT funciona correctamente, pero la intro de Pokémon Red sigue sin avanzar. La hipótesis es que el juego está esperando una interrupción LCD STAT (por coincidencia LY=LYC) para sincronizar efectos visuales o avanzar la lógica, y nuestra PPU no la está disparando correctamente. Este Step asegura que cuando LY coincide con LYC y el bit 6 de STAT está habilitado, se solicite la interrupción STAT en el flanco de subida (rising edge).
+                        </p>
                     </li>
-                    <!-- Entrada 0264 - HALT Wakeup Fix -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0264</span>
-                        <a href="entries/2025-12-23__0264__halt-wakeup-fix.html" class="title">HALT Wakeup Fix (IME=0)</a>
-                        <p class="summary">Este Step revisa y corrige la lógica de despertar de HALT en la CPU. El Step 0263 confirmó que el Tile Map contiene datos válidos (tile 0x7F), pero la pantalla sigue estática. El GPS muestra IME:0, IE:0D, IF:01, lo que indica que hay una interrupción V-Blank pendiente pero la CPU no la está atendiendo porque IME está desactivado. La hipótesis es que el juego está usando HALT y esperando que la CPU se despierte cuando ocurre una interrupción, incluso si IME=0. Según Pan Docs, cuando IME=0 y hay una interrupción pendiente habilitada, la CPU debe salir de HALT pero NO saltar al vector de interrupción.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0264 - HALT Wakeup Fix -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0264__halt-wakeup-fix.html" class="entry-link">
+                                    HALT Wakeup Fix (IME=0)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0264 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step revisa y corrige la lógica de despertar de HALT en la CPU. El Step 0263 confirmó que el Tile Map contiene datos válidos (tile 0x7F), pero la pantalla sigue estática. El GPS muestra IME:0, IE:0D, IF:01, lo que indica que hay una interrupción V-Blank pendiente pero la CPU no la está atendiendo porque IME está desactivado. La hipótesis es que el juego está usando HALT y esperando que la CPU se despierte cuando ocurre una interrupción, incluso si IME=0. Según Pan Docs, cuando IME=0 y hay una interrupción pendiente habilitada, la CPU debe salir de HALT pero NO saltar al vector de interrupción.
+                        </p>
                     </li>
-                    <!-- Entrada 0263 - Tile Map Inspector -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0263</span>
-                        <a href="entries/2025-12-23__0263__tile-map-inspector.html" class="title">Tile Map Inspector</a>
-                        <p class="summary">Este Step instrumenta la PPU para inspeccionar el Tile Map que se está utilizando durante el renderizado. El Step 0262 confirmó que MBC1 funciona perfectamente y que la ROM se lee correctamente, pero la pantalla sigue vacía. La hipótesis es que hay un desajuste en la configuración de la PPU (Tile Map vs Tile Data) o que el Tile Map está vacío. Esta instrumentación nos permitirá verificar si el área de memoria que la PPU está usando como Tile Map contiene índices de tiles válidos o está completamente vacía.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0263 - Tile Map Inspector -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0263__tile-map-inspector.html" class="entry-link">
+                                    Tile Map Inspector
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0263 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step instrumenta la PPU para inspeccionar el Tile Map que se está utilizando durante el renderizado. El Step 0262 confirmó que MBC1 funciona perfectamente y que la ROM se lee correctamente, pero la pantalla sigue vacía. La hipótesis es que hay un desajuste en la configuración de la PPU (Tile Map vs Tile Data) o que el Tile Map está vacío. Esta instrumentación nos permitirá verificar si el área de memoria que la PPU está usando como Tile Map contiene índices de tiles válidos o está completamente vacía.
+                        </p>
                     </li>
-                    <!-- Entrada 0262 - ROM Read Probe -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0262</span>
-                        <a href="entries/2025-12-23__0262__rom-read-probe.html" class="title">ROM Read Probe</a>
-                        <p class="summary">Este Step instrumenta el método MMU::read() para monitorear las lecturas en el área de ROM conmutada (0x4000-0x7FFF). El Step 0261 confirmó que MBC1 funciona (vemos cambios de banco), pero las escrituras en VRAM siguen siendo ceros. La hipótesis es que MMU::read() podría estar devolviendo ceros al leer del banco conmutado, a pesar de que el cambio de banco se registra correctamente. Esta instrumentación nos permitirá verificar qué valores está devolviendo realmente la MMU cuando el juego lee desde los bancos ROM seleccionados.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0262 - ROM Read Probe -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0262__rom-read-probe.html" class="entry-link">
+                                    ROM Read Probe
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0262 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step instrumenta el método MMU::read() para monitorear las lecturas en el área de ROM conmutada (0x4000-0x7FFF). El Step 0261 confirmó que MBC1 funciona (vemos cambios de banco), pero las escrituras en VRAM siguen siendo ceros. La hipótesis es que MMU::read() podría estar devolviendo ceros al leer del banco conmutado, a pesar de que el cambio de banco se registra correctamente. Esta instrumentación nos permitirá verificar qué valores está devolviendo realmente la MMU cuando el juego lee desde los bancos ROM seleccionados.
+                        </p>
                     </li>
-                    <!-- Entrada 0261 - MBC Activity Monitor -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0261</span>
-                        <a href="entries/2025-12-23__0261__mbc-activity-monitor.html" class="title">MBC Activity Monitor</a>
-                        <p class="summary">Este Step instrumenta el código MBC1 implementado en el Step 0260 para monitorear cambios de banco ROM y detectar intentos de lectura fuera de rango. El objetivo es confirmar si el juego está seleccionando bancos de ROM correctamente y si nuestra MMU está respondiendo adecuadamente. Si el juego intenta cambiar de banco pero no vemos logs, significa que hay un problema en la lógica de detección. Si vemos cambios de banco pero la VRAM sigue vacía, el problema está en la lectura de datos desde los bancos correctos.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0261 - MBC Activity Monitor -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0261__mbc-activity-monitor.html" class="entry-link">
+                                    MBC Activity Monitor
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0261 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step instrumenta el código MBC1 implementado en el Step 0260 para monitorear cambios de banco ROM y detectar intentos de lectura fuera de rango. El objetivo es confirmar si el juego está seleccionando bancos de ROM correctamente y si nuestra MMU está respondiendo adecuadamente. Si el juego intenta cambiar de banco pero no vemos logs, significa que hay un problema en la lógica de detección. Si vemos cambios de banco pero la VRAM sigue vacía, el problema está en la lectura de datos desde los bancos correctos.
+                        </p>
                     </li>
-                    <!-- Entrada 0260 - MBC1 ROM Banking -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0260</span>
-                        <a href="entries/2025-12-23__0260__mbc1-rom-banking.html" class="title">MBC1 ROM Banking</a>
-                        <p class="summary">Este Step implementa soporte básico de MBC1 (Memory Bank Controller 1) en la MMU de C++ para permitir que los juegos grandes (>32KB) accedan a sus bancos de ROM. El diagnóstico del Step 0259 confirmó que Pokémon Red estaba escribiendo ceros en VRAM porque intentaba leer gráficos de bancos ROM no mapeados. Con MBC1 implementado, los juegos pueden seleccionar bancos de ROM y leer los datos correctos. El espacio `0x0000-0x3FFF` siempre mapea al Banco 0 (fijo), pero el espacio `0x4000-0x7FFF` puede mapear a diferentes bancos escribiendo en `0x2000-0x3FFF`.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0260 - MBC1 ROM Banking -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0260__mbc1-rom-banking.html" class="entry-link">
+                                    MBC1 ROM Banking
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0260 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step implementa soporte básico de MBC1 (Memory Bank Controller 1) en la MMU de C++ para permitir que los juegos grandes (>32KB) accedan a sus bancos de ROM. El diagnóstico del Step 0259 confirmó que Pokémon Red estaba escribiendo ceros en VRAM porque intentaba leer gráficos de bancos ROM no mapeados. Con MBC1 implementado, los juegos pueden seleccionar bancos de ROM y leer los datos correctos. El espacio `0x0000-0x3FFF` siempre mapea al Banco 0 (fijo), pero el espacio `0x4000-0x7FFF` puede mapear a diferentes bancos escribiendo en `0x2000-0x3FFF`.
+                        </p>
                     </li>
-                    <!-- Entrada 0259 - VRAM Write Monitor & MBC Check -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0259</span>
-                        <a href="entries/2025-12-23__0259__vram-write-monitor-mbc-check.html" class="title">VRAM Write Monitor & MBC Check</a>
-                        <p class="summary">Este Step instrumenta la MMU para monitorear las escrituras en VRAM y analiza la lógica de lectura de ROM para confirmar si hay soporte de MBC (Memory Bank Controllers). El objetivo es determinar si la VRAM está vacía porque el juego intenta leer gráficos de bancos ROM no mapeados, lo que explicaría por qué la CPU copia ceros a la VRAM. Si la CPU funciona (Mario y Pokémon corren), ¿por qué no copian los gráficos? La teoría principal es que el mapeo de memoria (MBC) no está implementado. Si el juego intenta leer gráficos del banco 2, 3, etc., pero solo se cargó el banco 0, leerá basura o ceros, y copiará esos ceros a la VRAM.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0259 - VRAM Write Monitor & MBC Check -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0259__vram-write-monitor-mbc-check.html" class="entry-link">
+                                    VRAM Write Monitor & MBC Check
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0259 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step instrumenta la MMU para monitorear las escrituras en VRAM y analiza la lógica de lectura de ROM para confirmar si hay soporte de MBC (Memory Bank Controllers). El objetivo es determinar si la VRAM está vacía porque el juego intenta leer gráficos de bancos ROM no mapeados, lo que explicaría por qué la CPU copia ceros a la VRAM. Si la CPU funciona (Mario y Pokémon corren), ¿por qué no copian los gráficos? La teoría principal es que el mapeo de memoria (MBC) no está implementado. Si el juego intenta leer gráficos del banco 2, 3, etc., pero solo se cargó el banco 0, leerá basura o ceros, y copiará esos ceros a la VRAM.
+                        </p>
                     </li>
-                    <!-- Entrada 0258 - VRAM Vital Signs (VRAM Sum) -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0258</span>
-                        <a href="entries/2025-12-23__0258__vram-vital-signs.html" class="title">VRAM Vital Signs (VRAM Sum)</a>
-                        <p class="summary">Este Step añade un diagnóstico de integridad de VRAM en el monitor GPS de `src/viboy.py`. Calculamos la suma de bytes de la VRAM (muestreo cada 16 bytes) para determinar si contiene gráficos o está completamente vacía. Si la VRAM está llena de ceros, la PPU renderizará píxeles de índice 0 (verdes/blancos), funcionando "correctamente" sobre datos vacíos. Con la paleta forzada en C++ (Step 0257) y Python (Step 0256), si la pantalla sigue verde incluso con juegos que tienen el LCD encendido (como Pokémon Red, `LCDC:E3`), la única explicación lógica que queda es que la VRAM está llena de ceros.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0258 - VRAM Vital Signs (VRAM Sum) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0258__vram-vital-signs.html" class="entry-link">
+                                    VRAM Vital Signs (VRAM Sum)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0258 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step añade un diagnóstico de integridad de VRAM en el monitor GPS de `src/viboy.py`. Calculamos la suma de bytes de la VRAM (muestreo cada 16 bytes) para determinar si contiene gráficos o está completamente vacía. Si la VRAM está llena de ceros, la PPU renderizará píxeles de índice 0 (verdes/blancos), funcionando "correctamente" sobre datos vacíos. Con la paleta forzada en C++ (Step 0257) y Python (Step 0256), si la pantalla sigue verde incluso con juegos que tienen el LCD encendido (como Pokémon Red, `LCDC:E3`), la única explicación lógica que queda es que la VRAM está llena de ceros.
+                        </p>
                     </li>
-                    <!-- Entrada 0257 - Hardware Palette Bypass (C++) -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0257</span>
-                        <a href="entries/2025-12-23__0257__hardware-palette-bypass.html" class="title">Hardware Palette Bypass (C++)</a>
-                        <p class="summary">Este Step modifica `src/core/cpp/PPU.cpp` para forzar valores estándar de paleta (`0xE4`) directamente en el motor de renderizado de C++, ignorando completamente los registros de paleta de la MMU (BGP, OBP0, OBP1). El objetivo es garantizar que los índices de color (0-3) generados desde la VRAM se preserven en el framebuffer, independientemente del estado de los registros de paleta en la MMU. Si la pantalla sigue verde después del Step 0256 (paleta de debug en Python), significa que el framebuffer de C++ está lleno de ceros. Esto puede ocurrir si la PPU está aplicando una paleta con valor `0x00` que convierte todos los píxeles (incluso los negros) en índice `0` antes de escribirlos en el framebuffer.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0257 - Hardware Palette Bypass (C++) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0257__hardware-palette-bypass.html" class="entry-link">
+                                    Hardware Palette Bypass (C++)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0257 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step modifica `src/core/cpp/PPU.cpp` para forzar valores estándar de paleta (`0xE4`) directamente en el motor de renderizado de C++, ignorando completamente los registros de paleta de la MMU (BGP, OBP0, OBP1). El objetivo es garantizar que los índices de color (0-3) generados desde la VRAM se preserven en el framebuffer, independientemente del estado de los registros de paleta en la MMU. Si la pantalla sigue verde después del Step 0256 (paleta de debug en Python), significa que el framebuffer de C++ está lleno de ceros. Esto puede ocurrir si la PPU está aplicando una paleta con valor `0x00` que convierte todos los píxeles (incluso los negros) en índice `0` antes de escribirlos en el framebuffer.
+                        </p>
                     </li>
-                    <!-- Entrada 0256 - Paleta de Debug (High Contrast) -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0256</span>
-                        <a href="entries/2025-12-23__0256__debug-palette-high-contrast.html" class="title">Paleta de Debug (High Contrast)</a>
-                        <p class="summary">Este Step implementa una paleta de debug de alto contraste en el renderizador de Python (`src/gpu/renderer.py`) que ignora completamente los registros de paleta del hardware (BGP, OBP0, OBP1) y mapea directamente los índices de color (0-3) del framebuffer de la PPU a colores fijos de alto contraste. El objetivo es revelar cualquier píxel que la PPU esté generando, incluso si los registros de paleta están en `0x00` (todo blanco) o si la MMU no está sirviendo correctamente los valores de paleta al frontend.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0256 - Paleta de Debug (High Contrast) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0256__debug-palette-high-contrast.html" class="entry-link">
+                                    Paleta de Debug (High Contrast)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0256 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step implementa una paleta de debug de alto contraste en el renderizador de Python (`src/gpu/renderer.py`) que ignora completamente los registros de paleta del hardware (BGP, OBP0, OBP1) y mapea directamente los índices de color (0-3) del framebuffer de la PPU a colores fijos de alto contraste. El objetivo es revelar cualquier píxel que la PPU esté generando, incluso si los registros de paleta están en `0x00` (todo blanco) o si la MMU no está sirviendo correctamente los valores de paleta al frontend.
+                        </p>
                     </li>
-                    <!-- Entrada 0255 - Inspector OAM y Paletas -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0255</span>
-                        <a href="entries/2025-12-23__0255__oam-palette-inspector.html" class="title">Inspector OAM y Paletas</a>
-                        <p class="summary">Este Step extiende el monitor GPS (Step 0240) en `src/viboy.py` para incluir inspección en tiempo real de los registros de paleta (BGP, OBP0, OBP1) y los primeros sprites de la OAM (Object Attribute Memory). El objetivo es diagnosticar por qué la pantalla aparece verde/blanca cuando debería mostrar sprites, verificando si el problema está en los datos (OAM vacía o DMA no funcionando) o en el renderizado (paletas incorrectas).</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0255 - Inspector OAM y Paletas -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0255__oam-palette-inspector.html" class="entry-link">
+                                    Inspector OAM y Paletas
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0255 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step extiende el monitor GPS (Step 0240) en `src/viboy.py` para incluir inspección en tiempo real de los registros de paleta (BGP, OBP0, OBP1) y los primeros sprites de la OAM (Object Attribute Memory). El objetivo es diagnosticar por qué la pantalla aparece verde/blanca cuando debería mostrar sprites, verificando si el problema está en los datos (OAM vacía o DMA no funcionando) o en el renderizado (paletas incorrectas).
+                        </p>
                     </li>
                     <!-- Entrada 0254 - PPU Fase E - Renderizado de Sprites -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0254</span>
-                        <a href="entries/2025-12-23__0254__sprite-rendering-ppu-phase-e.html" class="title">PPU Fase E - Renderizado de Sprites</a>
-                        <p class="summary">Este Step implementa el renderizado de Sprites (OBJ - Objects) en la PPU de C++. Hasta ahora, la PPU solo podía renderizar el Background (fondo), pero con la DMA funcionando (Step 0251), la memoria OAM (`0xFE00-0xFE9F`) ahora contiene datos válidos de los personajes y objetos del juego. Este Step completa el pipeline de renderizado permitiendo que los sprites se dibujen encima del fondo, respetando transparencia, prioridad y atributos (flip X/Y, paleta).</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                    <!-- Entrada 0254 - PPU Fase E - Renderizado de Sprites -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0254__sprite-rendering-ppu-phase-e.html" class="entry-link">
+                                    PPU Fase E - Renderizado de Sprites
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0254 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step implementa el renderizado de Sprites (OBJ - Objects) en la PPU de C++. Hasta ahora, la PPU solo podía renderizar el Background (fondo), pero con la DMA funcionando (Step 0251), la memoria OAM (`0xFE00-0xFE9F`) ahora contiene datos válidos de los personajes y objetos del juego. Este Step completa el pipeline de renderizado permitiendo que los sprites se dibujen encima del fondo, respetando transparencia, prioridad y atributos (flip X/Y, paleta).
+                        </p>
                     </li>
-                    <!-- Entrada 0253 - Silencio Total (Release Candidate) -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0253</span>
-                        <a href="entries/2025-12-23__0253__silent-run-release-candidate.html" class="title">Silencio Total (Release Candidate)</a>
-                        <p class="summary">Este Step elimina toda la instrumentación de depuración (`printf`) de `MMU.cpp` y `CPU.cpp` para permitir que el emulador corra a velocidad real (60 FPS). El Step 0252 confirmó que la lógica funcional (protección de ROM, DMA, interrupciones) está correcta, pero los miles de logs estaban ralentizando masivamente la ejecución, impidiendo ver el resultado final en pantalla. Esta es la limpieza final antes del "momento de la verdad": ejecutar Tetris a velocidad nativa.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0253 - Silencio Total (Release Candidate) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0253__silent-run-release-candidate.html" class="entry-link">
+                                    Silencio Total (Release Candidate)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0253 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step elimina toda la instrumentación de depuración (`printf`) de `MMU.cpp` y `CPU.cpp` para permitir que el emulador corra a velocidad real (60 FPS). El Step 0252 confirmó que la lógica funcional (protección de ROM, DMA, interrupciones) está correcta, pero los miles de logs estaban ralentizando masivamente la ejecución, impidiendo ver el resultado final en pantalla. Esta es la limpieza final antes del "momento de la verdad": ejecutar Tetris a velocidad nativa.
+                        </p>
                     </li>
-                    <!-- Entrada 0252 - ROM Protection & Interrupt Trace -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0252</span>
-                        <a href="entries/2025-12-23__0252__rom-protection-interrupt-trace.html" class="title">ROM Protection & Interrupt Trace</a>
-                        <p class="summary">Este Step implementa dos mejoras críticas de integridad: protección de ROM y rastreo de interrupciones. El análisis del Step 0251 reveló que el juego estaba escribiendo en el rango de ROM (`0x0000-0x7FFF`), lo que podría corromper el código del juego en tiempo de ejecución. En hardware real, la ROM es de solo lectura y las escrituras se ignoran silenciosamente (o se envían al MBC para cartuchos con bancos). Además, se añadieron logs de rastreo para detectar quién desactiva IME: la instrucción `DI` o el procesamiento automático de interrupciones.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0252 - ROM Protection & Interrupt Trace -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0252__rom-protection-interrupt-trace.html" class="entry-link">
+                                    ROM Protection & Interrupt Trace
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0252 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step implementa dos mejoras críticas de integridad: protección de ROM y rastreo de interrupciones. El análisis del Step 0251 reveló que el juego estaba escribiendo en el rango de ROM (`0x0000-0x7FFF`), lo que podría corromper el código del juego en tiempo de ejecución. En hardware real, la ROM es de solo lectura y las escrituras se ignoran silenciosamente (o se envían al MBC para cartuchos con bancos). Además, se añadieron logs de rastreo para detectar quién desactiva IME: la instrucción `DI` o el procesamiento automático de interrupciones.
+                        </p>
                     </li>
-                    <!-- Entrada 0251 - Implementación de DMA (OAM Transfer) -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0251</span>
-                        <a href="entries/2025-12-23__0251__implementacion-dma-oam-transfer.html" class="title">Implementación de DMA (OAM Transfer)</a>
-                        <p class="summary">Este Step implementa la transferencia DMA (Direct Memory Access) para copiar datos a la OAM (Object Attribute Memory). Cuando un juego escribe un valor en el registro `0xFF46`, el hardware copia automáticamente 160 bytes desde la dirección `XX00` hasta la OAM (`0xFE00-0xFE9F`). Esta funcionalidad es crítica para que los juegos puedan actualizar los sprites, y muchos juegos (como Tetris) dependen de ella para su secuencia de arranque. La implementación actual es una copia instantánea, pero en hardware real la transferencia tarda ~640 ciclos.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0251 - Implementación de DMA (OAM Transfer) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0251__implementacion-dma-oam-transfer.html" class="entry-link">
+                                    Implementación de DMA (OAM Transfer)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0251 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Este Step implementa la transferencia DMA (Direct Memory Access) para copiar datos a la OAM (Object Attribute Memory). Cuando un juego escribe un valor en el registro `0xFF46`, el hardware copia automáticamente 160 bytes desde la dirección `XX00` hasta la OAM (`0xFE00-0xFE9F`). Esta funcionalidad es crítica para que los juegos puedan actualizar los sprites, y muchos juegos (como Tetris) dependen de ella para su secuencia de arranque. La implementación actual es una copia instantánea, pero en hardware real la transferencia tarda ~640 ciclos.
+                        </p>
                     </li>
-                    <!-- Entrada 0250 - La Precuela (Volcado ROM Expandido) -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0250</span>
-                        <a href="entries/2025-12-23__0250__precuela-volcado-rom.html" class="title">La Precuela (Volcado ROM Expandido)</a>
-                        <p class="summary">El Step 0249 reveló que el bucle infinito en `0x2B20` busca el valor `0xFD` en la memoria apuntada por `HL`. Este Step expande el volcado de ROM al rango anterior (`0x2AE0` - `0x2B20`) para encontrar cómo se inicializa `HL` antes de entrar en el bucle. El análisis revela que `HL` se inicializa desde una tabla de punteros en `0x2BAC`, y que el valor final depende de datos leídos desde la memoria RAM que no están inicializados correctamente. El código usa múltiples niveles de indirección (ROM → RAM → RAM), lo que significa que si cualquier nivel no está inicializado, el programa falla.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0250 - La Precuela (Volcado ROM Expandido) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0250__precuela-volcado-rom.html" class="entry-link">
+                                    La Precuela (Volcado ROM Expandido)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0250 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            El Step 0249 reveló que el bucle infinito en `0x2B20` busca el valor `0xFD` en la memoria apuntada por `HL`. Este Step expande el volcado de ROM al rango anterior (`0x2AE0` - `0x2B20`) para encontrar cómo se inicializa `HL` antes de entrar en el bucle. El análisis revela que `HL` se inicializa desde una tabla de punteros en `0x2BAC`, y que el valor final depende de datos leídos desde la memoria RAM que no están inicializados correctamente. El código usa múltiples niveles de indirección (ROM → RAM → RAM), lo que significa que si cualquier nivel no está inicializado, el programa falla.
+                        </p>
                     </li>
-                    <!-- Entrada 0249 - Volcado de Zona Cero -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0249</span>
-                        <a href="entries/2025-12-23__0249__volcado-zona-cero.html" class="title">Volcado de Zona Cero (Desensamblador de ROM)</a>
-                        <p class="summary">El Step 0248 reveló que el juego ejecuta `EI` pero el GPS muestra `IME:0` permanentemente, con un bucle infinito en `0x2B24`. Este Step crea una herramienta de volcado de ROM para desensamblar la zona crítica (`0x2B20` - `0x2BC0`) y entender exactamente qué está haciendo el código del juego. El volcado confirma un bucle infinito con `JP 2B20` en `0x2BA9` y una condición de salida que busca `0xFF` como terminador, sugiriendo que el juego espera que DMA o interrupciones modifiquen los datos que el bucle está leyendo.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0249 - Volcado de Zona Cero -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0249__volcado-zona-cero.html" class="entry-link">
+                                    Volcado de Zona Cero (Desensamblador de ROM)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0249 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            El Step 0248 reveló que el juego ejecuta `EI` pero el GPS muestra `IME:0` permanentemente, con un bucle infinito en `0x2B24`. Este Step crea una herramienta de volcado de ROM para desensamblar la zona crítica (`0x2B20` - `0x2BC0`) y entender exactamente qué está haciendo el código del juego. El volcado confirma un bucle infinito con `JP 2B20` en `0x2BA9` y una condición de salida que busca `0xFF` como terminador, sugiriendo que el juego espera que DMA o interrupciones modifiquen los datos que el bucle está leyendo.
+                        </p>
                     </li>
-                    <!-- Entrada 0248 - EI Watchdog -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0248</span>
-                        <a href="entries/2025-12-23__0248__ei-watchdog.html" class="title">EI Watchdog</a>
-                        <p class="summary">El análisis del Timeline Logger (Step 0247) reveló que el juego está intentando usar DMA y escribiendo el centinela `FD` en HRAM, pero el GPS muestra constantemente `IME:0`. La hipótesis es que el juego depende de una rutina de interrupción (V-Blank) para copiar datos, pero como IME está deshabilitado, la interrupción nunca se dispara. Este Step instrumenta la instrucción `EI` (Enable Interrupts, opcode 0xFB) para detectar si el juego intenta habilitar las interrupciones en algún momento.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0248 - EI Watchdog -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0248__ei-watchdog.html" class="entry-link">
+                                    EI Watchdog
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0248 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            El análisis del Timeline Logger (Step 0247) reveló que el juego está intentando usar DMA y escribiendo el centinela `FD` en HRAM, pero el GPS muestra constantemente `IME:0`. La hipótesis es que el juego depende de una rutina de interrupción (V-Blank) para copiar datos, pero como IME está deshabilitado, la interrupción nunca se dispara. Este Step instrumenta la instrucción `EI` (Enable Interrupts, opcode 0xFB) para detectar si el juego intenta habilitar las interrupciones en algún momento.
+                        </p>
                     </li>
-                    <!-- Entrada 0247 - Memory Timeline & PC Tracker -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0247</span>
-                        <a href="entries/2025-12-23__0247__memory-timeline-pc-tracker.html" class="title">Memory Timeline & PC Tracker</a>
-                        <p class="summary">El Step 0246 confirmó que el juego está escribiendo en WRAM (limpieza a ceros), pero falta la pieza clave: la cronología. Este Step implementa un Memory Timeline & PC Tracker que combina el tracking del Program Counter con las escrituras clave en memoria para reconstruir la secuencia temporal completa y determinar qué instrucción (PC) está provocando cada operación.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0247 - Memory Timeline & PC Tracker -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0247__memory-timeline-pc-tracker.html" class="entry-link">
+                                    Memory Timeline & PC Tracker
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0247 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            El Step 0246 confirmó que el juego está escribiendo en WRAM (limpieza a ceros), pero falta la pieza clave: la cronología. Este Step implementa un Memory Timeline & PC Tracker que combina el tracking del Program Counter con las escrituras clave en memoria para reconstruir la secuencia temporal completa y determinar qué instrucción (PC) está provocando cada operación.
+                        </p>
                     </li>
-                    <!-- Entrada 0246 - WRAM Writer Profiler -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-23</span>
-                        <span class="tag">0246</span>
-                        <a href="entries/2025-12-23__0246__wram-writer-profiler.html" class="title">WRAM Writer Profiler</a>
-                        <p class="summary">El análisis del Step 0245 reveló cero actividad detectada, lo que sugiere que el emulador puede estar entrando en el bucle de espera antes de llegar a la escritura. Se implementa un profiler de escrituras en WRAM que registra las primeras 100 escrituras en el rango 0xC000-0xDFFF para determinar si la memoria se está inicializando siquiera, o si permanece completamente virgen (solo ceros).</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0246 - WRAM Writer Profiler -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-23__0246__wram-writer-profiler.html" class="entry-link">
+                                    WRAM Writer Profiler
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-23 | 
+                            <strong>Step ID:</strong> 0246 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            El análisis del Step 0245 reveló cero actividad detectada, lo que sugiere que el emulador puede estar entrando en el bucle de espera antes de llegar a la escritura. Se implementa un profiler de escrituras en WRAM que registra las primeras 100 escrituras en el rango 0xC000-0xDFFF para determinar si la memoria se está inicializando siquiera, o si permanece completamente virgen (solo ceros).
+                        </p>
                     </li>
-                    <!-- Entrada 0245 - Interceptor de Transferencia DMA/HRAM -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0245</span>
-                        <a href="entries/2025-12-22__0245__interceptor-dma-hram.html" class="title">Interceptor de Transferencia DMA/HRAM</a>
-                        <p class="summary">El Centinela (Step 0244) confirmó que el juego escribe 0xFD en HRAM (0xFF8D), pero luego lo busca en WRAM. Se implementa un interceptor que monitorea escrituras en el registro DMA (0xFF46) y lecturas en HRAM (0xFF8D) para determinar si el juego intenta usar DMA o una rutina de copia manual para transferir los datos.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0245 - Interceptor de Transferencia DMA/HRAM -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0245__interceptor-dma-hram.html" class="entry-link">
+                                    Interceptor de Transferencia DMA/HRAM
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0245 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            El Centinela (Step 0244) confirmó que el juego escribe 0xFD en HRAM (0xFF8D), pero luego lo busca en WRAM. Se implementa un interceptor que monitorea escrituras en el registro DMA (0xFF46) y lecturas en HRAM (0xFF8D) para determinar si el juego intenta usar DMA o una rutina de copia manual para transferir los datos.
+                        </p>
                     </li>
-                    <!-- Entrada 0244 - El Rastreador del Centinela -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0244</span>
-                        <a href="entries/2025-12-22__0244__rastreador-del-centinela.html" class="title">El Rastreador del Centinela</a>
-                        <p class="summary">Instrumentación del método MMU::write para detectar y registrar cualquier intento de escribir el valor 0xFD en la memoria RAM. Esto permitirá determinar si el juego intentó escribir el marcador mágico y falló, o si nunca llegó a ejecutar la instrucción de escritura (problema anterior en la inicialización).</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0244 - El Rastreador del Centinela -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0244__rastreador-del-centinela.html" class="entry-link">
+                                    El Rastreador del Centinela
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0244 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Instrumentación del método MMU::write para detectar y registrar cualquier intento de escribir el valor 0xFD en la memoria RAM. Esto permitirá determinar si el juego intentó escribir el marcador mágico y falló, o si nunca llegó a ejecutar la instrucción de escritura (problema anterior en la inicialización).
+                        </p>
                     </li>
-                    <!-- Entrada 0243 - Operación Silencio -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0243</span>
-                        <a href="entries/2025-12-22__0243__operacion-silencio.html" class="title">Operación Silencio</a>
-                        <p class="summary">Eliminación de toda la instrumentación de depuración pesada (Francotirador y Marcador Radiactivo) en CPU.cpp para permitir la ejecución a velocidad nativa (60 FPS). El monitor GPS (Step 0240) proporciona suficiente información para diagnóstico sin ralentizar la ejecución.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0243 - Operación Silencio -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0243__operacion-silencio.html" class="entry-link">
+                                    Operación Silencio
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0243 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Eliminación de toda la instrumentación de depuración pesada (Francotirador y Marcador Radiactivo) en CPU.cpp para permitir la ejecución a velocidad nativa (60 FPS). El monitor GPS (Step 0240) proporciona suficiente información para diagnóstico sin ralentizar la ejecución.
+                        </p>
                     </li>
-                    <!-- Entrada 0242 - Hard Reset y Marcador Radiactivo -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0242</span>
-                        <a href="entries/2025-12-22__0242__hard-reset-marcador-radiactivo.html" class="title">Hard Reset y Marcador Radiactivo</a>
-                        <p class="summary">Implementación de un marcador radiactivo (printf muy visible) dentro del opcode 0x08 para confirmar que estamos ejecutando la versión correcta del código C++ y no una DLL/PYD cacheada. Incluye instrucciones de Hard Reset para eliminar artefactos de compilación anteriores.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0242 - Hard Reset y Marcador Radiactivo -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0242__hard-reset-marcador-radiactivo.html" class="entry-link">
+                                    Hard Reset y Marcador Radiactivo
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0242 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de un marcador radiactivo (printf muy visible) dentro del opcode 0x08 para confirmar que estamos ejecutando la versión correcta del código C++ y no una DLL/PYD cacheada. Incluye instrucciones de Hard Reset para eliminar artefactos de compilación anteriores.
+                        </p>
                     </li>
-                    <!-- Entrada 0241 - Francotirador: Recarga -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0241</span>
-                        <a href="entries/2025-12-22__0241__francotirador-recarga.html" class="title">Francotirador: Recarga</a>
-                        <p class="summary">Reactivación del debug del Francotirador en el rango 0x2B20-0x2B30 para analizar el comportamiento dinámico del bucle de verificación de memoria. Necesitamos determinar si HL avanza (escaneando memoria) o se reinicia constantemente (fallo temprano).</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0241 - Francotirador: Recarga -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0241__francotirador-recarga.html" class="entry-link">
+                                    Francotirador: Recarga
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0241 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Reactivación del debug del Francotirador en el rango 0x2B20-0x2B30 para analizar el comportamiento dinámico del bucle de verificación de memoria. Necesitamos determinar si HL avanza (escaneando memoria) o se reinicia constantemente (fallo temprano).
+                        </p>
                     </li>
-                    <!-- Entrada 0240 - Monitor GPS (El Navegador) -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0240</span>
-                        <a href="entries/2025-12-22__0240__monitor-gps-navegador.html" class="title">Monitor GPS (El Navegador)</a>
-                        <p class="summary">Implementación de un monitor no intrusivo que reporta periódicamente la posición del Program Counter (PC), el Stack Pointer (SP), el estado de las interrupciones (IME, IE, IF) y el estado del video (LCDC, LY) cada segundo para diagnosticar el estado actual de la CPU.</p>
-                        <span class="status-badge status-verified">VERIFIED</span>
+                                        <!-- Entrada 0240 - Monitor GPS (El Navegador) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0240__monitor-gps-navegador.html" class="entry-link">
+                                    Monitor GPS (El Navegador)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0240 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de un monitor no intrusivo que reporta periódicamente la posición del Program Counter (PC), el Stack Pointer (SP), el estado de las interrupciones (IME, IE, IF) y el estado del video (LCDC, LY) cada segundo para diagnosticar el estado actual de la CPU.
+                        </p>
                     </li>
-                    <!-- Entrada 0239 - Implementación de Echo RAM (El Espejo) -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0239</span>
-                        <a href="entries/2025-12-22__0239__implementacion-echo-ram.html" class="title">Implementación de Echo RAM (El Espejo)</a>
-                        <p class="summary">Implementación de la lógica de Echo RAM (0xE000-0xFDFF) que refleja WRAM (0xC000-0xDDFF). Esta corrección debería resolver el bucle infinito en Tetris cuando lee 0xE645.</p>
-                        <span class="status-badge status-verified">VERIFIED</span>
+                                        <!-- Entrada 0239 - Implementación de Echo RAM (El Espejo) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0239__implementacion-echo-ram.html" class="entry-link">
+                                    Implementación de Echo RAM (El Espejo)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0239 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de la lógica de Echo RAM (0xE000-0xFDFF) que refleja WRAM (0xC000-0xDDFF). Esta corrección debería resolver el bucle infinito en Tetris cuando lee 0xE645.
+                        </p>
                     </li>
-                    <!-- Entrada 0238 - Análisis Forense de la Traza: El Origen del 0x00 -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0238</span>
-                        <a href="entries/2025-12-22__0238__analisis-trace-forense.html" class="title">Análisis Forense de la Traza: El Origen del 0x00</a>
-                        <p class="summary">Análisis de la traza del Francotirador revela que LD A, (HL) lee correctamente, pero la memoria WRAM no contiene los valores esperados (0xFD).</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0238 - Análisis Forense de la Traza: El Origen del 0x00 -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0238__analisis-trace-forense.html" class="entry-link">
+                                    Análisis Forense de la Traza: El Origen del 0x00
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0238 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Análisis de la traza del Francotirador revela que LD A, (HL) lee correctamente, pero la memoria WRAM no contiene los valores esperados (0xFD).
+                        </p>
                     </li>
-                    <!-- Entrada 0237 - Francotirador Expandido: El Origen de A -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0237</span>
-                        <a href="entries/2025-12-22__0237__francotirador-retroceso.html" class="title">Francotirador Expandido: El Origen de A</a>
-                        <p class="summary">Ampliación del rango de debug para descubrir la fuente del valor incorrecto en el acumulador que causa el bucle infinito.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0237 - Francotirador Expandido: El Origen de A -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0237__francotirador-retroceso.html" class="entry-link">
+                                    Francotirador Expandido: El Origen de A
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0237 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Ampliación del rango de debug para descubrir la fuente del valor incorrecto en el acumulador que causa el bucle infinito.
+                        </p>
                     </li>
-                    <!-- Entrada 0236 - Francotirador II: El Bucle de la Muerte -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0236</span>
-                        <a href="entries/2025-12-22__0236__francotirador-zona-muerta.html" class="title">Francotirador II: El Bucle de la Muerte</a>
-                        <p class="summary">Investigación del punto de bloqueo 0x2B30 mediante trazado de instrucciones en tiempo real.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0236 - Francotirador II: El Bucle de la Muerte -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0236__francotirador-zona-muerta.html" class="entry-link">
+                                    Francotirador II: El Bucle de la Muerte
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0236 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Investigación del punto de bloqueo 0x2B30 mediante trazado de instrucciones en tiempo real.
+                        </p>
                     </li>
-                    <!-- Entrada 0234 - Paciencia y Puntería: Buscando en el Mapa Correcto -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0234</span>
-                        <a href="entries/2025-12-22__0234__autopsia-mejorada.html" class="title">Paciencia y Puntería: Buscando en el Mapa Correcto</a>
-                        <p class="summary">Ajuste de las herramientas de diagnóstico para leer la memoria VRAM correcta según LCDC y extensión del tiempo de espera de arranque.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0234 - Paciencia y Puntería: Buscando en el Mapa Correcto -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0234__autopsia-mejorada.html" class="entry-link">
+                                    Paciencia y Puntería: Buscando en el Mapa Correcto
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0234 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Ajuste de las herramientas de diagnóstico para leer la memoria VRAM correcta según LCDC y extensión del tiempo de espera de arranque.
+                        </p>
                     </li>
-                    <!-- Entrada 0233 - Luz Verde: Arranque Definitivo -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0233</span>
-                        <a href="entries/2025-12-22__0233__limpieza-final-release.html" class="title">Luz Verde: Arranque Definitivo</a>
-                        <p class="summary">Eliminación de logs tras confirmar la corrección del desalineamiento de CPU. El emulador está listo para mostrar gráficos.</p>
-                        <span class="status-badge status-verified">VERIFIED</span>
+                                        <!-- Entrada 0233 - Luz Verde: Arranque Definitivo -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0233__limpieza-final-release.html" class="entry-link">
+                                    Luz Verde: Arranque Definitivo
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0233 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Eliminación de logs tras confirmar la corrección del desalineamiento de CPU. El emulador está listo para mostrar gráficos.
+                        </p>
                     </li>
-                    <!-- Entrada 0232 - Hard Reset: Forzando la Realidad -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0232</span>
-                        <a href="entries/2025-12-22__0232__hard-reset-binario.html" class="title">Hard Reset: Forzando la Realidad</a>
-                        <p class="summary">Limpieza agresiva de binarios y marcaje de código para solucionar un problema de persistencia de DLLs antiguas en Windows.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0232 - Hard Reset: Forzando la Realidad -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0232__hard-reset-binario.html" class="entry-link">
+                                    Hard Reset: Forzando la Realidad
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0232 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Limpieza agresiva de binarios y marcaje de código para solucionar un problema de persistencia de DLLs antiguas en Windows.
+                        </p>
                     </li>
-                    <!-- Entrada 0231 - CPU Desalineada: El Caso del Opcode 0x08 -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0231</span>
-                        <a href="entries/2025-12-22__0231__fix-cpu-desync-opcode-08.html" class="title">CPU Desalineada: El Caso del Opcode 0x08</a>
-                        <p class="summary">Corrección crítica de un opcode faltante que causaba que la CPU interpretara datos como código, corrompiendo la lógica del juego.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0231 - CPU Desalineada: El Caso del Opcode 0x08 -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0231__fix-cpu-desync-opcode-08.html" class="entry-link">
+                                    CPU Desalineada: El Caso del Opcode 0x08
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0231 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección crítica de un opcode faltante que causaba que la CPU interpretara datos como código, corrompiendo la lógica del juego.
+                        </p>
                     </li>
-                    <!-- Entrada 0230 - El Regreso del Estetoscopio: ¿Dónde está la CPU? -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0230</span>
-                        <a href="entries/2025-12-22__0230__regreso-estetoscopio.html" class="title">El Regreso del Estetoscopio: ¿Dónde está la CPU?</a>
-                        <p class="summary">Reactivación del monitor de estado para diagnosticar por qué el juego no enciende la pantalla tras la secuencia de arranque.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0230 - El Regreso del Estetoscopio: ¿Dónde está la CPU? -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0230__regreso-estetoscopio.html" class="entry-link">
+                                    El Regreso del Estetoscopio: ¿Dónde está la CPU?
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0230 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Reactivación del monitor de estado para diagnosticar por qué el juego no enciende la pantalla tras la secuencia de arranque.
+                        </p>
                     </li>
-                    <!-- Entrada 0229 - Silencio Total: El Despegue -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0229</span>
-                        <a href="entries/2025-12-22__0229__silencio-total-arranque.html" class="title">Silencio Total: El Despegue</a>
-                        <p class="summary">Eliminación definitiva de logs para liberar la velocidad del núcleo C++ y permitir el arranque del juego.</p>
-                        <span class="status-badge status-verified">VERIFIED</span>
+                                        <!-- Entrada 0229 - Silencio Total: El Despegue -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0229__silencio-total-arranque.html" class="entry-link">
+                                    Silencio Total: El Despegue
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0229 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Eliminación definitiva de logs para liberar la velocidad del núcleo C++ y permitir el arranque del juego.
+                        </p>
                     </li>
-                    <!-- Entrada 0228 - Misión en la Zona Alta: Debugging del Juego -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0228</span>
-                        <a href="entries/2025-12-22__0228__francotirador-zona-alta.html" class="title">Misión en la Zona Alta: Debugging del Juego</a>
-                        <p class="summary">Análisis del comportamiento de la CPU en el espacio de direcciones del cartucho para desbloquear la pantalla de título.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0228 - Misión en la Zona Alta: Debugging del Juego -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0228__francotirador-zona-alta.html" class="entry-link">
+                                    Misión en la Zona Alta: Debugging del Juego
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0228 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Análisis del comportamiento de la CPU en el espacio de direcciones del cartucho para desbloquear la pantalla de título.
+                        </p>
                     </li>
-                    <!-- Entrada 0227 - Hardware Fix: LCD Apagado y Reset de LY -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0227</span>
-                        <a href="entries/2025-12-22__0227__fix-lcd-off-behavior.html" class="title">Hardware Fix: LCD Apagado y Reset de LY</a>
-                        <p class="summary">Corrección crítica del comportamiento de la PPU cuando el LCD se deshabilita, asegurando el reinicio correcto de contadores y sincronización.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0227 - Hardware Fix: LCD Apagado y Reset de LY -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0227__fix-lcd-off-behavior.html" class="entry-link">
+                                    Hardware Fix: LCD Apagado y Reset de LY
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0227 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección crítica del comportamiento de la PPU cuando el LCD se deshabilita, asegurando el reinicio correcto de contadores y sincronización.
+                        </p>
                     </li>
-                    <!-- Entrada 0226 - El Testigo de LY: ¿La CPU es ciega? -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0226</span>
-                        <a href="entries/2025-12-22__0226__testigo-ly-lectura.html" class="title">El Testigo de LY: ¿La CPU es ciega?</a>
-                        <p class="summary">Instrumentación de la MMU para trazar todas las lecturas del registro LY y verificar la visibilidad del V-Blank por parte de la CPU.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0226 - El Testigo de LY: ¿La CPU es ciega? -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0226__testigo-ly-lectura.html" class="entry-link">
+                                    El Testigo de LY: ¿La CPU es ciega?
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0226 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Instrumentación de la MMU para trazar todas las lecturas del registro LY y verificar la visibilidad del V-Blank por parte de la CPU.
+                        </p>
                     </li>
                     <!-- Entrada 0225 - La Autopsia: Diagnóstico Post-Arranque -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0225</span>
-                        <a href="entries/2025-12-22__0225__autopsia-3-segundos.html" class="title">La Autopsia: Diagnóstico Post-Arranque</a>
-                        <p class="summary">Volcado de estado completo tras 3 segundos de ejecución para determinar por qué el juego no muestra gráficos.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                    <!-- Entrada 0225 - La Autopsia: Diagnóstico Post-Arranque -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0225__autopsia-3-segundos.html" class="entry-link">
+                                    La Autopsia: Diagnóstico Post-Arranque
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0225 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Volcado de estado completo tras 3 segundos de ejecución para determinar por qué el juego no muestra gráficos.
+                        </p>
                     </li>
-                    <!-- Entrada 0224 - Cese el Fuego: La Ejecución Final -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0224</span>
-                        <a href="entries/2025-12-22__0224__cese-fuego-victoria.html" class="title">Cese el Fuego: La Ejecución Final</a>
-                        <p class="summary">Eliminación de la instrumentación de debug para permitir que el emulador supere los bucles de espera a velocidad real. ¡Tetris funcional!</p>
-                        <span class="status-badge status-verified">VERIFIED</span>
+                                        <!-- Entrada 0224 - Cese el Fuego: La Ejecución Final -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0224__cese-fuego-victoria.html" class="entry-link">
+                                    Cese el Fuego: La Ejecución Final
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0224 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Eliminación de la instrumentación de debug para permitir que el emulador supere los bucles de espera a velocidad real. ¡Tetris funcional!
+                        </p>
                     </li>
-                    <!-- Entrada 0223 - El Francotirador: Cazando el Bucle Infinito -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0223</span>
-                        <a href="entries/2025-12-22__0223__francotirador-debug-loop.html" class="title">El Francotirador: Cazando el Bucle Infinito</a>
-                        <p class="summary">Instrumentación quirúrgica de la CPU para analizar el bucle de bloqueo en 0x02B4 que impide la carga de gráficos.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0223 - El Francotirador: Cazando el Bucle Infinito -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0223__francotirador-debug-loop.html" class="entry-link">
+                                    El Francotirador: Cazando el Bucle Infinito
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0223 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Instrumentación quirúrgica de la CPU para analizar el bucle de bloqueo en 0x02B4 que impide la carga de gráficos.
+                        </p>
                     </li>
-                    <!-- Entrada 0222 - El Estetoscopio: Signos Vitales del Emulador -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0222</span>
-                        <a href="entries/2025-12-22__0222__estetoscopio-diagnostico-vivo.html" class="title">El Estetoscopio: Signos Vitales del Emulador</a>
-                        <p class="summary">Implementación de un monitor de estado periódico en Python para diagnosticar la falta de gráficos sin impactar el rendimiento.</p>
-                        <span class="status-badge status-draft">DRAFT</span>
+                                        <!-- Entrada 0222 - El Estetoscopio: Signos Vitales del Emulador -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0222__estetoscopio-diagnostico-vivo.html" class="entry-link">
+                                    El Estetoscopio: Signos Vitales del Emulador
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0222 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de un monitor de estado periódico en Python para diagnosticar la falta de gráficos sin impactar el rendimiento.
+                        </p>
                     </li>
-                    <!-- Entrada 0220 - El Amanecer de Tetris: Limpieza y Victoria -->
-                    <li class="entry-item">
-                        <span class="meta">2025-12-22</span>
-                        <span class="tag">0220</span>
-                        <a href="entries/2025-12-22__0220__clean-restoration-tetris.html" class="title">El Amanecer de Tetris: Limpieza y Victoria</a>
-                        <p class="summary">Restauración final del código tras la sesión de depuración exitosa. El emulador ahora renderiza gráficos reales desde la VRAM.</p>
-                        <span class="status-badge status-verified">VERIFIED</span>
+                                        <!-- Entrada 0220 - El Amanecer de Tetris: Limpieza y Victoria -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-22__0220__clean-restoration-tetris.html" class="entry-link">
+                                    El Amanecer de Tetris: Limpieza y Victoria
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-22 | 
+                            <strong>Step ID:</strong> 0220 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Restauración final del código tras la sesión de depuración exitosa. El emulador ahora renderiza gráficos reales desde la VRAM.
+                        </p>
                     </li>
                     <!-- Entrada 0219 - La Foto Finish: Snapshot de Memoria -->
                     <li>

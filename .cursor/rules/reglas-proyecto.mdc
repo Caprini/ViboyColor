@@ -129,16 +129,28 @@ Mantenemos y mejoramos el sistema estricto de la v0.0.1.
 
 **Mantenimiento del Índice (OBLIGATORIO):**
 - **CADA VEZ** que generes una nueva entrada HTML, debes generar también el código o diff para actualizar `docs/bitacora/index.html`.
-- La nueva entrada debe insertarse al **principio** de la lista (`<ul class="entries-list">`) manteniendo este formato exacto:
+- La nueva entrada debe insertarse al **principio** de la lista (`<ul class="entries-list">`) manteniendo este formato exacto (FORMATO ANTIGUO - OBLIGATORIO):
   ```html
-  <li class="entry-item">
-      <span class="meta">YYYY-MM-DD</span>
-      <span class="tag">NNNN</span> <!-- ID de 4 dígitos -->
-      <a href="entries/YYYY-MM-DD__NNNN__slug.html" class="title">Título de la Entrada</a>
-      <p class="summary">Resumen breve...</p>
-      <span class="status-badge status-verified">VERIFIED</span> <!-- O status-draft -->
+  <!-- Entrada NNNN - Título de la Entrada -->
+  <li>
+      <div class="entry-header">
+          <h3 class="entry-title">
+              <a href="entries/YYYY-MM-DD__NNNN__slug.html" class="entry-link">
+                  Título de la Entrada
+              </a>
+          </h3>
+      </div>
+      <div class="entry-meta-index">
+          <strong>Fecha:</strong> YYYY-MM-DD | 
+          <strong>Step ID:</strong> NNNN | 
+          <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span> <!-- O tag-draft para DRAFT -->
+      </div>
+      <p class="entry-summary">
+          Resumen breve de la entrada...
+      </p>
   </li>
   ```
+- **CRÍTICO**: Este formato es el único válido. NO uses el formato simplificado con `<li class="entry-item">`. El formato debe ser homogéneo con todas las entradas anteriores (desde la 0219 hacia atrás).
 
 **Integración Académica del Prompt:**
 - Si el usuario aporta teoría o enlaces en el prompt, incorpóralos explícitamente en la sección "Concepto de Hardware". Explica el *porqué*, no solo el *qué*.

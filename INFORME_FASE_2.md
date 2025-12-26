@@ -32,6 +32,39 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0284: Implementación de Ventana y Fix de Instrumentación
+**Estado**: ✅ COMPLETADO
+
+Movimiento de los monitores de diagnóstico al inicio de CPU::step() y implementación completa de la lógica de renderizado de la Ventana (Window) en PPU.
+
+**Cambios realizados**:
+- **CPU.cpp**:
+  - Movidos los monitores VBLANK-ENTRY, RESET-WATCH y POLLING-WATCH al inicio de step(), antes de handle_interrupts(), para evitar que el early return de interrupciones los oculte.
+  - El PC original ahora se captura una vez al inicio y se reutiliza en todo el método para garantizar consistencia.
+- **PPU.cpp**:
+  - Implementación completa de render_window() con lógica de renderizado píxel por píxel.
+  - Verificación de LCDC bit 5 (Window Enable) y bit 7 (LCD Enable).
+  - Validación de condiciones WY <= LY y WX <= 166.
+  - Selección de tilemap según LCDC bit 6 (independiente del Background).
+  - Uso del mismo sistema de direccionamiento de tiles que Background (LCDC bit 4).
+  - Aplicación de paleta BGP a los píxeles de la Window.
+  - Integración de render_window() en render_scanline() después del Background pero antes de los Sprites.
+
+**Objetivos**:
+- Asegurar que los monitores de diagnóstico capturen eventos críticos incluso cuando hay interrupciones.
+- Implementar renderizado correcto de la Window respetando todas las condiciones hardware.
+- Mantener consistencia en el direccionamiento de tiles entre Background y Window.
+
+**Concepto de Hardware**:
+- La Window es una capa opaca sin scroll que siempre comienza desde (0,0) del tilemap.
+- WX tiene un offset de 7 píxeles: WX=7 significa posición X=0 en pantalla.
+- La Window se renderiza encima del Background pero debajo de los Sprites.
+- Tanto Background como Window comparten el sistema de direccionamiento de tiles (LCDC bit 4) pero pueden usar tilemaps diferentes.
+
+**Fuente**: Pan Docs - "Window", "LCDC Register", "Tile Data Addressing"
+
+---
+
 ### 2025-12-25 - Step 0283: Optimización de Rendimiento y Hack de Paleta
 **Estado**: ✅ COMPLETADO
 
