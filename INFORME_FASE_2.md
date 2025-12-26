@@ -32,6 +32,31 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0300: Corrección de Paleta Debug Renderer
+**Estado**: ✅ COMPLETADO
+
+Corrección de la paleta de debug en el renderer de Python que estaba causando que los píxeles con índice 0 (blanco) se mostraran como verde. El color del índice 0 se cambió de `(224, 248, 208)` (verde) a `(255, 255, 255)` (blanco verdadero) en los 3 lugares donde se define la paleta de debug.
+
+**Problema identificado en Step 0299**:
+- El framebuffer contiene solo índices 0x00 (todos los píxeles tienen índice 0) - correcto
+- La PPU funciona correctamente, mapea 0->0 con BGP=0xE4 - correcto
+- El renderer Python mapeaba incorrectamente el índice 0 a verde `(224, 248, 208)` en lugar de blanco
+
+**Corrección aplicada**:
+- Cambiado el color del índice 0 de verde `(224, 248, 208)` a blanco `(255, 255, 255)` en 3 lugares:
+  1. Línea 470: Paleta de debug en `render_frame()` cuando usa PPU C++
+  2. Línea 538: Paleta de debug en `render_frame()` método Python
+  3. Línea 897: Paleta de debug en `render_sprites()`
+
+**Archivos modificados**:
+- `src/gpu/renderer.py` - Corregida paleta de debug en 3 funciones
+- `docs/bitacora/entries/2025-12-25__0300__correccion-paleta-debug-renderer.html` - Entrada HTML de bitácora
+- `docs/bitacora/index.html` - Actualizado con entrada 0300
+
+**Resultado esperado**: Los píxeles vacíos (índice 0) ahora deberían mostrarse en blanco, no verde, eliminando el problema de las rayas verdes.
+
+---
+
 ### 2025-12-25 - Step 0299: Investigación de Rayas Verdes y Diagnóstico Visual
 **Estado**: ✅ COMPLETADO
 

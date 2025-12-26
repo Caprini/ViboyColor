@@ -32,4 +32,5 @@ cdef extern from "MMU.hpp":
         void setTimer(Timer* timer)
         void setJoypad(Joypad* joypad)
         void request_interrupt(uint8_t bit)
+        void load_test_tiles()
 

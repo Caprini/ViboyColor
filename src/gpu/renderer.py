@@ -467,7 +467,7 @@ class Renderer:
                 # Paleta fija de alto contraste: 0=Blanco, 1=Gris Claro, 2=Gris Oscuro, 3=Negro
                 # Formato RGB (Pygame surface)
                 debug_palette_map = {
-                    0: (224, 248, 208),  # 00: White/Greenish (Color 0)
+                    0: (255, 255, 255),  # 00: White (Color 0) - Corregido Step 0300
                     1: (136, 192, 112),  # 01: Light Gray (Color 1)
                     2: (52, 104, 86),    # 10: Dark Gray (Color 2)
                     3: (8, 24, 32)       # 11: Black (Color 3)
@@ -535,7 +535,7 @@ class Renderer:
         # Paleta fija de alto contraste: 0=Blanco, 1=Gris Claro, 2=Gris Oscuro, 3=Negro
         # Formato RGB (Pygame surface)
         debug_palette_map = {
-            0: (224, 248, 208),  # 00: White/Greenish (Color 0)
+            0: (255, 255, 255),  # 00: White (Color 0) - Corregido Step 0300
             1: (136, 192, 112),  # 01: Light Gray (Color 1)
             2: (52, 104, 86),    # 10: Dark Gray (Color 2)
             3: (8, 24, 32)       # 11: Black (Color 3)
@@ -894,7 +894,7 @@ class Renderer:
         # Ignoramos OBP0/OBP1 del hardware para ver los índices crudos de los sprites.
         # Usamos la misma paleta de debug que el fondo para consistencia visual.
         debug_palette_map = {
-            0: (224, 248, 208),  # 00: White/Greenish (Color 0 - transparente en sprites)
+            0: (255, 255, 255),  # 00: White (Color 0 - transparente en sprites) - Corregido Step 0300
             1: (136, 192, 112),  # 01: Light Gray (Color 1)
             2: (52, 104, 86),    # 10: Dark Gray (Color 2)
             3: (8, 24, 32)       # 11: Black (Color 3)

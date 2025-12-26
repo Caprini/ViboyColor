@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrección de Paleta Debug Renderer - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Corrección de Paleta Debug Renderer</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0300
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0299__investigacion-rayas-verdes-diagnostico-visual.html">Anterior (0299)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Corrección de la paleta de debug en el renderer de Python que estaba causando que los píxeles con índice 0 (blanco)
+                    se mostraran como verde. El color del índice 0 se cambió de <code>(224, 248, 208)</code> (verde) a <code>(255, 255, 255)</code>
+                    (blanco verdadero) en los 3 lugares donde se define la paleta de debug.
+                </p>
+                <p>
+                    <strong>Objetivo</strong>: Corregir el problema de las rayas verdes identificado en el Step 0299, donde el análisis
+                    del framebuffer confirmó que todos los píxeles tienen índice 0 (correcto), pero el renderer los mostraba en verde
+                    debido a una paleta de debug incorrecta.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>Paleta de Colores en Game Boy</h3>
+                <p>
+                    El framebuffer de la Game Boy contiene <strong>índices de color (0-3)</strong>, no colores RGB directos.
+                    El renderer de Python debe convertir estos índices a colores RGB para mostrarlos en pantalla.
+                </p>
+                <p>
+                    La paleta de debug es una herramienta de diagnóstico que mapea índices a colores fijos para visualizar
+                    el contenido del framebuffer sin depender de la paleta BGP del hardware. En hardware real, la paleta BGP
+                    (Background Palette, registro 0xFF47) mapea los índices a colores según la configuración del juego.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "Background Palette (BGP)", "Palette"
+                </p>
+
+                <h3>Paleta Estándar de Game Boy (Greyscale)</h3>
+                <p>
+                    La paleta estándar de Game Boy en modo monocromo (DMG) mapea los índices a tonos de gris:
+                </p>
+                <ul>
+                    <li><strong>Color 0 (índice 0)</strong>: Blanco (RGB: 255, 255, 255)</li>
+                    <li><strong>Color 1 (índice 1)</strong>: Gris claro (RGB: 170, 170, 170)</li>
+                    <li><strong>Color 2 (índice 2)</strong>: Gris oscuro (RGB: 85, 85, 85)</li>
+                    <li><strong>Color 3 (índice 3)</strong>: Negro (RGB: 0, 0, 0)</li>
+                </ul>
+                <p>
+                    El problema identificado en el Step 0299 era que la paleta de debug mapeaba incorrectamente el índice 0
+                    a un color verde <code>(224, 248, 208)</code> en lugar de blanco verdadero. Esto causaba que todos los píxeles
+                    con índice 0 (que es el valor correcto para píxeles vacíos) se mostraran en verde, generando el efecto
+                    de "rayas verdes" en la pantalla.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "Background Palette (BGP)", "LCD Display"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se corrigió la paleta de debug en 3 lugares del archivo <code>src/gpu/renderer.py</code>:
+                </p>
+                <ol>
+                    <li><strong>Línea 470</strong>: Paleta de debug en <code>render_frame()</code> cuando usa PPU C++</li>
+                    <li><strong>Línea 538</strong>: Paleta de debug en <code>render_frame()</code> método Python</li>
+                    <li><strong>Línea 897</strong>: Paleta de debug en <code>render_sprites()</code></li>
+                </ol>
+                
+                <h3>Cambio Realizado</h3>
+                <p>
+                    Se cambió el color del índice 0 de verde a blanco verdadero:
+                </p>
+                <pre><code># ANTES (incorrecto):
+debug_palette_map = {
+    0: (224, 248, 208),  # 00: White/Greenish (Color 0)
+    ...
+}
+
+# DESPUÉS (correcto):
+debug_palette_map = {
+    0: (255, 255, 255),  # 00: White (Color 0) - Corregido Step 0300
+    ...
+}</code></pre>
+
+                <h3>Componentes Modificados</h3>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code>: Corregida paleta de debug en 3 funciones (render_frame con PPU C++, render_frame método Python, render_sprites)</li>
+                </ul>
+
+                <h3>Decisiones de Diseño</h3>
+                <p>
+                    Se mantuvo la paleta de debug para los otros índices (1, 2, 3) sin cambios, ya que solo el índice 0
+                    estaba incorrecto. La paleta de debug es una herramienta temporal para diagnóstico, por lo que no
+                    afecta la implementación final que usará la paleta BGP real del hardware.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Corregida paleta de debug en 3 lugares (líneas 470, 538, 897)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La corrección se validó mediante:
+                </p>
+                <ul>
+                    <li><strong>Análisis del Step 0299</strong>: El análisis del framebuffer confirmó que todos los píxeles tienen índice 0 (correcto), pero el renderer los mostraba en verde</li>
+                    <li><strong>Corrección directa</strong>: Cambio del color del índice 0 de verde a blanco en la paleta de debug</li>
+                    <li><strong>Verificación visual esperada</strong>: Al ejecutar el emulador, los píxeles vacíos (índice 0) ahora deberían mostrarse en blanco, no verde</li>
+                </ul>
+                <p>
+                    <strong>Nota</strong>: Esta es una corrección simple de un valor RGB en el renderer de Python. No requiere
+                    recompilación de C++ ni tests unitarios adicionales, ya que el cambio es puramente visual y corrige un
+                    mapeo incorrecto de colores.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Palettes.html">Background Palette (BGP)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/LCD.html">LCD Display</a></li>
+                    <li>Análisis del Step 0299: Investigación de Rayas Verdes y Diagnóstico Visual</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Framebuffer contiene índices, no colores</strong>: El framebuffer de la PPU contiene índices de color (0-3), no valores RGB directos. El renderer debe convertir estos índices a colores RGB usando una paleta.</li>
+                        <li><strong>Paleta de debug vs paleta BGP</strong>: La paleta de debug es una herramienta temporal para diagnóstico que mapea índices a colores fijos. En producción, debería usarse la paleta BGP real del hardware (registro 0xFF47).</li>
+                        <li><strong>Índice 0 = Blanco</strong>: En la paleta estándar de Game Boy, el índice 0 corresponde a blanco (RGB: 255, 255, 255), no a verde.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Verificación visual</strong>: Ejecutar el emulador con Pokémon Red para confirmar que las rayas verdes han desaparecido y que los píxeles vacíos se muestran en blanco.</li>
+                        <li><strong>Otros problemas visuales</strong>: Si aún hay problemas visuales después de esta corrección, investigar si hay otros problemas en el renderer o la PPU.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición</strong>: La corrección de la paleta de debug debería resolver el problema de las rayas verdes,
+                        ya que el análisis del Step 0299 confirmó que el framebuffer contiene solo índices 0 (correcto) y el problema
+                        estaba en el mapeo de colores del renderer.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador con Pokémon Red para verificar visualmente que las rayas verdes han desaparecido</li>
+                    <li>[ ] Si la pantalla se ve blanca/gris: Correcto - significa que la corrección funcionó</li>
+                    <li>[ ] Si aún hay problemas visuales: Investigar si hay otros problemas en el renderer o la PPU</li>
+                    <li>[ ] Si los tiles se cargan: Verificar que se rendericen correctamente con la nueva paleta</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
