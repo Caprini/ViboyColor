@@ -321,6 +321,21 @@ uint8_t MMU::read(uint16_t addr) const {
         }
     }
 
+    // --- Step 0289: Monitor de Lecturas de VRAM ([VRAM-READ]) ---
+    // Captura lecturas de VRAM (0x8000-0x9FFF) para verificar qué valores lee la PPU.
+    // Esto permite confirmar si la PPU está leyendo datos válidos o solo ceros.
+    // Fuente: Pan Docs - "VRAM (Video RAM)": 0x8000-0x9FFF contiene Tile Data y Tile Maps
+    if (addr >= 0x8000 && addr <= 0x9FFF) {
+        uint8_t vram_value = memory_[addr];
+        static int vram_read_count = 0;
+        if (vram_read_count < 100) {  // Límite para evitar saturación
+            printf("[VRAM-READ] Read %04X -> %02X (PC:0x%04X Bank:%d)\n",
+                   addr, vram_value, debug_current_pc, current_rom_bank_);
+            vram_read_count++;
+        }
+        return vram_value;
+    }
+    
     // --- RAM Externa (0xA000-0xBFFF) ---
     if (addr >= 0xA000 && addr <= 0xBFFF) {
         if (!ram_enabled_ || ram_data_.empty()) {

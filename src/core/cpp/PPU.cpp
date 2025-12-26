@@ -381,21 +381,33 @@ void PPU::render_scanline() {
     bool signed_addressing = (lcdc & 0x10) == 0;
     uint16_t tile_data_base = signed_addressing ? 0x9000 : 0x8000;
 
-    // --- Step 0263: TILE MAP INSPECTOR ---
-    // Inspeccionar el Tile Map una sola vez cuando LY=100 (mitad de pantalla)
-    // para verificar si contiene índices de tiles válidos o está vacío
-    static bool map_inspected = false;
-    if (ly_ == 100 && !map_inspected) {
-        printf("[PPU INSPECT] LCDC: %02X\n", lcdc);
-        printf("[PPU INSPECT] BG Map Base: %04X\n", tile_map_base);
-        printf("[PPU INSPECT] BG Data Base: %04X\n", tile_data_base);
-        
-        printf("[PPU INSPECT] First 16 bytes of Map at %04X:\n", tile_map_base);
-        for(int i=0; i<16; i++) {
-            printf("%02X ", mmu_->read(tile_map_base + i));
+    // --- Step 0289: Inspector de Tilemap ([TILEMAP-INSPECT]) ---
+    // Inspeccionar el Tile Map al inicio de cada frame (LY=0) para verificar
+    // qué tile IDs se están usando. Esto permite identificar si el tilemap
+    // apunta a tiles válidos o está vacío (todo ceros).
+    // Fuente: Pan Docs - "Tile Map": 32x32 tiles en 0x9800-0x9BFF o 0x9C00-0x9FFF
+    static int frame_count = 0;
+    if (ly_ == 0) {
+        frame_count++;
+        if (frame_count <= 5) {  // Solo los primeros 5 frames para no saturar
+            printf("[TILEMAP-INSPECT] Frame %d | LCDC: %02X | BG Map Base: %04X | BG Data Base: %04X\n",
+                   frame_count, lcdc, tile_map_base, tile_data_base);
+            
+            // Imprimir las primeras 32 bytes (primera fila completa del tilemap)
+            printf("[TILEMAP-INSPECT] First 32 bytes (row 0) of Map at %04X:\n", tile_map_base);
+            for(int i=0; i<32; i++) {
+                printf("%02X ", mmu_->read(tile_map_base + i));
+                if ((i + 1) % 16 == 0) printf("\n");
+            }
+            printf("\n");
+            
+            // Calcular checksum del tilemap para detectar cambios
+            uint16_t checksum = 0;
+            for(int i=0; i<1024; i++) {  // 32x32 = 1024 tiles
+                checksum += mmu_->read(tile_map_base + i);
+            }
+            printf("[TILEMAP-INSPECT] Tilemap checksum (first 1024 bytes): 0x%04X\n", checksum);
         }
-        printf("\n");
-        map_inspected = true;
     }
     // -----------------------------------------
 
@@ -445,6 +457,21 @@ void PPU::render_scanline() {
             // --- RESTAURADO: LÓGICA REAL DE VRAM ---
             uint8_t byte1 = mmu_->read(tile_line_addr);
             uint8_t byte2 = mmu_->read(tile_line_addr + 1);
+            
+            // --- Step 0289: Inspector de Tile Data ([TILEDATA-INSPECT]) ---
+            // Verificar si el tile contiene datos válidos (distintos de 0x00) cuando se lee.
+            // Esto permite identificar si los tiles apuntados por el tilemap tienen datos reales.
+            // Solo inspeccionar en el centro de la pantalla y en algunos frames iniciales.
+            static int tiledata_inspect_count = 0;
+            if (ly_ == 72 && x == 80 && tiledata_inspect_count < 3) {  // Centro de pantalla, primeros 3 frames
+                printf("[TILEDATA-INSPECT] LY:72 X:80 | TileID:%02X | TileAddr:%04X | Byte1:%02X Byte2:%02X\n",
+                       tile_id, tile_addr, byte1, byte2);
+                if (byte1 == 0x00 && byte2 == 0x00) {
+                    printf("[TILEDATA-INSPECT] WARNING: Tile %02X contains only zeros (empty tile)\n", tile_id);
+                }
+                tiledata_inspect_count++;
+            }
+            // -----------------------------------------
             
             uint8_t bit_index = 7 - (map_x % 8);
             uint8_t bit_low = (byte1 >> bit_index) & 1;

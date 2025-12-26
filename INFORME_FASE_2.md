@@ -32,6 +32,38 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0289: Diagnóstico de VRAM y Tilemap
+**Estado**: ✅ COMPLETADO
+
+Implementación de tres monitores de diagnóstico adicionales para verificar qué lee la PPU de VRAM y qué contiene el tilemap. El Step 0288 identificó que VRAM está vacía (solo ceros), por lo que estos monitores permitirán confirmar si el problema está en la lectura de la PPU o en la carga de datos. Se implementaron los monitores [VRAM-READ], [TILEMAP-INSPECT] y [TILEDATA-INSPECT].
+
+**Cambios realizados**:
+- **MMU.cpp**:
+  - Implementado el monitor [VRAM-READ] en `MMU::read()` que captura todas las lecturas de VRAM (0x8000-0x9FFF).
+  - El monitor reporta la dirección leída, el valor obtenido, el PC que originó la lectura y el banco ROM actual.
+  - Tiene un límite de 100 lecturas para evitar saturación de logs.
+- **PPU.cpp**:
+  - Mejorado el inspector de Tile Map ([TILEMAP-INSPECT]) para ejecutarse al inicio de cada frame (LY=0) en lugar de solo una vez.
+  - El inspector imprime los primeros 32 bytes del tilemap (primera fila completa), calcula un checksum del tilemap completo (1024 bytes) y reporta la configuración de LCDC.
+  - Solo se ejecuta en los primeros 5 frames para no saturar los logs.
+  - Implementado el inspector [TILEDATA-INSPECT] en el bucle de renderizado que verifica si los tiles contienen datos válidos cuando se leen.
+  - El inspector se ejecuta solo en el centro de la pantalla (LY=72, X=80) y en los primeros 3 frames, emitiendo un warning si detecta tiles vacíos.
+
+**Objetivos**:
+- Verificar qué direcciones lee la PPU de VRAM y qué valores obtiene.
+- Verificar qué Tile IDs contiene el tilemap.
+- Verificar si los tiles referenciados por el tilemap contienen datos válidos.
+
+**Concepto de Hardware**:
+- Durante el renderizado de cada scanline, la PPU lee datos de VRAM para construir la imagen: primero lee el Tile Map para obtener el Tile ID, luego lee el Tile Data usando el Tile ID para obtener los bytes de píxeles.
+- El Tile Map es una tabla de 32x32 tiles que especifica qué tile debe renderizarse en cada posición. Si todos los Tile IDs son 0x00, el tilemap está vacío.
+- Cada tile ocupa 16 bytes (2 bytes por línea, 8 líneas). Si ambos bytes de una línea son 0x00, todos los píxeles de esa línea son color 0 (blanco/verde).
+
+**Fuentes Consultadas**:
+- Pan Docs: "Video RAM (VRAM)", "Tile Data", "Tile Map", "LCD Control Register (LCDC)"
+
+---
+
 ### 2025-12-25 - Step 0288: Análisis Selectivo de Logs
 **Estado**: ✅ COMPLETADO
 
