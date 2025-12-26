@@ -32,6 +32,41 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0287: Estabilización del Motor y Auditoría de HRAM
+**Estado**: ✅ COMPLETADO
+
+Refactorización crítica del núcleo de emulación para eliminar variables estáticas que causaban interferencias entre tests de pytest, corrección del bug de timing en run_scanline() que truncaba el valor -1 (HALT), optimización del log del handler de V-Blank para filtrar bucles de retardo en HRAM, e implementación de monitor de escrituras en HRAM para entender las rutinas shadow que los juegos copian ahí.
+
+**Cambios realizados**:
+- **CPU.hpp**:
+  - Añadidos miembros privados para estado de diagnóstico (in_vblank_handler_, vblank_handler_steps_, post_delay_trace_active_, post_delay_count_) que reemplazan variables static.
+  - Esto asegura que cada instancia de CPU tenga su propio estado aislado, eliminando interferencias entre tests.
+- **CPU.cpp**:
+  - Refactorización de variables static a miembros de clase en step() y run_scanline().
+  - Corrección del tipo de m_cycles de uint8_t a int en run_scanline() para manejar correctamente el valor -1 (HALT).
+  - Optimización del log del handler de V-Blank para filtrar el bucle de retardo DEC A / JR NZ en HRAM (0xFF86-0xFF87).
+  - Inicialización de los nuevos miembros en el constructor.
+- **MMU.cpp**:
+  - Implementado el monitor [HRAM-WRITE] que detecta todas las escrituras en HRAM (0xFF80-0xFFFE).
+  - El monitor ayuda a entender cuándo y qué código copian los juegos a HRAM para ejecutar rutinas shadow.
+
+**Objetivos**:
+- Eliminar interferencias entre tests causadas por variables static.
+- Corregir el bug de timing que truncaba el valor -1 (HALT) en run_scanline().
+- Reducir el ruido en los logs del handler de V-Blank filtrando bucles de retardo.
+- Entender las rutinas shadow que los juegos copian a HRAM para ejecución de alta velocidad.
+
+**Concepto de Hardware**:
+- HRAM (High RAM) es un área de 127 bytes (0xFF80-0xFFFE) accesible en todos los ciclos de memoria, a diferencia de ROM o RAM normal que pueden estar bloqueadas durante DMA o acceso a VRAM.
+- Los juegos copian rutinas críticas (como handlers de interrupciones o bucles de retardo) a HRAM para ejecutarlas más rápido. Estas rutinas "shadow" son copias de código que se ejecutan desde HRAM.
+- Cuando la CPU entra en estado HALT, step() devuelve -1 para indicar "avance rápido", pero uint8_t no puede representar -1, causando truncamiento a 255 que rompía el cálculo de ciclos.
+- Las variables static en C++ persisten entre llamadas, lo que significa que el estado de un test puede "contaminar" el siguiente. Al moverlas a miembros de clase, cada instancia tiene su propio estado aislado.
+
+**Fuentes Consultadas**:
+- Pan Docs: "HRAM (High RAM)", "CPU Instruction Set - HALT"
+
+---
+
 ### 2025-12-25 - Step 0286: Auditoría Extendida de Interrupciones y DMA
 **Estado**: ✅ COMPLETADO
 

@@ -668,6 +668,21 @@ void MMU::write(uint16_t addr, uint8_t value) {
         // se hace al final de la función, pero aquí verificamos que el rango es válido.
         // NOTA: No hay restricción de escritura en VRAM basada en modo PPU en este emulador.
     }
+    
+    // --- Step 0287: Monitor de Escrituras en HRAM ([HRAM-WRITE]) ---
+    // HRAM (High RAM) es un área de 127 bytes (0xFF80-0xFFFE) usada para rutinas de alta velocidad.
+    // Los juegos suelen copiar rutinas críticas (como handlers de interrupciones) a HRAM
+    // para ejecutarlas más rápido, ya que HRAM es accesible en todos los ciclos de memoria.
+    // Este monitor detecta escrituras en HRAM para entender cuándo y qué se copia ahí.
+    // Fuente: Pan Docs - "HRAM (High RAM)": 0xFF80-0xFFFE, accesible en todos los ciclos
+    if (addr >= 0xFF80 && addr <= 0xFFFE) {
+        static int hram_write_count = 0;
+        if (hram_write_count < 200) {  // Límite para evitar saturación
+            printf("[HRAM-WRITE] Write %04X=%02X PC:%04X (Bank:%d)\n",
+                   addr, value, debug_current_pc, current_rom_bank_);
+            hram_write_count++;
+        }
+    }
 
     memory_[addr] = value;
 }

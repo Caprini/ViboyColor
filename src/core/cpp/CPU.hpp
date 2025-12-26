@@ -507,6 +507,13 @@ private:
     bool ime_;              // Interrupt Master Enable (habilitación global de interrupciones)
     bool halted_;           // Estado HALT (CPU dormida)
     bool ime_scheduled_;    // Flag para retraso de EI (se activa después de la siguiente instrucción)
+
+    // ========== Estado de Diagnóstico (Step 0287) ==========
+    // Estos miembros reemplazan las variables static para aislar el estado entre tests
+    bool in_vblank_handler_;      // Flag que indica si estamos ejecutando el handler de V-Blank
+    int vblank_handler_steps_;    // Contador de pasos dentro del handler
+    bool post_delay_trace_active_; // Flag para activar trail post-retardo
+    int post_delay_count_;        // Contador de instrucciones rastreadas post-retardo
 };
 
 #endif // CPU_HPP

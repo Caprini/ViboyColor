@@ -5,10 +5,12 @@
 #include "Timer.hpp"
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
-    : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false) {
+    : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false),
+      in_vblank_handler_(false), vblank_handler_steps_(0), post_delay_trace_active_(false), post_delay_count_(0) {
     // Validación básica (en producción, podríamos usar assert)
     // Por ahora, confiamos en que Python pasa punteros válidos
     // IME inicia en false por seguridad (el juego lo activará si lo necesita)
+    // Step 0287: Inicialización de miembros de diagnóstico (reemplazan variables static)
 }
 
 CPU::~CPU() {
@@ -464,32 +466,37 @@ int CPU::step() {
     // Este monitor se ejecuta ANTES de cualquier early return para asegurar
     // que capturamos todas las ejecuciones del handler, incluso cuando hay interrupciones
     // que causan retornos anticipados. Usa original_pc para leer el opcode.
-    static bool in_vblank_handler = false;
-    static int handler_step_count = 0;
+    // --- Step 0287: Refactorizado de static a miembros de clase para aislar tests ---
     
     // Activar flag al entrar en el vector
     if (original_pc == 0x0040) {
-        in_vblank_handler = true;
-        handler_step_count = 0;
+        in_vblank_handler_ = true;
+        vblank_handler_steps_ = 0;
     }
     
     // Rastrear instrucciones dentro del handler
     // --- Step 0286: Aumentado límite a 500 instrucciones para capturar flujo completo ---
-    if (in_vblank_handler && handler_step_count < 500) {
+    // --- Step 0287: Filtrar bucle de retardo en HRAM (0xFF86-0xFF87) para reducir ruido ---
+    if (in_vblank_handler_ && vblank_handler_steps_ < 500) {
         uint8_t op = mmu_->read(original_pc);
-        printf("[HANDLER-EXEC] PC:0x%04X OP:0x%02X | A:0x%02X HL:0x%04X | IME:%d\n",
-               original_pc, op, regs_->a, regs_->get_hl(), ime_ ? 1 : 0);
-        handler_step_count++;
+        
+        // Filtrar el bucle de retardo DEC A / JR NZ en HRAM para no saturar logs
+        // Este bucle es común en handlers de V-Blank y no aporta información útil
+        if (original_pc < 0xFF86 || original_pc > 0xFF87) {
+            printf("[HANDLER-EXEC] PC:0x%04X OP:0x%02X | A:0x%02X HL:0x%04X | IME:%d\n",
+                   original_pc, op, regs_->a, regs_->get_hl(), ime_ ? 1 : 0);
+        }
+        vblank_handler_steps_++;
         
         // --- Step 0286: Detección de RET (0xC9) además de RETI (0xD9) ---
         // Algunos handlers pueden terminar con RET sin habilitar IME, lo cual es un bug
         // pero debemos detectarlo para entender el flujo completo del handler
         if (op == 0xD9) {
             printf("[HANDLER-EXIT] RETI detectado en PC:0x%04X. Fin del rastreo del handler.\n", original_pc);
-            in_vblank_handler = false;
+            in_vblank_handler_ = false;
         } else if (op == 0xC9) {
             printf("[HANDLER-EXIT] RET detectado en PC:0x%04X (SIN habilitar IME). Fin del rastreo del handler.\n", original_pc);
-            in_vblank_handler = false;
+            in_vblank_handler_ = false;
         }
     }
     // -----------------------------------------
@@ -514,17 +521,17 @@ int CPU::step() {
     // incluso cuando hay interrupciones que interrumpen la ejecución
     
     // Trigger de salida del bucle (cuando el PC sale del rango 614A-6155)
-    static uint16_t last_pc_in_loop = 0;
-    static bool post_delay_trace_active = false;  // Step 0278: Flag para activar trail post-retardo
-    static int post_delay_count = 0;  // Step 0278: Contador de instrucciones rastreadas
+    // --- Step 0287: Refactorizado de static a miembros de clase para aislar tests ---
+    static uint16_t last_pc_in_loop = 0;  // Este puede quedarse static porque solo se usa en este scope
     
     if (last_pc_in_loop >= 0x614A && last_pc_in_loop <= 0x6155 && 
         !(regs_->pc >= 0x614A && regs_->pc <= 0x6155)) {
         printf("[SNIPER-EXIT] ¡LIBERTAD! El bucle de retardo ha terminado en PC:0x%04X. DE:0x%04X\n", 
                regs_->pc, regs_->get_de());
         // Step 0278: Activar trail post-retardo cuando se detecta la salida del bucle
-        post_delay_trace_active = true;
-        post_delay_count = 0;
+        // --- Step 0287: Usar miembros de clase en lugar de static ---
+        post_delay_trace_active_ = true;
+        post_delay_count_ = 0;
         printf("[SNIPER-AWAKE] ¡Saliendo del bucle de retardo! Iniciando rastreo de flujo...\n");
     }
     if (regs_->pc >= 0x614A && regs_->pc <= 0x6155) {
@@ -532,12 +539,13 @@ int CPU::step() {
     }
     
     // Step 0278: Trail de ejecución post-retardo (ejecutar incluso si hay interrupciones)
-    if (post_delay_trace_active && post_delay_count < 200) {
+    // --- Step 0287: Usar miembros de clase en lugar de static ---
+    if (post_delay_trace_active_ && post_delay_count_ < 200) {
         uint8_t current_op = mmu_->read(regs_->pc);  // Leer opcode del PC actual (antes del fetch)
         printf("[POST-DELAY] PC:%04X OP:%02X | A:%02X HL:%04X | IE:%02X IME:%d\n",
                regs_->pc, current_op, regs_->a, regs_->get_hl(),
                mmu_->read(0xFFFF), ime_ ? 1 : 0);
-        post_delay_count++;
+        post_delay_count_++;
     }
     // -----------------------------------------
     
@@ -2755,11 +2763,13 @@ void CPU::run_scanline() {
     // Bucle de emulación de grano fino: ejecuta instrucciones hasta acumular 456 T-Cycles
     while (cycles_this_scanline < CYCLES_PER_SCANLINE) {
         // Ejecuta UNA instrucción y obtiene los M-Cycles consumidos
-        uint8_t m_cycles = step();
+        // --- Step 0287: Cambiar a int para manejar correctamente -1 (HALT) ---
+        int m_cycles = step();
         
         // Si step() devuelve 0, hay un error (opcode no implementado o similar)
-        // En este caso, forzamos un avance mínimo para evitar bucles infinitos
-        if (m_cycles == 0) {
+        // Si step() devuelve -1, la CPU está en HALT (avance rápido)
+        // En ambos casos, forzamos un avance mínimo para evitar bucles infinitos
+        if (m_cycles <= 0) {
             m_cycles = 1;  // Forzar avance mínimo (1 M-Cycle = 4 T-Cycles)
         }
         
