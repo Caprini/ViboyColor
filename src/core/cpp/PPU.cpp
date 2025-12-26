@@ -428,6 +428,27 @@ void PPU::render_scanline() {
 
     size_t line_start_index = ly_ * 160;
 
+    // --- Step 0299: Monitor de Tilemap Real ([TILEMAP-DUMP-VISUAL]) ---
+    // Capturar los tile IDs reales que se están leyendo del tilemap durante el renderizado
+    // de la línea central (LY=72). Esto permite identificar si hay un patrón repetitivo
+    // en los tile IDs que podría explicar las rayas verticales.
+    // Fuente: Pan Docs - "Tile Map"
+    static int tilemap_dump_count = 0;
+    if (ly_ == 72 && tilemap_dump_count < 3) {
+        printf("[TILEMAP-DUMP-VISUAL] Frame %d, LY:72 | First 32 tile IDs:\n", tilemap_dump_count + 1);
+        for(int x_dump = 0; x_dump < 32; x_dump++) {
+            uint8_t map_x_dump = (x_dump + scx) & 0xFF;
+            uint8_t map_y_dump = (ly_ + scy) & 0xFF;
+            uint16_t tile_map_addr_dump = tile_map_base + (map_y_dump / 8) * 32 + (map_x_dump / 8);
+            uint8_t tile_id_dump = mmu_->read(tile_map_addr_dump);
+            printf("%02X ", tile_id_dump);
+            if ((x_dump + 1) % 16 == 0) printf("\n");
+        }
+        printf("\n");
+        tilemap_dump_count++;
+    }
+    // -----------------------------------------
+
     for (int x = 0; x < 160; ++x) {
         uint8_t map_x = (x + scx) & 0xFF;
         uint8_t map_y = (ly_ + scy) & 0xFF;
@@ -464,6 +485,25 @@ void PPU::render_scanline() {
             // --- RESTAURADO: LÓGICA REAL DE VRAM ---
             uint8_t byte1 = mmu_->read(tile_line_addr);
             uint8_t byte2 = mmu_->read(tile_line_addr + 1);
+            
+            // --- Step 0299: Monitor de Datos de Tiles Reales ([TILEDATA-DUMP-VISUAL]) ---
+            // Capturar los datos reales de los tiles que se están leyendo de VRAM durante
+            // el renderizado. Esto permite verificar si los tiles contienen datos válidos
+            // o están vacíos (0x00), lo que podría explicar las rayas verdes.
+            // Fuente: Pan Docs - "Tile Data"
+            static int tiledata_dump_count = 0;
+            if (ly_ == 72 && x < 32 && tiledata_dump_count < 3) {
+                // Capturar los datos de los primeros 4 tiles (cada 8 píxeles)
+                if (x % 8 == 0) {  // Cada 8 píxeles (un tile completo)
+                    uint8_t tile_index = x / 8;
+                    if (tile_index < 4) {
+                        printf("[TILEDATA-DUMP-VISUAL] Frame %d | Tile %d (ID:%02X) | Addr:%04X | Line:%d | Bytes: %02X %02X\n",
+                               tiledata_dump_count + 1, tile_index, tile_id, tile_line_addr, line_in_tile, byte1, byte2);
+                    }
+                }
+            }
+            if (ly_ == 72 && x == 31) tiledata_dump_count++;
+            // -----------------------------------------
             
             // --- Step 0289: Inspector de Tile Data ([TILEDATA-INSPECT]) ---
             // Verificar si el tile contiene datos válidos (distintos de 0x00) cuando se lee.
@@ -506,6 +546,23 @@ void PPU::render_scanline() {
                 palette_apply_count++;
             }
             
+            // --- Step 0299: Monitor de Paleta Aplicada ([PALETTE-DUMP-VISUAL]) ---
+            // Capturar la aplicación de la paleta BGP para ver qué colores finales se generan
+            // en los primeros 32 píxeles de la línea central. Esto permite identificar si el
+            // patrón de rayas viene de la aplicación de la paleta.
+            // Fuente: Pan Docs - "Background Palette (BGP)"
+            static int palette_dump_count = 0;
+            if (ly_ == 72 && x < 32 && palette_dump_count < 3) {
+                if (x == 0) {
+                    printf("[PALETTE-DUMP-VISUAL] Frame %d, LY:72 | BGP:0x%02X | First 32 pixels (ColorIndex -> FinalColor):\n",
+                           palette_dump_count + 1, bgp);
+                }
+                printf("(%d->%d) ", color_index, final_color);
+                if ((x + 1) % 16 == 0) printf("\n");
+            }
+            if (ly_ == 72 && x == 31) palette_dump_count++;
+            // -----------------------------------------
+            
             framebuffer_[line_start_index + x] = final_color;
             // -------------------------------------------------------------
 
@@ -513,6 +570,23 @@ void PPU::render_scanline() {
             framebuffer_[line_start_index + x] = 0;
         }
     }
+    
+    // --- Step 0299: Monitor de Framebuffer Real ([FRAMEBUFFER-DUMP]) ---
+    // Capturar el contenido real del framebuffer después de renderizar un frame completo
+    // para ver qué índices de color se están escribiendo. Esto permite identificar si hay
+    // un patrón repetitivo en los índices que podría explicar las rayas verticales.
+    // Fuente: Pan Docs - "LCD Display"
+    static int framebuffer_dump_count = 0;
+    if (ly_ == 72 && framebuffer_dump_count < 3) {  // Línea central (72 de 144)
+        printf("[FRAMEBUFFER-DUMP] Frame %d, LY:72 | First 32 pixels (indices 0-31):\n", framebuffer_dump_count + 1);
+        for(int x_dump = 0; x_dump < 32; x_dump++) {
+            printf("%02X ", framebuffer_[line_start_index + x_dump]);
+            if ((x_dump + 1) % 16 == 0) printf("\n");
+        }
+        printf("\n");
+        framebuffer_dump_count++;
+    }
+    // -----------------------------------------
     
     // --- Step 0284: Renderizar Window después del Background ---
     // La Window se dibuja encima del Background pero debajo de los Sprites

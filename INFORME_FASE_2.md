@@ -32,6 +32,44 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0299: Investigación de Rayas Verdes y Diagnóstico Visual
+**Estado**: ✅ COMPLETADO
+
+Implementación de 4 monitores de diagnóstico visual para investigar por qué el emulador muestra rayas verticales verdes en lugar de gráficos. Los monitores capturan el contenido real del framebuffer, los tile IDs del tilemap, los datos de tiles leídos de VRAM, y la aplicación de la paleta durante el renderizado de la línea central (LY=72).
+
+**Monitores implementados**:
+1. **[FRAMEBUFFER-DUMP]**: Captura los índices de color reales en el framebuffer (línea central, primeros 32 píxeles)
+2. **[TILEMAP-DUMP-VISUAL]**: Captura los tile IDs reales leídos del tilemap (línea central, primeros 32 tiles)
+3. **[TILEDATA-DUMP-VISUAL]**: Captura los datos reales de los tiles leídos de VRAM (primeros 4 tiles)
+4. **[PALETTE-DUMP-VISUAL]**: Captura la aplicación de la paleta BGP (línea central, primeros 32 píxeles)
+
+**Hipótesis sobre las rayas verdes**:
+1. **Hipótesis A**: Tilemap con valores repetidos (como 0x7F) que generan un patrón
+2. **Hipótesis B**: Tiles vacíos (0x00) pero la paleta genera colores verdes
+3. **Hipótesis C**: Cálculo incorrecto de direcciones de tiles, generando lecturas repetitivas
+4. **Hipótesis D**: El scroll (SCX/SCY) está generando un patrón repetitivo
+
+**Implementación**:
+- Añadidos 4 monitores de diagnóstico visual en `src/core/cpp/PPU.cpp` dentro de `render_scanline()`
+- Todos los monitores se activan durante el renderizado de la línea central (LY=72)
+- Límite de 3 frames para evitar saturación de logs
+- Captura de primeros 32 píxeles/tiles para identificar patrones
+
+**Archivos modificados**:
+- `src/core/cpp/PPU.cpp` - Añadidos 4 monitores de diagnóstico visual
+- `ANALISIS_RAYAS_VERDES_STEP_0299.md` - Documento de análisis (template para completar después de ejecución)
+- `docs/bitacora/entries/2025-12-25__0299__investigacion-rayas-verdes-diagnostico-visual.html` - Entrada HTML de bitácora
+- `docs/bitacora/index.html` - Actualizado con entrada 0299
+
+**Próximos pasos**:
+1. Ejecutar el emulador y capturar logs de los 4 monitores
+2. Analizar los logs para identificar patrones en framebuffer, tilemap, tiles y paleta
+3. Confirmar o rechazar las 4 hipótesis sobre el origen de las rayas verdes
+4. Identificar la causa raíz del patrón
+5. Implementar corrección basada en los hallazgos (si aplica)
+
+---
+
 ### 2025-12-25 - Step 0298: Ejecución con Interacción y Decisión sobre Enfoque
 **Estado**: ✅ COMPLETADO
 
