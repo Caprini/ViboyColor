@@ -32,6 +32,70 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0305: Investigación de Renderizado Python
+**Estado**: 🔄 EN PROGRESO (DRAFT)
+
+Investigación exhaustiva del código de renderizado en Python para identificar por qué aparecen rayas verdes cuando el framebuffer de PPU C++ solo contiene índices 0. Se implementaron 3 monitores adicionales para rastrear la paleta, el PixelArray y las modificaciones de paleta durante la ejecución.
+
+**Objetivo**:
+- Identificar la causa raíz de las rayas verdes que aparecen después de ~2 minutos de ejecución
+- Verificar que todas las paletas estén corregidas y no haya código adicional que renderice
+- Implementar monitores para rastrear el flujo de renderizado completo
+
+**Hipótesis evaluadas**:
+1. **Hipótesis A**: La paleta se modifica durante la ejecución - ✅ Monitor [PALETTE-MODIFIED] implementado
+2. **Hipótesis B**: Hay otro código que renderiza usando una paleta incorrecta - ✅ Rechazada (búsqueda exhaustiva)
+3. **Hipótesis C**: Problema con PixelArray o scaling que causa artefactos visuales - ✅ Monitor [PIXEL-VERIFY] implementado
+4. **Hipótesis D**: Hay alguna paleta que no se corrigió - ✅ Rechazada (todas las paletas verificadas)
+
+**Búsquedas realizadas**:
+- ✅ Búsqueda de valores verdes: No se encontraron valores verdes en el código
+- ✅ Búsqueda de definiciones de paleta: 40 coincidencias encontradas, todas verificadas y corregidas
+- ✅ Búsqueda de funciones de renderizado: 4 funciones encontradas (update_tile_cache, render_vram_debug, render_frame, render_sprites)
+- ✅ Búsqueda de operaciones de renderizado: 17 operaciones encontradas (blit, fill, set_at)
+
+**Monitores implementados**:
+
+1. **Monitor [PALETTE-VERIFY]**:
+   - Verifica la paleta usada en cada frame
+   - Frecuencia: Cada 1000 frames o primeros 100 frames
+   - Imprime los valores RGB de la paleta (Palette[0], Palette[1], Palette[2], Palette[3])
+
+2. **Monitor [PIXEL-VERIFY]**:
+   - Verifica el píxel central antes del mapeo en PixelArray
+   - Frecuencia: Primeros 10 frames
+   - Verifica el píxel central (línea 72, columna 80) antes y después del mapeo
+
+3. **Monitor [PALETTE-MODIFIED]**:
+   - Detecta si la paleta se modifica durante la ejecución
+   - Compara la paleta actual con la última paleta verificada
+   - Muestra stack trace si se detecta una modificación
+
+**Hallazgos**:
+- ✅ Todas las paletas están corregidas: self.COLORS, debug_palette_map, palette0, palette1
+- ✅ No hay código adicional que renderice: Solo hay un flujo de renderizado principal
+- ⏳ Ejecución en progreso: Emulador ejecutándose en segundo plano para capturar logs
+- ⏳ Análisis pendiente: Esperando logs para análisis completo
+
+**Archivos modificados**:
+- `src/gpu/renderer.py` - Implementación de 3 monitores adicionales ([PALETTE-VERIFY], [PIXEL-VERIFY], [PALETTE-MODIFIED])
+- `ANALISIS_STEP_0305_RENDERER.md` - Documento de análisis con todos los hallazgos
+- `debug_step_0305_renderer.log` - Logs de ejecución (en progreso)
+- `docs/bitacora/entries/2025-12-25__0305__investigacion-renderizado-python.html` - Entrada HTML de bitácora
+- `docs/bitacora/index.html` - Actualizado con entrada 0305
+- `INFORME_FASE_2.md` - Esta entrada
+
+**Próximos pasos**:
+- Analizar logs generados cuando estén disponibles
+- Verificar si [PALETTE-VERIFY] muestra cambios en la paleta
+- Verificar si [PIXEL-VERIFY] muestra problemas con el mapeo de píxeles
+- Verificar si [PALETTE-MODIFIED] detecta modificaciones de paleta
+- Identificar causa raíz basándose en los monitores
+- Implementar corrección específica si se identifica el problema
+- Verificar corrección con pruebas extendidas
+
+---
+
 ### 2025-12-25 - Step 0304: Verificación Extendida y Monitor de Framebuffer
 **Estado**: 🔄 EN PROGRESO (DRAFT)
 

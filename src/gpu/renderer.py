@@ -215,6 +215,21 @@ class Renderer:
         self._framebuffer_trace_count = 0
         # ----------------------------------------
         
+        # --- STEP 0305: Monitores de Renderizado Python ---
+        # Monitor de paleta en tiempo real ([PALETTE-VERIFY])
+        self._palette_verify_count = 0
+        # Monitor de PixelArray y scaling ([PIXEL-VERIFY])
+        self._pixel_verify_count = 0
+        # Monitor de modificaciones de paleta ([PALETTE-MODIFIED])
+        self._original_debug_palette = {
+            0: (255, 255, 255),
+            1: (170, 170, 170),
+            2: (85, 85, 85),
+            3: (8, 24, 32)
+        }
+        self._last_palette_checked = None
+        # ----------------------------------------
+        
         logger.info(f"Renderer inicializado: {self.window_width}x{self.window_height} (scale={scale})")
         
         # Mostrar pantalla de carga
@@ -516,6 +531,28 @@ class Renderer:
                 ]
                 # ----------------------------------------
                 
+                # --- STEP 0305: Monitor de Paleta en Tiempo Real ([PALETTE-VERIFY]) ---
+                if self._palette_verify_count % 1000 == 0 or self._palette_verify_count < 10:
+                    if self._palette_verify_count < 100:
+                        print(f"[PALETTE-VERIFY] Frame {self._palette_verify_count} | "
+                              f"Palette[0]={palette[0]} Palette[1]={palette[1]} "
+                              f"Palette[2]={palette[2]} Palette[3]={palette[3]}")
+                    self._palette_verify_count += 1
+                else:
+                    self._palette_verify_count += 1
+                # ----------------------------------------
+                
+                # --- STEP 0305: Verificación de Modificaciones de Paleta ([PALETTE-MODIFIED]) ---
+                if self._last_palette_checked is not None:
+                    if self._last_palette_checked != debug_palette_map:
+                        print(f"[PALETTE-MODIFIED] Paleta modificada detectada!")
+                        print(f"  Original: {self._original_debug_palette}")
+                        print(f"  Actual: {debug_palette_map}")
+                        import traceback
+                        traceback.print_stack(limit=10)
+                self._last_palette_checked = dict(debug_palette_map)  # Copia para comparación
+                # ----------------------------------------
+                
                 # --- STEP 0301: Monitor de Uso de Paleta ([PALETTE-USE-TRACE]) ---
                 if self._palette_trace_count < 100 or (self._palette_trace_count % 1000 == 0):
                     use_cpp = self.use_cpp_ppu
@@ -571,6 +608,20 @@ class Renderer:
                 # Renderizado robusto
                 px_array = pygame.PixelArray(self.surface)
                 WIDTH, HEIGHT = 160, 144
+                
+                # --- STEP 0305: Verificación de PixelArray y Scaling ([PIXEL-VERIFY]) ---
+                if self._pixel_verify_count < 10:
+                    # Verificar píxel central antes de PixelArray
+                    center_idx = (72 * 160 + 80)  # Línea 72, columna 80
+                    center_color_idx = frame_indices[center_idx] & 0x03
+                    center_color_rgb = palette[center_color_idx]
+                    print(f"[PIXEL-VERIFY] Frame {self._pixel_verify_count} | "
+                          f"Center pixel: idx={center_idx} color_idx={center_color_idx} "
+                          f"rgb={center_color_rgb}")
+                    self._pixel_verify_count += 1
+                else:
+                    self._pixel_verify_count += 1
+                # ----------------------------------------
                 
                 for y in range(HEIGHT):
                     for x in range(WIDTH):
