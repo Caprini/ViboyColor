@@ -32,6 +32,43 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0288: Análisis Selectivo de Logs
+**Estado**: ✅ COMPLETADO
+
+Análisis selectivo de los logs de diagnóstico del emulador para identificar la causa raíz del problema de pantalla verde/blanca en Pokémon Red. Se analizaron los monitores activos ([VRAM-VIBE], [VRAM-TOTAL], [DMA-TRIGGER], [BGP-CHANGE], [HANDLER-EXEC], [VBLANK-TRACE]) y se identificaron dos problemas críticos: VRAM está siendo escrita solo con ceros (0x00) y BGP se pone temporalmente a 0x00 durante la ejecución.
+
+**Hallazgos principales**:
+- **VRAM-VIBE**: 0 matches (crítico: no hay escrituras de datos de gráficos reales)
+- **VRAM-TOTAL**: 500 escrituras detectadas, todas con valor 0x00 (VRAM está siendo limpiada pero no cargada con gráficos)
+- **DMA-TRIGGER**: 49 activaciones detectadas, funcionando correctamente
+- **BGP-CHANGE**: 3 cambios detectados, uno problemático (0xE4 -> 0x00 en PC:0x1F6A)
+- **HANDLER-EXEC**: 49 ejecuciones detectadas, funcionando correctamente
+- **VBLANK-TRACE**: 49 rastreos detectados, funcionando correctamente
+- **LCDC**: Valor constante 0xE3, configuración correcta
+
+**Problema raíz identificado**:
+- VRAM está vacía (solo ceros), lo que explica por qué la pantalla muestra verde/blanco
+- BGP se pone temporalmente a 0x00, lo que agrava el problema
+
+**Archivos creados**:
+- `ANALISIS_LOGS_STEP_0288.md`: Análisis ejecutivo con hallazgos detallados
+
+**Objetivos**:
+- Identificar la causa raíz del problema de pantalla verde/blanca
+- Analizar los monitores de diagnóstico activos para encontrar patrones sospechosos
+- Preparar el terreno para los siguientes pasos (Step 0289-0291) que implementarán monitores adicionales y correcciones
+
+**Concepto de Hardware**:
+- VRAM (0x8000-0x9FFF, 8KB) contiene Tile Data (0x8000-0x97FF) y Tile Maps (0x9800-0x9FFF). Si VRAM está vacía, el PPU leerá tiles vacíos y renderizará una pantalla en blanco o con un solo color.
+- BGP (0xFF47) mapea índices de color (0-3) a otros índices. Si BGP = 0x00, todos los colores se mapean a índice 0 (blanco/verde), causando una pantalla monocromática.
+
+**Próximos pasos**:
+- Step 0289: Implementar monitores adicionales ([VRAM-READ], [TILEMAP-INSPECT], [TILEDATA-INSPECT])
+- Step 0290: Implementar monitores de LCDC y paleta ([LCDC-CHANGE], [PALETTE-APPLY])
+- Step 0291: Aplicar correcciones basadas en los hallazgos
+
+---
+
 ### 2025-12-25 - Step 0287: Estabilización del Motor y Auditoría de HRAM
 **Estado**: ✅ COMPLETADO
 
