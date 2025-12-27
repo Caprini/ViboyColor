@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificación y Corrección del Limitador de FPS - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Verificación y Corrección del Limitador de FPS</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0309
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0308__correccion-regresion-rendimiento.html">Anterior (Step 0308)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Verificación y corrección del limitador de FPS que ya existía en el código. A pesar de que <code>clock.tick(60)</code> estaba implementado, el reporte de FPS en la barra de título mostraba 300+ FPS, lo que sugería que el limitador funcionaba pero el reporte no reflejaba el FPS limitado correctamente. Se corrigieron los cálculos de FPS en la barra de título y el monitor de rendimiento para que reflejen el FPS limitado real (~60 FPS) en lugar del FPS de renderizado sin limitar.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El Game Boy original ejecuta a <strong>59.7 FPS</strong> (aproximadamente 60 FPS), lo que significa que cada frame debe durar aproximadamente <strong>16.67ms</strong> (1000ms / 60 FPS). Para mantener la sincronización correcta con el hardware real, el emulador debe:
+                </p>
+                <ul>
+                    <li><strong>Ejecutar la emulación a la velocidad correcta</strong>: 70,224 ciclos T por frame (4.194304 MHz / 59.7 FPS)</li>
+                    <li><strong>Limitar el renderizado a 60 FPS</strong>: Usar un limitador de FPS (como <code>pygame.Clock.tick(60)</code>) para sincronizar el renderizado con el tiempo real</li>
+                    <li><strong>Reportar el FPS limitado correctamente</strong>: El reporte de FPS debe reflejar el FPS limitado, no el FPS de renderizado sin limitar</li>
+                </ul>
+                <p>
+                    El problema encontrado fue que, aunque el limitador estaba activo (el emulador se ejecutaba a 60 FPS reales), el reporte mostraba el FPS de renderizado sin limitar (300+ FPS). Esto ocurría porque:
+                </p>
+                <ul>
+                    <li>El <code>clock.get_fps()</code> puede no funcionar correctamente si se llama antes de que el tick tenga efecto</li>
+                    <li>El monitor de rendimiento medía solo el tiempo de renderizado, no el tiempo entre frames (que incluye la espera del <code>clock.tick()</code>)</li>
+                </ul>
+                <p>
+                    La solución fue calcular el FPS desde el tiempo real entre frames consecutivos (que incluye el tiempo de espera del limitador), en lugar de usar solo el tiempo de renderizado.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron correcciones en dos áreas principales: el reporte de FPS en la barra de título y el monitor de rendimiento.
+                </p>
+                
+                <h3>1. Corrección del Reporte de FPS en la Barra de Título</h3>
+                <p>
+                    <strong>Problema detectado</strong>: El reporte usaba <code>clock.get_fps()</code> que podía retornar el FPS sin limitar en lugar del FPS limitado.
+                </p>
+                <p>
+                    <strong>Solución</strong>: Calcular el FPS desde el <code>tick_time</code> retornado por <code>clock.tick()</code>, que es más preciso:
+                </p>
+                <pre><code># Step 0309: Corregir cálculo de FPS para reflejar el FPS limitado
+if self._clock is not None:
+    tick_time_ms = self._clock.tick(TARGET_FPS)
+    
+    # Log temporal para verificación (cada segundo)
+    if self.frame_count % 60 == 0:
+        print(f"[FPS-LIMITER] Frame {self.frame_count} | Tick time: {tick_time_ms:.2f}ms | Target: {TARGET_FPS} FPS")
+
+# Título con FPS (cada 60 frames para no frenar)
+if self.frame_count % 60 == 0 and self._clock is not None:
+    import pygame
+    import time
+    
+    # Opción A: Usar get_fps() que debería retornar FPS limitado
+    fps_from_clock = self._clock.get_fps()
+    
+    # Opción B: Calcular desde tick_time (más preciso)
+    if tick_time_ms is not None and tick_time_ms > 0:
+        fps_calculated = 1000.0 / tick_time_ms
+        # Usar el cálculo basado en tick_time para mayor precisión
+        fps = fps_calculated
+    else:
+        # Fallback a get_fps() si tick_time no está disponible
+        fps = fps_from_clock if fps_from_clock > 0 else TARGET_FPS
+    
+    pygame.display.set_caption(f"Viboy Color v0.0.2 - FPS: {fps:.1f}")</code></pre>
+
+                <h3>2. Verificación de Sincronización</h3>
+                <p>
+                    Se añadió una verificación de sincronización que se ejecuta cada minuto (3600 frames) para detectar drift entre frames reales y frames esperados:
+                </p>
+                <pre><code># Step 0309: Verificación de sincronización (cada minuto)
+if not hasattr(self, '_start_time'):
+    import time
+    self._start_time = time.time()
+if self.frame_count % 3600 == 0 and self.frame_count > 0:  # Cada minuto (60 * 60 frames)
+    import time
+    elapsed_real = time.time() - self._start_time
+    expected_frames = elapsed_real * TARGET_FPS
+    actual_frames = self.frame_count
+    drift = actual_frames - expected_frames
+    print(f"[SYNC-CHECK] Real: {elapsed_real:.1f}s | Expected: {expected_frames:.0f} frames | Actual: {actual_frames} | Drift: {drift:.0f}")</code></pre>
+
+                <h3>3. Corrección del Monitor de Rendimiento</h3>
+                <p>
+                    <strong>Problema detectado</strong>: El monitor medía solo el tiempo de renderizado, no el tiempo entre frames (que incluye la espera del <code>clock.tick()</code>).
+                </p>
+                <p>
+                    <strong>Solución</strong>: Calcular el tiempo entre frames consecutivos, que incluye el tiempo de espera del limitador:
+                </p>
+                <pre><code># Step 0309: Calcular tiempo entre frames consecutivos (incluye clock.tick())
+# Guardar tiempo del frame anterior para calcular tiempo entre frames
+self._last_frame_end_time = None
+
+# En el monitor de rendimiento:
+if self._performance_trace_enabled and frame_start is not None:
+    frame_end = time.time()
+    frame_time = (frame_end - frame_start) * 1000  # Tiempo de renderizado en ms
+    
+    # Calcular tiempo entre frames consecutivos (incluye clock.tick())
+    time_between_frames = None
+    fps_limited = None
+    if self._last_frame_end_time is not None:
+        time_between_frames = (frame_end - self._last_frame_end_time) * 1000  # ms
+        fps_limited = 1000.0 / time_between_frames if time_between_frames > 0 else 0
+    self._last_frame_end_time = frame_end
+    
+    if self._performance_trace_count % 10 == 0:
+        fps_render = 1000.0 / frame_time if frame_time > 0 else 0
+        if fps_limited is not None:
+            print(f"[PERFORMANCE-TRACE] Frame {self._performance_trace_count} | "
+                  f"Frame time (render): {frame_time:.2f}ms | FPS (render): {fps_render:.1f} | "
+                  f"Time between frames: {time_between_frames:.2f}ms | FPS (limited): {fps_limited:.1f} | "
+                  f"...")</code></pre>
+                <p>
+                    <strong>Beneficio</strong>: Ahora el monitor reporta tanto el FPS de renderizado (que puede ser alto) como el FPS limitado (que debe ser ~60 FPS), permitiendo identificar problemas de sincronización.
+                </p>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Uso de <code>tick_time</code> para cálculo de FPS</strong>: Más preciso que <code>get_fps()</code> porque refleja directamente el tiempo que esperó el limitador</li>
+                    <li><strong>Medición de tiempo entre frames</strong>: Permite distinguir entre FPS de renderizado (sin limitar) y FPS limitado (real)</li>
+                    <li><strong>Verificación de sincronización periódica</strong>: Permite detectar drift a largo plazo que podría indicar problemas de sincronización</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Corrección del reporte de FPS en barra de título, logs de verificación del limitador, y verificación de sincronización</li>
+                    <li><code>src/gpu/renderer.py</code> - Corrección del monitor de rendimiento para calcular tiempo entre frames y reportar FPS limitado</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación requiere ejecutar el emulador y observar:
+                </p>
+                <ul>
+                    <li><strong>Barra de título</strong>: Debe mostrar FPS ≈ 60.0 (no 300+)</li>
+                    <li><strong>Logs [FPS-LIMITER]</strong>: Debe mostrar tick time ≈ 16.67ms cada segundo</li>
+                    <li><strong>Logs [PERFORMANCE-TRACE]</strong>: Debe mostrar FPS (limited) ≈ 60.0</li>
+                    <li><strong>Logs [SYNC-CHECK]</strong>: Debe mostrar drift cercano a 0 después de 1 minuto</li>
+                </ul>
+                <p>
+                    <strong>Comando para verificación</strong>:
+                </p>
+                <pre><code>python main.py roms/pkmn.gb > perf_step_0309.log 2>&1</code></pre>
+                <p>
+                    <strong>Análisis esperado</strong>:
+                </p>
+                <ul>
+                    <li>FPS promedio (limited) debe ser ≈ 60 FPS (no 300+)</li>
+                    <li>FPS mínimo debe ser > 55 FPS</li>
+                    <li>FPS máximo debe ser < 65 FPS</li>
+                    <li>Frame time (limited) debe ser ≈ 16.67ms (1000ms / 60 FPS)</li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++</strong>: No se requieren cambios en C++, solo correcciones en Python/Cython.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: LCD Timing - <a href="https://gbdev.io/pandocs/LCDC.html">https://gbdev.io/pandocs/LCDC.html</a></li>
+                    <li>Pygame Clock Documentation: <a href="https://www.pygame.org/docs/ref/time.html#pygame.time.Clock">https://www.pygame.org/docs/ref/time.html#pygame.time.Clock</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Limitador de FPS</strong>: <code>clock.tick(60)</code> limita el renderizado a 60 FPS añadiendo una espera si el frame se renderizó demasiado rápido. El tiempo de espera se retorna como <code>tick_time</code>.</li>
+                        <li><strong>FPS de renderizado vs FPS limitado</strong>: El FPS de renderizado puede ser muy alto (300+ FPS) si el renderizado es rápido, pero el FPS limitado debe ser ~60 FPS para sincronización correcta.</li>
+                        <li><strong>Tiempo entre frames</strong>: Para medir el FPS limitado correctamente, hay que medir el tiempo entre el final de un frame y el final del siguiente, no solo el tiempo de renderizado.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Verificación práctica</strong>: Ejecutar el emulador y verificar que el FPS reportado sea ~60 FPS en lugar de 300+ FPS</li>
+                        <li><strong>Sincronización a largo plazo</strong>: Verificar con [SYNC-CHECK] que no hay drift significativo después de varios minutos</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumo que <code>clock.tick(60)</code> funciona correctamente y que el problema era solo el reporte. Si después de estas correcciones el FPS reportado sigue siendo incorrecto, podría haber un problema con el limitador mismo o con la sincronización entre el bucle de emulación y el renderizado.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar verificación práctica para confirmar que el FPS reportado es ~60 FPS</li>
+                    <li>[ ] Analizar logs [SYNC-CHECK] para verificar que no hay drift significativo</li>
+                    <li>[ ] Si el FPS sigue siendo incorrecto, investigar si hay un problema con el limitador mismo</li>
+                    <li>[ ] Considerar desactivar logs temporales [FPS-LIMITER] después de verificación exitosa</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

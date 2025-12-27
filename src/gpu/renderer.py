@@ -241,6 +241,8 @@ class Renderer:
         # Flag de activación: Solo activar si se necesita investigar rendimiento
         self._performance_trace_enabled = True  # ACTIVADO para Step 0306
         self._performance_trace_count = 0
+        # Step 0309: Guardar tiempo del frame anterior para calcular tiempo entre frames
+        self._last_frame_end_time = None
         # ----------------------------------------
         
         # --- STEP 0308: Verificación de NumPy ---
@@ -745,18 +747,38 @@ class Renderer:
                 pygame.display.flip()
                 # ----------------------------------------
                 
-                # --- STEP 0308: Monitor de Rendimiento Mejorado ([PERFORMANCE-TRACE]) ---
+                # --- STEP 0309: Monitor de Rendimiento Corregido ([PERFORMANCE-TRACE]) ---
+                # Step 0309: Calcular tiempo entre frames (incluye tiempo de espera del clock.tick())
                 if self._performance_trace_enabled and frame_start is not None:
                     frame_end = time.time()
-                    frame_time = (frame_end - frame_start) * 1000  # en milisegundos
+                    frame_time = (frame_end - frame_start) * 1000  # Tiempo de renderizado en ms
+                    
+                    # Step 0309: Calcular tiempo entre frames consecutivos (incluye clock.tick())
+                    time_between_frames = None
+                    fps_limited = None
+                    if self._last_frame_end_time is not None:
+                        time_between_frames = (frame_end - self._last_frame_end_time) * 1000  # ms
+                        fps_limited = 1000.0 / time_between_frames if time_between_frames > 0 else 0
+                    self._last_frame_end_time = frame_end
+                    
                     if self._performance_trace_count % 10 == 0:  # Cada 10 frames (más datos)
-                        fps = 1000.0 / frame_time if frame_time > 0 else 0
-                        # Incluir tiempos por componente para análisis
-                        print(f"[PERFORMANCE-TRACE] Frame {self._performance_trace_count} | "
-                              f"Frame time: {frame_time:.2f}ms | FPS: {fps:.1f} | "
-                              f"Snapshot: {snapshot_time:.3f}ms | "
-                              f"Render: {render_time:.2f}ms ({'NumPy' if numpy_used else 'PixelArray'}) | "
-                              f"Hash: {hash_time:.3f}ms")
+                        fps_render = 1000.0 / frame_time if frame_time > 0 else 0
+                        # Step 0309: Reportar FPS limitado (tiempo entre frames) si está disponible
+                        if fps_limited is not None:
+                            # Incluir tiempos por componente y FPS limitado
+                            print(f"[PERFORMANCE-TRACE] Frame {self._performance_trace_count} | "
+                                  f"Frame time (render): {frame_time:.2f}ms | FPS (render): {fps_render:.1f} | "
+                                  f"Time between frames: {time_between_frames:.2f}ms | FPS (limited): {fps_limited:.1f} | "
+                                  f"Snapshot: {snapshot_time:.3f}ms | "
+                                  f"Render: {render_time:.2f}ms ({'NumPy' if numpy_used else 'PixelArray'}) | "
+                                  f"Hash: {hash_time:.3f}ms")
+                        else:
+                            # Primer frame: no hay tiempo entre frames todavía
+                            print(f"[PERFORMANCE-TRACE] Frame {self._performance_trace_count} | "
+                                  f"Frame time (render): {frame_time:.2f}ms | FPS (render): {fps_render:.1f} | "
+                                  f"Snapshot: {snapshot_time:.3f}ms | "
+                                  f"Render: {render_time:.2f}ms ({'NumPy' if numpy_used else 'PixelArray'}) | "
+                                  f"Hash: {hash_time:.3f}ms")
                     self._performance_trace_count += 1
                 # ----------------------------------------
                 
@@ -1089,17 +1111,35 @@ class Renderer:
         # Actualizar la pantalla
         pygame.display.flip()
         
-        # --- STEP 0308: Monitor de Rendimiento Mejorado ([PERFORMANCE-TRACE]) ---
+        # --- STEP 0309: Monitor de Rendimiento Corregido ([PERFORMANCE-TRACE]) ---
         if self._performance_trace_enabled and frame_start is not None:
             frame_end = time.time()
-            frame_time = (frame_end - frame_start) * 1000  # en milisegundos
+            frame_time = (frame_end - frame_start) * 1000  # Tiempo de renderizado en ms
+            
+            # Step 0309: Calcular tiempo entre frames consecutivos (incluye clock.tick())
+            time_between_frames = None
+            fps_limited = None
+            if self._last_frame_end_time is not None:
+                time_between_frames = (frame_end - self._last_frame_end_time) * 1000  # ms
+                fps_limited = 1000.0 / time_between_frames if time_between_frames > 0 else 0
+            self._last_frame_end_time = frame_end
+            
             if self._performance_trace_count % 10 == 0:  # Cada 10 frames (más datos)
-                fps = 1000.0 / frame_time if frame_time > 0 else 0
-                print(f"[PERFORMANCE-TRACE] Frame {self._performance_trace_count} | "
-                      f"Frame time: {frame_time:.2f}ms | FPS: {fps:.1f} | "
-                      f"Snapshot: {snapshot_time:.3f}ms | "
-                      f"Render: {render_time:.2f}ms ({'NumPy' if numpy_used else 'PixelArray'}) | "
-                      f"Hash: {hash_time:.3f}ms")
+                fps_render = 1000.0 / frame_time if frame_time > 0 else 0
+                # Step 0309: Reportar FPS limitado si está disponible
+                if fps_limited is not None:
+                    print(f"[PERFORMANCE-TRACE] Frame {self._performance_trace_count} | "
+                          f"Frame time (render): {frame_time:.2f}ms | FPS (render): {fps_render:.1f} | "
+                          f"Time between frames: {time_between_frames:.2f}ms | FPS (limited): {fps_limited:.1f} | "
+                          f"Snapshot: {snapshot_time:.3f}ms | "
+                          f"Render: {render_time:.2f}ms ({'NumPy' if numpy_used else 'PixelArray'}) | "
+                          f"Hash: {hash_time:.3f}ms")
+                else:
+                    print(f"[PERFORMANCE-TRACE] Frame {self._performance_trace_count} | "
+                          f"Frame time (render): {frame_time:.2f}ms | FPS (render): {fps_render:.1f} | "
+                          f"Snapshot: {snapshot_time:.3f}ms | "
+                          f"Render: {render_time:.2f}ms ({'NumPy' if numpy_used else 'PixelArray'}) | "
+                          f"Hash: {hash_time:.3f}ms")
             self._performance_trace_count += 1
         # ----------------------------------------
         

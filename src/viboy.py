@@ -851,18 +851,51 @@ class Viboy:
                         # Fallback: el renderer leerá el framebuffer directamente desde la PPU
                         self._renderer.render_frame()
                     
+                    # --- Step 0309: Limitador de FPS y Reporte Correcto ---
                     # Sincronización con el reloj del host para mantener 60 FPS
+                    tick_time_ms = None
                     if self._clock is not None:
-                        self._clock.tick(TARGET_FPS)
+                        tick_time_ms = self._clock.tick(TARGET_FPS)
+                        
+                        # Log temporal para verificación (cada segundo)
+                        if self.frame_count % 60 == 0:
+                            print(f"[FPS-LIMITER] Frame {self.frame_count} | Tick time: {tick_time_ms:.2f}ms | Target: {TARGET_FPS} FPS")
                     
                     # Título con FPS (cada 60 frames para no frenar)
+                    # Step 0309: Corregir cálculo de FPS para reflejar el FPS limitado
                     if self.frame_count % 60 == 0 and self._clock is not None:
                         try:
                             import pygame
-                            fps = self._clock.get_fps()
+                            import time
+                            
+                            # Opción A: Usar get_fps() que debería retornar FPS limitado
+                            fps_from_clock = self._clock.get_fps()
+                            
+                            # Opción B: Calcular desde tick_time (más preciso)
+                            if tick_time_ms is not None and tick_time_ms > 0:
+                                fps_calculated = 1000.0 / tick_time_ms
+                                # Usar el cálculo basado en tick_time para mayor precisión
+                                fps = fps_calculated
+                            else:
+                                # Fallback a get_fps() si tick_time no está disponible
+                                fps = fps_from_clock if fps_from_clock > 0 else TARGET_FPS
+                            
                             pygame.display.set_caption(f"Viboy Color v0.0.2 - FPS: {fps:.1f}")
                         except ImportError:
                             pass
+                    
+                    # Step 0309: Verificación de sincronización (cada minuto)
+                    if not hasattr(self, '_start_time'):
+                        import time
+                        self._start_time = time.time()
+                    if self.frame_count % 3600 == 0 and self.frame_count > 0:  # Cada minuto (60 * 60 frames)
+                        import time
+                        elapsed_real = time.time() - self._start_time
+                        expected_frames = elapsed_real * TARGET_FPS
+                        actual_frames = self.frame_count
+                        drift = actual_frames - expected_frames
+                        print(f"[SYNC-CHECK] Real: {elapsed_real:.1f}s | Expected: {expected_frames:.0f} frames | Actual: {actual_frames} | Drift: {drift:.0f}")
+                    # ----------------------------------------
                 
                 
                 # --- Step 0236: AUTOPSIA DESACTIVADA ---
