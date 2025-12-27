@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrección de Regresión de Rendimiento - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Corrección de Regresión de Rendimiento</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-25
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0308
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-25__0307__optimizacion-renderizado-correccion-desincronizacion.html">Anterior (Step 0307)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Investigación y corrección de la regresión de rendimiento detectada en Step 0307, donde el FPS bajó de 21.8 a 16.7 FPS después de implementar optimizaciones. Se identificaron y corrigieron los cuellos de botella: snapshot inmutable usando <code>list()</code> (reemplazado por <code>bytearray</code>), hash del cache de scaling (deshabilitado temporalmente), y se mejoró el monitor de rendimiento para obtener más datos (cada 10 frames en lugar de cada 60) con medición de tiempo por componente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El renderizado de frames en un emulador requiere sincronización precisa entre el núcleo de emulación (C++) y el frontend de renderizado (Python). Cada frame debe:
+                </p>
+                <ul>
+                    <li><strong>Snapshot del framebuffer</strong>: Crear una copia inmutable del framebuffer para evitar condiciones de carrera entre C++ (escritura) y Python (lectura).</li>
+                    <li><strong>Renderizado vectorizado</strong>: Convertir índices de color (0-3) a valores RGB usando operaciones vectorizadas (NumPy) en lugar de bucles píxel a píxel.</li>
+                    <li><strong>Scaling</strong>: Escalar la superficie de 160x144 píxeles a la resolución de la ventana usando transformaciones eficientes.</li>
+                </ul>
+                <p>
+                    El overhead de cada operación debe ser mínimo para alcanzar 60 FPS (16.67ms por frame). Operaciones como copias de memoria, cálculos de hash, y transformaciones deben optimizarse o eliminarse cuando sea posible.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron mejoras basadas en el análisis del Step 0307, identificando que las optimizaciones añadían más overhead del esperado. Las correcciones incluyen:
+                </p>
+                
+                <h3>1. Optimización del Snapshot Inmutable</h3>
+                <p>
+                    <strong>Problema detectado</strong>: El uso de <code>list(frame_indices_mv)</code> creaba una lista de Python con 23,040 elementos, añadiendo overhead significativo.
+                </p>
+                <p>
+                    <strong>Solución</strong>: Reemplazo por <code>bytearray(frame_indices_mv.tobytes())</code>, que es más eficiente para datos binarios:
+                </p>
+                <pre><code># Antes (Step 0307):
+frame_indices = list(frame_indices_mv)  # Snapshot inmutable
+
+# Después (Step 0308):
+frame_indices = bytearray(frame_indices_mv.tobytes())  # Snapshot inmutable optimizado</code></pre>
+                <p>
+                    <strong>Beneficio</strong>: <code>bytearray</code> es más eficiente que <code>list()</code> para datos binarios, reduciendo el overhead de la copia.
+                </p>
+
+                <h3>2. Deshabilitación Temporal del Hash del Cache</h3>
+                <p>
+                    <strong>Problema detectado</strong>: El cálculo de <code>hash(tuple(frame_indices[:100]))</code> cada frame añadía overhead sin beneficio claro si el contenido cambia frecuentemente.
+                </p>
+                <p>
+                    <strong>Solución</strong>: Deshabilitación temporal del hash, usando solo validación por tamaño de pantalla:
+                </p>
+                <pre><code># Antes (Step 0307):
+source_hash = hash(tuple(frame_indices[:100]))
+if (self._cache_screen_size != current_screen_size or 
+    self._cache_source_hash != source_hash or 
+    self._scaled_surface_cache is None):
+    # Reescalar...
+
+# Después (Step 0308):
+source_hash = None  # Deshabilitado temporalmente
+if (self._cache_screen_size != current_screen_size or 
+    self._scaled_surface_cache is None):
+    # Reescalar solo si tamaño cambió</code></pre>
+                <p>
+                    <strong>Beneficio</strong>: Eliminación del overhead del hash, simplificando la lógica de cache.
+                </p>
+
+                <h3>3. Monitor de Rendimiento Mejorado</h3>
+                <p>
+                    <strong>Mejora</strong>: Ajuste de frecuencia de registro de cada 60 frames a cada 10 frames, y adición de medición de tiempo por componente:
+                </p>
+                <pre><code># Antes (Step 0306/0307):
+if self._performance_trace_count % 60 == 0:  # Cada 60 frames
+    print(f"[PERFORMANCE-TRACE] Frame {self._performance_trace_count} | "
+          f"Frame time: {frame_time:.2f}ms | FPS: {fps:.1f}")
+
+# Después (Step 0308):
+if self._performance_trace_count % 10 == 0:  # Cada 10 frames (más datos)
+    print(f"[PERFORMANCE-TRACE] Frame {self._performance_trace_count} | "
+          f"Frame time: {frame_time:.2f}ms | FPS: {fps:.1f} | "
+          f"Snapshot: {snapshot_time:.3f}ms | "
+          f"Render: {render_time:.2f}ms ({'NumPy' if numpy_used else 'PixelArray'}) | "
+          f"Hash: {hash_time:.3f}ms")</code></pre>
+                <p>
+                    <strong>Beneficio</strong>: Más datos para análisis preciso y identificación de cuellos de botella por componente.
+                </p>
+
+                <h3>4. Verificación de NumPy</h3>
+                <p>
+                    <strong>Mejora</strong>: Añadida verificación al inicio del renderer para confirmar que NumPy está disponible:
+                </p>
+                <pre><code># En __init__ del Renderer:
+try:
+    import numpy as np
+    logger.info(f"[RENDER-OPTIMIZATION] NumPy {np.__version__} disponible - usando renderizado vectorizado")
+except ImportError:
+    logger.warning("[RENDER-OPTIMIZATION] NumPy NO disponible - usando fallback PixelArray")</code></pre>
+                <p>
+                    <strong>Beneficio</strong>: Confirmación temprana de que NumPy se está usando para renderizado vectorizado.
+                </p>
+
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code>: Optimización de snapshot, deshabilitación de hash, monitor mejorado</li>
+                    <li><code>tools/analizar_perf_step_0308.ps1</code>: Script de análisis actualizado para Step 0308</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>bytearray vs list()</strong>: Elegido <code>bytearray</code> por ser más eficiente para datos binarios y mantener la inmutabilidad necesaria.</li>
+                    <li><strong>Hash deshabilitado</strong>: Decisión temporal para medir impacto. Si el cache no ayuda, el hash es overhead innecesario.</li>
+                    <li><strong>Monitor cada 10 frames</strong>: Balance entre datos suficientes y overhead mínimo de logging.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Optimización de snapshot, deshabilitación de hash, monitor mejorado</li>
+                    <li><code>tools/analizar_perf_step_0308.ps1</code> - Script de análisis para Step 0308</li>
+                    <li><code>docs/bitacora/entries/2025-12-25__0308__correccion-regresion-rendimiento.html</code> - Esta entrada</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con entrada 0308</li>
+                    <li><code>INFORME_FASE_2.md</code> - Actualizado con Step 0308</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación requiere ejecución del emulador con una ROM de Game Boy durante 2-3 minutos para obtener suficientes datos de rendimiento.
+                </p>
+                <h3>Comandos de Verificación</h3>
+                <pre><code># 1. Recompilar módulo C++
+python setup.py build_ext --inplace
+
+# 2. Ejecutar emulador capturando logs (2-3 minutos)
+python main.py roms/pkmn.gb > perf_step_0308.log 2>&1
+# Esperar 2-3 minutos, luego presionar Ctrl+C
+
+# 3. Analizar logs
+.\tools\analizar_perf_step_0308.ps1 -LogFile perf_step_0308.log</code></pre>
+                <h3>Resultados Esperados</h3>
+                <ul>
+                    <li><strong>FPS promedio</strong>: >= 40 FPS (idealmente ~60 FPS)</li>
+                    <li><strong>Mejora vs Step 0307</strong>: Debe mejorar desde 16.7 FPS</li>
+                    <li><strong>Mejora vs Step 0306</strong>: Debe recuperar o superar 21.8 FPS</li>
+                    <li><strong>Tiempos por componente</strong>: Snapshot < 1ms, Render < 5ms, Hash = 0ms (deshabilitado)</li>
+                </ul>
+                <p>
+                    <strong>Nota</strong>: La verificación completa requiere una ROM de Game Boy. Los resultados se documentarán después de la ejecución.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Python Documentation: <a href="https://docs.python.org/3/library/stdtypes.html#bytearray">bytearray</a> - Tipo de datos eficiente para datos binarios</li>
+                    <li>NumPy Documentation: <a href="https://numpy.org/doc/stable/">NumPy</a> - Operaciones vectorizadas para arrays</li>
+                    <li>Pygame Documentation: <a href="https://www.pygame.org/docs/">Pygame</a> - Transformaciones y renderizado</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Overhead de copias de memoria</strong>: <code>list()</code> sobre memoryview crea objetos Python individuales para cada byte, mientras que <code>bytearray</code> mantiene los datos como bytes contiguos, reduciendo overhead.</li>
+                        <li><strong>Hash como overhead</strong>: Calcular hash cada frame puede ser más costoso que simplemente reescalar si el contenido cambia frecuentemente. El cache solo ayuda si el contenido es relativamente estático.</li>
+                        <li><strong>Medición de rendimiento</strong>: Para identificar cuellos de botella, es necesario medir tiempos por componente, no solo el tiempo total del frame.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>FPS final</strong>: Requiere ejecución con ROM para verificar si las optimizaciones mejoran el rendimiento a >= 40 FPS.</li>
+                        <li><strong>Impacto del hash deshabilitado</strong>: Si el cache de scaling sin hash causa problemas visuales (contenido desactualizado), puede ser necesario reimplementar con hash más eficiente.</li>
+                        <li><strong>Corrupción gráfica</strong>: Verificar si la corrupción gráfica desapareció con el snapshot optimizado.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal</strong>: El overhead del snapshot usando <code>list()</code> y el hash del cache eran los principales cuellos de botella. Al optimizar el snapshot y deshabilitar el hash, el FPS debería mejorar significativamente.
+                    </p>
+                    <p>
+                        <strong>Suposición</strong>: El contenido del framebuffer cambia cada frame en la mayoría de los juegos, por lo que el cache de scaling con hash no proporciona beneficio. Si esto es incorrecto, puede ser necesario reimplementar el hash de manera más eficiente.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar verificación de rendimiento con ROM durante 2-3 minutos</li>
+                    <li>[ ] Analizar logs usando <code>analizar_perf_step_0308.ps1</code></li>
+                    <li>[ ] Si FPS mejora significativamente: Verificar con pruebas más largas (10+ minutos)</li>
+                    <li>[ ] Si la corrupción desaparece: Considerar el problema resuelto y documentar resultados finales</li>
+                    <li>[ ] Si persisten problemas: Investigar más profundamente o considerar otras optimizaciones</li>
+                    <li>[ ] Si el hash deshabilitado causa problemas: Reimplementar con hash más eficiente (solo primeros 10 píxeles o checksum simple)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

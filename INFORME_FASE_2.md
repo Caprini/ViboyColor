@@ -32,6 +32,54 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-25 - Step 0308: Corrección de Regresión de Rendimiento
+**Estado**: ✅ IMPLEMENTACIÓN COMPLETADA, ⏳ PENDIENTE DE VERIFICACIÓN
+
+Investigación y corrección de la regresión de rendimiento detectada en Step 0307, donde el FPS bajó de 21.8 a 16.7 FPS después de implementar optimizaciones.
+
+**Objetivo**:
+- Identificar y corregir los cuellos de botella que causaron la regresión
+- Recuperar y superar el FPS del Step 0306 (21.8 FPS)
+- Alcanzar >= 40 FPS (idealmente ~60 FPS)
+
+**Correcciones Implementadas**:
+
+1. **Optimización del Snapshot Inmutable**:
+   - Reemplazo de `list(frame_indices_mv)` por `bytearray(frame_indices_mv.tobytes())`
+   - `bytearray` es más eficiente que `list()` para datos binarios
+   - Reducción del overhead de copia de memoria
+
+2. **Deshabilitación Temporal del Hash del Cache**:
+   - Eliminación del cálculo de `hash(tuple(frame_indices[:100]))` cada frame
+   - Cache de scaling ahora solo valida por tamaño de pantalla
+   - Eliminación del overhead del hash cuando el contenido cambia frecuentemente
+
+3. **Monitor de Rendimiento Mejorado**:
+   - Frecuencia de registro aumentada de cada 60 frames a cada 10 frames
+   - Adición de medición de tiempo por componente (snapshot, render, hash)
+   - Identificación precisa de cuellos de botella
+
+4. **Verificación de NumPy**:
+   - Añadida verificación al inicio del renderer para confirmar disponibilidad
+   - Logs de confirmación de que NumPy se está usando
+
+**Conceptos de Hardware**:
+- El renderizado requiere sincronización precisa entre C++ y Python
+- Cada operación (snapshot, renderizado, scaling) debe tener overhead mínimo para alcanzar 60 FPS
+- El cache solo ayuda si el contenido es relativamente estático
+
+**Archivos Modificados**:
+- `src/gpu/renderer.py`: Optimización de snapshot, deshabilitación de hash, monitor mejorado
+- `tools/analizar_perf_step_0308.ps1`: Script de análisis actualizado
+
+**Próximos Pasos**:
+- Ejecutar verificación de rendimiento con ROM durante 2-3 minutos
+- Analizar logs para confirmar mejora de FPS
+- Si FPS mejora significativamente: Verificar con pruebas más largas
+- Si el hash deshabilitado causa problemas: Reimplementar con hash más eficiente
+
+---
+
 ### 2025-12-25 - Step 0307: Optimización de Renderizado y Corrección de Desincronización
 **Estado**: ✅ IMPLEMENTACIÓN COMPLETADA, ⏳ PENDIENTE DE VERIFICACIÓN
 

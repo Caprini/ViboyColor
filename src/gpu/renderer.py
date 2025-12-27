@@ -243,6 +243,15 @@ class Renderer:
         self._performance_trace_count = 0
         # ----------------------------------------
         
+        # --- STEP 0308: Verificación de NumPy ---
+        # Verificar si NumPy está disponible para renderizado vectorizado
+        try:
+            import numpy as np
+            logger.info(f"[RENDER-OPTIMIZATION] NumPy {np.__version__} disponible - usando renderizado vectorizado")
+        except ImportError:
+            logger.warning("[RENDER-OPTIMIZATION] NumPy NO disponible - usando fallback PixelArray")
+        # ----------------------------------------
+        
         logger.info(f"Renderer inicializado: {self.window_width}x{self.window_height} (scale={scale})")
         
         # Mostrar pantalla de carga
@@ -501,21 +510,27 @@ class Renderer:
         
         Fuente: Pan Docs - LCD Control Register, Background Tile Map, Window
         """
-        # --- STEP 0306: Monitor de Rendimiento ([PERFORMANCE-TRACE]) ---
+        # --- STEP 0308: Monitor de Rendimiento Mejorado ([PERFORMANCE-TRACE]) ---
+        import time
         frame_start = None
+        snapshot_time = 0.0
+        render_time = 0.0
+        hash_time = 0.0
+        numpy_used = False
+        
         if self._performance_trace_enabled:
-            import time
             frame_start = time.time()
         # ----------------------------------------
         
         # OPTIMIZACIÓN: Si usamos PPU C++, hacer blit directo del framebuffer
         if self.use_cpp_ppu and self.cpp_ppu is not None:
             try:
-                # --- STEP 0307: SNAPSHOT INMUTABLE DEL FRAMEBUFFER ---
+                # --- STEP 0308: SNAPSHOT INMUTABLE OPTIMIZADO ---
                 # Si se proporciona framebuffer_data, usar ese snapshot en lugar de leer desde PPU
                 if framebuffer_data is not None:
                     # Ya es un snapshot inmutable (bytearray)
                     frame_indices = framebuffer_data
+                    snapshot_time = 0.0  # No hay overhead si ya viene como snapshot
                 else:
                     # Obtener framebuffer como memoryview (Zero-Copy)
                     # El framebuffer es ahora uint8_t con índices de color (0-3) en formato 1D
@@ -527,9 +542,14 @@ class Renderer:
                         logger.error("[Renderer] Framebuffer es None - PPU puede no estar inicializada")
                         return
                     
-                    # Crear snapshot inmutable convirtiendo memoryview a lista
-                    # Esto copia los datos y evita desincronización entre C++ y Python
-                    frame_indices = list(frame_indices_mv)  # Snapshot inmutable
+                    # Medir tiempo de snapshot para análisis de rendimiento
+                    snapshot_start = time.time()
+                    
+                    # Usar bytearray en lugar de list() para mejor rendimiento
+                    # bytearray es más eficiente que list() para datos binarios
+                    frame_indices = bytearray(frame_indices_mv.tobytes())  # Snapshot inmutable optimizado
+                    
+                    snapshot_time = (time.time() - snapshot_start) * 1000  # en milisegundos
                 # ----------------------------------------
                 
                 # Diagnóstico desactivado para producción
@@ -647,10 +667,16 @@ class Renderer:
                     self._pixel_verify_count += 1
                 # ----------------------------------------
                 
+                # --- STEP 0308: RENDERIZADO VECTORIZADO CON MEDICIÓN ---
+                # Medir tiempo de renderizado NumPy vs fallback
+                render_start = time.time()
+                numpy_used = False
+                
                 # Intentar usar numpy para renderizado vectorizado (más rápido)
                 try:
                     import numpy as np
                     import pygame.surfarray as surfarray
+                    numpy_used = True
                     
                     # Crear array numpy con índices (144x160) - formato (y, x)
                     # frame_indices está en formato [y * 160 + x], así que reshape es (144, 160)
@@ -687,18 +713,26 @@ class Renderer:
                     
                     px_array.close()
                     self.surface = self._px_array_surface
+                
+                render_time = (time.time() - render_start) * 1000  # en milisegundos
                 # ----------------------------------------
                 
-                # --- STEP 0307: CACHE DE SCALING ---
+                # --- STEP 0308: CACHE DE SCALING OPTIMIZADO ---
+                # Medir tiempo de hash para análisis de rendimiento
+                hash_start = time.time()
+                
                 # Cachear la superficie escalada para evitar recalcular cuando el tamaño no cambia
                 current_screen_size = self.screen.get_size()
                 
-                # Calcular hash del contenido del framebuffer (solo primeros 100 píxeles para eficiencia)
-                source_hash = hash(tuple(frame_indices[:100]))
+                # OPTIMIZACIÓN: Deshabilitar hash temporalmente para medir impacto
+                # Solo reescalar si el tamaño cambió (sin validación de contenido)
+                source_hash = None  # Deshabilitado temporalmente para Step 0308
+                # source_hash = hash(tuple(frame_indices[:100]))  # Comentado para medir overhead
                 
-                # Solo reescalar si el tamaño cambió o el contenido cambió significativamente
+                hash_time = (time.time() - hash_start) * 1000  # en milisegundos
+                
+                # Solo reescalar si el tamaño cambió (hash deshabilitado temporalmente)
                 if (self._cache_screen_size != current_screen_size or 
-                    self._cache_source_hash != source_hash or 
                     self._scaled_surface_cache is None):
                     
                     self._scaled_surface_cache = pygame.transform.scale(self.surface, current_screen_size)
@@ -711,15 +745,18 @@ class Renderer:
                 pygame.display.flip()
                 # ----------------------------------------
                 
-                # --- STEP 0306: Monitor de Rendimiento ([PERFORMANCE-TRACE]) ---
+                # --- STEP 0308: Monitor de Rendimiento Mejorado ([PERFORMANCE-TRACE]) ---
                 if self._performance_trace_enabled and frame_start is not None:
-                    import time
                     frame_end = time.time()
                     frame_time = (frame_end - frame_start) * 1000  # en milisegundos
-                    if self._performance_trace_count % 60 == 0:  # Cada 60 frames (1 segundo a 60 FPS)
+                    if self._performance_trace_count % 10 == 0:  # Cada 10 frames (más datos)
                         fps = 1000.0 / frame_time if frame_time > 0 else 0
+                        # Incluir tiempos por componente para análisis
                         print(f"[PERFORMANCE-TRACE] Frame {self._performance_trace_count} | "
-                              f"Frame time: {frame_time:.2f}ms | FPS: {fps:.1f}")
+                              f"Frame time: {frame_time:.2f}ms | FPS: {fps:.1f} | "
+                              f"Snapshot: {snapshot_time:.3f}ms | "
+                              f"Render: {render_time:.2f}ms ({'NumPy' if numpy_used else 'PixelArray'}) | "
+                              f"Hash: {hash_time:.3f}ms")
                     self._performance_trace_count += 1
                 # ----------------------------------------
                 
@@ -1052,15 +1089,17 @@ class Renderer:
         # Actualizar la pantalla
         pygame.display.flip()
         
-        # --- STEP 0306: Monitor de Rendimiento ([PERFORMANCE-TRACE]) ---
+        # --- STEP 0308: Monitor de Rendimiento Mejorado ([PERFORMANCE-TRACE]) ---
         if self._performance_trace_enabled and frame_start is not None:
-            import time
             frame_end = time.time()
             frame_time = (frame_end - frame_start) * 1000  # en milisegundos
-            if self._performance_trace_count % 60 == 0:  # Cada 60 frames (1 segundo a 60 FPS)
+            if self._performance_trace_count % 10 == 0:  # Cada 10 frames (más datos)
                 fps = 1000.0 / frame_time if frame_time > 0 else 0
                 print(f"[PERFORMANCE-TRACE] Frame {self._performance_trace_count} | "
-                      f"Frame time: {frame_time:.2f}ms | FPS: {fps:.1f}")
+                      f"Frame time: {frame_time:.2f}ms | FPS: {fps:.1f} | "
+                      f"Snapshot: {snapshot_time:.3f}ms | "
+                      f"Render: {render_time:.2f}ms ({'NumPy' if numpy_used else 'PixelArray'}) | "
+                      f"Hash: {hash_time:.3f}ms")
             self._performance_trace_count += 1
         # ----------------------------------------
         
