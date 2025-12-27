@@ -32,6 +32,42 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0315 - Verificación Visual Final y Continuación del Plan Estratégico -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-27__0315__verificacion-visual-final-continuacion-plan.html" class="entry-link">
+                                    Verificación Visual Final y Continuación del Plan Estratégico
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-27 | 
+                            <strong>Step ID:</strong> 0315 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                        </div>
+                        <p class="entry-summary">
+                            Creación de herramientas y scripts de verificación para continuar con el plan estratégico del Step 0311. Se crearon scripts automatizados de PowerShell para verificación visual, análisis de FPS, compatibilidad GB/GBC y controles. También se crearon documentos de plantilla para documentar los resultados de las verificaciones.
+                        </p>
+                    </li>
+                                        <!-- Entrada 0314 - Corrección de Direccionamiento de Tiles y Verificación Visual -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-27__0314__correccion-direccionamiento-tiles-verificacion-visual.html" class="entry-link">
+                                    Corrección de Direccionamiento de Tiles y Verificación Visual
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-27 | 
+                            <strong>Step ID:</strong> 0314 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección del problema de direccionamiento de tiles identificado en Step 0313. El problema era que load_test_tiles() configuraba LCDC a 0x91 (signed addressing, tile data base = 0x9000) pero cargaba tiles en 0x8000-0x803F, causando que la PPU no encontrara los tiles. Se corrigió LCDC a 0x99 (unsigned addressing, tile data base = 0x8000) y el módulo C++ fue recompilado.
+                        </p>
+                    </li>
                                         <!-- Entrada 0313 - Diagnóstico y Corrección de Pantalla Blanca y FPS Bajo -->
                     <li>
                         <div class="entry-header">

@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificación Visual Final y Continuación del Plan Estratégico - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Verificación Visual Final y Continuación del Plan Estratégico</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-27
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0315
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-draft">DRAFT</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-27__0314__correccion-direccionamiento-tiles-verificacion-visual.html">Anterior (0314)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Creación de herramientas y scripts de verificación para continuar con el plan estratégico del Step 0311. Este step se enfoca en verificar visualmente que los tiles se renderizan correctamente después de la corrección del direccionamiento (Step 0314), analizar el problema de FPS bajo (8.0 FPS), y verificar compatibilidad GB/GBC y controles.
+                </p>
+                <p>
+                    Se crearon scripts automatizados de PowerShell para facilitar las verificaciones y documentos de plantilla para documentar los resultados. Estos recursos permitirán avanzar sistemáticamente en el plan estratégico.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La Game Boy funciona a <strong>4.194304 MHz</strong> (4.194.304 ciclos por segundo). Un fotograma (frame) dura aproximadamente <strong>70.224 ciclos de reloj</strong> para mantener <strong>59.7 FPS</strong> (típicamente redondeado a 60 FPS en emuladores).
+                </p>
+                <p>
+                    El bucle principal de un emulador debe ejecutar todas las instrucciones necesarias para completar un frame antes de sincronizar con el tiempo real usando un limitador de FPS (como <code>pygame.time.Clock.tick(60)</code>).
+                </p>
+                <p>
+                    Si el FPS es bajo (ej: 8.0 FPS en lugar de 60 FPS), puede deberse a:
+                </p>
+                <ul>
+                    <li><strong>Limitador de FPS defectuoso</strong>: El limitador puede no estar funcionando correctamente</li>
+                    <li><strong>Overhead de logs</strong>: Demasiados logs pueden ralentizar el emulador</li>
+                    <li><strong>Renderizado lento</strong>: El renderizado Python puede ser demasiado lento</li>
+                    <li><strong>Bucles infinitos o bloqueos</strong>: Puede haber bloqueos en el código</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - System Clock, Timing, Frame Rate, LCD Timing
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Scripts de Verificación Creados</h3>
+                <ul>
+                    <li><strong><code>tools/verificacion_visual_fps_step_0315.ps1</code></strong>:
+                        <ul>
+                            <li>Ejecuta el emulador durante un tiempo determinado (30 segundos por defecto)</li>
+                            <li>Captura logs en <code>logs/fps_analysis_step_0315.log</code></li>
+                            <li>Analiza logs para identificar problemas de FPS</li>
+                            <li>Proporciona muestras de logs sin saturar el contexto</li>
+                        </ul>
+                    </li>
+                    <li><strong><code>tools/verificacion_compatibilidad_gb_gbc_step_0315.ps1</code></strong>:
+                        <ul>
+                            <li>Prueba automáticamente múltiples ROMs de GB y GBC</li>
+                            <li>Verifica carga, renderizado y errores</li>
+                            <li>Genera resumen de compatibilidad</li>
+                        </ul>
+                    </li>
+                    <li><strong><code>tools/verificacion_controles_step_0315.ps1</code></strong>:
+                        <ul>
+                            <li>Documenta el mapeo de teclas según <code>src/gpu/renderer.py</code></li>
+                            <li>Proporciona instrucciones para verificación manual</li>
+                            <li>Verifica que el código de mapeo existe</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Documentos de Verificación Creados</h3>
+                <ul>
+                    <li><strong><code>VERIFICACION_RENDERIZADO_STEP_0312.md</code></strong> (actualizado):
+                        <ul>
+                            <li>Plantilla mejorada para verificación visual después de Step 0314</li>
+                            <li>Incluye referencia al script de verificación</li>
+                        </ul>
+                    </li>
+                    <li><strong><code>ANALISIS_FPS_BAJO_STEP_0315.md</code></strong>:
+                        <ul>
+                            <li>Plantilla para documentar análisis de FPS bajo</li>
+                            <li>Incluye hipótesis a verificar y metodología</li>
+                        </ul>
+                    </li>
+                    <li><strong><code>COMPATIBILIDAD_GB_GBC_STEP_0315.md</code></strong>:
+                        <ul>
+                            <li>Plantilla para documentar resultados de compatibilidad</li>
+                            <li>Incluye secciones para ROMs GB y GBC</li>
+                        </ul>
+                    </li>
+                    <li><strong><code>VERIFICACION_CONTROLES_STEP_0315.md</code></strong>:
+                        <ul>
+                            <li>Plantilla para documentar verificación de controles</li>
+                            <li>Incluye mapeo de teclas y checklist de verificación</li>
+                        </ul>
+                    </li>
+                    <li><strong><code>ESTADO_PLAN_ESTRATEGICO_STEP_0315.md</code></strong>:
+                        <ul>
+                            <li>Evaluación del progreso del plan estratégico</li>
+                            <li>Estado de cada fase y criterios de éxito</li>
+                            <li>Próximos pasos recomendados</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Scripts PowerShell</strong>: Se eligió PowerShell porque es nativo en Windows y permite ejecución controlada con timeout</li>
+                    <li><strong>Redirección de logs</strong>: Los logs se redirigen a archivos para evitar saturar el contexto, siguiendo las reglas del proyecto</li>
+                    <li><strong>Análisis por muestras</strong>: Los scripts analizan solo muestras de logs (primeras/últimas líneas) en lugar de leer archivos completos</li>
+                    <li><strong>Documentos de plantilla</strong>: Se crearon documentos de plantilla para facilitar la documentación de resultados</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tools/verificacion_visual_fps_step_0315.ps1</code> - Script de verificación visual y análisis de FPS (nuevo)</li>
+                    <li><code>tools/verificacion_compatibilidad_gb_gbc_step_0315.ps1</code> - Script de verificación de compatibilidad GB/GBC (nuevo)</li>
+                    <li><code>tools/verificacion_controles_step_0315.ps1</code> - Script de verificación de controles (nuevo)</li>
+                    <li><code>VERIFICACION_RENDERIZADO_STEP_0312.md</code> - Actualizado con referencia a Step 0315</li>
+                    <li><code>ANALISIS_FPS_BAJO_STEP_0315.md</code> - Documento de análisis de FPS (nuevo)</li>
+                    <li><code>COMPATIBILIDAD_GB_GBC_STEP_0315.md</code> - Documento de compatibilidad (nuevo)</li>
+                    <li><code>VERIFICACION_CONTROLES_STEP_0315.md</code> - Documento de verificación de controles (nuevo)</li>
+                    <li><code>ESTADO_PLAN_ESTRATEGICO_STEP_0315.md</code> - Documento de estado del plan (nuevo)</li>
+                    <li><code>docs/bitacora/entries/2025-12-27__0315__verificacion-visual-final-continuacion-plan.html</code> - Entrada HTML de bitácora (nuevo)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Este step crea herramientas de verificación, pero las verificaciones reales deben ejecutarse manualmente:
+                </p>
+                <ul>
+                    <li><strong>Verificación visual</strong>: Pendiente ejecutar <code>tools/verificacion_visual_fps_step_0315.ps1</code> y observar la ventana del emulador</li>
+                    <li><strong>Análisis de FPS</strong>: Pendiente ejecutar el script y analizar los logs generados</li>
+                    <li><strong>Compatibilidad GB/GBC</strong>: Pendiente ejecutar <code>tools/verificacion_compatibilidad_gb_gbc_step_0315.ps1</code></li>
+                    <li><strong>Controles</strong>: Pendiente ejecutar el emulador y probar cada botón manualmente</li>
+                </ul>
+                <p>
+                    <strong>Nota</strong>: Los scripts están listos para ejecutarse, pero los resultados deben documentarse en los documentos de verificación correspondientes.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">System Clock, Timing, Frame Rate, LCD Timing</a></li>
+                    <li>Plan Estratégico Step 0311: <code>DIAGNOSTICO_ESTADO_ACTUAL_STEP_0311.md</code></li>
+                    <li>Código fuente: <code>src/viboy.py</code>, <code>src/gpu/renderer.py</code>, <code>src/io/joypad.py</code></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>FPS y Timing</strong>: El FPS bajo puede deberse a múltiples causas (limitador, logs, renderizado, bloqueos). Es necesario analizar sistemáticamente para identificar la causa raíz.</li>
+                        <li><strong>Verificación Sistemática</strong>: Crear herramientas automatizadas facilita la verificación repetible y documentada de funcionalidad.</li>
+                        <li><strong>Control de Contexto</strong>: Es crítico redirigir logs a archivos y analizar solo muestras para evitar saturar el contexto del asistente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Causa raíz del FPS bajo</strong>: Requiere ejecutar el script de análisis y revisar los logs generados</li>
+                        <li><strong>Renderizado visual</strong>: Requiere verificación visual manual después de Step 0314</li>
+                        <li><strong>Compatibilidad real</strong>: Requiere ejecutar el script de compatibilidad con múltiples ROMs</li>
+                        <li><strong>Funcionalidad de controles</strong>: Requiere verificación manual de cada botón</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que los scripts funcionarán correctamente en Windows PowerShell. Si hay problemas, pueden requerir ajustes según el entorno específico del usuario.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar <code>tools/verificacion_visual_fps_step_0315.ps1</code> y completar <code>VERIFICACION_RENDERIZADO_STEP_0312.md</code></li>
+                    <li>[ ] Analizar logs de FPS y completar <code>ANALISIS_FPS_BAJO_STEP_0315.md</code></li>
+                    <li>[ ] Aplicar optimizaciones de FPS según el análisis (si es necesario)</li>
+                    <li>[ ] Ejecutar <code>tools/verificacion_compatibilidad_gb_gbc_step_0315.ps1</code> y completar <code>COMPATIBILIDAD_GB_GBC_STEP_0315.md</code></li>
+                    <li>[ ] Ejecutar emulador y probar controles, completar <code>VERIFICACION_CONTROLES_STEP_0315.md</code></li>
+                    <li>[ ] Evaluar progreso del plan estratégico usando <code>ESTADO_PLAN_ESTRATEGICO_STEP_0315.md</code></li>
+                    <li>[ ] Continuar con Step 0316 según los resultados de las verificaciones</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

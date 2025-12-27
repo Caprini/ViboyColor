@@ -1,8 +1,8 @@
-# Verificación Visual del Renderizado - Step 0312
+# Verificación Visual del Renderizado - Step 0312 (Actualizado Step 0315)
 
 **Fecha**: 2025-12-27  
-**Step ID**: 0312  
-**Objetivo**: Verificar visualmente que el renderizado funciona correctamente con tiles cargados manualmente mediante `load_test_tiles()`.
+**Step ID**: 0312 (Actualizado en Step 0315)  
+**Objetivo**: Verificar visualmente que el renderizado funciona correctamente con tiles cargados manualmente mediante `load_test_tiles()` después de la corrección del direccionamiento (Step 0314).
 
 ---
 
@@ -11,6 +11,8 @@
 **Estado del Renderizado**: ⏳ **PENDIENTE DE VERIFICACIÓN MANUAL**
 
 Este documento debe completarse después de ejecutar el emulador y observar la ventana gráfica.
+
+**Nota Step 0315**: Después de la corrección del direccionamiento de tiles (Step 0314), se debe verificar nuevamente que los tiles se renderizan correctamente. Usa el script `tools/verificacion_visual_fps_step_0315.ps1` para ejecutar la verificación.
 
 ---
 

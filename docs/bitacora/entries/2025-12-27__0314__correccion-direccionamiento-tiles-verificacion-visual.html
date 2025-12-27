@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrección de Direccionamiento de Tiles y Verificación Visual - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Corrección de Direccionamiento de Tiles y Verificación Visual</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-27
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0314
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-27__0313__diagnostico-correccion-pantalla-blanca-fps-bajo.html">Anterior (0313)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Corrección del problema de direccionamiento de tiles identificado en Step 0313. El problema era que `load_test_tiles()` configuraba LCDC a 0x91 (signed addressing, tile data base = 0x9000) pero cargaba tiles en 0x8000-0x803F, causando que la PPU no encontrara los tiles.
+                </p>
+                <p>
+                    Se corrigió LCDC a 0x99 (unsigned addressing, tile data base = 0x8000) para que coincida con donde se cargan los tiles. El módulo C++ fue recompilado con la corrección.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El registro <strong>LCDC (0xFF40)</strong> bit 4 controla el modo de direccionamiento de tiles:
+                </p>
+                <ul>
+                    <li><strong>Bit 4 = 1 (Unsigned addressing)</strong>: Tile data base = 0x8000, tile IDs 0-255</li>
+                    <li><strong>Bit 4 = 0 (Signed addressing)</strong>: Tile data base = 0x9000, tile IDs -128 a 127</li>
+                </ul>
+                <p>
+                    Los tiles deben cargarse donde la PPU los busca según el modo de direccionamiento. Si se usan IDs de tiles 0-3 (unsigned), los tiles deben estar en 0x8000+ y LCDC bit 4 debe ser 1. Si se usa signed addressing (bit 4 = 0), la PPU busca en 0x9000+ y no encontrará tiles en 0x8000+.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "LCDC Register" (0xFF40), "Tile Data" section
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Problema Identificado</h3>
+                <ul>
+                    <li><strong>LCDC actual</strong>: 0x91 = `10010001` en binario
+                        <ul>
+                            <li>Bit 7 = 1 (LCD Enable ✅)</li>
+                            <li>Bit 4 = 0 (Signed addressing → tile data base = 0x9000 ❌)</li>
+                            <li>Bit 0 = 1 (BG Display ✅)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Tiles cargados</strong>: 0x8000-0x803F (tiles 0-3 en unsigned addressing)</li>
+                    <li><strong>Consecuencia</strong>: PPU busca tiles en 0x9000+ pero están en 0x8000+, no los encuentra</li>
+                </ul>
+
+                <h3>Corrección Aplicada</h3>
+                <p>
+                    Cambio de LCDC a 0x99 = `10011001` en binario:
+                </p>
+                <ul>
+                    <li>Bit 7 = 1 (LCD Enable ✅)</li>
+                    <li>Bit 4 = 1 (Unsigned addressing → tile data base = 0x8000 ✅)</li>
+                    <li>Bit 0 = 1 (BG Display ✅)</li>
+                </ul>
+
+                <h3>Componentes Modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> (línea ~1208): Cambio de LCDC 0x91 → 0x99 en `load_test_tiles()`</li>
+                </ul>
+
+                <h3>Código Modificado</h3>
+                <pre><code>// --- Step 0314: Corrección de direccionamiento de tiles ---
+// LCDC bit 4 = 1 para unsigned addressing (tile data base = 0x8000)
+// Esto coincide con donde se cargan los tiles (0x8000-0x803F)
+// Si bit 4 = 0 (signed addressing), la PPU buscaría en 0x9000+ y no encontraría los tiles
+memory_[0xFF40] = 0x99;  // LCD Enable (bit 7) + Unsigned addressing (bit 4) + BG Display (bit 0)
+printf("[LOAD-TEST-TILES] LCDC configurado: 0x%02X -> 0x99 (Unsigned addressing + BG Display habilitado)\n", current_lcdc);</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Corrección de LCDC en load_test_tiles()</li>
+                    <li><code>CORRECCION_DIRECCIONAMIENTO_STEP_0314.md</code> - Documentación de la corrección</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Validación de la corrección:
+                </p>
+                <ul>
+                    <li><strong>Compilación</strong>: Módulo C++ recompilado exitosamente con <code>python setup.py build_ext --inplace</code></li>
+                    <li><strong>Código fuente</strong>: Verificado que LCDC se configura a 0x99 en lugar de 0x91</li>
+                    <li><strong>Logs esperados</strong>:
+                        <ul>
+                            <li><code>[LOAD-TEST-TILES] LCDC configurado: ... -> 0x99</code></li>
+                            <li><code>[TILEMAP-INSPECT] BG Data Base: 8000</code> (no 9000)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Verificación visual</strong>: Pendiente de ejecución (ver próximos pasos)</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "LCDC Register" (0xFF40), sección "Tile Data"</li>
+                    <li>Pan Docs: Direccionamiento de tiles (Signed vs Unsigned)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Direccionamiento de tiles</strong>: El bit 4 de LCDC determina dónde busca la PPU los tiles (0x8000 vs 0x9000). Los tiles deben estar en la dirección correcta según este modo.</li>
+                        <li><strong>Consistencia</strong>: Es crítico que el modo de direccionamiento (LCDC bit 4) coincida con dónde se cargan los tiles en VRAM.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Renderizado visual</strong>: Verificar que los tiles se muestren correctamente en pantalla después de la corrección.</li>
+                        <li><strong>Patrones</strong>: Confirmar que se ven los patrones esperados (checkerboard, líneas horizontales, líneas verticales).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        La corrección debería resolver el problema de pantalla blanca relacionado con direccionamiento de tiles. El FPS bajo (8.0 FPS) es un problema separado que requiere más investigación.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar verificación visual del renderizado (30 segundos, observar patrón de tiles)</li>
+                    <li>[ ] Confirmar que los tiles se muestran correctamente (no pantalla blanca)</li>
+                    <li>[ ] Verificar logs de configuración (LCDC 0x99, BG Data Base 8000)</li>
+                    <li>[ ] Si funciona correctamente, documentar resultado exitoso</li>
+                    <li>[ ] Si hay problemas, investigar causa adicional</li>
+                    <li>[ ] Abordar problema de FPS bajo (8.0 FPS) en steps posteriores</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

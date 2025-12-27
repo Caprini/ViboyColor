@@ -237,6 +237,150 @@ Diagnóstico y corrección de dos problemas críticos identificados después del
 
 ---
 
+### 2025-12-27 - Step 0314: Corrección de Direccionamiento de Tiles y Verificación Visual
+**Estado**: ✅ **CORRECCIÓN APLICADA**
+
+Corrección del problema de direccionamiento de tiles identificado en Step 0313. El problema era que `load_test_tiles()` configuraba LCDC a 0x91 (signed addressing, tile data base = 0x9000) pero cargaba tiles en 0x8000-0x803F, causando que la PPU no encontrara los tiles.
+
+**Objetivo**:
+- Corregir el direccionamiento de tiles cambiando LCDC de 0x91 a 0x99 (unsigned addressing)
+- Recompilar el módulo C++ con la corrección
+- Verificar que la corrección funciona (verificación visual pendiente)
+
+**Problema Identificado**:
+- **LCDC actual**: 0x91 = `10010001` en binario
+  - Bit 7 = 1 (LCD Enable ✅)
+  - Bit 4 = 0 (Signed addressing → tile data base = 0x9000 ❌)
+  - Bit 0 = 1 (BG Display ✅)
+- **Tiles cargados**: 0x8000-0x803F (tiles 0-3 en unsigned addressing)
+- **Consecuencia**: PPU busca tiles en 0x9000+ pero están en 0x8000+, no los encuentra
+
+**✅ Corrección Aplicada**:
+
+Cambio de LCDC a 0x99 = `10011001` en binario:
+- Bit 7 = 1 (LCD Enable ✅)
+- Bit 4 = 1 (Unsigned addressing → tile data base = 0x8000 ✅)
+- Bit 0 = 1 (BG Display ✅)
+
+**Implementación**:
+- ✅ Modificado `src/core/cpp/MMU.cpp` línea ~1208: Cambio de LCDC 0x91 → 0x99
+- ✅ Añadidos comentarios explicativos del cambio (Step 0314)
+- ✅ Actualizado log para reflejar la corrección
+- ✅ Módulo C++ recompilado exitosamente
+
+**Archivos Modificados**:
+- `src/core/cpp/MMU.cpp`: Corrección de LCDC en `load_test_tiles()`
+- `CORRECCION_DIRECCIONAMIENTO_STEP_0314.md`: Documentación de la corrección (nuevo)
+- `docs/bitacora/entries/2025-12-27__0314__correccion-direccionamiento-tiles-verificacion-visual.html`: Entrada HTML (nuevo)
+
+**Conceptos de Hardware**:
+- **LCDC (0xFF40) Bit 4**: Controla el modo de direccionamiento de tiles
+  - **Bit 4 = 1 (Unsigned addressing)**: Tile data base = 0x8000, tile IDs 0-255
+  - **Bit 4 = 0 (Signed addressing)**: Tile data base = 0x9000, tile IDs -128 a 127
+- Los tiles deben cargarse donde la PPU los busca según el modo de direccionamiento configurado
+- **Fuente**: Pan Docs - "LCDC Register" (0xFF40), sección "Tile Data"
+
+**Resultados**:
+- ✅ Código corregido (LCDC 0x99)
+- ✅ Módulo C++ recompilado
+- ⏳ Verificación visual pendiente de ejecución
+
+**Próximos Pasos**:
+- [ ] Ejecutar verificación visual del renderizado (30 segundos, observar patrón de tiles)
+
+---
+
+### 2025-12-27 - Step 0315: Verificación Visual Final y Continuación del Plan Estratégico
+**Estado**: ⏳ **HERRAMIENTAS CREADAS** (Verificaciones pendientes de ejecución)
+
+Creación de herramientas y scripts de verificación para continuar con el plan estratégico del Step 0311. Este step se enfoca en verificar visualmente que los tiles se renderizan correctamente después de la corrección del direccionamiento (Step 0314), analizar el problema de FPS bajo (8.0 FPS), y verificar compatibilidad GB/GBC y controles.
+
+**Objetivo**:
+- Crear scripts automatizados de PowerShell para facilitar las verificaciones
+- Crear documentos de plantilla para documentar los resultados
+- Proporcionar herramientas para avanzar sistemáticamente en el plan estratégico
+
+**✅ Scripts de Verificación Creados**:
+
+1. **`tools/verificacion_visual_fps_step_0315.ps1`**:
+   - Ejecuta el emulador durante un tiempo determinado (30 segundos por defecto)
+   - Captura logs en `logs/fps_analysis_step_0315.log`
+   - Analiza logs para identificar problemas de FPS
+   - Proporciona muestras de logs sin saturar el contexto
+
+2. **`tools/verificacion_compatibilidad_gb_gbc_step_0315.ps1`**:
+   - Prueba automáticamente múltiples ROMs de GB y GBC
+   - Verifica carga, renderizado y errores
+   - Genera resumen de compatibilidad
+
+3. **`tools/verificacion_controles_step_0315.ps1`**:
+   - Documenta el mapeo de teclas según `src/gpu/renderer.py`
+   - Proporciona instrucciones para verificación manual
+   - Verifica que el código de mapeo existe
+
+**✅ Documentos de Verificación Creados**:
+
+1. **`VERIFICACION_RENDERIZADO_STEP_0312.md`** (actualizado):
+   - Plantilla mejorada para verificación visual después de Step 0314
+   - Incluye referencia al script de verificación
+
+2. **`ANALISIS_FPS_BAJO_STEP_0315.md`** (nuevo):
+   - Plantilla para documentar análisis de FPS bajo
+   - Incluye hipótesis a verificar y metodología
+
+3. **`COMPATIBILIDAD_GB_GBC_STEP_0315.md`** (nuevo):
+   - Plantilla para documentar resultados de compatibilidad
+   - Incluye secciones para ROMs GB y GBC
+
+4. **`VERIFICACION_CONTROLES_STEP_0315.md`** (nuevo):
+   - Plantilla para documentar verificación de controles
+   - Incluye mapeo de teclas y checklist de verificación
+
+5. **`ESTADO_PLAN_ESTRATEGICO_STEP_0315.md`** (nuevo):
+   - Evaluación del progreso del plan estratégico
+   - Estado de cada fase y criterios de éxito
+   - Próximos pasos recomendados
+
+**Archivos Creados/Modificados**:
+- `tools/verificacion_visual_fps_step_0315.ps1`: Script de verificación visual y análisis de FPS (nuevo)
+- `tools/verificacion_compatibilidad_gb_gbc_step_0315.ps1`: Script de verificación de compatibilidad GB/GBC (nuevo)
+- `tools/verificacion_controles_step_0315.ps1`: Script de verificación de controles (nuevo)
+- `VERIFICACION_RENDERIZADO_STEP_0312.md`: Actualizado con referencia a Step 0315
+- `ANALISIS_FPS_BAJO_STEP_0315.md`: Documento de análisis de FPS (nuevo)
+- `COMPATIBILIDAD_GB_GBC_STEP_0315.md`: Documento de compatibilidad (nuevo)
+- `VERIFICACION_CONTROLES_STEP_0315.md`: Documento de verificación de controles (nuevo)
+- `ESTADO_PLAN_ESTRATEGICO_STEP_0315.md`: Documento de estado del plan (nuevo)
+- `docs/bitacora/entries/2025-12-27__0315__verificacion-visual-final-continuacion-plan.html`: Entrada HTML de bitácora (nuevo)
+
+**Conceptos de Hardware**:
+- **FPS y Timing**: La Game Boy funciona a 4.194304 MHz. Un frame dura ~70.224 ciclos para mantener 59.7 FPS (típicamente 60 FPS en emuladores)
+- **Causas de FPS Bajo**: Puede deberse a limitador de FPS defectuoso, overhead de logs, renderizado lento, o bucles infinitos/bloqueos
+- **Verificación Sistemática**: Crear herramientas automatizadas facilita la verificación repetible y documentada
+- **Control de Contexto**: Es crítico redirigir logs a archivos y analizar solo muestras para evitar saturar el contexto
+- **Fuente**: Pan Docs - System Clock, Timing, Frame Rate, LCD Timing
+
+**Resultados**:
+- ✅ Scripts de verificación creados y listos para ejecutar
+- ✅ Documentos de plantilla creados para documentar resultados
+- ⏳ Verificaciones pendientes de ejecución manual
+
+**Próximos Pasos**:
+- [ ] Ejecutar `tools/verificacion_visual_fps_step_0315.ps1` y completar `VERIFICACION_RENDERIZADO_STEP_0312.md`
+- [ ] Analizar logs de FPS y completar `ANALISIS_FPS_BAJO_STEP_0315.md`
+- [ ] Aplicar optimizaciones de FPS según el análisis (si es necesario)
+- [ ] Ejecutar `tools/verificacion_compatibilidad_gb_gbc_step_0315.ps1` y completar `COMPATIBILIDAD_GB_GBC_STEP_0315.md`
+- [ ] Ejecutar emulador y probar controles, completar `VERIFICACION_CONTROLES_STEP_0315.md`
+- [ ] Evaluar progreso del plan estratégico usando `ESTADO_PLAN_ESTRATEGICO_STEP_0315.md`
+- [ ] Continuar con Step 0316 según los resultados de las verificaciones
+
+---
+- [ ] Confirmar que los tiles se muestran correctamente (no pantalla blanca)
+- [ ] Verificar logs de configuración (LCDC 0x99, BG Data Base 8000)
+- [ ] Si funciona correctamente, documentar resultado exitoso
+- [ ] Abordar problema de FPS bajo (8.0 FPS) en steps posteriores
+
+---
+
 ### 2025-12-25 - Step 0310: Verificación Práctica del Limitador de FPS
 **Estado**: ✅ **VERIFICACIÓN COMPLETADA**
 

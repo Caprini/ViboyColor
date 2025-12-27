@@ -1197,12 +1197,16 @@ void MMU::load_test_tiles() {
         }
     }
     
+    // --- Step 0314: Corrección de direccionamiento de tiles ---
+    // LCDC bit 4 = 1 para unsigned addressing (tile data base = 0x8000)
+    // Esto coincide con donde se cargan los tiles (0x8000-0x803F)
+    // Si bit 4 = 0 (signed addressing), la PPU buscaría en 0x9000+ y no encontraría los tiles
     // --- Step 0313: Configurar LCDC para habilitar BG Display ---
     // El juego puede sobrescribir LCDC a 0x80 (solo LCD Enable, sin BG Display),
-    // así que lo forzamos a 0x91 (LCD Enable + BG Display) después de cargar tiles
+    // así que lo forzamos a 0x99 (LCD Enable + Unsigned addressing + BG Display) después de cargar tiles
     uint8_t current_lcdc = memory_[0xFF40];
-    memory_[0xFF40] = 0x91;  // LCD Enable (bit 7) + BG Display (bit 0) + otros bits
-    printf("[LOAD-TEST-TILES] LCDC configurado: 0x%02X -> 0x91 (BG Display habilitado)\n", current_lcdc);
+    memory_[0xFF40] = 0x99;  // LCD Enable (bit 7) + Unsigned addressing (bit 4) + BG Display (bit 0)
+    printf("[LOAD-TEST-TILES] LCDC configurado: 0x%02X -> 0x99 (Unsigned addressing + BG Display habilitado)\n", current_lcdc);
     
     // También asegurar BGP tiene un valor válido
     if (memory_[0xFF47] == 0x00) {
