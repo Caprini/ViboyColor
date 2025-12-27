@@ -123,33 +123,38 @@ if ($test_rom) {
     
     # Intentar cargar ROM usando Python (sin ejecutar el emulador completo)
     try {
-        $testScript = @"
+        # Crear script Python temporal
+        $pyScript = "temp_test_cartridge.py"
+        @"
 import sys
 from pathlib import Path
 from src.memory.cartridge import Cartridge
 
 try:
-    cart = Cartridge('$test_rom')
+    cart = Cartridge(r'$test_rom')
     header = cart.get_header_info()
-    print(f'SUCCESS|TITLE:{header[\"title\"]}|TYPE:{header[\"cartridge_type\"]}|ROMSIZE:{header[\"rom_size\"]}')
+    print('SUCCESS|TITLE:' + str(header['title']) + '|TYPE:' + str(header['cartridge_type']) + '|ROMSIZE:' + str(header['rom_size']))
 except Exception as e:
-    print(f'ERROR|{e}')
-"@
-        $testScript | Out-File -FilePath "temp_test_cartridge.py" -Encoding UTF8
-        $result = python temp_test_cartridge.py 2>&1
-        Remove-Item "temp_test_cartridge.py" -ErrorAction SilentlyContinue
+    print('ERROR|' + str(e))
+"@ | Out-File -FilePath $pyScript -Encoding UTF8 -NoNewline
+        
+        $result = python $pyScript 2>&1 | Out-String
+        Remove-Item $pyScript -ErrorAction SilentlyContinue
         
         if ($result -match "SUCCESS") {
             $report += "- ✅ ROM cargada correctamente`n"
             $report += "- Información del header:`n"
             if ($result -match "TITLE:([^|]+)") {
-                $report += "  - Título: $($matches[1])`n"
+                $title = $matches[1]
+                $report += "  - Título: $title`n"
             }
             if ($result -match "TYPE:([^|]+)") {
-                $report += "  - Tipo: $($matches[1])`n"
+                $type = $matches[1]
+                $report += "  - Tipo: $type`n"
             }
             if ($result -match "ROMSIZE:([^|]+)") {
-                $report += "  - Tamaño ROM: $($matches[1]) KB`n"
+                $romsize = $matches[1]
+                $report += "  - Tamaño ROM: $romsize KB`n"
             }
         } else {
             $report += "- ❌ Error al cargar ROM: $result`n"
@@ -169,32 +174,34 @@ $report += "- No debe crashear al iniciar`n"
 $report += "- VRAM debería estar vacía o con valores iniciales`n`n"
 
 $report += "### Verificación Manual Requerida`n"
-$report += "Ejecutar manualmente: `n"
+$report += "Ejecutar manualmente:`n"
 if ($test_rom) {
+    $romName = Split-Path $test_rom -Leaf
     $report += "```powershell`n"
-    $report += "python main.py `"$test_rom`"`n"
+    $report += "python main.py `"$romName`"`n"
     $report += "```\n"
     $report += "**Nota**: La pantalla debería estar blanca (sin tiles cargados desde el juego).`n`n"
 } else {
     $report += "```powershell`n"
-    $report += "python main.py <ruta_a_rom.gb>`n"
+    $report += "python main.py ruta_a_rom.gb`n"
     $report += "```\n"
-    $report += "**Nota**: Reemplazar `<ruta_a_rom.gb>` con una ROM válida.`n`n"
+    $report += "**Nota**: Reemplazar 'ruta_a_rom.gb' con una ROM válida.`n`n"
 }
 
 $report += "---`n`n## 5. Verificación de Renderizado (Con Tiles Manuales)`n`n"
 
 $report += "### Función load_test_tiles()`n"
-$report += "- ✅ Implementada en `MMU.cpp` (línea 1124)`n"
-$report += "- ✅ Disponible desde Cython (`mmu.pyx` línea 251)`n"
-$report += "- ✅ Integrada en `viboy.py` (línea 277-278)`n"
-$report += "- ✅ Flag `--load-test-tiles` disponible en `main.py` (línea 65)`n`n"
+$report += "- ✅ Implementada en MMU.cpp (línea 1124)`n"
+$report += "- ✅ Disponible desde Cython (mmu.pyx línea 251)`n"
+$report += "- ✅ Integrada en viboy.py (línea 277-278)`n"
+$report += "- ✅ Flag --load-test-tiles disponible en main.py (línea 65)`n`n"
 
 $report += "### Verificación Manual Requerida`n"
-$report += "Ejecutar manualmente con flag `--load-test-tiles`:`n"
+$report += "Ejecutar manualmente con flag --load-test-tiles:`n"
 if ($test_rom) {
+    $romName = Split-Path $test_rom -Leaf
     $report += "```powershell`n"
-    $report += "python main.py `"$test_rom`" --load-test-tiles`n"
+    $report += "python main.py `"$romName`" --load-test-tiles`n"
     $report += "```\n"
     $report += "**Resultado Esperado**:`n"
     $report += "- Debería mostrar tiles de prueba (checkerboard, líneas, etc.)`n"
@@ -202,7 +209,7 @@ if ($test_rom) {
     $report += "- Patrón alternado en el tilemap`n`n"
 } else {
     $report += "```powershell`n"
-    $report += "python main.py <ruta_a_rom.gb> --load-test-tiles`n"
+    $report += "python main.py ruta_a_rom.gb --load-test-tiles`n"
     $report += "```\n"
 }
 
@@ -289,21 +296,21 @@ if ($test_rom) {
 $report += "---`n`n## 7. Verificación de Controles`n`n"
 
 $report += "### Mapeo de Teclas (Verificar en código)`n"
-$report += "**Archivo**: `src/gpu/renderer.py` o `src/io/joypad.py``n`n"
+$report += "**Archivo**: src/gpu/renderer.py o src/io/joypad.py`n`n"
 
 # Buscar mapeo de teclas en el código
 try {
     $joypadCode = Get-Content "src/io/joypad.py" -Raw -ErrorAction SilentlyContinue
     if ($joypadCode) {
         if ($joypadCode -match "KEY.*A|A.*KEY") {
-            $report += "- ✅ Mapeo de teclas encontrado en `joypad.py`\n"
+            $report += "- ✅ Mapeo de teclas encontrado en joypad.py`n"
         }
     }
     
     $rendererCode = Get-Content "src/gpu/renderer.py" -Raw -ErrorAction SilentlyContinue
     if ($rendererCode) {
         if ($rendererCode -match "KEYDOWN|K_") {
-            $report += "- ✅ Manejo de eventos de teclado encontrado en `renderer.py`\n"
+            $report += "- ✅ Manejo de eventos de teclado encontrado en renderer.py`n"
         }
     }
 } catch {

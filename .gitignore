@@ -9,16 +9,17 @@ __pycache__/
 *.pyd_OLD_*
 *.dll
 
-# Cython generated files
-*.c
-*.cpp
-# Des-ignorar directorios padre necesarios para que las negaciones funcionen
-# Git necesita ver cada nivel del directorio antes de aplicar negaciones
-!src/
-!src/core/
-!src/core/cpp/
-!src/core/cpp/*.cpp
-!src/core/cpp/*.hpp
+# Cython generated files (archivos .c y .cpp generados por Cython)
+# Ignorar archivos generados por Cython en src/core/cython/
+src/core/cython/*.c
+src/core/cython/*.cpp
+# Ignorar archivos .c y .cpp en directorios de build
+build/**/*.c
+build/**/*.cpp
+dist/**/*.c
+dist/**/*.cpp
+# NOTA: Los archivos fuente en src/core/cpp/*.cpp y src/core/cpp/*.hpp
+# NO se ignoran y se rastrean normalmente (son código fuente, no generados)
 
 # Compiled object files
 *.obj
