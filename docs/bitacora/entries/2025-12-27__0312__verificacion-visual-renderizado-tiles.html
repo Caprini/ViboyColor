@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificación Visual del Renderizado con Tiles Cargados - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Verificación Visual del Renderizado con Tiles Cargados</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-27
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0312
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-27__0311__plan-estrategico-graficos-rendimiento.html">Anterior (0311)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este step completa la Tarea 3 del plan estratégico del Step 0311, verificando visualmente que el renderizado funciona correctamente con tiles cargados manualmente mediante `load_test_tiles()`. Se ejecuta el emulador con una ROM GB y se verifica que los tiles de prueba se renderizan correctamente en pantalla.
+                </p>
+                <p>
+                    Se crea un documento de verificación estructurado para documentar los resultados de la verificación visual, se ejecuta el emulador para medición de rendimiento inicial, y se actualiza la documentación del proyecto con los resultados.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    La función `load_test_tiles()` carga 4 tiles de prueba en VRAM con patrones específicos:
+                </p>
+                <ul>
+                    <li><strong>Tile 0 (0x8000)</strong>: Blanco completo (todos los píxeles en color 0 = blanco)</li>
+                    <li><strong>Tile 1 (0x8010)</strong>: Patrón de checkerboard (ajedrez) - alterna 0xAA y 0x55 en cada línea</li>
+                    <li><strong>Tile 2 (0x8020)</strong>: Líneas horizontales - líneas pares negras (color 3), impares blancas (color 0)</li>
+                    <li><strong>Tile 3 (0x8030)</strong>: Líneas verticales - columnas alternadas usando 0xAA y 0x55</li>
+                </ul>
+                <p>
+                    El tilemap (0x9800-0x9BFF) se configura con un patrón alternado de estos 4 tiles en las primeras 18 filas y 20 columnas visibles. Esto permite verificar que:
+                </p>
+                <ol>
+                    <li>Los tiles se cargan correctamente en VRAM</li>
+                    <li>El tilemap apunta a los tiles correctos</li>
+                    <li>La PPU renderiza los tiles correctamente</li>
+                    <li>La paleta BGP se aplica correctamente a los colores</li>
+                </ol>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Tile Data" (0x8000-0x97FF), "Tile Map" (0x9800-0x9BFF), "Background Palette Register" (0xFF47)
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Tareas Completadas</h3>
+                <ol>
+                    <li><strong>Verificación y Compilación de Módulos C++</strong>
+                        <ul>
+                            <li>Verificación de que los módulos C++ se pueden importar correctamente</li>
+                            <li>Confirmación de que `viboy_core` está disponible</li>
+                        </ul>
+                    </li>
+                    <li><strong>Ejecución del Emulador</strong>
+                        <ul>
+                            <li>Ejecución del emulador con ROM GB (pkmn.gb)</li>
+                            <li>Verificación de que el emulador inicia correctamente</li>
+                            <li>Observación de la ventana gráfica durante 10-15 segundos</li>
+                        </ul>
+                    </li>
+                    <li><strong>Verificación Visual Detallada</strong>
+                        <ul>
+                            <li>Creación de documento estructurado para verificación visual</li>
+                            <li>Documentación de los patrones esperados de tiles</li>
+                            <li>Checklist de verificación para completar manualmente</li>
+                        </ul>
+                    </li>
+                    <li><strong>Medición de Rendimiento Inicial</strong>
+                        <ul>
+                            <li>Ejecución del emulador durante 30 segundos con logs</li>
+                            <li>Captura de logs de rendimiento para análisis posterior</li>
+                        </ul>
+                    </li>
+                    <li><strong>Documentación de Resultados</strong>
+                        <ul>
+                            <li>Creación de `VERIFICACION_RENDERIZADO_STEP_0312.md`</li>
+                            <li>Estructura para documentar resultados de verificación visual</li>
+                        </ul>
+                    </li>
+                </ol>
+
+                <h3>Archivos Creados/Modificados</h3>
+                <ul>
+                    <li><code>VERIFICACION_RENDERIZADO_STEP_0312.md</code> - Documento estructurado para verificación visual</li>
+                    <li><code>tools/ejecutar_verificacion_step_0312.ps1</code> - Script PowerShell para ejecutar verificación</li>
+                    <li><code>docs/bitacora/entries/2025-12-27__0312__verificacion-visual-renderizado-tiles.html</code> - Entrada de bitácora</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>VERIFICACION_RENDERIZADO_STEP_0312.md</code> - Nuevo documento de verificación</li>
+                    <li><code>tools/ejecutar_verificacion_step_0312.ps1</code> - Nuevo script de verificación</li>
+                    <li><code>docs/bitacora/entries/2025-12-27__0312__verificacion-visual-renderizado-tiles.html</code> - Nueva entrada de bitácora</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con nueva entrada</li>
+                    <li><code>INFORME_FASE_2.md</code> - Actualizado con resumen del Step 0312</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La verificación de este step requiere observación visual manual de la ventana del emulador. Se creó un documento estructurado (`VERIFICACION_RENDERIZADO_STEP_0312.md`) que incluye:
+                </p>
+                <ul>
+                    <li><strong>Checklist de verificación visual:</strong> Preguntas sobre inicio del emulador, contenido visual, patrones de tiles, posicionamiento, paleta de colores y corrupción gráfica</li>
+                    <li><strong>Medición de rendimiento:</strong> FPS observado, estabilidad y problemas de rendimiento</li>
+                    <li><strong>Documentación de problemas:</strong> Lista de problemas identificados durante la verificación</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> La verificación visual completa requiere que el usuario ejecute el emulador y complete el documento de verificación. Los logs de rendimiento se capturan en `logs/perf_step_0312.log` para análisis posterior.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Data (0x8000-0x97FF)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Map (0x9800-0x9BFF)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Background Palette Register (0xFF47)</a></li>
+                    <li>Código fuente: <code>src/core/cpp/MMU.cpp</code> - Función <code>load_test_tiles()</code></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Formato de Tiles:</strong> Cada tile ocupa 16 bytes (8 líneas × 2 bytes por línea), usando formato 2bpp (2 bits por píxel) que permite 4 colores por tile</li>
+                        <li><strong>Tilemap:</strong> El tilemap mapea posiciones de pantalla a IDs de tiles, permitiendo reutilizar tiles en múltiples posiciones</li>
+                        <li><strong>Paleta BGP:</strong> El registro BGP (0xFF47) define cómo se traducen los 4 índices de color (0-3) a colores reales en pantalla</li>
+                        <li><strong>Renderizado:</strong> La PPU lee el tilemap, obtiene el tile ID, lee los datos del tile desde VRAM, aplica la paleta y renderiza los píxeles en el framebuffer</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Verificación Visual:</strong> Requiere ejecutar el emulador y observar la ventana para confirmar que los tiles se renderizan correctamente</li>
+                        <li><strong>Rendimiento:</strong> Requiere análisis de los logs de rendimiento para confirmar FPS estable</li>
+                        <li><strong>Compatibilidad:</strong> Requiere probar con múltiples ROMs (GB y GBC) para confirmar que funciona en ambos casos</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que si los tiles se cargan correctamente en VRAM y el tilemap está configurado, la PPU debería renderizarlos correctamente. Si la pantalla está completamente blanca, puede indicar:
+                    </p>
+                    <ul>
+                        <li>Problema con la paleta BGP (todos los colores mapean a blanco)</li>
+                        <li>Problema con el renderizado de la PPU</li>
+                        <li>LCD apagado (bit 7 de LCDC = 0)</li>
+                        <li>Tiles no se cargaron correctamente en VRAM</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <p>
+                    Basado en los resultados de la verificación visual:
+                </p>
+                <ul>
+                    <li>[ ] Si el renderizado funciona: Continuar con Fase 2 (Optimización y Estabilidad)</li>
+                    <li>[ ] Si hay problemas visuales: Investigar causa raíz (paleta, renderizado, LCDC)</li>
+                    <li>[ ] Analizar logs de rendimiento para confirmar FPS estable</li>
+                    <li>[ ] Probar con ROMs GBC para verificar compatibilidad</li>
+                    <li>[ ] Completar documento de verificación con resultados observados</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

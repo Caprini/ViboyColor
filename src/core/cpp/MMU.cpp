@@ -1129,6 +1129,9 @@ void MMU::load_test_tiles() {
     // Fuente: Pan Docs - "Tile Data", "Tile Map"
     // Formato Tile: 2bpp, 8x8 píxeles, 16 bytes por tile
     
+    // --- Step 0313: Logs de diagnóstico ---
+    printf("[LOAD-TEST-TILES] Función llamada\n");
+    printf("[LOAD-TEST-TILES] VRAM antes: primer byte = 0x%02X\n", memory_[0x8000]);
     printf("[LOAD-TEST-TILES] Cargando tiles de prueba en VRAM...\n");
     
     // Tile 0 (0x8000-0x800F): Blanco puro (todos 0x00)
@@ -1194,6 +1197,22 @@ void MMU::load_test_tiles() {
         }
     }
     
+    // --- Step 0313: Configurar LCDC para habilitar BG Display ---
+    // El juego puede sobrescribir LCDC a 0x80 (solo LCD Enable, sin BG Display),
+    // así que lo forzamos a 0x91 (LCD Enable + BG Display) después de cargar tiles
+    uint8_t current_lcdc = memory_[0xFF40];
+    memory_[0xFF40] = 0x91;  // LCD Enable (bit 7) + BG Display (bit 0) + otros bits
+    printf("[LOAD-TEST-TILES] LCDC configurado: 0x%02X -> 0x91 (BG Display habilitado)\n", current_lcdc);
+    
+    // También asegurar BGP tiene un valor válido
+    if (memory_[0xFF47] == 0x00) {
+        memory_[0xFF47] = 0xE4;  // Paleta estándar
+        printf("[LOAD-TEST-TILES] BGP configurado: 0x00 -> 0xE4 (paleta estándar)\n");
+    }
+    
+    // --- Step 0313: Verificación después de cargar ---
+    printf("[LOAD-TEST-TILES] VRAM después: primer byte = 0x%02X\n", memory_[0x8000]);
+    printf("[LOAD-TEST-TILES] Tile 1 (0x8010) = 0x%02X 0x%02X\n", memory_[0x8010], memory_[0x8011]);
     printf("[LOAD-TEST-TILES] Tiles de prueba cargados:\n");
     printf("[LOAD-TEST-TILES]   Tile 0 (0x8000): Blanco\n");
     printf("[LOAD-TEST-TILES]   Tile 1 (0x8010): Checkerboard\n");

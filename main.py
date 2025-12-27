@@ -61,10 +61,12 @@ def main() -> None:
         action="store_true",
         help="Simular entrada del usuario automáticamente (presionar botones en tiempos específicos)",
     )
+    # Step 0313: load_test_tiles=True por defecto para desarrollo
+    # Usar --no-load-test-tiles para desactivarlo
     parser.add_argument(
-        "--load-test-tiles",
+        "--no-load-test-tiles",
         action="store_true",
-        help="Cargar tiles de prueba manualmente en VRAM (hack temporal para desarrollo)",
+        help="Desactivar carga manual de tiles de prueba (por defecto están activados)",
     )
     
     args = parser.parse_args()
@@ -126,7 +128,10 @@ def main() -> None:
     # Inicializar sistema Viboy
     try:
         viboy = Viboy()
-        viboy.load_cartridge(args.rom, load_test_tiles=args.load_test_tiles)
+        # Step 0313: load_test_tiles=True por defecto (desarrollo)
+        # Solo desactivar si se especifica --no-load-test-tiles
+        load_tiles = not getattr(args, 'no_load_test_tiles', False)
+        viboy.load_cartridge(args.rom, load_test_tiles=load_tiles)
         
         # Obtener información del cartucho
         cartridge = viboy.get_cartridge()

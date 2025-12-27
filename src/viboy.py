@@ -278,8 +278,13 @@ class Viboy:
         # Step 0311: Activado por defecto (load_test_tiles=True) para desarrollo
         # Esto permite avanzar con gráficos visibles mientras se investiga por qué
         # los juegos no cargan tiles automáticamente.
+        # Step 0313: Añadir log para verificar ejecución
         if load_test_tiles and self._use_cpp and self._mmu is not None:
+            print("[VIBOY] Ejecutando load_test_tiles()...")
             self._mmu.load_test_tiles()
+            print("[VIBOY] load_test_tiles() ejecutado")
+        else:
+            print(f"[VIBOY] load_test_tiles() NO ejecutado: load_test_tiles={load_test_tiles}, use_cpp={self._use_cpp}, mmu={self._mmu is not None}")
         # --- Fin Step 0298/0311 ---
         
         # Mostrar información del cartucho cargado
@@ -899,6 +904,16 @@ class Viboy:
                         actual_frames = self.frame_count
                         drift = actual_frames - expected_frames
                         print(f"[SYNC-CHECK] Real: {elapsed_real:.1f}s | Expected: {expected_frames:.0f} frames | Actual: {actual_frames} | Drift: {drift:.0f}")
+                    # ----------------------------------------
+                    
+                    # --- Step 0313: Logs de diagnóstico de FPS ---
+                    if self.frame_count % 60 == 0 and self.frame_count > 0:
+                        import time
+                        if not hasattr(self, '_start_time'):
+                            self._start_time = time.time()
+                        elapsed = time.time() - self._start_time
+                        fps_actual = self.frame_count / elapsed if elapsed > 0 else 0
+                        print(f"[FPS-DIAG] Frame {self.frame_count} | Elapsed: {elapsed:.2f}s | FPS actual: {fps_actual:.2f} | Tick time: {tick_time_ms:.2f}ms" if tick_time_ms is not None else f"[FPS-DIAG] Frame {self.frame_count} | Elapsed: {elapsed:.2f}s | FPS actual: {fps_actual:.2f}")
                     # ----------------------------------------
                 
                 

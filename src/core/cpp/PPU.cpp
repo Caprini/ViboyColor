@@ -364,22 +364,52 @@ void PPU::render_scanline() {
     // de renderizado normal que lee desde la VRAM para poder investigar por qué
     // la VRAM permanece vacía.
     
+    // --- Step 0313: Log de diagnóstico - verificar que render_scanline() se ejecuta ---
+    static int render_log_count = 0;
+    if (ly_ == 0 && render_log_count < 3) {
+        render_log_count++;
+        printf("[PPU-RENDER] render_scanline() ejecutado para LY=%d (Frame %llu)\n", ly_, static_cast<unsigned long long>(frame_counter_ + 1));
+    }
+    
     // CRÍTICO: Verificar que mmu_ no sea nullptr antes de acceder
     if (mmu_ == nullptr) {
         return;
     }
     
     uint8_t lcdc = mmu_->read(IO_LCDC);
+    
+    // --- Step 0313: Logs de diagnóstico LCDC y BGP ---
+    static int lcdc_log_count = 0;
+    if (ly_ == 0 && lcdc_log_count < 3) {
+        lcdc_log_count++;
+        uint8_t bgp = mmu_->read(IO_BGP);
+        printf("[PPU-LCDC] Frame %llu | LCDC = 0x%02X | LCD ON: %d | BG ON: %d\n", 
+               static_cast<unsigned long long>(frame_counter_ + 1), lcdc, (lcdc & 0x80) ? 1 : 0, (lcdc & 0x01) ? 1 : 0);
+        printf("[PPU-BGP] BGP = 0x%02X\n", bgp);
+    }
 
     // Verificar que el LCD esté encendido
     if ((lcdc & 0x80) == 0) {
         return;
     }
 
-    // Renderizar fondo si está habilitado (LCDC bit 0)
+    // --- Step 0313: Hack temporal - Forzar BG Display si está desactivado ---
+    // El juego puede escribir LCDC = 0x80 (solo LCD Enable, sin BG Display),
+    // pero para poder ver los tiles de prueba, temporalmente activamos el bit 0
+    // solo para el renderizado (no modificamos la memoria)
+    bool bg_display_forced = false;
     if (!(lcdc & 0x01)) {
-        return;
+        // Si BG Display está desactivado, temporalmente lo activamos para renderizar
+        lcdc |= 0x01;  // Activar bit 0 (BG Display)
+        bg_display_forced = true;
+        // Log solo una vez para no saturar
+        static int force_log_count = 0;
+        if (ly_ == 0 && force_log_count < 1) {
+            force_log_count++;
+            printf("[PPU-FIX] LCDC tenía BG Display desactivado, forzado temporalmente a 0x%02X para renderizado\n", lcdc);
+        }
     }
+    // --- Fin hack temporal ---
 
     uint8_t scy = mmu_->read(IO_SCY);
     uint8_t scx = mmu_->read(IO_SCX);
@@ -534,6 +564,14 @@ void PPU::render_scanline() {
             // color_index 3 -> (BGP >> 6) & 3 = 3
             uint8_t final_color = (bgp >> (color_index * 2)) & 0x03;
             
+            // --- Step 0313: Log de diagnóstico - verificar lectura de tile data ---
+            static int tile_data_log_count = 0;
+            if (ly_ == 0 && x == 0 && tile_data_log_count < 3) {
+                tile_data_log_count++;
+                printf("[PPU-TILE-DATA] LY:0 X:0 | TileAddr:0x%04X | Byte1:0x%02X Byte2:0x%02X | ColorIndex:%d FinalColor:%d\n",
+                       tile_line_addr, byte1, byte2, color_index, final_color);
+            }
+            
             // --- Step 0290: Monitor de Aplicación de Paleta ([PALETTE-APPLY]) ---
             // Captura cómo se aplica la paleta BGP durante el renderizado.
             // Solo se activa en el centro de la pantalla (LY=72, X=80) y en los primeros 3 frames
@@ -562,6 +600,17 @@ void PPU::render_scanline() {
             }
             if (ly_ == 72 && x == 31) palette_dump_count++;
             // -----------------------------------------
+            
+            // --- Step 0313: Log de diagnóstico - verificar escritura en framebuffer ---
+            static int framebuffer_log_count = 0;
+            if (ly_ == 0 && x < 4 && framebuffer_log_count < 3) {
+                if (x == 0) {
+                    framebuffer_log_count++;
+                    printf("[PPU-FRAMEBUFFER] LY:0 | Escribiendo primeros píxeles en framebuffer\n");
+                }
+                printf("[PPU-FRAMEBUFFER] X:%d | ColorIndex:%d FinalColor:%d -> framebuffer[%zu]\n",
+                       x, color_index, final_color, line_start_index + x);
+            }
             
             framebuffer_[line_start_index + x] = final_color;
             // -------------------------------------------------------------
