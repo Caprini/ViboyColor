@@ -1,7 +1,0 @@
-f3b485af4300c31261cf7693037115220fd0c382 commit	refs/heads/develop-v0.0.2
-d3689202457a9da9750097097137136fb418e9ff commit	refs/heads/main
-5ab9c711191067d50225db626e0cdba7d8d24311 commit	refs/original/refs/heads/develop-v0.0.2
-d3689202457a9da9750097097137136fb418e9ff commit	refs/remotes/origin/HEAD
-d3c2579d7315b0162f31e20f67f6ce2a4d0cc9ab commit	refs/remotes/origin/develop-v0.0.2
-d3689202457a9da9750097097137136fb418e9ff commit	refs/remotes/origin/main
-d79a532951148b1504c8d90155e2a36b6f46043e tag	refs/tags/v0.0.1

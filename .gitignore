@@ -161,6 +161,9 @@ cython_debug/
 # VS Code
 .vscode/
 
+# Git internals (temporary files from filter-branch operations)
+.git-rewrite/
+
 # macOS
 .DS_Store
 .AppleDouble
