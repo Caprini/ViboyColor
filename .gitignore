@@ -12,7 +12,10 @@ __pycache__/
 # Cython generated files
 *.c
 *.cpp
-# Des-ignorar directorio primero para que las negaciones funcionen
+# Des-ignorar directorios padre necesarios para que las negaciones funcionen
+# Git necesita ver cada nivel del directorio antes de aplicar negaciones
+!src/
+!src/core/
 !src/core/cpp/
 !src/core/cpp/*.cpp
 !src/core/cpp/*.hpp
