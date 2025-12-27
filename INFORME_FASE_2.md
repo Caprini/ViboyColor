@@ -32,6 +32,75 @@
 
 ## Entradas de Desarrollo
 
+### 2025-12-27 - Step 0311: Plan Estratégico: Gráficos, Rendimiento y Funcionalidad Completa
+**Estado**: ✅ **IMPLEMENTACIÓN COMPLETADA** (Tareas 1 y 2)
+
+Establecimiento de un plan estratégico para lograr que el emulador funcione completamente con gráficos visibles, rendimiento estable (~60 FPS), controles funcionales y compatibilidad con ROMs GB y GBC.
+
+**Objetivo General**:
+- ✅ **Gráficos**: Renderizado correcto de tiles y sprites
+- ✅ **Rendimiento**: FPS estable ~60 FPS
+- ✅ **Controles**: Entrada de usuario funcional
+- ✅ **Compatibilidad**: Funciona con ROMs de GB y GBC
+- ✅ **Jugabilidad**: La ROM se ejecuta y es jugable
+
+**Plan Estratégico - 3 Fases**:
+
+1. **Fase 1: Diagnóstico y Activación de Gráficos** (Steps 0311-0312)
+   - ✅ Tarea 1: Script de diagnóstico del estado actual
+   - ✅ Tarea 2: Activación de carga manual de tiles por defecto
+   - ⏳ Tarea 3: Verificación de renderizado con tiles cargados
+
+2. **Fase 2: Optimización y Estabilidad** (Steps 0313-0314)
+   - ⏳ Asegurar FPS estable ~60 FPS
+   - ⏳ Verificar compatibilidad GB/GBC
+   - ⏳ Optimizar renderizado si es necesario
+
+3. **Fase 3: Controles y Jugabilidad** (Steps 0315-0316)
+   - ⏳ Verificar que los controles funcionan
+   - ⏳ Probar con múltiples ROMs (GB y GBC)
+   - ⏳ Iterar hasta lograr funcionalidad completa
+
+**✅ Tareas Completadas en este Step**:
+
+**Tarea 1: Script de Diagnóstico**:
+- Script PowerShell `tools/diagnostico_estado_actual_step_0311.ps1` creado
+- Verifica automáticamente ROMs disponibles, componentes del sistema y estado del emulador
+- Genera reporte en Markdown: `DIAGNOSTICO_ESTADO_ACTUAL_STEP_0311.md`
+- **Resultados**:
+  - ✅ Detectadas 2 ROMs GB (pkmn.gb, tetris.gb)
+  - ✅ Detectadas 2 ROMs GBC (mario.gbc, tetris_dx.gbc)
+  - ✅ Python 3.13.5 disponible
+  - ⚠️ Módulos Cython/C++ no encontrados (pueden necesitar recompilación)
+
+**Tarea 2: Activación de Carga Manual de Tiles por Defecto**:
+- Modificado `src/viboy.py`: `load_test_tiles=True` por defecto (línea 189)
+- Ahora los tiles de prueba se cargan automáticamente sin necesidad del flag `--load-test-tiles`
+- Cambio temporal documentado claramente en el código
+- Permite avanzar con gráficos visibles mientras se investiga el problema real
+
+**Archivos Creados/Modificados**:
+- `tools/diagnostico_estado_actual_step_0311.ps1`: Script de diagnóstico automatizado (nuevo)
+- `src/viboy.py`: Modificado para activar carga manual de tiles por defecto
+- `DIAGNOSTICO_ESTADO_ACTUAL_STEP_0311.md`: Reporte de diagnóstico (generado)
+- `docs/bitacora/entries/2025-12-27__0311__plan-estrategico-graficos-rendimiento.html`: Entrada HTML de bitácora
+
+**Conceptos de Hardware**:
+- La Game Boy utiliza VRAM para almacenar tiles (patrones gráficos 8x8) y tilemaps
+- Los juegos normalmente cargan tiles durante la inicialización
+- Función `load_test_tiles()` carga 4 tiles de prueba con patrones diferentes
+- **Fuente**: Pan Docs - "Tile Data" (0x8000-0x97FF) y "Tile Map" (0x9800-0x9BFF)
+
+**Próximos Pasos**:
+- [ ] Tarea 3: Verificar renderizado con tiles cargados visualmente
+- [ ] Tarea 4: Medir y optimizar rendimiento (FPS estable ~60)
+- [ ] Tarea 5: Verificar compatibilidad GB/GBC con múltiples ROMs
+- [ ] Tarea 6: Verificar que los controles funcionan correctamente
+- [ ] Tarea 7: Pruebas iterativas con múltiples ROMs y documentación
+- [ ] Tarea 8: Generar documentación completa final
+
+---
+
 ### 2025-12-25 - Step 0310: Verificación Práctica del Limitador de FPS
 **Estado**: ✅ **VERIFICACIÓN COMPLETADA**
 

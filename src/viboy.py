@@ -186,13 +186,14 @@ class Viboy:
         
         logger.info(f"Sistema Viboy inicializado ({'C++ Core' if self._use_cpp else 'Python Core'})")
 
-    def load_cartridge(self, rom_path: str | Path, load_test_tiles: bool = False) -> None:
+    def load_cartridge(self, rom_path: str | Path, load_test_tiles: bool = True) -> None:
         """
         Carga un cartucho (ROM) en el sistema.
         
         Args:
             rom_path: Ruta al archivo ROM (.gb o .gbc)
-            load_test_tiles: Si es True, carga tiles de prueba manualmente en VRAM (hack temporal)
+            load_test_tiles: Si es True, carga tiles de prueba manualmente en VRAM (hack temporal).
+                           Por defecto es True (Step 0311 - activado temporalmente para desarrollo)
             
         Raises:
             FileNotFoundError: Si el archivo ROM no existe
@@ -273,10 +274,13 @@ class Viboy:
         # Simular "Post-Boot State" (sin Boot ROM)
         self._initialize_post_boot_state()
         
-        # --- Step 0298: Carga Manual de Tiles (Hack Temporal) ---
+        # --- Step 0298/0311: Carga Manual de Tiles (Hack Temporal) ---
+        # Step 0311: Activado por defecto (load_test_tiles=True) para desarrollo
+        # Esto permite avanzar con gráficos visibles mientras se investiga por qué
+        # los juegos no cargan tiles automáticamente.
         if load_test_tiles and self._use_cpp and self._mmu is not None:
             self._mmu.load_test_tiles()
-        # --- Fin Step 0298 ---
+        # --- Fin Step 0298/0311 ---
         
         # Mostrar información del cartucho cargado
         header_info = self._cartridge.get_header_info()
