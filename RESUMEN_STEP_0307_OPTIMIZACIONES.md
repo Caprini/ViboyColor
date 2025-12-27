@@ -171,21 +171,60 @@ Después de verificar las optimizaciones:
 
 ## Resultados de Verificación
 
-**Estado**: ⏳ Pendiente de ejecución (requiere ROM)
+**Estado**: ✅ Ejecutado (datos limitados - requiere ejecución más larga)
 
 ### Resultados de Rendimiento
-- **FPS Promedio**: _Pendiente de medición_
-- **FPS Mínimo**: _Pendiente de medición_
-- **FPS Máximo**: _Pendiente de medición_
-- **Mejora vs Step 0306 (21.8 FPS)**: _Pendiente de cálculo_
+
+**Medición realizada**: 2025-12-25  
+**Duración de la prueba**: ~30 segundos  
+**Registros [PERFORMANCE-TRACE] capturados**: 1 (limitado por configuración del monitor)
+
+**Resultados**:
+- **FPS Medido**: 16.7 FPS (Frame 0, Frame time: 59.92ms)
+- **FPS Promedio**: 16.7 FPS (basado en 1 registro)
+- **FPS Mínimo**: 16.7 FPS
+- **FPS Máximo**: 16.7 FPS
+- **Mejora vs Step 0306 (21.8 FPS)**: -5.1 FPS (-23.39% - **REGRESIÓN**)
+
+**⚠️ Limitaciones de la medición**:
+- El monitor [PERFORMANCE-TRACE] solo registra cada 60 frames (configuración actual)
+- El emulador procesó aproximadamente 45 frames antes de cerrarse
+- Solo se capturó 1 registro de rendimiento (frame 0)
+- Se necesita una ejecución más larga (2-3 minutos) para obtener estadísticas precisas
+
+**Análisis preliminar**:
+- El FPS medido (16.7) es **peor** que el FPS anterior (21.8)
+- Esto podría indicar:
+  1. Las optimizaciones no están funcionando como se esperaba
+  2. Hay un problema con la implementación de las optimizaciones
+  3. Se necesita más tiempo de ejecución para que las optimizaciones se estabilicen
+  4. El snapshot inmutable del framebuffer podría estar añadiendo overhead
 
 ### Resultados de Corrupción Gráfica
-- **Patrón de tablero de ajedrez**: _Pendiente de verificación_
-- **Sprites fragmentados**: _Pendiente de verificación_
-- **Rayas verdes**: _Pendiente de verificación_
+- **Patrón de tablero de ajedrez**: _Requiere verificación visual extendida (2-3 minutos)_
+- **Sprites fragmentados**: _Requiere verificación visual extendida (2-3 minutos)_
+- **Rayas verdes**: _Requiere verificación visual extendida (2-3 minutos)_
 
-### Conclusiones
-_Pendiente de completar verificaciones_
+**Nota**: La verificación visual requiere observación directa del emulador durante 2-3 minutos. No se pudo realizar automáticamente.
+
+### Conclusiones Preliminares
+
+**Rendimiento**:
+- ⚠️ **REGRESIÓN DETECTADA**: El FPS medido (16.7) es peor que el anterior (21.8)
+- Se necesita una ejecución más larga y más registros para confirmar si hay una mejora real
+- El snapshot inmutable del framebuffer podría estar añadiendo overhead significativo
+
+**Recomendaciones**:
+1. **Ejecutar prueba más larga**: Ejecutar el emulador durante 2-3 minutos completos para obtener más registros de rendimiento
+2. **Verificar optimizaciones**: Revisar si las optimizaciones (NumPy, cache de scaling) se están aplicando correctamente
+3. **Analizar overhead**: Investigar si el snapshot inmutable del framebuffer está añadiendo demasiado overhead
+4. **Verificación visual**: Realizar verificación visual manual para confirmar si la corrupción gráfica desapareció
+
+**Próximos pasos**:
+- Ejecutar emulador durante 2-3 minutos completos
+- Verificar que el monitor [PERFORMANCE-TRACE] capture más registros (ajustar frecuencia si es necesario)
+- Realizar verificación visual manual de corrupción gráfica
+- Si el FPS sigue siendo bajo, investigar el overhead del snapshot inmutable
 
 ---
 

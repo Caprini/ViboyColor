@@ -242,7 +242,7 @@ Select-String -Path perf_step_0307.log -Pattern "FPS: (\d+\.?\d*)" | ForEach-Obj
             <section id="resultados">
                 <h2>Resultados</h2>
                 <p>
-                    <strong>Estado</strong>: ⏳ Pendiente de verificación (requiere ROM)
+                    <strong>Estado</strong>: ✅ Ejecutado (datos limitados - requiere ejecución más larga)
                 </p>
                 <p>
                     <strong>Métricas esperadas</strong>:
@@ -256,25 +256,47 @@ Select-String -Path perf_step_0307.log -Pattern "FPS: (\d+\.?\d*)" | ForEach-Obj
                     <strong>Resultados de Rendimiento</strong>:
                 </p>
                 <ul>
-                    <li><strong>FPS Promedio</strong>: <em>Pendiente de medición</em></li>
-                    <li><strong>FPS Mínimo</strong>: <em>Pendiente de medición</em></li>
-                    <li><strong>FPS Máximo</strong>: <em>Pendiente de medición</em></li>
-                    <li><strong>Mejora vs Step 0306</strong>: <em>Pendiente de cálculo</em></li>
+                    <li><strong>FPS Medido</strong>: 16.7 FPS (Frame 0, Frame time: 59.92ms)</li>
+                    <li><strong>FPS Promedio</strong>: 16.7 FPS (basado en 1 registro)</li>
+                    <li><strong>FPS Mínimo</strong>: 16.7 FPS</li>
+                    <li><strong>FPS Máximo</strong>: 16.7 FPS</li>
+                    <li><strong>Mejora vs Step 0306</strong>: <strong style="color: red;">-5.1 FPS (-23.39% - REGRESIÓN)</strong></li>
+                </ul>
+                <p>
+                    <strong>⚠️ Limitaciones de la medición</strong>:
+                </p>
+                <ul>
+                    <li>El monitor [PERFORMANCE-TRACE] solo registra cada 60 frames (configuración actual)</li>
+                    <li>El emulador procesó aproximadamente 45 frames antes de cerrarse</li>
+                    <li>Solo se capturó 1 registro de rendimiento (frame 0)</li>
+                    <li>Se necesita una ejecución más larga (2-3 minutos) para obtener estadísticas precisas</li>
                 </ul>
                 <p>
                     <strong>Resultados de Corrupción Gráfica</strong>:
                 </p>
                 <ul>
-                    <li><strong>Patrón de tablero de ajedrez</strong>: <em>Pendiente de verificación</em></li>
-                    <li><strong>Sprites fragmentados</strong>: <em>Pendiente de verificación</em></li>
-                    <li><strong>Rayas verdes</strong>: <em>Pendiente de verificación</em></li>
+                    <li><strong>Patrón de tablero de ajedrez</strong>: <em>Requiere verificación visual extendida (2-3 minutos)</em></li>
+                    <li><strong>Sprites fragmentados</strong>: <em>Requiere verificación visual extendida (2-3 minutos)</em></li>
+                    <li><strong>Rayas verdes</strong>: <em>Requiere verificación visual extendida (2-3 minutos)</em></li>
                 </ul>
                 <p>
-                    <strong>Conclusiones</strong>: <em>Pendiente de completar verificaciones</em>
+                    <strong>Conclusiones Preliminares</strong>:
                 </p>
+                <ul>
+                    <li><strong>REGRESIÓN DETECTADA</strong>: El FPS medido (16.7) es peor que el anterior (21.8)</li>
+                    <li>Se necesita una ejecución más larga y más registros para confirmar si hay una mejora real</li>
+                    <li>El snapshot inmutable del framebuffer podría estar añadiendo overhead significativo</li>
+                    <li>Se requiere verificación visual manual para confirmar si la corrupción gráfica desapareció</li>
+                </ul>
                 <p>
-                    <strong>Instrucciones para completar verificaciones</strong>: Ver sección "Tests y Verificación" arriba y el archivo `RESUMEN_STEP_0307_OPTIMIZACIONES.md` para instrucciones detalladas.
+                    <strong>Recomendaciones</strong>:
                 </p>
+                <ul>
+                    <li>Ejecutar prueba más larga: 2-3 minutos completos para obtener más registros de rendimiento</li>
+                    <li>Verificar optimizaciones: Revisar si las optimizaciones (NumPy, cache de scaling) se están aplicando correctamente</li>
+                    <li>Analizar overhead: Investigar si el snapshot inmutable del framebuffer está añadiendo demasiado overhead</li>
+                    <li>Verificación visual: Realizar verificación visual manual para confirmar si la corrupción gráfica desapareció</li>
+                </ul>
             </section>
 
             <!-- 7. Próximos Pasos -->
