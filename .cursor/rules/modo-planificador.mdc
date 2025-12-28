@@ -114,13 +114,25 @@ Cada tarea debe tener:
 - Usar comandos que limiten la salida
 
 ### Comandos Seguros:
-```powershell
-Select-String -Path "log.txt" -Pattern "pattern" | Select-Object -First 50
+```bash
+# Buscar patrones con límite
+grep -E "pattern" log.txt | head -n 50
+
+# Contar entradas
+grep -c "\[TAG\]" log.txt
+
+# Primeras N líneas que coinciden
+grep "\[TAG\]" log.txt | head -n 50
+
+# Estadísticas básicas
+grep "\[TAG\]" log.txt | sort | uniq -c
 ```
 
 ### ⚠️ Comandos Prohibidos:
-```powershell
-Get-Content log.txt  # ❌ Lee todo
+```bash
+# ❌ NO hacer esto:
+cat log.txt              # Lee todo el archivo
+grep "pattern" log.txt    # Sin límite (puede ser enorme)
 ```
 ```
 
@@ -236,30 +248,32 @@ git push
 - Usar comandos que limiten la salida para análisis
 
 ### Comandos Seguros (ejemplos):
-```powershell
+```bash
 # Contar entradas
-Select-String -Path "log.txt" -Pattern "\[TAG\]" | Measure-Object
+grep -c "\[TAG\]" log.txt
 
 # Primeras N líneas
-Select-String -Path "log.txt" -Pattern "\[TAG\]" | Select-Object -First 50
+grep "\[TAG\]" log.txt | head -n 50
 
 # Estadísticas básicas
-Select-String -Path "log.txt" -Pattern "\[TAG\]" | Group-Object | Select-Object Count, Name
+grep "\[TAG\]" log.txt | sort | uniq -c
+
+# Últimas N líneas
+tail -n 50 log.txt | grep "\[TAG\]"
 ```
 
 ### ⚠️ Comandos Prohibidos:
-```powershell
+```bash
 # ❌ NO hacer esto:
-Get-Content log.txt              # Lee todo el archivo
-Select-String -Path "log.txt" -Pattern ".*"  # Sin límite
-type log.txt                     # Lee todo
-cat log.txt | grep pattern       # Sin límite
+cat log.txt                      # Lee todo el archivo
+grep ".*" log.txt                # Sin límite
+grep "pattern" log.txt           # Sin límite (puede ser enorme)
 ```
 ```
 
 ### En Ejecución:
 - Redirigir salida a archivo: `comando > log.txt 2>&1`
-- Usar límites en comandos de análisis: `Select-Object -First N`
+- Usar límites en comandos de análisis: `head -n N` o `tail -n N`
 - Crear resúmenes en lugar de pegar logs completos
 - Analizar localmente y reportar solo conclusiones
 

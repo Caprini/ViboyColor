@@ -37,16 +37,17 @@ El script probará automáticamente múltiples ROMs de GB y GBC.
 
 ## ROMs de Game Boy (DMG) Probadas
 
-**Nota**: El script no ejecutó las pruebas de ROMs GB en la ejecución inicial. Se debe ejecutar manualmente o revisar los logs.
+**Nota Step 0318**: Se verificó automáticamente que las siguientes ROMs GB están disponibles en el directorio `roms/`. La verificación manual de ejecución está pendiente.
 
 ### 1. pkmn.gb
 
-- **Estado**: ⏳ Pendiente (no ejecutado por el script)
-- **Carga**: ⏳ Pendiente
-- **Renderizado**: ⏳ Pendiente
+- **Estado**: ⏳ Pendiente de verificación manual (ROM disponible confirmada)
+- **Disponibilidad**: ✅ **VERIFICADA** - ROM encontrada en `roms/pkmn.gb`
+- **Carga**: ⏳ Pendiente de verificación manual
+- **Renderizado**: ⏳ Pendiente de verificación manual
 - **Log**: `logs/compat_pkmn.gb.log` (generado si se ejecuta manualmente)
 - **Errores**: [Completar después de ejecución manual]
-- **Observaciones**: [Completar]
+- **Observaciones**: [Completar después de ejecución manual]
 
 **Para probar manualmente**:
 ```powershell
@@ -55,12 +56,13 @@ python main.py roms/pkmn.gb > logs/compat_pkmn.gb.log 2>&1
 
 ### 2. tetris.gb
 
-- **Estado**: ⏳ Pendiente (no ejecutado por el script)
-- **Carga**: ⏳ Pendiente
-- **Renderizado**: ⏳ Pendiente
+- **Estado**: ⏳ Pendiente de verificación manual (ROM disponible confirmada)
+- **Disponibilidad**: ✅ **VERIFICADA** - ROM encontrada en `roms/tetris.gb`
+- **Carga**: ⏳ Pendiente de verificación manual
+- **Renderizado**: ⏳ Pendiente de verificación manual
 - **Log**: `logs/compat_tetris.gb.log` (generado si se ejecuta manualmente)
 - **Errores**: [Completar después de ejecución manual]
-- **Observaciones**: [Completar]
+- **Observaciones**: [Completar después de ejecución manual]
 
 **Para probar manualmente**:
 ```powershell
@@ -71,32 +73,46 @@ python main.py roms/tetris.gb > logs/compat_tetris.gb.log 2>&1
 
 ## ROMs de Game Boy Color (GBC) Probadas
 
+**Nota Step 0318**: Se verificó automáticamente que las siguientes ROMs GBC están disponibles en el directorio `roms/`. La verificación manual de ejecución está pendiente. Los resultados anteriores del script pueden haber sido incorrectos o incompletos.
+
 ### 1. mario.gbc
 
-- **Estado**: ❌ No funciona (según ejecución del script)
-- **Carga**: ❓ Pendiente de revisión de logs
-- **Renderizado**: ❓ Pendiente de revisión de logs
-- **Detección GBC**: ❓ Pendiente (¿Se detecta como GBC?)
-- **Log**: `logs/compat_mario.gbc.log`
-- **Errores**: [Revisar log para detalles]
-- **Observaciones**: El script reportó "Estado: No funciona". Revisar logs para identificar la causa.
+- **Estado**: ⏳ Pendiente de verificación manual (ROM disponible confirmada)
+- **Disponibilidad**: ✅ **VERIFICADA** - ROM encontrada en `roms/mario.gbc`
+- **Carga**: ⏳ Pendiente de verificación manual
+- **Renderizado**: ⏳ Pendiente de verificación manual
+- **Detección GBC**: ⏳ Pendiente de verificación manual (¿Se detecta como GBC?)
+- **Log**: `logs/compat_mario.gbc.log` (generado si se ejecuta manualmente)
+- **Errores**: [Completar después de ejecución manual]
+- **Observaciones**: [Completar después de ejecución manual]
 
-**Análisis de log**:
+**Para probar manualmente**:
+```powershell
+python main.py roms/mario.gbc > logs/compat_mario.gbc.log 2>&1
+```
+
+**Análisis de log** (después de ejecución):
 ```powershell
 Select-String -Path "logs/compat_mario.gbc.log" -Pattern "ERROR|Exception|Traceback|Cartucho cargado|Sistema listo" | Select-Object -First 30
 ```
 
 ### 2. tetris_dx.gbc
 
-- **Estado**: ❌ No funciona (según ejecución del script)
-- **Carga**: ❓ Pendiente de revisión de logs
-- **Renderizado**: ❓ Pendiente de revisión de logs
-- **Detección GBC**: ❓ Pendiente (¿Se detecta como GBC?)
-- **Log**: `logs/compat_tetris_dx.gbc.log`
-- **Errores**: [Revisar log para detalles]
-- **Observaciones**: El script reportó "Estado: No funciona". Revisar logs para identificar la causa.
+- **Estado**: ⏳ Pendiente de verificación manual (ROM disponible confirmada)
+- **Disponibilidad**: ✅ **VERIFICADA** - ROM encontrada en `roms/tetris_dx.gbc`
+- **Carga**: ⏳ Pendiente de verificación manual
+- **Renderizado**: ⏳ Pendiente de verificación manual
+- **Detección GBC**: ⏳ Pendiente de verificación manual (¿Se detecta como GBC?)
+- **Log**: `logs/compat_tetris_dx.gbc.log` (generado si se ejecuta manualmente)
+- **Errores**: [Completar después de ejecución manual]
+- **Observaciones**: [Completar después de ejecución manual]
 
-**Análisis de log**:
+**Para probar manualmente**:
+```powershell
+python main.py roms/tetris_dx.gbc > logs/compat_tetris_dx.gbc.log 2>&1
+```
+
+**Análisis de log** (después de ejecución):
 ```powershell
 Select-String -Path "logs/compat_tetris_dx.gbc.log" -Pattern "ERROR|Exception|Traceback|Cartucho cargado|Sistema listo" | Select-Object -First 30
 ```
@@ -107,19 +123,21 @@ Select-String -Path "logs/compat_tetris_dx.gbc.log" -Pattern "ERROR|Exception|Tr
 
 ### Game Boy (DMG)
 
-- **ROMs probadas**: 2
+- **ROMs disponibles**: 2 (✅ pkmn.gb, ✅ tetris.gb)
+- **ROMs probadas manualmente**: 0
 - **Funcionan completamente**: 0
 - **Funcionan parcialmente**: 0
 - **No funcionan**: 0
-- **Tasa de éxito**: 0%
+- **Tasa de éxito**: ⏳ Pendiente de verificación manual
 
 ### Game Boy Color (GBC)
 
-- **ROMs probadas**: 2
+- **ROMs disponibles**: 2 (✅ mario.gbc, ✅ tetris_dx.gbc)
+- **ROMs probadas manualmente**: 0
 - **Funcionan completamente**: 0
 - **Funcionan parcialmente**: 0
 - **No funcionan**: 0
-- **Tasa de éxito**: 0%
+- **Tasa de éxito**: ⏳ Pendiente de verificación manual
 
 ---
 

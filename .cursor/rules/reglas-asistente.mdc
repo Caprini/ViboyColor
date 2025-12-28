@@ -27,7 +27,7 @@ Nuestro método de trabajo es triangular y requiere precisión absoluta:
     *   Una actualización en `docs/bitacora/index.html`.
     *   Una actualización en `INFORME_FASE_2.md`.
     *   *Nota*: Debes recordar a Cursor que incluya la **información académica** (el "porqué" técnico) en la bitácora HTML.
-3.  **Compilación**: Recuerda siempre el comando `.\rebuild_cpp.ps1` antes de probar.
+3.  **Compilación**: Recuerda siempre el comando `./rebuild_cpp.sh` (Linux) o `python setup.py build_ext --inplace` antes de probar.
 4.  **Clean Room**: Cita Pan Docs o GBEDG. Nunca sugieras mirar código de otros emuladores.
 
 ### 🚨 La Situación Crítica Actual (Debugging Pokémon Red)
