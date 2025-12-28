@@ -883,6 +883,7 @@ class Viboy:
                     
                     # --- Step 0317: Optimización - Actualizar título con FPS (cada 60 frames) ---
                     # Step 0309: Corregir cálculo de FPS para reflejar el FPS limitado
+                    # --- Step 0324: Agregar nombre del juego en el título ---
                     if self.frame_count % 60 == 0 and self._clock is not None:
                         if pygame is not None:
                             # Opción A: Usar get_fps() que debería retornar FPS limitado
@@ -897,7 +898,21 @@ class Viboy:
                                 # Fallback a get_fps() si tick_time no está disponible
                                 fps = fps_from_clock if fps_from_clock > 0 else TARGET_FPS
                             
-                            pygame.display.set_caption(f"Viboy Color v0.0.2 - FPS: {fps:.1f}")
+                            # Obtener título del juego desde el cartucho
+                            game_title = "Viboy Color v0.0.2"
+                            if self._cartridge is not None:
+                                try:
+                                    header_info = self._cartridge.get_header_info()
+                                    cart_title = header_info.get('title', '')
+                                    if cart_title and cart_title != 'UNKNOWN' and cart_title.strip():
+                                        game_title = f"Viboy Color v0.0.2 - {cart_title}"
+                                    else:
+                                        game_title = "Viboy Color v0.0.2"
+                                except Exception:
+                                    game_title = "Viboy Color v0.0.2"
+                            
+                            # Actualizar título con FPS
+                            pygame.display.set_caption(f"{game_title} - FPS: {fps:.1f}")
                     
                     # --- Step 0317: Optimización - Logs de debug desactivados por defecto ---
                     # Los logs se ejecutan solo si ENABLE_DEBUG_LOGS es True

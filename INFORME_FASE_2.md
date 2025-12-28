@@ -870,6 +870,59 @@ Investigación de por qué los juegos limpian VRAM pero no cargan tiles después
 **Resultados**:
 - ✅ Monitores implementados y funcionando correctamente
 - ✅ Logs capturan información suficiente para análisis
+
+---
+
+### 2025-12-28 - Step 0324: Renderizado de Tiles Reales y Nombre del Juego en Título
+**Estado**: ✅ **IMPLEMENTACIÓN COMPLETADA**
+
+Implementación de verificación de tiles reales en VRAM y renderizado usando esos tiles cuando están disponibles. Se agregaron verificaciones en la PPU para detectar cuando los tiles reales se cargan, verificaciones del tilemap para asegurar que apunta a tiles válidos, y logs de diagnóstico para confirmar que el renderizado usa tiles con datos reales. Además, se agregó el nombre del juego en la barra de título del emulador.
+
+**Objetivo**:
+- Verificar que cuando los juegos cargan tiles reales, estos se rendericen correctamente reemplazando el patrón de prueba temporal
+- Asegurar que el renderizado use los tiles reales una vez que están cargados en VRAM
+- Verificar que el tilemap apunta a los tiles correctos
+- Agregar el nombre del juego en la barra de título del emulador para identificar capturas
+
+**Tareas Completadas**:
+1. ✅ **Tarea 1**: Agregado nombre del juego en la barra de título (obtenido desde el header del cartucho)
+2. ✅ **Tarea 2**: Implementada verificación de detección de tiles reales en VRAM (cada 60 frames)
+3. ✅ **Tarea 3**: Implementada verificación de renderizado con tiles reales
+4. ✅ **Tarea 4**: Implementada verificación del tilemap cuando hay tiles reales
+5. ✅ **Tarea 5**: Módulo C++ recompilado exitosamente
+6. ⏳ **Tarea 6**: Pruebas completas con las 3 ROMs pendientes (se ejecutarán según plan)
+
+**Archivos Modificados**:
+- `src/viboy.py`: Agregado código para obtener título del juego desde `Cartridge.get_header_info()` y mostrarlo en `pygame.display.set_caption()`
+- `src/core/cpp/PPU.cpp`: 
+  - Agregada verificación de tiles reales en VRAM (cada 60 frames, verifica primeros 2048 bytes)
+  - Agregada verificación de renderizado con tiles reales (logs `[PPU-RENDER-VERIFY]`)
+  - Agregada verificación del tilemap cuando hay tiles reales (logs `[PPU-TILEMAP-VERIFY]`)
+
+**Implementación Técnica**:
+- **Detección de tiles reales**: Verificación cada 60 frames (1 segundo) de los primeros 2048 bytes de VRAM. Si hay más de 100 bytes no-cero, se detecta que hay tiles reales. Logs `[PPU-TILES-REAL]` cuando cambia el estado.
+- **Verificación de renderizado**: Cuando hay tiles reales, verifica que el tile ID del tilemap apunta a un tile con datos válidos. Logs `[PPU-RENDER-VERIFY]` en los primeros 5 frames.
+- **Verificación del tilemap**: Verifica los primeros 32 bytes del tilemap (primera fila) cuando hay tiles reales. Logs `[PPU-TILEMAP-VERIFY]` con advertencia si el tilemap está vacío aunque hay tiles en VRAM.
+- **Título del juego**: Se obtiene desde `self._cartridge.get_header_info()['title']` y se muestra en formato "Viboy Color v0.0.2 - [Título] - FPS: XX.X". Si el título es inválido o no existe, se muestra solo "Viboy Color v0.0.2 - FPS: XX.X".
+
+**Documentación Generada**:
+- `docs/bitacora/entries/2025-12-28__0324__renderizado-tiles-reales-nombre-juego.html`: Entrada HTML completa de la bitácora
+- `docs/bitacora/index.html`: Actualizado con entrada Step 0324
+- `INFORME_FASE_2.md`: Actualizado con entrada Step 0324
+
+**Conceptos de Hardware**:
+- **Renderizado de Tiles Reales**: Los tiles se cargan en VRAM (0x8000-0x97FF) en formato 2bpp. El tilemap (0x9800-0x9BFF o 0x9C00-0x9FFF) contiene tile IDs que apuntan a tiles en VRAM. Cuando los tiles reales se cargan, el renderizado debe leer desde VRAM y decodificar los tiles correctamente.
+- **Header del Cartucho**: El header de la ROM (0x0100-0x014F) contiene información del cartucho. El título está en 0x0134-0x0143 (16 bytes, terminado en 0x00 o 0x80). El título se decodifica como ASCII.
+- **Transición de Patrón de Prueba a Tiles Reales**: Inicialmente VRAM está vacía y se usa un patrón de prueba. Cuando el juego carga tiles reales, el checksum de VRAM cambia significativamente. El renderizado debe detectar este cambio y cambiar del patrón de prueba al renderizado normal.
+- **Fuente**: Pan Docs - Tile Data, Tile Map, Cartridge Header, VRAM Access, LCD Timing
+
+**Resultados**:
+- ✅ Nombre del juego aparece en la barra de título
+- ✅ Verificaciones de tiles reales implementadas
+- ✅ Verificaciones del renderizado implementadas
+- ✅ Verificaciones del tilemap implementadas
+- ✅ Módulo C++ recompilado sin errores
+- ⏳ Pruebas completas con ROMs pendientes (ejecutar según plan)
 - ✅ Hallazgos clave identificados: Los juegos SÍ cargan tiles después de activar el LCD
 - ✅ Solución actual validada: Tiles de prueba funcionan hasta que los tiles reales se carguen
 - ✅ Módulo C++ recompilado sin errores

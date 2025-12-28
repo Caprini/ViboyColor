@@ -488,6 +488,40 @@ void PPU::render_scanline() {
     bool signed_addressing = (lcdc & 0x10) == 0;
     uint16_t tile_data_base = signed_addressing ? 0x9000 : 0x8000;
 
+    // --- Step 0324: Verificar si hay tiles reales en VRAM ---
+    // Si VRAM está vacía, usar patrón de prueba. Si hay tiles, renderizar normalmente.
+    static bool vram_has_tiles = false;
+
+    // Verificar VRAM cada 60 frames (1 segundo) para detectar cuando se cargan tiles
+    if (ly_ == 0 && (frame_counter_ % 60 == 0)) {
+        uint32_t vram_checksum = 0;
+        int non_zero_bytes = 0;
+        
+        // Verificar primeros 2048 bytes de VRAM (128 tiles)
+        for (uint16_t i = 0; i < 2048; i++) {
+            uint8_t byte = mmu_->read(0x8000 + i);
+            vram_checksum += byte;
+            if (byte != 0x00) {
+                non_zero_bytes++;
+            }
+        }
+        
+        // Si hay más de 100 bytes no-cero, asumir que hay tiles reales
+        bool has_tiles_now = (non_zero_bytes > 100);
+        
+        if (has_tiles_now != vram_has_tiles) {
+            vram_has_tiles = has_tiles_now;
+            if (vram_has_tiles) {
+                printf("[PPU-TILES-REAL] Tiles reales detectados en VRAM! (Frame %llu)\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1));
+            } else {
+                printf("[PPU-TILES-REAL] VRAM vacía, usando patrón de prueba (Frame %llu)\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1));
+            }
+        }
+    }
+    // -------------------------------------------
+
     // --- Step 0321: Verificación de Tilemap ---
     // Verificar el tilemap para diagnosticar problemas de renderizado
     static int tilemap_check_count = 0;
@@ -564,6 +598,30 @@ void PPU::render_scanline() {
 
     size_t line_start_index = ly_ * 160;
 
+    // --- Step 0324: Verificación del Tilemap con Tiles Reales ---
+    // Verificar que el tilemap apunta a tiles válidos cuando hay tiles reales
+    static int tilemap_verify_count = 0;
+    if (vram_has_tiles && ly_ == 0 && tilemap_verify_count < 3) {
+        tilemap_verify_count++;
+        
+        // Verificar primeros 32 bytes del tilemap (primera fila)
+        int valid_tile_ids = 0;
+        for (int i = 0; i < 32; i++) {
+            uint8_t tile_id = mmu_->read(tile_map_base + i);
+            if (tile_id != 0x00) {
+                valid_tile_ids++;
+            }
+        }
+        
+        printf("[PPU-TILEMAP-VERIFY] Frame %llu | Tilemap tiene %d/32 tile IDs no-cero\n",
+               static_cast<unsigned long long>(frame_counter_ + 1), valid_tile_ids);
+        
+        if (valid_tile_ids == 0) {
+            printf("[PPU-TILEMAP-VERIFY] ⚠️ ADVERTENCIA: Tilemap está vacío aunque hay tiles en VRAM!\n");
+        }
+    }
+    // -------------------------------------------
+
     // --- Step 0299: Monitor de Tilemap Real ([TILEMAP-DUMP-VISUAL]) ---
     // Capturar los tile IDs reales que se están leyendo del tilemap durante el renderizado
     // de la línea central (LY=72). Esto permite identificar si hay un patrón repetitivo
@@ -611,6 +669,32 @@ void PPU::render_scanline() {
         } else {
             tile_addr = tile_data_base + (tile_id * 16);
         }
+
+        // --- Step 0324: Verificación de renderizado con tiles reales ---
+        // Solo verificar cuando hay tiles reales y en los primeros frames
+        static int render_verify_count = 0;
+        if (vram_has_tiles && ly_ == 0 && render_verify_count < 5 && x == 0) {
+            // Verificar que el tile ID del tilemap apunta a un tile con datos
+            uint8_t sample_tile_id = mmu_->read(tile_map_base);
+            uint16_t sample_tile_addr;
+            if (signed_addressing) {
+                sample_tile_addr = tile_data_base + ((int8_t)sample_tile_id * 16);
+            } else {
+                sample_tile_addr = tile_data_base + (sample_tile_id * 16);
+            }
+            
+            // Leer primeros 2 bytes del tile
+            uint8_t tile_byte1 = mmu_->read(sample_tile_addr);
+            uint8_t tile_byte2 = mmu_->read(sample_tile_addr + 1);
+            
+            if (tile_byte1 != 0x00 || tile_byte2 != 0x00) {
+                render_verify_count++;
+                printf("[PPU-RENDER-VERIFY] Frame %llu | TileID: 0x%02X | Addr: 0x%04X | Data: 0x%02X%02X (tiene datos)\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1),
+                       sample_tile_id, sample_tile_addr, tile_byte1, tile_byte2);
+            }
+        }
+        // -------------------------------------------
 
         // --- Step 0321: Debug de cálculo de tile (solo primeros píxeles) ---
         static int tile_calc_debug_count = 0;

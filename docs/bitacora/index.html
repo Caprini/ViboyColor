@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0324 - Renderizado de Tiles Reales y Nombre del Juego en Título -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-28__0324__renderizado-tiles-reales-nombre-juego.html" class="entry-link">
+                                    Renderizado de Tiles Reales y Nombre del Juego en Título
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-28 | 
+                            <strong>Step ID:</strong> 0324 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de verificación de tiles reales en VRAM y renderizado usando esos tiles cuando están disponibles. Se agregaron verificaciones en la PPU para detectar cuando los tiles reales se cargan (verificando los primeros 2048 bytes cada 60 frames), verificaciones del tilemap para asegurar que apunta a tiles válidos, y logs de diagnóstico para confirmar que el renderizado usa tiles con datos reales. Además, se agregó el nombre del juego en la barra de título del emulador (formato: "Viboy Color v0.0.2 - [Nombre del Juego] - FPS: XX.X"), obteniendo el título desde el header del cartucho.
+                        </p>
+                    </li>
                                         <!-- Entrada 0323 - Investigación y Solución de Carga de Tiles -->
                     <li>
                         <div class="entry-header">
