@@ -342,6 +342,15 @@ private:
      * @return Array de 8 valores de color (0-3)
      */
     void decode_tile_line(uint16_t tile_addr, uint8_t line, uint8_t* output);
+    
+    /**
+     * Step 0320: Verifica si los tiles de prueba siguen en VRAM.
+     * 
+     * Calcula un checksum de los primeros 4 tiles (0x8000-0x803F) y lo compara
+     * con el checksum esperado después de load_test_tiles(). Si los tiles fueron
+     * sobrescritos, loggea una advertencia.
+     */
+    void verify_test_tiles();
 };
 
 #endif // PPU_HPP

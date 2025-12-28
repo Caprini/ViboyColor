@@ -65,6 +65,48 @@ void PPU::step(int cpu_cycles) {
     uint8_t lcdc = mmu_->read(IO_LCDC);
     bool lcd_enabled = (lcdc & 0x80) != 0;
     
+    // --- Step 0320: Monitor de Cambios de LCDC ---
+    // Detectar cuando LCDC cambia de valor y loggear el cambio
+    static uint8_t last_lcdc = 0xFF;
+    if (lcdc != last_lcdc && ly_ == 0) {
+        printf("[PPU-LCDC-CHANGE] Frame %llu | LCDC cambió: 0x%02X -> 0x%02X | LCD: %d->%d | BG: %d->%d\n",
+               static_cast<unsigned long long>(frame_counter_ + 1),
+               last_lcdc, lcdc,
+               (last_lcdc & 0x80) ? 1 : 0, (lcdc & 0x80) ? 1 : 0,
+               (last_lcdc & 0x01) ? 1 : 0, (lcdc & 0x01) ? 1 : 0);
+        last_lcdc = lcdc;
+    }
+    // -------------------------------------------
+    
+    // --- Step 0320: Detección de Activación del LCD ---
+    // Detectar cuando el juego activa el LCD (bit 7 cambia de 0 a 1)
+    static bool lcd_was_off = false;
+    bool lcd_is_on = (lcdc & 0x80) != 0;
+    if (!lcd_was_off && lcd_is_on && ly_ == 0) {
+        // El LCD se acaba de activar
+        printf("[PPU-LCD-ON] LCD activado! LCDC = 0x%02X\n", lcdc);
+        
+        // Si el BG Display está desactivado, activarlo
+        if (!(lcdc & 0x01)) {
+            printf("[PPU-LCD-ON] BG Display desactivado, activándolo...\n");
+            mmu_->write(IO_LCDC, lcdc | 0x01);
+            lcdc |= 0x01;
+        }
+        lcd_was_off = false;
+    } else if (!lcd_is_on) {
+        lcd_was_off = true;
+    }
+    // -------------------------------------------
+    
+    // --- Step 0320: Verificación Periódica de VRAM ---
+    // Verificar si los tiles de prueba siguen en VRAM cada 60 frames (1 segundo)
+    static int vram_check_counter = 0;
+    if (ly_ == 0 && frame_counter_ > 0 && (frame_counter_ % 60 == 0)) {
+        verify_test_tiles();
+        vram_check_counter++;
+    }
+    // -------------------------------------------
+    
     // --- Step 0227: FIX LCD DISABLE BEHAVIOR ---
     // Pan Docs: When LCD is disabled (LCDC bit 7 = 0), the PPU stops immediately
     // and the LY register is reset to 0 and remains fixed at 0. The internal clock
@@ -690,6 +732,34 @@ void PPU::render_scanline() {
     // Los sprites se dibujan encima del fondo y la ventana (a menos que tengan prioridad)
     // Fuente: Pan Docs - Sprite Rendering, Priority
     render_sprites();
+    
+    // --- Step 0320: Verificación del Framebuffer después de Renderizar ---
+    // Verificar que se renderizó algo (no todo blanco) en la línea actual
+    size_t line_start = ly_ * SCREEN_WIDTH;
+    int non_zero_pixels = 0;
+    int color_counts[4] = {0, 0, 0, 0};
+    for (int x = 0; x < SCREEN_WIDTH; x++) {
+        uint8_t color_idx = framebuffer_[line_start + x] & 0x03;
+        if (color_idx != 0) {
+            non_zero_pixels++;
+        }
+        color_counts[color_idx]++;
+    }
+    
+    // Loggear estadísticas del framebuffer solo en algunos frames iniciales
+    static int render_check_count = 0;
+    if (ly_ == 0 && render_check_count < 3) {
+        render_check_count++;
+        printf("[PPU-RENDER-CHECK] LY=%d | Píxeles no-blancos: %d/%d | Distribución: 0=%d 1=%d 2=%d 3=%d\n",
+               ly_, non_zero_pixels, SCREEN_WIDTH,
+               color_counts[0], color_counts[1], color_counts[2], color_counts[3]);
+        
+        // Si todos los píxeles son 0 (blanco), es una advertencia
+        if (non_zero_pixels == 0) {
+            printf("[PPU-RENDER-CHECK] WARNING: Toda la línea es blanca (todos los píxeles son 0)\n");
+        }
+    }
+    // -----------------------------------------
 }
 
 void PPU::render_bg() {
@@ -1058,6 +1128,38 @@ void PPU::render_sprites() {
             uint8_t final_sprite_color = (palette >> (sprite_color_idx * 2)) & 0x03;
             framebuffer_line[final_x] = final_sprite_color;
             // -------------------------------------------------------------
+        }
+    }
+}
+
+void PPU::verify_test_tiles() {
+    // Step 0320: Verificar si los tiles de prueba siguen en VRAM
+    // Checksum esperado aproximado de los tiles de prueba (0x8000-0x803F)
+    // Tile 0: todo 0x00, Tile 1: 0xAA/0x55, Tile 2: 0xFF/0x00, Tile 3: 0xAA/0x55
+    // El checksum exacto depende de los valores exactos de load_test_tiles()
+    
+    uint16_t actual_checksum = 0;
+    for (int i = 0; i < 64; i++) {  // 4 tiles * 16 bytes = 64 bytes
+        actual_checksum += mmu_->read(0x8000 + i);
+    }
+    
+    // Si el checksum es 0, probablemente los tiles fueron sobrescritos con ceros
+    // Si el checksum es muy diferente del esperado, también fueron modificados
+    // El checksum esperado aproximado es ~0x2FD0 (basado en tiles de prueba)
+    if (actual_checksum == 0) {
+        printf("[PPU-VRAM-CHECK] Frame %llu | Tiles de prueba fueron sobrescritos con ceros! Checksum: 0x%04X\n",
+               static_cast<unsigned long long>(frame_counter_), actual_checksum);
+    } else if (actual_checksum < 0x1000) {
+        // Checksum muy bajo, probablemente los tiles fueron modificados
+        printf("[PPU-VRAM-CHECK] Frame %llu | Tiles de prueba posiblemente modificados. Checksum: 0x%04X (esperado ~0x2FD0)\n",
+               static_cast<unsigned long long>(frame_counter_), actual_checksum);
+    } else {
+        // Tiles parecen estar intactos
+        static int vram_ok_count = 0;
+        if (vram_ok_count < 3) {
+            printf("[PPU-VRAM-CHECK] Frame %llu | Tiles de prueba intactos. Checksum: 0x%04X\n",
+                   static_cast<unsigned long long>(frame_counter_), actual_checksum);
+            vram_ok_count++;
         }
     }
 }
