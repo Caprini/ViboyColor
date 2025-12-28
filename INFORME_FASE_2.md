@@ -723,13 +723,22 @@ Implementación de un sistema completo de diagnóstico para identificar y resolv
 - ✅ Solución robusta para LCD apagado implementada
 - ✅ Módulo C++ recompilado sin errores
 - ✅ Logs muestran información útil sobre el problema
-- ⏳ Pruebas con ROMs reales pendientes: Requieren ejecución manual para verificar efectividad de la solución
+- ✅ Pruebas con ROMs reales completadas: 3 ROMs probadas durante 2.5 minutos cada una
 
-**Resultado Clave - Sistema de Diagnóstico Implementado**:
-- **Logs de diagnóstico**: Sistema completo de logs para monitorear LCDC, VRAM, y framebuffer
-- **Detección automática**: Sistema que detecta activación del LCD y asegura BG Display activo
-- **Estado**: Código implementado y compilado, listo para pruebas con ROMs reales
-- **Próximo paso**: Ejecutar emulador con ROMs (pkmn.gb, tetris.gb, mario.gbc) y analizar logs para verificar efectividad de la solución
+**Resultado Clave - Sistema de Diagnóstico Implementado y Probado**:
+- **Logs de diagnóstico**: Sistema completo de logs para monitorear LCDC, VRAM, y framebuffer - ✅ Funciona correctamente
+- **Detección automática**: Sistema que detecta activación del LCD y asegura BG Display activo - ⚠️ Funciona pero tiene bug (se dispara demasiadas veces)
+- **Causa raíz identificada**: 
+  - En pkmn.gb y tetris.gb: Tiles de prueba fueron sobrescritos con ceros por el juego
+  - En mario.gbc: Tiles intactos pero renderizado sigue siendo blanco (problema en tilemap o pipeline)
+- **Estado**: Código implementado, compilado y probado. Problemas identificados requieren corrección
+- **Próximo paso**: Corregir bug de detección de LCD, investigar problema del tilemap, y verificar direccionamiento de tiles
+
+**Resultados de Pruebas con ROMs Reales**:
+- **pkmn.gb**: 5 cambios de LCDC detectados, tiles de prueba sobrescritos (checksum 0x0000), renderizado 100% blanco
+- **tetris.gb**: 3 cambios de LCDC detectados, tiles de prueba sobrescritos (checksum 0x0000), renderizado 100% blanco
+- **mario.gbc**: 1 cambio de LCDC detectado, tiles de prueba intactos (checksum 0x17E8), pero renderizado sigue siendo 100% blanco
+- **Reporte completo**: Ver `docs/reports/reporte_step0320_pruebas_roms.md`
 - **Conclusión**: Las optimizaciones del Step 0317 fueron **MUY EFECTIVAS**
 
 **Problema Identificado - Renderizado**:

@@ -209,15 +209,58 @@ if (!lcd_was_off && lcd_is_on && ly_ == 0) {
                     <li><strong>Validación de módulo compilado C++</strong>: El módulo `viboy_core` se importa correctamente en Python</li>
                     <li><strong>Logs de diagnóstico</strong>: Los logs se generan correctamente y muestran información útil sobre el estado del LCD y VRAM</li>
                 </ul>
+                
+                <h3>Pruebas con ROMs Reales (2.5 minutos cada una)</h3>
                 <p>
-                    <strong>Pruebas pendientes</strong>: Las pruebas con ROMs reales (pkmn.gb, tetris.gb, mario.gbc) requieren ejecución manual del emulador para verificar:
+                    Se ejecutaron pruebas exhaustivas con 3 ROMs diferentes para verificar el sistema de diagnóstico:
                 </p>
+                
+                <h4>1. Pokémon Red (pkmn.gb) - ROM GB</h4>
                 <ul>
-                    <li>Si los logs muestran correctamente los cambios de LCDC</li>
-                    <li>Si la detección de activación del LCD funciona</li>
-                    <li>Si el renderizado funciona después de la activación del LCD</li>
-                    <li>Si los tiles siguen en VRAM o fueron sobrescritos</li>
+                    <li><strong>Cambios de LCDC detectados</strong>: 5 cambios (0xFF → 0x99 → 0x80 → 0x81)</li>
+                    <li><strong>Activaciones de LCD</strong>: 389,932 (⚠️ <strong>PROBLEMA</strong>: Se dispara demasiadas veces, necesita corrección)</li>
+                    <li><strong>Verificación de VRAM</strong>: Frame 4920 - Tiles de prueba fueron sobrescritos con ceros (Checksum: 0x0000)</li>
+                    <li><strong>Renderizado</strong>: 0/160 píxeles no-blancos (100% blanco) - <strong>WARNING</strong>: Toda la línea es blanca</li>
+                    <li><strong>Tilemap</strong>: Apunta a tiles 0, 1, 2, 3 (tiles de prueba), pero estos tiles están vacíos (Byte1=0x00, Byte2=0x00)</li>
+                    <li><strong>Conclusión</strong>: El tilemap apunta a los tiles de prueba, pero estos fueron sobrescritos con ceros por el juego</li>
                 </ul>
+                
+                <h4>2. Tetris (tetris.gb) - ROM GB</h4>
+                <ul>
+                    <li><strong>Cambios de LCDC detectados</strong>: 3 cambios (0xFF → 0x99 → 0x03 → 0x80)</li>
+                    <li><strong>Activaciones de LCD</strong>: 113</li>
+                    <li><strong>Verificación de VRAM</strong>: Frame 8880 - Tiles de prueba fueron sobrescritos con ceros (Checksum: 0x0000)</li>
+                    <li><strong>Renderizado</strong>: 0/160 píxeles no-blancos (100% blanco) - <strong>WARNING</strong>: Toda la línea es blanca</li>
+                    <li><strong>Conclusión</strong>: Similar a Pokémon Red. Los tiles de prueba fueron sobrescritos y el tilemap apunta a tiles vacíos</li>
+                </ul>
+                
+                <h4>3. Super Mario Deluxe (mario.gbc) - ROM GBC</h4>
+                <ul>
+                    <li><strong>Cambios de LCDC detectados</strong>: 1 cambio (0xFF → 0x99)</li>
+                    <li><strong>Activaciones de LCD</strong>: 542,984 (⚠️ <strong>PROBLEMA</strong>: Se dispara demasiadas veces, necesita corrección)</li>
+                    <li><strong>Verificación de VRAM</strong>: Frame 60 - Tiles de prueba intactos (Checksum: 0x17E8) ✅</li>
+                    <li><strong>Renderizado</strong>: 0/160 píxeles no-blancos (100% blanco) - <strong>WARNING</strong>: Toda la línea es blanca</li>
+                    <li><strong>Conclusión</strong>: Aunque los tiles de prueba siguen intactos, el renderizado sigue siendo blanco. Esto sugiere que el tilemap no apunta a los tiles de prueba, o hay otro problema en el pipeline de renderizado</li>
+                </ul>
+                
+                <h3>Resultados del Sistema de Diagnóstico</h3>
+                <ul>
+                    <li>✅ <strong>Monitor de cambios de LCDC</strong>: Funciona correctamente, detecta todos los cambios</li>
+                    <li>⚠️ <strong>Detección de activación del LCD</strong>: Funciona pero se dispara demasiadas veces (bug identificado)</li>
+                    <li>✅ <strong>Verificación de VRAM</strong>: Funciona correctamente, detecta cuando los tiles son sobrescritos</li>
+                    <li>✅ <strong>Verificación del framebuffer</strong>: Funciona correctamente, detecta cuando el renderizado es todo blanco</li>
+                </ul>
+                
+                <h3>Problemas Identificados</h3>
+                <ol>
+                    <li><strong>Tiles de prueba sobrescritos</strong>: En pkmn.gb y tetris.gb, los tiles de prueba fueron sobrescritos con ceros por el juego durante la inicialización</li>
+                    <li><strong>Log [PPU-LCD-ON] se dispara demasiadas veces</strong>: La lógica de detección tiene un bug que causa que se dispare en cada frame cuando el LCD está encendido</li>
+                    <li><strong>Renderizado blanco aunque tiles existen</strong>: En mario.gbc, los tiles están intactos pero el renderizado sigue siendo blanco, sugiriendo un problema en el tilemap o el pipeline de renderizado</li>
+                </ol>
+                
+                <p>
+                    <strong>Reporte completo</strong>: Ver <code>docs/reports/reporte_step0320_pruebas_roms.md</code> para análisis detallado.
+                </p>
             </section>
 
             <!-- 6. Fuentes Consultadas -->
@@ -244,13 +287,17 @@ if (!lcd_was_off && lcd_is_on && ly_ == 0) {
 
                     <h3>Lo que Falta Confirmar</h3>
                     <ul>
-                        <li><strong>Efectividad de la solución</strong>: Necesita verificación con ROMs reales para confirmar que el renderizado funciona después de la activación del LCD</li>
-                        <li><strong>Comportamiento con diferentes ROMs</strong>: Algunas ROMs pueden tener comportamientos diferentes en la activación del LCD que requieran ajustes</li>
+                        <li><strong>Problema del tilemap</strong>: Aunque los tiles de prueba existen (en mario.gbc), el renderizado sigue siendo blanco. Necesita investigación sobre el direccionamiento de tiles y el contenido del tilemap</li>
+                        <li><strong>Corrección del bug de detección de LCD</strong>: El log [PPU-LCD-ON] se dispara demasiadas veces, necesita corrección de la lógica de detección</li>
+                        <li><strong>Carga de tiles del juego</strong>: Los juegos sobrescriben los tiles de prueba. Necesita verificar que el juego esté cargando sus propios tiles y tilemap correctamente</li>
                     </ul>
 
                     <h3>Hipótesis y Suposiciones</h3>
                     <p>
-                        <strong>Hipótesis principal</strong>: El problema de pantalla blanca se debe a que el juego activa el LCD pero deja el BG Display desactivado, o activa el LCD después de que `load_test_tiles()` ya se ejecutó. La solución implementada detecta la activación del LCD y asegura que el BG Display esté activo, resolviendo el problema.
+                        <strong>Hipótesis principal (CONFIRMADA PARCIALMENTE)</strong>: El problema de pantalla blanca se debe a que los tiles de prueba fueron sobrescritos por el juego durante la inicialización. Aunque el tilemap apunta a los tiles de prueba, estos están vacíos (todos ceros), resultando en renderizado blanco.
+                    </p>
+                    <p>
+                        <strong>Hipótesis secundaria (PENDIENTE)</strong>: En mario.gbc, los tiles de prueba siguen intactos pero el renderizado sigue siendo blanco. Esto sugiere que el tilemap no apunta a los tiles de prueba, o hay un problema en el direccionamiento de tiles (signed vs unsigned) o en el pipeline de renderizado.
                     </p>
                     <p>
                         <strong>Suposición temporal</strong>: La activación automática del BG Display cuando el LCD se activa es una solución temporal hasta que se entienda mejor el comportamiento exacto del hardware. En hardware real, el juego debe activar ambos bits correctamente, pero algunos juegos pueden tener bugs o comportamientos inesperados.
@@ -262,10 +309,12 @@ if (!lcd_was_off && lcd_is_on && ly_ == 0) {
             <section id="proximos-pasos">
                 <h2>Próximos Pasos</h2>
                 <ul>
-                    <li>[ ] Ejecutar el emulador con las 3 ROMs disponibles (pkmn.gb, tetris.gb, mario.gbc) y analizar los logs</li>
-                    <li>[ ] Verificar visualmente si el renderizado funciona después de la activación del LCD</li>
-                    <li>[ ] Si el problema persiste, analizar los logs para identificar la causa raíz</li>
-                    <li>[ ] Si el renderizado funciona, proceder con verificaciones finales de controles y compatibilidad</li>
+                    <li>[x] Ejecutar el emulador con las 3 ROMs disponibles (pkmn.gb, tetris.gb, mario.gbc) y analizar los logs ✅</li>
+                    <li>[ ] Corregir el bug del log [PPU-LCD-ON] que se dispara demasiadas veces</li>
+                    <li>[ ] Investigar por qué el tilemap no funciona correctamente en mario.gbc (tiles intactos pero renderizado blanco)</li>
+                    <li>[ ] Verificar el direccionamiento de tiles (signed vs unsigned) y asegurar que sea correcto</li>
+                    <li>[ ] Verificar que el juego esté cargando sus propios tiles y tilemap correctamente después de la inicialización</li>
+                    <li>[ ] Implementar solución para esperar a que el juego cargue sus propios tiles antes de renderizar</li>
                 </ul>
             </section>
         </main>
