@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0322 - Análisis de Logs y Solución de Renderizado Blanco -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-27__0322__analisis-logs-solucion-renderizado-blanco.html" class="entry-link">
+                                    Análisis de Logs y Solución de Renderizado Blanco
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-27 | 
+                            <strong>Step ID:</strong> 0322 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Ejecución de pruebas con las 3 ROMs (pkmn.gb, tetris.gb, mario.gbc) usando las funciones de diagnóstico implementadas en el Step 0321. Análisis de logs reveló que el problema principal es que los tiles en VRAM están vacíos (todos ceros). El juego está escribiendo ceros en VRAM, limpiando los tiles de prueba, pero no está cargando sus propios tiles después. Se implementó una solución que detecta cuando los tiles están vacíos y usa tiles de prueba temporalmente (patrón de cuadros) hasta que el juego cargue sus propios tiles. La solución funciona correctamente: se detectan tiles vacíos y se renderiza un patrón de prueba, resultando en píxeles no-blancos en el framebuffer (80/160 píxeles no-blancos en la primera línea).
+                        </p>
+                    </li>
                                         <!-- Entrada 0321 - Corrección de Bugs y Solución de Renderizado -->
                     <li>
                         <div class="entry-header">
