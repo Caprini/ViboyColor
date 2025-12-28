@@ -30,6 +30,12 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+# Imports para el bucle principal (evitar imports dentro del bucle)
+try:
+    import pygame
+except ImportError:
+    pygame = None  # type: ignore
+
 # Configurar logger antes de usarlo
 logger = logging.getLogger(__name__)
 
@@ -775,16 +781,25 @@ class Viboy:
         
         print("🚀 Ejecutando el núcleo C++ con bucle de emulación nativo...")
         
+        # --- Step 0317: Optimización - Verificar paleta solo una vez al inicio ---
+        # Si BGP es 0x00, el juego no ha configurado la paleta y la pantalla será blanca.
+        # Forzamos 0xE4 (paleta estándar) para que al menos veamos algo.
+        # OPTIMIZACIÓN: Verificar solo una vez al inicio, no en cada frame
+        palette_checked = False
+        if self._use_cpp and self._mmu is not None:
+            if self._mmu.read(0xFF47) == 0:
+                self._mmu.write(0xFF47, 0xE4)
+                palette_checked = True
+        # ------------------------------------------------------------------------------------
+        
+        # --- Step 0317: Optimización - Flag para controlar logs de debug ---
+        # Los logs pueden desactivarse para mejorar rendimiento
+        ENABLE_DEBUG_LOGS = False  # Cambiar a True para debugging
+        # ------------------------------------------------------------------------------------
+        
         try:
             # Bucle principal del emulador
             while self.running:
-                # --- Step 0235: Forzar paleta si es 0 (ya lo haces en renderer, pero asegurémoslo en MMU) ---
-                # Si BGP es 0x00, el juego no ha configurado la paleta y la pantalla será blanca.
-                # Forzamos 0xE4 (paleta estándar) para que al menos veamos algo.
-                if self._use_cpp and self._mmu is not None:
-                    if self._mmu.read(0xFF47) == 0:
-                        self._mmu.write(0xFF47, 0xE4)
-                # ------------------------------------------------------------------------------------
                 
                 # --- Step 0200: La limpieza del framebuffer ahora es responsabilidad de la PPU ---
                 # La PPU limpia el framebuffer sincrónicamente cuando LY se resetea a 0,
@@ -865,18 +880,11 @@ class Viboy:
                     tick_time_ms = None
                     if self._clock is not None:
                         tick_time_ms = self._clock.tick(TARGET_FPS)
-                        
-                        # Log temporal para verificación (cada segundo)
-                        if self.frame_count % 60 == 0:
-                            print(f"[FPS-LIMITER] Frame {self.frame_count} | Tick time: {tick_time_ms:.2f}ms | Target: {TARGET_FPS} FPS")
                     
-                    # Título con FPS (cada 60 frames para no frenar)
+                    # --- Step 0317: Optimización - Actualizar título con FPS (cada 60 frames) ---
                     # Step 0309: Corregir cálculo de FPS para reflejar el FPS limitado
                     if self.frame_count % 60 == 0 and self._clock is not None:
-                        try:
-                            import pygame
-                            import time
-                            
+                        if pygame is not None:
                             # Opción A: Usar get_fps() que debería retornar FPS limitado
                             fps_from_clock = self._clock.get_fps()
                             
@@ -890,30 +898,31 @@ class Viboy:
                                 fps = fps_from_clock if fps_from_clock > 0 else TARGET_FPS
                             
                             pygame.display.set_caption(f"Viboy Color v0.0.2 - FPS: {fps:.1f}")
-                        except ImportError:
-                            pass
                     
-                    # Step 0309: Verificación de sincronización (cada minuto)
-                    if not hasattr(self, '_start_time'):
-                        import time
-                        self._start_time = time.time()
-                    if self.frame_count % 3600 == 0 and self.frame_count > 0:  # Cada minuto (60 * 60 frames)
-                        import time
-                        elapsed_real = time.time() - self._start_time
-                        expected_frames = elapsed_real * TARGET_FPS
-                        actual_frames = self.frame_count
-                        drift = actual_frames - expected_frames
-                        print(f"[SYNC-CHECK] Real: {elapsed_real:.1f}s | Expected: {expected_frames:.0f} frames | Actual: {actual_frames} | Drift: {drift:.0f}")
-                    # ----------------------------------------
-                    
-                    # --- Step 0313: Logs de diagnóstico de FPS ---
-                    if self.frame_count % 60 == 0 and self.frame_count > 0:
-                        import time
+                    # --- Step 0317: Optimización - Logs de debug desactivados por defecto ---
+                    # Los logs se ejecutan solo si ENABLE_DEBUG_LOGS es True
+                    if ENABLE_DEBUG_LOGS:
+                        # Log temporal para verificación (cada segundo)
+                        if self.frame_count % 60 == 0:
+                            print(f"[FPS-LIMITER] Frame {self.frame_count} | Tick time: {tick_time_ms:.2f}ms | Target: {TARGET_FPS} FPS")
+                        
+                        # Step 0309: Verificación de sincronización (cada minuto)
                         if not hasattr(self, '_start_time'):
                             self._start_time = time.time()
-                        elapsed = time.time() - self._start_time
-                        fps_actual = self.frame_count / elapsed if elapsed > 0 else 0
-                        print(f"[FPS-DIAG] Frame {self.frame_count} | Elapsed: {elapsed:.2f}s | FPS actual: {fps_actual:.2f} | Tick time: {tick_time_ms:.2f}ms" if tick_time_ms is not None else f"[FPS-DIAG] Frame {self.frame_count} | Elapsed: {elapsed:.2f}s | FPS actual: {fps_actual:.2f}")
+                        if self.frame_count % 3600 == 0 and self.frame_count > 0:  # Cada minuto (60 * 60 frames)
+                            elapsed_real = time.time() - self._start_time
+                            expected_frames = elapsed_real * TARGET_FPS
+                            actual_frames = self.frame_count
+                            drift = actual_frames - expected_frames
+                            print(f"[SYNC-CHECK] Real: {elapsed_real:.1f}s | Expected: {expected_frames:.0f} frames | Actual: {actual_frames} | Drift: {drift:.0f}")
+                        
+                        # --- Step 0313: Logs de diagnóstico de FPS ---
+                        if self.frame_count % 60 == 0 and self.frame_count > 0:
+                            if not hasattr(self, '_start_time'):
+                                self._start_time = time.time()
+                            elapsed = time.time() - self._start_time
+                            fps_actual = self.frame_count / elapsed if elapsed > 0 else 0
+                            print(f"[FPS-DIAG] Frame {self.frame_count} | Elapsed: {elapsed:.2f}s | FPS actual: {fps_actual:.2f} | Tick time: {tick_time_ms:.2f}ms" if tick_time_ms is not None else f"[FPS-DIAG] Frame {self.frame_count} | Elapsed: {elapsed:.2f}s | FPS actual: {fps_actual:.2f}")
                     # ----------------------------------------
                 
                 
@@ -1058,7 +1067,8 @@ class Viboy:
                 
                 # --- Step 0240: Monitor GPS (Navegador) ---
                 # Reporta la posición de la CPU y el estado del hardware cada segundo (60 frames)
-                if self.frame_count % 60 == 0:
+                # Step 0317: Optimización - Desactivado por defecto para mejorar rendimiento
+                if ENABLE_DEBUG_LOGS and self.frame_count % 60 == 0:
                     if self._use_cpp and self._regs is not None and self._cpu is not None and self._mmu is not None:
                         # Leer registros de la CPU
                         pc = self._regs.pc

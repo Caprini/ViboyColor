@@ -239,7 +239,8 @@ class Renderer:
         
         # --- STEP 0306: Monitor de Rendimiento ([PERFORMANCE-TRACE]) ---
         # Flag de activación: Solo activar si se necesita investigar rendimiento
-        self._performance_trace_enabled = True  # ACTIVADO para Step 0306
+        # Step 0316: DESACTIVADO por defecto para mejorar rendimiento (FPS bajo identificado)
+        self._performance_trace_enabled = False  # DESACTIVADO para Step 0316 (optimización FPS)
         self._performance_trace_count = 0
         # Step 0309: Guardar tiempo del frame anterior para calcular tiempo entre frames
         self._last_frame_end_time = None

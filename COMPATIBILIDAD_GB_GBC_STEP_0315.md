@@ -8,9 +8,14 @@
 
 ## Resumen Ejecutivo
 
-**Estado General**: ⏳ **PENDIENTE DE VERIFICACIÓN**
+**Estado General**: ⏳ **PENDIENTE DE VERIFICACIÓN MANUAL** (Step 0317)
 
-Este documento debe completarse después de ejecutar el script `tools/verificacion_compatibilidad_gb_gbc_step_0315.ps1`.
+**Nota Step 0317**: Después de las optimizaciones del bucle principal (Step 0317), se debe verificar nuevamente que:
+1. Las ROMs GB y GBC siguen funcionando correctamente
+2. El FPS ha mejorado en todas las ROMs probadas
+3. No se introdujeron regresiones con las optimizaciones
+
+**Nota Step 0316**: El script `tools/verificacion_compatibilidad_gb_gbc_step_0315.ps1` fue ejecutado parcialmente (solo ROMs GBC). Se requiere ejecución manual completa para verificar compatibilidad con ROMs GB y GBC.
 
 ---
 
@@ -24,25 +29,43 @@ Este documento debe completarse después de ejecutar el script `tools/verificaci
 
 El script probará automáticamente múltiples ROMs de GB y GBC.
 
+**Logs generados**: Los logs individuales se guardan en `logs/compat_<nombre_rom>.log` para cada ROM probada.
+
+**Nota sobre ejecución**: El script ejecutó parcialmente (solo ROMs GBC). Los logs completos están en `logs/verificacion_compatibilidad_gb_gbc_step_0315.log`.
+
 ---
 
 ## ROMs de Game Boy (DMG) Probadas
 
+**Nota**: El script no ejecutó las pruebas de ROMs GB en la ejecución inicial. Se debe ejecutar manualmente o revisar los logs.
+
 ### 1. pkmn.gb
 
-- **Estado**: ⏳ Pendiente
+- **Estado**: ⏳ Pendiente (no ejecutado por el script)
 - **Carga**: ⏳ Pendiente
 - **Renderizado**: ⏳ Pendiente
-- **Errores**: [Completar]
+- **Log**: `logs/compat_pkmn.gb.log` (generado si se ejecuta manualmente)
+- **Errores**: [Completar después de ejecución manual]
 - **Observaciones**: [Completar]
+
+**Para probar manualmente**:
+```powershell
+python main.py roms/pkmn.gb > logs/compat_pkmn.gb.log 2>&1
+```
 
 ### 2. tetris.gb
 
-- **Estado**: ⏳ Pendiente
+- **Estado**: ⏳ Pendiente (no ejecutado por el script)
 - **Carga**: ⏳ Pendiente
 - **Renderizado**: ⏳ Pendiente
-- **Errores**: [Completar]
+- **Log**: `logs/compat_tetris.gb.log` (generado si se ejecuta manualmente)
+- **Errores**: [Completar después de ejecución manual]
 - **Observaciones**: [Completar]
+
+**Para probar manualmente**:
+```powershell
+python main.py roms/tetris.gb > logs/compat_tetris.gb.log 2>&1
+```
 
 ---
 
@@ -50,21 +73,33 @@ El script probará automáticamente múltiples ROMs de GB y GBC.
 
 ### 1. mario.gbc
 
-- **Estado**: ⏳ Pendiente
-- **Carga**: ⏳ Pendiente
-- **Renderizado**: ⏳ Pendiente
-- **Detección GBC**: ⏳ Pendiente (¿Se detecta como GBC?)
-- **Errores**: [Completar]
-- **Observaciones**: [Completar]
+- **Estado**: ❌ No funciona (según ejecución del script)
+- **Carga**: ❓ Pendiente de revisión de logs
+- **Renderizado**: ❓ Pendiente de revisión de logs
+- **Detección GBC**: ❓ Pendiente (¿Se detecta como GBC?)
+- **Log**: `logs/compat_mario.gbc.log`
+- **Errores**: [Revisar log para detalles]
+- **Observaciones**: El script reportó "Estado: No funciona". Revisar logs para identificar la causa.
+
+**Análisis de log**:
+```powershell
+Select-String -Path "logs/compat_mario.gbc.log" -Pattern "ERROR|Exception|Traceback|Cartucho cargado|Sistema listo" | Select-Object -First 30
+```
 
 ### 2. tetris_dx.gbc
 
-- **Estado**: ⏳ Pendiente
-- **Carga**: ⏳ Pendiente
-- **Renderizado**: ⏳ Pendiente
-- **Detección GBC**: ⏳ Pendiente (¿Se detecta como GBC?)
-- **Errores**: [Completar]
-- **Observaciones**: [Completar]
+- **Estado**: ❌ No funciona (según ejecución del script)
+- **Carga**: ❓ Pendiente de revisión de logs
+- **Renderizado**: ❓ Pendiente de revisión de logs
+- **Detección GBC**: ❓ Pendiente (¿Se detecta como GBC?)
+- **Log**: `logs/compat_tetris_dx.gbc.log`
+- **Errores**: [Revisar log para detalles]
+- **Observaciones**: El script reportó "Estado: No funciona". Revisar logs para identificar la causa.
+
+**Análisis de log**:
+```powershell
+Select-String -Path "logs/compat_tetris_dx.gbc.log" -Pattern "ERROR|Exception|Traceback|Cartucho cargado|Sistema listo" | Select-Object -First 30
+```
 
 ---
 
@@ -123,5 +158,34 @@ El script probará automáticamente múltiples ROMs de GB y GBC.
 
 ## Notas Adicionales
 
-[Notas adicionales sobre la compatibilidad]
+### Problemas de Ejecución del Script
+
+El script `verificacion_compatibilidad_gb_gbc_step_0315.ps1` tuvo algunos problemas:
+1. Solo ejecutó las pruebas de ROMs GBC (no ejecutó las pruebas de ROMs GB)
+2. Los resultados indican que las ROMs GBC no funcionaron, pero se requiere revisión detallada de logs
+
+### Verificación Manual Recomendada
+
+Para una verificación más completa, se recomienda:
+
+1. **Ejecutar cada ROM manualmente**:
+   ```powershell
+   # ROMs GB
+   python main.py roms/pkmn.gb > logs/compat_pkmn.gb.log 2>&1
+   python main.py roms/tetris.gb > logs/compat_tetris.gb.log 2>&1
+   
+   # ROMs GBC
+   python main.py roms/mario.gbc > logs/compat_mario.gbc.log 2>&1
+   python main.py roms/tetris_dx.gbc > logs/compat_tetris_dx.gbc.log 2>&1
+   ```
+
+2. **Analizar logs**:
+   - Buscar mensajes de "Cartucho cargado", "Sistema listo", "CPU inicializada" para confirmar carga
+   - Buscar "ERROR", "Exception", "Traceback" para identificar problemas
+   - Buscar "render", "framebuffer", "tile" para confirmar renderizado
+
+3. **Observar visualmente**:
+   - ¿Aparece la ventana del emulador?
+   - ¿Se muestra algún contenido gráfico?
+   - ¿La pantalla está en blanco?
 

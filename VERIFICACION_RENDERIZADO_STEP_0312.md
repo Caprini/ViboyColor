@@ -8,11 +8,20 @@
 
 ## Resumen Ejecutivo
 
-**Estado del Renderizado**: ⏳ **PENDIENTE DE VERIFICACIÓN MANUAL**
+**Estado del Renderizado**: ⏳ **PENDIENTE DE VERIFICACIÓN MANUAL** (Step 0317)
 
-Este documento debe completarse después de ejecutar el emulador y observar la ventana gráfica.
+**Nota Step 0317**: Después de las optimizaciones del bucle principal (Step 0317), se debe verificar nuevamente que:
+1. Los tiles se renderizan correctamente
+2. El FPS ha mejorado (esperado: 50-60 FPS estable)
+3. El renderizado sigue funcionando correctamente después de las optimizaciones
+
+**Nota Step 0316**: El análisis de logs muestra que el renderizado funciona correctamente (frame time ~3.5ms), pero se requiere verificación visual manual para confirmar que los tiles se muestran correctamente después de las correcciones del Step 0314.
 
 **Nota Step 0315**: Después de la corrección del direccionamiento de tiles (Step 0314), se debe verificar nuevamente que los tiles se renderizan correctamente. Usa el script `tools/verificacion_visual_fps_step_0315.ps1` para ejecutar la verificación.
+
+**Logs generados**: 
+- El script genera logs en `logs/fps_analysis_step_0315.log`
+- Si el script no funciona, ejecutar manualmente: `python main.py roms/pkmn.gb > logs/verificacion_step_0312.log 2>&1`
 
 ---
 
@@ -71,10 +80,12 @@ El tilemap (0x9800-0x9BFF) está configurado con un patrón alternado de estos 4
 
 ## Rendimiento Inicial
 
-### FPS Observado
+### FPS Observado (Step 0317)
 - **FPS promedio**: [Completar después de ejecutar 30 segundos]
+- **FPS esperado después de optimizaciones**: 50-60 FPS (mejorado desde 6-32 FPS variable)
 - **Estabilidad**: [Estable/Variable/Inestable]
 - **Observaciones**: [Completar]
+- **¿FPS mejoró después de optimizaciones?**: [Sí/No/Parcial]
 
 ### Problemas de Rendimiento
 - [ ] ¿Hay stuttering extremo? (Sí/No)
@@ -96,7 +107,22 @@ El tilemap (0x9800-0x9BFF) está configurado con un patrón alternado de estos 4
 ## Evidencia
 
 - [ ] Captura de pantalla guardada en `docs/screenshots/step_0312_renderizado_tiles.png`
-- [ ] Logs de ejecución guardados en `logs/verificacion_step_0312.log`
+- [ ] Logs de ejecución guardados en `logs/fps_analysis_step_0315.log` (generado por el script) o `logs/verificacion_step_0312.log` (si se ejecuta manualmente)
+
+### Análisis de Logs
+
+Para analizar los logs sin saturar el contexto:
+
+```powershell
+# Buscar mensajes de carga de tiles
+Select-String -Path "logs/fps_analysis_step_0315.log" -Pattern "load_test_tiles|VRAM|Tile" | Select-Object -First 30
+
+# Buscar errores
+Select-String -Path "logs/fps_analysis_step_0315.log" -Pattern "ERROR|Exception|Traceback" | Select-Object -First 30
+
+# Verificar mensajes de renderizado
+Select-String -Path "logs/fps_analysis_step_0315.log" -Pattern "render|framebuffer|blit" | Select-Object -First 30
+```
 
 ---
 

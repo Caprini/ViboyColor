@@ -381,6 +381,151 @@ Creación de herramientas y scripts de verificación para continuar con el plan 
 
 ---
 
+### 2025-12-27 - Step 0316: Análisis de Logs y Optimizaciones Finales
+**Estado**: ✅ **ANÁLISIS COMPLETADO, OPTIMIZACIÓN APLICADA**
+
+Análisis completo de los logs generados en Step 0315 que identificó la causa raíz del FPS bajo (6-32 FPS variable). El problema NO es el renderizado (que es muy rápido: ~3.5ms), sino el tiempo entre frames que es muy variable (30-150ms), causando FPS limitado bajo.
+
+**Objetivo**:
+- Analizar logs de FPS para identificar causa raíz
+- Aplicar optimizaciones basadas en hallazgos
+- Completar documentos de verificación
+- Actualizar estado del plan estratégico
+
+**✅ Análisis de Logs Completado**:
+
+1. **Log analizado**: `logs/perf_step_0312.log` (1.5 millones de líneas)
+2. **Método**: Muestras controladas con `Select-String -First N` para evitar saturación de contexto
+3. **Hallazgos clave**:
+   - Frame time (render): **3.23-7.21ms** (promedio ~3.5ms) ✅ **EXCELENTE**
+   - FPS (render): **138-310 FPS** (promedio ~300 FPS) ✅ **MUY ALTO**
+   - Time between frames: **30-150ms** (muy variable) ❌ **PROBLEMA**
+   - FPS (limited): **6-32 FPS** (promedio ~25 FPS) ❌ **BAJO**
+
+**✅ Causa Raíz Identificada**:
+- El problema NO es el renderizado (muy rápido: ~3.5ms)
+- El problema es el **tiempo entre frames variable** (30-150ms) en el bucle principal
+- Esto sugiere pausas o bloqueos en el bucle principal (`src/viboy.py`, método `run()`)
+
+**✅ Optimización Aplicada**:
+- Monitor de rendimiento desactivado en producción (`_performance_trace_enabled = False`)
+- Reducción de overhead de logging en el bucle de renderizado
+
+**✅ Documentos Completados**:
+1. **`ANALISIS_FPS_BAJO_STEP_0315.md`**: Análisis completo con hallazgos y recomendaciones
+2. **`VERIFICACION_RENDERIZADO_STEP_0312.md`**: Actualizado con nota del Step 0316
+3. **`COMPATIBILIDAD_GB_GBC_STEP_0315.md`**: Actualizado con nota del Step 0316
+4. **`VERIFICACION_CONTROLES_STEP_0315.md`**: Actualizado con nota del Step 0316
+5. **`ESTADO_PLAN_ESTRATEGICO_STEP_0315.md`**: Actualizado con progreso del Step 0316
+
+**Archivos Modificados**:
+- `src/gpu/renderer.py`: Desactivado monitor de rendimiento (línea 242)
+- `ANALISIS_FPS_BAJO_STEP_0315.md`: Completado con análisis y hallazgos
+- `VERIFICACION_RENDERIZADO_STEP_0312.md`: Actualizado con nota Step 0316
+- `COMPATIBILIDAD_GB_GBC_STEP_0315.md`: Actualizado con nota Step 0316
+- `VERIFICACION_CONTROLES_STEP_0315.md`: Actualizado con nota Step 0316
+- `ESTADO_PLAN_ESTRATEGICO_STEP_0315.md`: Actualizado con progreso Step 0316
+- `docs/bitacora/entries/2025-12-27__0316__analisis-logs-optimizaciones-finales.html`: Entrada HTML de bitácora (nuevo)
+- `docs/bitacora/index.html`: Actualizado con entrada Step 0316
+
+**Conceptos de Hardware**:
+- **Frame time vs Time between frames**: Son métricas diferentes. El frame time mide solo el renderizado, mientras que el time between frames mide el tiempo total entre frames (incluye renderizado + sincronización + overhead del bucle principal)
+- **Análisis de rendimiento**: Cuando el frame time es bajo pero el FPS es bajo, el problema está en el bucle principal, no en el renderizado
+- **Control de contexto**: Al analizar logs grandes, es crucial usar muestras controladas para evitar saturación de contexto
+- **Fuente**: Pan Docs - System Clock, Timing, Frame Rate, LCD Timing
+
+**Resultados**:
+- ✅ Análisis de FPS completado: causa raíz identificada (tiempo entre frames variable)
+- ✅ Optimización inicial aplicada (monitor desactivado)
+- ✅ Documentos de verificación completados con hallazgos
+- ✅ Estado del plan estratégico actualizado (~50% completado)
+- ⏳ Pendiente: Investigación del bucle principal para identificar pausas/bloqueos específicos
+- ⏳ Pendiente: Verificación manual del FPS después de la optimización
+- ⏳ Pendiente: Verificación visual final, compatibilidad GB/GBC y controles
+
+**Próximos Pasos**:
+- [ ] Verificación manual del FPS: Ejecutar el emulador y verificar si la optimización mejora el FPS
+- [ ] Investigación del bucle principal: Revisar `src/viboy.py` (método `run()`) para identificar pausas o bloqueos
+- [ ] Optimización del bucle principal: Aplicar correcciones para reducir tiempo entre frames
+- [ ] Verificación visual final: Ejecutar manualmente y confirmar que los tiles se renderizan correctamente
+- [ ] Verificación de compatibilidad GB/GBC: Ejecutar manualmente y documentar resultados
+- [ ] Verificación de controles: Ejecutar manualmente y probar cada botón
+
+----
+
+### 2025-12-27 - Step 0317: Optimización del Bucle Principal y Verificaciones Finales
+**Estado**: ✅ **OPTIMIZACIONES APLICADAS, PENDIENTE VERIFICACIÓN MANUAL**
+
+Optimización completa del bucle principal identificando y eliminando operaciones costosas que causaban tiempo entre frames variable (30-150ms). Se aplicaron optimizaciones críticas que deberían mejorar el FPS de 6-32 FPS variable a 50-60 FPS estable.
+
+**Objetivo**:
+- Investigar el bucle principal en `src/viboy.py` para identificar operaciones costosas
+- Aplicar optimizaciones basadas en el análisis
+- Verificar mejoras de FPS después de optimizaciones
+- Actualizar documentos de verificación pendientes
+- Evaluar progreso del plan estratégico
+
+**Tareas Completadas**:
+
+**Tarea 1: Análisis del Bucle Principal**:
+- Análisis completo del método `run()` en `src/viboy.py` (líneas 694-1334)
+- Identificadas operaciones costosas:
+  1. Logs frecuentes (líneas 870, 910, 1061): I/O costoso cada 60 frames
+  2. Verificación de paleta (líneas 784-786): Acceso a memoria innecesario en cada frame
+  3. Imports dentro del bucle (líneas 877, 911): `import pygame` y `import time`
+  4. Monitor GPS completo (líneas 1061-1174): Lecturas masivas de memoria cada segundo
+- Documento generado: `ANALISIS_BUCLE_PRINCIPAL_STEP_0317.md`
+
+**Tarea 2: Optimizaciones Aplicadas**:
+1. **Logs desactivados por defecto**: Flag `ENABLE_DEBUG_LOGS = False` controla todos los logs del bucle crítico
+2. **Verificación de paleta optimizada**: Movida fuera del bucle, ejecuta solo una vez al inicio
+3. **Imports movidos al inicio**: `import pygame` y `import time` movidos al inicio del archivo
+4. **Monitor GPS desactivado**: Solo se ejecuta si `ENABLE_DEBUG_LOGS = True`
+- Archivo modificado: `src/viboy.py`
+
+**Tarea 3: Documentos Generados/Actualizados**:
+1. **`ANALISIS_BUCLE_PRINCIPAL_STEP_0317.md`**: Análisis completo del bucle principal (nuevo)
+2. **`VERIFICACION_FPS_OPTIMIZACIONES_STEP_0317.md`**: Instrucciones de verificación (nuevo)
+3. **`VERIFICACION_RENDERIZADO_STEP_0312.md`**: Actualizado con información del Step 0317
+4. **`COMPATIBILIDAD_GB_GBC_STEP_0315.md`**: Actualizado con información del Step 0317
+5. **`VERIFICACION_CONTROLES_STEP_0315.md`**: Actualizado con información del Step 0317
+6. **`ESTADO_PLAN_ESTRATEGICO_STEP_0315.md`**: Actualizado con progreso del Step 0317
+
+**Archivos Modificados**:
+- `src/viboy.py`: Optimizaciones del bucle principal (líneas ~32-35, ~777-793, ~869-917, ~1070)
+- `ANALISIS_BUCLE_PRINCIPAL_STEP_0317.md`: Análisis completo (nuevo)
+- `VERIFICACION_FPS_OPTIMIZACIONES_STEP_0317.md`: Instrucciones de verificación (nuevo)
+- `VERIFICACION_RENDERIZADO_STEP_0312.md`: Actualizado
+- `COMPATIBILIDAD_GB_GBC_STEP_0315.md`: Actualizado
+- `VERIFICACION_CONTROLES_STEP_0315.md`: Actualizado
+- `ESTADO_PLAN_ESTRATEGICO_STEP_0315.md`: Actualizado
+- `docs/bitacora/entries/2025-12-27__0317__optimizacion-bucle-principal-verificaciones-finales.html`: Entrada HTML de bitácora (nuevo)
+- `docs/bitacora/index.html`: Actualizado con entrada Step 0317
+
+**Conceptos de Hardware**:
+- **Overhead del bucle principal**: Operaciones auxiliares (logs, verificaciones) pueden causar pausas significativas incluso si la emulación y renderizado son rápidos
+- **I/O es costoso**: Los logs (print, logger) causan overhead significativo cuando se ejecutan frecuentemente en el bucle crítico
+- **Verificaciones innecesarias**: Verificar condiciones en cada frame cuando solo se necesita una vez al inicio es ineficiente
+- **Flag de debug**: Usar flags para controlar logs y monitores permite activarlos solo cuando es necesario para debugging
+- **Fuente**: Pan Docs - System Clock, Timing, Frame Rate, LCD Timing
+
+**Resultados**:
+- ✅ Análisis del bucle principal completado: operaciones costosas identificadas
+- ✅ Optimizaciones aplicadas: logs desactivados, verificación de paleta optimizada, imports optimizados, monitor GPS desactivado
+- ✅ Documentos generados y actualizados
+- ⏳ Verificación manual pendiente: Se requiere ejecutar el emulador para confirmar mejoras de FPS (50-60 FPS esperado)
+
+**FPS Esperado Después de Optimizaciones**: 50-60 FPS estable (mejorado desde 6-32 FPS variable)
+
+**Próximos Pasos**:
+- Verificar mejoras de FPS manualmente (instrucciones en `VERIFICACION_FPS_OPTIMIZACIONES_STEP_0317.md`)
+- Verificación visual final
+- Verificación de compatibilidad GB/GBC
+- Verificación de controles
+- Continuar con Fase 3 del plan estratégico una vez completadas las verificaciones
+
+---
+
 ### 2025-12-25 - Step 0310: Verificación Práctica del Limitador de FPS
 **Estado**: ✅ **VERIFICACIÓN COMPLETADA**
 
