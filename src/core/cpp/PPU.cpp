@@ -1,6 +1,7 @@
 #include "PPU.hpp"
 #include "MMU.hpp"
 #include <algorithm>
+#include <cstdio>
 
 PPU::PPU(MMU* mmu) 
     : mmu_(mmu)

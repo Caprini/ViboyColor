@@ -4,6 +4,7 @@
 #include "Joypad.hpp"
 #include <cstring>
 #include <algorithm>
+#include <cstdio>
 
 // --- Step 0206: Datos del Logo Personalizado "Viboy Color" en Formato Tile (2bpp) ---
 // Convertido desde la imagen 'viboy_logo_48x8_debug.png' (48x8px) a formato de Tile (2bpp).
