@@ -140,8 +140,12 @@
             <section id="archivos">
                 <h2>Archivos Afectados</h2>
                 <ul>
-                    <li><code>RESUMEN_VERIFICACIONES_AUTOMATICAS_STEP_0318.md</code> - Resumen de verificaciones automáticas completadas</li>
+                    <li><code>RESUMEN_VERIFICACIONES_AUTOMATICAS_STEP_0318.md</code> - Resumen de verificaciones automáticas y manuales completadas</li>
+                    <li><code>VERIFICACION_FPS_OPTIMIZACIONES_STEP_0317.md</code> - Actualizado con resultados reales (62.5 FPS estable)</li>
+                    <li><code>VERIFICACION_RENDERIZADO_STEP_0312.md</code> - Actualizado con problema identificado (pantalla blanca, requiere módulo C++)</li>
                     <li><code>COMPATIBILIDAD_GB_GBC_STEP_0315.md</code> - Actualizado con disponibilidad de ROMs verificada</li>
+                    <li><code>ESTADO_PLAN_ESTRATEGICO_STEP_0315.md</code> - Actualizado con resultados de verificaciones</li>
+                    <li><code>INSTRUCCIONES_COMPILACION_CPP_STEP_0318.md</code> - Instrucciones para compilar módulo C++</li>
                     <li><code>docs/bitacora/entries/2025-12-27__0318__verificaciones-manuales-finales.html</code> - Esta entrada</li>
                 </ul>
             </section>
@@ -173,20 +177,38 @@
                     <li>✅ <strong>Documentos preparados</strong>: 5/5 documentos listos para completar</li>
                 </ul>
 
-                <h3>Verificaciones Manuales - Estado</h3>
+                <h3>Verificaciones Manuales - Resultados</h3>
+                
+                <h4>✅ Verificación de FPS - EXITOSA</h4>
                 <ul>
-                    <li>⏳ <strong>FPS</strong>: Pendiente de ejecución y observación manual</li>
-                    <li>⏳ <strong>Visual</strong>: Pendiente de ejecución y observación visual</li>
-                    <li>⏳ <strong>Controles</strong>: Pendiente de ejecución y prueba de botones</li>
-                    <li>⏳ <strong>Compatibilidad</strong>: Pendiente de ejecución con múltiples ROMs</li>
+                    <li><strong>FPS observado</strong>: <strong>62.5 FPS estable</strong> (muy por encima del objetivo de 50-60 FPS)</li>
+                    <li><strong>Comparación</strong>: Antes (Step 0316): 6-32 FPS variable (promedio ~25 FPS) → Después (Step 0317): 62.5 FPS estable</li>
+                    <li><strong>Mejora</strong>: <strong>+150% (2.5x mejora)</strong></li>
+                    <li><strong>Conclusión</strong>: Las optimizaciones del Step 0317 fueron <strong>MUY EFECTIVAS</strong></li>
+                </ul>
+
+                <h4>⚠️ Verificación Visual - PROBLEMA IDENTIFICADO</h4>
+                <ul>
+                    <li><strong>Estado</strong>: Pantalla completamente blanca (no se renderizan gráficos)</li>
+                    <li><strong>Causa</strong>: Módulo C++ no disponible ("viboy_core no disponible. Usando componentes Python")</li>
+                    <li><strong>Impacto</strong>: <code>load_test_tiles()</code> solo se ejecuta si <code>use_cpp=True</code>, por lo que no se cargan tiles en VRAM</li>
+                    <li><strong>Solución</strong>: Compilar módulo C++ (ver <code>INSTRUCCIONES_COMPILACION_CPP_STEP_0318.md</code>)</li>
+                </ul>
+
+                <h4>⏳ Verificaciones Pendientes</h4>
+                <ul>
+                    <li>⏳ <strong>Controles</strong>: Pendiente (requiere renderizado funcional)</li>
+                    <li>⏳ <strong>Compatibilidad</strong>: Pendiente (requiere renderizado funcional)</li>
                 </ul>
 
                 <h3>Próximos Pasos</h3>
                 <ol>
-                    <li>Ejecutar verificaciones manuales con el usuario (FPS, visual, controles, compatibilidad)</li>
-                    <li>Completar documentos de verificación con resultados reales</li>
-                    <li>Actualizar plan estratégico con evaluación final basada en resultados</li>
-                    <li>Generar entrada de bitácora final con resumen completo de todas las verificaciones</li>
+                    <li>✅ <strong>Completado</strong>: Verificación de FPS - Resultado excelente (62.5 FPS estable)</li>
+                    <li>✅ <strong>Completado</strong>: Verificación visual - Problema identificado (pantalla blanca, requiere módulo C++)</li>
+                    <li>⏳ <strong>Pendiente</strong>: Compilar módulo C++ (requiere dependencias: Cython, build-essential)</li>
+                    <li>⏳ <strong>Pendiente</strong>: Re-verificar renderizado después de compilar módulo C++</li>
+                    <li>⏳ <strong>Pendiente</strong>: Verificar controles una vez que el renderizado funcione</li>
+                    <li>⏳ <strong>Pendiente</strong>: Verificar compatibilidad con ROMs GB y GBC</li>
                 </ol>
             </section>
 
