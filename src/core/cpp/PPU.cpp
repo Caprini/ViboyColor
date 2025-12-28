@@ -2,6 +2,7 @@
 #include "MMU.hpp"
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>  // Step 0321: Para abs()
 
 PPU::PPU(MMU* mmu) 
     : mmu_(mmu)
@@ -68,33 +69,42 @@ void PPU::step(int cpu_cycles) {
     // --- Step 0320: Monitor de Cambios de LCDC ---
     // Detectar cuando LCDC cambia de valor y loggear el cambio
     static uint8_t last_lcdc = 0xFF;
+    static bool last_lcd_state = false;  // Step 0321: Estado anterior del LCD
+    static int lcd_on_log_count = 0;  // Step 0321: Contador para limitar logs
+    
     if (lcdc != last_lcdc && ly_ == 0) {
+        bool lcd_was_on = (last_lcdc & 0x80) != 0;
+        bool lcd_is_on = (lcdc & 0x80) != 0;
+        
         printf("[PPU-LCDC-CHANGE] Frame %llu | LCDC cambió: 0x%02X -> 0x%02X | LCD: %d->%d | BG: %d->%d\n",
                static_cast<unsigned long long>(frame_counter_ + 1),
                last_lcdc, lcdc,
-               (last_lcdc & 0x80) ? 1 : 0, (lcdc & 0x80) ? 1 : 0,
+               lcd_was_on ? 1 : 0, lcd_is_on ? 1 : 0,
                (last_lcdc & 0x01) ? 1 : 0, (lcdc & 0x01) ? 1 : 0);
-        last_lcdc = lcdc;
-    }
-    // -------------------------------------------
-    
-    // --- Step 0320: Detección de Activación del LCD ---
-    // Detectar cuando el juego activa el LCD (bit 7 cambia de 0 a 1)
-    static bool lcd_was_off = false;
-    bool lcd_is_on = (lcdc & 0x80) != 0;
-    if (!lcd_was_off && lcd_is_on && ly_ == 0) {
-        // El LCD se acaba de activar
-        printf("[PPU-LCD-ON] LCD activado! LCDC = 0x%02X\n", lcdc);
         
-        // Si el BG Display está desactivado, activarlo
-        if (!(lcdc & 0x01)) {
-            printf("[PPU-LCD-ON] BG Display desactivado, activándolo...\n");
-            mmu_->write(IO_LCDC, lcdc | 0x01);
-            lcdc |= 0x01;
+        // --- Step 0321: Detección CORREGIDA de Activación del LCD ---
+        // Detectar rising edge: LCD estaba apagado y ahora está encendido
+        if (!lcd_was_on && lcd_is_on) {
+            // Rising edge detectado: LCD se acaba de activar
+            if (lcd_on_log_count < 10) {  // Limitar a primeros 10 frames
+                printf("[PPU-LCD-ON] LCD activado! LCDC = 0x%02X (Frame %llu)\n", 
+                       lcdc, static_cast<unsigned long long>(frame_counter_ + 1));
+                lcd_on_log_count++;
+            }
+            
+            // Si el BG Display está desactivado, activarlo
+            if (!(lcdc & 0x01)) {
+                if (lcd_on_log_count <= 10) {
+                    printf("[PPU-LCD-ON] BG Display desactivado, activándolo...\n");
+                }
+                mmu_->write(IO_LCDC, lcdc | 0x01);
+                lcdc |= 0x01;
+            }
         }
-        lcd_was_off = false;
-    } else if (!lcd_is_on) {
-        lcd_was_off = true;
+        // -------------------------------------------
+        
+        last_lcdc = lcdc;
+        last_lcd_state = lcd_is_on;
     }
     // -------------------------------------------
     
@@ -103,6 +113,7 @@ void PPU::step(int cpu_cycles) {
     static int vram_check_counter = 0;
     if (ly_ == 0 && frame_counter_ > 0 && (frame_counter_ % 60 == 0)) {
         verify_test_tiles();
+        check_game_tiles_loaded();  // Step 0321: Verificar si el juego cargó tiles
         vram_check_counter++;
     }
     // -------------------------------------------
@@ -461,6 +472,42 @@ void PPU::render_scanline() {
     bool signed_addressing = (lcdc & 0x10) == 0;
     uint16_t tile_data_base = signed_addressing ? 0x9000 : 0x8000;
 
+    // --- Step 0321: Verificación de Tilemap ---
+    // Verificar el tilemap para diagnosticar problemas de renderizado
+    static int tilemap_check_count = 0;
+    if (ly_ == 0 && tilemap_check_count < 5) {
+        tilemap_check_count++;
+        
+        printf("[PPU-TILEMAP-CHECK] Frame %llu | Map Base: 0x%04X | Data Base: 0x%04X | Signed: %d\n",
+               static_cast<unsigned long long>(frame_counter_ + 1),
+               tile_map_base, tile_data_base, signed_addressing ? 1 : 0);
+        
+        // Verificar primeros 4 tiles del tilemap (primera fila, primeras 4 columnas)
+        printf("[PPU-TILEMAP-CHECK] Primeros 4 tiles del tilemap: ");
+        for (int i = 0; i < 4; i++) {
+            uint8_t tile_id = mmu_->read(tile_map_base + i);
+            printf("Tile[%d]=0x%02X ", i, tile_id);
+            
+            // Verificar si el tile tiene datos válidos
+            uint16_t tile_addr;
+            if (signed_addressing) {
+                // Signed: tile_id es int8_t, tile data base = 0x9000
+                int8_t signed_id = static_cast<int8_t>(tile_id);
+                tile_addr = tile_data_base + (static_cast<uint16_t>(signed_id) * 16);
+            } else {
+                // Unsigned: tile_id es uint8_t, tile data base = 0x8000
+                tile_addr = tile_data_base + (static_cast<uint16_t>(tile_id) * 16);
+            }
+            
+            // Leer primeros 2 bytes del tile para verificar si tiene datos
+            uint8_t tile_byte1 = mmu_->read(tile_addr);
+            uint8_t tile_byte2 = mmu_->read(tile_addr + 1);
+            printf("(addr=0x%04X, data=0x%02X%02X) ", tile_addr, tile_byte1, tile_byte2);
+        }
+        printf("\n");
+    }
+    // -------------------------------------------
+
     // --- Step 0289: Inspector de Tilemap ([TILEMAP-INSPECT]) ---
     // Inspeccionar el Tile Map al inicio de cada frame (LY=0) para verificar
     // qué tile IDs se están usando. Esto permite identificar si el tilemap
@@ -548,6 +595,23 @@ void PPU::render_scanline() {
         } else {
             tile_addr = tile_data_base + (tile_id * 16);
         }
+
+        // --- Step 0321: Debug de cálculo de tile (solo primeros píxeles) ---
+        static int tile_calc_debug_count = 0;
+        if (ly_ == 0 && x < 8 && tile_calc_debug_count < 1) {
+            tile_calc_debug_count++;
+            // Leer datos del tile para el log
+            uint8_t line_in_tile_temp = map_y % 8;
+            uint16_t tile_line_addr_temp = tile_addr + (line_in_tile_temp * 2);
+            uint8_t tile_data_low = 0, tile_data_high = 0;
+            if (tile_line_addr_temp >= 0x8000 && tile_line_addr_temp <= 0x9FFE) {
+                tile_data_low = mmu_->read(tile_line_addr_temp);
+                tile_data_high = mmu_->read(tile_line_addr_temp + 1);
+            }
+            printf("[PPU-TILE-CALC] LY=%d, X=%d | Tile ID: 0x%02X | Tile Addr: 0x%04X | Tile Data: 0x%02X%02X\n",
+                   ly_, x, tile_id, tile_addr, tile_data_low, tile_data_high);
+        }
+        // -------------------------------------------
 
         uint8_t line_in_tile = map_y % 8;
         uint16_t tile_line_addr = tile_addr + (line_in_tile * 2);
@@ -1162,5 +1226,27 @@ void PPU::verify_test_tiles() {
             vram_ok_count++;
         }
     }
+}
+
+void PPU::check_game_tiles_loaded() {
+    // Step 0321: Calcular checksum de toda la VRAM (0x8000-0x97FF)
+    static uint32_t last_vram_checksum = 0;
+    uint32_t current_checksum = 0;
+    
+    for (uint16_t addr = 0x8000; addr <= 0x97FF; addr++) {
+        current_checksum += mmu_->read(addr);
+    }
+    
+    // Si el checksum cambió significativamente (más de 1000), el juego cargó tiles
+    if (last_vram_checksum > 0 && abs(static_cast<int32_t>(current_checksum - last_vram_checksum)) > 1000) {
+        static int tiles_loaded_log_count = 0;
+        if (tiles_loaded_log_count < 3) {
+            tiles_loaded_log_count++;
+            printf("[PPU-TILES-LOADED] Juego cargó tiles! Checksum VRAM: 0x%08X -> 0x%08X (Frame %llu)\n",
+                   last_vram_checksum, current_checksum, static_cast<unsigned long long>(frame_counter_ + 1));
+        }
+    }
+    
+    last_vram_checksum = current_checksum;
 }
 

@@ -351,6 +351,14 @@ private:
      * sobrescritos, loggea una advertencia.
      */
     void verify_test_tiles();
+    
+    /**
+     * Step 0321: Verifica si el juego cargó tiles en VRAM.
+     * 
+     * Calcula un checksum de toda la VRAM (0x8000-0x97FF) y detecta cuando
+     * cambia significativamente, indicando que el juego cargó tiles propios.
+     */
+    void check_game_tiles_loaded();
 };
 
 #endif // PPU_HPP
