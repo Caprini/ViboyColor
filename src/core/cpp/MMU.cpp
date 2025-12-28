@@ -713,6 +713,35 @@ void MMU::write(uint16_t addr, uint8_t value) {
                value, debug_current_pc, current_rom_bank_);
     }
     
+    // --- Step 0323: Monitor de Accesos a VRAM ---
+    // Detectar cuando el juego escribe en VRAM (0x8000-0x97FF) para entender el patrón de carga de tiles
+    if (addr >= 0x8000 && addr <= 0x97FF) {
+        static int vram_write_count = 0;
+        static uint8_t last_vram_value = 0xFF;
+        
+        // Solo loggear los primeros 100 accesos y cuando hay cambios significativos
+        if (vram_write_count < 100 || (value != 0x00 && last_vram_value == 0x00)) {
+            if (vram_write_count < 100) {
+                printf("[VRAM-WRITE] PC:0x%04X | Addr:0x%04X | Value:0x%02X\n", 
+                       debug_current_pc, addr, value);
+                vram_write_count++;
+            }
+        }
+        last_vram_value = value;
+        
+    }
+    
+    // Detectar escrituras en tilemap
+    if ((addr >= 0x9800 && addr <= 0x9BFF) || (addr >= 0x9C00 && addr <= 0x9FFF)) {
+        static int tilemap_write_count = 0;
+        if (tilemap_write_count < 50) {
+            printf("[TILEMAP-WRITE] PC:0x%04X | Addr:0x%04X | TileID:0x%02X\n", 
+                   debug_current_pc, addr, value);
+            tilemap_write_count++;
+        }
+    }
+    // -------------------------------------------
+    
     // --- Step 0291: Rastreo de Rutina de Limpieza VRAM (PC:0x36E3) ---
     // Rastrear la ejecución alrededor de PC:0x36E3 para entender
     // qué hace esta rutina y si hay código después que carga tiles.
@@ -829,6 +858,35 @@ void MMU::write(uint16_t addr, uint8_t value) {
     }
 
     memory_[addr] = value;
+    
+    // --- Step 0323: Verificación de Tile Completo después de escribir ---
+    // Verificar si el tile que acabamos de escribir tiene datos válidos
+    // Solo verificamos cuando pasamos al último byte del tile (offset 15)
+    if (addr >= 0x8000 && addr <= 0x97FF) {
+        uint16_t tile_base = (addr / 16) * 16;
+        uint8_t offset_in_tile = addr - tile_base;
+        
+        // Si estamos en el último byte del tile (offset 15), verificar si el tile completo tiene datos
+        if (offset_in_tile == 15) {
+            bool tile_has_data = false;
+            for (int i = 0; i < 16; i++) {
+                if (memory_[tile_base + i] != 0x00) {
+                    tile_has_data = true;
+                    break;
+                }
+            }
+            
+            if (tile_has_data) {
+                static int tiles_loaded_log = 0;
+                if (tiles_loaded_log < 20) {  // Aumentar límite para capturar más tiles
+                    printf("[TILE-LOADED] Tile en 0x%04X cargado con datos válidos (PC:0x%04X)\n", 
+                           tile_base, debug_current_pc);
+                    tiles_loaded_log++;
+                }
+            }
+        }
+    }
+    // -------------------------------------------
 }
 
 void MMU::load_rom(const uint8_t* data, size_t size) {

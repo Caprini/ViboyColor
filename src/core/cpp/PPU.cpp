@@ -82,13 +82,29 @@ void PPU::step(int cpu_cycles) {
                lcd_was_on ? 1 : 0, lcd_is_on ? 1 : 0,
                (last_lcdc & 0x01) ? 1 : 0, (lcdc & 0x01) ? 1 : 0);
         
-        // --- Step 0321: Detección CORREGIDA de Activación del LCD ---
-        // Detectar rising edge: LCD estaba apagado y ahora está encendido
+        // --- Step 0323: Verificación de VRAM al activar LCD ---
+        // LCD se acaba de activar, verificar si hay tiles válidos
         if (!lcd_was_on && lcd_is_on) {
-            // Rising edge detectado: LCD se acaba de activar
-            if (lcd_on_log_count < 10) {  // Limitar a primeros 10 frames
-                printf("[PPU-LCD-ON] LCD activado! LCDC = 0x%02X (Frame %llu)\n", 
-                       lcdc, static_cast<unsigned long long>(frame_counter_ + 1));
+            // LCD se acaba de activar, verificar si hay tiles válidos
+            uint32_t vram_checksum = 0;
+            int non_zero_bytes = 0;
+            
+            // Verificar primeros 1024 bytes de VRAM (64 tiles)
+            for (uint16_t i = 0; i < 1024; i++) {
+                uint8_t byte = mmu_->read(0x8000 + i);
+                vram_checksum += byte;
+                if (byte != 0x00) {
+                    non_zero_bytes++;
+                }
+            }
+            
+            if (lcd_on_log_count < 10) {
+                printf("[PPU-LCD-ON-VRAM] LCD activado | VRAM Checksum: 0x%08X | Bytes no-cero: %d/1024\n",
+                       vram_checksum, non_zero_bytes);
+                
+                if (vram_checksum == 0) {
+                    printf("[PPU-LCD-ON-VRAM] ⚠️ ADVERTENCIA: VRAM está vacía cuando se activa el LCD!\n");
+                }
                 lcd_on_log_count++;
             }
             

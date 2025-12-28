@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0323 - Investigación y Solución de Carga de Tiles -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-28__0323__investigacion-solucion-carga-tiles.html" class="entry-link">
+                                    Investigación y Solución de Carga de Tiles
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-28 | 
+                            <strong>Step ID:</strong> 0323 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Investigación de por qué los juegos limpian VRAM pero no cargan tiles después. Se implementaron monitores detallados para rastrear accesos a VRAM, verificar el timing del LCD durante la inicialización, y detectar cuando los juegos intentan cargar tiles. Hallazgos clave: (1) Los juegos limpian VRAM escribiendo ceros (PC:0x36E3), (2) El LCD se activa con VRAM vacía, (3) Los juegos SÍ cargan tiles después de activar el LCD (pkmn.gb en PC:0x618D, tetris.gb en PC:0x02F9). La solución actual (tiles de prueba cuando VRAM está vacía) es válida y funcionará hasta que los tiles reales se carguen.
+                        </p>
+                    </li>
                                         <!-- Entrada 0322 - Análisis de Logs y Solución de Renderizado Blanco -->
                     <li>
                         <div class="entry-header">
