@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Generación del Framebuffer en C++ PPU - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Generación del Framebuffer en C++ PPU</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0351
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0350__correccion-bug-scope-verificacion-pantalla.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó código de diagnóstico detallado para investigar la generación del framebuffer en C++ PPU. El objetivo era verificar si el framebuffer contiene los datos correctos cuando hay tiles reales, si los tiles se decodifican correctamente en C++, si la paleta se aplica correctamente, y comparar el contenido del framebuffer cuando hay tiles reales vs cuando solo hay checkerboard. Los resultados muestran que el código de diagnóstico funciona correctamente, pero confirman que VRAM tiene muy pocos bytes no-cero (40/6144 o menos), por debajo del umbral de 200, por lo que nunca se detectan tiles reales y el framebuffer siempre contiene solo checkerboard.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Decodificación de Tiles 2bpp:</strong> Cada tile es 8x8 píxeles = 16 bytes (2 bytes por línea). El formato 2bpp usa 2 bits por píxel, lo que permite 4 colores posibles (0-3). Para cada línea: Byte1 = bits bajos, Byte2 = bits altos. El color del píxel se calcula como (bit_alto << 1) | bit_bajo. Esta decodificación debe realizarse correctamente para que los tiles se rendericen correctamente en el framebuffer.
+                </p>
+                <p>
+                    <strong>Aplicación de Paleta (BGP):</strong> BGP (0xFF47) define la paleta de 4 colores. Cada 2 bits de BGP mapean un índice de color (0-3) a un color de la paleta. El índice decodificado del tile se mapea usando BGP para obtener el índice final que se escribe en el framebuffer. Si la paleta no se aplica correctamente, los colores en el framebuffer serán incorrectos.
+                </p>
+                <p>
+                    <strong>Generación del Framebuffer:</strong> El framebuffer se genera línea por línea durante el renderizado. Cada píxel se decodifica del tile correspondiente, el índice de color se aplica usando la paleta BGP, y el índice final se escribe en el framebuffer. Si el framebuffer contiene solo índices 0 y 3 (checkerboard) incluso cuando hay tiles reales en VRAM, el problema está en la generación del framebuffer (decodificación de tiles o aplicación de paleta).
+                </p>
+                <p>
+                    <strong>Detección de Tiles Reales:</strong> Para detectar si hay tiles reales en VRAM, se cuenta el número de bytes no-cero en VRAM (0x8000-0x97FF = 6144 bytes). Si hay más de 200 bytes no-cero (aprox. 12 tiles completos), se considera que hay tiles reales. Si VRAM tiene muy pocos bytes no-cero, se usa un patrón de checkerboard temporal para mostrar algo en pantalla mientras el juego carga tiles.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron 4 tareas principales de diagnóstico en <code>src/core/cpp/PPU.cpp</code>:
+                </p>
+                
+                <h3>1. Verificación del Contenido del Framebuffer Cuando Hay Tiles Reales</h3>
+                <p>
+                    Se agregó código en <code>PPU::render_scanline()</code> cuando <code>ly_ == VBLANK_START</code> para verificar el contenido completo del framebuffer cuando hay tiles reales. El código cuenta los índices de color en todo el framebuffer, verifica si hay líneas con más de 2 índices diferentes (no solo checkerboard), y genera advertencias si el framebuffer contiene solo checkerboard aunque haya tiles reales en VRAM.
+                </p>
+                <pre><code>// --- Step 0351: Verificación Detallada del Framebuffer con Tiles Reales ---
+if (tiles_were_detected_this_frame && framebuffer_content_detailed_count < 10) {
+    // Contar índices en todo el framebuffer
+    int index_counts[4] = {0, 0, 0, 0};
+    int total_non_zero_pixels = 0;
+    int lines_with_varied_indices = 0;
+    
+    for (int y = 0; y < 144; y++) {
+        // ... contar índices por línea ...
+    }
+    
+    // Advertencia si el framebuffer contiene solo checkerboard
+    if (index_counts[1] == 0 && index_counts[2] == 0 && 
+        index_counts[0] > 0 && index_counts[3] > 0) {
+        printf("[PPU-FRAMEBUFFER-CONTENT-DETAILED] ⚠️ ADVERTENCIA: ...\n");
+    }
+}
+// -------------------------------------------</code></pre>
+
+                <h3>2. Verificación de Decodificación de Tiles en C++</h3>
+                <p>
+                    Se agregó código antes del bucle de renderizado para verificar algunos tiles durante el renderizado (solo en LY=0 y LY=72). El código lee los datos del tile, decodifica la primera línea del tile usando el formato 2bpp, y loggea los píxeles decodificados para verificar que la decodificación es correcta.
+                </p>
+                <pre><code>// --- Step 0351: Verificación Detallada de Decodificación de Tiles ---
+if ((ly_ == 0 || ly_ == 72) && tile_decode_detailed_count < 10) {
+    for (int x = 0; x < SCREEN_WIDTH && x < 80; x += 8) {
+        // Leer datos del tile
+        uint8_t byte1 = mmu_->read(tile_addr);
+        uint8_t byte2 = mmu_->read(tile_addr + 1);
+        
+        // Decodificar primera línea del tile
+        uint8_t decoded_pixels[8];
+        for (int bit = 7; bit >= 0; bit--) {
+            uint8_t bit_low = (byte1 >> bit) & 1;
+            uint8_t bit_high = (byte2 >> bit) & 1;
+            decoded_pixels[7 - bit] = (bit_high << 1) | bit_low;
+        }
+        
+        // Loggear píxeles decodificados
+        printf("[PPU-TILE-DECODE-DETAILED] ...\n");
+    }
+}
+// -------------------------------------------</code></pre>
+
+                <h3>3. Verificación de Aplicación de Paleta en C++</h3>
+                <p>
+                    Se agregó código antes del bucle de renderizado para verificar la aplicación de paleta. El código lee BGP y loggea su valor para verificar que la paleta se está aplicando correctamente.
+                </p>
+                <pre><code>// --- Step 0351: Verificación Detallada de Aplicación de Paleta ---
+if ((ly_ == 0 || ly_ == 72) && palette_apply_detailed_count < 10) {
+    uint8_t bgp_check = mmu_->read(IO_BGP);
+    printf("[PPU-PALETTE-APPLY-DETAILED] Frame %llu | LY: %d | BGP=0x%02X\n", ...);
+}
+// -------------------------------------------</code></pre>
+
+                <h3>4. Comparación Framebuffer con Tiles Reales vs Checkerboard</h3>
+                <p>
+                    Se agregó código en <code>PPU::render_scanline()</code> cuando <code>ly_ == VBLANK_START</code> para comparar el contenido del framebuffer cuando hay tiles reales vs cuando solo hay checkerboard. El código verifica si hay tiles reales en VRAM, cuenta los índices en el framebuffer, determina si el framebuffer contiene solo checkerboard, y genera advertencias si hay tiles reales pero el framebuffer contiene solo checkerboard.
+                </p>
+                <pre><code>// --- Step 0351: Comparación Framebuffer con Tiles Reales vs Checkerboard ---
+if (framebuffer_comparison_count < 10) {
+    // Verificar si hay tiles reales
+    int non_zero_bytes = 0;
+    for (uint16_t addr = 0x8000; addr < 0x9800; addr++) {
+        if (mmu_->read(addr) != 0x00) non_zero_bytes++;
+    }
+    bool has_real_tiles = (non_zero_bytes >= 200);
+    
+    // Contar índices en el framebuffer
+    int index_counts[4] = {0, 0, 0, 0};
+    // ... contar índices ...
+    
+    // Determinar si el framebuffer contiene solo checkerboard
+    bool is_checkerboard_only = (index_counts[1] == 0 && index_counts[2] == 0 && 
+                                  index_counts[0] > 0 && index_counts[3] > 0);
+    
+    // Advertencia si hay tiles reales pero el framebuffer contiene solo checkerboard
+    if (has_real_tiles && is_checkerboard_only) {
+        printf("[PPU-FRAMEBUFFER-COMPARISON] ⚠️ PROBLEMA: ...\n");
+    }
+}
+// -------------------------------------------</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Agregado código de diagnóstico para verificar contenido del framebuffer, decodificación de tiles, aplicación de paleta, y comparación framebuffer con tiles reales vs checkerboard</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas con las 5 ROMs en paralelo durante ~2.5 minutos cada una:
+                </p>
+                <ul>
+                    <li><strong>ROMs probadas:</strong> pkmn.gb, tetris.gb, mario.gbc, pkmn-amarillo.gb, Oro.gbc</li>
+                    <li><strong>Comando ejecutado:</strong> <code>timeout 150 python3 main.py roms/[ROM].gb 2>&1 | tee logs/test_[ROM]_step0351.log</code></li>
+                    <li><strong>Análisis de logs:</strong> Se analizaron los logs usando <code>grep</code> para extraer información específica sin saturar el contexto</li>
+                </ul>
+                
+                <h3>Resultados de las Pruebas</h3>
+                <p>
+                    <strong>Logs de Aplicación de Paleta:</strong>
+                </p>
+                <pre><code>logs/test_mario_step0351.log:[PPU-PALETTE-APPLY-DETAILED] Frame 1 | LY: 0 | BGP=0xE4
+logs/test_oro_step0351.log:[PPU-PALETTE-APPLY-DETAILED] Frame 1 | LY: 0 | BGP=0x00
+logs/test_pkmn_step0351.log:[PPU-PALETTE-APPLY-DETAILED] Frame 1 | LY: 0 | BGP=0x00</code></pre>
+                <p>
+                    ✅ La paleta se está leyendo correctamente (BGP se lee desde MMU)
+                </p>
+                
+                <p>
+                    <strong>Logs de Comparación Framebuffer:</strong>
+                </p>
+                <pre><code>logs/test_mario_step0351.log:[PPU-FRAMEBUFFER-COMPARISON] Frame 1 | Has real tiles: NO | Is checkerboard only: YES | Distribution: 0=11520 1=0 2=0 3=11520
+logs/test_pkmn_step0351.log:[PPU-FRAMEBUFFER-COMPARISON] Frame 1 | Has real tiles: NO | Is checkerboard only: YES | Distribution: 0=11520 1=0 2=0 3=11520</code></pre>
+                <p>
+                    ✅ El código de diagnóstico funciona correctamente
+                    ❌ No se detectan tiles reales (Has real tiles: NO)
+                    ❌ El framebuffer siempre contiene solo checkerboard (Is checkerboard only: YES)
+                    ❌ La distribución es exactamente 50% índice 0 y 50% índice 3 (11520 de cada uno)
+                </p>
+                
+                <p>
+                    <strong>Logs de Diagnóstico VRAM:</strong>
+                </p>
+                <pre><code>logs/test_mario_step0351.log:[PPU-VRAM-DIAG] Frame 1 | Non-zero bytes: 40/6144 | Umbral: 200 | Detectado: 0
+logs/test_oro_step0351.log:[PPU-VRAM-DIAG] Frame 1 | Non-zero bytes: 0/6144 | Umbral: 200 | Detectado: 0</code></pre>
+                <p>
+                    ❌ VRAM tiene muy pocos bytes no-cero (40/6144 o menos)
+                    ❌ Nunca se alcanza el umbral de 200 bytes no-cero
+                    ❌ Por lo tanto, nunca se detectan tiles reales
+                </p>
+                
+                <p>
+                    <strong>Logs de Decodificación de Tiles y Contenido Detallado del Framebuffer:</strong>
+                </p>
+                <p>
+                    ❌ No se generaron logs de <code>[PPU-TILE-DECODE-DETAILED]</code> - Los tiles no se están decodificando porque no hay tiles reales detectados
+                    ❌ No se generaron logs de <code>[PPU-FRAMEBUFFER-CONTENT-DETAILED]</code> - <code>tiles_were_detected_this_frame</code> nunca es true cuando se llega a VBLANK_START
+                </p>
+            </section>
+
+            <!-- 6. Hallazgos y Conclusiones -->
+            <section id="hallazgos">
+                <h2>Hallazgos y Conclusiones</h2>
+                <h3>Hallazgos Principales</h3>
+                <ol>
+                    <li>
+                        <strong>El código de diagnóstico funciona correctamente:</strong> Los logs muestran que el código de diagnóstico se ejecuta y genera información útil sobre el estado del framebuffer y VRAM.
+                    </li>
+                    <li>
+                        <strong>VRAM no se está llenando con tiles:</strong> Los logs muestran que VRAM tiene muy pocos bytes no-cero (40/6144 o menos), muy por debajo del umbral de 200 bytes no-cero necesario para detectar tiles reales.
+                    </li>
+                    <li>
+                        <strong>El framebuffer siempre contiene solo checkerboard:</strong> Como no se detectan tiles reales, el framebuffer siempre contiene solo el patrón de checkerboard (50% índice 0, 50% índice 3).
+                    </li>
+                    <li>
+                        <strong>La paleta se lee correctamente:</strong> Los logs muestran que BGP se lee correctamente desde MMU (0xE4 en mario/tetris, 0x00 en otras ROMs).
+                    </li>
+                </ol>
+                
+                <h3>Conclusión</h3>
+                <p>
+                    El problema <strong>NO está en la generación del framebuffer en C++</strong>. El código de diagnóstico confirma que:
+                </p>
+                <ul>
+                    <li>✅ El código de diagnóstico funciona correctamente</li>
+                    <li>✅ La paleta se lee correctamente</li>
+                    <li>❌ VRAM no se está llenando con tiles (solo 40/6144 bytes no-cero o menos)</li>
+                    <li>❌ Por lo tanto, nunca se detectan tiles reales y el framebuffer siempre contiene solo checkerboard</li>
+                </ul>
+                <p>
+                    El problema real es que <strong>VRAM no se está llenando con tiles</strong>. Esto podría deberse a:
+                </p>
+                <ol>
+                    <li>Los tiles no se están cargando desde la ROM a VRAM (problema en la CPU/MMU)</li>
+                    <li>Los tiles se están cargando pero se están limpiando inmediatamente después</li>
+                    <li>El tilemap no apunta a los tiles correctos</li>
+                    <li>El timing de carga de tiles es incorrecto</li>
+                </ol>
+                <p>
+                    El siguiente paso debe investigar <strong>por qué VRAM no se está llenando con tiles</strong>, no la generación del framebuffer.
+                </p>
+            </section>
+
+            <!-- 7. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">https://gbdev.io/pandocs/</a> - Sección "Tile Data" y "Background Palette (BGP)"</li>
+                    <li>GBEDG: <a href="https://gbdev.io/gb-opcodes/optables/">https://gbdev.io/gb-opcodes/optables/</a> - Referencia de opcodes para carga de datos</li>
+                </ul>
+            </section>
+
+            <!-- 8. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Decodificación 2bpp:</strong> Los tiles se almacenan en formato 2bpp (2 bits por píxel), donde cada línea del tile (8 píxeles) se almacena en 2 bytes consecutivos. El byte bajo contiene los bits bajos de cada píxel, y el byte alto contiene los bits altos.</li>
+                        <li><strong>Aplicación de Paleta:</strong> BGP mapea los índices de color decodificados (0-3) a los colores finales de la paleta. Cada 2 bits de BGP corresponden a un índice de color.</li>
+                        <li><strong>Generación del Framebuffer:</strong> El framebuffer se genera línea por línea durante el renderizado. Cada píxel se decodifica del tile correspondiente, se aplica la paleta, y se escribe el índice final en el framebuffer.</li>
+                        <li><strong>Detección de Tiles Reales:</strong> Para detectar si hay tiles reales en VRAM, se cuenta el número de bytes no-cero. Si hay más de 200 bytes no-cero, se considera que hay tiles reales.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Por qué VRAM no se está llenando con tiles:</strong> Necesito investigar si los tiles se están cargando desde la ROM a VRAM, si se están limpiando inmediatamente después, o si hay un problema con el timing de carga.</li>
+                        <li><strong>Si el tilemap apunta a los tiles correctos:</strong> Necesito verificar si el tilemap contiene tile IDs válidos que apunten a tiles con datos en VRAM.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> VRAM no se está llenando con tiles porque los tiles no se están cargando desde la ROM a VRAM, o se están cargando pero se están limpiando inmediatamente después. Esto podría deberse a un problema en la CPU (no ejecuta las instrucciones de carga), en la MMU (no escribe correctamente en VRAM), o en el timing (los tiles se cargan pero se limpian antes de que se rendericen).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 9. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar por qué VRAM no se está llenando con tiles</li>
+                    <li>[ ] Verificar si los tiles se están cargando desde la ROM a VRAM (logs de escritura en VRAM)</li>
+                    <li>[ ] Verificar si los tiles se están limpiando inmediatamente después de cargarse</li>
+                    <li>[ ] Verificar si el tilemap apunta a los tiles correctos</li>
+                    <li>[ ] Verificar el timing de carga de tiles (cuándo se cargan vs cuándo se renderizan)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

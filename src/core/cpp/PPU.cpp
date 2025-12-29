@@ -390,6 +390,114 @@ void PPU::step(int cpu_cycles) {
             }
             // -------------------------------------------
             
+            // --- Step 0351: Verificación Detallada del Framebuffer con Tiles Reales ---
+            // Verificar el contenido completo del framebuffer cuando hay tiles reales
+            static int framebuffer_content_detailed_count = 0;
+            
+            // Cuando se completa el frame (LY=144) y había tiles reales, verificar el framebuffer completo
+            if (tiles_were_detected_this_frame && framebuffer_content_detailed_count < 10) {
+                framebuffer_content_detailed_count++;
+                
+                // Contar índices en todo el framebuffer
+                int index_counts[4] = {0, 0, 0, 0};
+                int total_non_zero_pixels = 0;
+                int lines_with_varied_indices = 0;  // Líneas con más de 2 índices diferentes
+                
+                for (int y = 0; y < 144; y++) {
+                    size_t line_start = y * SCREEN_WIDTH;
+                    int line_index_counts[4] = {0, 0, 0, 0};
+                    
+                    for (int x = 0; x < SCREEN_WIDTH; x++) {
+                        uint8_t color_idx = framebuffer_[line_start + x] & 0x03;
+                        if (color_idx < 4) {
+                            index_counts[color_idx]++;
+                            line_index_counts[color_idx]++;
+                            if (color_idx != 0) {
+                                total_non_zero_pixels++;
+                            }
+                        }
+                    }
+                    
+                    // Verificar si la línea tiene más de 2 índices diferentes (no solo checkerboard)
+                    int unique_indices = 0;
+                    for (int i = 0; i < 4; i++) {
+                        if (line_index_counts[i] > 0) {
+                            unique_indices++;
+                        }
+                    }
+                    
+                    if (unique_indices > 2) {
+                        lines_with_varied_indices++;
+                    }
+                }
+                
+                printf("[PPU-FRAMEBUFFER-CONTENT-DETAILED] Frame %llu | Tiles reales detectados | "
+                       "Total non-zero pixels: %d/23040 | Distribution: 0=%d 1=%d 2=%d 3=%d | "
+                       "Lines with varied indices (>2): %d/144\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1),
+                       total_non_zero_pixels,
+                       index_counts[0], index_counts[1], index_counts[2], index_counts[3],
+                       lines_with_varied_indices);
+                
+                // Advertencia si el framebuffer contiene solo checkerboard (índices 0 y 3)
+                if (index_counts[1] == 0 && index_counts[2] == 0 && index_counts[0] > 0 && index_counts[3] > 0) {
+                    printf("[PPU-FRAMEBUFFER-CONTENT-DETAILED] ⚠️ ADVERTENCIA: Framebuffer contiene solo checkerboard "
+                           "(índices 0 y 3) aunque hay tiles reales en VRAM!\n");
+                }
+                
+                // Advertencia si no hay líneas con índices variados
+                if (lines_with_varied_indices == 0) {
+                    printf("[PPU-FRAMEBUFFER-CONTENT-DETAILED] ⚠️ ADVERTENCIA: Ninguna línea tiene más de 2 índices diferentes!\n");
+                }
+            }
+            // -------------------------------------------
+            
+            // --- Step 0351: Comparación Framebuffer con Tiles Reales vs Checkerboard ---
+            // Comparar el contenido del framebuffer cuando hay tiles reales vs cuando solo hay checkerboard
+            static int framebuffer_comparison_count = 0;
+            
+            if (framebuffer_comparison_count < 10) {
+                framebuffer_comparison_count++;
+                
+                // Verificar si hay tiles reales
+                int non_zero_bytes = 0;
+                for (uint16_t addr = 0x8000; addr < 0x9800; addr++) {
+                    uint8_t byte = mmu_->read(addr);
+                    if (byte != 0x00) {
+                        non_zero_bytes++;
+                    }
+                }
+                
+                bool has_real_tiles = (non_zero_bytes >= 200);
+                
+                // Contar índices en el framebuffer
+                int index_counts[4] = {0, 0, 0, 0};
+                for (int i = 0; i < FRAMEBUFFER_SIZE; i++) {
+                    uint8_t color_idx = framebuffer_[i] & 0x03;
+                    if (color_idx < 4) {
+                        index_counts[color_idx]++;
+                    }
+                }
+                
+                // Determinar si el framebuffer contiene solo checkerboard
+                bool is_checkerboard_only = (index_counts[1] == 0 && index_counts[2] == 0 && 
+                                              index_counts[0] > 0 && index_counts[3] > 0);
+                
+                printf("[PPU-FRAMEBUFFER-COMPARISON] Frame %llu | Has real tiles: %s | "
+                       "Is checkerboard only: %s | Distribution: 0=%d 1=%d 2=%d 3=%d\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1),
+                       has_real_tiles ? "YES" : "NO",
+                       is_checkerboard_only ? "YES" : "NO",
+                       index_counts[0], index_counts[1], index_counts[2], index_counts[3]);
+                
+                // Advertencia si hay tiles reales pero el framebuffer contiene solo checkerboard
+                if (has_real_tiles && is_checkerboard_only) {
+                    printf("[PPU-FRAMEBUFFER-COMPARISON] ⚠️ PROBLEMA: Hay tiles reales en VRAM pero el framebuffer "
+                           "contiene solo checkerboard! El problema está en la generación del framebuffer.\n");
+                }
+            }
+            // -------------------------------------------
+            
             // --- Step 0339: Verificación del Estado Completo del Framebuffer al Final del Frame ---
             // Verificar el estado completo del framebuffer cuando se completa el frame (LY=144)
             static int framebuffer_complete_check_count = 0;
@@ -1297,6 +1405,91 @@ void PPU::render_scanline() {
         tilemap_dump_count++;
     }
     // -----------------------------------------
+
+    // --- Step 0351: Verificación Detallada de Decodificación de Tiles ---
+    // Verificar que los tiles se decodifican correctamente
+    static int tile_decode_detailed_count = 0;
+    
+    // Verificar algunos tiles durante el renderizado (solo en algunas líneas)
+    if ((ly_ == 0 || ly_ == 72) && tile_decode_detailed_count < 10) {
+        tile_decode_detailed_count++;
+        
+        // Verificar algunos tiles en la línea actual
+        for (int x = 0; x < SCREEN_WIDTH && x < 80; x += 8) {  // Cada tile (8 píxeles)
+            uint8_t map_x = (x + scx) & 0xFF;
+            uint8_t map_y = (ly_ + scy) & 0xFF;
+            
+            // Obtener tile ID del tilemap
+            uint16_t map_addr = tile_map_base + ((map_y) / 8) * 32 + ((map_x) / 8);
+            uint8_t tile_id = mmu_->read(map_addr);
+            
+            // Calcular dirección del tile
+            uint16_t tile_addr;
+            if (signed_addressing) {
+                int8_t signed_tile_id = static_cast<int8_t>(tile_id);
+                tile_addr = tile_data_base + static_cast<uint16_t>(signed_tile_id) * 16;
+            } else {
+                tile_addr = tile_data_base + tile_id * 16;
+            }
+            
+            // Verificar que el tile está en rango válido
+            if (tile_addr >= 0x8000 && tile_addr < 0x9800) {
+                // Leer datos del tile (primeros 2 bytes = primera línea)
+                uint8_t byte1 = mmu_->read(tile_addr);
+                uint8_t byte2 = mmu_->read(tile_addr + 1);
+                
+                // Decodificar primera línea del tile
+                uint8_t decoded_pixels[8];
+                for (int bit = 7; bit >= 0; bit--) {
+                    uint8_t bit_low = (byte1 >> bit) & 1;
+                    uint8_t bit_high = (byte2 >> bit) & 1;
+                    decoded_pixels[7 - bit] = (bit_high << 1) | bit_low;
+                }
+                
+                // Verificar que el tile no está vacío
+                bool tile_empty = true;
+                for (int i = 0; i < 8; i++) {
+                    if (decoded_pixels[i] != 0) {
+                        tile_empty = false;
+                        break;
+                    }
+                }
+                
+                if (!tile_empty && tile_decode_detailed_count <= 5) {
+                    printf("[PPU-TILE-DECODE-DETAILED] Frame %llu | LY: %d | Tile at x=%d | "
+                           "TileID=0x%02X | TileAddr=0x%04X | Decoded pixels: ",
+                           static_cast<unsigned long long>(frame_counter_ + 1), ly_, x, tile_id, tile_addr);
+                    for (int i = 0; i < 8; i++) {
+                        printf("%d ", decoded_pixels[i]);
+                    }
+                    printf("\n");
+                }
+            }
+        }
+    }
+    // -------------------------------------------
+    
+    // --- Step 0351: Verificación Detallada de Aplicación de Paleta ---
+    // Verificar que la paleta se aplica correctamente
+    static int palette_apply_detailed_count = 0;
+    
+    // Verificar algunos píxeles durante el renderizado (solo en algunas líneas)
+    if ((ly_ == 0 || ly_ == 72) && palette_apply_detailed_count < 10) {
+        palette_apply_detailed_count++;
+        
+        // Obtener BGP
+        uint8_t bgp_check = mmu_->read(IO_BGP);
+        
+        if (palette_apply_detailed_count <= 5) {
+            printf("[PPU-PALETTE-APPLY-DETAILED] Frame %llu | LY: %d | BGP=0x%02X\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1), ly_, bgp_check);
+        }
+        
+        // Verificar algunos píxeles en la línea actual (después de que se rendericen)
+        // Nota: Esto se ejecuta antes del bucle de renderizado, así que solo verificamos BGP
+        // La verificación de píxeles finales se hará después del renderizado
+    }
+    // -------------------------------------------
 
     for (int x = 0; x < 160; ++x) {
         uint8_t map_x = (x + scx) & 0xFF;

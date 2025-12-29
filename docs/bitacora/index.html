@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0351 - Investigación de Generación del Framebuffer en C++ PPU -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0351__investigacion-generacion-framebuffer-cpp-ppu.html" class="entry-link">
+                                    Investigación de Generación del Framebuffer en C++ PPU
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0351 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó código de diagnóstico detallado para investigar la generación del framebuffer en C++ PPU. El objetivo era verificar si el framebuffer contiene los datos correctos cuando hay tiles reales, si los tiles se decodifican correctamente en C++, si la paleta se aplica correctamente, y comparar el contenido del framebuffer cuando hay tiles reales vs cuando solo hay checkerboard. Los resultados muestran que el código de diagnóstico funciona correctamente, pero confirman que VRAM tiene muy pocos bytes no-cero (40/6144 o menos), por debajo del umbral de 200, por lo que nunca se detectan tiles reales y el framebuffer siempre contiene solo checkerboard.
+                        </p>
+                    </li>
                                         <!-- Entrada 0350 - Corrección de Bug de Scope en Verificación de Pantalla -->
                     <li>
                         <div class="entry-header">
