@@ -150,6 +150,13 @@ class Viboy:
             self._clock = None
             logger.warning("Pygame no disponible. Control de FPS desactivado.")
         
+        # --- Step 0344: Variables de Timer de Debug ---
+        # Inicializar variables de instancia para el timer de debug
+        self._start_time: float | None = None
+        self._first_event_time: float | None = None
+        self._first_event_detected: bool = False
+        # -------------------------------------------
+        
         # Si se proporciona ROM, cargarla
         if rom_path is not None:
             self.load_cartridge(rom_path)
@@ -756,6 +763,14 @@ class Viboy:
         self.running = True
         self.verbose = True  # Para heartbeat
         
+        # --- Step 0344: Inicializar Timer de Debug al Iniciar el Emulador ---
+        # Reiniciar timer cuando se inicia una nueva ejecución
+        self._start_time = time.time()
+        self._first_event_time = None
+        self._first_event_detected = False
+        logger.info(f"[Viboy-Timer] Emulador iniciado en t={self._start_time:.6f}s")
+        # -------------------------------------------
+        
         # --- Step 0298: Simulación de Entrada ---
         # Mapeo de nombres de botones a índices numéricos para PyJoypad C++
         button_index_map: dict[str, int] = {
@@ -834,6 +849,16 @@ class Viboy:
                         # Esto asegura que Python siempre lee el framebuffer ANTES de que se limpie
                         if self._ppu is not None:
                             if self._ppu.get_frame_ready_and_reset():
+                                # --- Step 0344: Detectar Primer Evento (Frame Listo) ---
+                                # Detectar primer evento si aún no se ha detectado
+                                if not self._first_event_detected:
+                                    self._first_event_time = time.time()
+                                    self._first_event_detected = True
+                                    elapsed_time = self._first_event_time - self._start_time
+                                    logger.info(f"[Viboy-Timer] Primer evento detectado en t={elapsed_time:.6f}s "
+                                               f"(desde inicio: {self._start_time:.6f}s, evento: {self._first_event_time:.6f}s)")
+                                # -------------------------------------------
+                                
                                 # --- Step 0340: Verificación de Timing de Lectura del Framebuffer ---
                                 if not hasattr(self, '_framebuffer_timing_count'):
                                     self._framebuffer_timing_count = 0
@@ -989,8 +1014,20 @@ class Viboy:
                                 except Exception:
                                     game_title = "Viboy Color v0.0.2"
                             
-                            # Actualizar título con FPS
-                            pygame.display.set_caption(f"{game_title} - FPS: {fps:.1f}")
+                            # --- Step 0344: Agregar Timer de Debug al Título ---
+                            # Calcular tiempo transcurrido
+                            current_time = time.time()
+                            elapsed_time = current_time - self._start_time
+                            
+                            # Construir string del timer
+                            timer_str = f"Time: {elapsed_time:.3f}s"
+                            if self._first_event_detected and self._first_event_time is not None:
+                                first_event_elapsed = self._first_event_time - self._start_time
+                                timer_str += f" | First Event: {first_event_elapsed:.3f}s"
+                            
+                            # Actualizar título con FPS y timer
+                            pygame.display.set_caption(f"{game_title} - FPS: {fps:.1f} - {timer_str}")
+                            # -------------------------------------------
                     
                     # --- Step 0317: Optimización - Logs de debug desactivados por defecto ---
                     # Los logs se ejecutan solo si ENABLE_DEBUG_LOGS es True

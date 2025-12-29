@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agregar Timer de Debug en Barra de Título - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Agregar Timer de Debug en Barra de Título</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0344
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0343__verificacion-ejecucion-logs-analisis-correspondencia.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó un timer de debug en la barra de título del emulador que muestra el tiempo transcurrido desde que se inicia el emulador y el tiempo hasta el primer evento (frame listo). El timer se inicializa al inicio de `run()`, detecta cuando ocurre el primer frame listo, y actualiza la barra de título cada 60 frames con el tiempo transcurrido y el tiempo hasta el primer evento (si ya ocurrió).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Timing y Eventos en Emulación:</strong>
+                </p>
+                <p>
+                    En un emulador, es importante poder medir el tiempo transcurrido desde que se inicia la emulación hasta que ocurren eventos importantes. El primer evento crítico es cuando la PPU marca un frame como listo (`frame_ready_ = true`), lo que indica que el emulador ha completado su primer ciclo de renderizado.
+                </p>
+                <p>
+                    El tiempo hasta el primer evento es útil para diagnosticar problemas de inicialización, ya que si el emulador tarda demasiado en generar el primer frame, puede indicar problemas en la inicialización de componentes o en la sincronización entre la CPU y la PPU.
+                </p>
+                <p>
+                    El tiempo transcurrido total permite monitorear el rendimiento del emulador y verificar que está ejecutándose a la velocidad correcta (60 FPS).
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se agregaron tres variables de instancia para el timer de debug:
+                </p>
+                <ul>
+                    <li><code>_start_time</code>: Tiempo de inicio del emulador (cuando se llama a <code>run()</code>)</li>
+                    <li><code>_first_event_time</code>: Tiempo cuando ocurre el primer evento (None hasta que ocurra)</li>
+                    <li><code>_first_event_detected</code>: Flag para indicar si ya se detectó el primer evento</li>
+                </ul>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/viboy.py</code>: Agregadas variables de instancia en <code>__init__()</code>, inicialización del timer en <code>run()</code>, detección del primer evento, y actualización del título con el timer</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Inicialización en <code>run()</code>:</strong> El timer se inicializa al inicio de <code>run()</code> en lugar de en <code>__init__()</code> porque el emulador puede ser inicializado múltiples veces, pero solo queremos medir el tiempo desde que se inicia la ejecución.
+                </p>
+                <p>
+                    <strong>Detección del primer evento:</strong> Se detecta cuando <code>get_frame_ready_and_reset()</code> retorna <code>True</code> por primera vez, lo que indica que la PPU ha completado su primer frame.
+                </p>
+                <p>
+                    <strong>Actualización del título:</strong> El título se actualiza cada 60 frames (aproximadamente cada segundo) para evitar sobrecarga, y muestra tanto el tiempo transcurrido total como el tiempo hasta el primer evento (si ya ocurrió).
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Agregadas variables de instancia para el timer, inicialización del timer en <code>run()</code>, detección del primer evento, y actualización del título con el timer</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La implementación se verificó mediante:
+                </p>
+                <ul>
+                    <li><strong>Verificación visual:</strong> El timer aparece en la barra de título y se actualiza correctamente</li>
+                    <li><strong>Logs:</strong> Los logs <code>[Viboy-Timer]</code> aparecen cuando se inicia el emulador y cuando se detecta el primer evento</li>
+                    <li><strong>Formato del título:</strong> El título muestra el formato correcto: <code>"Viboy Color v0.0.2 - [Nombre del Juego] - FPS: XX.X - Time: XX.XXXs | First Event: XX.XXXs"</code></li>
+                </ul>
+                <p>
+                    <strong>Comando de prueba:</strong>
+                </p>
+                <pre><code>timeout 30 python3 main.py roms/tetris.gb</code></pre>
+                <p>
+                    <strong>Resultado esperado:</strong>
+                </p>
+                <ul>
+                    <li>El timer aparece en la barra de título desde el inicio</li>
+                    <li>El tiempo se actualiza cada segundo aproximadamente</li>
+                    <li>Cuando ocurre el primer frame, se muestra también el tiempo hasta el primer evento</li>
+                    <li>Los logs <code>[Viboy-Timer]</code> aparecen en la consola</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Implementación basada en conocimiento general de timing y eventos en emulación</li>
+                    <li>Documentación de Python <code>time.time()</code> para medición de tiempo</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Timing en emulación:</strong> Es importante medir el tiempo transcurrido desde el inicio de la emulación para diagnosticar problemas de rendimiento y sincronización</li>
+                        <li><strong>Detección de eventos:</strong> El primer evento importante es cuando la PPU marca un frame como listo, lo que indica que el emulador ha completado su primer ciclo de renderizado</li>
+                        <li><strong>Actualización de UI:</strong> La barra de título se actualiza periódicamente (cada 60 frames) para mostrar información de debug sin sobrecargar el sistema</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>Verificar que el timer funciona correctamente en diferentes ROMs</li>
+                        <li>Confirmar que el tiempo hasta el primer evento es útil para diagnosticar problemas de inicialización</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el tiempo hasta el primer evento es un buen indicador de problemas de inicialización. Si el emulador tarda más de unos segundos en generar el primer frame, puede indicar problemas en la inicialización de componentes o en la sincronización entre la CPU y la PPU.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Continuar con el análisis de logs del Step 0343</li>
+                    <li>[ ] Step 0345: Análisis detallado de correspondencia framebuffer-visualización basado en los logs del Step 0343</li>
+                    <li>[ ] Step 0346: Implementar corrección basada en los hallazgos</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
