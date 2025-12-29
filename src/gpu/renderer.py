@@ -550,7 +550,12 @@ class Renderer:
                     
                     # Usar bytearray en lugar de list() para mejor rendimiento
                     # bytearray es más eficiente que list() para datos binarios
-                    frame_indices = bytearray(frame_indices_mv.tobytes())  # Snapshot inmutable optimizado
+                    # CRÍTICO: El memoryview de Cython puede no tener tobytes(), usar bytes() directamente
+                    try:
+                        frame_indices = bytearray(frame_indices_mv.tobytes())  # Snapshot inmutable optimizado
+                    except AttributeError:
+                        # Fallback: convertir memoryview a bytes usando bytes() constructor
+                        frame_indices = bytearray(bytes(frame_indices_mv))  # Snapshot inmutable optimizado
                     
                     snapshot_time = (time.time() - snapshot_start) * 1000  # en milisegundos
                 # ----------------------------------------
@@ -579,6 +584,38 @@ class Renderer:
                     debug_palette_map[3]
                 ]
                 # ----------------------------------------
+                
+                # --- STEP 0332: Diagnóstico de Framebuffer Recibido ---
+                # Verificar qué índices recibe el renderizador del framebuffer
+                if framebuffer_data is not None and len(framebuffer_data) > 0:
+                    if not hasattr(self, '_framebuffer_diagnostic_count'):
+                        self._framebuffer_diagnostic_count = 0
+                    if self._framebuffer_diagnostic_count < 5:
+                        self._framebuffer_diagnostic_count += 1
+                        
+                        # Contar índices en el framebuffer
+                        index_counts = {0: 0, 1: 0, 2: 0, 3: 0}
+                        for idx in range(min(100, len(framebuffer_data))):  # Primeros 100 píxeles
+                            color_idx = framebuffer_data[idx] & 0x03
+                            if color_idx in index_counts:
+                                index_counts[color_idx] += 1
+                        
+                        logger.info(f"[Renderer-Framebuffer-Diagnostic] Frame {self._framebuffer_diagnostic_count} | "
+                                   f"Index counts (first 100): 0={index_counts[0]} 1={index_counts[1]} "
+                                   f"2={index_counts[2]} 3={index_counts[3]}")
+                        
+                        # Verificar primeros 20 píxeles
+                        first_20 = [framebuffer_data[i] & 0x03 for i in range(min(20, len(framebuffer_data)))]
+                        logger.info(f"[Renderer-Framebuffer-Diagnostic] First 20 indices: {first_20}")
+                        
+                        # Verificar que el índice 3 se convierte a negro
+                        if index_counts[3] > 0:
+                            test_index = 3
+                            test_color = palette[test_index]
+                            logger.info(f"[Renderer-Framebuffer-Diagnostic] Index 3 -> RGB: {test_color} (should be black: (8, 24, 32))")
+                            if test_color != (8, 24, 32):
+                                logger.warning(f"[Renderer-Framebuffer-Diagnostic] ⚠️ PROBLEMA: Index 3 no se convierte a negro!")
+                # -------------------------------------------
                 
                 # --- STEP 0305: Monitor de Paleta en Tiempo Real ([PALETTE-VERIFY]) ---
                 if self._palette_verify_count % 1000 == 0 or self._palette_verify_count < 10:
@@ -655,6 +692,31 @@ class Renderer:
                     self.surface = pygame.Surface((GB_WIDTH, GB_HEIGHT))
                 
                 WIDTH, HEIGHT = 160, 144
+                
+                # --- STEP 0332: Verificación de Aplicación de Paleta ---
+                # Verificar que la paleta se aplica correctamente al dibujar píxeles
+                if not hasattr(self, '_palette_apply_check_count'):
+                    self._palette_apply_check_count = 0
+                if self._palette_apply_check_count < 5:
+                    self._palette_apply_check_count += 1
+                    
+                    # Verificar algunos píxeles específicos
+                    test_pixels = [
+                        (0, 0),    # Esquina superior izquierda
+                        (80, 72),  # Centro de pantalla
+                        (159, 143) # Esquina inferior derecha
+                    ]
+                    
+                    for x, y in test_pixels:
+                        idx = y * 160 + x
+                        if idx < len(frame_indices):
+                            color_index = frame_indices[idx] & 0x03
+                            rgb_color = palette[color_index]
+                            logger.info(f"[Renderer-Palette-Apply] Pixel ({x}, {y}): index={color_index} -> RGB={rgb_color}")
+                            
+                            if color_index == 3 and rgb_color != (8, 24, 32):
+                                logger.warning(f"[Renderer-Palette-Apply] ⚠️ PROBLEMA: Index 3 no se convierte a negro en ({x}, {y})!")
+                # -------------------------------------------
                 
                 # --- STEP 0305: Verificación de PixelArray y Scaling ([PIXEL-VERIFY]) ---
                 if self._pixel_verify_count < 10:

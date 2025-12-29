@@ -1246,6 +1246,73 @@ Se ejecutaron pruebas de 2.5 minutos (150 segundos) con cada una de las 5 ROMs:
 
 ---
 
+### 2025-12-29 - Step 0332: Investigación y Corrección del Renderizado de Framebuffer
+**Estado**: ✅ **IMPLEMENTACIÓN COMPLETADA**
+
+Investigación detallada del problema de renderizado donde el framebuffer contiene datos correctos (80/160 píxeles no-blancos según logs de C++) pero la pantalla se muestra completamente blanca. Se agregaron logs de diagnóstico en tres puntos críticos del pipeline de renderizado: (1) diagnóstico del framebuffer recibido en el renderizador, (2) verificación de aplicación de paleta a píxeles específicos, y (3) verificación detallada de la copia del framebuffer en Python. Estos logs permitirán identificar exactamente dónde se pierde la información de color en el pipeline de renderizado.
+
+**Objetivo**:
+1. Investigar por qué el renderizador muestra pantalla blanca aunque el framebuffer tiene datos correctos
+2. Verificar la conversión de índices de color a RGB en el renderizador
+3. Asegurar que la paleta se aplica correctamente a todos los píxeles
+4. Corregir cualquier problema en el pipeline de renderizado
+
+**Problema Identificado**:
+- **Discrepancia entre Framebuffer y Renderizado**: Los logs del Step 0331 muestran que el framebuffer (C++) tiene 80/160 píxeles no-blancos (distribución: 0=80, 1=0, 2=0, 3=80), pero la pantalla se muestra completamente blanca
+- **Posibles Causas**:
+  - El framebuffer se corrompe durante la copia en Python
+  - El renderizador no está recibiendo los datos correctos
+  - Hay un problema con la conversión de índices a RGB
+  - El renderizador está usando una paleta incorrecta o no la está aplicando
+
+**Implementaciones**:
+
+1. **Diagnóstico del Framebuffer Recibido** (`renderer.py`):
+   - Logs que cuentan los índices en los primeros 100 píxeles del framebuffer
+   - Muestran los primeros 20 índices para verificar el patrón checkerboard
+   - Verifican que el índice 3 se convierte correctamente a negro (8, 24, 32)
+   - Tag: `[Renderer-Framebuffer-Diagnostic]`
+   - Solo se muestran en los primeros 5 frames para evitar saturación
+
+2. **Verificación de Aplicación de Paleta** (`renderer.py`):
+   - Logs que verifican que la paleta se aplica correctamente a píxeles específicos:
+     - Esquina superior izquierda (0, 0)
+     - Centro de pantalla (80, 72)
+     - Esquina inferior derecha (159, 143)
+   - Muestran el índice de color y el RGB resultante para cada píxel
+   - Tag: `[Renderer-Palette-Apply]`
+   - Solo se muestran en los primeros 5 frames
+
+3. **Verificación Detallada de Copia del Framebuffer** (`viboy.py`):
+   - Muestra los primeros 20 índices antes y después de copiar
+   - Verifica que la copia es idéntica al original
+   - Cuenta los índices en la copia para comparar con los logs de C++
+   - Tag: `[Viboy-Framebuffer-Copy-Detailed]`
+   - Solo se muestran en los primeros 5 frames
+
+**Archivos Modificados**:
+- `src/gpu/renderer.py` - Agregados logs de diagnóstico del framebuffer recibido y verificación de aplicación de paleta
+- `src/viboy.py` - Mejorados logs de verificación detallada de copia del framebuffer
+
+**Documentación Generada**:
+- `docs/bitacora/entries/2025-12-29__0332__investigacion-correccion-renderizado-framebuffer.html` - Entrada HTML de bitácora
+
+**Conceptos de Hardware**:
+- **Pipeline de Renderizado**: El framebuffer contiene índices de color (0-3), no colores RGB directos. Estos índices deben convertirse a RGB usando la paleta BGP antes de mostrarse en pantalla. El pipeline completo es: C++ (PPU) → Cython (memoryview) → Python (bytearray) → Python (renderer, conversión a RGB) → Pygame (dibujo).
+- **Conversión de Índices a RGB**: La paleta de debug mapea: Índice 0 → (255, 255, 255) - Blanco, Índice 1 → (170, 170, 170) - Gris Claro, Índice 2 → (85, 85, 85) - Gris Oscuro, Índice 3 → (8, 24, 32) - Negro.
+- **Diagnóstico Sistemático**: Para encontrar problemas en un pipeline complejo, es necesario agregar logs en cada etapa para ver dónde se pierde la información.
+
+**Próximos Pasos**:
+- [x] Agregar logs de diagnóstico en el renderizador ✅
+- [x] Verificar que el renderizador aplica la paleta correctamente ✅
+- [x] Verificar que el framebuffer se copia correctamente ✅
+- [ ] Ejecutar pruebas con las 5 ROMs y recopilar logs de diagnóstico
+- [ ] Analizar los logs para identificar dónde se pierde la información de color
+- [ ] **Step 0333**: Implementar corrección basada en los hallazgos de los logs
+- [ ] **Step 0334**: Verificación final de renderizado después de la corrección
+
+---
+
 ### 2025-12-29 - Step 0326: Corrección de Umbral y Análisis del Tilemap
 **Estado**: ✅ **IMPLEMENTACIÓN COMPLETADA**
 

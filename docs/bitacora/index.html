@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0332 - Investigación y Corrección del Renderizado de Framebuffer -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0332__investigacion-correccion-renderizado-framebuffer.html" class="entry-link">
+                                    Investigación y Corrección del Renderizado de Framebuffer
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0332 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Investigación detallada del problema de renderizado donde el framebuffer contiene datos correctos (80/160 píxeles no-blancos según logs de C++) pero la pantalla se muestra completamente blanca. Se agregaron logs de diagnóstico en tres puntos críticos del pipeline de renderizado: (1) diagnóstico del framebuffer recibido en el renderizador, (2) verificación de aplicación de paleta a píxeles específicos, y (3) verificación detallada de la copia del framebuffer en Python. Estos logs permitirán identificar exactamente dónde se pierde la información de color en el pipeline de renderizado.
+                        </p>
+                    </li>
                                         <!-- Entrada 0331 - Corrección de Sincronización del Framebuffer -->
                     <li>
                         <div class="entry-header">

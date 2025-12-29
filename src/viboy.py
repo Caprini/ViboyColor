@@ -823,21 +823,21 @@ class Viboy:
                         # Verificar si el frame está listo usando el método de la PPU
                         if self._ppu is not None:
                             if self._ppu.get_frame_ready_and_reset():
-                                # --- Step 0331: Verificación de Copia del Framebuffer ---
+                                # --- Step 0332: Verificación Detallada de Copia del Framebuffer ---
                                 # 1. Obtener la vista directa de C++
                                 raw_view = self._ppu.framebuffer
                                 
                                 # 2. Verificar que el framebuffer tiene datos antes de copiar
                                 if raw_view is not None:
-                                    # Contar píxeles no-blancos en el framebuffer
-                                    non_zero_count = sum(1 for px in raw_view if px != 0)
+                                    # Verificar primeros 20 píxeles antes de copiar
+                                    first_20_before = [raw_view[i] & 0x03 for i in range(min(20, len(raw_view)))]
                                     
-                                    # Log de verificación (solo primeros 5 frames)
-                                    if not hasattr(self, '_framebuffer_copy_log_count'):
-                                        self._framebuffer_copy_log_count = 0
-                                    if self._framebuffer_copy_log_count < 5:
-                                        self._framebuffer_copy_log_count += 1
-                                        logger.info(f"[Viboy-Framebuffer-Copy] Non-zero pixels: {non_zero_count}/23040")
+                                    if not hasattr(self, '_framebuffer_copy_detailed_count'):
+                                        self._framebuffer_copy_detailed_count = 0
+                                    if self._framebuffer_copy_detailed_count < 5:
+                                        self._framebuffer_copy_detailed_count += 1
+                                        logger.info(f"[Viboy-Framebuffer-Copy-Detailed] Frame {self._framebuffer_copy_detailed_count} | "
+                                                   f"First 20 indices before copy: {first_20_before}")
                                     
                                     # 3. --- STEP 0219: SNAPSHOT INMUTABLE ---
                                     # Hacemos una copia profunda inmediata a la memoria de Python.
@@ -845,15 +845,33 @@ class Viboy:
                                     fb_data = bytearray(raw_view)
                                     # ----------------------------------------
                                     
-                                    # 4. Verificar que la copia tiene los mismos datos
-                                    copy_non_zero = sum(1 for px in fb_data if px != 0)
-                                    if non_zero_count != copy_non_zero:
-                                        logger.warning(f"[Viboy-Framebuffer-Copy] ⚠️ DISCREPANCIA: Original={non_zero_count}, Copia={copy_non_zero}")
+                                    # 4. Verificar primeros 20 píxeles después de copiar
+                                    first_20_after = [fb_data[i] & 0x03 for i in range(min(20, len(fb_data)))]
                                     
-                                    # 5. Guardar la COPIA SEGURA para el renderizador
+                                    if self._framebuffer_copy_detailed_count <= 5:
+                                        logger.info(f"[Viboy-Framebuffer-Copy-Detailed] First 20 indices after copy: {first_20_after}")
+                                    
+                                    # 5. Verificar que la copia es idéntica
+                                    if first_20_before != first_20_after:
+                                        logger.warning(f"[Viboy-Framebuffer-Copy-Detailed] ⚠️ DISCREPANCIA: "
+                                                      f"Before={first_20_before}, After={first_20_after}")
+                                    
+                                    # 6. Contar índices en la copia
+                                    index_counts = {0: 0, 1: 0, 2: 0, 3: 0}
+                                    for idx in range(len(fb_data)):
+                                        color_idx = fb_data[idx] & 0x03
+                                        if color_idx in index_counts:
+                                            index_counts[color_idx] += 1
+                                    
+                                    if self._framebuffer_copy_detailed_count <= 5:
+                                        logger.info(f"[Viboy-Framebuffer-Copy-Detailed] Index counts in copy: "
+                                                   f"0={index_counts[0]} 1={index_counts[1]} "
+                                                   f"2={index_counts[2]} 3={index_counts[3]}")
+                                    
+                                    # 7. Guardar la COPIA SEGURA para el renderizador
                                     framebuffer_to_render = fb_data
                                 else:
-                                    logger.error("[Viboy-Framebuffer-Copy] ⚠️ Framebuffer es None!")
+                                    logger.error("[Viboy-Framebuffer-Copy-Detailed] ⚠️ Framebuffer es None!")
                                 # -------------------------------------------
                     else:
                         # Fallback para modo Python (arquitectura antigua)
