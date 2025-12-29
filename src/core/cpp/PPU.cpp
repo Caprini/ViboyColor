@@ -15,6 +15,7 @@ PPU::PPU(MMU* mmu)
     , scanline_rendered_(false)
     , framebuffer_(FRAMEBUFFER_SIZE, 0)  // Inicializar a índice 0 (blanco por defecto con paleta estándar)
     , frame_counter_(0)  // Step 0291: Inicializar contador de frames
+    , vram_is_empty_(true)  // Step 0330: Inicializar como vacía, se actualizará en el primer frame
 {
     // --- Step 0201: Garantizar estado inicial limpio (RAII) ---
     // En C++, el principio de RAII (Resource Acquisition Is Initialization) dicta que
@@ -463,6 +464,34 @@ void PPU::render_scanline() {
     if (mmu_ == nullptr) {
         return;
     }
+    
+    // --- Step 0330: Optimización de Verificación de VRAM ---
+    // Verificar VRAM una vez por línea (en LY=0) en lugar de 160 veces por línea
+    // Esto mejora significativamente el rendimiento y asegura consistencia
+    if (ly_ == 0) {
+        // Verificar si VRAM está completamente vacía
+        int vram_non_zero = 0;
+        for (uint16_t i = 0; i < 6144; i++) {
+            if (mmu_->read(0x8000 + i) != 0x00) {
+                vram_non_zero++;
+            }
+        }
+        
+        vram_is_empty_ = (vram_non_zero < 200);
+        
+        static int vram_check_log_count = 0;
+        if (vram_check_log_count < 5) {
+            vram_check_log_count++;
+            printf("[PPU-VRAM-CHECK] Frame %llu | VRAM non-zero: %d/6144 | Empty: %s\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1),
+                   vram_non_zero, vram_is_empty_ ? "YES" : "NO");
+        }
+    }
+    // -------------------------------------------
+    
+    // --- Step 0330: Flag para controlar checkerboard temporal ---
+    static bool enable_checkerboard_temporal = true;  // Flag para controlar
+    // -------------------------------------------
     
     uint8_t lcdc = mmu_->read(IO_LCDC);
     
@@ -1123,24 +1152,18 @@ void PPU::render_scanline() {
                 }
             }
 
-            // --- Step 0329: Lógica Mejorada del Checkerboard Temporal ---
+            // --- Step 0330: Lógica Optimizada del Checkerboard Temporal ---
             // Activar checkerboard cuando:
             // 1. El tile está completamente vacío (todas las líneas = 0x00)
-            // 2. O cuando el tilemap apunta a tiles fuera del rango válido
+            // 2. VRAM está completamente vacía (< 200 bytes no-cero)
             // Esto previene pantallas blancas cuando el tilemap apunta a direcciones inválidas
-            static bool enable_checkerboard_temporal = true;  // Flag para controlar
-
-            if (tile_is_empty && enable_checkerboard_temporal) {
-                // Verificar si VRAM está completamente vacía
-                int vram_non_zero = 0;
-                for (uint16_t i = 0; i < 6144; i++) {
-                    if (mmu_->read(0x8000 + i) != 0x00) {
-                        vram_non_zero++;
-                    }
-                }
-                
-                // Activar checkerboard si VRAM está completamente vacía o si el tile está fuera de rango
-                if (vram_non_zero < 200) {
+            // OPTIMIZACIÓN: Usar variable vram_is_empty_ en lugar de verificar VRAM en cada píxel
+            if (tile_is_empty && enable_checkerboard_temporal && vram_is_empty_) {
+                // --- Step 0330: Usar Variable de Estado en lugar de Verificar VRAM ---
+                // En lugar de verificar VRAM en cada píxel, usar la variable vram_is_empty_
+                // que se actualiza una vez por línea (en LY=0)
+                // Activar checkerboard si VRAM está completamente vacía
+                {
                     if (!empty_tile_detected && ly_ == 0 && x == 0) {
                         empty_tile_detected = true;
                         printf("[PPU-FIX-EMPTY-TILE] Detectado tile completamente vacío en 0x%04X, usando checkerboard temporal\n", tile_addr);
@@ -1173,12 +1196,12 @@ void PPU::render_scanline() {
                             byte2 = 0xFF;
                         }
                     }
-                } else {
-                    // VRAM tiene datos, pero este tile específico está vacío
-                    // Renderizar como tile vacío (blanco) sin checkerboard
-                    byte1 = 0x00;
-                    byte2 = 0x00;
                 }
+            } else if (tile_is_empty) {
+                // VRAM tiene datos, pero este tile específico está vacío
+                // Renderizar como tile vacío (blanco) sin checkerboard
+                byte1 = 0x00;
+                byte2 = 0x00;
             } else if (tile_is_empty && !enable_checkerboard_temporal) {
                 // Checkerboard desactivado, renderizar como tile vacío
                 byte1 = 0x00;
@@ -1367,6 +1390,33 @@ void PPU::render_scanline() {
     // Los sprites se dibujan encima del fondo y la ventana (a menos que tengan prioridad)
     // Fuente: Pan Docs - Sprite Rendering, Priority
     render_sprites();
+    
+    // --- Step 0330: Verificación de Renderizado Completo del Checkerboard ---
+    // Verificar que el checkerboard se renderiza en todas las líneas
+    if (vram_is_empty_ && enable_checkerboard_temporal && ly_ == 72) {
+        static int checkerboard_render_check_count = 0;
+        if (checkerboard_render_check_count < 3) {
+            checkerboard_render_check_count++;
+            
+            // Verificar que el framebuffer tiene datos no-blancos en la línea central
+            size_t line_start = ly_ * SCREEN_WIDTH;
+            int non_zero_pixels = 0;
+            for (int x_check = 0; x_check < SCREEN_WIDTH; x_check++) {
+                uint8_t color_idx = framebuffer_[line_start + x_check] & 0x03;
+                if (color_idx != 0) {
+                    non_zero_pixels++;
+                }
+            }
+            
+            printf("[PPU-CHECKERBOARD-RENDER] LY:72 | Non-zero pixels: %d/160 | Expected: ~80\n",
+                   non_zero_pixels);
+            
+            if (non_zero_pixels == 0) {
+                printf("[PPU-CHECKERBOARD-RENDER] ⚠️ PROBLEMA: Framebuffer vacío aunque checkerboard debería estar activo!\n");
+            }
+        }
+    }
+    // -------------------------------------------
     
     // --- Step 0320: Verificación del Framebuffer después de Renderizar ---
     // Verificar que se renderizó algo (no todo blanco) en la línea actual

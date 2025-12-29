@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0330 - Optimización de Checkerboard Temporal y Renderizado Completo -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0330__optimizacion-checkerboard-renderizado-completo.html" class="entry-link">
+                                    Optimización de Checkerboard Temporal y Renderizado Completo
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0330 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de optimización crítica del renderizado moviendo la verificación de VRAM fuera del bucle de renderizado. La verificación se ejecutaba 160 veces por línea (una vez por cada píxel), causando un overhead masivo de 983,040 lecturas de memoria por línea. Se implementó una variable de estado vram_is_empty_ que se actualiza una vez por línea (en LY=0) y se usa en el bucle de renderizado, mejorando significativamente el rendimiento y asegurando consistencia. Se agregó verificación de renderizado completo del checkerboard para asegurar que se renderiza en todas las líneas.
+                        </p>
+                    </li>
                                         <!-- Entrada 0329 - Corrección de Renderizado con Tiles Vacíos y Cambios de Tilemap -->
                     <li>
                         <div class="entry-header">

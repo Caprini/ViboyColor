@@ -257,6 +257,13 @@ private:
     bool scanline_rendered_;
     
     /**
+     * Step 0330: Estado de VRAM para optimización.
+     * Indica si VRAM está completamente vacía (< 200 bytes no-cero).
+     * Se actualiza una vez por línea (en LY=0) para evitar verificaciones repetitivas.
+     */
+    bool vram_is_empty_;
+    
+    /**
      * Actualiza el modo PPU actual según el punto en la línea (line_cycles) y LY.
      */
     void update_mode();
