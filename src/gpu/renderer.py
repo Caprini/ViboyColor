@@ -1512,6 +1512,18 @@ class Renderer:
                     self.surface = self._px_array_surface
                 
                 render_time = (time.time() - render_start) * 1000  # en milisegundos
+                
+                # --- Step 0363: Diagnóstico de Rendimiento en Renderer ---
+                # Reportar tiempo de renderizado cada 60 frames
+                if not hasattr(self, '_render_perf_frame_count'):
+                    self._render_perf_frame_count = 0
+                self._render_perf_frame_count += 1
+                
+                if self._render_perf_frame_count % 60 == 0:
+                    logger.info(f"[Viboy-Perf] Frame {self._render_perf_frame_count} | "
+                               f"Render: {render_time:.2f}ms")
+                    print(f"[Viboy-Perf] Frame {self._render_perf_frame_count} | "
+                          f"Render: {render_time:.2f}ms", flush=True)
                 # ----------------------------------------
                 
                 # --- Step 0341: Verificación del Dibujo de Píxeles en Pygame ---

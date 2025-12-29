@@ -39,12 +39,13 @@ except ImportError:
 # Configurar logger antes de usarlo
 logger = logging.getLogger(__name__)
 
-# --- Step 0333: Configuración Explícita del Logger ---
-# Asegurar que el logger muestra logs de nivel INFO
+# --- Step 0362: Corrección de Logs de Python ---
+# Configurar logger explícitamente con salida a stdout
 logging.basicConfig(
     level=logging.INFO,
-    format='%(levelname)s: %(message)s',
-    force=True  # Forzar reconfiguración si ya estaba configurado
+    format='%(message)s',
+    force=True,  # Forzar reconfiguración si ya estaba configurado
+    stream=sys.stdout  # Asegurar que va a stdout
 )
 # -------------------------------------------
 
@@ -1041,6 +1042,18 @@ class Viboy:
                                     # 7. Guardar la COPIA SEGURA para el renderizador
                                     framebuffer_to_render = fb_data
                                     
+                                    # --- Step 0363: Diagnóstico de Rendimiento en Python ---
+                                    # Medir tiempo de lectura del framebuffer y reportar cada 60 frames
+                                    if not hasattr(self, '_framebuffer_read_timing_count'):
+                                        self._framebuffer_read_timing_count = 0
+                                    self._framebuffer_read_timing_count += 1
+                                    
+                                    if self._framebuffer_read_timing_count % 60 == 0:
+                                        logger.info(f"[Viboy-Perf] Frame {self._framebuffer_read_timing_count} | "
+                                                   f"Read: {read_duration:.2f}ms")
+                                        print(f"[Viboy-Perf] Frame {self._framebuffer_read_timing_count} | "
+                                              f"Read: {read_duration:.2f}ms", flush=True)
+                                    
                                     # --- Step 0340: Finalizar Timing de Lectura del Framebuffer ---
                                     if self._framebuffer_read_timing_count <= 10:
                                         logger.info(f"[Viboy-Framebuffer-Read-Timing] Frame {self._framebuffer_read_timing_count} | "
@@ -1100,18 +1113,30 @@ class Viboy:
                         # Verificar contenido antes de copiar
                         non_white_before = sum(1 for idx in framebuffer_to_render[:1000] if idx != 0)
                         
+                        # --- Step 0362: Logs de Python con print() ---
+                        # Usar tanto logger como print() para asegurar que aparece
                         if self._render_call_count <= 20:
-                            logger.info(f"[Viboy-Render-Call] Call #{self._render_call_count} | "
-                                       f"Non-white pixels (first 1000): {non_white_before}/1000")
+                            log_msg = f"[Viboy-Render] Frame ready, reading framebuffer"
+                            logger.info(log_msg)
+                            print(log_msg, flush=True)  # flush=True para asegurar salida inmediata
+                            
+                            log_msg = f"[Viboy-Render] Call #{self._render_call_count} | " \
+                                     f"Non-white pixels (first 1000): {non_white_before}/1000"
+                            logger.info(log_msg)
+                            print(log_msg, flush=True)
                             
                             # Mostrar primeros 20 índices
                             first_20 = list(framebuffer_to_render[:20])
-                            logger.info(f"[Viboy-Render-Call] First 20 indices: {first_20}")
+                            log_msg = f"[Viboy-Render] First 20 indices: {first_20}"
+                            logger.info(log_msg)
+                            print(log_msg, flush=True)
                             
                             # Advertencia si está vacío
                             if non_white_before < 10:
-                                logger.warning(f"[Viboy-Render-Call] ⚠️ ADVERTENCIA: "
-                                              f"Framebuffer está vacío cuando se va a renderizar!")
+                                log_msg = f"[Viboy-Render] ⚠️ ADVERTENCIA: " \
+                                         f"Framebuffer está vacío cuando se va a renderizar!"
+                                logger.warning(log_msg)
+                                print(log_msg, flush=True)
                         # -------------------------------------------
                         
                         # Pasar la COPIA SEGURA al renderizador

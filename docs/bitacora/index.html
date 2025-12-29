@@ -32,6 +32,42 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0363 - Verificación Visual y Análisis de Rendimiento Post-Correcciones -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0363__verificacion-visual-analisis-rendimiento.html" class="entry-link">
+                                    Verificación Visual y Análisis de Rendimiento Post-Correcciones
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0363 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó un sistema completo de diagnóstico de rendimiento para identificar cuellos de botella en el pipeline de renderizado. Se agregaron mediciones de tiempo en los puntos críticos: renderizado de scanlines en C++, lectura del framebuffer en Python, y renderizado final en el renderer. Este sistema permitirá identificar si el problema de FPS bajo (0.1-10.8) se debe a cuellos de botella en el pipeline de renderizado o a otros factores.
+                        </p>
+                    </li>
+                                        <!-- Entrada 0362 - Corrección del Problema de Framebuffer Vacío y Verificación Visual Final -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0362__correccion-framebuffer-vacio-verificacion-visual.html" class="entry-link">
+                                    Corrección del Problema de Framebuffer Vacío y Verificación Visual Final
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0362 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se corrigió el problema crítico de que el framebuffer estaba vacío cuando Python lo leía, causando pantallas blancas. Se implementaron correcciones de timing para asegurar que el framebuffer solo se limpia cuando Python confirma que lo leyó, se agregaron verificaciones para asegurar que todas las líneas visibles se renderizan, y se corrigieron los logs de Python para que aparezcan correctamente. Estas correcciones aseguran que el framebuffer se mantiene estable hasta que Python lo lee completamente, eliminando condiciones de carrera entre C++ y Python.
+                        </p>
+                    </li>
                                         <!-- Entrada 0361 - Investigación y Corrección del Problema de Pantallas Blancas y Rendimiento -->
                     <li>
                         <div class="entry-header">

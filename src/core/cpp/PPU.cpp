@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>  // Step 0321: Para abs()
+#include <chrono>  // Step 0363: Para diagnóstico de rendimiento
 
 PPU::PPU(MMU* mmu) 
     : mmu_(mmu)
@@ -847,11 +848,27 @@ void PPU::step(int cpu_cycles) {
             }
             // -------------------------------------------
             
-            // --- Step 0360: Limpiar Framebuffer al Inicio del Siguiente Frame ---
-            // El framebuffer se limpia al inicio del siguiente frame (cuando LY se resetea a 0)
-            // PERO solo si Python no lo está leyendo (protección contra condiciones de carrera)
-            // clear_framebuffer() ahora verifica framebuffer_being_read_ internamente
-            clear_framebuffer();
+            // --- Step 0362: Corrección de Timing de Limpieza del Framebuffer ---
+            // NO limpiar el framebuffer al inicio del siguiente frame
+            // El framebuffer solo se limpiará cuando Python confirme que lo leyó
+            // Esto asegura que el framebuffer se mantiene hasta que Python lo lee
+            // 
+            // RESERVADO: El framebuffer NO se limpia aquí
+            // Se limpiará cuando Python llame a confirm_framebuffer_read()
+            // Esto asegura que el framebuffer se mantiene hasta que Python lo lee
+            
+            // Loggear para verificar que no se limpia aquí
+            static int no_clear_log_count = 0;
+            if (no_clear_log_count < 5) {
+                no_clear_log_count++;
+                printf("[PPU-FRAMEBUFFER-NO-CLEAR] Frame %llu | LY > 153 | "
+                       "Framebuffer NO se limpia aquí (se mantiene para Python)\n",
+                       static_cast<unsigned long long>(frame_counter_));
+            }
+            
+            // NO llamar a clear_framebuffer() aquí
+            // clear_framebuffer();  // COMENTADO en Step 0362
+            // -------------------------------------------
         }
     }
     
@@ -1008,58 +1025,77 @@ void PPU::set_lyc(uint8_t value) {
 }
 
 bool PPU::get_frame_ready_and_reset() {
+    // --- Step 0363: Diagnóstico de Rendimiento ---
+    // Medir tiempo de get_frame_ready_and_reset()
+    auto start_time = std::chrono::high_resolution_clock::now();
+    // -------------------------------------------
+    
     if (frame_ready_) {
-        // --- Step 0361: Verificación del Framebuffer Antes de Leer ---
-        // Verificar que el framebuffer tiene datos justo antes de que Python lo lea
-        int non_white_pixels = 0;
-        int index_counts[4] = {0, 0, 0, 0};
-        
-        for (int i = 0; i < 160 * 144; i++) {
-            uint8_t idx = framebuffer_[i];
-            index_counts[idx]++;
-            if (idx != 0) {
-                non_white_pixels++;
+        // --- Step 0362: Verificación de Estabilidad del Framebuffer ---
+        // Capturar snapshot del framebuffer antes de marcarlo como leído
+        int non_white_before = 0;
+        uint8_t sample_indices[20];
+        for (int i = 0; i < 20; i++) {
+            sample_indices[i] = framebuffer_[i];
+            if (framebuffer_[i] != 0) {
+                non_white_before++;
             }
         }
         
-        static int framebuffer_check_count = 0;
-        if (framebuffer_check_count < 20) {
-            framebuffer_check_count++;
+        static int stability_check_count = 0;
+        if (stability_check_count < 10) {
+            stability_check_count++;
             
-            printf("[PPU-FRAMEBUFFER-BEFORE-READ] Frame %llu | "
-                   "Non-white pixels: %d/23040 (%.2f%%) | "
-                   "Index distribution: 0=%d 1=%d 2=%d 3=%d\n",
-                   static_cast<unsigned long long>(frame_counter_),
-                   non_white_pixels, (non_white_pixels * 100.0) / 23040,
-                   index_counts[0], index_counts[1], index_counts[2], index_counts[3]);
-            
-            // Advertencia si el framebuffer está vacío
-            if (non_white_pixels < 100) {
-                printf("[PPU-FRAMEBUFFER-BEFORE-READ] ⚠️ ADVERTENCIA: "
-                       "Framebuffer está vacío cuando Python va a leer!\n");
+            printf("[PPU-FRAMEBUFFER-STABILITY] Frame %llu | Before marking as read | "
+                   "Non-white (first 20): %d/20 | Sample indices: ",
+                   static_cast<unsigned long long>(frame_counter_), non_white_before);
+            for (int i = 0; i < 20; i++) {
+                printf("%d ", sample_indices[i]);
             }
+            printf("\n");
+        }
+        
+        frame_ready_ = false;
+        framebuffer_being_read_ = true;
+        
+        // Guardar snapshot para comparar después
+        static uint8_t saved_sample[20];
+        for (int i = 0; i < 20; i++) {
+            saved_sample[i] = sample_indices[i];
         }
         // -------------------------------------------
         
-        frame_ready_ = false;
+        // --- Step 0363: Diagnóstico de Rendimiento (fin) ---
+        auto end_time = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
         
-        // --- Step 0360: Protección del Framebuffer Durante Renderizado ---
-        // Marcar que Python va a leer el framebuffer
-        // NO limpiar el framebuffer aquí - se limpiará cuando Python confirme que lo leyó
-        framebuffer_being_read_ = true;
-        
-        // Log de reset del flag (sin limpiar framebuffer)
-        static int frame_ready_reset_log_count = 0;
-        if (frame_ready_reset_log_count < 5) {
-            frame_ready_reset_log_count++;
-            printf("[PPU-FRAME-READY-RESET] Frame %llu | Flag frame_ready_ reseteado | "
-                   "Framebuffer protegido (Python va a leer)\n",
-                   static_cast<unsigned long long>(frame_counter_));
+        static int get_frame_timing_count = 0;
+        if (get_frame_timing_count < 100) {
+            get_frame_timing_count++;
+            if (get_frame_timing_count % 10 == 0) {
+                printf("[PPU-PERF] get_frame_ready_and_reset() took %lld microseconds\n", 
+                       duration.count());
+            }
         }
         // -------------------------------------------
         
         return true;
     }
+    
+    // --- Step 0363: Diagnóstico de Rendimiento (fin - caso no frame_ready) ---
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+    
+    static int get_frame_false_timing_count = 0;
+    if (get_frame_false_timing_count < 100) {
+        get_frame_false_timing_count++;
+        if (get_frame_false_timing_count % 10 == 0) {
+            printf("[PPU-PERF] get_frame_ready_and_reset() (false) took %lld microseconds\n", 
+                   duration.count());
+        }
+    }
+    // -------------------------------------------
+    
     return false;
 }
 
@@ -1103,94 +1139,96 @@ void PPU::clear_framebuffer() {
 }
 
 void PPU::confirm_framebuffer_read() {
-    // --- Step 0360: Confirmar Lectura del Framebuffer ---
-    // Python confirmó que leyó el framebuffer, ahora es seguro limpiarlo
+    // --- Step 0362: Verificación de Estabilidad del Framebuffer ---
+    // Verificar que el framebuffer no cambió mientras Python lo leía
     if (framebuffer_being_read_) {
-        // --- Step 0361: Verificación de Timing de Limpieza ---
-        // Verificar que el framebuffer no se limpia demasiado pronto
-        int non_white_before_clear = 0;
-        for (int i = 0; i < 160 * 144; i++) {
-            if (framebuffer_[i] != 0) {
-                non_white_before_clear++;
+        // Verificar que el framebuffer no cambió mientras Python lo leía
+        static uint8_t saved_sample[20];
+        bool changed = false;
+        for (int i = 0; i < 20; i++) {
+            if (framebuffer_[i] != saved_sample[i]) {
+                changed = true;
+                break;
             }
         }
         
-        static int clear_timing_check_count = 0;
-        if (clear_timing_check_count < 20) {
-            clear_timing_check_count++;
-            
-            printf("[PPU-CLEAR-TIMING] Frame %llu | "
-                   "Non-white pixels before clear: %d/23040 (%.2f%%) | "
-                   "Clearing framebuffer now\n",
-                   static_cast<unsigned long long>(frame_counter_),
-                   non_white_before_clear, (non_white_before_clear * 100.0) / 23040);
+        if (changed) {
+            static int change_warning_count = 0;
+            if (change_warning_count < 10) {
+                change_warning_count++;
+                printf("[PPU-FRAMEBUFFER-STABILITY] ⚠️ ADVERTENCIA: "
+                       "Framebuffer cambió mientras Python lo leía!\n");
+            }
         }
-        // -------------------------------------------
         
         framebuffer_being_read_ = false;
-        
-        // Ahora es seguro limpiar el framebuffer
         std::fill(framebuffer_.begin(), framebuffer_.end(), 0);
-        
-        static int confirm_log_count = 0;
-        if (confirm_log_count < 5) {
-            confirm_log_count++;
-            printf("[PPU-FRAMEBUFFER-SYNC] Frame %llu | Python confirmó lectura | "
-                   "Framebuffer limpiado de forma segura\n",
-                   static_cast<unsigned long long>(frame_counter_));
-        }
     }
     // -------------------------------------------
 }
 
 void PPU::render_scanline() {
+    // --- Step 0363: Diagnóstico de Rendimiento ---
+    // Medir tiempo de render_scanline() para identificar cuellos de botella
+    static int render_scanline_timing_count = 0;
+    auto start_time = std::chrono::high_resolution_clock::now();
+    // -------------------------------------------
+    
     // --- Step 0203: Lógica de renderizado normal restaurada ---
     // El "Test del Checkerboard" del Step 0202 confirmó que el pipeline de renderizado
     // C++ -> Cython -> Python funciona perfectamente. Ahora restauramos la lógica
     // de renderizado normal que lee desde la VRAM para poder investigar por qué
     // la VRAM permanece vacía.
     
-    // --- Step 0339: Verificación de Renderizado de Todas las Líneas ---
-    // Verificar que todas las líneas se renderizan (LY 0-143)
+    // --- Step 0362: Verificación de Renderizado de Todas las Líneas ---
+    // Verificar que todas las líneas visibles se renderizan
     static bool lines_rendered[144] = {false};
-    static int lines_render_check_count = 0;
     
-    // Marcar que esta línea se está renderizando
-    if (ly_ < 144) {
-        lines_rendered[ly_] = true;
-    }
-    
-    // Verificar si todas las líneas se han renderizado (cada 10 frames)
-    if (ly_ == 0 && (frame_counter_ % 10 == 0)) {
-        lines_render_check_count++;
-        
-        int lines_not_rendered = 0;
-        for (int i = 0; i < 144; i++) {
-            if (!lines_rendered[i]) {
-                lines_not_rendered++;
+    if (ly_ < 144 && mode_ == MODE_3_PIXEL_TRANSFER) {
+        // Verificar que render_scanline() se ejecuta
+        if (!lines_rendered[ly_]) {
+            lines_rendered[ly_] = true;
+            
+            static int lines_rendered_count = 0;
+            lines_rendered_count++;
+            
+            if (lines_rendered_count <= 20) {
+                printf("[PPU-LINE-RENDER] LY=%d | Line rendered | "
+                       "Total lines rendered so far: %d/144\n",
+                       ly_, lines_rendered_count);
             }
         }
         
-        if (lines_not_rendered > 0) {
-            printf("[PPU-LINES-RENDER] Frame %llu | Líneas NO renderizadas: %d/144\n",
-                   static_cast<unsigned long long>(frame_counter_ + 1), lines_not_rendered);
-            
-            // Loggear las primeras 10 líneas no renderizadas
-            int logged = 0;
-            for (int i = 0; i < 144 && logged < 10; i++) {
-                if (!lines_rendered[i]) {
-                    printf("[PPU-LINES-RENDER] Línea %d NO renderizada\n", i);
-                    logged++;
+        // Verificar que la línea tiene datos después de renderizar
+        if (ly_ == 143) {
+            // Última línea visible - verificar framebuffer completo
+            int total_non_white = 0;
+            for (int i = 0; i < 160 * 144; i++) {
+                if (framebuffer_[i] != 0) {
+                    total_non_white++;
                 }
             }
-        } else {
-            printf("[PPU-LINES-RENDER] Frame %llu | Todas las líneas renderizadas (144/144)\n",
-                   static_cast<unsigned long long>(frame_counter_ + 1));
-        }
-        
-        // Resetear el array para el siguiente frame
-        for (int i = 0; i < 144; i++) {
-            lines_rendered[i] = false;
+            
+            static int frame_complete_check_count = 0;
+            if (frame_complete_check_count < 10) {
+                frame_complete_check_count++;
+                
+                printf("[PPU-FRAME-COMPLETE] Frame %llu | All 144 lines rendered | "
+                       "Total non-white pixels: %d/23040 (%.2f%%)\n",
+                       static_cast<unsigned long long>(frame_counter_),
+                       total_non_white, (total_non_white * 100.0) / 23040);
+                
+                // Advertencia si el framebuffer está vacío después de renderizar todas las líneas
+                if (total_non_white < 100) {
+                    printf("[PPU-FRAME-COMPLETE] ⚠️ ADVERTENCIA: "
+                           "Framebuffer está vacío después de renderizar todas las líneas!\n");
+                }
+            }
+            
+            // Resetear array de líneas renderizadas para el siguiente frame
+            for (int i = 0; i < 144; i++) {
+                lines_rendered[i] = false;
+            }
         }
     }
     // -------------------------------------------
@@ -2695,6 +2733,20 @@ void PPU::render_scanline() {
         // Advertencia si VRAM tiene tiles pero la línea está vacía
         if (vram_non_zero >= 200 && line_non_white < 10) {
             printf("[PPU-RENDER-SCANLINE] ⚠️ ADVERTENCIA: VRAM tiene tiles pero línea está vacía!\n");
+        }
+    }
+    // -------------------------------------------
+    
+    // --- Step 0363: Diagnóstico de Rendimiento (fin) ---
+    // Medir tiempo total de render_scanline() y reportar periódicamente
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+    
+    if (render_scanline_timing_count < 100) {
+        render_scanline_timing_count++;
+        if (render_scanline_timing_count % 10 == 0) {
+            printf("[PPU-PERF] render_scanline() (LY=%d) took %lld microseconds\n", 
+                   ly_, duration.count());
         }
     }
     // -------------------------------------------
