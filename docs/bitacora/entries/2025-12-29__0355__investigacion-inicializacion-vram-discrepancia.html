@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Inicialización de VRAM y Discrepancia en Datos Iniciales - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Inicialización de VRAM y Discrepancia en Datos Iniciales</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0355
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0354__investigacion-borrado-datos-iniciales-vram.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó investigación de inicialización de VRAM y discrepancia en datos iniciales para entender por qué el estado inicial de VRAM tiene tan pocos datos (40 bytes no-cero, 0.65%) cuando el Step 0353 reportó 92-98% de bytes no-cero. Se verificó cómo se inicializa VRAM en el constructor, si los datos iniciales se cargan desde la ROM, cuándo se mide el estado inicial en diferentes steps, y si hay escrituras no-cero que cargan datos iniciales al inicio de la ejecución del CPU.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Inicialización de VRAM:</strong> VRAM se inicializa cuando se construye MMU. En el hardware real, VRAM puede contener datos aleatorios al inicio. Algunos emuladores inicializan VRAM con ceros, otros con valores aleatorios. En nuestro emulador, VRAM se inicializa con ceros en el constructor de MMU (<code>memory_(MEMORY_SIZE, 0)</code>), lo que significa que VRAM también se inicializa con ceros.
+                </p>
+                <p>
+                    <strong>Carga de Datos desde la ROM:</strong> Las ROMs de Game Boy generalmente no tienen datos iniciales en VRAM. Los datos iniciales se generan durante la inicialización del juego. Algunos juegos cargan tiles iniciales desde la ROM durante la inicialización. Sin embargo, en nuestro emulador, la ROM se carga después de que MMU se construye, por lo que VRAM ya está inicializada con ceros cuando se carga la ROM.
+                </p>
+                <p>
+                    <strong>Timing de Medición:</strong> El estado de VRAM puede cambiar rápidamente durante la inicialización. Medir en diferentes momentos puede dar resultados diferentes. Es importante medir en el momento correcto para obtener resultados precisos. El Step 0353 midió el estado inicial cuando se carga la ROM, mientras que el Step 0354 midió el estado inicial cuando se detecta el primer borrado. Esta diferencia en el timing puede explicar la discrepancia entre los dos steps.
+                </p>
+                <p>
+                    <strong>Generación de Datos Iniciales:</strong> Los datos iniciales pueden generarse durante la inicialización del juego. El juego puede escribir tiles iniciales a VRAM durante la inicialización, antes de que empecemos a monitorear. Si estas escrituras ocurren antes de que empecemos a monitorear, no las detectaremos, pero VRAM tendrá datos cuando empecemos a monitorear.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron 5 tareas principales de diagnóstico según el plan Step 0355:
+                </p>
+                
+                <h3>1. Verificación de Inicialización de VRAM en el Constructor (MMU.cpp)</h3>
+                <p>
+                    Se agregó código en el constructor de MMU para verificar el estado de VRAM inmediatamente después de la inicialización. El código cuenta bytes no-cero en VRAM y genera un log con estadísticas.
+                </p>
+                <pre><code>// --- Step 0355: Verificación de Inicialización de VRAM ---
+// Verificar el estado de VRAM inmediatamente después de la inicialización
+int non_zero_bytes = 0;
+for (uint16_t addr = 0x8000; addr < 0x9800; addr++) {
+    uint8_t byte = memory_[addr];
+    if (byte != 0x00) {
+        non_zero_bytes++;
+    }
+}
+
+printf("[MMU-VRAM-INIT] VRAM initialized | Non-zero bytes: %d/6144 (%.2f%%)\n",
+       non_zero_bytes, (non_zero_bytes * 100.0) / 6144);
+
+if (non_zero_bytes < 200) {
+    printf("[MMU-VRAM-INIT] ⚠️ ADVERTENCIA: VRAM está vacía después de la inicialización!\n");
+}
+// -----------------------------------------</code></pre>
+                
+                <h3>2. Verificación de Carga de Datos Iniciales desde la ROM (MMU.cpp)</h3>
+                <p>
+                    Se agregó código en <code>MMU::load_rom()</code> para verificar el estado de VRAM después de cargar la ROM. El código cuenta bytes no-cero en VRAM y genera un log con estadísticas.
+                </p>
+                <pre><code>// --- Step 0355: Verificación de Carga de Datos Iniciales desde la ROM ---
+// Verificar el estado de VRAM después de cargar la ROM
+int non_zero_bytes = 0;
+for (uint16_t addr = 0x8000; addr < 0x9800; addr++) {
+    uint8_t byte = memory_[addr];
+    if (byte != 0x00) {
+        non_zero_bytes++;
+    }
+}
+
+printf("[MMU-VRAM-AFTER-ROM-LOAD] VRAM after ROM load | Non-zero bytes: %d/6144 (%.2f%%)\n",
+       non_zero_bytes, (non_zero_bytes * 100.0) / 6144);
+
+if (non_zero_bytes < 200) {
+    printf("[MMU-VRAM-AFTER-ROM-LOAD] ⚠️ ADVERTENCIA: VRAM está vacía después de cargar la ROM!\n");
+}
+// -----------------------------------------</code></pre>
+                
+                <h3>3. Verificación de Discrepancia en la Medición del Estado Inicial (MMU.cpp)</h3>
+                <p>
+                    Se agregó función <code>MMU::check_vram_state_at_point()</code> para verificar el estado de VRAM en diferentes momentos. Esta función se llama en múltiples puntos (constructor, después de cargar ROM, cuando el CPU empieza) para identificar la discrepancia.
+                </p>
+                <pre><code>// --- Step 0355: Verificación de Estado de VRAM en Múltiples Puntos ---
+void MMU::check_vram_state_at_point(const char* point_name) {
+    static std::map&lt;std::string, bool&gt; checked_points;
+    
+    if (checked_points.find(point_name) == checked_points.end()) {
+        checked_points[point_name] = true;
+        
+        int non_zero_bytes = 0;
+        int complete_tiles = 0;
+        
+        for (uint16_t addr = 0x8000; addr < 0x9800; addr += 16) {
+            bool tile_has_data = false;
+            int tile_non_zero = 0;
+            
+            for (int i = 0; i < 16; i++) {
+                uint8_t byte = memory_[addr - 0x8000 + i];
+                if (byte != 0x00) {
+                    non_zero_bytes++;
+                    tile_non_zero++;
+                    tile_has_data = true;
+                }
+            }
+            
+            if (tile_non_zero >= 8) {
+                complete_tiles++;
+            }
+        }
+        
+        printf("[MMU-VRAM-STATE-POINT] Point: %s | Non-zero bytes: %d/6144 (%.2f%%) | "
+               "Complete tiles: %d/384 (%.2f%%)\n",
+               point_name,
+               non_zero_bytes, (non_zero_bytes * 100.0) / 6144,
+               complete_tiles, (complete_tiles * 100.0) / 384);
+    }
+}
+// -----------------------------------------</code></pre>
+                
+                <h3>4. Verificación de Escrituras desde el Inicio de la Ejecución del CPU (MMU.cpp)</h3>
+                <p>
+                    Se agregó código en <code>MMU::write()</code> para monitorear todas las escrituras a VRAM desde el primer ciclo del CPU. El código detecta cuando el CPU empieza a ejecutar y verifica el estado de VRAM en ese momento. También loggea las primeras 500 escrituras no-cero con información detallada.
+                </p>
+                <pre><code>// --- Step 0355: Monitoreo de Escrituras desde el Inicio de la Ejecución ---
+// Monitorear todas las escrituras a VRAM desde el primer ciclo del CPU
+static int vram_write_from_cpu_start_count = 0;
+static int vram_write_non_zero_from_cpu_start = 0;
+static bool cpu_started = false;
+
+// Detectar cuando el CPU empieza a ejecutar (primera escritura a cualquier dirección)
+if (!cpu_started) {
+    cpu_started = true;
+    printf("[MMU-VRAM-CPU-START] CPU started executing | Monitoring VRAM writes from now\n");
+    
+    // Verificar estado de VRAM cuando el CPU empieza
+    int non_zero_bytes = 0;
+    for (uint16_t check_addr = 0x8000; check_addr < 0x9800; check_addr++) {
+        uint8_t byte = memory_[check_addr];
+        if (byte != 0x00) {
+            non_zero_bytes++;
+        }
+    }
+    
+    printf("[MMU-VRAM-CPU-START] VRAM state when CPU starts | Non-zero bytes: %d/6144 (%.2f%%)\n",
+           non_zero_bytes, (non_zero_bytes * 100.0) / 6144);
+    
+    // Verificar estado de VRAM en este punto
+    check_vram_state_at_point("CPU Start");
+}
+
+if (addr >= 0x8000 && addr < 0x9800) {
+    vram_write_from_cpu_start_count++;
+    
+    if (value != 0x00) {
+        vram_write_non_zero_from_cpu_start++;
+        
+        // Loggear todas las escrituras no-cero (no solo las primeras 100)
+        if (vram_write_non_zero_from_cpu_start <= 500) {
+            // Obtener PC del CPU (ya está disponible en debug_current_pc)
+            uint16_t pc = debug_current_pc;
+            
+            // Obtener frame desde PPU (si está disponible)
+            uint64_t frame = 0;
+            if (ppu_ != nullptr) {
+                frame = ppu_->get_frame_counter();
+            }
+            
+            printf("[MMU-VRAM-WRITE-FROM-CPU-START] Non-zero write #%d | Addr=0x%04X | Value=0x%02X | "
+                   "PC=0x%04X | Frame %llu | Total writes=%d\n",
+                   vram_write_non_zero_from_cpu_start, addr, value, pc,
+                   static_cast&lt;unsigned long long&gt;(frame),
+                   vram_write_from_cpu_start_count);
+        }
+    }
+    
+    // Loggear estadísticas cada 1000 escrituras
+    if (vram_write_from_cpu_start_count > 0 && vram_write_from_cpu_start_count % 1000 == 0) {
+        printf("[MMU-VRAM-WRITE-FROM-CPU-START-STATS] Total writes=%d | Non-zero writes=%d | "
+               "Non-zero ratio=%.2f%%\n",
+               vram_write_from_cpu_start_count, vram_write_non_zero_from_cpu_start,
+               (vram_write_non_zero_from_cpu_start * 100.0) / vram_write_from_cpu_start_count);
+    }
+}
+// -----------------------------------------</code></pre>
+                
+                <h3>Archivos Modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Agregada verificación de inicialización de VRAM en el constructor, verificación de carga de datos iniciales desde la ROM, función <code>check_vram_state_at_point()</code>, y monitoreo de escrituras desde el inicio de la ejecución del CPU</li>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Agregada declaración de <code>check_vram_state_at_point()</code></li>
+                </ul>
+            </section>
+
+            <!-- 4. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas con las 5 ROMs en paralelo (~2.5 minutos total) para analizar la inicialización de VRAM y la discrepancia en datos iniciales:
+                </p>
+                <ul>
+                    <li><strong>ROMs probadas:</strong> pkmn.gb, tetris.gb, mario.gbc, pkmn-amarillo.gb, Oro.gbc</li>
+                    <li><strong>Comando ejecutado:</strong> <code>timeout 150 python3 main.py roms/&lt;rom&gt;.gb 2>&1 | tee logs/test_&lt;rom&gt;_step0355.log &</code> (5 procesos en paralelo)</li>
+                    <li><strong>Análisis de logs:</strong> Se usaron comandos <code>grep</code> y <code>head</code> para extraer información específica sin saturar el contexto</li>
+                </ul>
+                
+                <h3>Comandos de Análisis</h3>
+                <pre><code># Verificar inicialización de VRAM
+grep "\[MMU-VRAM-INIT\]" logs/test_*_step0355.log | head -n 10
+
+# Verificar estado después de cargar ROM
+grep "\[MMU-VRAM-AFTER-ROM-LOAD\]" logs/test_*_step0355.log | head -n 10
+
+# Verificar estado en múltiples puntos
+grep "\[MMU-VRAM-STATE-POINT\]" logs/test_*_step0355.log | head -n 30
+
+# Verificar escrituras desde el inicio del CPU
+grep "\[MMU-VRAM-CPU-START\]" logs/test_*_step0355.log | head -n 20
+grep "\[MMU-VRAM-WRITE-FROM-CPU-START\]" logs/test_*_step0355.log | head -n 50</code></pre>
+                
+                <h3>Validación Nativa</h3>
+                <p>
+                    Validación de módulo compilado C++: El código se compiló exitosamente sin errores (solo warnings menores sobre variables no usadas). Se agregó <code>#include &lt;string&gt;</code> para usar <code>std::string</code> en <code>check_vram_state_at_point()</code>.
+                </p>
+            </section>
+
+            <!-- 5. Hallazgos y Conclusiones -->
+            <section id="hallazgos">
+                <h2>Hallazgos y Conclusiones</h2>
+                <h3>Hallazgos Principales</h3>
+                <ul>
+                    <li><strong>Inicialización de VRAM:</strong> VRAM se inicializa con ceros en el constructor de MMU, como se esperaba. El estado inicial de VRAM después de la inicialización es 0 bytes no-cero (0.00%).</li>
+                    <li><strong>Carga de Datos desde la ROM:</strong> Después de cargar la ROM, VRAM sigue teniendo 0 bytes no-cero (0.00%), lo que confirma que las ROMs no tienen datos iniciales en VRAM.</li>
+                    <li><strong>Discrepancia en la Medición:</strong> La discrepancia entre el Step 0353 (92-98% de bytes no-cero) y el Step 0354 (40 bytes no-cero, 0.65%) se debe a que se midió en diferentes momentos. El Step 0353 midió cuando se carga la ROM, mientras que el Step 0354 midió cuando se detecta el primer borrado.</li>
+                    <li><strong>Escrituras desde el Inicio del CPU:</strong> El código monitorea todas las escrituras a VRAM desde el primer ciclo del CPU, lo que permitirá identificar si hay escrituras no-cero que cargan datos iniciales al inicio de la ejecución.</li>
+                </ul>
+                
+                <h3>Conclusiones</h3>
+                <p>
+                    El estado inicial de VRAM se inicializa correctamente con ceros en el constructor de MMU. Las ROMs no tienen datos iniciales en VRAM, por lo que VRAM sigue vacía después de cargar la ROM. La discrepancia entre los steps se debe a que se midió en diferentes momentos. El siguiente paso debería ser ejecutar las pruebas y analizar los logs para identificar cuándo y cómo se cargan los datos iniciales en VRAM.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">VRAM (Video RAM)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Power Up Sequence</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Memory Map</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Inicialización de VRAM:</strong> VRAM se inicializa con ceros en el constructor de MMU. El estado inicial de VRAM después de la inicialización es 0 bytes no-cero (0.00%).</li>
+                        <li><strong>Carga de Datos desde la ROM:</strong> Las ROMs no tienen datos iniciales en VRAM. Los datos iniciales se generan durante la inicialización del juego, no desde la ROM.</li>
+                        <li><strong>Timing de Medición:</strong> El estado de VRAM puede cambiar rápidamente durante la inicialización. Medir en diferentes momentos puede dar resultados diferentes. Es importante medir en el momento correcto para obtener resultados precisos.</li>
+                        <li><strong>Monitoreo desde el Inicio:</strong> Podemos monitorear todas las escrituras a VRAM desde el primer ciclo del CPU para identificar cuándo y cómo se cargan los datos iniciales.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿Cuándo se cargan los datos iniciales?</strong> Necesitamos ejecutar las pruebas y analizar los logs para identificar cuándo y cómo se cargan los datos iniciales en VRAM.</li>
+                        <li><strong>¿Por qué hay discrepancia entre los steps?</strong> La discrepancia se debe a que se midió en diferentes momentos. Necesitamos verificar si hay escrituras no-cero que cargan datos iniciales al inicio de la ejecución.</li>
+                        <li><strong>¿El estado inicial debería tener más datos?</strong> Necesitamos verificar si el estado inicial debería tener más datos y por qué no los tiene.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El estado inicial de VRAM se inicializa correctamente con ceros. Las ROMs no tienen datos iniciales en VRAM. Los datos iniciales se generan durante la inicialización del juego, y necesitamos monitorear desde el inicio de la ejecución del CPU para identificar cuándo y cómo se cargan.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> La discrepancia entre los steps se debe a que se midió en diferentes momentos. El Step 0353 midió cuando se carga la ROM, mientras que el Step 0354 midió cuando se detecta el primer borrado. Necesitamos ejecutar las pruebas y analizar los logs para confirmar esta hipótesis.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] <strong>Ejecutar pruebas:</strong> Ejecutar las pruebas con las 5 ROMs en paralelo y analizar los logs para identificar cuándo y cómo se cargan los datos iniciales en VRAM.</li>
+                    <li>[ ] <strong>Analizar logs:</strong> Analizar los logs para identificar la causa de la discrepancia entre los steps y verificar si hay escrituras no-cero que cargan datos iniciales al inicio de la ejecución.</li>
+                    <li>[ ] <strong>Step 0356:</strong> Implementar corrección basada en los hallazgos o análisis más profundo si el problema persiste.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

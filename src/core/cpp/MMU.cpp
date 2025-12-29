@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <map>
+#include <string>
 
 // --- Step 0327: Variable estática compartida para análisis de limpieza de VRAM ---
 static bool tiles_were_loaded_recently_global = false;
@@ -168,6 +169,26 @@ MMU::MMU()
         memory_[i] = 0xFF;
     }
     */
+    // --- Step 0355: Verificación de Inicialización de VRAM ---
+    // Verificar el estado de VRAM inmediatamente después de la inicialización
+    int non_zero_bytes = 0;
+    for (uint16_t addr = 0x8000; addr < 0x9800; addr++) {
+        uint8_t byte = memory_[addr];
+        if (byte != 0x00) {
+            non_zero_bytes++;
+        }
+    }
+    
+    printf("[MMU-VRAM-INIT] VRAM initialized | Non-zero bytes: %d/6144 (%.2f%%)\n",
+           non_zero_bytes, (non_zero_bytes * 100.0) / 6144);
+    
+    if (non_zero_bytes < 200) {
+        printf("[MMU-VRAM-INIT] ⚠️ ADVERTENCIA: VRAM está vacía después de la inicialización!\n");
+    }
+    
+    // Verificar estado de VRAM en este punto (después de la inicialización)
+    // Nota: check_vram_state_at_point() requiere que memory_ esté inicializado,
+    // así que lo llamamos después de que todo esté listo
     // -----------------------------------------
 }
 
@@ -735,6 +756,66 @@ void MMU::write(uint16_t addr, uint8_t value) {
     
     // Verificar si la escritura es a VRAM (0x8000-0x97FF)
     if (addr >= 0x8000 && addr < 0x9800) {
+        // --- Step 0355: Monitoreo de Escrituras desde el Inicio de la Ejecución del CPU ---
+        // Monitorear todas las escrituras a VRAM desde el primer ciclo del CPU
+        static int vram_write_from_cpu_start_count = 0;
+        static int vram_write_non_zero_from_cpu_start = 0;
+        static bool cpu_started = false;
+        
+        // Detectar cuando el CPU empieza a ejecutar (primera escritura a cualquier dirección)
+        if (!cpu_started) {
+            cpu_started = true;
+            printf("[MMU-VRAM-CPU-START] CPU started executing | Monitoring VRAM writes from now\n");
+            
+            // Verificar estado de VRAM cuando el CPU empieza
+            int non_zero_bytes = 0;
+            for (uint16_t check_addr = 0x8000; check_addr < 0x9800; check_addr++) {
+                uint8_t byte = memory_[check_addr];
+                if (byte != 0x00) {
+                    non_zero_bytes++;
+                }
+            }
+            
+            printf("[MMU-VRAM-CPU-START] VRAM state when CPU starts | Non-zero bytes: %d/6144 (%.2f%%)\n",
+                   non_zero_bytes, (non_zero_bytes * 100.0) / 6144);
+            
+            // Verificar estado de VRAM en este punto
+            check_vram_state_at_point("CPU Start");
+        }
+        
+        vram_write_from_cpu_start_count++;
+        
+        if (value != 0x00) {
+            vram_write_non_zero_from_cpu_start++;
+            
+            // Loggear todas las escrituras no-cero (no solo las primeras 100)
+            if (vram_write_non_zero_from_cpu_start <= 500) {
+                // Obtener PC del CPU (ya está disponible en debug_current_pc)
+                uint16_t pc = debug_current_pc;
+                
+                // Obtener frame desde PPU (si está disponible)
+                uint64_t frame = 0;
+                if (ppu_ != nullptr) {
+                    frame = ppu_->get_frame_counter();
+                }
+                
+                printf("[MMU-VRAM-WRITE-FROM-CPU-START] Non-zero write #%d | Addr=0x%04X | Value=0x%02X | "
+                       "PC=0x%04X | Frame %llu | Total writes=%d\n",
+                       vram_write_non_zero_from_cpu_start, addr, value, pc,
+                       static_cast<unsigned long long>(frame),
+                       vram_write_from_cpu_start_count);
+            }
+        }
+        
+        // Loggear estadísticas cada 1000 escrituras
+        if (vram_write_from_cpu_start_count > 0 && vram_write_from_cpu_start_count % 1000 == 0) {
+            printf("[MMU-VRAM-WRITE-FROM-CPU-START-STATS] Total writes=%d | Non-zero writes=%d | "
+                   "Non-zero ratio=%.2f%%\n",
+                   vram_write_from_cpu_start_count, vram_write_non_zero_from_cpu_start,
+                   (vram_write_non_zero_from_cpu_start * 100.0) / vram_write_from_cpu_start_count);
+        }
+        // -------------------------------------------
+        
         // --- Step 0353: Monitoreo Desde el Inicio ---
         // Monitorear VRAM desde el inicio de la ejecución, no solo después de activar logs
         static int vram_write_from_start_count = 0;
@@ -1391,6 +1472,28 @@ void MMU::load_rom(const uint8_t* data, size_t size) {
     printf("[MBC] ROM loaded: %zu bytes (%zu banks) | Type: 0x%02X\n",
            size, rom_bank_count_, cart_type);
     
+    // --- Step 0355: Verificación de Carga de Datos Iniciales desde la ROM ---
+    // Verificar el estado de VRAM después de cargar la ROM
+    int non_zero_bytes = 0;
+    for (uint16_t addr = 0x8000; addr < 0x9800; addr++) {
+        uint8_t byte = memory_[addr];
+        if (byte != 0x00) {
+            non_zero_bytes++;
+        }
+    }
+    
+    printf("[MMU-VRAM-AFTER-ROM-LOAD] VRAM after ROM load | Non-zero bytes: %d/6144 (%.2f%%)\n",
+           non_zero_bytes, (non_zero_bytes * 100.0) / 6144);
+    
+    if (non_zero_bytes < 200) {
+        printf("[MMU-VRAM-AFTER-ROM-LOAD] ⚠️ ADVERTENCIA: VRAM está vacía después de cargar la ROM!\n");
+    }
+    
+    // Verificar si la ROM contiene datos que deberían cargarse en VRAM
+    // (Nota: Las ROMs de Game Boy generalmente no tienen datos iniciales en VRAM,
+    // pero algunos juegos pueden tener datos en áreas específicas)
+    // -----------------------------------------
+    
     // --- Step 0291: Inspección de Estado Inicial de VRAM ---
     // Verificar el estado inicial de VRAM después de cargar la ROM
     // para entender si el juego espera que VRAM tenga datos desde el inicio
@@ -1404,6 +1507,10 @@ void MMU::load_rom(const uint8_t* data, size_t size) {
     // --- Step 0353: Verificación del Estado Inicial de VRAM ---
     // Verificar el estado inicial de VRAM cuando se carga la ROM
     check_initial_vram_state();
+    
+    // --- Step 0355: Verificación de Estado de VRAM en Múltiples Puntos ---
+    // Verificar el estado de VRAM después de cargar la ROM
+    check_vram_state_at_point("After ROM Load");
 }
 
 void MMU::setPPU(PPU* ppu) {
@@ -1697,6 +1804,44 @@ void MMU::check_initial_vram_state() {
         printf("[MMU-VRAM-INITIAL-STATE] ✅ VRAM tiene datos iniciales (posiblemente desde ROM)\n");
     } else {
         printf("[MMU-VRAM-INITIAL-STATE] ⚠️ VRAM está vacía al inicio\n");
+    }
+}
+// -------------------------------------------
+
+// --- Step 0355: Verificación de Estado de VRAM en Múltiples Puntos ---
+// Verificar el estado de VRAM en diferentes momentos para identificar la discrepancia
+void MMU::check_vram_state_at_point(const char* point_name) {
+    static std::map<std::string, bool> checked_points;
+    
+    if (checked_points.find(point_name) == checked_points.end()) {
+        checked_points[point_name] = true;
+        
+        int non_zero_bytes = 0;
+        int complete_tiles = 0;
+        
+        for (uint16_t addr = 0x8000; addr < 0x9800; addr += 16) {
+            bool tile_has_data = false;
+            int tile_non_zero = 0;
+            
+            for (int i = 0; i < 16; i++) {
+                uint8_t byte = memory_[addr - 0x8000 + i];
+                if (byte != 0x00) {
+                    non_zero_bytes++;
+                    tile_non_zero++;
+                    tile_has_data = true;
+                }
+            }
+            
+            if (tile_non_zero >= 8) {
+                complete_tiles++;
+            }
+        }
+        
+        printf("[MMU-VRAM-STATE-POINT] Point: %s | Non-zero bytes: %d/6144 (%.2f%%) | "
+               "Complete tiles: %d/384 (%.2f%%)\n",
+               point_name,
+               non_zero_bytes, (non_zero_bytes * 100.0) / 6144,
+               complete_tiles, (complete_tiles * 100.0) / 384);
     }
 }
 // -------------------------------------------

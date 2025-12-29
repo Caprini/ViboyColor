@@ -160,6 +160,14 @@ public:
      * si VRAM tiene datos al inicio (antes de que el juego empiece a ejecutarse).
      */
     void check_initial_vram_state();
+    
+    /**
+     * Step 0355: Verificación de Estado de VRAM en Múltiples Puntos
+     * 
+     * Verifica el estado de VRAM en diferentes momentos para identificar la discrepancia
+     * entre mediciones en diferentes steps.
+     */
+    void check_vram_state_at_point(const char* point_name);
 
     /**
      * Step 0247: Memory Timeline & PC Tracker

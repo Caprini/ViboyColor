@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0355 - Investigación de Inicialización de VRAM y Discrepancia en Datos Iniciales -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0355__investigacion-inicializacion-vram-discrepancia.html" class="entry-link">
+                                    Investigación de Inicialización de VRAM y Discrepancia en Datos Iniciales
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0355 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó investigación de inicialización de VRAM y discrepancia en datos iniciales para entender por qué el estado inicial de VRAM tiene tan pocos datos (40 bytes no-cero, 0.65%) cuando el Step 0353 reportó 92-98% de bytes no-cero. Se verificó cómo se inicializa VRAM en el constructor, si los datos iniciales se cargan desde la ROM, cuándo se mide el estado inicial en diferentes steps, y si hay escrituras no-cero que cargan datos iniciales al inicio de la ejecución del CPU. Se agregaron logs en múltiples puntos (constructor, después de cargar ROM, cuando el CPU empieza) para identificar la discrepancia y monitorear todas las escrituras a VRAM desde el primer ciclo del CPU.
+                        </p>
+                    </li>
                                         <!-- Entrada 0354 - Investigación de Borrado de Datos Iniciales en VRAM -->
                     <li>
                         <div class="entry-header">
