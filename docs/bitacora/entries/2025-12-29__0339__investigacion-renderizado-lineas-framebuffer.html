@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Renderizado de Líneas y Estado del Framebuffer - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Renderizado de Líneas y Estado del Framebuffer</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0339
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0338__investigacion-framebuffer-tilemap.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Investigación exhaustiva del renderizado de líneas y el estado del framebuffer para identificar por qué algunas líneas del framebuffer están vacías cuando deberían tener datos. Se implementaron logs de diagnóstico para verificar si todas las líneas se renderizan (LY 0-143), si el framebuffer se limpia durante el renderizado, si hay líneas que se saltan, y el estado completo del framebuffer al final de cada frame. Los logs revelaron que todas las líneas se renderizan correctamente y el framebuffer tiene datos consistentes en todas las líneas.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Scanlines (Líneas de Escaneo)</h3>
+                <p>
+                    La Game Boy tiene 144 líneas visibles (LY 0-143). Cada línea se renderiza durante H-Blank (Mode 0). Después de la línea 143, hay V-Blank (líneas 144-153). El registro LY (Line Y) se incrementa automáticamente después de cada línea y se resetea a 0 al inicio de cada frame.
+                </p>
+                <h3>Framebuffer</h3>
+                <p>
+                    El framebuffer contiene índices de color (0-3) para cada píxel de la pantalla. Tamaño: 160×144 = 23,040 píxeles. Cada línea ocupa 160 píxeles en el framebuffer. El framebuffer se genera línea por línea durante el renderizado de cada scanline y se limpia al inicio del siguiente frame (cuando LY se resetea a 0).
+                </p>
+                <h3>Renderizado de Líneas</h3>
+                <p>
+                    <code>render_scanline()</code> se llama para cada línea visible (LY 0-143). El renderizado debe completarse antes de que Python lea el framebuffer. El framebuffer se limpia al inicio del siguiente frame (LY=0), asegurando que Python siempre lee el framebuffer ANTES de que se limpie.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "LCD Status Register", "LY Register", "LCD Timing"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron 5 bloques de logs de diagnóstico en <code>PPU.cpp</code> para investigar el renderizado de líneas y el estado del framebuffer.
+                </p>
+                
+                <h3>1. Verificación de Renderizado de Todas las Líneas</h3>
+                <p>
+                    Se agregaron logs en <code>PPU::render_scanline()</code> al inicio para verificar que todas las líneas se renderizan (LY 0-143). Los logs marcan cada línea cuando se renderiza y verifican si hay líneas que no se renderizan.
+                </p>
+                <ul>
+                    <li><strong>Array de líneas renderizadas:</strong> Array estático de 144 booleanos que marca cada línea cuando se renderiza</li>
+                    <li><strong>Verificación periódica:</strong> Cada 10 frames, verifica si todas las líneas se han renderizado</li>
+                    <li><strong>Tag:</strong> <code>[PPU-LINES-RENDER]</code></li>
+                </ul>
+
+                <h3>2. Verificación del Estado del Framebuffer Línea por Línea</h3>
+                <p>
+                    Se agregaron logs en <code>PPU::render_scanline()</code> al final para verificar el estado del framebuffer después de renderizar cada línea. Los logs verifican líneas específicas (0, 72, 143) y algunas aleatorias.
+                </p>
+                <ul>
+                    <li><strong>Distribución de índices:</strong> Cuenta cuántos píxeles tienen cada índice de color (0, 1, 2, 3) en cada línea</li>
+                    <li><strong>Píxeles específicos:</strong> Verifica algunos píxeles específicos (x=0, 40, 80, 120, 159) para ver qué índices contienen</li>
+                    <li><strong>Advertencias:</strong> Advierte si una línea está completamente vacía después de renderizar</li>
+                    <li><strong>Tag:</strong> <code>[PPU-FRAMEBUFFER-LINE]</code></li>
+                </ul>
+
+                <h3>3. Verificación Mejorada de Limpieza del Framebuffer</h3>
+                <p>
+                    Se mejoraron los logs existentes en <code>PPU::clear_framebuffer()</code> para verificar que el framebuffer solo se limpia al inicio del frame (LY=0) y no durante el renderizado (LY 1-143).
+                </p>
+                <ul>
+                    <li><strong>Log de limpieza:</strong> Loggea cada vez que se limpia el framebuffer con el frame y LY actual</li>
+                    <li><strong>Advertencia:</strong> Advierte si el framebuffer se limpia durante el renderizado (no debería pasar)</li>
+                    <li><strong>Tag:</strong> <code>[PPU-CLEAR-FRAMEBUFFER]</code></li>
+                </ul>
+
+                <h3>4. Verificación de Secuencia de Líneas</h3>
+                <p>
+                    Se agregaron logs en <code>PPU::step()</code> cuando LY cambia para verificar que LY incrementa correctamente (0, 1, 2, ..., 143, 144, ..., 153, 0) y no se saltan líneas.
+                </p>
+                <ul>
+                    <li><strong>Verificación de secuencia:</strong> Verifica si LY incrementa correctamente o si se saltan líneas</li>
+                    <li><strong>Log periódico:</strong> Loggea cada 10 líneas o líneas importantes (0, 72, 143, 144)</li>
+                    <li><strong>Tag:</strong> <code>[PPU-LY-SEQUENCE]</code></li>
+                </ul>
+
+                <h3>5. Verificación del Estado Completo del Framebuffer al Final del Frame</h3>
+                <p>
+                    Se agregaron logs en <code>PPU::step()</code> cuando LY llega a 144 (VBLANK_START) para verificar el estado completo del framebuffer al final del frame.
+                </p>
+                <ul>
+                    <li><strong>Líneas con datos:</strong> Cuenta cuántas líneas tienen datos (no todas blancas)</li>
+                    <li><strong>Píxeles no-cero:</strong> Cuenta cuántos píxeles tienen índices no-cero (1, 2, 3)</li>
+                    <li><strong>Distribución global:</strong> Muestra la distribución de índices en todo el framebuffer</li>
+                    <li><strong>Advertencias:</strong> Advierte si hay pocas líneas con datos o si el framebuffer está completamente vacío</li>
+                    <li><strong>Tag:</strong> <code>[PPU-FRAMEBUFFER-COMPLETE]</code></li>
+                </ul>
+
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code>: Agregados 5 bloques de logs de diagnóstico en <code>render_scanline()</code>, <code>clear_framebuffer()</code> y <code>step()</code></li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Agregados logs de diagnóstico del Step 0339</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas con la ROM de Pokémon (pkmn.gb) durante 2.5 minutos. Los logs revelaron información valiosa sobre el renderizado de líneas y el estado del framebuffer.
+                </p>
+                <h3>Comando Ejecutado</h3>
+                <pre><code>timeout 150 python3 main.py roms/pkmn.gb 2>&1 | tee logs/test_pkmn_step0339.log</code></pre>
+                
+                <h3>Resultado</h3>
+                <p>
+                    Los logs muestran que:
+                </p>
+                <ul>
+                    <li><strong>Todas las líneas se renderizan:</strong> 144/144 líneas tienen datos en cada frame</li>
+                    <li><strong>El framebuffer tiene datos consistentes:</strong> 11520 píxeles no-cero de 23040 totales (50%), lo cual es correcto para el checkerboard</li>
+                    <li><strong>La distribución es correcta:</strong> Solo índices 0 y 3, que es el patrón del checkerboard</li>
+                    <li><strong>La secuencia de líneas es correcta:</strong> LY incrementa correctamente (0, 10, 20, 30, ..., 143, 144)</li>
+                    <li><strong>El framebuffer solo se limpia al inicio del frame:</strong> No se detectaron limpiezas durante el renderizado</li>
+                </ul>
+
+                <h3>Ejemplo de Logs</h3>
+                <pre><code>[PPU-FRAMEBUFFER-COMPLETE] Frame 1 | LY: 144 (VBLANK_START) | Lines with data: 144/144 | Total non-zero pixels: 11520/23040 | Distribution: 0=11520 1=0 2=0 3=11520
+[PPU-FRAMEBUFFER-LINE] Frame 1 | LY: 0 | Non-zero pixels: 80/160 | Distribution: 0=80 1=0 2=0 3=80
+[PPU-LY-SEQUENCE] Frame 1 | LY: 0
+[PPU-LY-SEQUENCE] Frame 1 | LY: 10
+[PPU-LY-SEQUENCE] Frame 1 | LY: 20
+...
+[PPU-LY-SEQUENCE] Frame 1 | LY: 143
+[PPU-LY-SEQUENCE] Frame 1 | LY: 144</code></pre>
+
+                <h3>Análisis de Logs</h3>
+                <pre><code># Verificar si todas las líneas se renderizan
+grep "\[PPU-LINES-RENDER\]" logs/test_*_step0339.log | head -n 30
+
+# Verificar estado del framebuffer línea por línea
+grep "\[PPU-FRAMEBUFFER-LINE\]" logs/test_*_step0339.log | head -n 50
+
+# Verificar limpieza del framebuffer
+grep "\[PPU-CLEAR-FRAMEBUFFER\]" logs/test_*_step0339.log | head -n 30
+
+# Verificar secuencia de líneas
+grep "\[PPU-LY-SEQUENCE\]" logs/test_*_step0339.log | head -n 50
+
+# Verificar estado completo del framebuffer
+grep "\[PPU-FRAMEBUFFER-COMPLETE\]" logs/test_*_step0339.log | head -n 30</code></pre>
+
+                <p>
+                    <strong>Validación Nativa:</strong> Validación de módulo compilado C++
+                </p>
+            </section>
+
+            <!-- 6. Hallazgos y Conclusiones -->
+            <section id="hallazgos">
+                <h2>Hallazgos y Conclusiones</h2>
+                <h3>Hallazgos Principales</h3>
+                <ul>
+                    <li><strong>✅ Todas las líneas se renderizan correctamente:</strong> Los logs muestran que 144/144 líneas tienen datos en cada frame. No se detectaron líneas que no se rendericen.</li>
+                    <li><strong>✅ El framebuffer tiene datos consistentes:</strong> Cada línea tiene 80 píxeles no-cero de 160 totales (50%), lo cual es correcto para el checkerboard. La distribución de índices (solo 0 y 3) es correcta.</li>
+                    <li><strong>✅ La secuencia de líneas es correcta:</strong> LY incrementa correctamente de 0 a 144, sin saltos ni líneas duplicadas.</li>
+                    <li><strong>✅ El framebuffer solo se limpia al inicio del frame:</strong> No se detectaron limpiezas durante el renderizado (LY 1-143). El framebuffer se limpia correctamente solo cuando LY se resetea a 0.</li>
+                    <li><strong>✅ El estado completo del framebuffer es correcto:</strong> Al final de cada frame (LY=144), todas las 144 líneas tienen datos, con 11520 píxeles no-cero de 23040 totales.</li>
+                </ul>
+
+                <h3>Conclusiones</h3>
+                <p>
+                    Los logs revelan que el renderizado de líneas funciona correctamente. Todas las líneas se renderizan, el framebuffer tiene datos consistentes en todas las líneas, y no hay problemas con la limpieza del framebuffer o la secuencia de líneas. El problema de "pantalla blanca con solo línea superior" mencionado en el Step 0338 probablemente no está relacionado con el renderizado de líneas, sino con otro aspecto (posiblemente la visualización en Python o el timing de lectura del framebuffer).
+                </p>
+            </section>
+
+            <!-- 7. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Status Register, LY Register, LCD Timing</a></li>
+                </ul>
+            </section>
+
+            <!-- 8. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Scanlines:</strong> La Game Boy tiene 144 líneas visibles (LY 0-143). Cada línea se renderiza durante H-Blank y el registro LY se incrementa automáticamente.</li>
+                        <li><strong>Framebuffer:</strong> Contiene índices de color (0-3) para cada píxel. Se genera línea por línea durante el renderizado y se limpia al inicio del siguiente frame.</li>
+                        <li><strong>Renderizado de líneas:</strong> <code>render_scanline()</code> se llama para cada línea visible. El framebuffer se limpia al inicio del siguiente frame, asegurando que Python siempre lee el framebuffer ANTES de que se limpie.</li>
+                    </ul>
+
+                    <h3>Lo que Confirmé</h3>
+                    <ul>
+                        <li><strong>Todas las líneas se renderizan:</strong> Los logs confirman que 144/144 líneas tienen datos en cada frame.</li>
+                        <li><strong>El framebuffer tiene datos consistentes:</strong> Cada línea tiene datos correctos (80 píxeles no-cero de 160 para el checkerboard).</li>
+                        <li><strong>La secuencia de líneas es correcta:</strong> LY incrementa correctamente sin saltos ni duplicados.</li>
+                        <li><strong>El framebuffer solo se limpia al inicio del frame:</strong> No se detectaron limpiezas durante el renderizado.</li>
+                    </ul>
+
+                    <h3>Próximos Pasos</h3>
+                    <p>
+                        Dado que el renderizado de líneas funciona correctamente, el problema de "pantalla blanca con solo línea superior" probablemente está en otro lugar. Los próximos pasos deberían investigar:
+                    </p>
+                    <ul>
+                        <li>El timing de lectura del framebuffer en Python</li>
+                        <li>La visualización del framebuffer en el renderizador Python</li>
+                        <li>La sincronización entre el renderizado C++ y la lectura Python</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 9. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar el timing de lectura del framebuffer en Python</li>
+                    <li>[ ] Verificar la visualización del framebuffer en el renderizador Python</li>
+                    <li>[ ] Investigar la sincronización entre el renderizado C++ y la lectura Python</li>
+                    <li>[ ] Si se identifica la causa: Implementar corrección en Step 0340</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

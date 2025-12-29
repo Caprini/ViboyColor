@@ -202,8 +202,38 @@ void PPU::step(int cpu_cycles) {
         // Guardar el estado anterior de LYC match para detectar rising edge
         bool old_lyc_match = ((ly_ & 0xFF) == (lyc_ & 0xFF));
         
+        // --- Step 0339: Verificación de Secuencia de Líneas ---
+        // Verificar que LY incrementa correctamente y no se saltan líneas
+        static int last_ly_logged = -1;
+        static int ly_sequence_check_count = 0;
+        // -------------------------------------------
+        
         // Avanzar a la siguiente línea
         ly_ += 1;
+        
+        // --- Step 0339: Verificación de Secuencia de Líneas (continuación) ---
+        if (ly_ != last_ly_logged && ly_sequence_check_count < 200) {
+            ly_sequence_check_count++;
+            
+            // Verificar si se saltó una línea
+            if (last_ly_logged >= 0) {
+                int expected_ly = (last_ly_logged + 1) % 154;  // 0-153, luego vuelve a 0
+                if (ly_ != expected_ly) {
+                    printf("[PPU-LY-SEQUENCE] Frame %llu | LY saltado: %d -> %d (esperado: %d)\n",
+                           static_cast<unsigned long long>(frame_counter_ + 1),
+                           last_ly_logged, ly_, expected_ly);
+                }
+            }
+            
+            // Loggear cada 10 líneas o líneas importantes
+            if (ly_ % 10 == 0 || ly_ == 0 || ly_ == 72 || ly_ == 143 || ly_ == 144) {
+                printf("[PPU-LY-SEQUENCE] Frame %llu | LY: %d\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1), ly_);
+            }
+            
+            last_ly_logged = ly_;
+        }
+        // -------------------------------------------
         
         // Al inicio de cada nueva línea, el modo es Mode 2 (OAM Search)
         // Se actualizará automáticamente en la siguiente llamada a update_mode()
@@ -271,6 +301,58 @@ void PPU::step(int cpu_cycles) {
                 frame_ready_log_count++;
                 printf("[PPU-FRAME-READY] Frame %llu | Frame marcado como listo (LY=144)\n",
                        static_cast<unsigned long long>(frame_counter_ + 1));
+            }
+            // -------------------------------------------
+            
+            // --- Step 0339: Verificación del Estado Completo del Framebuffer al Final del Frame ---
+            // Verificar el estado completo del framebuffer cuando se completa el frame (LY=144)
+            static int framebuffer_complete_check_count = 0;
+            
+            if (framebuffer_complete_check_count < 20) {
+                framebuffer_complete_check_count++;
+                
+                // Contar líneas con datos (no todas blancas)
+                int lines_with_data = 0;
+                int total_non_zero_pixels = 0;
+                int index_counts[4] = {0, 0, 0, 0};
+                
+                for (int y = 0; y < 144; y++) {
+                    size_t line_start = y * SCREEN_WIDTH;
+                    int line_non_zero = 0;
+                    
+                    for (int x = 0; x < SCREEN_WIDTH; x++) {
+                        uint8_t color_idx = framebuffer_[line_start + x] & 0x03;
+                        if (color_idx < 4) {
+                            index_counts[color_idx]++;
+                            if (color_idx != 0) {
+                                line_non_zero++;
+                                total_non_zero_pixels++;
+                            }
+                        }
+                    }
+                    
+                    if (line_non_zero > 0) {
+                        lines_with_data++;
+                    }
+                }
+                
+                printf("[PPU-FRAMEBUFFER-COMPLETE] Frame %llu | LY: %d (VBLANK_START) | "
+                       "Lines with data: %d/144 | Total non-zero pixels: %d/23040 | "
+                       "Distribution: 0=%d 1=%d 2=%d 3=%d\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1),
+                       ly_, lines_with_data, total_non_zero_pixels,
+                       index_counts[0], index_counts[1], index_counts[2], index_counts[3]);
+                
+                // Advertencia si hay pocas líneas con datos
+                if (lines_with_data < 10 && total_non_zero_pixels > 0) {
+                    printf("[PPU-FRAMEBUFFER-COMPLETE] ⚠️ ADVERTENCIA: Solo %d líneas tienen datos (esperado: ~144)\n",
+                           lines_with_data);
+                }
+                
+                // Advertencia si el framebuffer está completamente vacío
+                if (total_non_zero_pixels == 0) {
+                    printf("[PPU-FRAMEBUFFER-COMPLETE] ⚠️ ADVERTENCIA: Framebuffer completamente vacío al final del frame!\n");
+                }
             }
             // -------------------------------------------
             
@@ -500,12 +582,18 @@ uint8_t* PPU::get_framebuffer_ptr() {
 }
 
 void PPU::clear_framebuffer() {
-    // --- Step 0335: Log de Limpieza del Framebuffer ---
+    // --- Step 0339: Verificación Mejorada de Limpieza del Framebuffer ---
+    // El log existente del Step 0335 se mejora para verificar que solo se limpia al inicio del frame
     static int clear_framebuffer_log_count = 0;
-    if (clear_framebuffer_log_count < 20) {
+    if (clear_framebuffer_log_count < 50) {
         clear_framebuffer_log_count++;
         printf("[PPU-CLEAR-FRAMEBUFFER] Frame %llu | LY: %d | Limpiando framebuffer\n",
                static_cast<unsigned long long>(frame_counter_ + 1), ly_);
+        
+        // Advertencia si se limpia durante el renderizado (no debería pasar)
+        if (ly_ > 0 && ly_ < 144) {
+            printf("[PPU-CLEAR-FRAMEBUFFER] ⚠️ PROBLEMA: Framebuffer se limpia durante renderizado (LY=%d)!\n", ly_);
+        }
     }
     // -------------------------------------------
     
@@ -519,6 +607,51 @@ void PPU::render_scanline() {
     // C++ -> Cython -> Python funciona perfectamente. Ahora restauramos la lógica
     // de renderizado normal que lee desde la VRAM para poder investigar por qué
     // la VRAM permanece vacía.
+    
+    // --- Step 0339: Verificación de Renderizado de Todas las Líneas ---
+    // Verificar que todas las líneas se renderizan (LY 0-143)
+    static bool lines_rendered[144] = {false};
+    static int lines_render_check_count = 0;
+    
+    // Marcar que esta línea se está renderizando
+    if (ly_ < 144) {
+        lines_rendered[ly_] = true;
+    }
+    
+    // Verificar si todas las líneas se han renderizado (cada 10 frames)
+    if (ly_ == 0 && (frame_counter_ % 10 == 0)) {
+        lines_render_check_count++;
+        
+        int lines_not_rendered = 0;
+        for (int i = 0; i < 144; i++) {
+            if (!lines_rendered[i]) {
+                lines_not_rendered++;
+            }
+        }
+        
+        if (lines_not_rendered > 0) {
+            printf("[PPU-LINES-RENDER] Frame %llu | Líneas NO renderizadas: %d/144\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1), lines_not_rendered);
+            
+            // Loggear las primeras 10 líneas no renderizadas
+            int logged = 0;
+            for (int i = 0; i < 144 && logged < 10; i++) {
+                if (!lines_rendered[i]) {
+                    printf("[PPU-LINES-RENDER] Línea %d NO renderizada\n", i);
+                    logged++;
+                }
+            }
+        } else {
+            printf("[PPU-LINES-RENDER] Frame %llu | Todas las líneas renderizadas (144/144)\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1));
+        }
+        
+        // Resetear el array para el siguiente frame
+        for (int i = 0; i < 144; i++) {
+            lines_rendered[i] = false;
+        }
+    }
+    // -------------------------------------------
     
     // --- Step 0313: Log de diagnóstico - verificar que render_scanline() se ejecuta ---
     static int render_log_count = 0;
@@ -1853,6 +1986,51 @@ void PPU::render_scanline() {
         }
     }
     // -----------------------------------------
+    
+    // --- Step 0339: Verificación del Estado del Framebuffer Línea por Línea ---
+    // Verificar que el framebuffer tiene datos después de renderizar cada línea
+    static int framebuffer_line_check_count = 0;
+    
+    // Verificar líneas específicas (0, 72, 143) y algunas aleatorias
+    if (ly_ == 0 || ly_ == 72 || ly_ == 143 || (ly_ % 20 == 0 && framebuffer_line_check_count < 20)) {
+        framebuffer_line_check_count++;
+        
+        size_t line_start = ly_ * SCREEN_WIDTH;
+        
+        // Contar índices en la línea
+        int index_counts[4] = {0, 0, 0, 0};
+        int non_zero_pixels = 0;
+        
+        for (int x = 0; x < SCREEN_WIDTH; x++) {
+            uint8_t color_idx = framebuffer_[line_start + x] & 0x03;
+            if (color_idx < 4) {
+                index_counts[color_idx]++;
+                if (color_idx != 0) {
+                    non_zero_pixels++;
+                }
+            }
+        }
+        
+        printf("[PPU-FRAMEBUFFER-LINE] Frame %llu | LY: %d | Non-zero pixels: %d/160 | "
+               "Distribution: 0=%d 1=%d 2=%d 3=%d\n",
+               static_cast<unsigned long long>(frame_counter_ + 1),
+               ly_, non_zero_pixels,
+               index_counts[0], index_counts[1], index_counts[2], index_counts[3]);
+        
+        // Verificar algunos píxeles específicos
+        int test_x_positions[] = {0, 40, 80, 120, 159};
+        for (int i = 0; i < 5; i++) {
+            int x = test_x_positions[i];
+            uint8_t color_idx = framebuffer_[line_start + x] & 0x03;
+            printf("[PPU-FRAMEBUFFER-LINE] Pixel (%d, %d): index=%d\n", x, ly_, color_idx);
+        }
+        
+        // Advertencia si la línea está completamente vacía
+        if (non_zero_pixels == 0 && ly_ < 144) {
+            printf("[PPU-FRAMEBUFFER-LINE] ⚠️ ADVERTENCIA: Línea %d completamente vacía después de renderizar!\n", ly_);
+        }
+    }
+    // -------------------------------------------
 }
 
 void PPU::render_bg() {

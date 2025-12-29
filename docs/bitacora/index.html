@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0339 - Investigación de Renderizado de Líneas y Estado del Framebuffer -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0339__investigacion-renderizado-lineas-framebuffer.html" class="entry-link">
+                                    Investigación de Renderizado de Líneas y Estado del Framebuffer
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0339 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Investigación exhaustiva del renderizado de líneas y el estado del framebuffer para identificar por qué algunas líneas del framebuffer están vacías cuando deberían tener datos. Se implementaron logs de diagnóstico para verificar si todas las líneas se renderizan (LY 0-143), si el framebuffer se limpia durante el renderizado, si hay líneas que se saltan, y el estado completo del framebuffer al final de cada frame. Los logs revelaron que todas las líneas se renderizan correctamente y el framebuffer tiene datos consistentes en todas las líneas. El problema de "pantalla blanca con solo línea superior" probablemente no está relacionado con el renderizado de líneas, sino con otro aspecto (posiblemente la visualización en Python o el timing de lectura del framebuffer).
+                        </p>
+                    </li>
                                         <!-- Entrada 0338 - Investigación del Contenido del Framebuffer y Correspondencia Tilemap-Tiles -->
                     <li>
                         <div class="entry-header">
