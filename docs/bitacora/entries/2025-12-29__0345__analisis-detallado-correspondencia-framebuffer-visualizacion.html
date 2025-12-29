@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análisis Detallado de Correspondencia Framebuffer-Visualización - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Análisis Detallado de Correspondencia Framebuffer-Visualización</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0345
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0344__agregar-timer-debug-barra-titulo.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se ejecutó una prueba rápida (30 segundos) con Tetris para generar logs de correspondencia framebuffer-visualización implementados en el Step 0343. Sin embargo, no se encontraron logs del renderer en el archivo de log generado, lo que indica que los logs del Step 0343 no se están ejecutando o no se están capturando correctamente. Se documenta el problema encontrado y se establece un plan para el Step 0346 para verificar y corregir la situación.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Correspondencia Framebuffer-Visualización:</strong>
+                </p>
+                <p>
+                    El framebuffer contiene índices de color (0-3) para cada píxel en formato 1D <code>[y * 160 + x]</code>. Estos índices se convierten a RGB usando la paleta, los colores RGB se dibujan en la superficie de Pygame, y la superficie se escala a la resolución de pantalla. El contenido final debe coincidir con el framebuffer original.
+                </p>
+                <p>
+                    Para verificar que la correspondencia es correcta, es necesario comparar:
+                </p>
+                <ul>
+                    <li>Los índices del framebuffer (valores 0-3)</li>
+                    <li>Los colores RGB esperados según la paleta</li>
+                    <li>Los colores RGB reales en la superficie de Pygame después de dibujar</li>
+                    <li>Los colores RGB finales después del escalado</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "LCD Timing", "Frame Rate", "Tile Data", "LCD Control Register"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Análisis Realizado</h2>
+                <p>
+                    Se ejecutó una prueba rápida para generar logs de correspondencia framebuffer-visualización:
+                </p>
+                <pre><code>timeout 30 python3 main.py roms/tetris.gb 2>&1 | tee logs/test_tetris_step0345_analysis.log</code></pre>
+                
+                <h3>Resultados del Análisis</h3>
+                <p>
+                    <strong>Problema Encontrado:</strong> No se encontraron logs del renderer en el archivo de log generado.
+                </p>
+                <ul>
+                    <li>No aparecen logs con el tag <code>[Renderer-Entry]</code></li>
+                    <li>No aparecen logs con el tag <code>[Renderer-Framebuffer-Size]</code></li>
+                    <li>No aparecen logs con el tag <code>[Renderer-Pixel-Order-Verification]</code></li>
+                    <li>No aparecen logs con el tag <code>[Renderer-Framebuffer-Visualization-Correspondence]</code></li>
+                </ul>
+                
+                <h3>Verificaciones Realizadas</h3>
+                <p>
+                    Se verificó que:
+                </p>
+                <ul>
+                    <li>✅ El código de logs está presente en <code>src/gpu/renderer.py</code></li>
+                    <li>✅ El renderer se llama desde <code>src/viboy.py</code> (líneas 976 y 979)</li>
+                    <li>✅ Los logs tienen condiciones correctas (<code>len(frame_indices) > 0</code>)</li>
+                    <li>❌ Los logs no aparecen en el archivo de log generado</li>
+                </ul>
+                
+                <h3>Posibles Causas</h3>
+                <p>
+                    Las posibles causas de que los logs no aparezcan son:
+                </p>
+                <ol>
+                    <li><strong>El renderer no se está ejecutando:</strong> Puede haber un error silencioso que impide que el renderer se ejecute</li>
+                    <li><strong>Los logs no se están capturando:</strong> Puede haber un problema con la redirección de salida o con el sistema de logging</li>
+                    <li><strong>Las condiciones de los logs no se cumplen:</strong> Puede que <code>frame_indices</code> sea None o esté vacío cuando se ejecutan los logs</li>
+                    <li><strong>El renderer se ejecuta antes de que los logs estén configurados:</strong> Puede haber un problema de orden de ejecución</li>
+                </ol>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Analizados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Verificado que los logs están presentes</li>
+                    <li><code>src/viboy.py</code> - Verificado que el renderer se llama correctamente</li>
+                    <li><code>logs/test_tetris_step0345_analysis.log</code> - Archivo de log generado (sin logs del renderer)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado:</strong>
+                </p>
+                <pre><code>timeout 30 python3 main.py roms/tetris.gb 2>&1 | tee logs/test_tetris_step0345_analysis.log</code></pre>
+                <p>
+                    <strong>Resultado:</strong>
+                </p>
+                <ul>
+                    <li>❌ No se encontraron logs del renderer en el archivo de log</li>
+                    <li>✅ Se encontraron otros logs (PPU, VRAM, etc.)</li>
+                    <li>✅ El emulador se ejecuta correctamente (se ve la ventana)</li>
+                </ul>
+                <p>
+                    <strong>Análisis de Logs:</strong>
+                </p>
+                <pre><code>grep -E "\[Renderer-" logs/test_tetris_step0345_analysis.log</code></pre>
+                <p>
+                    <strong>Resultado:</strong> No se encontraron coincidencias.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "LCD Timing", "Frame Rate", "Tile Data", "LCD Control Register"</li>
+                    <li>Documentación de Python <code>logging</code> para sistema de logs</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Problema de logs:</strong> Los logs del Step 0343 no aparecen en el archivo de log, lo que indica un problema en la ejecución o captura de logs</li>
+                        <li><strong>Verificación de código:</strong> El código de logs está presente y el renderer se llama correctamente, pero los logs no se generan</li>
+                        <li><strong>Necesidad de diagnóstico:</strong> Se necesita un diagnóstico más profundo para identificar por qué los logs no aparecen</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>Por qué los logs del renderer no aparecen en el archivo de log</li>
+                        <li>Si el renderer se está ejecutando correctamente</li>
+                        <li>Si hay algún problema con el sistema de logging o la redirección de salida</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el problema puede estar relacionado con:
+                    </p>
+                    <ul>
+                        <li>El orden de ejecución (los logs pueden ejecutarse antes de que el sistema de logging esté configurado)</li>
+                        <li>La redirección de salida (puede que los logs se estén perdiendo en la redirección)</li>
+                        <li>Las condiciones de los logs (puede que las condiciones no se cumplan cuando se espera)</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <p>
+                    <strong>Step 0346: Verificación y Corrección de Logs del Renderer</strong>
+                </p>
+                <ul>
+                    <li>[ ] Agregar logs de diagnóstico al inicio de <code>render_frame()</code> para verificar que se ejecuta</li>
+                    <li>[ ] Verificar que el sistema de logging está configurado correctamente</li>
+                    <li>[ ] Verificar que la redirección de salida captura todos los logs</li>
+                    <li>[ ] Verificar las condiciones de los logs (si <code>frame_indices</code> está disponible)</li>
+                    <li>[ ] Ejecutar pruebas y analizar los logs generados</li>
+                    <li>[ ] Si los logs aparecen, analizar la correspondencia framebuffer-visualización</li>
+                    <li>[ ] Si los logs no aparecen, implementar correcciones</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
