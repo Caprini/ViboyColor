@@ -241,6 +241,15 @@ if (addr >= 0x8000 && addr < 0x9800) {
                     <li><strong>Análisis de logs:</strong> Se usaron comandos <code>grep</code> y <code>head</code> para extraer información específica sin saturar el contexto</li>
                 </ul>
                 
+                <h3>Resultados Clave</h3>
+                <ul>
+                    <li><strong>Inicialización de VRAM (Constructor):</strong> ✅ 0 bytes no-cero (0.00%) - como se esperaba</li>
+                    <li><strong>Después de cargar ROM (Inmediato):</strong> ✅ 0 bytes no-cero (0.00%) - confirma que las ROMs no tienen datos iniciales</li>
+                    <li><strong>Después de load_test_tiles():</strong> ⚠️ 95.49% bytes no-cero (5867/6144) - carga tiles de prueba</li>
+                    <li><strong>Estado cuando CPU empieza:</strong> ⚠️ 0.65% bytes no-cero (40/6144) - el juego borra los tiles de prueba</li>
+                    <li><strong>Escrituras desde CPU Start:</strong> ❌ 0% de escrituras no-cero - todas las escrituras son ceros (0x00)</li>
+                </ul>
+                
                 <h3>Comandos de Análisis</h3>
                 <pre><code># Verificar inicialización de VRAM
 grep "\[MMU-VRAM-INIT\]" logs/test_*_step0355.log | head -n 10
@@ -255,6 +264,15 @@ grep "\[MMU-VRAM-STATE-POINT\]" logs/test_*_step0355.log | head -n 30
 grep "\[MMU-VRAM-CPU-START\]" logs/test_*_step0355.log | head -n 20
 grep "\[MMU-VRAM-WRITE-FROM-CPU-START\]" logs/test_*_step0355.log | head -n 50</code></pre>
                 
+                <h3>Ejemplo de Logs</h3>
+                <pre><code>[MMU-VRAM-INIT] VRAM initialized | Non-zero bytes: 0/6144 (0.00%)
+[MMU-VRAM-AFTER-ROM-LOAD] VRAM after ROM load | Non-zero bytes: 0/6144 (0.00%)
+[MMU-VRAM-INITIAL-STATE] VRAM initial state | Non-zero bytes: 5867/6144 (95.49%)
+[LOAD-TEST-TILES] Función llamada
+[LOAD-TEST-TILES] Cargando tiles de prueba en VRAM...
+[MMU-VRAM-CPU-START] VRAM state when CPU starts | Non-zero bytes: 40/6144 (0.65%)
+[MMU-VRAM-ERASE-DETECTION] Erase #1 | Addr=0x8010 | Old value=0xAA | PC=0x36E3 | Frame 6</code></pre>
+                
                 <h3>Validación Nativa</h3>
                 <p>
                     Validación de módulo compilado C++: El código se compiló exitosamente sin errores (solo warnings menores sobre variables no usadas). Se agregó <code>#include &lt;string&gt;</code> para usar <code>std::string</code> en <code>check_vram_state_at_point()</code>.
@@ -266,15 +284,34 @@ grep "\[MMU-VRAM-WRITE-FROM-CPU-START\]" logs/test_*_step0355.log | head -n 50</
                 <h2>Hallazgos y Conclusiones</h2>
                 <h3>Hallazgos Principales</h3>
                 <ul>
-                    <li><strong>Inicialización de VRAM:</strong> VRAM se inicializa con ceros en el constructor de MMU, como se esperaba. El estado inicial de VRAM después de la inicialización es 0 bytes no-cero (0.00%).</li>
-                    <li><strong>Carga de Datos desde la ROM:</strong> Después de cargar la ROM, VRAM sigue teniendo 0 bytes no-cero (0.00%), lo que confirma que las ROMs no tienen datos iniciales en VRAM.</li>
-                    <li><strong>Discrepancia en la Medición:</strong> La discrepancia entre el Step 0353 (92-98% de bytes no-cero) y el Step 0354 (40 bytes no-cero, 0.65%) se debe a que se midió en diferentes momentos. El Step 0353 midió cuando se carga la ROM, mientras que el Step 0354 midió cuando se detecta el primer borrado.</li>
-                    <li><strong>Escrituras desde el Inicio del CPU:</strong> El código monitorea todas las escrituras a VRAM desde el primer ciclo del CPU, lo que permitirá identificar si hay escrituras no-cero que cargan datos iniciales al inicio de la ejecución.</li>
+                    <li><strong>Inicialización de VRAM:</strong> ✅ VRAM se inicializa correctamente con ceros en el constructor de MMU (0 bytes no-cero, 0.00%).</li>
+                    <li><strong>Carga de Datos desde la ROM:</strong> ✅ Después de cargar la ROM, VRAM sigue teniendo 0 bytes no-cero (0.00%), lo que confirma que las ROMs no tienen datos iniciales en VRAM.</li>
+                    <li><strong>Causa de la Discrepancia Identificada:</strong> ⚠️ La discrepancia entre el Step 0353 (92-98% de bytes no-cero) y el Step 0354 (40 bytes no-cero, 0.65%) se debe a que:
+                        <ul>
+                            <li><code>load_test_tiles()</code> carga tiles de prueba en VRAM (95.49% de bytes no-cero)</li>
+                            <li>El juego borra estos tiles de prueba cuando empieza a ejecutarse (Frame 6, PC=0x36E3)</li>
+                            <li>Cuando el CPU empieza, VRAM tiene solo 0.65% de bytes no-cero (40/6144)</li>
+                        </ul>
+                    </li>
+                    <li><strong>El Juego Borra los Tiles de Prueba:</strong> ⚠️ El juego borra los tiles de prueba que <code>load_test_tiles()</code> cargó. Los borrados ocurren en Frame 6, PC=0x36E3, cuando el LCD está encendido (no en VBLANK).</li>
+                    <li><strong>Escrituras desde el Inicio del CPU:</strong> ❌ 0% de escrituras no-cero desde el inicio del CPU. Todas las escrituras a VRAM son ceros (0x00), lo que significa que el juego no está cargando tiles nuevos, solo está borrando los tiles de prueba.</li>
                 </ul>
+                
+                <h3>Secuencia Completa Identificada</h3>
+                <ol>
+                    <li><strong>Constructor:</strong> VRAM = 0 bytes no-cero (0.00%) ✅</li>
+                    <li><strong>load_rom():</strong> VRAM = 0 bytes no-cero (0.00%) ✅ - Las ROMs no tienen datos iniciales</li>
+                    <li><strong>load_test_tiles():</strong> VRAM = 95.49% bytes no-cero (5867/6144) ⚠️ - Carga tiles de prueba</li>
+                    <li><strong>CPU empieza:</strong> VRAM = 0.65% bytes no-cero (40/6144) ⚠️ - El juego ya borró la mayoría de los tiles</li>
+                    <li><strong>Frame 6, PC=0x36E3:</strong> El juego borra los tiles de prueba restantes ⚠️</li>
+                </ol>
                 
                 <h3>Conclusiones</h3>
                 <p>
-                    El estado inicial de VRAM se inicializa correctamente con ceros en el constructor de MMU. Las ROMs no tienen datos iniciales en VRAM, por lo que VRAM sigue vacía después de cargar la ROM. La discrepancia entre los steps se debe a que se midió en diferentes momentos. El siguiente paso debería ser ejecutar las pruebas y analizar los logs para identificar cuándo y cómo se cargan los datos iniciales en VRAM.
+                    El estado inicial de VRAM se inicializa correctamente con ceros en el constructor de MMU. Las ROMs no tienen datos iniciales en VRAM, por lo que VRAM sigue vacía después de cargar la ROM. La discrepancia entre los steps se debe a que <code>load_test_tiles()</code> carga tiles de prueba que luego el juego borra cuando empieza a ejecutarse.
+                </p>
+                <p>
+                    <strong>Problema identificado:</strong> El juego borra los tiles de prueba que <code>load_test_tiles()</code> carga, y luego no carga tiles nuevos (todas las escrituras son ceros). Esto explica por qué VRAM nunca se llena con tiles durante la ejecución.
                 </p>
             </section>
 
@@ -321,9 +358,10 @@ grep "\[MMU-VRAM-WRITE-FROM-CPU-START\]" logs/test_*_step0355.log | head -n 50</
             <section id="proximos-pasos">
                 <h2>Próximos Pasos</h2>
                 <ul>
-                    <li>[ ] <strong>Ejecutar pruebas:</strong> Ejecutar las pruebas con las 5 ROMs en paralelo y analizar los logs para identificar cuándo y cómo se cargan los datos iniciales en VRAM.</li>
-                    <li>[ ] <strong>Analizar logs:</strong> Analizar los logs para identificar la causa de la discrepancia entre los steps y verificar si hay escrituras no-cero que cargan datos iniciales al inicio de la ejecución.</li>
-                    <li>[ ] <strong>Step 0356:</strong> Implementar corrección basada en los hallazgos o análisis más profundo si el problema persiste.</li>
+                    <li>[x] <strong>Ejecutar pruebas:</strong> ✅ Ejecutadas las pruebas con las 5 ROMs en paralelo y analizados los logs.</li>
+                    <li>[x] <strong>Analizar logs:</strong> ✅ Identificada la causa de la discrepancia: <code>load_test_tiles()</code> carga tiles de prueba que luego el juego borra.</li>
+                    <li>[ ] <strong>Step 0356:</strong> Investigar por qué el juego no carga tiles nuevos después de borrar los tiles de prueba. Verificar si hay un problema con el timing de carga de tiles o si el juego espera condiciones específicas que no se están cumpliendo.</li>
+                    <li>[ ] <strong>Considerar desactivar load_test_tiles():</strong> Para pruebas futuras, considerar desactivar <code>load_test_tiles()</code> y ver el comportamiento real del juego sin tiles de prueba.</li>
                 </ul>
             </section>
         </main>
