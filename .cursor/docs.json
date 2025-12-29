@@ -1,0 +1,230 @@
+{
+  "project": "Viboy Color",
+  "version": "v0.0.2-dev",
+  "last_updated": "2025-12-29",
+  "description": "Documentación de tecnologías utilizadas en el proyecto Viboy Color",
+  "technologies": {
+    "languages": {
+      "python": {
+        "version": "3.11+",
+        "docs": [
+          {
+            "name": "Python 3.11+ Official Documentation",
+            "url": "https://docs.python.org/3.11/",
+            "description": "Documentación oficial de Python 3.11, versión mínima requerida"
+          },
+          {
+            "name": "Python 3.12+ Official Documentation",
+            "url": "https://docs.python.org/3.12/",
+            "description": "Documentación oficial de Python 3.12"
+          },
+          {
+            "name": "PEP 8 Style Guide",
+            "url": "https://pep8.org/",
+            "description": "Guía de estilo oficial de Python"
+          },
+          {
+            "name": "Python Type Hints",
+            "url": "https://docs.python.org/3/library/typing.html",
+            "description": "Sistema de tipado estático de Python"
+          }
+        ]
+      },
+      "cpp": {
+        "version": "C++17",
+        "docs": [
+          {
+            "name": "C++17 Reference (cppreference.com)",
+            "url": "https://en.cppreference.com/w/cpp/17",
+            "description": "Referencia completa de C++17"
+          },
+          {
+            "name": "Google C++ Style Guide",
+            "url": "https://google.github.io/styleguide/cppguide.html",
+            "description": "Guía de estilo C++ recomendada"
+          },
+          {
+            "name": "C++ Core Guidelines",
+            "url": "https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines",
+            "description": "Mejores prácticas de C++"
+          }
+        ]
+      }
+    },
+    "interoperability": {
+      "cython": {
+        "version": "3.0+",
+        "docs": [
+          {
+            "name": "Cython Documentation",
+            "url": "https://cython.readthedocs.io/",
+            "description": "Documentación principal de Cython"
+          },
+          {
+            "name": "Cython Tutorial",
+            "url": "https://cython.readthedocs.io/en/latest/src/tutorial/index.html",
+            "description": "Tutorial completo de Cython"
+          },
+          {
+            "name": "Cython Memory Views",
+            "url": "https://cython.readthedocs.io/en/latest/src/userguide/memoryviews.html",
+            "description": "Uso de MemoryViews para buffers sin copias"
+          },
+          {
+            "name": "Cython GIL Management",
+            "url": "https://cython.readthedocs.io/en/latest/src/userguide/external_C_code.html#acquiring-and-releasing-the-gil",
+            "description": "Gestión del Global Interpreter Lock"
+          }
+        ]
+      }
+    },
+    "libraries": {
+      "pygame": {
+        "version": "2.3.0+",
+        "docs": [
+          {
+            "name": "Pygame CE Documentation",
+            "url": "https://pyga.me/docs/",
+            "description": "Documentación oficial de Pygame Community Edition"
+          }
+        ]
+      },
+      "pytest": {
+        "version": "7.4.0+",
+        "docs": [
+          {
+            "name": "pytest Documentation",
+            "url": "https://docs.pytest.org/",
+            "description": "Framework de testing"
+          },
+          {
+            "name": "pytest-cov Documentation",
+            "url": "https://pytest-cov.readthedocs.io/",
+            "description": "Plugin de cobertura de código"
+          }
+        ]
+      },
+      "numpy": {
+        "version": "1.24.0+",
+        "docs": [
+          {
+            "name": "NumPy Documentation",
+            "url": "https://numpy.org/doc/stable/",
+            "description": "Documentación oficial de NumPy"
+          }
+        ]
+      }
+    },
+    "compilers": {
+      "gcc": {
+        "docs": [
+          {
+            "name": "GCC Documentation",
+            "url": "https://gcc.gnu.org/onlinedocs/",
+            "description": "Documentación completa de GCC"
+          },
+          {
+            "name": "GCC C++17 Support",
+            "url": "https://gcc.gnu.org/projects/cxx-status.html#cxx17",
+            "description": "Estado de soporte de C++17 en GCC"
+          }
+        ]
+      },
+      "clang": {
+        "docs": [
+          {
+            "name": "Clang Documentation",
+            "url": "https://clang.llvm.org/docs/",
+            "description": "Documentación oficial de Clang"
+          }
+        ]
+      }
+    },
+    "operating_system": {
+      "ubuntu": {
+        "docs": [
+          {
+            "name": "Ubuntu Official Documentation",
+            "url": "https://help.ubuntu.com/",
+            "description": "Documentación oficial de Ubuntu"
+          },
+          {
+            "name": "Linux man pages",
+            "url": "https://man7.org/linux/man-pages/",
+            "description": "Páginas de manual de Linux"
+          },
+          {
+            "name": "Linux System Calls",
+            "url": "https://man7.org/linux/man-pages/man2/syscalls.2.html",
+            "description": "Referencia de system calls de Linux"
+          }
+        ]
+      }
+    },
+    "hardware_docs": {
+      "pan_docs": {
+        "docs": [
+          {
+            "name": "Pan Docs (GitHub)",
+            "url": "https://gbdev.io/pandocs/",
+            "description": "Documentación técnica completa del hardware Game Boy"
+          }
+        ]
+      },
+      "gbedg": {
+        "docs": [
+          {
+            "name": "GBEDG (Game Boy Emulation Development Guide)",
+            "url": "https://ia803208.us.archive.org/17/items/GameBoyProgManVer1.1/GameBoyProgManVer1.1.pdf",
+            "description": "Manual de programación del Game Boy"
+          }
+        ]
+      }
+    },
+    "future_technologies": {
+      "gui": {
+        "docs": [
+          {
+            "name": "tkinter Documentation",
+            "url": "https://docs.python.org/3/library/tkinter.html",
+            "description": "Biblioteca GUI nativa de Python (Fase 3)"
+          },
+          {
+            "name": "PyQt6 Documentation",
+            "url": "https://www.riverbankcomputing.com/static/Docs/PyQt6/",
+            "description": "Bindings Python para Qt6 (Fase 3)"
+          }
+        ]
+      },
+      "debugging": {
+        "docs": [
+          {
+            "name": "Dear ImGui Documentation",
+            "url": "https://github.com/ocornut/imgui",
+            "description": "Framework de UI inmediata (Fase 4)"
+          },
+          {
+            "name": "GDB Documentation",
+            "url": "https://sourceware.org/gdb/documentation/",
+            "description": "GNU Debugger (Fase 4: GDB Stub)"
+          }
+        ]
+      },
+      "audio": {
+        "docs": [
+          {
+            "name": "Digital Signal Processing Basics",
+            "url": "https://en.wikipedia.org/wiki/Digital_signal_processing",
+            "description": "Conceptos básicos de DSP (Fase 3: APU)"
+          },
+          {
+            "name": "Ring Buffer Implementation",
+            "url": "https://en.wikipedia.org/wiki/Circular_buffer",
+            "description": "Buffers circulares para audio (Fase 3)"
+          }
+        ]
+      }
+    }
+  }
+}
+

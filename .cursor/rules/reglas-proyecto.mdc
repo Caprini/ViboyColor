@@ -61,6 +61,11 @@ Tu misión: Transformar la prueba de concepto (v0.0.1) en un motor de emulación
     - `inline` para funciones pequeñas en el bucle crítico.
     - **LOGGING CERO**: En el bucle de emulación (Step), **NO** usar `std::cout` ni `printf` salvo en builds de debug explícitos. El I/O mata el rendimiento.
 
+### D. Documentación de Referencia
+- **Archivo de Documentación**: Consultar `.cursor/docs.md` y `.cursor/docs.json` para enlaces a documentación oficial de todas las tecnologías.
+- **Tecnologías cubiertas**: Python, C++, Cython, Pygame, pytest, NumPy, GCC/Clang, Ubuntu Linux, Pan Docs, GBEDG, y tecnologías futuras del roadmap.
+- **Uso**: Cuando necesites referencias técnicas, consulta primero estos archivos antes de buscar en la web.
+
 ---
 
 ## 4) DOCUMENTACIÓN BILINGÜE Y WEB (NUEVO)
