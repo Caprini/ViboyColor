@@ -860,6 +860,54 @@ class Viboy:
                         # Esto asegura que Python siempre lee el framebuffer ANTES de que se limpie
                         if self._ppu is not None:
                             if self._ppu.get_frame_ready_and_reset():
+                                # --- Step 0348: Verificación de Sincronización de Frames ---
+                                # Verificar que la sincronización de frames es correcta
+                                if not hasattr(self, '_frame_sync_check_count'):
+                                    self._frame_sync_check_count = 0
+                                
+                                self._frame_sync_check_count += 1
+                                
+                                # Loggear cuándo se detecta frame listo
+                                frame_ready_time = time.time()
+                                
+                                if self._frame_sync_check_count <= 20:
+                                    logger.info(f"[Viboy-Frame-Sync] Frame {self._frame_sync_check_count} | "
+                                               f"Frame ready detectado en t={frame_ready_time:.6f}s")
+                                    print(f"[Viboy-Frame-Sync] Frame {self._frame_sync_check_count} | "
+                                          f"Frame ready detectado en t={frame_ready_time:.6f}s")
+                                # -------------------------------------------
+                                
+                                # --- Step 0348: Verificación de Timing Entre Generación y Visualización ---
+                                # Verificar el timing entre cuando se genera el framebuffer y cuando se muestra
+                                if not hasattr(self, '_timing_check_count'):
+                                    self._timing_check_count = 0
+                                    self._last_frame_ready_time = None
+                                    self._frames_generated = 0
+                                    self._frames_displayed = 0
+                                
+                                self._frames_generated += 1
+                                current_time = time.time()
+                                
+                                if self._last_frame_ready_time is not None:
+                                    time_between_frames = (current_time - self._last_frame_ready_time) * 1000  # ms
+                                    expected_time = 1000.0 / 60.0  # ~16.67ms para 60 FPS
+                                    
+                                    if self._timing_check_count < 20:
+                                        self._timing_check_count += 1
+                                        logger.info(f"[Viboy-Timing] Frame {self._timing_check_count} | "
+                                                   f"Time between frames: {time_between_frames:.3f}ms "
+                                                   f"(expected: {expected_time:.3f}ms)")
+                                        print(f"[Viboy-Timing] Frame {self._timing_check_count} | "
+                                              f"Time between frames: {time_between_frames:.3f}ms "
+                                              f"(expected: {expected_time:.3f}ms)")
+                                        
+                                        if abs(time_between_frames - expected_time) > 5.0:
+                                            logger.warning(f"[Viboy-Timing] ⚠️ Timing anormal!")
+                                            print(f"[Viboy-Timing] ⚠️ Timing anormal!")
+                                
+                                self._last_frame_ready_time = current_time
+                                # -------------------------------------------
+                                
                                 # --- Step 0344: Detectar Primer Evento (Frame Listo) ---
                                 # Detectar primer evento si aún no se ha detectado
                                 if not self._first_event_detected:
@@ -913,6 +961,19 @@ class Viboy:
                                     fb_data = bytearray(raw_view)
                                     # ----------------------------------------
                                     
+                                    # --- Step 0348: Loggear cuándo se completa la lectura del framebuffer ---
+                                    read_end_time = time.time()
+                                    read_duration = (read_end_time - read_start_time) * 1000  # ms
+                                    
+                                    if self._frame_sync_check_count <= 20:
+                                        logger.info(f"[Viboy-Frame-Sync] Frame {self._frame_sync_check_count} | "
+                                                   f"Framebuffer leído en {read_duration:.3f}ms "
+                                                   f"(t={read_end_time:.6f}s)")
+                                        print(f"[Viboy-Frame-Sync] Frame {self._frame_sync_check_count} | "
+                                              f"Framebuffer leído en {read_duration:.3f}ms "
+                                              f"(t={read_end_time:.6f}s)")
+                                    # -------------------------------------------
+                                    
                                     # 4. Verificar primeros 20 píxeles después de copiar
                                     first_20_after = [fb_data[i] & 0x03 for i in range(min(20, len(fb_data)))]
                                     
@@ -940,14 +1001,19 @@ class Viboy:
                                     framebuffer_to_render = fb_data
                                     
                                     # --- Step 0340: Finalizar Timing de Lectura del Framebuffer ---
-                                    read_end_time = time.time()
-                                    read_duration = (read_end_time - read_start_time) * 1000  # en milisegundos
-                                    
                                     if self._framebuffer_read_timing_count <= 10:
                                         logger.info(f"[Viboy-Framebuffer-Read-Timing] Frame {self._framebuffer_read_timing_count} | "
                                                    f"Framebuffer leído en {read_duration:.3f}ms")
                                 else:
+                                    # --- Step 0348: Loggear si el framebuffer es None ---
+                                    if self._frame_sync_check_count <= 20:
+                                        logger.warning(f"[Viboy-Frame-Sync] Frame {self._frame_sync_check_count} | "
+                                                      f"⚠️ Framebuffer es None!")
+                                        print(f"[Viboy-Frame-Sync] Frame {self._frame_sync_check_count} | "
+                                              f"⚠️ Framebuffer es None!")
+                                    # -------------------------------------------
                                     logger.error("[Viboy-Framebuffer-Copy-Detailed] ⚠️ Framebuffer es None!")
+                                    framebuffer_to_render = None
                                 # -------------------------------------------
                     else:
                         # Fallback para modo Python (arquitectura antigua)

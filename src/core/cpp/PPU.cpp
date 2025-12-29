@@ -665,17 +665,17 @@ uint8_t* PPU::get_framebuffer_ptr() {
 }
 
 void PPU::clear_framebuffer() {
-    // --- Step 0339: Verificación Mejorada de Limpieza del Framebuffer ---
-    // El log existente del Step 0335 se mejora para verificar que solo se limpia al inicio del frame
-    static int clear_framebuffer_log_count = 0;
-    if (clear_framebuffer_log_count < 50) {
-        clear_framebuffer_log_count++;
-        printf("[PPU-CLEAR-FRAMEBUFFER] Frame %llu | LY: %d | Limpiando framebuffer\n",
+    // --- Step 0348: Verificación de Condiciones de Carrera ---
+    // Verificar que el framebuffer no se limpia mientras se está leyendo
+    static int clear_framebuffer_race_check_count = 0;
+    if (clear_framebuffer_race_check_count < 50) {
+        clear_framebuffer_race_check_count++;
+        printf("[PPU-Clear-Framebuffer-Race] Frame %llu | LY: %d | Limpiando framebuffer\n",
                static_cast<unsigned long long>(frame_counter_ + 1), ly_);
         
-        // Advertencia si se limpia durante el renderizado (no debería pasar)
+        // Advertencia si se limpia durante renderizado (no debería pasar)
         if (ly_ > 0 && ly_ < 144) {
-            printf("[PPU-CLEAR-FRAMEBUFFER] ⚠️ PROBLEMA: Framebuffer se limpia durante renderizado (LY=%d)!\n", ly_);
+            printf("[PPU-Clear-Framebuffer-Race] ⚠️ PROBLEMA: Framebuffer se limpia durante renderizado (LY=%d)!\n", ly_);
         }
     }
     // -------------------------------------------

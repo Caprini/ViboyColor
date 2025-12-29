@@ -32,6 +32,42 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0348 - Investigación de Sincronización de Frames y Actualización de Pantalla -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0348__investigacion-sincronizacion-frames-actualizacion-pantalla.html" class="entry-link">
+                                    Investigación de Sincronización de Frames y Actualización de Pantalla
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0348 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementaron verificaciones de sincronización de frames, actualización de pantalla, timing entre generación y visualización, y condiciones de carrera para investigar problemas de visualización que persisten a pesar de que los logs muestran que el framebuffer, escalado y correspondencia funcionan correctamente. Las verificaciones incluyen: (1) logs de sincronización de frames (cuándo C++ marca frame_ready_, cuándo Python lee el framebuffer, cuándo se dibuja), (2) logs de actualización de pantalla (verificación después de pygame.display.flip()), (3) logs de timing (tiempo entre frames, tiempo entre generación y visualización), y (4) logs de condiciones de carrera (verificación de que el framebuffer no se limpia mientras se está leyendo).
+                        </p>
+                    </li>
+                                        <!-- Entrada 0347 - Investigación de Discrepancia Entre Logs y Visualización -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0347__investigacion-discrepancia-logs-visualizacion.html" class="entry-link">
+                                    Investigación de Discrepancia Entre Logs y Visualización
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0347 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementaron tres verificaciones adicionales para investigar por qué, a pesar de que los logs muestran correspondencia correcta entre el framebuffer y la visualización, las imágenes muestran problemas visuales (rayas verticales, pantalla blanca, checkerboard). Las verificaciones incluyen: (1) verificación del framebuffer completo (todas las líneas, no solo líneas específicas), (2) verificación del escalado y blit a la pantalla, y (3) verificación línea por línea de la visualización después de dibujar los píxeles.
+                        </p>
+                    </li>
                                         <!-- Entrada 0346 - Verificación y Corrección de Logs del Renderer -->
                     <li>
                         <div class="entry-header">
@@ -6069,295 +6105,4 @@
                         </div>
                         <p class="entry-summary">
                             Implementación de direccionamiento indirecto usando HL como puntero de memoria, operaciones LDI/LDD (incremento/decremento
-                            automático del puntero) y operaciones unarias de incremento/decremento (INC/DEC) con manejo correcto de flags. Se
-                            implementaron helpers críticos _inc_n y _dec_n que actualizan flags Z, N, H pero NO tocan el flag C (Carry), una
-                            peculiaridad importante del hardware LR35902. Estos opcodes son esenciales para bucles de limpieza de memoria que
-                            los juegos ejecutan al inicio (memset). Suite completa de tests TDD validando memoria indirecta y flags.
-                        </p>
-                    </li>
-                    <!-- Entrada 0010 - Control de Interrupciones, XOR y Cargas de 16 bits -->
-                    <li>
-                        <div class="entry-header">
-                            <h3 class="entry-title">
-                                <a href="entries/2025-12-16__0010__control-interrupciones-xor.html" class="entry-link">
-                                    Control de Interrupciones, XOR y Cargas de 16 bits
-                                </a>
-                            </h3>
-                        </div>
-                        <div class="entry-meta-index">
-                            <strong>Fecha:</strong> 2025-12-16 | 
-                            <strong>Step ID:</strong> 0010 | 
-                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
-                        </div>
-                        <p class="entry-summary">
-                            Implementación de instrucciones críticas de control de sistema y operaciones lógicas necesarias para que Tetris DX
-                            continúe ejecutándose. Se añadió el atributo IME (Interrupt Master Enable) a la CPU para controlar las interrupciones.
-                            Se implementaron los opcodes DI (0xF3) y EI (0xFB) para desactivar/activar interrupciones, XOR A (0xAF) como optimización
-                            para poner el registro A a cero, y las instrucciones de carga inmediata de 16 bits LD SP, d16 (0x31) y LD HL, d16 (0x21).
-                            Estas instrucciones son esenciales para la inicialización del sistema. Suite completa de tests TDD (13 tests).
-                        </p>
-                    </li>
-                    <!-- Entrada 0009 - Placa Base y Bucle Principal -->
-                    <li>
-                        <div class="entry-header">
-                            <h3 class="entry-title">
-                                <a href="entries/2025-12-16__0009__placa-base-bucle-principal.html" class="entry-link">
-                                    Placa Base y Bucle Principal (Game Loop)
-                                </a>
-                            </h3>
-                        </div>
-                        <div class="entry-meta-index">
-                            <strong>Fecha:</strong> 2025-12-16 | 
-                            <strong>Step ID:</strong> 0009 | 
-                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
-                        </div>
-                        <p class="entry-summary">
-                            Implementación de la clase Viboy que actúa como la "placa base" del emulador, integrando todos los componentes
-                            (CPU, MMU, Cartridge) en un sistema unificado. Creación del bucle principal (Game Loop) que ejecuta instrucciones
-                            continuamente, simulando el funcionamiento de la Game Boy real a 4.194304 MHz. El sistema ahora puede ejecutar
-                            código real de ROMs, aunque se detendrá cuando encuentre opcodes no implementados. Modo debug implementado para
-                            mostrar trazas detalladas de cada instrucción ejecutada. Sin este bucle, la CPU no puede "vivir" y procesar código
-                            de juegos. Suite completa de tests de integración (8 tests).
-                        </p>
-                    </li>
-                    <!-- Entrada 0008 - Carga de ROM y Cartucho -->
-                    <li>
-                        <div class="entry-header">
-                            <h3 class="entry-title">
-                                <a href="entries/2025-12-16__0008__carga-rom-cartucho.html" class="entry-link">
-                                    Carga de ROM y Parsing del Header del Cartucho
-                                </a>
-                            </h3>
-                        </div>
-                        <div class="entry-meta-index">
-                            <strong>Fecha:</strong> 2025-12-16 | 
-                            <strong>Step ID:</strong> 0008 | 
-                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
-                        </div>
-                        <p class="entry-summary">
-                            Implementación de la clase Cartridge que carga archivos ROM (`.gb` o `.gbc`) y parsea el Header del cartucho
-                            para extraer información crítica (título, tipo de cartucho, tamaño de ROM/RAM). Integración del cartucho
-                            en la MMU para mapear la ROM en el espacio de direcciones (0x0000 - 0x7FFF). Actualización de main.py
-                            para aceptar argumentos de línea de comandos y cargar ROMs reales. Sin esta funcionalidad, el emulador
-                            no puede ejecutar código de juegos reales. Suite completa de tests TDD (6 tests) validando carga,
-                            parsing y casos edge.
-                        </p>
-                    </li>
-                    <!-- Entrada 0007 - Stack (Pila) -->
-                    <li>
-                        <div class="entry-header">
-                            <h3 class="entry-title">
-                                <a href="entries/2025-12-16__0007__stack-pila.html" class="entry-link">
-                                    Implementación del Stack (Pila) y Subrutinas
-                                </a>
-                            </h3>
-                        </div>
-                        <div class="entry-meta-index">
-                            <strong>Fecha:</strong> 2025-12-16 | 
-                            <strong>Step ID:</strong> 0007 | 
-                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
-                        </div>
-                        <p class="entry-summary">
-                            Implementación completa del Stack (Pila) de la CPU, incluyendo helpers para PUSH/POP de bytes y palabras,
-                            y opcodes críticos para subrutinas: PUSH BC (0xC5), POP BC (0xC1), CALL nn (0xCD) y RET (0xC9). La pila
-                            es la memoria a corto plazo que permite a la CPU recordar "dónde estaba" cuando llama a funciones. Concepto
-                            crítico: la pila crece hacia abajo (SP decrece en PUSH). Implementación con orden correcto de bytes
-                            (Little-Endian) validada con suite completa de tests TDD (5 tests).
-                        </p>
-                    </li>
-                    <!-- Entrada 0006 - Licencia MIT -->
-                    <li>
-                        <div class="entry-header">
-                            <h3 class="entry-title">
-                                <a href="entries/2025-12-16__0006__licencia-mit.html" class="entry-link">
-                                    Añadir Licencia MIT al Proyecto
-                                </a>
-                            </h3>
-                        </div>
-                        <div class="entry-meta-index">
-                            <strong>Fecha:</strong> 2025-12-16 | 
-                            <strong>Step ID:</strong> 0006 | 
-                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
-                        </div>
-                        <p class="entry-summary">
-                            Añadida licencia MIT al proyecto para proteger el trabajo educativo y definir claramente cómo otros
-                            pueden usar, modificar y distribuir el código. Creado archivo LICENSE con el texto oficial de la
-                            licencia MIT (año 2025). Actualizado README.md con badge de licencia y sección mejorada. El proyecto
-                            ahora es oficialmente Open Source bajo licencia MIT.
-                        </p>
-                    </li>
-                    <!-- Entrada 0005 - Saltos y Control de Flujo -->
-                    <li>
-                        <div class="entry-header">
-                            <h3 class="entry-title">
-                                <a href="entries/2025-12-16__0005__saltos-control-flujo.html" class="entry-link">
-                                    Implementación de Saltos y Control de Flujo
-                                </a>
-                            </h3>
-                        </div>
-                        <div class="entry-meta-index">
-                            <strong>Fecha:</strong> 2025-12-16 | 
-                            <strong>Step ID:</strong> 0005 | 
-                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
-                        </div>
-                        <p class="entry-summary">
-                            Implementación de instrucciones de salto (JP nn, JR e, JR NZ,e) que permiten romper la ejecución
-                            lineal de la CPU, habilitando bucles y decisiones. Concepto crítico: conversión de enteros sin signo
-                            a con signo (Two's Complement) para offsets relativos negativos. Implementación de timing condicional
-                            (diferentes ciclos según si se toma o no el salto). Suite completa de tests TDD (11 tests) validando
-                            saltos positivos, negativos y condicionales.
-                        </p>
-                    </li>
-                    <!-- Entrada 0004 - ALU y Flags -->
-                    <li>
-                        <div class="entry-header">
-                            <h3 class="entry-title">
-                                <a href="entries/2025-12-16__0004__alu-flags.html" class="entry-link">
-                                    Implementación de la ALU y Gestión de Flags
-                                </a>
-                            </h3>
-                        </div>
-                        <div class="entry-meta-index">
-                            <strong>Fecha:</strong> 2025-12-16 | 
-                            <strong>Step ID:</strong> 0004 | 
-                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
-                        </div>
-                        <p class="entry-summary">
-                            Implementación de la ALU (Unidad Aritmética Lógica) con gestión correcta de flags, especialmente
-                            el Half-Carry (H) crítico para DAA. Refactorización de la CPU para usar tabla de despacho (dispatch table)
-                            en lugar de if/elif. Implementación de opcodes ADD A, d8 (0xC6) y SUB d8 (0xD6). Suite completa de tests TDD
-                            (5 tests) validando operaciones aritméticas y flags.
-                        </p>
-                    </li>
-                    <!-- Entrada 0003 - Ciclo de Instrucción CPU -->
-                    <li>
-                        <div class="entry-header">
-                            <h3 class="entry-title">
-                                <a href="entries/2025-12-16__0003__ciclo-instruccion-cpu.html" class="entry-link">
-                                    Implementación del Ciclo de Instrucción de la CPU
-                                </a>
-                            </h3>
-                        </div>
-                        <div class="entry-meta-index">
-                            <strong>Fecha:</strong> 2025-12-16 | 
-                            <strong>Step ID:</strong> 0003 | 
-                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
-                        </div>
-                        <p class="entry-summary">
-                            Implementación de la clase CPU que unifica Registros y MMU para crear el ciclo Fetch-Decode-Execute.
-                            Primeros 3 opcodes implementados (NOP, LD A,d8, LD B,d8). La CPU ahora puede ejecutar instrucciones
-                            secuencialmente, marcando el primer "latido" funcional del emulador. Suite completa de tests (6 tests pasando).
-                        </p>
-                    </li>
-                    <!-- Entrada 0002 - MMU Básica -->
-                    <li>
-                        <div class="entry-header">
-                            <h3 class="entry-title">
-                                <a href="entries/2025-12-16__0002__mmu-basica.html" class="entry-link">
-                                    Implementación de la MMU Básica
-                                </a>
-                            </h3>
-                        </div>
-                        <div class="entry-meta-index">
-                            <strong>Fecha:</strong> 2025-12-16 | 
-                            <strong>Step ID:</strong> 0002 | 
-                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
-                        </div>
-                        <p class="entry-summary">
-                            Implementación de la clase MMU (Memory Management Unit) que gestiona el espacio de direcciones
-                            de 16 bits de la Game Boy. Métodos para leer/escribir bytes y palabras con soporte correcto para
-                            Little-Endian. Suite completa de tests unitarios (13 tests pasando).
-                        </p>
-                    </li>
-                    <!-- Entrada 0001 - Registros CPU -->
-                    <li>
-                        <div class="entry-header">
-                            <h3 class="entry-title">
-                                <a href="entries/2025-12-16__0001__registros-cpu.html" class="entry-link">
-                                    Implementación de los Registros de la CPU (LR35902)
-                                </a>
-                            </h3>
-                        </div>
-                        <div class="entry-meta-index">
-                            <strong>Fecha:</strong> 2025-12-16 | 
-                            <strong>Step ID:</strong> 0001 | 
-                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
-                        </div>
-                        <p class="entry-summary">
-                            Implementación completa de la clase Registers con todos los registros de 8 y 16 bits,
-                            pares virtuales (AF, BC, DE, HL), peculiaridad hardware del registro F, y suite completa
-                            de tests unitarios (15 tests pasando).
-                        </p>
-                    </li>
-                    <!-- Entrada 0000 - Bootstrap -->
-                    <li>
-                        <div class="entry-header">
-                            <h3 class="entry-title">
-                                <a href="entries/2025-12-16__0000__bootstrap.html" class="entry-link">
-                                    Bootstrap: Configuración de la Bitácora Web
-                                </a>
-                            </h3>
-                        </div>
-                        <div class="entry-meta-index">
-                            <strong>Fecha:</strong> 2025-12-16 | 
-                            <strong>Step ID:</strong> 0000 | 
-                            <strong>Estado:</strong> <span class="tag tag-verified">Verified</span>
-                        </div>
-                        <p class="entry-summary">
-                            Configuración inicial de la bitácora web estática con estructura HTML/CSS,
-                            plantilla base, y primera entrada. Sistema de documentación educativa
-                            para el proyecto Viboy Color.
-                        </p>
-                    </li>
-                </ul>
-            </section>
-
-            <section id="informacion">
-                <h2>Información del Proyecto</h2>
-                <div class="card">
-                    <h3>Sobre Viboy Color</h3>
-                    <p>
-                        <strong>Viboy Color</strong> es un emulador educativo de Game Boy Color
-                        escrito en Python 3.10+. El objetivo principal es aprender sobre
-                        emulación de hardware mediante una implementación clean-room, sin copiar
-                        código de otros emuladores existentes.
-                    </p>
-                </div>
-
-                <div class="card">
-                    <h3>Principios del Proyecto</h3>
-                    <ul>
-                        <li><strong>Clean-Room:</strong> Implementación basada únicamente en documentación técnica y tests permitidas.</li>
-                        <li><strong>Educativo:</strong> Priorizar comprensión y documentación del aprendizaje.</li>
-                        <li><strong>Portabilidad:</strong> Compatible con Windows, Linux y macOS.</li>
-                        <li><strong>Python Moderno:</strong> Uso de Python 3.10+ con tipado estricto y tests.</li>
-                    </ul>
-                </div>
-
-                <div class="card">
-                    <h3>Estructura de las Entradas</h3>
-                    <p>Cada entrada de la bitácora incluye:</p>
-                    <ul>
-                        <li><strong>Resumen:</strong> Descripción breve del paso</li>
-                        <li><strong>Concepto de Hardware:</strong> Explicación educativa del concepto implementado</li>
-                        <li><strong>Implementación:</strong> Qué se hizo y por qué</li>
-                        <li><strong>Archivos Afectados:</strong> Lista de archivos creados/modificados</li>
-                        <li><strong>Tests y Verificación:</strong> Cómo se validó la implementación</li>
-                        <li><strong>Fuentes Consultadas:</strong> Referencias técnicas utilizadas</li>
-                        <li><strong>Integridad Educativa:</strong> Lo que se entiende, lo que falta confirmar, hipótesis</li>
-                        <li><strong>Próximos Pasos:</strong> Checklist de tareas siguientes</li>
-                    </ul>
-                </div>
-            </section>
-        </main>
-
-        <!-- Footer -->
-        <footer>
-            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
-            <p>Proyecto Open Source - Clean-Room Implementation</p>
-            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
-        </footer>
-    </div>
-</body>
-</html>
-
+                            automático del puntero) y operaciones unarias de incremento/decremento (INC

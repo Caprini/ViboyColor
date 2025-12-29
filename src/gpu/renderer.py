@@ -824,6 +824,74 @@ class Renderer:
                 self._renderer_periodic_check_count += 1
                 # -------------------------------------------
                 
+                # --- Step 0347: Verificación del Framebuffer Completo ---
+                # Verificar todas las líneas del framebuffer, no solo líneas específicas
+                if not hasattr(self, '_framebuffer_complete_check_count'):
+                    self._framebuffer_complete_check_count = 0
+
+                if frame_indices is not None and len(frame_indices) == 23040 and \
+                   self._framebuffer_complete_check_count < 10:
+                    self._framebuffer_complete_check_count += 1
+                    
+                    # Contar líneas con datos (no todas blancas)
+                    lines_with_data = 0
+                    lines_empty = 0
+                    total_non_zero_pixels = 0
+                    index_counts = [0, 0, 0, 0]
+                    
+                    for y in range(144):
+                        line_start = y * 160
+                        line_non_zero = 0
+                        
+                        for x in range(160):
+                            idx = line_start + x
+                            if idx < len(frame_indices):
+                                color_idx = frame_indices[idx] & 0x03
+                                if color_idx < 4:
+                                    index_counts[color_idx] += 1
+                                    if color_idx != 0:
+                                        line_non_zero += 1
+                                        total_non_zero_pixels += 1
+                        
+                        if line_non_zero > 0:
+                            lines_with_data += 1
+                        else:
+                            lines_empty += 1
+                    
+                    logger.info(f"[Renderer-Framebuffer-Complete] Frame {self._framebuffer_complete_check_count} | "
+                               f"Lines with data: {lines_with_data}/144 | Lines empty: {lines_empty}/144 | "
+                               f"Total non-zero pixels: {total_non_zero_pixels}/23040 | "
+                               f"Distribution: 0={index_counts[0]} 1={index_counts[1]} 2={index_counts[2]} 3={index_counts[3]}")
+                    print(f"[Renderer-Framebuffer-Complete] Frame {self._framebuffer_complete_check_count} | "
+                          f"Lines with data: {lines_with_data}/144 | Lines empty: {lines_empty}/144 | "
+                          f"Total non-zero pixels: {total_non_zero_pixels}/23040 | "
+                          f"Distribution: 0={index_counts[0]} 1={index_counts[1]} 2={index_counts[2]} 3={index_counts[3]}")
+                    
+                    # Advertencia si hay muchas líneas vacías
+                    if lines_empty > 10:
+                        logger.warning(f"[Renderer-Framebuffer-Complete] ⚠️ {lines_empty} líneas están vacías!")
+                        print(f"[Renderer-Framebuffer-Complete] ⚠️ {lines_empty} líneas están vacías!")
+                    
+                    # Identificar líneas problemáticas (vacías cuando deberían tener datos)
+                    if lines_empty > 0 and self._framebuffer_complete_check_count <= 5:
+                        empty_lines = []
+                        for y in range(144):
+                            line_start = y * 160
+                            line_non_zero = 0
+                            for x in range(160):
+                                idx = line_start + x
+                                if idx < len(frame_indices):
+                                    color_idx = frame_indices[idx] & 0x03
+                                    if color_idx != 0:
+                                        line_non_zero += 1
+                            if line_non_zero == 0:
+                                empty_lines.append(y)
+                        
+                        if empty_lines:
+                            logger.warning(f"[Renderer-Framebuffer-Complete] ⚠️ Líneas vacías: {empty_lines[:20]}")
+                            print(f"[Renderer-Framebuffer-Complete] ⚠️ Líneas vacías: {empty_lines[:20]}")
+                # -------------------------------------------
+                
                 # --- Step 0337: Verificación de Formato del Framebuffer ---
                 if not hasattr(self, '_framebuffer_format_check_count'):
                     self._framebuffer_format_check_count = 0
@@ -1412,6 +1480,58 @@ class Renderer:
                                              f"Expected: {expected_rgb}, Actual: {surface_color}")
                 # -------------------------------------------
                 
+                # --- Step 0347: Verificación Línea por Línea de la Visualización ---
+                # Verificar cada línea de la superficie después de dibujar
+                if not hasattr(self, '_line_by_line_check_count'):
+                    self._line_by_line_check_count = 0
+
+                if hasattr(self, 'surface') and self.surface is not None and \
+                   frame_indices is not None and len(frame_indices) == 23040 and \
+                   self._line_by_line_check_count < 5:
+                    self._line_by_line_check_count += 1
+                    
+                    # Verificar algunas líneas específicas
+                    test_lines = [0, 36, 72, 108, 143]  # Distribuidas uniformemente
+                    
+                    logger.info(f"[Renderer-Line-by-Line] Frame {self._line_by_line_check_count} | "
+                               f"Verificando líneas: {test_lines}")
+                    print(f"[Renderer-Line-by-Line] Frame {self._line_by_line_check_count} | "
+                          f"Verificando líneas: {test_lines}")
+                    
+                    for y in test_lines:
+                        line_start = y * 160
+                        matches = 0
+                        mismatches = 0
+                        
+                        # Verificar primeros 10 píxeles de la línea
+                        for x in range(min(10, 160)):
+                            idx = line_start + x
+                            if idx < len(frame_indices):
+                                # Índice del framebuffer
+                                framebuffer_idx = frame_indices[idx] & 0x03
+                                expected_rgb = palette[framebuffer_idx]
+                                
+                                # Color en la superficie
+                                if x < self.surface.get_width() and y < self.surface.get_height():
+                                    surface_color = self.surface.get_at((x, y))
+                                    
+                                    # Comparar (tolerancia pequeña)
+                                    if abs(surface_color[0] - expected_rgb[0]) <= 5 and \
+                                       abs(surface_color[1] - expected_rgb[1]) <= 5 and \
+                                       abs(surface_color[2] - expected_rgb[2]) <= 5:
+                                        matches += 1
+                                    else:
+                                        mismatches += 1
+                                        if mismatches <= 3:  # Solo loggear primeros 3 desajustes
+                                            logger.warning(f"[Renderer-Line-by-Line] Line {y}, Pixel ({x}, {y}): "
+                                                         f"Mismatch! Expected={expected_rgb}, Actual={surface_color}")
+                                            print(f"[Renderer-Line-by-Line] Line {y}, Pixel ({x}, {y}): "
+                                                  f"Mismatch! Expected={expected_rgb}, Actual={surface_color}")
+                        
+                        logger.info(f"[Renderer-Line-by-Line] Line {y}: Matches={matches}/10, Mismatches={mismatches}/10")
+                        print(f"[Renderer-Line-by-Line] Line {y}: Matches={matches}/10, Mismatches={mismatches}/10")
+                # -------------------------------------------
+                
                 # --- Step 0342: Verificación de Correspondencia Entre Framebuffer y Visualización ---
                 # Verificar que el contenido del framebuffer se refleja correctamente en la visualización
                 if not hasattr(self, '_framebuffer_visualization_correspondence_count'):
@@ -1567,6 +1687,63 @@ class Renderer:
                 # Actualizamos la pantalla
                 pygame.display.flip()
                 # ----------------------------------------
+                
+                # --- Step 0347: Verificación del Escalado y Blit ---
+                # Verificar que el escalado y blit funcionan correctamente
+                if not hasattr(self, '_scale_blit_check_count'):
+                    self._scale_blit_check_count = 0
+
+                if hasattr(self, '_scaled_surface_cache') and self._scaled_surface_cache is not None and \
+                   hasattr(self, 'surface') and self.surface is not None and \
+                   self._scale_blit_check_count < 10:
+                    self._scale_blit_check_count += 1
+                    
+                    # Verificar tamaño de la superficie escalada
+                    scaled_size = self._scaled_surface_cache.get_size()
+                    screen_size = self.screen.get_size()
+                    
+                    logger.info(f"[Renderer-Scale-Blit] Frame {self._scale_blit_check_count} | "
+                               f"Scaled surface size: {scaled_size} | Screen size: {screen_size}")
+                    print(f"[Renderer-Scale-Blit] Frame {self._scale_blit_check_count} | "
+                          f"Scaled surface size: {scaled_size} | Screen size: {screen_size}")
+                    
+                    # Verificar algunos píxeles antes y después del escalado
+                    test_pixels = [(0, 0), (80, 72), (159, 143)]
+                    
+                    for x, y in test_pixels:
+                        # Color en la superficie original (160x144)
+                        if x < self.surface.get_width() and y < self.surface.get_height():
+                            original_color = self.surface.get_at((x, y))
+                            
+                            # Calcular posición escalada
+                            scale_x = int(x * screen_size[0] / 160)
+                            scale_y = int(y * screen_size[1] / 144)
+                            
+                            # Color en la superficie escalada
+                            if scale_x < scaled_size[0] and scale_y < scaled_size[1]:
+                                scaled_color = self._scaled_surface_cache.get_at((scale_x, scale_y))
+                                
+                                # Color en la pantalla después del blit
+                                screen_color = self.screen.get_at((scale_x, scale_y))
+                                
+                                logger.info(f"[Renderer-Scale-Blit] Pixel ({x}, {y}): "
+                                           f"Original={original_color} | Scaled={scaled_color} | Screen={screen_color}")
+                                print(f"[Renderer-Scale-Blit] Pixel ({x}, {y}): "
+                                      f"Original={original_color} | Scaled={scaled_color} | Screen={screen_color}")
+                                
+                                # Verificar que los colores son similares (tolerancia para interpolación)
+                                if abs(original_color[0] - scaled_color[0]) > 20 or \
+                                   abs(original_color[1] - scaled_color[1]) > 20 or \
+                                   abs(original_color[2] - scaled_color[2]) > 20:
+                                    logger.warning(f"[Renderer-Scale-Blit] ⚠️ Color escalado muy diferente!")
+                                    print(f"[Renderer-Scale-Blit] ⚠️ Color escalado muy diferente!")
+                                
+                                if abs(scaled_color[0] - screen_color[0]) > 5 or \
+                                   abs(scaled_color[1] - screen_color[1]) > 5 or \
+                                   abs(scaled_color[2] - screen_color[2]) > 5:
+                                    logger.warning(f"[Renderer-Scale-Blit] ⚠️ Color en pantalla diferente al escalado!")
+                                    print(f"[Renderer-Scale-Blit] ⚠️ Color en pantalla diferente al escalado!")
+                # -------------------------------------------
                 
                 # --- STEP 0309: Monitor de Rendimiento Corregido ([PERFORMANCE-TRACE]) ---
                 # Step 0309: Calcular tiempo entre frames (incluye tiempo de espera del clock.tick())
@@ -1931,6 +2108,66 @@ class Renderer:
         
         # Actualizar la pantalla
         pygame.display.flip()
+        
+        # --- Step 0348: Verificación de Actualización de Pantalla ---
+        # Verificar que la pantalla se actualiza correctamente después de flip()
+        if not hasattr(self, '_screen_update_check_count'):
+            self._screen_update_check_count = 0
+        
+        if hasattr(self, 'screen') and self.screen is not None and \
+           self._screen_update_check_count < 10:
+            self._screen_update_check_count += 1
+            
+            # Verificar algunos píxeles en la pantalla después de flip()
+            test_pixels = [(0, 0), (80, 72), (159, 143)]
+            
+            logger.info(f"[Renderer-Screen-Update] Frame {self._screen_update_check_count} | "
+                       f"Verificando pantalla después de flip():")
+            print(f"[Renderer-Screen-Update] Frame {self._screen_update_check_count} | "
+                  f"Verificando pantalla después de flip():")
+            
+            for x, y in test_pixels:
+                # Calcular posición escalada
+                scale_x = int(x * self.screen.get_width() / 160)
+                scale_y = int(y * self.screen.get_height() / 144)
+                
+                # Color en la pantalla después de flip()
+                if scale_x < self.screen.get_width() and scale_y < self.screen.get_height():
+                    screen_color = self.screen.get_at((scale_x, scale_y))
+                    
+                    # Obtener índice original del framebuffer
+                    if 'frame_indices' in locals() and frame_indices is not None:
+                        idx = y * 160 + x
+                        if idx < len(frame_indices):
+                            framebuffer_idx = frame_indices[idx] & 0x03
+                            expected_rgb = palette[framebuffer_idx]
+                            
+                            logger.info(f"[Renderer-Screen-Update] Pixel ({x}, {y}): "
+                                       f"Framebuffer index={framebuffer_idx}, Expected RGB={expected_rgb}, "
+                                       f"Screen RGB={screen_color}")
+                            print(f"[Renderer-Screen-Update] Pixel ({x}, {y}): "
+                                  f"Framebuffer index={framebuffer_idx}, Expected RGB={expected_rgb}, "
+                                  f"Screen RGB={screen_color}")
+                            
+                            # Verificar que los colores coinciden (tolerancia para interpolación)
+                            if abs(screen_color[0] - expected_rgb[0]) > 10 or \
+                               abs(screen_color[1] - expected_rgb[1]) > 10 or \
+                               abs(screen_color[2] - expected_rgb[2]) > 10:
+                                logger.warning(f"[Renderer-Screen-Update] ⚠️ Color en pantalla no coincide!")
+                                print(f"[Renderer-Screen-Update] ⚠️ Color en pantalla no coincide!")
+        # -------------------------------------------
+        
+        # --- Step 0348: Contar Frames Mostrados ---
+        # Contar cuántos frames se muestran
+        if not hasattr(self, '_frames_displayed_count'):
+            self._frames_displayed_count = 0
+        
+        self._frames_displayed_count += 1
+        
+        if self._frames_displayed_count <= 20:
+            logger.info(f"[Renderer-Frames-Displayed] Frame {self._frames_displayed_count} mostrado")
+            print(f"[Renderer-Frames-Displayed] Frame {self._frames_displayed_count} mostrado")
+        # -------------------------------------------
         
         # --- STEP 0309: Monitor de Rendimiento Corregido ([PERFORMANCE-TRACE]) ---
         if self._performance_trace_enabled and frame_start is not None:

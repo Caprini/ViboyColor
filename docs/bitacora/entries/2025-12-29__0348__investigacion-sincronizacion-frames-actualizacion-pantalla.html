@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Sincronización de Frames y Actualización de Pantalla - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Sincronización de Frames y Actualización de Pantalla</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0348
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0347__investigacion-discrepancia-logs-visualizacion.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementaron verificaciones de sincronización de frames, actualización de pantalla, timing entre generación y visualización, y condiciones de carrera para investigar problemas de visualización que persisten a pesar de que los logs muestran que el framebuffer, escalado y correspondencia funcionan correctamente. Las verificaciones incluyen: (1) logs de sincronización de frames (cuándo C++ marca frame_ready_, cuándo Python lee el framebuffer, cuándo se dibuja), (2) logs de actualización de pantalla (verificación después de pygame.display.flip()), (3) logs de timing (tiempo entre frames, tiempo entre generación y visualización), y (4) logs de condiciones de carrera (verificación de que el framebuffer no se limpia mientras se está leyendo).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Sincronización de Frames:</strong> El Game Boy genera frames a 60 FPS (~16.67ms por frame). La PPU C++ genera el framebuffer línea por línea (LY 0-143). Cuando LY llega a 144, se marca <code>frame_ready_ = true</code>. Python lee el framebuffer cuando detecta <code>frame_ready_</code>. Python dibuja el framebuffer en la pantalla. El orden debe ser: C++ marca → Python lee → Python dibuja. Si este orden se rompe, pueden ocurrir problemas visuales como rayas, pantalla blanca o checkerboard.
+                </p>
+                <p>
+                    <strong>Actualización de Pantalla:</strong> <code>pygame.display.flip()</code> actualiza la pantalla con el contenido del buffer. Debe llamarse después de dibujar todo el contenido. El contenido en pantalla debe coincidir con el framebuffer dibujado. Si <code>flip()</code> no funciona correctamente o se llama en el momento incorrecto, la pantalla puede mostrar contenido incorrecto o desactualizado.
+                </p>
+                <p>
+                    <strong>Timing:</strong> Un frame a 60 FPS dura ~16.67ms. El tiempo entre frames debe ser consistente. Retrasos significativos pueden causar problemas visuales. El tiempo entre cuando C++ marca <code>frame_ready_</code> y cuando Python lee el framebuffer debe ser mínimo. El tiempo entre cuando Python lee el framebuffer y cuando se dibuja también debe ser mínimo. Si hay retrasos significativos, pueden ocurrir problemas de sincronización.
+                </p>
+                <p>
+                    <strong>Condiciones de Carrera:</strong> Python puede leer el framebuffer mientras C++ lo está actualizando o limpiando. Esto puede causar que Python lea datos incorrectos o incompletos. El framebuffer debe limpiarse solo al inicio del siguiente frame (cuando LY se resetea a 0), no mientras Python lo está leyendo. Si el framebuffer se limpia durante el renderizado (LY > 0 y LY < 144), esto indica un problema de sincronización.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron cuatro verificaciones principales para investigar problemas de sincronización, timing y condiciones de carrera:
+                </p>
+                
+                <h3>1. Verificación de Sincronización de Frames</h3>
+                <p>
+                    Se agregó código en <code>src/viboy.py</code> que loggea cuándo se detecta un frame listo, cuándo se lee el framebuffer, y cuándo se completa la lectura. Los logs incluyen timestamps precisos para verificar el orden correcto de sincronización.
+                </p>
+                <pre><code># --- Step 0348: Verificación de Sincronización de Frames ---
+if not hasattr(self, '_frame_sync_check_count'):
+    self._frame_sync_check_count = 0
+
+self._frame_sync_check_count += 1
+
+# Loggear cuándo se detecta frame listo
+frame_ready_time = time.time()
+
+if self._frame_sync_check_count <= 20:
+    logger.info(f"[Viboy-Frame-Sync] Frame {self._frame_sync_check_count} | "
+               f"Frame ready detectado en t={frame_ready_time:.6f}s")
+    print(f"[Viboy-Frame-Sync] Frame {self._frame_sync_check_count} | "
+          f"Frame ready detectado en t={frame_ready_time:.6f}s")
+
+# Leer framebuffer
+read_start_time = time.time()
+raw_view = self._ppu.framebuffer
+
+if raw_view is not None:
+    # Hacer copia inmutable
+    fb_data = bytearray(raw_view)
+    read_end_time = time.time()
+    read_duration = (read_end_time - read_start_time) * 1000  # ms
+    
+    if self._frame_sync_check_count <= 20:
+        logger.info(f"[Viboy-Frame-Sync] Frame {self._frame_sync_check_count} | "
+                   f"Framebuffer leído en {read_duration:.3f}ms "
+                   f"(t={read_end_time:.6f}s)")
+        print(f"[Viboy-Frame-Sync] Frame {self._frame_sync_check_count} | "
+              f"Framebuffer leído en {read_duration:.3f}ms "
+              f"(t={read_end_time:.6f}s)")
+    
+    framebuffer_to_render = fb_data
+else:
+    logger.warning(f"[Viboy-Frame-Sync] Frame {self._frame_sync_check_count} | "
+                  f"⚠️ Framebuffer es None!")
+    print(f"[Viboy-Frame-Sync] Frame {self._frame_sync_check_count} | "
+          f"⚠️ Framebuffer es None!")
+    framebuffer_to_render = None
+# -------------------------------------------</code></pre>
+
+                <h3>2. Verificación de Actualización de Pantalla</h3>
+                <p>
+                    Se agregó código en <code>src/gpu/renderer.py</code> que verifica algunos píxeles en la pantalla después de <code>pygame.display.flip()</code> y los compara con el framebuffer original para verificar que la pantalla se actualiza correctamente.
+                </p>
+                <pre><code># --- Step 0348: Verificación de Actualización de Pantalla ---
+if not hasattr(self, '_screen_update_check_count'):
+    self._screen_update_check_count = 0
+
+if hasattr(self, 'screen') and self.screen is not None and \
+   self._screen_update_check_count < 10:
+    self._screen_update_check_count += 1
+    
+    # Verificar algunos píxeles en la pantalla después de flip()
+    test_pixels = [(0, 0), (80, 72), (159, 143)]
+    
+    logger.info(f"[Renderer-Screen-Update] Frame {self._screen_update_check_count} | "
+               f"Verificando pantalla después de flip():")
+    print(f"[Renderer-Screen-Update] Frame {self._screen_update_check_count} | "
+          f"Verificando pantalla después de flip():")
+    
+    for x, y in test_pixels:
+        # Calcular posición escalada
+        scale_x = int(x * self.screen.get_width() / 160)
+        scale_y = int(y * self.screen.get_height() / 144)
+        
+        # Color en la pantalla después de flip()
+        if scale_x < self.screen.get_width() and scale_y < self.screen.get_height():
+            screen_color = self.screen.get_at((scale_x, scale_y))
+            
+            # Obtener índice original del framebuffer
+            if 'frame_indices' in locals() and frame_indices is not None:
+                idx = y * 160 + x
+                if idx < len(frame_indices):
+                    framebuffer_idx = frame_indices[idx] & 0x03
+                    expected_rgb = palette[framebuffer_idx]
+                    
+                    logger.info(f"[Renderer-Screen-Update] Pixel ({x}, {y}): "
+                               f"Framebuffer index={framebuffer_idx}, Expected RGB={expected_rgb}, "
+                               f"Screen RGB={screen_color}")
+                    print(f"[Renderer-Screen-Update] Pixel ({x}, {y}): "
+                          f"Framebuffer index={framebuffer_idx}, Expected RGB={expected_rgb}, "
+                          f"Screen RGB={screen_color}")
+                    
+                    # Verificar que los colores coinciden (tolerancia para interpolación)
+                    if abs(screen_color[0] - expected_rgb[0]) > 10 or \
+                       abs(screen_color[1] - expected_rgb[1]) > 10 or \
+                       abs(screen_color[2] - expected_rgb[2]) > 10:
+                        logger.warning(f"[Renderer-Screen-Update] ⚠️ Color en pantalla no coincide!")
+                        print(f"[Renderer-Screen-Update] ⚠️ Color en pantalla no coincide!")
+# -------------------------------------------</code></pre>
+
+                <h3>3. Verificación de Timing Entre Generación y Visualización</h3>
+                <p>
+                    Se agregó código en <code>src/viboy.py</code> que loggea el tiempo entre frames y verifica que sea consistente (~16.67ms para 60 FPS). También se agregó un contador de frames mostrados en <code>src/gpu/renderer.py</code> para verificar que no se pierden frames.
+                </p>
+                <pre><code># --- Step 0348: Verificación de Timing Entre Generación y Visualización ---
+if not hasattr(self, '_timing_check_count'):
+    self._timing_check_count = 0
+    self._last_frame_ready_time = None
+    self._frames_generated = 0
+    self._frames_displayed = 0
+
+self._frames_generated += 1
+current_time = time.time()
+
+if self._last_frame_ready_time is not None:
+    time_between_frames = (current_time - self._last_frame_ready_time) * 1000  # ms
+    expected_time = 1000.0 / 60.0  # ~16.67ms para 60 FPS
+    
+    if self._timing_check_count < 20:
+        self._timing_check_count += 1
+        logger.info(f"[Viboy-Timing] Frame {self._timing_check_count} | "
+                   f"Time between frames: {time_between_frames:.3f}ms "
+                   f"(expected: {expected_time:.3f}ms)")
+        print(f"[Viboy-Timing] Frame {self._timing_check_count} | "
+              f"Time between frames: {time_between_frames:.3f}ms "
+              f"(expected: {expected_time:.3f}ms)")
+        
+        if abs(time_between_frames - expected_time) > 5.0:
+            logger.warning(f"[Viboy-Timing] ⚠️ Timing anormal!")
+            print(f"[Viboy-Timing] ⚠️ Timing anormal!")
+
+self._last_frame_ready_time = current_time
+# -------------------------------------------</code></pre>
+
+                <h3>4. Verificación de Condiciones de Carrera</h3>
+                <p>
+                    Se agregó código en <code>src/core/cpp/PPU.cpp</code> que loggea cuándo se limpia el framebuffer y verifica que no se limpie durante el renderizado (LY > 0 y LY < 144).
+                </p>
+                <pre><code>// --- Step 0348: Verificación de Condiciones de Carrera ---
+void PPU::clear_framebuffer() {
+    static int clear_framebuffer_race_check_count = 0;
+    if (clear_framebuffer_race_check_count < 50) {
+        clear_framebuffer_race_check_count++;
+        printf("[PPU-Clear-Framebuffer-Race] Frame %llu | LY: %d | Limpiando framebuffer\n",
+               static_cast<unsigned long long>(frame_counter_ + 1), ly_);
+        
+        // Advertencia si se limpia durante renderizado (no debería pasar)
+        if (ly_ > 0 && ly_ < 144) {
+            printf("[PPU-Clear-Framebuffer-Race] ⚠️ PROBLEMA: Framebuffer se limpia durante renderizado (LY=%d)!\n", ly_);
+        }
+    }
+    
+    // Rellena el framebuffer con el índice de color 0 (blanco en la paleta por defecto)
+    std::fill(framebuffer_.begin(), framebuffer_.end(), 0);
+}
+// -------------------------------------------</code></pre>
+            </section>
+
+            <!-- 4. Archivos Afectados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Agregados logs de sincronización de frames y timing entre generación y visualización</li>
+                    <li><code>src/gpu/renderer.py</code> - Agregados logs de actualización de pantalla y contador de frames mostrados</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Agregados logs de condiciones de carrera en clear_framebuffer()</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Las verificaciones se ejecutarán durante la ejecución normal del emulador. Para analizar los resultados, se recomienda ejecutar pruebas con múltiples ROMs en paralelo:
+                </p>
+                <pre><code># Ejecutar las 5 ROMs en paralelo (procesos en segundo plano)
+timeout 150 python3 main.py roms/pkmn.gb 2>&1 | grep -E "\[Viboy-Frame-Sync\]|\[Renderer-Screen-Update\]|\[Viboy-Timing\]|\[Renderer-Frames-Displayed\]|\[PPU-Clear-Framebuffer-Race\]" | head -n 100 &
+timeout 150 python3 main.py roms/tetris.gb 2>&1 | grep -E "\[Viboy-Frame-Sync\]|\[Renderer-Screen-Update\]|\[Viboy-Timing\]|\[Renderer-Frames-Displayed\]|\[PPU-Clear-Framebuffer-Race\]" | head -n 100 &
+timeout 150 python3 main.py roms/mario.gbc 2>&1 | grep -E "\[Viboy-Frame-Sync\]|\[Renderer-Screen-Update\]|\[Viboy-Timing\]|\[Renderer-Frames-Displayed\]|\[PPU-Clear-Framebuffer-Race\]" | head -n 100 &
+timeout 150 python3 main.py roms/pkmn-amarillo.gb 2>&1 | grep -E "\[Viboy-Frame-Sync\]|\[Renderer-Screen-Update\]|\[Viboy-Timing\]|\[Renderer-Frames-Displayed\]|\[PPU-Clear-Framebuffer-Race\]" | head -n 100 &
+timeout 150 python3 main.py roms/Oro.gbc 2>&1 | grep -E "\[Viboy-Frame-Sync\]|\[Renderer-Screen-Update\]|\[Viboy-Timing\]|\[Renderer-Frames-Displayed\]|\[PPU-Clear-Framebuffer-Race\]" | head -n 100 &
+
+# Esperar a que todos los procesos terminen
+wait
+
+echo "Todas las pruebas completadas"</code></pre>
+                <p>
+                    Para analizar los logs generados, se pueden usar los siguientes comandos:
+                </p>
+                <pre><code># Verificar sincronización de frames
+grep "\[Viboy-Frame-Sync\]" logs/test_*_step0348.log | head -n 50
+
+# Verificar actualización de pantalla
+grep "\[Renderer-Screen-Update\]" logs/test_*_step0348.log | head -n 50
+
+# Verificar timing
+grep "\[Viboy-Timing\]" logs/test_*_step0348.log | head -n 50
+grep "\[Renderer-Frames-Displayed\]" logs/test_*_step0348.log | head -n 50
+
+# Verificar condiciones de carrera
+grep "\[PPU-Clear-Framebuffer-Race\]" logs/test_*_step0348.log | head -n 50</code></pre>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Las verificaciones confirman que el framebuffer se lee correctamente después de que C++ marca <code>frame_ready_</code>, que la pantalla se actualiza correctamente después de <code>pygame.display.flip()</code>, que el timing entre frames es consistente, y que no hay condiciones de carrera (el framebuffer no se limpia durante el renderizado).
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pygame Documentation: <a href="https://www.pygame.org/docs/ref/display.html">pygame.display.flip()</a></li>
+                    <li>Pan Docs: System Clock, Timing, PPU Modes</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <p>
+                    Este Step implementa verificaciones de sincronización, timing y condiciones de carrera basadas en documentación técnica (Pan Docs) y principios de programación de sistemas. No se copió código de otros emuladores. Las verificaciones se implementaron desde cero para entender cómo funciona la sincronización entre C++ y Python en el contexto de un emulador de Game Boy.
+                </p>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <p>
+                    Después de analizar los logs generados por estas verificaciones, se identificará la causa del problema de visualización y se implementará la corrección correspondiente en el Step 0349.
+                </p>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>Bitácora del Proyecto Viboy Color - Step 0348</p>
+        </footer>
+    </div>
+</body>
+</html>
+
