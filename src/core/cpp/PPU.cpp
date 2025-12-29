@@ -1605,6 +1605,227 @@ void PPU::render_scanline() {
     }
     // -------------------------------------------
     
+    // --- Step 0338: Verificación del Contenido del Framebuffer con Tiles Reales ---
+    // Verificar qué contiene el framebuffer cuando hay tiles reales (no checkerboard)
+    static int framebuffer_content_check_count = 0;
+    static bool last_vram_has_tiles_check = false;
+
+    // Detectar cuando aparecen tiles reales por primera vez
+    if (vram_has_tiles && !last_vram_has_tiles_check && ly_ == 0) {
+        last_vram_has_tiles_check = true;
+        framebuffer_content_check_count = 0;
+    }
+
+    // Verificar el framebuffer cuando hay tiles reales
+    if (vram_has_tiles && framebuffer_content_check_count < 20 && ly_ == 72) {
+        framebuffer_content_check_count++;
+        
+        // Contar índices en la línea 72 (línea central)
+        int index_counts[4] = {0, 0, 0, 0};
+        for (int x = 0; x < SCREEN_WIDTH; x++) {
+            uint8_t color_idx = framebuffer_[ly_ * SCREEN_WIDTH + x] & 0x03;
+            if (color_idx < 4) {
+                index_counts[color_idx]++;
+            }
+        }
+        
+        printf("[PPU-FRAMEBUFFER-CONTENT] Frame %llu | LY: %d | Tiles reales detectados | "
+               "Distribution: 0=%d 1=%d 2=%d 3=%d\n",
+               static_cast<unsigned long long>(frame_counter_ + 1),
+               ly_, index_counts[0], index_counts[1], index_counts[2], index_counts[3]);
+        
+        // Verificar algunos píxeles específicos
+        int test_x_positions[] = {0, 40, 80, 120, 159};
+        for (int i = 0; i < 5; i++) {
+            int x = test_x_positions[i];
+            uint8_t color_idx = framebuffer_[ly_ * SCREEN_WIDTH + x] & 0x03;
+            printf("[PPU-FRAMEBUFFER-CONTENT] Pixel (%d, %d): index=%d\n", x, ly_, color_idx);
+        }
+    }
+    // -------------------------------------------
+
+    // --- Step 0338: Verificación de Correspondencia Tilemap-Tiles ---
+    // Verificar si el tilemap apunta a tiles con datos en VRAM
+    static int tilemap_tiles_correspondence_count = 0;
+
+    if (vram_has_tiles && tilemap_tiles_correspondence_count < 10 && ly_ == 72) {
+        tilemap_tiles_correspondence_count++;
+        
+        uint16_t tile_map_base = (lcdc & 0x08) ? 0x9C00 : 0x9800;
+        bool signed_addressing = (lcdc & 0x10) == 0;
+        uint16_t tile_data_base = signed_addressing ? 0x9000 : 0x8000;
+        
+        uint8_t scy = mmu_->read(IO_SCY);
+        uint8_t scx = mmu_->read(IO_SCX);
+        
+        // Calcular qué tiles son visibles en la línea 72
+        uint8_t map_y = (ly_ + scy) & 0xFF;
+        uint8_t tile_y = map_y / 8;
+        
+        int tiles_with_data = 0;
+        int tiles_empty = 0;
+        int tiles_invalid = 0;
+        
+        // Verificar los primeros 20 tiles visibles
+        for (int screen_tile_x = 0; screen_tile_x < 20; screen_tile_x++) {
+            uint8_t map_x = (screen_tile_x * 8 + scx) & 0xFF;
+            uint8_t tile_x = map_x / 8;
+            
+            // Leer tile ID del tilemap
+            uint16_t tilemap_addr = tile_map_base + (tile_y * 32 + tile_x);
+            uint8_t tile_id = mmu_->read(tilemap_addr);
+            
+            // Calcular dirección del tile
+            uint16_t tile_addr;
+            if (!signed_addressing) {
+                tile_addr = tile_data_base + (tile_id * 16);
+            } else {
+                int8_t signed_id = static_cast<int8_t>(tile_id);
+                tile_addr = tile_data_base + (static_cast<uint16_t>(signed_id) * 16);
+            }
+            
+            // Verificar si el tile tiene datos
+            bool tile_has_data = false;
+            if (tile_addr >= 0x8000 && tile_addr <= 0x97FF) {
+                // Verificar si el tile tiene datos (al menos una línea no vacía)
+                for (uint8_t line = 0; line < 8; line++) {
+                    uint16_t line_addr = tile_addr + (line * 2);
+                    uint8_t byte1 = mmu_->read(line_addr);
+                    uint8_t byte2 = mmu_->read(line_addr + 1);
+                    if (byte1 != 0x00 || byte2 != 0x00) {
+                        tile_has_data = true;
+                        break;
+                    }
+                }
+                
+                if (tile_has_data) {
+                    tiles_with_data++;
+                } else {
+                    tiles_empty++;
+                }
+            } else {
+                tiles_invalid++;
+            }
+            
+            // Loggear algunos tiles específicos
+            if (screen_tile_x < 5) {
+                printf("[PPU-TILEMAP-TILES] Tile %d: ID=0x%02X | Addr=0x%04X | HasData=%d\n",
+                       screen_tile_x, tile_id, tile_addr, tile_has_data ? 1 : 0);
+            }
+        }
+        
+        printf("[PPU-TILEMAP-TILES] Frame %llu | LY: %d | Tiles visibles: "
+               "WithData=%d Empty=%d Invalid=%d\n",
+               static_cast<unsigned long long>(frame_counter_ + 1),
+               ly_, tiles_with_data, tiles_empty, tiles_invalid);
+    }
+    // -------------------------------------------
+
+    // --- Step 0338: Verificación de Renderizado Completo de Tiles ---
+    // Verificar si los tiles se renderizan completamente (todas las líneas)
+    static int tile_render_complete_check_count = 0;
+
+    if (vram_has_tiles && tile_render_complete_check_count < 10 && ly_ == 72) {
+        tile_render_complete_check_count++;
+        
+        // Verificar un tile específico (tile en posición (0, 0) del tilemap)
+        uint16_t tile_map_base = (lcdc & 0x08) ? 0x9C00 : 0x9800;
+        bool signed_addressing = (lcdc & 0x10) == 0;
+        uint16_t tile_data_base = signed_addressing ? 0x9000 : 0x8000;
+        
+        uint8_t scy = mmu_->read(IO_SCY);
+        uint8_t map_y = (ly_ + scy) & 0xFF;
+        uint8_t tile_y = map_y / 8;
+        uint8_t line_in_tile = map_y % 8;
+        
+        // Leer tile ID del tilemap (tile en posición (0, tile_y))
+        uint16_t tilemap_addr = tile_map_base + (tile_y * 32 + 0);
+        uint8_t tile_id = mmu_->read(tilemap_addr);
+        
+        // Calcular dirección del tile
+        uint16_t tile_addr;
+        if (!signed_addressing) {
+            tile_addr = tile_data_base + (tile_id * 16);
+        } else {
+            int8_t signed_id = static_cast<int8_t>(tile_id);
+            tile_addr = tile_data_base + (static_cast<uint16_t>(signed_id) * 16);
+        }
+        
+        // Verificar que el tile tiene datos
+        if (tile_addr >= 0x8000 && tile_addr <= 0x97FF) {
+            // Leer la línea actual del tile
+            uint16_t tile_line_addr = tile_addr + (line_in_tile * 2);
+            uint8_t byte1 = mmu_->read(tile_line_addr);
+            uint8_t byte2 = mmu_->read(tile_line_addr + 1);
+            
+            // Verificar qué píxeles se renderizaron en el framebuffer
+            int pixels_rendered = 0;
+            int pixels_expected = 8;
+            
+            for (int x = 0; x < 8; x++) {
+                uint8_t bit_index = 7 - x;
+                uint8_t bit_low = (byte1 >> bit_index) & 1;
+                uint8_t bit_high = (byte2 >> bit_index) & 1;
+                uint8_t expected_color_idx = (bit_high << 1) | bit_low;
+                
+                // Verificar en el framebuffer
+                int framebuffer_x = x;  // Asumiendo que el tile empieza en x=0
+                if (framebuffer_x < SCREEN_WIDTH) {
+                    uint8_t actual_color_idx = framebuffer_[ly_ * SCREEN_WIDTH + framebuffer_x] & 0x03;
+                    if (actual_color_idx == expected_color_idx) {
+                        pixels_rendered++;
+                    }
+                }
+            }
+            
+            printf("[PPU-TILE-RENDER-COMPLETE] Frame %llu | LY: %d | TileID: 0x%02X | "
+                   "LineInTile: %d | Pixels rendered: %d/%d | "
+                   "Byte1: 0x%02X Byte2: 0x%02X\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1),
+                   ly_, tile_id, line_in_tile, pixels_rendered, pixels_expected,
+                   byte1, byte2);
+            
+            if (pixels_rendered < pixels_expected) {
+                printf("[PPU-TILE-RENDER-COMPLETE] ⚠️ ADVERTENCIA: Tile no se renderizó completamente!\n");
+            }
+        }
+    }
+    // -------------------------------------------
+
+    // --- Step 0338: Verificación Detallada de Scroll y Offset ---
+    // Verificar que el scroll y el offset se calculan correctamente
+    static int scroll_offset_check_count = 0;
+
+    if (vram_has_tiles && scroll_offset_check_count < 10 && ly_ == 72) {
+        scroll_offset_check_count++;
+        
+        uint8_t scy = mmu_->read(IO_SCY);
+        uint8_t scx = mmu_->read(IO_SCX);
+        
+        // Verificar algunos píxeles específicos
+        int test_x_positions[] = {0, 40, 80, 120, 159};
+        for (int i = 0; i < 5; i++) {
+            int screen_x = test_x_positions[i];
+            
+            // Calcular posición en el tilemap con scroll
+            uint8_t map_x = (screen_x + scx) & 0xFF;
+            uint8_t map_y = (ly_ + scy) & 0xFF;
+            
+            uint8_t tile_x = map_x / 8;
+            uint8_t tile_y = map_y / 8;
+            uint8_t pixel_in_tile_x = map_x % 8;
+            uint8_t pixel_in_tile_y = map_y % 8;
+            
+            printf("[PPU-SCROLL-OFFSET] Pixel (%d, %d): SCX=%d SCY=%d | "
+                   "MapX=%d MapY=%d | TileX=%d TileY=%d | "
+                   "PixelInTileX=%d PixelInTileY=%d\n",
+                   screen_x, ly_, scx, scy,
+                   map_x, map_y, tile_x, tile_y,
+                   pixel_in_tile_x, pixel_in_tile_y);
+        }
+    }
+    // -------------------------------------------
+
     // --- Step 0320: Verificación del Framebuffer después de Renderizar ---
     // Verificar que se renderizó algo (no todo blanco) en la línea actual
     size_t line_start = ly_ * SCREEN_WIDTH;

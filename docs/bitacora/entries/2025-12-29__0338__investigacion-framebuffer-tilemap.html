@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación del Contenido del Framebuffer y Correspondencia Tilemap-Tiles - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación del Contenido del Framebuffer y Correspondencia Tilemap-Tiles</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0338
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0337__investigacion-correccion-renderizador-python.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Investigación exhaustiva del contenido del framebuffer cuando hay tiles reales (no checkerboard) y verificación de la correspondencia entre el tilemap y los tiles en VRAM. Se implementaron logs de diagnóstico para verificar qué contiene el framebuffer cuando hay tiles reales, si el tilemap apunta a tiles con datos en VRAM, si los tiles se renderizan completamente, y si hay problemas con el scroll o offset. El objetivo es identificar por qué los tiles aparecen difusos o a medias cuando deberían mostrarse correctamente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Framebuffer</h3>
+                <p>
+                    El framebuffer contiene índices de color (0-3) para cada píxel de la pantalla. Tamaño: 160×144 = 23,040 píxeles. Cada píxel tiene un índice de color que se mapea a RGB mediante la paleta BGP. El framebuffer se genera línea por línea durante el renderizado de cada scanline.
+                </p>
+                <h3>Tilemap</h3>
+                <p>
+                    El tilemap es un mapa de 32×32 tiles que apunta a tiles en VRAM. Cada entrada del tilemap contiene un tile ID (0-255). El tile ID se usa para calcular la dirección del tile en VRAM según el direccionamiento (signed o unsigned). El tilemap se lee durante el renderizado para determinar qué tile se debe dibujar en cada posición de pantalla.
+                </p>
+                <h3>Scroll</h3>
+                <p>
+                    SCX (Scroll X) desplaza el background horizontalmente y SCY (Scroll Y) desplaza el background verticalmente. El scroll se aplica al calcular la posición en el tilemap. El scroll puede causar que solo parte de un tile sea visible, lo que requiere calcular correctamente el offset dentro del tile.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Background", "Tile Map", "Scroll Registers (SCX/SCY)"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron 4 bloques de logs de diagnóstico en <code>PPU::render_scanline()</code> para investigar el contenido del framebuffer y la correspondencia tilemap-tiles cuando hay tiles reales.
+                </p>
+                
+                <h3>1. Verificación del Contenido del Framebuffer con Tiles Reales</h3>
+                <p>
+                    Se agregaron logs que verifican qué contiene el framebuffer cuando hay tiles reales (no checkerboard). Los logs se activan cuando <code>vram_has_tiles</code> es <code>true</code> y se ejecutan en la línea 72 (línea central de la pantalla).
+                </p>
+                <ul>
+                    <li><strong>Distribución de índices:</strong> Cuenta cuántos píxeles tienen cada índice de color (0, 1, 2, 3) en la línea 72</li>
+                    <li><strong>Píxeles específicos:</strong> Verifica algunos píxeles específicos (x=0, 40, 80, 120, 159) para ver qué índices contienen</li>
+                    <li><strong>Tag:</strong> <code>[PPU-FRAMEBUFFER-CONTENT]</code></li>
+                </ul>
+
+                <h3>2. Verificación de Correspondencia Tilemap-Tiles</h3>
+                <p>
+                    Se agregaron logs que verifican si el tilemap apunta a tiles con datos en VRAM. Los logs verifican los primeros 20 tiles visibles en la línea 72 y determinan si cada tile tiene datos o está vacío.
+                </p>
+                <ul>
+                    <li><strong>Tiles con datos:</strong> Cuenta cuántos tiles visibles tienen datos en VRAM</li>
+                    <li><strong>Tiles vacíos:</strong> Cuenta cuántos tiles visibles están vacíos (todas las líneas = 0x00)</li>
+                    <li><strong>Tiles inválidos:</strong> Cuenta cuántos tiles apuntan a direcciones fuera de VRAM</li>
+                    <li><strong>Tag:</strong> <code>[PPU-TILEMAP-TILES]</code></li>
+                </ul>
+
+                <h3>3. Verificación de Renderizado Completo de Tiles</h3>
+                <p>
+                    Se agregaron logs que verifican si los tiles se renderizan completamente (todas las líneas). Los logs verifican un tile específico (tile en posición (0, 0) del tilemap) y comparan los píxeles esperados con los píxeles renderizados en el framebuffer.
+                </p>
+                <ul>
+                    <li><strong>Píxeles renderizados:</strong> Cuenta cuántos píxeles del tile se renderizaron correctamente</li>
+                    <li><strong>Píxeles esperados:</strong> Debería ser 8 (un tile completo en una línea)</li>
+                    <li><strong>Tag:</strong> <code>[PPU-TILE-RENDER-COMPLETE]</code></li>
+                </ul>
+
+                <h3>4. Verificación Detallada de Scroll y Offset</h3>
+                <p>
+                    Se agregaron logs que verifican que el scroll y el offset se calculan correctamente. Los logs verifican algunos píxeles específicos y muestran cómo se calcula la posición en el tilemap con scroll.
+                </p>
+                <ul>
+                    <li><strong>Posición en tilemap:</strong> Muestra MapX y MapY calculados con scroll</li>
+                    <li><strong>Posición en tile:</strong> Muestra TileX, TileY y el offset dentro del tile (PixelInTileX, PixelInTileY)</li>
+                    <li><strong>Tag:</strong> <code>[PPU-SCROLL-OFFSET]</code></li>
+                </ul>
+
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code>: Agregados 4 bloques de logs de diagnóstico en <code>render_scanline()</code></li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Agregados logs de diagnóstico del Step 0338</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Los logs de diagnóstico se activarán automáticamente cuando se detecten tiles reales en VRAM. Para verificar los logs, se deben ejecutar las pruebas con las 5 ROMs durante 2.5 minutos cada una:
+                </p>
+                <ul>
+                    <li><strong>Comandos de prueba:</strong>
+                        <pre><code>timeout 150 python3 main.py roms/pkmn.gb 2>&1 | tee logs/test_pkmn_step0338.log
+timeout 150 python3 main.py roms/tetris.gb 2>&1 | tee logs/test_tetris_step0338.log
+timeout 150 python3 main.py roms/mario.gbc 2>&1 | tee logs/test_mario_step0338.log
+timeout 150 python3 main.py roms/pkmn-amarillo.gb 2>&1 | tee logs/test_pkmn_amarillo_step0338.log
+timeout 150 python3 main.py roms/Oro.gbc 2>&1 | tee logs/test_oro_step0338.log</code></pre>
+                    </li>
+                    <li><strong>Análisis de logs:</strong>
+                        <pre><code># Verificar contenido del framebuffer con tiles reales
+grep "\[PPU-FRAMEBUFFER-CONTENT\]" logs/test_*_step0338.log | head -n 30
+
+# Verificar correspondencia tilemap-tiles
+grep "\[PPU-TILEMAP-TILES\]" logs/test_*_step0338.log | head -n 30
+
+# Verificar renderizado completo de tiles
+grep "\[PPU-TILE-RENDER-COMPLETE\]" logs/test_*_step0338.log | head -n 30
+
+# Verificar scroll y offset
+grep "\[PPU-SCROLL-OFFSET\]" logs/test_*_step0338.log | head -n 30</code></pre>
+                    </li>
+                    <li><strong>Validación Nativa:</strong> Validación de módulo compilado C++</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Background, Tile Map, Scroll Registers</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Framebuffer:</strong> Contiene índices de color (0-3) para cada píxel. Se genera línea por línea durante el renderizado.</li>
+                        <li><strong>Tilemap:</strong> Mapa de 32×32 tiles que apunta a tiles en VRAM. Cada entrada contiene un tile ID que se usa para calcular la dirección del tile.</li>
+                        <li><strong>Scroll:</strong> SCX y SCY desplazan el background. El scroll se aplica al calcular la posición en el tilemap y puede causar que solo parte de un tile sea visible.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Contenido del framebuffer:</strong> Verificar qué índices contiene el framebuffer cuando hay tiles reales. ¿Hay índices 1 o 2 (grises) además de 0 y 3?</li>
+                        <li><strong>Correspondencia tilemap-tiles:</strong> Verificar si el tilemap apunta a tiles con datos en VRAM. ¿Hay tiles vacíos o inválidos?</li>
+                        <li><strong>Renderizado completo:</strong> Verificar si los tiles se renderizan completamente. ¿Se renderizan todas las líneas del tile?</li>
+                        <li><strong>Scroll y offset:</strong> Verificar que el scroll y el offset se calculan correctamente. ¿Hay problemas con el wrap-around del scroll?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Los logs de diagnóstico se activarán cuando se detecten tiles reales en VRAM. Si los tiles aparecen difusos o a medias, los logs deberían revelar si el problema está en:
+                    </p>
+                    <ul>
+                        <li>El contenido del framebuffer (índices incorrectos)</li>
+                        <li>La correspondencia tilemap-tiles (tiles vacíos o inválidos)</li>
+                        <li>El renderizado completo (tiles parcialmente renderizados)</li>
+                        <li>El scroll o offset (cálculos incorrectos)</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar pruebas completas con las 5 ROMs (2.5 minutos cada una)</li>
+                    <li>[ ] Analizar los logs para identificar la causa de los tiles difusos</li>
+                    <li>[ ] Si se identifica la causa: Implementar corrección en Step 0339</li>
+                    <li>[ ] Si el problema persiste: Análisis más profundo y solución alternativa en Step 0339</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
