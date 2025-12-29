@@ -829,29 +829,19 @@ class Renderer:
                 render_time = (time.time() - render_start) * 1000  # en milisegundos
                 # ----------------------------------------
                 
-                # --- STEP 0308: CACHE DE SCALING OPTIMIZADO ---
-                # Medir tiempo de hash para análisis de rendimiento
-                hash_start = time.time()
-                
-                # Cachear la superficie escalada para evitar recalcular cuando el tamaño no cambia
+                # --- STEP 0334: CORRECCIÓN CRÍTICA - Actualizar Cache en Cada Frame ---
+                # PROBLEMA: El cache de escalado solo se actualizaba si cambiaba el tamaño de pantalla,
+                # no cuando cambiaba el contenido. Esto causaba que se mostrara el primer frame
+                # (checkerboard) y luego pantalla blanca cuando el contenido cambiaba.
+                # 
+                # SOLUCIÓN: Actualizar el cache en cada frame para reflejar el contenido actual
                 current_screen_size = self.screen.get_size()
                 
-                # OPTIMIZACIÓN: Deshabilitar hash temporalmente para medir impacto
-                # Solo reescalar si el tamaño cambió (sin validación de contenido)
-                source_hash = None  # Deshabilitado temporalmente para Step 0308
-                # source_hash = hash(tuple(frame_indices[:100]))  # Comentado para medir overhead
+                # Siempre reescalar la superficie actualizada (el contenido cambia en cada frame)
+                self._scaled_surface_cache = pygame.transform.scale(self.surface, current_screen_size)
+                self._cache_screen_size = current_screen_size
                 
-                hash_time = (time.time() - hash_start) * 1000  # en milisegundos
-                
-                # Solo reescalar si el tamaño cambió (hash deshabilitado temporalmente)
-                if (self._cache_screen_size != current_screen_size or 
-                    self._scaled_surface_cache is None):
-                    
-                    self._scaled_surface_cache = pygame.transform.scale(self.surface, current_screen_size)
-                    self._cache_screen_size = current_screen_size
-                    self._cache_source_hash = source_hash
-                
-                # Usar superficie cacheada
+                # Usar superficie escalada actualizada
                 self.screen.blit(self._scaled_surface_cache, (0, 0))
                 # Actualizamos la pantalla
                 pygame.display.flip()

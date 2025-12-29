@@ -47,7 +47,7 @@
                             <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
                         </div>
                         <p class="entry-summary">
-                            Verificación final del renderizado después de la corrección crítica del Step 0333. El problema de sincronización del framebuffer se resolvió moviendo la limpieza del framebuffer desde get_frame_ready_and_reset() al inicio del siguiente frame (cuando LY se resetea a 0). Esto asegura que Python siempre lee el framebuffer ANTES de que se limpie. Las pruebas con las 5 ROMs confirman que el framebuffer ahora contiene datos correctos (checkerboard con índices 0 y 3) y el renderizado funciona correctamente.
+                            Verificación final del renderizado después de la corrección crítica del Step 0333. Se resolvieron dos problemas críticos: (1) El problema de sincronización del framebuffer se resolvió moviendo la limpieza del framebuffer desde get_frame_ready_and_reset() al inicio del siguiente frame. (2) El problema del cache de escalado que causaba que la pantalla se volviera blanca después de mostrar el checkerboard inicial se resolvió actualizando el cache en cada frame. Las pruebas con las 5 ROMs confirman que el framebuffer contiene datos correctos y el renderizado funciona correctamente.
                         </p>
                     </li>
                                         <!-- Entrada 0333 - Corrección de Renderizado Basada en Diagnóstico -->

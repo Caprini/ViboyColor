@@ -1341,6 +1341,7 @@ Todas las 5 ROMs muestran el patrón correcto del checkerboard:
 **Archivos Modificados**:
 - `src/core/cpp/PPU.cpp` - Modificado `get_frame_ready_and_reset()` para NO limpiar framebuffer y movida limpieza al inicio del siguiente frame
 - `src/viboy.py` - Actualizado comentario para reflejar la corrección
+- `src/gpu/renderer.py` - Corregido cache de escalado para actualizarse en cada frame (corrección adicional basada en verificación visual)
 
 **Documentación Generada**:
 - `docs/bitacora/entries/2025-12-29__0334__verificacion-final-renderizado.html` - Entrada HTML de bitácora
@@ -1349,10 +1350,15 @@ Todas las 5 ROMs muestran el patrón correcto del checkerboard:
 - **Sincronización de Framebuffer**: En un sistema híbrido Python/C++, la sincronización del framebuffer es crítica. El framebuffer debe estar disponible para Python durante todo el frame actual, y solo debe limpiarse al inicio del siguiente frame.
 - **Orden de Operaciones**: El orden de las operaciones es crítico. Si se limpia el framebuffer antes de que Python lo lea, se pierde toda la información de color.
 
+**Corrección Adicional (Basada en Verificación Visual)**:
+- **Problema del Cache de Escalado**: El cache de escalado solo se actualizaba si cambiaba el tamaño de la pantalla, no cuando cambiaba el contenido. Esto causaba que se mostrara el primer frame (checkerboard) y luego pantalla blanca cuando el contenido cambiaba.
+- **Solución**: Actualizar el cache en cada frame para reflejar el contenido actual, asegurando que siempre se muestre el frame más reciente.
+
 **Próximos Pasos**:
 - [x] Verificar que el framebuffer contiene datos correctos ✅
 - [x] Confirmar que la corrección funciona para todas las ROMs ✅
-- [ ] Verificar visualmente que el checkerboard se muestra correctamente en pantalla
+- [x] Verificar visualmente que el checkerboard se muestra correctamente en pantalla ✅
+- [x] Corregir problema del cache de escalado que causaba pantalla blanca ✅
 - [ ] Verificar que el renderizado funciona correctamente con gráficos reales de los juegos
 
 ---

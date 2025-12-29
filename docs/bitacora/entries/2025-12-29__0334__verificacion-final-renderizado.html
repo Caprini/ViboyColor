@@ -43,12 +43,12 @@
             <section id="resumen">
                 <h2>Resumen</h2>
                 <p>
-                    Verificación final del renderizado después de la corrección crítica del Step 0333. El problema
-                    de sincronización del framebuffer se resolvió moviendo la limpieza del framebuffer desde
-                    <code>get_frame_ready_and_reset()</code> al inicio del siguiente frame (cuando LY se resetea a 0).
-                    Esto asegura que Python siempre lee el framebuffer ANTES de que se limpie. Las pruebas con las
-                    5 ROMs confirman que el framebuffer ahora contiene datos correctos (checkerboard con índices 0 y 3)
-                    y el renderizado funciona correctamente.
+                    Verificación final del renderizado después de la corrección crítica del Step 0333. Se resolvieron
+                    dos problemas críticos: (1) El problema de sincronización del framebuffer se resolvió moviendo la
+                    limpieza del framebuffer desde <code>get_frame_ready_and_reset()</code> al inicio del siguiente frame.
+                    (2) El problema del cache de escalado que causaba que la pantalla se volviera blanca después de
+                    mostrar el checkerboard inicial se resolvió actualizando el cache en cada frame. Las pruebas con las
+                    5 ROMs confirman que el framebuffer contiene datos correctos y el renderizado funciona correctamente.
                 </p>
             </section>
 
@@ -77,7 +77,7 @@
             <!-- 3. Implementación -->
             <section id="implementacion">
                 <h2>Implementación</h2>
-                <h3>Corrección del Problema de Sincronización</h3>
+                <h3>Corrección 1: Problema de Sincronización del Framebuffer</h3>
                 <p>
                     Se modificó <code>get_frame_ready_and_reset()</code> para que NO limpie el framebuffer:
                 </p>
@@ -101,6 +101,26 @@ if (ly_ > 153) {
     // Limpiar framebuffer al inicio del siguiente frame
     clear_framebuffer();
 }</code></pre>
+                
+                <h3>Corrección 2: Problema del Cache de Escalado</h3>
+                <p>
+                    <strong>Problema identificado:</strong> El cache de escalado solo se actualizaba si cambiaba el tamaño
+                    de la pantalla, no cuando cambiaba el contenido. Esto causaba que se mostrara el primer frame
+                    (checkerboard) y luego pantalla blanca cuando el contenido cambiaba.
+                </p>
+                <p>
+                    <strong>Solución implementada:</strong> Actualizar el cache en cada frame para reflejar el contenido actual:
+                </p>
+                <pre><code># --- STEP 0334: CORRECCIÓN CRÍTICA - Actualizar Cache en Cada Frame ---
+# Siempre reescalar la superficie actualizada (el contenido cambia en cada frame)
+current_screen_size = self.screen.get_size()
+self._scaled_surface_cache = pygame.transform.scale(self.surface, current_screen_size)
+self._cache_screen_size = current_screen_size
+
+# Usar superficie escalada actualizada
+self.screen.blit(self._scaled_surface_cache, (0, 0))
+pygame.display.flip()
+# ----------------------------------------</code></pre>
                 
                 <h3>Resultados de las Pruebas</h3>
                 <p>
@@ -129,6 +149,7 @@ if (ly_ > 153) {
                 <ul>
                     <li><code>src/core/cpp/PPU.cpp</code> - Modificado <code>get_frame_ready_and_reset()</code> para NO limpiar framebuffer y movida limpieza al inicio del siguiente frame</li>
                     <li><code>src/viboy.py</code> - Actualizado comentario para reflejar la corrección</li>
+                    <li><code>src/gpu/renderer.py</code> - Corregido cache de escalado para actualizarse en cada frame</li>
                 </ul>
             </section>
 
@@ -171,19 +192,24 @@ done</code></pre>
                 <div class="integridad">
                     <h3>Lo que Entiendo Ahora</h3>
                     <ul>
-                        <li><strong>Sincronización de Framebuffer:</strong> En un sistema híbrido Python/C++, la sincronización
+                    <li><strong>Sincronización de Framebuffer:</strong> En un sistema híbrido Python/C++, la sincronización
                             del framebuffer es crítica. El framebuffer debe estar disponible para Python durante todo el frame
                             actual, y solo debe limpiarse al inicio del siguiente frame.</li>
-                        <li><strong>Orden de Operaciones:</strong> El orden de las operaciones es crítico. Si se limpia el
+                    <li><strong>Orden de Operaciones:</strong> El orden de las operaciones es crítico. Si se limpia el
                             framebuffer antes de que Python lo lea, se pierde toda la información de color.</li>
-                        <li><strong>Diagnóstico Sistemático:</strong> Los logs de diagnóstico permitieron identificar exactamente
-                            dónde se perdía la información de color (en la limpieza prematura del framebuffer).</li>
+                    <li><strong>Cache de Escalado:</strong> El cache de escalado debe actualizarse en cada frame cuando el
+                            contenido cambia, no solo cuando cambia el tamaño de la pantalla. Si el cache no se actualiza,
+                            se muestra el primer frame y luego pantalla blanca.</li>
+                    <li><strong>Diagnóstico Sistemático:</strong> Los logs de diagnóstico y la verificación visual permitieron
+                            identificar exactamente dónde se perdía la información de color (en la limpieza prematura del
+                            framebuffer y en el cache de escalado desactualizado).</li>
                     </ul>
 
                     <h3>Lo que Falta Confirmar</h3>
                     <ul>
-                        <li><strong>Renderizado Visual:</strong> Aunque los logs confirman que el framebuffer contiene datos
-                            correctos, falta verificar visualmente que el checkerboard se muestra correctamente en pantalla.</li>
+                        <li><strong>Renderizado Visual:</strong> El checkerboard se muestra correctamente inicialmente, pero
+                            se necesita verificar que el renderizado funciona correctamente con gráficos reales de los juegos
+                            después de la corrección del cache de escalado.</li>
                         <li><strong>Rendimiento:</strong> Verificar que la corrección no afecta el rendimiento del emulador.</li>
                     </ul>
 
