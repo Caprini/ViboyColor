@@ -985,6 +985,33 @@ class Viboy:
                                     if self._framebuffer_copy_detailed_count <= 5:
                                         logger.info(f"[Viboy-Framebuffer-Copy-Detailed] First 20 indices after copy: {first_20_after}")
                                     
+                                    # --- Step 0359: Verificación Framebuffer C++ → Python ---
+                                    # Verificar que el framebuffer se copia correctamente de C++ a Python
+                                    if len(raw_view) != 23040:
+                                        logger.warning(f"[Viboy-Framebuffer-Copy] ⚠️ Tamaño incorrecto: {len(raw_view)} != 23040")
+                                    
+                                    # Contar índices no-blancos
+                                    non_white_count = sum(1 for idx in raw_view[:1000] if idx != 0)
+                                    
+                                    if non_white_count > 50:
+                                        # Hay tiles reales
+                                        if not hasattr(self, '_framebuffer_copy_verify_count'):
+                                            self._framebuffer_copy_verify_count = 0
+                                        if self._framebuffer_copy_verify_count < 10:
+                                            self._framebuffer_copy_verify_count += 1
+                                            logger.info(f"[Viboy-Framebuffer-Copy] Framebuffer con tiles | "
+                                                       f"Non-white pixels (first 1000): {non_white_count}/1000")
+                                            
+                                            # Verificar primeros 20 índices
+                                            first_20 = list(raw_view[:20])
+                                            logger.info(f"[Viboy-Framebuffer-Copy] First 20 indices: {first_20}")
+                                            
+                                            # Verificar que la copia es idéntica
+                                            if len(fb_data) == len(raw_view):
+                                                matches = sum(1 for i in range(min(100, len(fb_data))) if fb_data[i] == raw_view[i])
+                                                logger.info(f"[Viboy-Framebuffer-Copy] Copy verification: {matches}/100 matches")
+                                    # -------------------------------------------
+                                    
                                     # 5. Verificar que la copia es idéntica
                                     if first_20_before != first_20_after:
                                         logger.warning(f"[Viboy-Framebuffer-Copy-Detailed] ⚠️ DISCREPANCIA: "

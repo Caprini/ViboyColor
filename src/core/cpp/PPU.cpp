@@ -313,6 +313,51 @@ void PPU::step(int cpu_cycles) {
             }
         }
         // -------------------------------------------
+        
+        // --- Step 0359: Verificación VRAM → Framebuffer ---
+        // Verificar que los tiles en VRAM se decodifican correctamente al framebuffer
+        if (non_zero_bytes >= 200 && frame_counter_ >= 4700 && frame_counter_ <= 5000) {
+            static int vram_framebuffer_check_count = 0;
+            
+            if (vram_framebuffer_check_count < 10) {
+                vram_framebuffer_check_count++;
+                
+                // Verificar un tile específico en VRAM
+                uint16_t tile_addr = 0x8800;  // Primer tile en signed addressing
+                uint8_t tile_data[16];
+                for (int i = 0; i < 16; i++) {
+                    tile_data[i] = mmu_->read(tile_addr + i);
+                }
+                
+                printf("[PPU-VRAM-TO-FRAMEBUFFER] Frame %llu | Tile at 0x%04X: ",
+                       static_cast<unsigned long long>(frame_counter_), tile_addr);
+                for (int i = 0; i < 16; i++) {
+                    printf("%02X ", tile_data[i]);
+                }
+                printf("\n");
+                
+                // Verificar cómo se decodifica este tile al framebuffer
+                // Buscar este tile en el tilemap
+                uint8_t tile_id = mmu_->read(0x9800);  // Primer tile ID en tilemap
+                printf("[PPU-VRAM-TO-FRAMEBUFFER] Tilemap[0x9800] = 0x%02X (Tile ID)\n", tile_id);
+                
+                // Verificar el framebuffer en la primera línea (donde debería estar este tile)
+                int framebuffer_indices[160];
+                for (int x = 0; x < 160; x++) {
+                    framebuffer_indices[x] = framebuffer_[x] & 0x03;
+                }
+                
+                printf("[PPU-VRAM-TO-FRAMEBUFFER] Framebuffer line 0 (first 20 pixels): ");
+                for (int x = 0; x < 20; x++) {
+                    printf("%d ", framebuffer_indices[x]);
+                }
+                printf("\n");
+                
+                // Verificar correspondencia
+                printf("[PPU-VRAM-TO-FRAMEBUFFER] ✅ Verificando correspondencia VRAM → Framebuffer\n");
+            }
+        }
+        // -------------------------------------------
     }
     // -------------------------------------------
     

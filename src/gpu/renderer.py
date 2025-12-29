@@ -1756,9 +1756,117 @@ class Renderer:
                 # -------------------------------------------
                 
                 # Usar superficie escalada actualizada
+                # --- Step 0359: Verificación Renderizado Python ---
+                # Verificar que el renderizado funciona correctamente
+                if frame_indices and len(frame_indices) == 23040:
+                    non_white_count = sum(1 for idx in frame_indices[:1000] if idx != 0)
+                    
+                    if non_white_count > 50:
+                        # Hay tiles reales
+                        if not hasattr(self, '_renderer_verify_count'):
+                            self._renderer_verify_count = 0
+                        
+                        if self._renderer_verify_count < 10:
+                            self._renderer_verify_count += 1
+                            
+                            logger.info(f"[Renderer-Verify] Framebuffer con tiles | "
+                                       f"Non-white pixels (first 1000): {non_white_count}/1000")
+                            
+                            # Verificar conversión de índices a RGB
+                            # Usar la misma paleta que se usa en el renderizado (debug_palette_map)
+                            debug_palette_map = {
+                                0: (255, 255, 255),  # 00: White
+                                1: (170, 170, 170),  # 01: Light Gray
+                                2: (85, 85, 85),     # 10: Dark Gray
+                                3: (8, 24, 32)       # 11: Black
+                            }
+                            palette_used = [
+                                debug_palette_map[0],
+                                debug_palette_map[1],
+                                debug_palette_map[2],
+                                debug_palette_map[3]
+                            ]
+                            sample_indices = list(frame_indices[0:20])
+                            sample_rgb = [palette_used[idx] for idx in sample_indices]
+                            
+                            logger.info(f"[Renderer-Verify] Sample indices: {sample_indices[:10]}")
+                            logger.info(f"[Renderer-Verify] Sample RGB: {sample_rgb[:10]}")
+                            
+                            # Verificar que los colores RGB no son todos blancos
+                            all_white = all(rgb == (255, 255, 255) for rgb in sample_rgb[:10])
+                            if all_white:
+                                logger.warning(f"[Renderer-Verify] ⚠️ ADVERTENCIA: Todos los colores son blancos!")
+                            
+                            # Verificar que los píxeles se dibujaron en la superficie
+                            if hasattr(self, 'surface') and self.surface is not None:
+                                sample_pixels = []
+                                for i in range(10):
+                                    x, y = i % 160, i // 160
+                                    if x < self.surface.get_width() and y < self.surface.get_height():
+                                        pixel_color = self.surface.get_at((x, y))
+                                        sample_pixels.append(pixel_color[:3])  # RGB sin alpha
+                                
+                                logger.info(f"[Renderer-Verify] Sample pixels from surface: {sample_pixels[:10]}")
+                                
+                                # Comparar con RGB esperado
+                                matches = sum(1 for i in range(min(10, len(sample_pixels))) 
+                                            if sample_pixels[i] == sample_rgb[i])
+                                logger.info(f"[Renderer-Verify] Pixel verification: {matches}/10 matches")
+                            
+                            # Verificar que el escalado y blit funcionan
+                            if hasattr(self, '_scaled_surface_cache') and self._scaled_surface_cache is not None:
+                                screen_pixels = []
+                                for i in range(10):
+                                    x, y = (i % 160) * self._scale, (i // 160) * self._scale
+                                    if x < self.screen.get_width() and y < self.screen.get_height():
+                                        pixel_color = self.screen.get_at((x, y))
+                                        screen_pixels.append(pixel_color[:3])
+                                
+                                logger.info(f"[Renderer-Verify] Sample pixels from screen (before flip): {screen_pixels[:10]}")
+                # -------------------------------------------
+                
                 self.screen.blit(self._scaled_surface_cache, (0, 0))
                 # Actualizamos la pantalla
                 pygame.display.flip()
+                
+                # --- Step 0359: Verificación Después del Flip ---
+                # Verificar que la pantalla se actualizó correctamente después del flip
+                if frame_indices and len(frame_indices) == 23040:
+                    non_white_count = sum(1 for idx in frame_indices[:1000] if idx != 0)
+                    
+                    if non_white_count > 50:
+                        if hasattr(self, '_renderer_verify_count') and self._renderer_verify_count <= 10:
+                            # Usar la misma paleta que se usa en el renderizado (debug_palette_map)
+                            debug_palette_map = {
+                                0: (255, 255, 255),  # 00: White
+                                1: (170, 170, 170),  # 01: Light Gray
+                                2: (85, 85, 85),     # 10: Dark Gray
+                                3: (8, 24, 32)       # 11: Black
+                            }
+                            palette_used = [
+                                debug_palette_map[0],
+                                debug_palette_map[1],
+                                debug_palette_map[2],
+                                debug_palette_map[3]
+                            ]
+                            sample_indices = list(frame_indices[0:20])
+                            sample_rgb = [palette_used[idx] for idx in sample_indices]
+                            
+                            # Verificar después del flip
+                            screen_pixels_after = []
+                            for i in range(10):
+                                x, y = (i % 160) * self._scale, (i // 160) * self._scale
+                                if x < self.screen.get_width() and y < self.screen.get_height():
+                                    pixel_color = self.screen.get_at((x, y))
+                                    screen_pixels_after.append(pixel_color[:3])
+                            
+                            logger.info(f"[Renderer-Verify] Sample pixels after flip: {screen_pixels_after[:10]}")
+                            
+                            # Comparar
+                            matches_after = sum(1 for i in range(min(10, len(screen_pixels_after))) 
+                                              if screen_pixels_after[i] == sample_rgb[i])
+                            logger.info(f"[Renderer-Verify] Screen verification: {matches_after}/10 matches")
+                # -------------------------------------------
                 # ----------------------------------------
                 
                 # --- Step 0347: Verificación del Escalado y Blit ---

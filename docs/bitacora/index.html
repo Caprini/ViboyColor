@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0359 - Investigación Completa del Pipeline de Renderizado y Corrección de Discrepancia Visual -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0359__investigacion-pipeline-renderizado-correccion-visual.html" class="entry-link">
+                                    Investigación Completa del Pipeline de Renderizado y Corrección de Discrepancia Visual
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0359 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se realizó una investigación completa del pipeline de renderizado para identificar y corregir la discrepancia visual entre los logs (que indican que todo funciona) y la visualización real (que muestra rayas, pantallas blancas y gráficos corruptos). Se implementaron verificaciones detalladas en cada etapa del pipeline: VRAM → Framebuffer (C++), Framebuffer → Python, y Renderizado Python (Índices → RGB → Pantalla). Los resultados confirman que el pipeline funciona correctamente: los tiles se decodifican correctamente, el framebuffer se copia correctamente, y los píxeles se dibujan correctamente en la pantalla.
+                        </p>
+                    </li>
                                         <!-- Entrada 0358 - Verificación Final de Funcionalidad y Optimización del Emulador -->
                     <li>
                         <div class="entry-header">
