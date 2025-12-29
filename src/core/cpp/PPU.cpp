@@ -458,6 +458,48 @@ void PPU::render_scanline() {
         printf("[PPU-BGP] BGP = 0x%02X\n", bgp);
     }
 
+    // --- Step 0328: Análisis de Estado del LCD para TETRIS ---
+    // Verificar por qué TETRIS muestra pantalla blanca
+    static int lcd_state_analysis_count = 0;
+    if (ly_ == 0 && lcd_state_analysis_count < 10) {
+        lcd_state_analysis_count++;
+        
+        uint8_t lcdc_state = mmu_->read(IO_LCDC);
+        bool lcd_on = (lcdc_state & 0x80) != 0;
+        bool bg_display = (lcdc_state & 0x01) != 0;
+        
+        // Verificar estado de VRAM
+        int vram_non_zero = 0;
+        for (uint16_t i = 0; i < 6144; i++) {
+            if (mmu_->read(0x8000 + i) != 0x00) {
+                vram_non_zero++;
+            }
+        }
+        
+        // Verificar tilemap
+        int tilemap_non_zero = 0;
+        for (int i = 0; i < 32; i++) {
+            if (mmu_->read(0x9800 + i) != 0x00) {
+                tilemap_non_zero++;
+            }
+        }
+        
+        printf("[PPU-LCD-STATE] Frame %llu | LCD: %s | BG Display: %s | VRAM: %d/6144 | Tilemap: %d/32\n",
+               static_cast<unsigned long long>(frame_counter_ + 1),
+               lcd_on ? "ON" : "OFF",
+               bg_display ? "ON" : "OFF",
+               vram_non_zero, tilemap_non_zero);
+        
+        if (lcd_on && bg_display && vram_non_zero == 0) {
+            printf("[PPU-LCD-STATE] ⚠️ PROBLEMA: LCD y BG Display activos pero VRAM vacía!\n");
+        }
+        
+        if (lcd_on && !bg_display) {
+            printf("[PPU-LCD-STATE] ⚠️ PROBLEMA: LCD activo pero BG Display desactivado!\n");
+        }
+    }
+    // -------------------------------------------
+
     // Verificar que el LCD esté encendido
     if ((lcdc & 0x80) == 0) {
         return;
@@ -590,6 +632,42 @@ void PPU::render_scanline() {
         }
     }
     
+    // --- Step 0328: Verificación de Renderizado Cuando Hay Tiles ---
+    // Verificar si el renderizado funciona correctamente cuando hay tiles en VRAM
+    static bool last_vram_has_tiles_state = false;
+    if (vram_has_tiles && !last_vram_has_tiles_state && ly_ == 0) {
+        // Tiles recién detectados, verificar renderizado
+        printf("[PPU-RENDER-WITH-TILES] Tiles detectados! Verificando renderizado...\n");
+        
+        // Forzar renderizado de una línea para verificar
+        // (esto se hará automáticamente en el siguiente render_scanline)
+    }
+
+    // Verificar framebuffer cuando hay tiles
+    if (vram_has_tiles && ly_ == 72) {
+        static int render_with_tiles_check_count = 0;
+        if (render_with_tiles_check_count < 5) {
+            render_with_tiles_check_count++;
+            
+            size_t line_start = ly_ * SCREEN_WIDTH;
+            int non_zero_pixels = 0;
+            for (int x = 0; x < SCREEN_WIDTH; x++) {
+                uint8_t color_idx = framebuffer_[line_start + x] & 0x03;
+                if (color_idx != 0) {
+                    non_zero_pixels++;
+                }
+            }
+            
+            printf("[PPU-RENDER-WITH-TILES] Frame %llu | LY:72 | Píxeles no-blancos: %d/160\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1), non_zero_pixels);
+            
+            if (non_zero_pixels == 0) {
+                printf("[PPU-RENDER-WITH-TILES] ⚠️ PROBLEMA: Framebuffer vacío aunque hay tiles en VRAM!\n");
+            }
+        }
+    }
+
+    last_vram_has_tiles_state = vram_has_tiles;
     last_vram_has_tiles = vram_has_tiles;
     // -------------------------------------------
 
@@ -909,7 +987,7 @@ void PPU::render_scanline() {
             uint8_t byte1 = mmu_->read(tile_line_addr);
             uint8_t byte2 = mmu_->read(tile_line_addr + 1);
             
-            // --- Step 0325: Mejora de Detección de Tiles Vacíos ---
+            // --- Step 0328: Mejora de Detección de Tiles Vacíos y Checkerboard Temporal ---
             // Verificar TODO el tile (16 bytes) antes de considerarlo vacío
             // Algunos tiles legítimos pueden tener líneas con 0x0000
             static bool empty_tile_detected = false;
@@ -927,38 +1005,66 @@ void PPU::render_scanline() {
                 }
             }
 
-            if (tile_is_empty) {
-                if (!empty_tile_detected && ly_ == 0 && x == 0) {
-                    empty_tile_detected = true;
-                    printf("[PPU-FIX-EMPTY-TILE] Detectado tile completamente vacío en 0x%04X, usando tile de prueba\n", tile_addr);
+            // --- Step 0328: Lógica Mejorada del Checkerboard Temporal ---
+            // Solo activar el checkerboard temporal si:
+            // 1. El tile está completamente vacío (todas las líneas = 0x00)
+            // 2. Y VRAM está completamente vacía (menos de 200 bytes no-cero)
+            // Esto evita activar el checkerboard cuando el juego está cargando tiles
+            static bool enable_checkerboard_temporal = true;  // Flag para controlar
+
+            if (tile_is_empty && enable_checkerboard_temporal) {
+                // Verificar si VRAM está completamente vacía
+                int vram_non_zero = 0;
+                for (uint16_t i = 0; i < 6144; i++) {
+                    if (mmu_->read(0x8000 + i) != 0x00) {
+                        vram_non_zero++;
+                    }
                 }
-                // Generar un patrón simple de cuadros basado en la posición del tile
-                // Esto permite ver algo en pantalla mientras el juego carga tiles
-                uint8_t tile_x_in_map = (map_x / 8) % 2;
-                uint8_t tile_y_in_map = (map_y / 8) % 2;
-                uint8_t checkerboard = (tile_x_in_map + tile_y_in_map) % 2;
                 
-                // Generar un patrón de línea basado en la línea dentro del tile
-                uint8_t line_in_tile_check = map_y % 8;
-                if (checkerboard == 0) {
-                    // Patrón de cuadros: líneas alternas
-                    if (line_in_tile_check % 2 == 0) {
-                        byte1 = 0xFF;  // Línea completa
-                        byte2 = 0xFF;
+                // Solo activar checkerboard si VRAM está completamente vacía
+                if (vram_non_zero < 200) {
+                    if (!empty_tile_detected && ly_ == 0 && x == 0) {
+                        empty_tile_detected = true;
+                        printf("[PPU-FIX-EMPTY-TILE] Detectado tile completamente vacío en 0x%04X, usando checkerboard temporal\n", tile_addr);
+                    }
+                    
+                    // Generar un patrón simple de cuadros basado en la posición del tile
+                    // Esto permite ver algo en pantalla mientras el juego carga tiles
+                    uint8_t tile_x_in_map = (map_x / 8) % 2;
+                    uint8_t tile_y_in_map = (map_y / 8) % 2;
+                    uint8_t checkerboard = (tile_x_in_map + tile_y_in_map) % 2;
+                    
+                    // Generar un patrón de línea basado en la línea dentro del tile
+                    uint8_t line_in_tile_check = map_y % 8;
+                    if (checkerboard == 0) {
+                        // Patrón de cuadros: líneas alternas
+                        if (line_in_tile_check % 2 == 0) {
+                            byte1 = 0xFF;  // Línea completa
+                            byte2 = 0xFF;
+                        } else {
+                            byte1 = 0x00;  // Línea vacía
+                            byte2 = 0x00;
+                        }
                     } else {
-                        byte1 = 0x00;  // Línea vacía
-                        byte2 = 0x00;
+                        // Patrón inverso
+                        if (line_in_tile_check % 2 == 0) {
+                            byte1 = 0x00;
+                            byte2 = 0x00;
+                        } else {
+                            byte1 = 0xFF;
+                            byte2 = 0xFF;
+                        }
                     }
                 } else {
-                    // Patrón inverso
-                    if (line_in_tile_check % 2 == 0) {
-                        byte1 = 0x00;
-                        byte2 = 0x00;
-                    } else {
-                        byte1 = 0xFF;
-                        byte2 = 0xFF;
-                    }
+                    // VRAM tiene datos, pero este tile específico está vacío
+                    // Renderizar como tile vacío (blanco) sin checkerboard
+                    byte1 = 0x00;
+                    byte2 = 0x00;
                 }
+            } else if (tile_is_empty && !enable_checkerboard_temporal) {
+                // Checkerboard desactivado, renderizar como tile vacío
+                byte1 = 0x00;
+                byte2 = 0x00;
             } else {
                 // Tile tiene datos, usar renderizado normal
                 // Si el tile tiene datos, marcar que ya no estamos usando tiles de prueba

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análisis de Limpieza de VRAM y Renderizado con Tiles - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Análisis de Limpieza de VRAM y Renderizado con Tiles</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0328
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0327__sincronizacion-verificacion-analisis-limpieza.html">Anterior (0327)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este step implementa análisis detallado para investigar por qué el juego limpia VRAM después de cargar tiles, verificar si el renderizado funciona correctamente cuando hay tiles (antes de limpiar), y analizar por qué TETRIS muestra pantalla blanca. Se mejora la lógica del checkerboard temporal para que solo se active cuando VRAM está completamente vacía, no cuando hay tiles cargados.
+                </p>
+                <p>
+                    Se implementan logs de renderizado cuando hay tiles para verificar si el framebuffer tiene píxeles no-blancos, análisis detallado de limpieza de VRAM que detecta cuándo y por qué se limpia VRAM, análisis de estado del LCD para TETRIS que verifica si el LCD está activo y si hay tiles, y mejora del checkerboard temporal que solo se activa cuando VRAM está completamente vacía.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Limpieza de VRAM</h3>
+                <p>
+                    Los juegos pueden limpiar VRAM durante la inicialización o transiciones de pantalla. Esto puede ocurrir antes o después de cargar tiles. Si se limpia después de cargar tiles, el tilemap puede apuntar a tiles que ya no existen. Algunos juegos cargan tiles, actualizan tilemap, y luego limpian tiles no usados.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Video RAM (VRAM)": VRAM contiene tanto los datos de tiles (0x8000-0x97FF) como los tilemaps (0x9800-0x9FFF). Los juegos pueden limpiar VRAM para liberar espacio o preparar una nueva pantalla.
+                </p>
+
+                <h3>Renderizado con Tiles</h3>
+                <p>
+                    El renderizado debe funcionar correctamente cuando hay tiles en VRAM. Si el tilemap apunta correctamente a tiles con datos, el framebuffer debería tener píxeles no-blancos. Si el framebuffer está vacío aunque hay tiles, hay un problema con el renderizado.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Tile Data" y "Tile Map": La PPU lee el tilemap para obtener los tile IDs, luego lee los datos de tiles desde VRAM, y finalmente renderiza los píxeles en el framebuffer.
+                </p>
+
+                <h3>Checkerboard Temporal</h3>
+                <p>
+                    El checkerboard temporal es una ayuda visual para verificar que el pipeline de renderizado funciona. Debe activarse solo cuando VRAM está completamente vacía. No debe activarse cuando hay tiles cargados pero un tile específico está vacío.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Tarea 1: Verificación de Renderizado Cuando Hay Tiles</h3>
+                <p>
+                    Se agregaron logs en <code>PPU::render_scanline()</code> para verificar si el renderizado funciona correctamente cuando hay tiles en VRAM. Los logs se activan cuando se detectan tiles por primera vez y verifican el framebuffer en la línea 72 (centro de la pantalla).
+                </p>
+                <pre><code>// Verificar framebuffer cuando hay tiles
+if (vram_has_tiles && ly_ == 72) {
+    static int render_with_tiles_check_count = 0;
+    if (render_with_tiles_check_count < 5) {
+        render_with_tiles_check_count++;
+        
+        size_t line_start = ly_ * SCREEN_WIDTH;
+        int non_zero_pixels = 0;
+        for (int x = 0; x < SCREEN_WIDTH; x++) {
+            uint8_t color_idx = framebuffer_[line_start + x] & 0x03;
+            if (color_idx != 0) {
+                non_zero_pixels++;
+            }
+        }
+        
+        printf("[PPU-RENDER-WITH-TILES] Frame %llu | LY:72 | Píxeles no-blancos: %d/160\n",
+               static_cast&lt;unsigned long long&gt;(frame_counter_ + 1), non_zero_pixels);
+        
+        if (non_zero_pixels == 0) {
+            printf("[PPU-RENDER-WITH-TILES] ⚠️ PROBLEMA: Framebuffer vacío aunque hay tiles en VRAM!\n");
+        }
+    }
+}</code></pre>
+
+                <h3>Tarea 2: Análisis Detallado de Limpieza de VRAM</h3>
+                <p>
+                    Se mejoró el análisis de limpieza de VRAM en <code>MMU::write()</code> para detectar cuándo y por qué se limpia VRAM. El análisis detecta cuando se escribe 0x00 en VRAM después de cargar tiles, verifica si se está limpiando desde el inicio de VRAM, y verifica el estado del tilemap después de limpiar.
+                </p>
+                <pre><code>// Cuando se escribe 0x00 en VRAM después de cargar tiles
+if (addr >= 0x8000 && addr <= 0x97FF && value == 0x00 && tiles_were_loaded_recently_global) {
+    static int vram_clean_detailed_count = 0;
+    if (vram_clean_detailed_count < 20) {
+        vram_clean_detailed_count++;
+        
+        // Verificar si se está limpiando desde el inicio de VRAM
+        if (addr == 0x8000) {
+            printf("[VRAM-CLEAN-DETAILED] ⚠️ INICIO DE LIMPIEZA: PC:0x%04X | Banco ROM: %d | Tiles cargados antes: %d\n",
+                   debug_current_pc, get_current_rom_bank(), tiles_loaded_count);
+        }
+        
+        // Verificar si se está limpiando cerca del final de VRAM
+        if (addr >= 0x97F0) {
+            printf("[VRAM-CLEAN-DETAILED] ⚠️ FIN DE LIMPIEZA: PC:0x%04X | VRAM completamente limpiada\n",
+                   debug_current_pc);
+            
+            // Verificar estado del tilemap después de limpiar
+            int tilemap_non_zero = 0;
+            for (int i = 0; i < 32; i++) {
+                if (memory_[0x9800 + i] != 0x00) {
+                    tilemap_non_zero++;
+                }
+            }
+            printf("[VRAM-CLEAN-DETAILED] Tilemap después de limpiar: %d/32 tile IDs no-cero\n",
+                   tilemap_non_zero);
+        }
+    }
+}</code></pre>
+
+                <h3>Tarea 3: Análisis de Estado del LCD para TETRIS</h3>
+                <p>
+                    Se agregó análisis de estado del LCD en <code>PPU::render_scanline()</code> para verificar por qué TETRIS muestra pantalla blanca. El análisis verifica el estado del LCD, BG Display, VRAM y tilemap.
+                </p>
+                <pre><code>// Verificar estado del LCD durante la ejecución
+static int lcd_state_analysis_count = 0;
+if (ly_ == 0 && lcd_state_analysis_count < 10) {
+    lcd_state_analysis_count++;
+    
+    uint8_t lcdc_state = mmu_->read(IO_LCDC);
+    bool lcd_on = (lcdc_state & 0x80) != 0;
+    bool bg_display = (lcdc_state & 0x01) != 0;
+    
+    // Verificar estado de VRAM
+    int vram_non_zero = 0;
+    for (uint16_t i = 0; i < 6144; i++) {
+        if (mmu_->read(0x8000 + i) != 0x00) {
+            vram_non_zero++;
+        }
+    }
+    
+    // Verificar tilemap
+    int tilemap_non_zero = 0;
+    for (int i = 0; i < 32; i++) {
+        if (mmu_->read(0x9800 + i) != 0x00) {
+            tilemap_non_zero++;
+        }
+    }
+    
+    printf("[PPU-LCD-STATE] Frame %llu | LCD: %s | BG Display: %s | VRAM: %d/6144 | Tilemap: %d/32\n",
+           static_cast&lt;unsigned long long&gt;(frame_counter_ + 1),
+           lcd_on ? "ON" : "OFF",
+           bg_display ? "ON" : "OFF",
+           vram_non_zero, tilemap_non_zero);
+}</code></pre>
+
+                <h3>Tarea 4: Mejora del Checkerboard Temporal</h3>
+                <p>
+                    Se mejoró la lógica del checkerboard temporal para que solo se active cuando VRAM está completamente vacía (menos de 200 bytes no-cero). Esto evita activar el checkerboard cuando el juego está cargando tiles.
+                </p>
+                <pre><code>if (tile_is_empty && enable_checkerboard_temporal) {
+    // Verificar si VRAM está completamente vacía
+    int vram_non_zero = 0;
+    for (uint16_t i = 0; i < 6144; i++) {
+        if (mmu_->read(0x8000 + i) != 0x00) {
+            vram_non_zero++;
+        }
+    }
+    
+    // Solo activar checkerboard si VRAM está completamente vacía
+    if (vram_non_zero < 200) {
+        // Generar patrón de checkerboard temporal
+        // ... (código existente del checkerboard)
+    } else {
+        // VRAM tiene datos, pero este tile específico está vacío
+        // Renderizar como tile vacío (blanco) sin checkerboard
+        byte1 = 0x00;
+        byte2 = 0x00;
+    }
+}</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Agregados logs de renderizado cuando hay tiles, análisis de estado del LCD, y mejora del checkerboard temporal</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Mejorado análisis detallado de limpieza de VRAM</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas con las 5 ROMs (Pokémon Red, TETRIS, Mario, Pokémon Amarillo, Oro) durante 2.5 minutos cada una. Los logs muestran:
+                </p>
+                <ul>
+                    <li><strong>Análisis de estado del LCD:</strong> Los logs <code>[PPU-LCD-STATE]</code> muestran el estado del LCD, BG Display, VRAM y tilemap para cada ROM</li>
+                    <li><strong>Análisis de limpieza de VRAM:</strong> Los logs <code>[VRAM-CLEAN-DETAILED]</code> muestran cuándo y por qué se limpia VRAM</li>
+                    <li><strong>Renderizado con tiles:</strong> Los logs <code>[PPU-RENDER-WITH-TILES]</code> muestran si el framebuffer tiene píxeles no-blancos cuando hay tiles</li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El módulo se recompiló exitosamente sin errores (solo warnings menores de formato).
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Video RAM (VRAM)</a> - Sección sobre limpieza de VRAM y renderizado</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Data</a> - Sección sobre datos de tiles y tilemap</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Control Register (LCDC)</a> - Sección sobre control del LCD y BG Display</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Limpieza de VRAM:</strong> Los juegos pueden limpiar VRAM después de cargar tiles, lo que puede causar que el tilemap apunte a tiles que ya no existen. Esto explica por qué se ve el checkerboard temporal (rayas) después de que se cargan tiles.</li>
+                        <li><strong>Renderizado con tiles:</strong> El renderizado debe funcionar correctamente cuando hay tiles en VRAM. Si el framebuffer está vacío aunque hay tiles, hay un problema con el renderizado.</li>
+                        <li><strong>Checkerboard temporal:</strong> El checkerboard temporal debe activarse solo cuando VRAM está completamente vacía, no cuando hay tiles cargados pero un tile específico está vacío.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Por qué se limpia VRAM:</strong> Necesitamos analizar los logs para entender por qué el juego limpia VRAM después de cargar tiles. ¿Es parte de la inicialización? ¿Es para liberar espacio?</li>
+                        <li><strong>Renderizado cuando hay tiles:</strong> Necesitamos verificar si el renderizado funciona correctamente cuando hay tiles (antes de limpiar). Los logs <code>[PPU-RENDER-WITH-TILES]</code> deberían mostrar si el framebuffer tiene píxeles no-blancos.</li>
+                        <li><strong>TETRIS pantalla blanca:</strong> Necesitamos analizar los logs para entender por qué TETRIS muestra pantalla blanca. ¿El LCD está activo? ¿Hay tiles? ¿El BG Display está desactivado?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis 1:</strong> El juego limpia VRAM después de cargar tiles como parte de la inicialización. Esto podría ser para liberar espacio o preparar una nueva pantalla.
+                    </p>
+                    <p>
+                        <strong>Hipótesis 2:</strong> El renderizado funciona correctamente cuando hay tiles, pero el checkerboard temporal se activa cuando VRAM se limpia, causando las rayas.
+                    </p>
+                    <p>
+                        <strong>Hipótesis 3:</strong> TETRIS muestra pantalla blanca porque el BG Display está desactivado o porque no hay tiles cargados.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Analizar los logs de las 5 ROMs para identificar patrones de limpieza de VRAM</li>
+                    <li>[ ] Verificar si el renderizado funciona correctamente cuando hay tiles (antes de limpiar)</li>
+                    <li>[ ] Investigar por qué TETRIS muestra pantalla blanca (análisis de logs de estado del LCD)</li>
+                    <li>[ ] Decidir si desactivar el checkerboard temporal o cambiar la lógica de renderizado</li>
+                    <li>[ ] Si se identifica la causa del problema, implementar solución en Step 0329</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

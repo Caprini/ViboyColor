@@ -958,6 +958,63 @@ Implementación de sincronización de verificación de tiles con el momento en q
 **Próximos Pasos**:
 - [ ] Analizar logs de las 3 ROMs para identificar patrones de carga y limpieza de VRAM
 - [ ] Si se identifica la causa del problema: Implementar solución para mantener tiles o actualizar tilemap correctamente (Step 0328)
+
+---
+
+### 2025-12-29 - Step 0328: Análisis de Limpieza de VRAM y Renderizado con Tiles
+**Estado**: ✅ **IMPLEMENTACIÓN COMPLETADA**
+
+Implementación de análisis detallado para investigar por qué el juego limpia VRAM después de cargar tiles, verificar si el renderizado funciona correctamente cuando hay tiles (antes de limpiar), y analizar por qué TETRIS muestra pantalla blanca. Se mejora la lógica del checkerboard temporal para que solo se active cuando VRAM está completamente vacía.
+
+**Objetivo**:
+1. Verificar si el renderizado funciona correctamente cuando hay tiles (antes de limpiar)
+2. Investigar por qué el juego limpia VRAM después de cargar tiles
+3. Investigar por qué TETRIS muestra pantalla blanca
+4. Decidir si desactivar el checkerboard temporal o cambiar la lógica de renderizado
+
+**Implementaciones**:
+
+1. **Verificación de Renderizado Cuando Hay Tiles** (`PPU.cpp`):
+   - Logs que verifican si el framebuffer tiene píxeles no-blancos cuando hay tiles
+   - Verificación en la línea 72 (centro de la pantalla) cuando se detectan tiles
+   - Tag: `[PPU-RENDER-WITH-TILES]`
+
+2. **Análisis Detallado de Limpieza de VRAM** (`MMU.cpp`):
+   - Detección de cuándo y por qué se limpia VRAM después de cargar tiles
+   - Verificación del estado del tilemap después de limpiar VRAM
+   - Detección de escrituras al tilemap después de limpiar VRAM
+   - Tag: `[VRAM-CLEAN-DETAILED]`
+
+3. **Análisis de Estado del LCD para TETRIS** (`PPU.cpp`):
+   - Verificación del estado del LCD, BG Display, VRAM y tilemap
+   - Detección de problemas cuando LCD está activo pero VRAM está vacía
+   - Detección de problemas cuando LCD está activo pero BG Display está desactivado
+   - Tag: `[PPU-LCD-STATE]`
+
+4. **Mejora del Checkerboard Temporal** (`PPU.cpp`):
+   - El checkerboard temporal solo se activa cuando VRAM está completamente vacía (menos de 200 bytes no-cero)
+   - Evita activar el checkerboard cuando el juego está cargando tiles
+   - Renderiza tiles vacíos como blanco cuando VRAM tiene datos pero el tile específico está vacío
+
+**Archivos Modificados**:
+- `src/core/cpp/PPU.cpp` - Agregados logs de renderizado, análisis de estado del LCD, y mejora del checkerboard temporal
+- `src/core/cpp/MMU.cpp` - Mejorado análisis detallado de limpieza de VRAM
+
+**Documentación Generada**:
+- `docs/bitacora/entries/2025-12-29__0328__analisis-limpieza-vram-renderizado.html` - Entrada HTML de bitácora
+
+**Conceptos de Hardware**:
+- **Limpieza de VRAM**: Los juegos pueden limpiar VRAM durante la inicialización o transiciones de pantalla. Si se limpia después de cargar tiles, el tilemap puede apuntar a tiles que ya no existen.
+- **Renderizado con Tiles**: El renderizado debe funcionar correctamente cuando hay tiles en VRAM. Si el tilemap apunta correctamente a tiles con datos, el framebuffer debería tener píxeles no-blancos.
+- **Checkerboard Temporal**: El checkerboard temporal es una ayuda visual para verificar que el pipeline de renderizado funciona. Debe activarse solo cuando VRAM está completamente vacía.
+- **Fuente**: Pan Docs - "Video RAM (VRAM)", "Tile Data", "Tile Map", "LCD Control Register (LCDC)"
+
+**Próximos Pasos**:
+- [ ] Analizar los logs de las 5 ROMs para identificar patrones de limpieza de VRAM
+- [ ] Verificar si el renderizado funciona correctamente cuando hay tiles (antes de limpiar)
+- [ ] Investigar por qué TETRIS muestra pantalla blanca (análisis de logs de estado del LCD)
+- [ ] Decidir si desactivar el checkerboard temporal o cambiar la lógica de renderizado
+- [ ] Si se identifica la causa del problema: Implementar solución en Step 0329
 - [ ] Si el problema persiste: Análisis más profundo y solución alternativa (Step 0328)
 - [ ] Verificación final de renderizado cuando se resuelva el problema (Step 0329)
 

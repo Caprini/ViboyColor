@@ -717,6 +717,11 @@ void MMU::write(uint16_t addr, uint8_t value) {
                value, debug_current_pc, current_rom_bank_);
     }
     
+    // --- Step 0328: Variables estáticas para análisis de limpieza de VRAM ---
+    // Declarar fuera del bloque condicional para que estén disponibles en todo el scope
+    static uint64_t last_tile_loaded_frame = 0;
+    static int tiles_loaded_count = 0;
+    
     // --- Step 0323: Monitor de Accesos a VRAM ---
     // Detectar cuando el juego escribe en VRAM (0x8000-0x97FF) para entender el patrón de carga de tiles
     if (addr >= 0x8000 && addr <= 0x97FF) {
@@ -733,33 +738,53 @@ void MMU::write(uint16_t addr, uint8_t value) {
         }
         last_vram_value = value;
         
-        // --- Step 0327: Análisis de Limpieza de VRAM ---
-        // Detectar cuando el juego limpia VRAM después de cargar tiles
-        static int tiles_loaded_before_clean = 0;
+        // --- Step 0328: Análisis Detallado de Limpieza de VRAM ---
+        // Investigar por qué el juego limpia VRAM después de cargar tiles
         
         // Cuando se detecta [TILE-LOADED], marcar que se cargaron tiles
         // (esto se hace en la sección de verificación de tile completo más abajo)
+        // tiles_were_loaded_recently_global se actualiza en la sección de [TILE-LOADED]
         
         // Cuando se escribe 0x00 en VRAM después de cargar tiles
-        if (value == 0x00 && tiles_were_loaded_recently_global) {
-            static int vram_clean_analysis_count = 0;
-            if (vram_clean_analysis_count < 10) {
-                vram_clean_analysis_count++;
-                printf("[VRAM-CLEAN] PC:0x%04X | Limpiando VRAM en 0x%04X después de cargar tiles\n",
-                       debug_current_pc, addr);
+        if (addr >= 0x8000 && addr <= 0x97FF && value == 0x00 && tiles_were_loaded_recently_global) {
+            static int vram_clean_detailed_count = 0;
+            if (vram_clean_detailed_count < 20) {
+                vram_clean_detailed_count++;
                 
-                // Verificar si se está limpiando todo VRAM o solo partes
+                // Verificar si se está limpiando desde el inicio de VRAM
                 if (addr == 0x8000) {
-                    printf("[VRAM-CLEAN] ⚠️ ADVERTENCIA: Limpieza comenzando desde 0x8000 (inicio de VRAM)\n");
+                    printf("[VRAM-CLEAN-DETAILED] ⚠️ INICIO DE LIMPIEZA: PC:0x%04X | Banco ROM: %d | Tiles cargados antes: %d\n",
+                           debug_current_pc, get_current_rom_bank(), tiles_loaded_count);
+                }
+                
+                // Verificar si se está limpiando cerca del final de VRAM
+                if (addr >= 0x97F0) {
+                    printf("[VRAM-CLEAN-DETAILED] ⚠️ FIN DE LIMPIEZA: PC:0x%04X | VRAM completamente limpiada\n",
+                           debug_current_pc);
+                    
+                    // Verificar estado del tilemap después de limpiar
+                    int tilemap_non_zero = 0;
+                    for (int i = 0; i < 32; i++) {
+                        if (memory_[0x9800 + i] != 0x00) {
+                            tilemap_non_zero++;
+                        }
+                    }
+                    printf("[VRAM-CLEAN-DETAILED] Tilemap después de limpiar: %d/32 tile IDs no-cero\n",
+                           tilemap_non_zero);
+                    
+                    tiles_were_loaded_recently_global = false;
+                    tiles_loaded_count = 0;  // Resetear contador
                 }
             }
-            
-            // Si se limpia todo VRAM, resetear el flag
-            if (addr >= 0x97F0) {  // Cerca del final de VRAM
-                tiles_were_loaded_recently_global = false;
-                tiles_loaded_before_clean++;
-                printf("[VRAM-CLEAN] VRAM completamente limpiada. Tiles cargados antes: %d\n",
-                       tiles_loaded_before_clean);
+        }
+        
+        // Verificar si hay escrituras al tilemap después de limpiar VRAM
+        if (addr >= 0x9800 && addr <= 0x9FFF && tiles_were_loaded_recently_global) {
+            static int tilemap_update_after_clean_count = 0;
+            if (tilemap_update_after_clean_count < 10) {
+                tilemap_update_after_clean_count++;
+                printf("[VRAM-CLEAN-DETAILED] Tilemap actualizado después de cargar tiles: PC:0x%04X | Addr:0x%04X | Value:0x%02X\n",
+                       debug_current_pc, addr, value);
             }
         }
         // -------------------------------------------
@@ -984,6 +1009,9 @@ void MMU::write(uint16_t addr, uint8_t value) {
                 // Marcar que se cargaron tiles para el análisis de limpieza
                 // (usado en la sección de análisis de limpieza de VRAM)
                 tiles_were_loaded_recently_global = true;
+                tiles_loaded_count++;
+                // last_tile_loaded_frame se actualizaría desde frame_counter si está disponible
+                // Por ahora, usar un contador de tiles cargados
             }
         }
     }
