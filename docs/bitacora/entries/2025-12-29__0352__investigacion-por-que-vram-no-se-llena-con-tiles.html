@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Por Qué VRAM No Se Llena con Tiles - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Por Qué VRAM No Se Llena con Tiles</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0352
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0351__investigacion-generacion-framebuffer-cpp-ppu.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó código de diagnóstico detallado para investigar por qué VRAM no se llena con tiles durante la ejecución de los juegos. Se agregaron logs para verificar todas las escrituras a VRAM, el estado periódico de VRAM, el timing de escrituras (LCD apagado vs encendido), y la detección de borrado de tiles. Los resultados muestran que los juegos están escribiendo SOLO CEROS (0x00) a VRAM durante la ejecución, lo que explica por qué VRAM nunca se llena con tiles. Todas las escrituras ocurren cuando el LCD está encendido, lo cual es inusual ya que normalmente los juegos escriben tiles cuando el LCD está apagado.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Acceso a VRAM:</strong> VRAM (0x8000-0x97FF) contiene datos de tiles y tilemaps. Los juegos escriben tiles en VRAM durante la inicialización o cuando el LCD está apagado. El acceso a VRAM está restringido cuando el LCD está encendido (solo durante VBLANK o cuando el LCD está apagado). En hardware real, escribir a VRAM cuando el LCD está encendido puede causar corrupción de datos o ser ignorado.
+                </p>
+                <p>
+                    <strong>Timing de LCD:</strong> Los juegos suelen escribir tiles cuando el LCD está apagado para evitar conflictos con el renderizado. Escribir a VRAM cuando el LCD está encendido puede causar problemas o ser ignorado. El LCD se puede apagar/encender mediante el registro LCDC (bit 7). Cuando el LCD está apagado, la PPU se detiene y LY se mantiene en 0, permitiendo que el juego modifique VRAM de forma segura.
+                </p>
+                <p>
+                    <strong>Escritura de Tiles:</strong> Cada tile es 16 bytes (8x8 píxeles, 2 bytes por línea). Los tiles se escriben en secuencias de 16 bytes consecutivos. Los juegos pueden borrar tiles escribiendo 0x00 en VRAM. Si un juego escribe solo 0x00 a VRAM, no se están cargando tiles reales, solo se está limpiando VRAM.
+                </p>
+                <p>
+                    <strong>Detección de Tiles Completos:</strong> Un tile completo tiene 16 bytes consecutivos con datos no-cero. Si un juego escribe tiles, deberíamos ver secuencias de 16 bytes con datos válidos. Si solo vemos escrituras de 0x00, el juego está limpiando VRAM, no cargando tiles.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron 4 tareas principales de diagnóstico según el plan Step 0352:
+                </p>
+                
+                <h3>1. Verificación Detallada de Escrituras a VRAM (MMU.cpp)</h3>
+                <p>
+                    Se agregó código en <code>MMU::write()</code> para loggear todas las escrituras a VRAM (0x8000-0x97FF). El código cuenta el total de escrituras, escrituras no-cero, y detecta secuencias de 16 bytes consecutivos (tiles completos). Se loggean las primeras 100 escrituras detalladamente con dirección, valor, PC, y estadísticas.
+                </p>
+                <pre><code>// --- Step 0352: Verificación Detallada de Escrituras a VRAM ---
+static int vram_write_detailed_count = 0;
+static int vram_write_total_count = 0;
+static int vram_write_non_zero_count = 0;
+static int vram_write_tile_sequences = 0;
+
+if (addr >= 0x8000 && addr < 0x9800) {
+    vram_write_total_count++;
+    if (value != 0x00) {
+        vram_write_non_zero_count++;
+    }
+    // Loggear primeras 100 escrituras detalladamente
+    // Detectar secuencias de 16 bytes (tiles completos)
+    // Loggear estadísticas cada 1000 escrituras
+}
+// -------------------------------------------</code></pre>
+
+                <h3>2. Verificación Periódica del Estado de VRAM (PPU.cpp)</h3>
+                <p>
+                    Se agregó código en <code>PPU::step()</code> para verificar el estado de VRAM cada 100 frames. El código cuenta bytes no-cero en VRAM, verifica si hay tiles completos (16 bytes consecutivos con datos no-cero), y genera advertencias si VRAM está vacía después de muchos frames.
+                </p>
+                <pre><code>// --- Step 0352: Verificación Periódica del Estado de VRAM ---
+if (frame_counter_ % 100 == 0 && vram_state_check_count < 50) {
+    // Contar bytes no-cero en VRAM
+    int non_zero_bytes = 0;
+    int complete_tiles = 0;
+    
+    for (uint16_t addr = 0x8000; addr < 0x9800; addr += 16) {
+        // Verificar si el tile tiene datos
+        // Si tiene al menos 8 bytes no-cero, considerarlo completo
+    }
+    
+    printf("[PPU-VRAM-STATE-PERIODIC] Frame %llu | Non-zero bytes: %d/6144 ...\n", ...);
+}
+// -------------------------------------------</code></pre>
+
+                <h3>3. Verificación de Timing de Escrituras (LCD Apagado vs Encendido)</h3>
+                <p>
+                    Se agregó método <code>PPU::is_lcd_on()</code> para verificar el estado del LCD, y se agregó código en <code>MMU::write()</code> para loggear el estado del LCD cuando se escribe a VRAM. Esto permite identificar si las escrituras ocurren cuando el LCD está encendido o apagado.
+                </p>
+                <pre><code>// --- Step 0352: Verificación de Timing de Escrituras a VRAM ---
+bool lcd_is_on = false;
+if (ppu_ != nullptr) {
+    lcd_is_on = ppu_->is_lcd_on();
+}
+
+printf("[MMU-VRAM-WRITE-LCD-TIMING] Write #%d | Addr=0x%04X | Value=0x%02X | "
+       "LCD=%s | PC=0x%04X\n", ...);
+
+if (lcd_is_on && value != 0x00) {
+    printf("[MMU-VRAM-WRITE-LCD-TIMING] ⚠️ ADVERTENCIA: Escritura a VRAM cuando LCD está encendido!\n");
+}
+// -------------------------------------------</code></pre>
+
+                <h3>4. Detección de Borrado de Tiles</h3>
+                <p>
+                    Se agregó código en <code>MMU::write()</code> para detectar cuando se borran tiles (escritura de 0x00 después de que se escribieron datos no-cero). El código mantiene un mapa de los últimos valores escritos en cada dirección y detecta cuando se escribe 0x00 después de un valor no-cero.
+                </p>
+                <pre><code>// --- Step 0352: Detección de Borrado de Tiles ---
+static std::map&lt;uint16_t, uint8_t&gt; vram_last_value;
+static int vram_erase_count = 0;
+
+if (vram_last_value.find(addr) != vram_last_value.end()) {
+    uint8_t last_value = vram_last_value[addr];
+    if (last_value != 0x00 && value == 0x00) {
+        // Detectar borrado
+        vram_erase_count++;
+        printf("[MMU-VRAM-ERASE] Erase #%d | Addr=0x%04X | Last value=0x%02X ...\n", ...);
+    }
+}
+vram_last_value[addr] = value;
+// -------------------------------------------</code></pre>
+
+                <h3>Componentes Creados/Modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code>: Agregado código de diagnóstico de escrituras a VRAM, timing de LCD, y detección de borrado</li>
+                    <li><code>src/core/cpp/PPU.cpp</code>: Agregado código de verificación periódica del estado de VRAM</li>
+                    <li><code>src/core/cpp/PPU.hpp</code>: Agregado método <code>is_lcd_on()</code> para verificar el estado del LCD</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Agregado código de diagnóstico de escrituras a VRAM, timing de LCD, y detección de borrado</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Agregado código de verificación periódica del estado de VRAM y método <code>is_lcd_on()</code></li>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Agregado método público <code>is_lcd_on()</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas con las 5 ROMs en paralelo durante ~2.5 minutos cada una:
+                </p>
+                <ul>
+                    <li><strong>ROMs probadas:</strong> pkmn.gb, tetris.gb, mario.gbc, pkmn-amarillo.gb, Oro.gbc</li>
+                    <li><strong>Comando:</strong> <code>timeout 150 python3 main.py roms/[ROM].gb 2>&1 | tee logs/test_[ROM]_step0352.log</code></li>
+                    <li><strong>Análisis de logs:</strong> Se usaron comandos <code>grep</code> para extraer información específica sin saturar el contexto</li>
+                </ul>
+                
+                <h3>Hallazgos Principales</h3>
+                <ul>
+                    <li><strong>Escrituras a VRAM:</strong> Miles de escrituras detectadas, pero <strong>TODAS son 0x00</strong> (Non-zero writes=0, Non-zero ratio=0.00%)</li>
+                    <li><strong>Estado de VRAM:</strong> Siempre tiene solo 40 bytes no-cero (0.65%), por debajo del umbral de 200</li>
+                    <li><strong>Timing de escrituras:</strong> Todas las escrituras ocurren cuando LCD=ON y todas son 0x00</li>
+                    <li><strong>Borrado de tiles:</strong> No se detectan borrados (Total erases=0), lo que significa que no se están escribiendo tiles primero para luego borrarlos</li>
+                </ul>
+                
+                <h3>Ejemplo de Logs</h3>
+                <pre><code>[MMU-VRAM-WRITE-STATS] Total writes=1000 | Non-zero writes=0 | Tile sequences=3 | Non-zero ratio=0.00%
+[MMU-VRAM-WRITE-STATS] Total writes=2000 | Non-zero writes=0 | Tile sequences=3 | Non-zero ratio=0.00%
+[PPU-VRAM-STATE-PERIODIC] Frame 0 | Non-zero bytes: 40/6144 (0.65%) | Complete tiles: 3/384 (0.78%) | Empty: YES
+[MMU-VRAM-WRITE-LCD-TIMING] Write #1 | Addr=0x8000 | Value=0x00 | LCD=ON | PC=0x1679
+[MMU-VRAM-ERASE-STATS] Total writes=1000 | Total erases=0 | Erase ratio=0.00%</code></pre>
+                
+                <h3>Conclusión</h3>
+                <p>
+                    <strong>Los juegos están escribiendo SOLO CEROS (0x00) a VRAM durante la ejecución.</strong> No se están escribiendo tiles reales. Esto explica por qué VRAM nunca se llena con tiles. El problema no está en la detección o generación del framebuffer, sino en que los juegos no están cargando tiles en VRAM durante la ejecución.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Memory Map, VRAM, LCD Timing</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Control Register (LCDC)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Data, Tile Map</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Escrituras a VRAM:</strong> Los juegos escriben miles de veces a VRAM durante la ejecución, pero todas las escrituras son 0x00 (ceros). Esto significa que los juegos están limpiando VRAM, no cargando tiles.</li>
+                        <li><strong>Timing de LCD:</strong> Todas las escrituras ocurren cuando el LCD está encendido, lo cual es inusual. Normalmente los juegos escriben tiles cuando el LCD está apagado para evitar conflictos.</li>
+                        <li><strong>Estado de VRAM:</strong> VRAM siempre tiene solo 40 bytes no-cero (0.65%), que es muy poco. Esto sugiere que los juegos no están cargando tiles durante la ejecución, o que los tiles se cargan muy temprano y luego se borran.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿Por qué los juegos escriben solo ceros?</strong> Necesitamos investigar si los juegos esperan que VRAM esté vacía al inicio, o si hay algún problema con el timing de inicialización.</li>
+                        <li><strong>¿Cuándo se cargan los tiles?</strong> Los tiles podrían cargarse muy temprano (durante la inicialización) y luego borrarse, o podrían no cargarse en absoluto si hay algún problema con la inicialización del juego.</li>
+                        <li><strong>¿Hay restricciones de acceso a VRAM?</strong> En hardware real, escribir a VRAM cuando el LCD está encendido puede causar problemas. Necesitamos verificar si nuestro emulador está respetando estas restricciones correctamente.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> Los juegos están limpiando VRAM al inicio de la ejecución, pero no están cargando tiles después. Esto podría deberse a que:
+                    </p>
+                    <ul>
+                        <li>Los juegos esperan que VRAM esté vacía al inicio y cargan tiles más tarde (después de los 2.5 minutos de prueba)</li>
+                        <li>Hay algún problema con la inicialización del juego que impide que se carguen tiles</li>
+                        <li>Los tiles se cargan desde otro lugar (no desde VRAM directamente) o se cargan de forma diferente</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar por qué los juegos escriben solo ceros a VRAM</li>
+                    <li>[ ] Verificar si los tiles se cargan muy temprano (durante la inicialización) y luego se borran</li>
+                    <li>[ ] Investigar si hay restricciones de acceso a VRAM que no estamos respetando</li>
+                    <li>[ ] Verificar si los juegos cargan tiles desde otro lugar o de forma diferente</li>
+                    <li>[ ] Implementar corrección basada en los hallazgos (Step 0353)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

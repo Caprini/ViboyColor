@@ -153,6 +153,51 @@ void PPU::step(int cpu_cycles) {
     }
     // -------------------------------------------
     
+    // --- Step 0352: Verificación Periódica del Estado de VRAM ---
+    // Verificar el estado de VRAM periódicamente para identificar cuándo se llena o se vacía
+    static int vram_state_check_count = 0;
+    
+    if (frame_counter_ % 100 == 0 && vram_state_check_count < 50) {
+        vram_state_check_count++;
+        
+        // Contar bytes no-cero en VRAM
+        int non_zero_bytes = 0;
+        int complete_tiles = 0;  // Tiles completos (16 bytes con datos no-cero)
+        
+        for (uint16_t addr = 0x8000; addr < 0x9800; addr += 16) {
+            bool tile_has_data = false;
+            int tile_non_zero = 0;
+            
+            for (int i = 0; i < 16; i++) {
+                uint8_t byte = mmu_->read(addr + i);
+                if (byte != 0x00) {
+                    non_zero_bytes++;
+                    tile_non_zero++;
+                    tile_has_data = true;
+                }
+            }
+            
+            // Si el tile tiene al menos 8 bytes no-cero, considerarlo un tile completo
+            if (tile_non_zero >= 8) {
+                complete_tiles++;
+            }
+        }
+        
+        printf("[PPU-VRAM-STATE-PERIODIC] Frame %llu | Non-zero bytes: %d/6144 (%.2f%%) | "
+               "Complete tiles: %d/384 (%.2f%%) | Empty: %s\n",
+               static_cast<unsigned long long>(frame_counter_),
+               non_zero_bytes, (non_zero_bytes * 100.0) / 6144,
+               complete_tiles, (complete_tiles * 100.0) / 384,
+               (non_zero_bytes < 200) ? "YES" : "NO");
+        
+        // Advertencia si VRAM está vacía pero debería tener tiles
+        if (non_zero_bytes < 200 && frame_counter_ > 1000) {
+            printf("[PPU-VRAM-STATE-PERIODIC] ⚠️ ADVERTENCIA: VRAM está vacía después de %llu frames!\n",
+                   static_cast<unsigned long long>(frame_counter_));
+        }
+    }
+    // -------------------------------------------
+    
     // --- Step 0227: FIX LCD DISABLE BEHAVIOR ---
     // Pan Docs: When LCD is disabled (LCDC bit 7 = 0), the PPU stops immediately
     // and the LY register is reset to 0 and remains fixed at 0. The internal clock
@@ -731,6 +776,14 @@ uint8_t PPU::get_lyc() const {
 
 uint64_t PPU::get_frame_counter() const {
     return frame_counter_;
+}
+
+bool PPU::is_lcd_on() const {
+    if (mmu_ == nullptr) {
+        return false;
+    }
+    uint8_t lcdc = mmu_->read(IO_LCDC);
+    return (lcdc & 0x80) != 0;
 }
 
 void PPU::set_lyc(uint8_t value) {

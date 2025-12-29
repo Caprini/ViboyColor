@@ -153,6 +153,15 @@ public:
     uint64_t get_frame_counter() const;
     
     /**
+     * Step 0352: Verifica si el LCD está encendido.
+     * 
+     * Lee el registro LCDC (0xFF40) y verifica el bit 7 (LCD Enable).
+     * 
+     * @return true si el LCD está encendido, false en caso contrario
+     */
+    bool is_lcd_on() const;
+    
+    /**
      * Establece el valor del registro LYC (LY Compare).
      * 
      * Cuando LYC cambia, se verifica inmediatamente si LY == LYC para

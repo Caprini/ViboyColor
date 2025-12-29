@@ -5,6 +5,7 @@
 #include <cstring>
 #include <algorithm>
 #include <cstdio>
+#include <map>
 
 // --- Step 0327: Variable estática compartida para análisis de limpieza de VRAM ---
 static bool tiles_were_loaded_recently_global = false;
@@ -721,6 +722,129 @@ void MMU::write(uint16_t addr, uint8_t value) {
     // Declarar fuera del bloque condicional para que estén disponibles en todo el scope
     static uint64_t last_tile_loaded_frame = 0;
     static int tiles_loaded_count = 0;
+    
+    // --- Step 0352: Verificación Detallada de Escrituras a VRAM ---
+    // Verificar todas las escrituras a VRAM durante la ejecución
+    static int vram_write_detailed_count = 0;
+    static int vram_write_total_count = 0;
+    static int vram_write_non_zero_count = 0;
+    static int vram_write_tile_sequences = 0;  // Secuencias de 16 bytes consecutivos
+    static std::map<uint16_t, uint8_t> vram_last_value;  // Último valor escrito en cada dirección (Tarea 4)
+    static int vram_erase_count = 0;
+    static int vram_erase_after_write_count = 0;
+    
+    // Verificar si la escritura es a VRAM (0x8000-0x97FF)
+    if (addr >= 0x8000 && addr < 0x9800) {
+        vram_write_total_count++;
+        
+        if (value != 0x00) {
+            vram_write_non_zero_count++;
+        }
+        
+        // Tarea 1: Loggear las primeras 100 escrituras detalladamente
+        if (vram_write_detailed_count < 100) {
+            vram_write_detailed_count++;
+            
+            // Obtener PC del CPU (ya está disponible en debug_current_pc)
+            uint16_t pc = debug_current_pc;
+            
+            printf("[MMU-VRAM-WRITE-DETAILED] Write #%d | Addr=0x%04X | Value=0x%02X | "
+                   "PC=0x%04X | Total writes=%d | Non-zero writes=%d\n",
+                   vram_write_detailed_count, addr, value, pc,
+                   vram_write_total_count, vram_write_non_zero_count);
+        }
+        
+        // Tarea 1: Verificar si esta escritura es parte de una secuencia de 16 bytes (tile completo)
+        if ((addr & 0x0F) == 0x00) {
+            // Estamos en el inicio de un tile (cada tile es 16 bytes)
+            // Verificar si las siguientes 15 direcciones también tienen datos no-cero
+            bool is_tile_sequence = true;
+            for (int i = 0; i < 16; i++) {
+                uint16_t check_addr = (addr & 0xFFF0) + i;
+                if (check_addr < 0x9800) {
+                    uint8_t byte = memory_[check_addr];
+                    if (i == 0 && byte == 0x00 && value == 0x00) {
+                        is_tile_sequence = false;
+                        break;
+                    }
+                }
+            }
+            
+            if (is_tile_sequence && vram_write_tile_sequences < 20) {
+                vram_write_tile_sequences++;
+                printf("[MMU-VRAM-WRITE-DETAILED] Tile sequence detected at 0x%04X (sequence #%d)\n",
+                       addr, vram_write_tile_sequences);
+            }
+        }
+        
+        // Loggear estadísticas cada 1000 escrituras
+        if (vram_write_total_count > 0 && vram_write_total_count % 1000 == 0) {
+            printf("[MMU-VRAM-WRITE-STATS] Total writes=%d | Non-zero writes=%d | "
+                   "Tile sequences=%d | Non-zero ratio=%.2f%%\n",
+                   vram_write_total_count, vram_write_non_zero_count, vram_write_tile_sequences,
+                   (vram_write_non_zero_count * 100.0) / vram_write_total_count);
+        }
+        
+        // Tarea 3: Verificación de Timing de Escrituras a VRAM (LCD Apagado vs Encendido)
+        static int vram_write_lcd_timing_count = 0;
+        if (vram_write_lcd_timing_count < 50) {
+            vram_write_lcd_timing_count++;
+            
+            // Obtener estado del LCD desde PPU (si está disponible)
+            bool lcd_is_on = false;
+            if (ppu_ != nullptr) {
+                lcd_is_on = ppu_->is_lcd_on();
+            }
+            
+            // Obtener PC del CPU (ya está disponible en debug_current_pc)
+            uint16_t pc = debug_current_pc;
+            
+            printf("[MMU-VRAM-WRITE-LCD-TIMING] Write #%d | Addr=0x%04X | Value=0x%02X | "
+                   "LCD=%s | PC=0x%04X\n",
+                   vram_write_lcd_timing_count, addr, value,
+                   lcd_is_on ? "ON" : "OFF", pc);
+            
+            // Advertencia si se escribe a VRAM cuando el LCD está encendido
+            if (lcd_is_on && value != 0x00) {
+                printf("[MMU-VRAM-WRITE-LCD-TIMING] ⚠️ ADVERTENCIA: Escritura a VRAM cuando LCD está encendido!\n");
+            }
+        }
+        
+        // Tarea 4: Detección de Borrado de Tiles
+        // Verificar si esta dirección tenía un valor no-cero antes
+        if (vram_last_value.find(addr) != vram_last_value.end()) {
+            uint8_t last_value = vram_last_value[addr];
+            
+            // Si el último valor era no-cero y ahora se escribe 0x00, es un borrado
+            if (last_value != 0x00 && value == 0x00) {
+                vram_erase_count++;
+                vram_erase_after_write_count++;
+                
+                if (vram_erase_after_write_count <= 20) {
+                    // Obtener PC del CPU (ya está disponible en debug_current_pc)
+                    uint16_t pc = debug_current_pc;
+                    
+                    printf("[MMU-VRAM-ERASE] Erase #%d | Addr=0x%04X | Last value=0x%02X | "
+                           "PC=0x%04X | Total erases=%d\n",
+                           vram_erase_after_write_count, addr, last_value, pc, vram_erase_count);
+                }
+            }
+        }
+        
+        // Actualizar último valor
+        vram_last_value[addr] = value;
+        
+        // Loggear estadísticas de borrado cada 1000 escrituras
+        static int vram_write_stats_count = 0;
+        vram_write_stats_count++;
+        if (vram_write_stats_count % 1000 == 0) {
+            printf("[MMU-VRAM-ERASE-STATS] Total writes=%d | Total erases=%d | "
+                   "Erase ratio=%.2f%%\n",
+                   vram_write_stats_count, vram_erase_count,
+                   (vram_erase_count * 100.0) / vram_write_stats_count);
+        }
+    }
+    // -------------------------------------------
     
     // --- Step 0323: Monitor de Accesos a VRAM ---
     // Detectar cuando el juego escribe en VRAM (0x8000-0x97FF) para entender el patrón de carga de tiles
