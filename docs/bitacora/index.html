@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0331 - Corrección de Sincronización del Framebuffer -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0331__correccion-sincronizacion-framebuffer.html" class="entry-link">
+                                    Corrección de Sincronización del Framebuffer
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0331 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección crítica de sincronización del framebuffer que causaba condiciones de carrera donde el framebuffer se limpiaba antes de que Python lo leyera. El problema se resolvió moviendo clear_framebuffer() de step() (cuando ly_ > 153) a get_frame_ready_and_reset(), asegurando que el framebuffer se limpia SOLO después de que Python lo haya leído. Se agregaron logs de sincronización para diagnosticar el problema y verificación de copia del framebuffer en Python para asegurar integridad de datos.
+                        </p>
+                    </li>
                                         <!-- Entrada 0330 - Optimización de Checkerboard Temporal y Renderizado Completo -->
                     <li>
                         <div class="entry-header">

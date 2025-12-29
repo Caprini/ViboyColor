@@ -823,18 +823,38 @@ class Viboy:
                         # Verificar si el frame está listo usando el método de la PPU
                         if self._ppu is not None:
                             if self._ppu.get_frame_ready_and_reset():
+                                # --- Step 0331: Verificación de Copia del Framebuffer ---
                                 # 1. Obtener la vista directa de C++
                                 raw_view = self._ppu.framebuffer
                                 
-                                # 2. --- STEP 0219: SNAPSHOT INMUTABLE ---
-                                # Hacemos una copia profunda inmediata a la memoria de Python.
-                                # Esto "congela" el frame y nos protege de cualquier cambio en C++.
-                                fb_data = bytearray(raw_view)
-                                # ----------------------------------------
-                                
-                                # 3. Guardar la COPIA SEGURA para el renderizador
-                                framebuffer_to_render = fb_data
-                                # ----------------------------------------
+                                # 2. Verificar que el framebuffer tiene datos antes de copiar
+                                if raw_view is not None:
+                                    # Contar píxeles no-blancos en el framebuffer
+                                    non_zero_count = sum(1 for px in raw_view if px != 0)
+                                    
+                                    # Log de verificación (solo primeros 5 frames)
+                                    if not hasattr(self, '_framebuffer_copy_log_count'):
+                                        self._framebuffer_copy_log_count = 0
+                                    if self._framebuffer_copy_log_count < 5:
+                                        self._framebuffer_copy_log_count += 1
+                                        logger.info(f"[Viboy-Framebuffer-Copy] Non-zero pixels: {non_zero_count}/23040")
+                                    
+                                    # 3. --- STEP 0219: SNAPSHOT INMUTABLE ---
+                                    # Hacemos una copia profunda inmediata a la memoria de Python.
+                                    # Esto "congela" el frame y nos protege de cualquier cambio en C++.
+                                    fb_data = bytearray(raw_view)
+                                    # ----------------------------------------
+                                    
+                                    # 4. Verificar que la copia tiene los mismos datos
+                                    copy_non_zero = sum(1 for px in fb_data if px != 0)
+                                    if non_zero_count != copy_non_zero:
+                                        logger.warning(f"[Viboy-Framebuffer-Copy] ⚠️ DISCREPANCIA: Original={non_zero_count}, Copia={copy_non_zero}")
+                                    
+                                    # 5. Guardar la COPIA SEGURA para el renderizador
+                                    framebuffer_to_render = fb_data
+                                else:
+                                    logger.error("[Viboy-Framebuffer-Copy] ⚠️ Framebuffer es None!")
+                                # -------------------------------------------
                     else:
                         # Fallback para modo Python (arquitectura antigua)
                         # Este código se mantiene por compatibilidad pero no debería usarse

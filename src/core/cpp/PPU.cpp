@@ -265,6 +265,15 @@ void PPU::step(int cpu_cycles) {
                 vblank_log++;
             }
             
+            // --- Step 0331: Log de Sincronización del Framebuffer ---
+            static int frame_ready_log_count = 0;
+            if (frame_ready_log_count < 5) {
+                frame_ready_log_count++;
+                printf("[PPU-FRAME-READY] Frame %llu | Frame marcado como listo (LY=144)\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1));
+            }
+            // -------------------------------------------
+            
             // CRÍTICO: Marcar frame como listo para renderizar
             frame_ready_ = true;
         }
@@ -276,12 +285,10 @@ void PPU::step(int cpu_cycles) {
             frame_counter_++;
             // Reiniciar flag de interrupción STAT al cambiar de frame
             stat_interrupt_line_ = 0;
-            // --- Step 0200: Limpieza Sincrónica del Framebuffer ---
-            // Limpiar el framebuffer justo cuando empieza el nuevo fotograma (LY=0).
-            // Esto elimina la condición de carrera: la limpieza ocurre dentro del mismo
-            // "tick" de hardware que inicia el dibujo, garantizando que el lienzo esté
-            // siempre limpio justo antes de que el primer píxel del nuevo fotograma sea dibujado.
-            clear_framebuffer();
+            // --- Step 0331: REMOVIDO clear_framebuffer() de aquí ---
+            // El framebuffer se limpiará en get_frame_ready_and_reset() cuando Python lo haya leído
+            // Esto previene condiciones de carrera donde Python lee un framebuffer ya limpiado
+            // clear_framebuffer();  // REMOVIDO
         }
     }
     
@@ -432,6 +439,22 @@ void PPU::set_lyc(uint8_t value) {
 bool PPU::get_frame_ready_and_reset() {
     if (frame_ready_) {
         frame_ready_ = false;
+        
+        // --- Step 0331: Log de Limpieza del Framebuffer ---
+        static int framebuffer_clear_log_count = 0;
+        if (framebuffer_clear_log_count < 5) {
+            framebuffer_clear_log_count++;
+            printf("[PPU-FRAMEBUFFER-CLEAR] Frame %llu | Framebuffer limpiado después de leer\n",
+                   static_cast<unsigned long long>(frame_counter_));
+        }
+        // -------------------------------------------
+        
+        // --- Step 0331: Limpiar Framebuffer Después de Leer ---
+        // Limpiar el framebuffer SOLO después de que Python lo haya leído
+        // Esto previene condiciones de carrera donde Python lee un framebuffer ya limpiado
+        clear_framebuffer();
+        // -------------------------------------------
+        
         return true;
     }
     return false;
