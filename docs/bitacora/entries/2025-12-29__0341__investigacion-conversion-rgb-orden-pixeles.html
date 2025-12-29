@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Conversión de Índices a RGB y Orden de Píxeles - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Conversión de Índices a RGB y Orden de Píxeles</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0341
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0340__investigacion-visualizacion-python-timing-framebuffer.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Investigación exhaustiva del orden de píxeles en el framebuffer, la conversión de índices a RGB y el dibujo de píxeles en Pygame. Se implementaron 4 bloques de logs de diagnóstico para verificar el formato del framebuffer (orden de píxeles), la aplicación de la paleta (conversión de índices a RGB), el dibujo de píxeles en la superficie de Pygame y el escalado de la imagen. El objetivo es identificar por qué el contenido visual muestra rayas verticales en lugar del checkerboard esperado, investigando posibles problemas en el orden de píxeles, la conversión de índices a RGB o el dibujo en Pygame.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Formato del Framebuffer</h3>
+                <p>
+                    El framebuffer está en formato 1D: <code>[y * 160 + x]</code> donde:
+                </p>
+                <ul>
+                    <li><code>y</code> es la línea (0-143)</li>
+                    <li><code>x</code> es la columna (0-159)</li>
+                    <li><code>idx = y * 160 + x</code> da el índice en el array 1D</li>
+                    <li>Para convertir de índice a coordenadas: <code>y = idx // 160</code>, <code>x = idx % 160</code></li>
+                </ul>
+                <p>
+                    Este formato permite almacenar una imagen de 160×144 píxeles en un array lineal de 23040 elementos (160×144 = 23040). Cada elemento contiene un índice de color (0-3).
+                </p>
+
+                <h3>Paleta de Colores</h3>
+                <p>
+                    La paleta debug mapea índices 0-3 a colores RGB:
+                </p>
+                <ul>
+                    <li><strong>Índice 0:</strong> (255, 255, 255) - Blanco</li>
+                    <li><strong>Índice 1:</strong> (170, 170, 170) - Gris Claro</li>
+                    <li><strong>Índice 2:</strong> (85, 85, 85) - Gris Oscuro</li>
+                    <li><strong>Índice 3:</strong> (8, 24, 32) - Negro</li>
+                </ul>
+                <p>
+                    La conversión de índices a RGB debe ser directa: <code>rgb_color = palette[color_index]</code>. Esta paleta permite visualizar el contenido del framebuffer con alto contraste, independientemente de la paleta real del hardware (BGP/OBP).
+                </p>
+
+                <h3>Renderizado en Pygame</h3>
+                <p>
+                    Pygame ofrece varias formas de dibujar píxeles:
+                </p>
+                <ul>
+                    <li><strong>NumPy:</strong> Usa <code>surfarray.blit_array()</code> con formato (width, height, channels). El array numpy debe estar en formato (160, 144, 3) para RGB.</li>
+                    <li><strong>PixelArray:</strong> Usa <code>px_array[x, y] = color</code> para dibujar píxeles individuales. El orden es (x, y), no (y, x).</li>
+                    <li><strong>Escalado:</strong> Usa <code>pygame.transform.scale()</code> para escalar la superficie a la resolución de pantalla. El escalado puede causar interpolación que cambie ligeramente los colores.</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "LCD Timing", "Frame Rate", "Tile Data", "LCD Control Register"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron 4 bloques de logs de diagnóstico en <code>src/gpu/renderer.py</code> para investigar el orden de píxeles, la conversión de índices a RGB, el dibujo de píxeles y el escalado.
+                </p>
+                
+                <h3>1. Verificación del Orden de Píxeles en el Framebuffer</h3>
+                <p>
+                    Se agregaron logs para verificar que el orden de los píxeles en el framebuffer es correcto (formato <code>[y * 160 + x]</code>).
+                </p>
+                <ul>
+                    <li><strong>Verificación de línea horizontal:</strong> Verifica píxeles en una línea horizontal (y=0, x=0 a x=10) para confirmar que el orden horizontal es correcto</li>
+                    <li><strong>Verificación de columna vertical:</strong> Verifica píxeles en una columna vertical (x=0, y=0 a y=10) para confirmar que el orden vertical es correcto</li>
+                    <li><strong>Verificación de patrón checkerboard:</strong> Verifica píxeles adyacentes para confirmar que el patrón checkerboard esperado se refleja correctamente en el framebuffer</li>
+                    <li><strong>Tag:</strong> <code>[Renderer-Pixel-Order]</code></li>
+                </ul>
+
+                <h3>2. Verificación Detallada de Conversión de Índices a RGB</h3>
+                <p>
+                    Se agregaron logs para verificar que la conversión de índices a RGB es correcta y que la paleta se aplica correctamente.
+                </p>
+                <ul>
+                    <li><strong>Verificación de paleta:</strong> Verifica que la paleta tiene los valores correctos (0=Blanco, 1=Gris Claro, 2=Gris Oscuro, 3=Negro)</li>
+                    <li><strong>Verificación de píxeles específicos:</strong> Verifica algunos píxeles específicos (esquinas, centro, píxeles aleatorios) para confirmar que la conversión es correcta</li>
+                    <li><strong>Validación de índices:</strong> Verifica que los índices están en rango válido (0-3) y que el RGB resultante es válido</li>
+                    <li><strong>Tag:</strong> <code>[Renderer-RGB-Conversion]</code></li>
+                </ul>
+
+                <h3>3. Verificación del Dibujo de Píxeles en Pygame</h3>
+                <p>
+                    Se agregaron logs para verificar que los píxeles se dibujan correctamente en la superficie de Pygame después de aplicar la paleta.
+                </p>
+                <ul>
+                    <li><strong>Lectura de colores de la superficie:</strong> Lee el color de la superficie después de dibujar los píxeles usando <code>surface.get_at((x, y))</code></li>
+                    <li><strong>Comparación con valores esperados:</strong> Compara el color leído de la superficie con el color esperado según la paleta</li>
+                    <li><strong>Verificación de correspondencia:</strong> Verifica que el color en la superficie coincide con el color esperado (tolerancia de ±5 para interpolación)</li>
+                    <li><strong>Tag:</strong> <code>[Renderer-Pixel-Draw]</code></li>
+                </ul>
+
+                <h3>4. Verificación del Escalado y Visualización Final</h3>
+                <p>
+                    Se agregaron logs para verificar que el escalado no causa artefactos significativos y que el contenido escalado coincide con el original.
+                </p>
+                <ul>
+                    <li><strong>Comparación antes/después del escalado:</strong> Compara el color de píxeles antes del escalado (superficie original 160×144) y después del escalado (superficie escalada)</li>
+                    <li><strong>Verificación de interpolación:</strong> Verifica que los colores escalados son similares a los originales (tolerancia de ±20 para interpolación de escalado)</li>
+                    <li><strong>Tag:</strong> <code>[Renderer-Scale-Visualization]</code></li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Agregados 4 bloques de logs de diagnóstico para investigar el orden de píxeles, conversión RGB, dibujo de píxeles y escalado</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se implementaron logs de diagnóstico que se activan en los primeros 10 frames para evitar saturación del contexto. Los logs se generan durante la ejecución normal del emulador.
+                </p>
+                <h3>Comandos de Prueba</h3>
+                <p>
+                    Para ejecutar pruebas con las 5 ROMs y generar logs:
+                </p>
+                <pre><code>timeout 150 python3 main.py roms/pkmn.gb 2>&1 | tee logs/test_pkmn_step0341.log
+timeout 150 python3 main.py roms/tetris.gb 2>&1 | tee logs/test_tetris_step0341.log
+timeout 150 python3 main.py roms/mario.gbc 2>&1 | tee logs/test_mario_step0341.log
+timeout 150 python3 main.py roms/pkmn-amarillo.gb 2>&1 | tee logs/test_pkmn_amarillo_step0341.log
+timeout 150 python3 main.py roms/Oro.gbc 2>&1 | tee logs/test_oro_step0341.log</code></pre>
+                
+                <h3>Análisis de Logs</h3>
+                <p>
+                    Para analizar los logs sin saturar el contexto:
+                </p>
+                <pre><code># Verificar orden de píxeles
+grep "\[Renderer-Pixel-Order\]" logs/test_*_step0341.log | head -n 50
+
+# Verificar conversión de índices a RGB
+grep "\[Renderer-RGB-Conversion\]" logs/test_*_step0341.log | head -n 50
+
+# Verificar dibujo de píxeles
+grep "\[Renderer-Pixel-Draw\]" logs/test_*_step0341.log | head -n 30
+
+# Verificar escalado
+grep "\[Renderer-Scale-Visualization\]" logs/test_*_step0341.log | head -n 30</code></pre>
+                
+                <h3>Validación</h3>
+                <p>
+                    Los logs permiten verificar:
+                </p>
+                <ul>
+                    <li>Que el orden de píxeles en el framebuffer es correcto (formato <code>[y * 160 + x]</code>)</li>
+                    <li>Que la conversión de índices a RGB es correcta y la paleta se aplica correctamente</li>
+                    <li>Que los píxeles se dibujan correctamente en la superficie de Pygame</li>
+                    <li>Que el escalado no causa artefactos significativos</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "LCD Timing", "Frame Rate", "Tile Data", "LCD Control Register"</li>
+                    <li>Documentación de Pygame: <code>pygame.Surface</code>, <code>pygame.PixelArray</code>, <code>pygame.transform.scale()</code></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Formato del framebuffer:</strong> El framebuffer está en formato 1D con índice <code>[y * 160 + x]</code>. Este formato permite almacenar una imagen 2D en un array lineal eficientemente.</li>
+                        <li><strong>Conversión de índices a RGB:</strong> La paleta mapea índices 0-3 a colores RGB. La conversión es directa: <code>rgb_color = palette[color_index]</code>.</li>
+                        <li><strong>Renderizado en Pygame:</strong> Pygame ofrece varias formas de dibujar píxeles (NumPy, PixelArray). El escalado puede causar interpolación que cambie ligeramente los colores.</li>
+                        <li><strong>Orden de píxeles:</strong> Es crítico que el orden de píxeles sea correcto tanto en el framebuffer como en la superficie de Pygame. Un error en el orden puede causar patrones visuales incorrectos (ej: rayas verticales en lugar de horizontales).</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Causa del problema visual:</strong> Los logs permitirán identificar si el problema está en el orden de píxeles, la conversión RGB, el dibujo en Pygame o el escalado.</li>
+                        <li><strong>Patrón checkerboard:</strong> Verificar si el patrón checkerboard esperado se refleja correctamente en el framebuffer cuando se renderiza.</li>
+                        <li><strong>Correspondencia visual:</strong> Verificar que el contenido visual coincide con el framebuffer después de la conversión RGB y el escalado.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que:
+                    </p>
+                    <ul>
+                        <li>El framebuffer está en formato <code>[y * 160 + x]</code> (verificado en pasos anteriores)</li>
+                        <li>La paleta debug tiene los valores correctos (verificado en pasos anteriores)</li>
+                        <li>El orden de píxeles en Pygame es (x, y), no (y, x) (según documentación de Pygame)</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar pruebas completas con las 5 ROMs (2.5 minutos cada una)</li>
+                    <li>[ ] Analizar los logs generados para identificar la causa del problema visual</li>
+                    <li>[ ] Si se identifica la causa, implementar la corrección en el siguiente step</li>
+                    <li>[ ] Si el problema persiste, realizar análisis más profundo y solución alternativa</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

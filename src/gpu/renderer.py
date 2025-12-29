@@ -699,6 +699,49 @@ class Renderer:
                             print(f"[Renderer-Palette-Debug] ⚠️ PROBLEMA: Color {i} fuera de rango: {color}")
                             logger.warning(f"[Renderer-Palette-Debug] ⚠️ PROBLEMA: Color {i} fuera de rango: {color}")
                 # -------------------------------------------
+                
+                # --- Step 0341: Verificación Detallada de Conversión de Índices a RGB ---
+                # Verificar que la conversión de índices a RGB es correcta
+                if not hasattr(self, '_rgb_conversion_check_count'):
+                    self._rgb_conversion_check_count = 0
+                
+                if frame_indices is not None and len(frame_indices) == 23040 and self._rgb_conversion_check_count < 10:
+                    self._rgb_conversion_check_count += 1
+                    
+                    # Verificar que la paleta tiene los valores correctos
+                    logger.info(f"[Renderer-RGB-Conversion] Frame {self._rgb_conversion_check_count} | "
+                               f"Palette: 0={palette[0]}, 1={palette[1]}, 2={palette[2]}, 3={palette[3]}")
+                    
+                    # Verificar algunos píxeles específicos
+                    test_pixels = [
+                        (0, 0),      # Esquina superior izquierda
+                        (80, 72),    # Centro
+                        (159, 143),  # Esquina inferior derecha
+                        (10, 10),    # Píxel aleatorio
+                        (150, 100)   # Píxel aleatorio
+                    ]
+                    
+                    logger.info(f"[Renderer-RGB-Conversion] Frame {self._rgb_conversion_check_count} | "
+                               f"Verificando conversión de índices a RGB:")
+                    for x, y in test_pixels:
+                        idx = y * 160 + x
+                        if idx < len(frame_indices):
+                            color_index = frame_indices[idx] & 0x03
+                            rgb_color = palette[color_index]
+                            
+                            logger.info(f"[Renderer-RGB-Conversion] Pixel (x={x}, y={y}): "
+                                       f"idx={idx}, color_index={color_index}, RGB={rgb_color}")
+                            
+                            # Verificar que el índice está en rango válido
+                            if color_index > 3:
+                                logger.warning(f"[Renderer-RGB-Conversion] ⚠️ PROBLEMA: Índice fuera de rango: {color_index}")
+                            
+                            # Verificar que el RGB es válido
+                            if not isinstance(rgb_color, tuple) or len(rgb_color) != 3:
+                                logger.warning(f"[Renderer-RGB-Conversion] ⚠️ PROBLEMA: RGB inválido: {rgb_color}")
+                            elif not all(0 <= c <= 255 for c in rgb_color):
+                                logger.warning(f"[Renderer-RGB-Conversion] ⚠️ PROBLEMA: RGB fuera de rango: {rgb_color}")
+                # -------------------------------------------
                 # ----------------------------------------
                 
                 # --- STEP 0333: Verificación de Ejecución del Código de Diagnóstico ---
@@ -740,6 +783,50 @@ class Renderer:
                         if idx < len(framebuffer_data):
                             color_idx = framebuffer_data[idx] & 0x03
                             logger.info(f"[Renderer-Framebuffer-Visualization] Pixel ({x}, {y}): index={color_idx}")
+                # -------------------------------------------
+                
+                # --- Step 0341: Verificación del Orden de Píxeles en el Framebuffer ---
+                # Verificar que el orden de los píxeles es correcto (formato [y * 160 + x])
+                if not hasattr(self, '_pixel_order_check_count'):
+                    self._pixel_order_check_count = 0
+                
+                if frame_indices is not None and len(frame_indices) == 23040 and self._pixel_order_check_count < 10:
+                    self._pixel_order_check_count += 1
+                    
+                    # Verificar píxeles en una línea horizontal (y=0, x=0 a x=10)
+                    logger.info(f"[Renderer-Pixel-Order] Frame {self._pixel_order_check_count} | "
+                               f"Verificando orden de píxeles en línea y=0:")
+                    for x in range(10):
+                        idx = 0 * 160 + x  # y=0, x variable
+                        if idx < len(frame_indices):
+                            color_idx = frame_indices[idx] & 0x03
+                            logger.info(f"[Renderer-Pixel-Order] Pixel (x={x}, y=0): idx={idx}, color_idx={color_idx}")
+                    
+                    # Verificar píxeles en una columna vertical (x=0, y=0 a y=10)
+                    logger.info(f"[Renderer-Pixel-Order] Frame {self._pixel_order_check_count} | "
+                               f"Verificando orden de píxeles en columna x=0:")
+                    for y in range(10):
+                        idx = y * 160 + 0  # y variable, x=0
+                        if idx < len(frame_indices):
+                            color_idx = frame_indices[idx] & 0x03
+                            logger.info(f"[Renderer-Pixel-Order] Pixel (x=0, y={y}): idx={idx}, color_idx={color_idx}")
+                    
+                    # Verificar patrón checkerboard esperado
+                    # Si el framebuffer tiene un patrón checkerboard, los píxeles deberían alternar
+                    # Verificar algunos píxeles adyacentes
+                    test_positions = [
+                        (0, 0), (1, 0), (0, 1), (1, 1),  # Esquina superior izquierda
+                        (79, 0), (80, 0), (79, 1), (80, 1),  # Centro superior
+                        (159, 0), (158, 0), (159, 1), (158, 1),  # Esquina superior derecha
+                    ]
+                    
+                    logger.info(f"[Renderer-Pixel-Order] Frame {self._pixel_order_check_count} | "
+                               f"Verificando patrón checkerboard en píxeles adyacentes:")
+                    for x, y in test_positions:
+                        idx = y * 160 + x
+                        if idx < len(frame_indices):
+                            color_idx = frame_indices[idx] & 0x03
+                            logger.info(f"[Renderer-Pixel-Order] Pixel (x={x}, y={y}): idx={idx}, color_idx={color_idx}")
                 # -------------------------------------------
                 
                 # --- STEP 0332: Diagnóstico de Framebuffer Recibido ---
@@ -1064,6 +1151,45 @@ class Renderer:
                 render_time = (time.time() - render_start) * 1000  # en milisegundos
                 # ----------------------------------------
                 
+                # --- Step 0341: Verificación del Dibujo de Píxeles en Pygame ---
+                # Verificar que los píxeles se dibujan correctamente en la superficie
+                if not hasattr(self, '_pixel_draw_check_count_step0341'):
+                    self._pixel_draw_check_count_step0341 = 0
+                
+                if hasattr(self, 'surface') and self.surface is not None and self._pixel_draw_check_count_step0341 < 10:
+                    self._pixel_draw_check_count_step0341 += 1
+                    
+                    # Verificar algunos píxeles después de dibujarlos
+                    test_pixels = [
+                        (0, 0),      # Esquina superior izquierda
+                        (80, 72),    # Centro
+                        (159, 143),  # Esquina inferior derecha
+                    ]
+                    
+                    logger.info(f"[Renderer-Pixel-Draw] Frame {self._pixel_draw_check_count_step0341} | "
+                               f"Verificando píxeles dibujados en la superficie:")
+                    for x, y in test_pixels:
+                        # Leer el color de la superficie después de dibujar
+                        surface_color = self.surface.get_at((x, y))
+                        
+                        # Obtener el índice original del framebuffer
+                        idx = y * 160 + x
+                        if idx < len(frame_indices):
+                            original_index = frame_indices[idx] & 0x03
+                            expected_rgb = palette[original_index]
+                            
+                            logger.info(f"[Renderer-Pixel-Draw] Pixel (x={x}, y={y}): "
+                                       f"original_index={original_index}, expected_RGB={expected_rgb}, "
+                                       f"surface_RGB={surface_color}")
+                            
+                            # Verificar que el color coincide (tolerancia pequeña para interpolación)
+                            if abs(surface_color[0] - expected_rgb[0]) > 5 or \
+                               abs(surface_color[1] - expected_rgb[1]) > 5 or \
+                               abs(surface_color[2] - expected_rgb[2]) > 5:
+                                logger.warning(f"[Renderer-Pixel-Draw] ⚠️ PROBLEMA: Color no coincide! "
+                                             f"Expected: {expected_rgb}, Actual: {surface_color}")
+                # -------------------------------------------
+                
                 # --- STEP 0334: CORRECCIÓN CRÍTICA - Actualizar Cache en Cada Frame ---
                 # PROBLEMA: El cache de escalado solo se actualizaba si cambiaba el tamaño de pantalla,
                 # no cuando cambiaba el contenido. Esto causaba que se mostrara el primer frame
@@ -1110,6 +1236,47 @@ class Renderer:
                                abs(original_color[2] - scaled_color[2]) > 10:
                                 print(f"[Renderer-Scale] ⚠️ ADVERTENCIA: Diferencia significativa en RGB después del escalado")
                                 logger.warning(f"[Renderer-Scale] ⚠️ ADVERTENCIA: Diferencia significativa en RGB después del escalado")
+                # -------------------------------------------
+                
+                # --- Step 0341: Verificación del Escalado y Visualización Final ---
+                # Verificar que el escalado no causa artefactos
+                if not hasattr(self, '_scale_visualization_check_count'):
+                    self._scale_visualization_check_count = 0
+                
+                if hasattr(self, '_scaled_surface_cache') and self._scaled_surface_cache is not None and \
+                   self._scale_visualization_check_count < 10:
+                    self._scale_visualization_check_count += 1
+                    
+                    # Verificar algunos píxeles antes y después del escalado
+                    test_pixels = [
+                        (0, 0),      # Esquina superior izquierda
+                        (80, 72),    # Centro
+                        (159, 143),  # Esquina inferior derecha
+                    ]
+                    
+                    logger.info(f"[Renderer-Scale-Visualization] Frame {self._scale_visualization_check_count} | "
+                               f"Verificando escalado:")
+                    for x, y in test_pixels:
+                        # Color antes del escalado (superficie original 160x144)
+                        original_color = self.surface.get_at((x, y))
+                        
+                        # Calcular posición escalada
+                        scale_x = int(x * self.screen.get_width() / 160)
+                        scale_y = int(y * self.screen.get_height() / 144)
+                        
+                        # Color después del escalado (superficie escalada)
+                        scaled_color = self._scaled_surface_cache.get_at((scale_x, scale_y))
+                        
+                        logger.info(f"[Renderer-Scale-Visualization] Pixel (x={x}, y={y}): "
+                                   f"original_RGB={original_color}, scaled_RGB={scaled_color}, "
+                                   f"scale_pos=({scale_x}, {scale_y})")
+                        
+                        # Verificar que el color escalado es similar al original (tolerancia para interpolación)
+                        if abs(original_color[0] - scaled_color[0]) > 20 or \
+                           abs(original_color[1] - scaled_color[1]) > 20 or \
+                           abs(original_color[2] - scaled_color[2]) > 20:
+                            logger.warning(f"[Renderer-Scale-Visualization] ⚠️ PROBLEMA: Color escalado muy diferente! "
+                                         f"Original: {original_color}, Scaled: {scaled_color}")
                 # -------------------------------------------
                 
                 # Usar superficie escalada actualizada
