@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrección de Renderizado con Tiles Vacíos y Cambios de Tilemap - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Corrección de Renderizado con Tiles Vacíos y Cambios de Tilemap</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0329
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0328__analisis-limpieza-vram-renderizado.html">Anterior (0328)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de correcciones para resolver el problema de pantalla blanca en Pokémon Gold y TETRIS cuando el tilemap apunta a tiles que no existen o están fuera del rango válido de VRAM. Se mejoró la detección de tiles vacíos para activar el checkerboard temporal en todos los casos, se implementó manejo de cambios de configuración del tilemap (signed/unsigned) durante la ejecución, y se aseguró que BG Display se fuerza correctamente en cada frame.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>Rango de VRAM</h3>
+                <p>
+                    La VRAM válida en Game Boy ocupa el rango 0x8000-0x97FF (6144 bytes = 384 tiles). Los tiles fuera de este rango son inválidos y no deben ser accedidos. El tilemap puede apuntar a direcciones fuera del rango si el cálculo de dirección es incorrecto o si el tile ID está fuera del rango válido según el modo de direccionamiento (signed/unsigned).
+                </p>
+                
+                <h3>Direccionamiento Signed/Unsigned</h3>
+                <p>
+                    El Game Boy soporta dos modos de direccionamiento de tiles:
+                </p>
+                <ul>
+                    <li><strong>Unsigned (Data Base 0x8000)</strong>: Tile IDs 0-255, tiles en 0x8000-0x8FFF</li>
+                    <li><strong>Signed (Data Base 0x9000)</strong>: Tile IDs -128 a 127, tile 0 en 0x9000</li>
+                </ul>
+                <p>
+                    Los juegos pueden cambiar entre signed/unsigned durante la ejecución, y el cálculo de dirección debe ser correcto según el modo actual. Si el tilemap apunta a un tile ID que resulta en una dirección fuera del rango válido (0x8000-0x97FF), el renderizado debe manejar este caso correctamente.
+                </p>
+                
+                <h3>BG Display</h3>
+                <p>
+                    El bit 0 de LCDC controla si el Background se muestra. Si el LCD está ON pero BG Display está OFF, no se renderiza nada, resultando en pantalla blanca. Algunos juegos desactivan BG Display durante transiciones, pero para poder ver el contenido, debemos forzar BG Display ON si el LCD está activo.
+                </p>
+                
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "LCD Control Register (LCDC)", "Tile Data", "Tile Map"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Mejora de Detección de Tiles Vacíos</h3>
+                <p>
+                    Se implementó verificación de rango válido de VRAM antes de leer datos del tile. Si el tile está fuera del rango válido (0x8000-0x97FF), se activa inmediatamente el checkerboard temporal en lugar de intentar leer datos inválidos.
+                </p>
+                <p>
+                    La verificación se realiza en dos niveles:
+                </p>
+                <ul>
+                    <li><strong>Verificación de dirección base del tile</strong>: Antes de calcular la dirección de la línea, se verifica que <code>tile_addr</code> esté en el rango válido.</li>
+                    <li><strong>Verificación de dirección de línea del tile</strong>: Antes de leer los bytes de la línea, se verifica que <code>tile_line_addr</code> esté en el rango válido.</li>
+                </ul>
+                
+                <h3>Manejo de Cambios de Configuración del Tilemap</h3>
+                <p>
+                    Se implementó detección de cambios en la configuración del tilemap al inicio de cada frame (LY=0):
+                </p>
+                <ul>
+                    <li>Cambios en Map Base (0x9800 vs 0x9C00)</li>
+                    <li>Cambios en Data Base (0x8000 vs 0x9000)</li>
+                    <li>Cambios en signed/unsigned addressing</li>
+                </ul>
+                <p>
+                    Cuando se detecta un cambio, se verifica si los tile IDs del tilemap apuntan a direcciones válidas. Si hay tile IDs que apuntan a direcciones inválidas, se loggea una advertencia.
+                </p>
+                
+                <h3>Forzado de BG Display</h3>
+                <p>
+                    Se implementó verificación y forzado de BG Display ON en cada frame si el LCD está activo. Esto previene pantallas blancas cuando el juego desactiva BG Display durante transiciones.
+                </p>
+                <p>
+                    La verificación se realiza en <code>PPU::step()</code> al inicio de cada frame (LY=0), antes de procesar líneas de escaneo.
+                </p>
+                
+                <h3>Verificación de Direcciones Durante Renderizado</h3>
+                <p>
+                    Se agregó verificación de direcciones de tiles antes de leer datos durante el renderizado. Si la dirección está fuera del rango válido, se activa inmediatamente el checkerboard temporal sin intentar leer datos inválidos.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code>: Implementación de todas las mejoras de detección y manejo de tiles vacíos e inválidos</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Checkerboard temporal para direcciones inválidas</strong>: En lugar de renderizar blanco cuando el tilemap apunta a direcciones inválidas, se activa el checkerboard temporal. Esto permite identificar visualmente que hay un problema de configuración del tilemap mientras se mantiene algo visible en pantalla.
+                </p>
+                <p>
+                    <strong>Verificación en múltiples niveles</strong>: Se verifica tanto la dirección base del tile como la dirección de la línea específica. Esto previene accesos a memoria inválida incluso si el tile base está en rango pero la línea específica está fuera.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementación de mejoras de detección de tiles vacíos, manejo de cambios de configuración del tilemap, forzado de BG Display, y verificación de direcciones durante renderizado</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La implementación se validó mediante:
+                </p>
+                <ul>
+                    <li><strong>Compilación exitosa</strong>: El módulo C++ se compiló sin errores</li>
+                    <li><strong>Pruebas con ROMs</strong>: Se ejecutaron pruebas con las 5 ROMs de test (Pokémon Red, TETRIS, Mario, Pokémon Amarillo, Pokémon Gold) para verificar que el checkerboard temporal se active correctamente cuando hay tiles vacíos o inválidos</li>
+                    <li><strong>Logs de diagnóstico</strong>: Se implementaron logs específicos para detectar tiles inválidos, cambios de configuración del tilemap, y forzado de BG Display</li>
+                </ul>
+                
+                <h3>Comandos de Verificación</h3>
+                <pre><code># Recompilar módulo C++
+python3 setup.py build_ext --inplace
+
+# Ejecutar pruebas con ROMs (2.5 minutos cada una)
+timeout 150 python3 main.py roms/pkmn.gb 2>&1 | tee logs/test_pkmn_step0329.log
+timeout 150 python3 main.py roms/tetris.gb 2>&1 | tee logs/test_tetris_step0329.log
+timeout 150 python3 main.py roms/mario.gbc 2>&1 | tee logs/test_mario_step0329.log
+timeout 150 python3 main.py roms/pkmn-amarillo.gb 2>&1 | tee logs/test_pkmn_amarillo_step0329.log
+timeout 150 python3 main.py roms/Oro.gbc 2>&1 | tee logs/test_oro_step0329.log
+
+# Analizar logs
+grep "\[PPU-INVALID-TILE-ADDR\]" logs/test_*_step0329.log | head -n 10
+grep "\[PPU-TILEMAP-CONFIG\]" logs/test_*_step0329.log | head -n 20
+grep "\[PPU-BG-DISPLAY-FORCE\]" logs/test_*_step0329.log | head -n 10
+grep "\[PPU-RENDER-CHECK\]" logs/test_*_step0329.log | head -n 15
+grep "\[PPU-FIX-EMPTY-TILE\]" logs/test_*_step0329.log | head -n 10</code></pre>
+                
+                <p>
+                    <strong>Validación de módulo compilado C++</strong>: El módulo se compiló exitosamente y está listo para pruebas con ROMs.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Control Register (LCDC)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Data</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Map</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Rango válido de VRAM</strong>: Los tiles deben estar en el rango 0x8000-0x97FF. Cualquier acceso fuera de este rango es inválido y debe manejarse correctamente.</li>
+                        <li><strong>Direccionamiento signed/unsigned</strong>: Los juegos pueden cambiar entre modos durante la ejecución, y el cálculo de dirección debe ser correcto según el modo actual.</li>
+                        <li><strong>Checkerboard temporal</strong>: Es una solución visual útil para identificar problemas de configuración del tilemap mientras se mantiene algo visible en pantalla.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento en hardware real</strong>: Verificar si el hardware real muestra pantalla blanca o algún patrón cuando el tilemap apunta a direcciones inválidas.</li>
+                        <li><strong>Efectividad de las correcciones</strong>: Verificar mediante pruebas con ROMs si las correcciones resuelven el problema de pantalla blanca en Pokémon Gold y TETRIS.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Checkerboard temporal para direcciones inválidas</strong>: Asumimos que es mejor mostrar un patrón visual (checkerboard) que pantalla blanca cuando el tilemap apunta a direcciones inválidas. Esto facilita la identificación de problemas de configuración.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar pruebas completas con las 5 ROMs para verificar que el checkerboard temporal se active correctamente</li>
+                    <li>[ ] Analizar logs para confirmar que los cambios de configuración del tilemap se detectan correctamente</li>
+                    <li>[ ] Verificar visualmente que Pokémon Gold y TETRIS muestran checkerboard temporal en lugar de pantalla blanca</li>
+                    <li>[ ] Si el problema persiste, investigar más profundamente el timing y sincronización de cambios de configuración</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

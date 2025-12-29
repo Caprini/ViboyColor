@@ -1020,6 +1020,62 @@ Implementación de análisis detallado para investigar por qué el juego limpia 
 
 ---
 
+### 2025-12-29 - Step 0329: Corrección de Renderizado con Tiles Vacíos y Cambios de Tilemap
+**Estado**: ✅ **IMPLEMENTACIÓN COMPLETADA**
+
+Implementación de correcciones para resolver el problema de pantalla blanca en Pokémon Gold y TETRIS cuando el tilemap apunta a tiles que no existen o están fuera del rango válido de VRAM. Se mejoró la detección de tiles vacíos para activar el checkerboard temporal en todos los casos, se implementó manejo de cambios de configuración del tilemap (signed/unsigned) durante la ejecución, y se aseguró que BG Display se fuerza correctamente en cada frame.
+
+**Objetivo**:
+1. Corregir el renderizado cuando el tilemap apunta a tiles que no existen (Pokémon Gold y TETRIS muestran pantalla blanca)
+2. Mejorar la detección de tiles vacíos para activar el checkerboard temporal en todos los casos
+3. Manejar cambios de configuración del tilemap (signed/unsigned) durante la ejecución
+4. Asegurar que BG Display se fuerza correctamente en cada frame
+
+**Implementaciones**:
+
+1. **Mejora de Detección de Tiles Vacíos** (`PPU.cpp`):
+   - Verificación de rango válido de VRAM (0x8000-0x97FF) antes de leer datos del tile
+   - Si el tile está fuera del rango válido, activar checkerboard temporal inmediatamente
+   - Verificación de todo el tile (16 bytes) antes de considerarlo vacío
+   - Tag: `[PPU-INVALID-TILE-ADDR]`
+
+2. **Manejo de Cambios de Configuración del Tilemap** (`PPU.cpp`):
+   - Detección de cambios en Map Base (0x9800 vs 0x9C00), Data Base (0x8000 vs 0x9000), y signed/unsigned addressing
+   - Verificación de que los tile IDs del tilemap apuntan a direcciones válidas cuando cambia la configuración
+   - Logging de cambios y advertencias cuando hay tile IDs inválidos
+   - Tag: `[PPU-TILEMAP-CONFIG]`
+
+3. **Forzado de BG Display** (`PPU.cpp`):
+   - Verificación y forzado de BG Display ON en cada frame si LCD está ON
+   - Previene pantallas blancas cuando el juego desactiva BG Display durante transiciones
+   - Tag: `[PPU-BG-DISPLAY-FORCE]`
+
+4. **Verificación de Direcciones Durante Renderizado** (`PPU.cpp`):
+   - Verificación de direcciones de tiles antes de leer datos durante el renderizado
+   - Si la dirección está fuera del rango válido, activar checkerboard temporal inmediatamente
+   - Previene accesos a memoria inválida
+
+**Archivos Modificados**:
+- `src/core/cpp/PPU.cpp` - Implementación de todas las mejoras de detección y manejo de tiles vacíos e inválidos
+
+**Documentación Generada**:
+- `docs/bitacora/entries/2025-12-29__0329__correccion-renderizado-tiles-vacios.html` - Entrada HTML de bitácora
+
+**Conceptos de Hardware**:
+- **Rango de VRAM**: VRAM válida: 0x8000-0x97FF (6144 bytes). Tiles fuera de este rango son inválidos. El tilemap puede apuntar a direcciones fuera del rango si el cálculo es incorrecto.
+- **Direccionamiento Signed/Unsigned**: Unsigned (Data Base 0x8000): Tile IDs 0-255, tiles en 0x8000-0x8FFF. Signed (Data Base 0x9000): Tile IDs -128 a 127, tile 0 en 0x9000. Los juegos pueden cambiar entre signed/unsigned durante la ejecución.
+- **BG Display**: Bit 0 de LCDC controla si el Background se muestra. Si LCD está ON pero BG Display está OFF, no se renderiza nada.
+- **Fuente**: Pan Docs - "LCD Control Register (LCDC)", "Tile Data", "Tile Map"
+
+**Próximos Pasos**:
+- [ ] Ejecutar pruebas completas con las 5 ROMs para verificar que el checkerboard temporal se active correctamente
+- [ ] Analizar logs para confirmar que los cambios de configuración del tilemap se detectan correctamente
+- [ ] Verificar visualmente que Pokémon Gold y TETRIS muestran checkerboard temporal en lugar de pantalla blanca
+- [ ] Si el problema se resuelve: Step 0330 - Verificación final de renderizado y optimización
+- [ ] Si el problema persiste: Step 0330 - Análisis más profundo del problema
+
+---
+
 ### 2025-12-29 - Step 0326: Corrección de Umbral y Análisis del Tilemap
 **Estado**: ✅ **IMPLEMENTACIÓN COMPLETADA**
 

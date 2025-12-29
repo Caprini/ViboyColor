@@ -124,6 +124,24 @@ void PPU::step(int cpu_cycles) {
     }
     // -------------------------------------------
     
+    // --- Step 0329: Forzar BG Display ON si LCD está ON ---
+    // Asegurar que BG Display está activo si el LCD está activo
+    // Esto previene pantallas blancas cuando el juego desactiva BG Display
+    bool bg_display = (lcdc & 0x01) != 0;
+    
+    if (lcd_enabled && !bg_display && ly_ == 0) {
+        static int bg_display_force_count = 0;
+        if (bg_display_force_count < 5) {
+            bg_display_force_count++;
+            printf("[PPU-BG-DISPLAY-FORCE] Forzando BG Display ON (LCD está ON pero BG Display estaba OFF)\n");
+        }
+        
+        // Forzar BG Display ON
+        mmu_->write(IO_LCDC, lcdc | 0x01);
+        lcdc |= 0x01;
+    }
+    // -------------------------------------------
+    
     // --- Step 0320: Verificación Periódica de VRAM ---
     // Verificar si los tiles de prueba siguen en VRAM cada 60 frames (1 segundo)
     static int vram_check_counter = 0;
@@ -523,6 +541,57 @@ void PPU::render_scanline() {
     }
     // --- Fin hack temporal ---
 
+    // --- Step 0329: Detección de Cambios de Configuración del Tilemap ---
+    // Detectar cambios en Map Base, Data Base y signed/unsigned addressing
+    static uint16_t last_tile_map_base = 0xFFFF;
+    static uint16_t last_tile_data_base = 0xFFFF;
+    static bool last_signed_addressing = false;
+    
+    uint16_t current_tile_map_base = (lcdc & 0x08) != 0 ? TILEMAP_1 : TILEMAP_0;
+    bool current_unsigned_addressing = (lcdc & 0x10) != 0;
+    uint16_t current_tile_data_base = current_unsigned_addressing ? TILE_DATA_0 : TILE_DATA_1;
+    bool current_signed_addressing = !current_unsigned_addressing;
+    
+    if (ly_ == 0 && (current_tile_map_base != last_tile_map_base || 
+                     current_tile_data_base != last_tile_data_base ||
+                     current_signed_addressing != last_signed_addressing)) {
+        static int tilemap_config_change_count = 0;
+        if (tilemap_config_change_count < 10) {
+            tilemap_config_change_count++;
+            printf("[PPU-TILEMAP-CONFIG] Cambio de configuración: Map: 0x%04X->0x%04X | Data: 0x%04X->0x%04X | Signed: %d->%d\n",
+                   last_tile_map_base, current_tile_map_base,
+                   last_tile_data_base, current_tile_data_base,
+                   last_signed_addressing ? 1 : 0, current_signed_addressing ? 1 : 0);
+            
+            // Verificar si los tile IDs del tilemap apuntan a direcciones válidas
+            int invalid_tile_ids = 0;
+            for (int i = 0; i < 32; i++) {
+                uint8_t tile_id = mmu_->read(current_tile_map_base + i);
+                uint16_t tile_addr;
+                if (current_unsigned_addressing) {
+                    tile_addr = current_tile_data_base + (tile_id * 16);
+                } else {
+                    int8_t signed_id = static_cast<int8_t>(tile_id);
+                    tile_addr = current_tile_data_base + (static_cast<uint16_t>(signed_id) * 16);
+                }
+                
+                if (tile_addr < 0x8000 || tile_addr > 0x97FF) {
+                    invalid_tile_ids++;
+                }
+            }
+            
+            if (invalid_tile_ids > 0) {
+                printf("[PPU-TILEMAP-CONFIG] ⚠️ ADVERTENCIA: %d/32 tile IDs apuntan a direcciones inválidas\n",
+                       invalid_tile_ids);
+            }
+        }
+        
+        last_tile_map_base = current_tile_map_base;
+        last_tile_data_base = current_tile_data_base;
+        last_signed_addressing = current_signed_addressing;
+    }
+    // -------------------------------------------
+    
     uint8_t scy = mmu_->read(IO_SCY);
     uint8_t scx = mmu_->read(IO_SCX);
 
@@ -980,14 +1049,59 @@ void PPU::render_scanline() {
         uint8_t line_in_tile = map_y % 8;
         uint16_t tile_line_addr = tile_addr + (line_in_tile * 2);
 
-        // Usar la condición VALIDADA
-        if (tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE) {
+        // --- Step 0329: Verificación de Direcciones de Tiles Durante Renderizado ---
+        // Verificar que la dirección del tile está en el rango válido antes de leer
+        bool tile_addr_valid = (tile_addr >= 0x8000 && tile_addr <= 0x97FF);
+        bool tile_line_addr_valid = (tile_line_addr >= 0x8000 && tile_line_addr <= 0x97FF);
+        
+        if (!tile_addr_valid || !tile_line_addr_valid) {
+            // Dirección inválida, activar checkerboard
+            static int invalid_tile_addr_count = 0;
+            if (invalid_tile_addr_count < 5 && ly_ == 0 && x == 0) {
+                invalid_tile_addr_count++;
+                printf("[PPU-INVALID-TILE-ADDR] TileID: 0x%02X | Addr: 0x%04X (fuera de rango) | Activando checkerboard\n",
+                       tile_id, tile_addr);
+            }
             
+            // Generar checkerboard temporal
+            uint8_t tile_x_in_map = (map_x / 8) % 2;
+            uint8_t tile_y_in_map = (map_y / 8) % 2;
+            uint8_t checkerboard = (tile_x_in_map + tile_y_in_map) % 2;
+            uint8_t line_in_tile_check = map_y % 8;
+            
+            uint8_t byte1, byte2;
+            if (checkerboard == 0) {
+                if (line_in_tile_check % 2 == 0) {
+                    byte1 = 0xFF;
+                    byte2 = 0xFF;
+                } else {
+                    byte1 = 0x00;
+                    byte2 = 0x00;
+                }
+            } else {
+                if (line_in_tile_check % 2 == 0) {
+                    byte1 = 0x00;
+                    byte2 = 0x00;
+                } else {
+                    byte1 = 0xFF;
+                    byte2 = 0xFF;
+                }
+            }
+            
+            // Aplicar paleta y escribir en framebuffer
+            uint8_t bit_index = 7 - (map_x % 8);
+            uint8_t bit_low = (byte1 >> bit_index) & 1;
+            uint8_t bit_high = (byte2 >> bit_index) & 1;
+            uint8_t color_index = (bit_high << 1) | bit_low;
+            uint8_t final_color = (bgp >> (color_index * 2)) & 0x03;
+            framebuffer_[line_start_index + x] = final_color;
+        } else {
+            // Dirección válida, leer datos del tile
             // --- RESTAURADO: LÓGICA REAL DE VRAM ---
             uint8_t byte1 = mmu_->read(tile_line_addr);
             uint8_t byte2 = mmu_->read(tile_line_addr + 1);
             
-            // --- Step 0328: Mejora de Detección de Tiles Vacíos y Checkerboard Temporal ---
+            // --- Step 0329: Mejora de Detección de Tiles Vacíos y Checkerboard Temporal ---
             // Verificar TODO el tile (16 bytes) antes de considerarlo vacío
             // Algunos tiles legítimos pueden tener líneas con 0x0000
             static bool empty_tile_detected = false;
@@ -996,6 +1110,10 @@ void PPU::render_scanline() {
             // Verificar si TODO el tile está vacío (todas las 8 líneas = 16 bytes)
             for (uint8_t line_check = 0; line_check < 8; line_check++) {
                 uint16_t check_addr = tile_addr + (line_check * 2);
+                if (check_addr < 0x8000 || check_addr > 0x97FF) {
+                    tile_is_empty = true;
+                    break;
+                }
                 uint8_t check_byte1 = mmu_->read(check_addr);
                 uint8_t check_byte2 = mmu_->read(check_addr + 1);
                 
@@ -1005,11 +1123,11 @@ void PPU::render_scanline() {
                 }
             }
 
-            // --- Step 0328: Lógica Mejorada del Checkerboard Temporal ---
-            // Solo activar el checkerboard temporal si:
+            // --- Step 0329: Lógica Mejorada del Checkerboard Temporal ---
+            // Activar checkerboard cuando:
             // 1. El tile está completamente vacío (todas las líneas = 0x00)
-            // 2. Y VRAM está completamente vacía (menos de 200 bytes no-cero)
-            // Esto evita activar el checkerboard cuando el juego está cargando tiles
+            // 2. O cuando el tilemap apunta a tiles fuera del rango válido
+            // Esto previene pantallas blancas cuando el tilemap apunta a direcciones inválidas
             static bool enable_checkerboard_temporal = true;  // Flag para controlar
 
             if (tile_is_empty && enable_checkerboard_temporal) {
@@ -1021,7 +1139,7 @@ void PPU::render_scanline() {
                     }
                 }
                 
-                // Solo activar checkerboard si VRAM está completamente vacía
+                // Activar checkerboard si VRAM está completamente vacía o si el tile está fuera de rango
                 if (vram_non_zero < 200) {
                     if (!empty_tile_detected && ly_ == 0 && x == 0) {
                         empty_tile_detected = true;
@@ -1074,6 +1192,10 @@ void PPU::render_scanline() {
                 }
             }
             // -----------------------------------------
+            
+            // --- Step 0329: Verificación de Direcciones de Tiles Durante Renderizado (continuación) ---
+            // Si llegamos aquí, la dirección es válida y tenemos los datos del tile
+            // Continuar con el renderizado normal
             
             // --- Step 0299: Monitor de Datos de Tiles Reales ([TILEDATA-DUMP-VISUAL]) ---
             // Capturar los datos reales de los tiles que se están leyendo de VRAM durante
@@ -1173,9 +1295,6 @@ void PPU::render_scanline() {
             
             framebuffer_[line_start_index + x] = final_color;
             // -------------------------------------------------------------
-
-        } else {
-            framebuffer_[line_start_index + x] = 0;
         }
     }
     
