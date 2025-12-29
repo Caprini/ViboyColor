@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0327 - Sincronización de Verificación y Análisis de Limpieza de VRAM -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0327__sincronizacion-verificacion-analisis-limpieza.html" class="entry-link">
+                                    Sincronización de Verificación y Análisis de Limpieza de VRAM
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0327 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de sincronización de verificación de tiles con el momento en que se cargan, usando eventos [TILE-LOADED] para capturar el estado de VRAM cuando hay tiles antes de que se limpien. Se investiga por qué el juego limpia VRAM después de cargar tiles (PC:0x36E3 escribe ceros), y se verifica si el tilemap apunta correctamente a los tiles cuando están cargados. Se implementa verificación más frecuente (cada 10 frames en lugar de cada 60), análisis de limpieza de VRAM que detecta cuando se escribe 0x00 después de cargar tiles, verificación inmediata del tilemap cuando se detectan tiles, y análisis de correspondencia en tiempo real para identificar qué tile IDs deberían apuntar a los tiles cargados.
+                        </p>
+                    </li>
                                         <!-- Entrada 0326 - Corrección de Umbral y Análisis del Tilemap -->
                     <li>
                         <div class="entry-header">

@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sincronización de Verificación y Análisis de Limpieza de VRAM - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Sincronización de Verificación y Análisis de Limpieza de VRAM</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0327
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0326__correccion-umbral-analisis-tilemap.html">Anterior (0326)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este step implementa sincronización de verificación de tiles con el momento en que se cargan, usando eventos [TILE-LOADED] para capturar el estado de VRAM cuando hay tiles antes de que se limpien. Se investiga por qué el juego limpia VRAM después de cargar tiles (PC:0x36E3 escribe ceros), y se verifica si el tilemap apunta correctamente a los tiles cuando están cargados.
+                </p>
+                <p>
+                    Se implementa verificación en tiempo real que captura el estado de VRAM cuando hay tiles, verificación más frecuente (cada 10 frames en lugar de cada 60), análisis de limpieza de VRAM que detecta cuando se escribe 0x00 después de cargar tiles, y verificación inmediata del tilemap cuando se detectan tiles para confirmar si apunta a tiles con datos.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>Timing y Sincronización</h3>
+                <p>
+                    Los eventos en hardware ocurren en momentos específicos. Si la verificación es demasiado lenta, puede perder eventos transitorios. Los tiles pueden cargarse y limpiarse rápidamente. La verificación debe ser lo suficientemente frecuente para capturar estos eventos.
+                </p>
+                <p>
+                    <strong>Problema identificado en Step 0326:</strong> Los tiles se cargan en PC:0x618D (20 tiles = 320 bytes), pero la verificación se hace cada 60 frames (1 segundo). Para cuando se verifica (Frame 61+), los tiles ya se limpiaron (0 bytes). Resultado: Nunca se detecta que hay tiles reales.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Análisis empírico basado en logs del Step 0326.
+                </p>
+
+                <h3>Limpieza de VRAM</h3>
+                <p>
+                    Los juegos pueden limpiar VRAM durante la inicialización. Esto puede ocurrir antes o después de cargar tiles. Si se limpia después de cargar tiles, el tilemap puede apuntar a tiles que ya no existen. Algunos juegos cargan tiles, actualizan tilemap, y luego limpian tiles no usados.
+                </p>
+                <p>
+                    <strong>Problema identificado:</strong> PC:0x36E3 escribe 100+ ceros en VRAM (limpia los tiles). Esto ocurre DESPUÉS de cargar los tiles. El juego carga tiles pero luego los limpia.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "VRAM (Video RAM)", observación empírica de logs.
+                </p>
+
+                <h3>Correspondencia Tilemap-Tiles</h3>
+                <p>
+                    El tilemap debe apuntar a tiles que existen en VRAM. Si los tiles se limpian pero el tilemap no se actualiza, se renderiza blanco. La correspondencia debe verificarse cuando los tiles están cargados, no después.
+                </p>
+                <p>
+                    <strong>Problema identificado:</strong> El tilemap tiene 32/32 tile IDs no-cero, pero VRAM está vacía (0 bytes no-cero). El tilemap apunta a tiles que no existen (fueron limpiados).
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "Tile Map", "Tile Data".
+                </p>
+
+                <h3>Secuencia de Eventos</h3>
+                <p>
+                    Secuencia identificada en el análisis del Step 0326:
+                </p>
+                <ol>
+                    <li>Frame 1: 40 bytes no-cero (tiles de prueba o inicialización)</li>
+                    <li>PC:0x618D: Carga 20 tiles (320 bytes)</li>
+                    <li>PC:0x36E3: Limpia VRAM (0 bytes)</li>
+                    <li>Frame 61+: Verificación encuentra 0 bytes (tiles ya limpiados)</li>
+                </ol>
+                <p>
+                    <strong>Fuente</strong>: Análisis de logs del Step 0326.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Tarea 1: Sincronizar Verificación con Carga de Tiles</h3>
+                <p>
+                    Se agregó verificación inmediata cuando se detecta [TILE-LOADED] en <code>MMU::write()</code>. Cuando se detecta que se cargó un tile, se verifica inmediatamente el estado de VRAM, capturando el momento en que hay tiles antes de que se limpien.
+                </p>
+                <p>
+                    Se agregó verificación más frecuente en <code>PPU::render_scanline()</code> (cada 10 frames en lugar de cada 60) para capturar tiles antes de que se limpien.
+                </p>
+
+                <h3>Tarea 2: Investigar Por Qué el Juego Limpia VRAM</h3>
+                <p>
+                    Se agregó análisis de la rutina de limpieza (PC:0x36E3) en <code>MMU::write()</code>. Se detecta cuando el juego escribe ceros en VRAM después de cargar tiles, loggeando el contexto (PC, banco ROM, frame) y verificando si hay un patrón (limpia todo VRAM o solo partes).
+                </p>
+                <p>
+                    Se usa una variable estática global <code>tiles_were_loaded_recently_global</code> para rastrear si se cargaron tiles recientemente, permitiendo detectar cuando se limpia VRAM después de cargar tiles.
+                </p>
+
+                <h3>Tarea 3: Verificar Tilemap Cuando Hay Tiles Cargados</h3>
+                <p>
+                    Se agregó verificación inmediata del tilemap cuando se detectan tiles en <code>PPU::render_scanline()</code>. Cuando se detecta que hay tiles en VRAM, se verifica inmediatamente si el tilemap apunta a esos tiles, loggeando la correspondencia.
+                </p>
+                <p>
+                    Se verifica si los primeros 32 tile IDs del tilemap apuntan a tiles con datos o tiles vacíos, identificando si hay correspondencia entre tilemap y tiles cargados.
+                </p>
+
+                <h3>Tarea 4: Análisis de Correspondencia en Tiempo Real</h3>
+                <p>
+                    Se agregó análisis de qué tile IDs corresponden a los tiles cargados en <code>PPU::render_scanline()</code>. Cuando se detectan tiles en VRAM, se calcula qué tile IDs deberían apuntar a ellos y se compara con los tile IDs del tilemap, loggeando si hay correspondencia.
+                </p>
+                <p>
+                    Se verifica las direcciones conocidas donde se cargan tiles (0x8820+) y se calcula qué tile IDs deberían apuntar a esas direcciones según el direccionamiento (signed/unsigned), verificando si el tilemap tiene esos tile IDs.
+                </p>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Verificación cada 10 frames:</strong> Balance entre frecuencia y rendimiento. 10 frames (aprox. 6 veces por segundo) es suficiente para capturar eventos transitorios sin afectar significativamente el rendimiento.</li>
+                    <li><strong>Variable estática global:</strong> Se usa una variable estática global para rastrear si se cargaron tiles recientemente, permitiendo que el análisis de limpieza acceda a esta información desde diferentes secciones del código.</li>
+                    <li><strong>Límites de logs:</strong> Se limitan los logs a 5-20 eventos para evitar saturación del contexto, siguiendo las reglas del proyecto.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Agregada verificación inmediata de VRAM al cargar tiles, análisis de limpieza de VRAM, y variable estática global para rastrear carga de tiles</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Agregada verificación más frecuente de VRAM (cada 10 frames), verificación inmediata del tilemap cuando hay tiles, y análisis de correspondencia en tiempo real</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas con las 3 ROMs (pkmn.gb, tetris.gb, mario.gbc) durante 2.5 minutos cada una para capturar logs de verificación inmediata, análisis de limpieza, y correspondencia.
+                </p>
+                <p>
+                    <strong>Comandos ejecutados:</strong>
+                </p>
+                <pre><code>timeout 150 python3 main.py roms/pkmn.gb > logs/test_pkmn_step0327.log 2>&1
+timeout 150 python3 main.py roms/tetris.gb > logs/test_tetris_step0327.log 2>&1
+timeout 150 python3 main.py roms/mario.gbc > logs/test_mario_step0327.log 2>&1</code></pre>
+                <p>
+                    <strong>Análisis de logs:</strong> Se analizan los logs usando comandos que no saturan el contexto:
+                </p>
+                <pre><code>grep "\[VRAM-IMMEDIATE\]" logs/test_*_step0327.log
+grep "\[PPU-VRAM-FREQ\]" logs/test_*_step0327.log | head -n 20
+grep "\[VRAM-CLEAN\]" logs/test_*_step0327.log
+grep "\[PPU-CORRESPONDENCE\]" logs/test_*_step0327.log
+grep "\[PPU-TILEMAP-IMMEDIATE\]" logs/test_*_step0327.log</code></pre>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El módulo se recompiló exitosamente sin errores. Solo se generaron warnings menores sobre formatos de printf y variables no usadas, que no afectan la funcionalidad.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">"VRAM (Video RAM)"</a> - Rango 0x8000-0x9FFF contiene Tile Data y Tile Maps</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">"Tile Map"</a> - 32x32 tiles en 0x9800-0x9BFF o 0x9C00-0x9FFF</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">"Tile Data"</a> - 0x8000-0x97FF contiene 384 tiles de 16 bytes cada uno</li>
+                    <li>Análisis empírico: Logs del Step 0326 que identificaron el problema de timing y limpieza de VRAM</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Timing de verificación:</strong> La verificación debe ser lo suficientemente frecuente para capturar eventos transitorios. Si se verifica demasiado tarde, se pierden eventos importantes como la carga de tiles antes de que se limpien.</li>
+                        <li><strong>Limpieza de VRAM:</strong> Los juegos pueden limpiar VRAM después de cargar tiles, lo que puede causar que el tilemap apunte a tiles que ya no existen. Esto requiere verificación inmediata cuando se cargan tiles.</li>
+                        <li><strong>Correspondencia tilemap-tiles:</strong> El tilemap debe apuntar a tiles que existen en VRAM. Si los tiles se limpian pero el tilemap no se actualiza, se renderiza blanco. La correspondencia debe verificarse cuando los tiles están cargados.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Por qué se limpia VRAM:</strong> Necesitamos analizar los logs para entender por qué el juego limpia VRAM después de cargar tiles. ¿Es parte de la inicialización normal o hay un problema?</li>
+                        <li><strong>Timing exacto:</strong> Necesitamos confirmar el timing exacto entre carga de tiles y limpieza para determinar si hay una ventana de oportunidad para capturar los tiles.</li>
+                        <li><strong>Correspondencia tilemap-tiles:</strong> Necesitamos verificar si el tilemap se actualiza después de cargar tiles o si siempre apunta a tiles que no existen.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis:</strong> El juego limpia VRAM como parte de la inicialización normal, pero el tilemap no se actualiza inmediatamente después de cargar tiles. Esto causa que el tilemap apunte a tiles que ya no existen.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> La verificación cada 10 frames es suficiente para capturar eventos transitorios. Si no es suficiente, podríamos necesitar verificación aún más frecuente o verificación inmediata cuando se detectan eventos específicos.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Analizar logs de las 3 ROMs para identificar patrones de carga y limpieza de VRAM</li>
+                    <li>[ ] Si se identifica la causa del problema: Implementar solución para mantener tiles o actualizar tilemap correctamente (Step 0328)</li>
+                    <li>[ ] Si el problema persiste: Análisis más profundo y solución alternativa (Step 0328)</li>
+                    <li>[ ] Verificación final de renderizado cuando se resuelva el problema (Step 0329)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

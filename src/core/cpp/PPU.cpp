@@ -492,9 +492,11 @@ void PPU::render_scanline() {
     // Revisar TODO VRAM (0x8000-0x97FF) en lugar de solo los primeros 2048 bytes
     // Si VRAM está vacía, usar patrón de prueba. Si hay tiles, renderizar normalmente.
     static bool vram_has_tiles = false;
+    static bool last_vram_has_tiles = false;  // Step 0327: Para detectar cambios
 
-    // Verificar VRAM cada 60 frames (1 segundo) para detectar cuando se cargan tiles
-    if (ly_ == 0 && (frame_counter_ % 60 == 0)) {
+    // --- Step 0327: Verificación Más Frecuente de VRAM ---
+    // Verificar cada 10 frames en lugar de cada 60 para capturar tiles antes de que se limpien
+    if (ly_ == 0 && (frame_counter_ % 10 == 0)) {  // Cada 10 frames (aprox. 6 veces por segundo)
         uint32_t vram_checksum = 0;
         int non_zero_bytes = 0;
         
@@ -522,6 +524,17 @@ void PPU::render_scanline() {
                    non_zero_bytes, has_tiles_now ? 1 : 0);
         }
         
+        // Solo loggear cuando cambia el estado o cuando hay tiles
+        if (has_tiles_now != vram_has_tiles || (has_tiles_now && non_zero_bytes > 0)) {
+            static int vram_frequent_check_count = 0;
+            if (vram_frequent_check_count < 20) {  // Limitar a 20 logs
+                vram_frequent_check_count++;
+                printf("[PPU-VRAM-FREQ] Frame %llu | Non-zero: %d/6144 | Has tiles: %d\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1),
+                       non_zero_bytes, has_tiles_now ? 1 : 0);
+            }
+        }
+        
         if (has_tiles_now != vram_has_tiles) {
             vram_has_tiles = has_tiles_now;
             if (vram_has_tiles) {
@@ -534,6 +547,50 @@ void PPU::render_scanline() {
         }
         // -------------------------------------------
     }
+    // -------------------------------------------
+    
+    // --- Step 0327: Verificación Inmediata del Tilemap Cuando Hay Tiles ---
+    // Cuando se detecta que hay tiles, verificar inmediatamente si el tilemap apunta a ellos
+    if (vram_has_tiles && !last_vram_has_tiles && ly_ == 0) {
+        // Tiles recién detectados, verificar tilemap inmediatamente
+        printf("[PPU-TILEMAP-IMMEDIATE] Tiles detectados! Verificando tilemap...\n");
+        
+        // Verificar primeros 32 tile IDs del tilemap
+        int tiles_pointing_to_real_data = 0;
+        int tiles_pointing_to_empty = 0;
+        
+        for (int i = 0; i < 32; i++) {
+            uint8_t tile_id = mmu_->read(tile_map_base + i);
+            
+            // Calcular dirección del tile según el direccionamiento
+            uint16_t tile_addr;
+            if (signed_addressing) {
+                int8_t signed_id = static_cast<int8_t>(tile_id);
+                tile_addr = tile_data_base + (static_cast<uint16_t>(signed_id) * 16);
+            } else {
+                tile_addr = tile_data_base + (static_cast<uint16_t>(tile_id) * 16);
+            }
+            
+            // Verificar si el tile tiene datos
+            uint8_t tile_byte1 = mmu_->read(tile_addr);
+            uint8_t tile_byte2 = mmu_->read(tile_addr + 1);
+            
+            if (tile_byte1 != 0x00 || tile_byte2 != 0x00) {
+                tiles_pointing_to_real_data++;
+            } else {
+                tiles_pointing_to_empty++;
+            }
+        }
+        
+        printf("[PPU-TILEMAP-IMMEDIATE] Tilemap apunta a: %d tiles con datos, %d tiles vacíos\n",
+               tiles_pointing_to_real_data, tiles_pointing_to_empty);
+        
+        if (tiles_pointing_to_real_data == 0) {
+            printf("[PPU-TILEMAP-IMMEDIATE] ⚠️ PROBLEMA: Tilemap no apunta a tiles con datos!\n");
+        }
+    }
+    
+    last_vram_has_tiles = vram_has_tiles;
     // -------------------------------------------
 
     // --- Step 0325: Análisis de Correspondencia Tilemap-Tiles ---
@@ -579,29 +636,41 @@ void PPU::render_scanline() {
     }
     // -------------------------------------------
     
-    // --- Step 0326: Análisis de Correspondencia Tiles Cargados - Tilemap ---
-    // Cuando se detectan tiles cargados, verificar si el tilemap apunta a ellos
-    if (ly_ == 0 && (frame_counter_ % 120 == 0)) {  // Cada 2 segundos
-        // Verificar si hay tiles en las direcciones donde se cargaron (0x8820+)
-        int tiles_found_in_vram = 0;
-        for (uint16_t check_addr = 0x8820; check_addr <= 0x8A80; check_addr += 0x20) {
-            uint8_t tile_byte1 = mmu_->read(check_addr);
-            uint8_t tile_byte2 = mmu_->read(check_addr + 1);
-            if (tile_byte1 != 0x00 || tile_byte2 != 0x00) {
-                tiles_found_in_vram++;
+    // --- Step 0327: Análisis de Correspondencia en Tiempo Real ---
+    // Cuando se detectan tiles, analizar qué tile IDs deberían apuntar a ellos
+    if (vram_has_tiles && ly_ == 0 && (frame_counter_ % 10 == 0)) {
+        static int correspondence_analysis_count = 0;
+        if (correspondence_analysis_count < 5) {
+            correspondence_analysis_count++;
+            
+            // Verificar direcciones conocidas donde se cargan tiles (0x8820+)
+            printf("[PPU-CORRESPONDENCE] Analizando correspondencia tilemap-tiles...\n");
+            
+            for (uint16_t check_addr = 0x8820; check_addr <= 0x8A80; check_addr += 0x20) {
+                uint8_t tile_byte1 = mmu_->read(check_addr);
+                uint8_t tile_byte2 = mmu_->read(check_addr + 1);
                 
-                // Calcular qué tile ID debería apuntar a esta dirección (signed addressing)
-                if (signed_addressing) {
-                    int16_t offset = check_addr - 0x9000;
-                    int8_t tile_id = static_cast<int8_t>(offset / 16);
-                    printf("[PPU-TILES-MAP] Tile en 0x%04X corresponde a TileID: 0x%02X (signed: %d)\n",
-                           check_addr, static_cast<uint8_t>(tile_id), tile_id);
+                if (tile_byte1 != 0x00 || tile_byte2 != 0x00) {
+                    // Tile tiene datos, calcular qué tile ID debería apuntar a él
+                    if (signed_addressing) {
+                        int16_t offset = check_addr - 0x9000;
+                        int8_t tile_id = static_cast<int8_t>(offset / 16);
+                        uint8_t tile_id_unsigned = static_cast<uint8_t>(tile_id);
+                        
+                        // Verificar si el tilemap tiene este tile ID
+                        bool found_in_tilemap = false;
+                        for (int i = 0; i < 32; i++) {
+                            if (mmu_->read(tile_map_base + i) == tile_id_unsigned) {
+                                found_in_tilemap = true;
+                                break;
+                            }
+                        }
+                        
+                        printf("[PPU-CORRESPONDENCE] Tile en 0x%04X = TileID 0x%02X (signed: %d) | En tilemap: %s\n",
+                               check_addr, tile_id_unsigned, tile_id, found_in_tilemap ? "SÍ" : "NO");
+                    }
                 }
             }
-        }
-        
-        if (tiles_found_in_vram > 0) {
-            printf("[PPU-TILES-MAP] Encontrados %d tiles en VRAM (0x8820-0x8A80)\n", tiles_found_in_vram);
         }
     }
     // -------------------------------------------

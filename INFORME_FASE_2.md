@@ -912,6 +912,57 @@ Implementación de verificación de tiles reales en VRAM y renderizado usando es
 
 ---
 
+### 2025-12-29 - Step 0327: Sincronización de Verificación y Análisis de Limpieza de VRAM
+**Estado**: ✅ **IMPLEMENTACIÓN COMPLETADA**
+
+Implementación de sincronización de verificación de tiles con el momento en que se cargan, usando eventos [TILE-LOADED] para capturar el estado de VRAM cuando hay tiles antes de que se limpien. Se investiga por qué el juego limpia VRAM después de cargar tiles (PC:0x36E3 escribe ceros), y se verifica si el tilemap apunta correctamente a los tiles cuando están cargados.
+
+**Objetivo**:
+1. Sincronizar la verificación de tiles reales con el momento en que se cargan (usando eventos [TILE-LOADED])
+2. Investigar por qué el juego limpia VRAM después de cargar tiles (PC:0x36E3 escribe ceros)
+3. Verificar si el tilemap apunta correctamente a los tiles cuando están cargados
+4. Implementar verificación en tiempo real que capture el estado de VRAM cuando hay tiles
+
+**✅ Tareas Completadas**:
+
+**Tarea 1: Sincronizar Verificación con Carga de Tiles**:
+- Agregada verificación inmediata cuando se detecta [TILE-LOADED] en `MMU::write()`
+- Agregada verificación más frecuente en `PPU::render_scanline()` (cada 10 frames en lugar de cada 60)
+- Captura el momento en que hay tiles antes de que se limpien
+
+**Tarea 2: Investigar Por Qué el Juego Limpia VRAM**:
+- Agregado análisis de la rutina de limpieza (PC:0x36E3) en `MMU::write()`
+- Detecta cuando el juego escribe ceros en VRAM después de cargar tiles
+- Loggea el contexto (PC, banco ROM, frame) y verifica si hay un patrón
+
+**Tarea 3: Verificar Tilemap Cuando Hay Tiles Cargados**:
+- Agregada verificación inmediata del tilemap cuando se detectan tiles en `PPU::render_scanline()`
+- Verifica si los primeros 32 tile IDs del tilemap apuntan a tiles con datos o tiles vacíos
+
+**Tarea 4: Análisis de Correspondencia en Tiempo Real**:
+- Agregado análisis de qué tile IDs corresponden a los tiles cargados
+- Calcula qué tile IDs deberían apuntar a las direcciones donde se cargan tiles (0x8820+)
+- Compara con los tile IDs del tilemap y loggea si hay correspondencia
+
+**Archivos Creados/Modificados**:
+- `src/core/cpp/MMU.cpp` - Agregada verificación inmediata de VRAM al cargar tiles, análisis de limpieza de VRAM, y variable estática global para rastrear carga de tiles
+- `src/core/cpp/PPU.cpp` - Agregada verificación más frecuente de VRAM (cada 10 frames), verificación inmediata del tilemap cuando hay tiles, y análisis de correspondencia en tiempo real
+- `docs/bitacora/entries/2025-12-29__0327__sincronizacion-verificacion-analisis-limpieza.html` - Entrada HTML de bitácora
+
+**Conceptos de Hardware**:
+- **Timing y Sincronización**: Los eventos en hardware ocurren en momentos específicos. Si la verificación es demasiado lenta, puede perder eventos transitorios. Los tiles pueden cargarse y limpiarse rápidamente.
+- **Limpieza de VRAM**: Los juegos pueden limpiar VRAM durante la inicialización. Si se limpia después de cargar tiles, el tilemap puede apuntar a tiles que ya no existen.
+- **Correspondencia Tilemap-Tiles**: El tilemap debe apuntar a tiles que existen en VRAM. Si los tiles se limpian pero el tilemap no se actualiza, se renderiza blanco.
+- **Fuente**: Pan Docs - "VRAM (Video RAM)", "Tile Map", "Tile Data"
+
+**Próximos Pasos**:
+- [ ] Analizar logs de las 3 ROMs para identificar patrones de carga y limpieza de VRAM
+- [ ] Si se identifica la causa del problema: Implementar solución para mantener tiles o actualizar tilemap correctamente (Step 0328)
+- [ ] Si el problema persiste: Análisis más profundo y solución alternativa (Step 0328)
+- [ ] Verificación final de renderizado cuando se resuelva el problema (Step 0329)
+
+---
+
 ### 2025-12-29 - Step 0326: Corrección de Umbral y Análisis del Tilemap
 **Estado**: ✅ **IMPLEMENTACIÓN COMPLETADA**
 

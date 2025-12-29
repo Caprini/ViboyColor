@@ -6,6 +6,10 @@
 #include <algorithm>
 #include <cstdio>
 
+// --- Step 0327: Variable estática compartida para análisis de limpieza de VRAM ---
+static bool tiles_were_loaded_recently_global = false;
+// -------------------------------------------
+
 // --- Step 0206: Datos del Logo Personalizado "Viboy Color" en Formato Tile (2bpp) ---
 // Convertido desde la imagen 'viboy_logo_48x8_debug.png' (48x8px) a formato de Tile (2bpp).
 // 
@@ -729,6 +733,36 @@ void MMU::write(uint16_t addr, uint8_t value) {
         }
         last_vram_value = value;
         
+        // --- Step 0327: Análisis de Limpieza de VRAM ---
+        // Detectar cuando el juego limpia VRAM después de cargar tiles
+        static int tiles_loaded_before_clean = 0;
+        
+        // Cuando se detecta [TILE-LOADED], marcar que se cargaron tiles
+        // (esto se hace en la sección de verificación de tile completo más abajo)
+        
+        // Cuando se escribe 0x00 en VRAM después de cargar tiles
+        if (value == 0x00 && tiles_were_loaded_recently_global) {
+            static int vram_clean_analysis_count = 0;
+            if (vram_clean_analysis_count < 10) {
+                vram_clean_analysis_count++;
+                printf("[VRAM-CLEAN] PC:0x%04X | Limpiando VRAM en 0x%04X después de cargar tiles\n",
+                       debug_current_pc, addr);
+                
+                // Verificar si se está limpiando todo VRAM o solo partes
+                if (addr == 0x8000) {
+                    printf("[VRAM-CLEAN] ⚠️ ADVERTENCIA: Limpieza comenzando desde 0x8000 (inicio de VRAM)\n");
+                }
+            }
+            
+            // Si se limpia todo VRAM, resetear el flag
+            if (addr >= 0x97F0) {  // Cerca del final de VRAM
+                tiles_were_loaded_recently_global = false;
+                tiles_loaded_before_clean++;
+                printf("[VRAM-CLEAN] VRAM completamente limpiada. Tiles cargados antes: %d\n",
+                       tiles_loaded_before_clean);
+            }
+        }
+        // -------------------------------------------
     }
     
     // --- Step 0325: Monitor de Cambios en Tilemap ---
@@ -923,6 +957,33 @@ void MMU::write(uint16_t addr, uint8_t value) {
                            tile_base, debug_current_pc);
                     tiles_loaded_log++;
                 }
+                
+                // --- Step 0327: Verificación Inmediata de VRAM al Cargar Tiles ---
+                // Cuando se detecta que se cargó un tile, verificar inmediatamente el estado de VRAM
+                // Esto captura el momento en que hay tiles antes de que se limpien
+                static int immediate_vram_check_count = 0;
+                if (immediate_vram_check_count < 5) {
+                    immediate_vram_check_count++;
+                    
+                    // Verificar estado inmediato de VRAM
+                    int non_zero_bytes = 0;
+                    for (uint16_t i = 0; i < 6144; i++) {
+                        if (memory_[0x8000 + i] != 0x00) {
+                            non_zero_bytes++;
+                        }
+                    }
+                    
+                    printf("[VRAM-IMMEDIATE] PC:0x%04X | Tile cargado en 0x%04X | VRAM tiene %d bytes no-cero\n",
+                           debug_current_pc, tile_base, non_zero_bytes);
+                    
+                    // Notificar a la PPU que hay tiles cargados (si hay acceso a PPU)
+                    // Por ahora, solo loggear
+                }
+                // -------------------------------------------
+                
+                // Marcar que se cargaron tiles para el análisis de limpieza
+                // (usado en la sección de análisis de limpieza de VRAM)
+                tiles_were_loaded_recently_global = true;
             }
         }
     }
