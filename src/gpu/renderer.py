@@ -542,6 +542,32 @@ class Renderer:
                     print(f"[Renderer-Diagnostic-Entry] Framebuffer recibido como parámetro, longitud: {len(framebuffer_data)}")
                     logger.info(f"[Renderer-Diagnostic-Entry] Framebuffer recibido como parámetro, longitud: {len(framebuffer_data)}")
                     # -------------------------------------------
+                    
+                    # --- Step 0343: Logs de Diagnóstico Adicionales (cuando framebuffer_data es proporcionado) ---
+                    if not hasattr(self, '_render_frame_entry_count'):
+                        self._render_frame_entry_count = 0
+
+                    self._render_frame_entry_count += 1
+
+                    if self._render_frame_entry_count <= 20:
+                        print(f"[Renderer-Entry] Frame {self._render_frame_entry_count} | "
+                              f"framebuffer_data is None: {framebuffer_data is None} | "
+                              f"frame_indices is None: {frame_indices is None}")
+                        logger.info(f"[Renderer-Entry] Frame {self._render_frame_entry_count} | "
+                                   f"framebuffer_data is None: {framebuffer_data is None} | "
+                                   f"frame_indices is None: {frame_indices is None}")
+                        
+                        if frame_indices is not None:
+                            print(f"[Renderer-Entry] Frame {self._render_frame_entry_count} | "
+                                  f"frame_indices length: {len(frame_indices)}")
+                            logger.info(f"[Renderer-Entry] Frame {self._render_frame_entry_count} | "
+                                       f"frame_indices length: {len(frame_indices)}")
+                        elif framebuffer_data is not None:
+                            print(f"[Renderer-Entry] Frame {self._render_frame_entry_count} | "
+                                  f"framebuffer_data length: {len(framebuffer_data)}")
+                            logger.info(f"[Renderer-Entry] Frame {self._render_frame_entry_count} | "
+                                       f"framebuffer_data length: {len(framebuffer_data)}")
+                    # -------------------------------------------
                 else:
                     # Obtener framebuffer como memoryview (Zero-Copy)
                     # El framebuffer es ahora uint8_t con índices de color (0-3) en formato 1D
@@ -577,6 +603,33 @@ class Renderer:
                         print("[Renderer-Diagnostic-Entry] ⚠️ Framebuffer es None después de obtener desde PPU!")
                         logger.warning("[Renderer-Diagnostic-Entry] ⚠️ Framebuffer es None después de obtener desde PPU!")
                     # -------------------------------------------
+                    
+                    # --- Step 0343: Logs de Diagnóstico Adicionales ---
+                    # Verificar que render_frame() se ejecuta y que frame_indices está disponible
+                    if not hasattr(self, '_render_frame_entry_count'):
+                        self._render_frame_entry_count = 0
+
+                    self._render_frame_entry_count += 1
+
+                    if self._render_frame_entry_count <= 20:
+                        print(f"[Renderer-Entry] Frame {self._render_frame_entry_count} | "
+                              f"framebuffer_data is None: {framebuffer_data is None} | "
+                              f"frame_indices is None: {frame_indices is None}")
+                        logger.info(f"[Renderer-Entry] Frame {self._render_frame_entry_count} | "
+                                   f"framebuffer_data is None: {framebuffer_data is None} | "
+                                   f"frame_indices is None: {frame_indices is None}")
+                        
+                        if frame_indices is not None:
+                            print(f"[Renderer-Entry] Frame {self._render_frame_entry_count} | "
+                                  f"frame_indices length: {len(frame_indices)}")
+                            logger.info(f"[Renderer-Entry] Frame {self._render_frame_entry_count} | "
+                                       f"frame_indices length: {len(frame_indices)}")
+                        elif framebuffer_data is not None:
+                            print(f"[Renderer-Entry] Frame {self._render_frame_entry_count} | "
+                                  f"framebuffer_data length: {len(framebuffer_data)}")
+                            logger.info(f"[Renderer-Entry] Frame {self._render_frame_entry_count} | "
+                                       f"framebuffer_data length: {len(framebuffer_data)}")
+                    # -------------------------------------------
                 # ----------------------------------------
                 
                 # --- Step 0342: Verificación del Tamaño Real del Framebuffer ---
@@ -590,6 +643,9 @@ class Renderer:
                     actual_size = len(frame_indices)
                     expected_size = 160 * 144  # 23040
                     
+                    print(f"[Renderer-Framebuffer-Size] Frame {self._framebuffer_size_check_count} | "
+                          f"Actual size: {actual_size} | Expected: {expected_size} | "
+                          f"Type: {type(frame_indices)}")
                     logger.info(f"[Renderer-Framebuffer-Size] Frame {self._framebuffer_size_check_count} | "
                                f"Actual size: {actual_size} | Expected: {expected_size} | "
                                f"Type: {type(frame_indices)}")
@@ -622,6 +678,8 @@ class Renderer:
                    self._pixel_order_verification_count < 10:
                     self._pixel_order_verification_count += 1
                     
+                    print(f"[Renderer-Pixel-Order-Verification] Frame {self._pixel_order_verification_count} | "
+                          f"Verificando orden de píxeles:")
                     logger.info(f"[Renderer-Pixel-Order-Verification] Frame {self._pixel_order_verification_count} | "
                                f"Verificando orden de píxeles:")
                     
@@ -1304,6 +1362,8 @@ class Renderer:
                     # Verificar algunas líneas horizontales completas
                     test_lines = [0, 72, 143]  # Primera línea, línea central, última línea
                     
+                    print(f"[Renderer-Framebuffer-Visualization-Correspondence] Frame {self._framebuffer_visualization_correspondence_count} | "
+                          f"Verificando correspondencia entre framebuffer y visualización:")
                     logger.info(f"[Renderer-Framebuffer-Visualization-Correspondence] Frame {self._framebuffer_visualization_correspondence_count} | "
                                f"Verificando correspondencia entre framebuffer y visualización:")
                     

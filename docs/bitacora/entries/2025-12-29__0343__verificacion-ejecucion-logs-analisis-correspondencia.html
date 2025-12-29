@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificación de Ejecución de Logs y Análisis de Correspondencia Framebuffer-Visualización - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Verificación de Ejecución de Logs y Análisis de Correspondencia Framebuffer-Visualización</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0343
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0342__correccion-condiciones-logs-verificacion-correspondencia.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Verificación de que los nuevos logs de diagnóstico se ejecutan correctamente después de recompilar el módulo. Se agregaron logs adicionales de diagnóstico para investigar por qué los bloques de logs no se ejecutaban y se verificó que todos los logs aparecen correctamente en las pruebas. Los logs confirman que el framebuffer tiene el tamaño correcto (23040 píxeles) y que los logs de correspondencia framebuffer-visualización se ejecutan correctamente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Correspondencia Framebuffer-Visualización</h3>
+                <p>
+                    El framebuffer contiene índices de color (0-3) para cada píxel en formato 1D <code>[y * 160 + x]</code>. Estos índices se convierten a RGB usando la paleta, los colores RGB se dibujan en la superficie de Pygame, y la superficie se escala a la resolución de pantalla. El contenido final debe coincidir con el framebuffer original.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "LCD Timing", "Frame Rate", "Tile Data", "LCD Control Register"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se verificó que el código de logs está presente y se agregaron logs adicionales de diagnóstico en <code>src/gpu/renderer.py</code>.
+                </p>
+
+                <h3>Verificación del Código de Logs</h3>
+                <p>
+                    Se verificó que los siguientes tags están presentes en el código:
+                </p>
+                <ul>
+                    <li><code>[Renderer-Framebuffer-Size]</code> - Verificación del tamaño del framebuffer</li>
+                    <li><code>[Renderer-Pixel-Order-Verification]</code> - Verificación del orden de píxeles</li>
+                    <li><code>[Renderer-Framebuffer-Visualization-Correspondence]</code> - Verificación de correspondencia</li>
+                </ul>
+                <p>
+                    Se confirmó que las condiciones usan <code>len(frame_indices) > 0</code> en lugar de <code>len(frame_indices) == 23040</code>.
+                </p>
+
+                <h3>Logs de Diagnóstico Adicionales</h3>
+                <p>
+                    Se agregaron logs adicionales al inicio de <code>render_frame()</code> para verificar que la función se ejecuta y que <code>frame_indices</code> está disponible:
+                </p>
+                <ul>
+                    <li><strong>Tag:</strong> <code>[Renderer-Entry]</code></li>
+                    <li><strong>Información registrada:</strong> Número de frame, si <code>framebuffer_data</code> es None, si <code>frame_indices</code> es None, y la longitud de <code>frame_indices</code> o <code>framebuffer_data</code></li>
+                    <li><strong>Límite:</strong> Primeros 20 frames</li>
+                </ul>
+                <p>
+                    Estos logs se agregaron tanto en el bloque <code>if framebuffer_data is not None:</code> como en el bloque <code>else:</code> para asegurar que se ejecuten en ambos casos.
+                </p>
+
+                <h3>Corrección de Ubicación de Logs</h3>
+                <p>
+                    Inicialmente, los logs de Step 0343 estaban fuera del bloque donde <code>frame_indices</code> se define, lo que causaba que no se ejecutaran. Se movieron dentro del bloque <code>if self.use_cpp_ppu and self.cpp_ppu is not None:</code> después de que <code>frame_indices</code> se define.
+                </p>
+
+                <h3>Agregado de Prints para Debugging</h3>
+                <p>
+                    Se agregaron prints junto con los logs para facilitar el debugging y verificar que el código se ejecuta correctamente. Los prints se agregaron a:
+                </p>
+                <ul>
+                    <li>Logs de <code>[Renderer-Entry]</code></li>
+                    <li>Logs de <code>[Renderer-Framebuffer-Size]</code></li>
+                    <li>Logs de <code>[Renderer-Pixel-Order-Verification]</code></li>
+                    <li>Logs de <code>[Renderer-Framebuffer-Visualization-Correspondence]</code></li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Agregado de logs de diagnóstico adicionales y corrección de ubicación de logs</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas rápidas (30 segundos) con Tetris para verificar que los logs aparecen correctamente.
+                </p>
+                <h3>Resultados de las Pruebas</h3>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>timeout 30 python3 main.py roms/tetris.gb 2>&1 | tee logs/test_tetris_step0343_quick.log</code>
+                </p>
+                <p>
+                    <strong>Logs verificados:</strong>
+                </p>
+                <ul>
+                    <li>✅ <code>[Renderer-Entry]</code> - Aparece correctamente, muestra que <code>frame_indices</code> tiene longitud 23040</li>
+                    <li>✅ <code>[Renderer-Framebuffer-Size]</code> - Aparece correctamente, confirma que el tamaño es 23040 píxeles</li>
+                    <li>✅ <code>[Renderer-Pixel-Order-Verification]</code> - Aparece correctamente</li>
+                    <li>✅ <code>[Renderer-Framebuffer-Visualization-Correspondence]</code> - Aparece correctamente</li>
+                </ul>
+                <h3>Hallazgos Clave</h3>
+                <ul>
+                    <li><strong>Tamaño del framebuffer:</strong> Confirmado que el framebuffer siempre tiene 23040 píxeles (160×144)</li>
+                    <li><strong>Ejecución de logs:</strong> Todos los logs se ejecutan correctamente después de moverlos dentro del bloque correcto</li>
+                    <li><strong>Frame indices:</strong> <code>frame_indices</code> está disponible y tiene el tamaño correcto cuando se ejecutan los logs</li>
+                </ul>
+                <h3>Pruebas Completas Pendientes</h3>
+                <p>
+                    Las pruebas completas con las 5 ROMs (2.5 minutos cada una) están pendientes de ejecución. Estas pruebas permitirán:
+                </p>
+                <ul>
+                    <li>Analizar patrones en el comportamiento del framebuffer entre diferentes ROMs</li>
+                    <li>Identificar diferencias en la correspondencia framebuffer-visualización entre ROMs</li>
+                    <li>Verificar si el problema de visualización (rayas verticales, pantalla blanca, checkerboard) está relacionado con el contenido del framebuffer o con la conversión/visualización</li>
+                </ul>
+            </section>
+
+            <!-- 6. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <p>
+                    <strong>Si se identifica la causa:</strong>
+                </p>
+                <ul>
+                    <li><strong>Step 0344:</strong> Implementar corrección basada en los hallazgos</li>
+                    <li><strong>Step 0345:</strong> Verificación final de visualización</li>
+                </ul>
+                <p>
+                    <strong>Si el problema persiste:</strong>
+                </p>
+                <ul>
+                    <li><strong>Step 0344:</strong> Análisis más profundo y solución alternativa</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>Bitácora del Proyecto Viboy Color - Step 0343</p>
+        </footer>
+    </div>
+</body>
+</html>
+
