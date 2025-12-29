@@ -610,6 +610,47 @@ class Renderer:
                 self._renderer_periodic_check_count += 1
                 # -------------------------------------------
                 
+                # --- Step 0337: Verificación de Formato del Framebuffer ---
+                if not hasattr(self, '_framebuffer_format_check_count'):
+                    self._framebuffer_format_check_count = 0
+                
+                if self._framebuffer_format_check_count < 5:
+                    self._framebuffer_format_check_count += 1
+                    
+                    # Verificar tipo y tamaño del framebuffer
+                    print(f"[Renderer-Framebuffer-Format] Frame {self._framebuffer_format_check_count} | "
+                          f"Type: {type(frame_indices)} | Length: {len(frame_indices)} | "
+                          f"Expected: 23040 (160*144)")
+                    logger.info(f"[Renderer-Framebuffer-Format] Frame {self._framebuffer_format_check_count} | "
+                               f"Type: {type(frame_indices)} | Length: {len(frame_indices)} | "
+                               f"Expected: 23040 (160*144)")
+                    
+                    # Verificar algunos índices del framebuffer
+                    test_indices = [0, 80, 11520, 23039]  # Primer píxel, centro, mitad, último
+                    for idx in test_indices:
+                        if idx < len(frame_indices):
+                            color_index = frame_indices[idx] & 0x03
+                            x = idx % 160
+                            y = idx // 160
+                            
+                            print(f"[Renderer-Framebuffer-Format] Index {idx} (x={x}, y={y}): "
+                                  f"Raw value={frame_indices[idx]} | Color index={color_index}")
+                            logger.info(f"[Renderer-Framebuffer-Format] Index {idx} (x={x}, y={y}): "
+                                       f"Raw value={frame_indices[idx]} | Color index={color_index}")
+                    
+                    # Verificar distribución de índices
+                    index_counts = {0: 0, 1: 0, 2: 0, 3: 0}
+                    for idx in range(min(1000, len(frame_indices))):  # Primeros 1000 píxeles
+                        color_idx = frame_indices[idx] & 0x03
+                        if color_idx in index_counts:
+                            index_counts[color_idx] += 1
+                    
+                    print(f"[Renderer-Framebuffer-Format] Distribution (first 1000 pixels): "
+                          f"0={index_counts[0]} 1={index_counts[1]} 2={index_counts[2]} 3={index_counts[3]}")
+                    logger.info(f"[Renderer-Framebuffer-Format] Distribution (first 1000 pixels): "
+                               f"0={index_counts[0]} 1={index_counts[1]} 2={index_counts[2]} 3={index_counts[3]}")
+                # -------------------------------------------
+                
                 # --- Step 0256: DEBUG PALETTE FORCE (HIGH CONTRAST) ---
                 # Ignoramos BGP/OBP del hardware para ver los índices crudos de la PPU.
                 # Esto nos confirmará si la PPU está dibujando sprites/fondo.
@@ -631,6 +672,33 @@ class Renderer:
                     debug_palette_map[2],
                     debug_palette_map[3]
                 ]
+                
+                # --- Step 0337: Verificación de Paleta Debug vs Real ---
+                if not hasattr(self, '_palette_debug_check_count'):
+                    self._palette_debug_check_count = 0
+                
+                if self._palette_debug_check_count < 10:
+                    self._palette_debug_check_count += 1
+                    
+                    print(f"[Renderer-Palette-Debug] Frame {self._palette_debug_check_count} | "
+                          f"Palette used: {palette}")
+                    logger.info(f"[Renderer-Palette-Debug] Frame {self._palette_debug_check_count} | "
+                               f"Palette used: {palette}")
+                    
+                    # Verificar que la paleta tiene 4 colores
+                    if len(palette) != 4:
+                        print(f"[Renderer-Palette-Debug] ⚠️ PROBLEMA: Paleta tiene {len(palette)} colores, esperado 4")
+                        logger.warning(f"[Renderer-Palette-Debug] ⚠️ PROBLEMA: Paleta tiene {len(palette)} colores, esperado 4")
+                    
+                    # Verificar que cada color es una tupla RGB válida
+                    for i, color in enumerate(palette):
+                        if not isinstance(color, tuple) or len(color) != 3:
+                            print(f"[Renderer-Palette-Debug] ⚠️ PROBLEMA: Color {i} inválido: {color}")
+                            logger.warning(f"[Renderer-Palette-Debug] ⚠️ PROBLEMA: Color {i} inválido: {color}")
+                        elif not all(0 <= c <= 255 for c in color):
+                            print(f"[Renderer-Palette-Debug] ⚠️ PROBLEMA: Color {i} fuera de rango: {color}")
+                            logger.warning(f"[Renderer-Palette-Debug] ⚠️ PROBLEMA: Color {i} fuera de rango: {color}")
+                # -------------------------------------------
                 # ----------------------------------------
                 
                 # --- STEP 0333: Verificación de Ejecución del Código de Diagnóstico ---
@@ -794,6 +862,47 @@ class Renderer:
                                 logger.warning(f"[Renderer-Palette-Apply] ⚠️ PROBLEMA: Index 3 no se convierte a negro en ({x}, {y})!")
                 # -------------------------------------------
                 
+                # --- Step 0337: Verificación de Conversión de Índices a RGB ---
+                # Verificar que los índices se convierten correctamente a RGB
+                if not hasattr(self, '_index_to_rgb_check_count'):
+                    self._index_to_rgb_check_count = 0
+                
+                if self._index_to_rgb_check_count < 20:
+                    self._index_to_rgb_check_count += 1
+                    
+                    # Verificar algunos píxeles específicos
+                    test_pixels = [
+                        (0, 0),      # Esquina superior izquierda
+                        (80, 72),    # Centro
+                        (159, 143),  # Esquina inferior derecha
+                        (10, 10),    # Píxel aleatorio
+                        (150, 100)   # Píxel aleatorio
+                    ]
+                    
+                    for x, y in test_pixels:
+                        idx = y * 160 + x
+                        if idx < len(frame_indices):
+                            color_index = frame_indices[idx] & 0x03
+                            rgb_color = palette[color_index]
+                            
+                            print(f"[Renderer-Index-to-RGB] Frame {self._index_to_rgb_check_count} | "
+                                  f"Pixel ({x}, {y}): index={color_index} -> RGB={rgb_color} | "
+                                  f"Palette[{color_index}]={palette[color_index]}")
+                            logger.info(f"[Renderer-Index-to-RGB] Frame {self._index_to_rgb_check_count} | "
+                                       f"Pixel ({x}, {y}): index={color_index} -> RGB={rgb_color} | "
+                                       f"Palette[{color_index}]={palette[color_index]}")
+                            
+                            # Verificar que el índice está en rango válido
+                            if color_index > 3:
+                                print(f"[Renderer-Index-to-RGB] ⚠️ PROBLEMA: Índice fuera de rango: {color_index}")
+                                logger.warning(f"[Renderer-Index-to-RGB] ⚠️ PROBLEMA: Índice fuera de rango: {color_index}")
+                            
+                            # Verificar que la paleta tiene valores válidos
+                            if not isinstance(rgb_color, tuple) or len(rgb_color) != 3:
+                                print(f"[Renderer-Index-to-RGB] ⚠️ PROBLEMA: RGB inválido: {rgb_color}")
+                                logger.warning(f"[Renderer-Index-to-RGB] ⚠️ PROBLEMA: RGB inválido: {rgb_color}")
+                # -------------------------------------------
+                
                 # --- STEP 0305: Verificación de PixelArray y Scaling ([PIXEL-VERIFY]) ---
                 if self._pixel_verify_count < 10:
                     # Verificar píxel central antes de PixelArray
@@ -831,6 +940,37 @@ class Renderer:
                         mask = indices_array == i
                         rgb_array[mask] = rgb
                     
+                    # --- Step 0337: Verificación de Aplicación de Paleta en NumPy ---
+                    if not hasattr(self, '_numpy_palette_check_count'):
+                        self._numpy_palette_check_count = 0
+                    
+                    if self._numpy_palette_check_count < 10:
+                        self._numpy_palette_check_count += 1
+                        
+                        # Verificar algunos píxeles antes y después del mapeo
+                        test_indices = [(0, 0), (80, 72), (159, 143)]
+                        for y, x in test_indices:
+                            idx = y * 160 + x
+                            if idx < len(frame_indices):
+                                original_index = frame_indices[idx] & 0x03
+                                expected_rgb = palette[original_index]
+                                
+                                # Verificar en el array numpy después del mapeo
+                                if y < 144 and x < 160:
+                                    actual_rgb = tuple(rgb_array[y, x])
+                                    
+                                    print(f"[Renderer-NumPy-Palette] Frame {self._numpy_palette_check_count} | "
+                                          f"Pixel ({x}, {y}): index={original_index} | "
+                                          f"Expected RGB={expected_rgb} | Actual RGB={actual_rgb}")
+                                    logger.info(f"[Renderer-NumPy-Palette] Frame {self._numpy_palette_check_count} | "
+                                               f"Pixel ({x}, {y}): index={original_index} | "
+                                               f"Expected RGB={expected_rgb} | Actual RGB={actual_rgb}")
+                                    
+                                    if actual_rgb != expected_rgb:
+                                        print(f"[Renderer-NumPy-Palette] ⚠️ PROBLEMA: RGB no coincide!")
+                                        logger.warning(f"[Renderer-NumPy-Palette] ⚠️ PROBLEMA: RGB no coincide!")
+                    # -------------------------------------------
+                    
                     # Blit directo usando surfarray - necesita formato (width, height, channels)
                     # surfarray espera (width, height, channels), así que necesitamos (160, 144, 3)
                     rgb_array_swapped = np.swapaxes(rgb_array, 0, 1)  # (160, 144, 3)
@@ -852,6 +992,36 @@ class Renderer:
                             color_index = row_indices[x] & 0x03
                             px_array[x, y] = palette[color_index]
                     
+                    # --- Step 0337: Verificación de Aplicación de Paleta en PixelArray ---
+                    if not hasattr(self, '_pixelarray_palette_check_count'):
+                        self._pixelarray_palette_check_count = 0
+                    
+                    if self._pixelarray_palette_check_count < 10:
+                        self._pixelarray_palette_check_count += 1
+                        
+                        # Verificar algunos píxeles después de escribir en PixelArray
+                        test_pixels = [(0, 0), (80, 72), (159, 143)]
+                        for x, y in test_pixels:
+                            idx = y * 160 + x
+                            if idx < len(frame_indices):
+                                original_index = frame_indices[idx] & 0x03
+                                expected_rgb = palette[original_index]
+                                
+                                # Leer el color del PixelArray después de escribirlo
+                                actual_rgb = self._px_array_surface.get_at((x, y))
+                                
+                                print(f"[Renderer-PixelArray-Palette] Frame {self._pixelarray_palette_check_count} | "
+                                      f"Pixel ({x}, {y}): index={original_index} | "
+                                      f"Expected RGB={expected_rgb} | Actual RGB={actual_rgb}")
+                                logger.info(f"[Renderer-PixelArray-Palette] Frame {self._pixelarray_palette_check_count} | "
+                                           f"Pixel ({x}, {y}): index={original_index} | "
+                                           f"Expected RGB={expected_rgb} | Actual RGB={actual_rgb}")
+                                
+                                if actual_rgb != expected_rgb:
+                                    print(f"[Renderer-PixelArray-Palette] ⚠️ PROBLEMA: RGB no coincide!")
+                                    logger.warning(f"[Renderer-PixelArray-Palette] ⚠️ PROBLEMA: RGB no coincide!")
+                    # -------------------------------------------
+                    
                     px_array.close()
                     self.surface = self._px_array_surface
                 
@@ -869,6 +1039,42 @@ class Renderer:
                 # Siempre reescalar la superficie actualizada (el contenido cambia en cada frame)
                 self._scaled_surface_cache = pygame.transform.scale(self.surface, current_screen_size)
                 self._cache_screen_size = current_screen_size
+                
+                # --- Step 0337: Verificación de Escalado ---
+                if not hasattr(self, '_scale_check_count'):
+                    self._scale_check_count = 0
+                
+                if self._scale_check_count < 10:
+                    self._scale_check_count += 1
+                    
+                    # Verificar algunos píxeles antes y después del escalado
+                    test_pixels = [(0, 0), (80, 72), (159, 143)]
+                    for x, y in test_pixels:
+                        # Color antes del escalado (superficie original 160x144)
+                        original_color = self.surface.get_at((x, y))
+                        
+                        # Calcular posición escalada
+                        scale_x = int(x * self.screen.get_width() / 160)
+                        scale_y = int(y * self.screen.get_height() / 144)
+                        
+                        # Color después del escalado (superficie escalada)
+                        if hasattr(self, '_scaled_surface_cache'):
+                            scaled_color = self._scaled_surface_cache.get_at((scale_x, scale_y))
+                            
+                            print(f"[Renderer-Scale] Frame {self._scale_check_count} | "
+                                  f"Pixel ({x}, {y}) -> ({scale_x}, {scale_y}) | "
+                                  f"Original RGB={original_color} | Scaled RGB={scaled_color}")
+                            logger.info(f"[Renderer-Scale] Frame {self._scale_check_count} | "
+                                       f"Pixel ({x}, {y}) -> ({scale_x}, {scale_y}) | "
+                                       f"Original RGB={original_color} | Scaled RGB={scaled_color}")
+                            
+                            # Verificar que los colores son similares (pueden diferir ligeramente por interpolación)
+                            if abs(original_color[0] - scaled_color[0]) > 10 or \
+                               abs(original_color[1] - scaled_color[1]) > 10 or \
+                               abs(original_color[2] - scaled_color[2]) > 10:
+                                print(f"[Renderer-Scale] ⚠️ ADVERTENCIA: Diferencia significativa en RGB después del escalado")
+                                logger.warning(f"[Renderer-Scale] ⚠️ ADVERTENCIA: Diferencia significativa en RGB después del escalado")
+                # -------------------------------------------
                 
                 # Usar superficie escalada actualizada
                 self.screen.blit(self._scaled_surface_cache, (0, 0))

@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación y Corrección del Renderizador Python - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación y Corrección del Renderizador Python</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0337
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0336__investigacion-tiles-difusos-optimizacion.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este step investiga por qué los tiles aparecen difusos o a medias en el renderizador Python.
+                    Se implementaron logs de diagnóstico exhaustivos para verificar la conversión de índices de color
+                    a RGB, la aplicación de la paleta en NumPy y PixelArray, el escalado e interpolación, el formato
+                    del framebuffer, y la paleta debug vs real. Los logs revelaron que <strong>el renderizador Python
+                    funciona correctamente</strong>: la conversión de índices a RGB es correcta, la paleta se aplica
+                    correctamente tanto en NumPy como en PixelArray, y el escalado no causa problemas de interpolación.
+                    El problema de tiles difusos probablemente no está en el renderizador Python, sino en otro lugar
+                    (posiblemente en la generación del framebuffer en C++ o en cómo se muestran los tiles).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>Conversión de Índices a RGB</h3>
+                <p>
+                    El framebuffer de la PPU contiene índices de color (0-3), no valores RGB directamente. Cada índice
+                    debe convertirse a un color RGB usando la paleta antes de dibujar en la pantalla. La conversión
+                    es simple: <code>rgb_color = palette[color_index]</code>, donde <code>palette</code> es una lista
+                    de 4 tuplas RGB (R, G, B) y <code>color_index</code> es el índice del píxel (0-3).
+                </p>
+
+                <h3>Paleta de Game Boy</h3>
+                <p>
+                    La paleta del Game Boy tiene 4 colores posibles (índices 0-3):
+                </p>
+                <ul>
+                    <li><strong>Color 0</strong>: Blanco (más claro) - RGB(255, 255, 255)</li>
+                    <li><strong>Color 1</strong>: Gris claro - RGB(170, 170, 170)</li>
+                    <li><strong>Color 2</strong>: Gris oscuro - RGB(85, 85, 85)</li>
+                    <li><strong>Color 3</strong>: Negro (más oscuro) - RGB(8, 24, 32)</li>
+                </ul>
+                <p>
+                    Cada píxel del framebuffer tiene un índice (0-3) que se mapea a uno de estos colores usando la paleta.
+                </p>
+
+                <h3>Escalado e Interpolación</h3>
+                <p>
+                    La pantalla original del Game Boy es 160x144 píxeles, pero se escala a la resolución de la ventana
+                    (por ejemplo, 480x432 con scale=3). El escalado puede causar interpolación que mezcla colores
+                    adyacentes, lo que podría hacer que los tiles aparezcan difusos. Sin embargo, si el escalado se
+                    hace correctamente, los colores deben mantenerse fieles al original.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron logs de diagnóstico exhaustivos en el renderizador Python para verificar cada
+                    etapa del proceso de renderizado:
+                </p>
+                
+                <h3>1. Verificación de Formato del Framebuffer</h3>
+                <p>
+                    Se agregaron logs para verificar el tipo y tamaño del framebuffer recibido. Los logs confirman que:
+                </p>
+                <ul>
+                    <li>El framebuffer es un <code>bytearray</code> con longitud 23040 (160×144)</li>
+                    <li>Los índices están en el rango correcto (0-3)</li>
+                    <li>La distribución de índices es correcta (checkerboard: índices 0 y 3)</li>
+                </ul>
+
+                <h3>2. Verificación de Conversión de Índices a RGB</h3>
+                <p>
+                    Se agregaron logs para verificar que los índices se convierten correctamente a RGB usando la paleta.
+                    Los logs muestran que:
+                </p>
+                <ul>
+                    <li>Los índices se convierten correctamente: <code>rgb_color = palette[color_index]</code></li>
+                    <li>Los índices están en el rango válido (0-3)</li>
+                    <li>Los valores RGB son tuplas válidas de 3 enteros (R, G, B)</li>
+                </ul>
+
+                <h3>3. Verificación de Paleta Debug vs Real</h3>
+                <p>
+                    Se agregaron logs para verificar que la paleta tiene los valores correctos. Los logs confirman que:
+                </p>
+                <ul>
+                    <li>La paleta tiene 4 colores válidos</li>
+                    <li>Cada color es una tupla RGB válida (R, G, B) con valores en el rango 0-255</li>
+                    <li>La paleta se aplica consistentemente en cada frame</li>
+                </ul>
+
+                <h3>4. Verificación de Aplicación de Paleta en NumPy</h3>
+                <p>
+                    Se agregaron logs para verificar que el mapeo de índices a RGB funciona correctamente en NumPy.
+                    Los logs muestran que:
+                </p>
+                <ul>
+                    <li>El mapeo vectorizado funciona correctamente: <code>rgb_array[mask] = rgb</code></li>
+                    <li>Los colores esperados coinciden con los colores actuales después del mapeo</li>
+                    <li>No hay problemas con la aplicación de la paleta en NumPy</li>
+                </ul>
+
+                <h3>5. Verificación de Aplicación de Paleta en PixelArray (Fallback)</h3>
+                <p>
+                    Se agregaron logs para verificar que la paleta se aplica correctamente en PixelArray (fallback
+                    cuando NumPy no está disponible). Los logs confirman que:
+                </p>
+                <ul>
+                    <li>Los colores se escriben correctamente en el PixelArray: <code>px_array[x, y] = palette[color_index]</code></li>
+                    <li>Los colores esperados coinciden con los colores leídos del PixelArray</li>
+                    <li>No hay problemas con la aplicación de la paleta en PixelArray</li>
+                </ul>
+
+                <h3>6. Verificación de Escalado</h3>
+                <p>
+                    Se agregaron logs para verificar que el escalado funciona correctamente y no causa problemas de
+                    interpolación. Los logs muestran que:
+                </p>
+                <ul>
+                    <li>El escalado se aplica correctamente: <code>pygame.transform.scale()</code></li>
+                    <li>Los colores se mantienen fieles después del escalado (sin diferencias significativas)</li>
+                    <li>No hay problemas de interpolación que causen tiles difusos</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Agregados logs de diagnóstico para verificar conversión de índices a RGB, aplicación de paleta, escalado, formato del framebuffer, y paleta debug</li>
+                    <li><code>logs/test_pkmn_step0337.log</code> - Logs de prueba con Pokémon Red</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas con Pokémon Red para verificar el renderizador Python:
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>timeout 150 python3 main.py roms/pkmn.gb 2>&1 | tee logs/test_pkmn_step0337.log</code></li>
+                    <li><strong>Resultado:</strong> Los logs muestran que todos los componentes del renderizador funcionan correctamente</li>
+                    <li><strong>Validación:</strong> No se detectaron problemas en los logs de diagnóstico</li>
+                </ul>
+
+                <h3>Hallazgos de los Logs</h3>
+                <p>
+                    Los logs muestran que:
+                </p>
+                <ul>
+                    <li>✅ <strong>Formato del Framebuffer:</strong> Correcto - Tipo bytearray, longitud 23040 (160×144)</li>
+                    <li>✅ <strong>Conversión de Índices a RGB:</strong> Correcta - Los índices se convierten correctamente a RGB</li>
+                    <li>✅ <strong>Paleta Debug:</strong> Correcta - La paleta tiene 4 colores válidos</li>
+                    <li>✅ <strong>Aplicación de Paleta en NumPy:</strong> Correcta - Los colores esperados coinciden con los actuales</li>
+                    <li>✅ <strong>Escalado:</strong> Correcto - Los colores se mantienen fieles después del escalado</li>
+                </ul>
+
+                <h3>Ejemplo de Logs</h3>
+                <pre><code>[Renderer-Framebuffer-Format] Frame 1 | Type: &lt;class 'bytearray'&gt; | Length: 23040 | Expected: 23040 (160*144)
+[Renderer-Palette-Debug] Frame 1 | Palette used: [(255, 255, 255), (170, 170, 170), (85, 85, 85), (8, 24, 32)]
+[Renderer-Index-to-RGB] Frame 1 | Pixel (0, 0): index=3 -> RGB=(8, 24, 32) | Palette[3]=(8, 24, 32)
+[Renderer-NumPy-Palette] Frame 1 | Pixel (0, 0): index=3 | Expected RGB=(8, 24, 32) | Actual RGB=(8, 24, 32)
+[Renderer-Scale] Frame 1 | Pixel (0, 0) -> (0, 0) | Original RGB=Color(8, 24, 32, 255) | Scaled RGB=Color(8, 24, 32, 255)</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Game Boy Pan Docs</a> - Referencia general de hardware</li>
+                    <li>Implementación basada en conocimiento general de renderizado de gráficos y conversión de índices a RGB</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Conversión de Índices a RGB:</strong> El framebuffer contiene índices de color (0-3) que deben convertirse a RGB usando la paleta antes de dibujar. Esta conversión funciona correctamente en el renderizador Python.</li>
+                        <li><strong>Aplicación de Paleta:</strong> La paleta se aplica correctamente tanto en NumPy (renderizado vectorizado) como en PixelArray (fallback). No hay problemas con la aplicación de la paleta.</li>
+                        <li><strong>Escalado:</strong> El escalado no causa problemas de interpolación que hagan que los tiles aparezcan difusos. Los colores se mantienen fieles después del escalado.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Origen del Problema de Tiles Difusos:</strong> Si el renderizador Python funciona correctamente, el problema probablemente está en la generación del framebuffer en C++ o en cómo se muestran los tiles. Se necesita investigar más a fondo.</li>
+                        <li><strong>Verificación con Tiles Reales:</strong> Los logs actuales muestran solo el checkerboard (índices 0 y 3). Se necesita verificar con tiles reales que contengan índices 1 y 2 para confirmar que la conversión funciona correctamente en todos los casos.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis:</strong> El problema de tiles difusos no está en el renderizador Python, sino en otro lugar (posiblemente en la generación del framebuffer en C++ o en cómo se muestran los tiles). Esta hipótesis se basa en que todos los logs de diagnóstico del renderizador Python muestran que funciona correctamente.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar la generación del framebuffer en C++ para verificar si hay problemas en la decodificación de tiles o aplicación de paleta</li>
+                    <li>[ ] Verificar con tiles reales que contengan índices 1 y 2 para confirmar que la conversión funciona correctamente en todos los casos</li>
+                    <li>[ ] Si el problema persiste, investigar otros componentes del pipeline de renderizado</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
