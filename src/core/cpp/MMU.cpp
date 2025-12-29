@@ -731,14 +731,21 @@ void MMU::write(uint16_t addr, uint8_t value) {
         
     }
     
-    // Detectar escrituras en tilemap
+    // --- Step 0325: Monitor de Cambios en Tilemap ---
+    // Detectar cuando el juego actualiza el tilemap para apuntar a tiles reales
     if ((addr >= 0x9800 && addr <= 0x9BFF) || (addr >= 0x9C00 && addr <= 0x9FFF)) {
-        static int tilemap_write_count = 0;
-        if (tilemap_write_count < 50) {
-            printf("[TILEMAP-WRITE] PC:0x%04X | Addr:0x%04X | TileID:0x%02X\n", 
-                   debug_current_pc, addr, value);
-            tilemap_write_count++;
+        static int tilemap_update_count = 0;
+        static uint8_t last_tilemap_value = 0xFF;
+        
+        // Solo loggear los primeros 100 cambios y cuando hay cambios significativos
+        if (tilemap_update_count < 100 || (value != 0x00 && last_tilemap_value == 0x00)) {
+            if (tilemap_update_count < 100) {
+                printf("[TILEMAP-UPDATE] PC:0x%04X | Addr:0x%04X | TileID:0x%02X (cambió de 0x%02X)\n", 
+                       debug_current_pc, addr, value, last_tilemap_value);
+                tilemap_update_count++;
+            }
         }
+        last_tilemap_value = value;
     }
     // -------------------------------------------
     

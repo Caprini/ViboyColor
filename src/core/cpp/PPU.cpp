@@ -488,7 +488,8 @@ void PPU::render_scanline() {
     bool signed_addressing = (lcdc & 0x10) == 0;
     uint16_t tile_data_base = signed_addressing ? 0x9000 : 0x8000;
 
-    // --- Step 0324: Verificar si hay tiles reales en VRAM ---
+    // --- Step 0325: Verificación CORREGIDA de tiles reales en VRAM ---
+    // Revisar TODO VRAM (0x8000-0x97FF) en lugar de solo los primeros 2048 bytes
     // Si VRAM está vacía, usar patrón de prueba. Si hay tiles, renderizar normalmente.
     static bool vram_has_tiles = false;
 
@@ -497,8 +498,9 @@ void PPU::render_scanline() {
         uint32_t vram_checksum = 0;
         int non_zero_bytes = 0;
         
-        // Verificar primeros 2048 bytes de VRAM (128 tiles)
-        for (uint16_t i = 0; i < 2048; i++) {
+        // Verificar TODO VRAM (0x8000-0x97FF = 6144 bytes = 384 tiles)
+        // Esto cubre tanto signed (0x8800-0x97FF) como unsigned (0x8000-0x8FFF) addressing
+        for (uint16_t i = 0; i < 6144; i++) {
             uint8_t byte = mmu_->read(0x8000 + i);
             vram_checksum += byte;
             if (byte != 0x00) {
@@ -506,18 +508,62 @@ void PPU::render_scanline() {
             }
         }
         
-        // Si hay más de 100 bytes no-cero, asumir que hay tiles reales
-        bool has_tiles_now = (non_zero_bytes > 100);
+        // Si hay más de 500 bytes no-cero (aprox. 31 tiles completos), asumir que hay tiles reales
+        // Ajustado desde 100 porque ahora revisamos 3x más bytes
+        bool has_tiles_now = (non_zero_bytes > 500);
         
         if (has_tiles_now != vram_has_tiles) {
             vram_has_tiles = has_tiles_now;
             if (vram_has_tiles) {
-                printf("[PPU-TILES-REAL] Tiles reales detectados en VRAM! (Frame %llu)\n",
-                       static_cast<unsigned long long>(frame_counter_ + 1));
+                printf("[PPU-TILES-REAL] Tiles reales detectados en VRAM! (Frame %llu | Non-zero: %d/6144 bytes)\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1), non_zero_bytes);
             } else {
-                printf("[PPU-TILES-REAL] VRAM vacía, usando patrón de prueba (Frame %llu)\n",
-                       static_cast<unsigned long long>(frame_counter_ + 1));
+                printf("[PPU-TILES-REAL] VRAM vacía, usando patrón de prueba (Frame %llu | Non-zero: %d/6144 bytes)\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1), non_zero_bytes);
             }
+        }
+    }
+    // -------------------------------------------
+
+    // --- Step 0325: Análisis de Correspondencia Tilemap-Tiles ---
+    // Verificar si el tilemap apunta a los tiles reales cuando se detectan
+    static int tilemap_tiles_analysis_count = 0;
+    if (vram_has_tiles && ly_ == 0 && tilemap_tiles_analysis_count < 5 && (frame_counter_ % 60 == 0)) {
+        tilemap_tiles_analysis_count++;
+        
+        // Verificar primeros 32 tile IDs del tilemap
+        int tiles_pointing_to_real_data = 0;
+        int tiles_pointing_to_empty = 0;
+        
+        for (int i = 0; i < 32; i++) {
+            uint8_t tile_id = mmu_->read(tile_map_base + i);
+            
+            // Calcular dirección del tile según el direccionamiento
+            uint16_t tile_addr;
+            if (signed_addressing) {
+                int8_t signed_id = static_cast<int8_t>(tile_id);
+                tile_addr = tile_data_base + (static_cast<uint16_t>(signed_id) * 16);
+            } else {
+                tile_addr = tile_data_base + (static_cast<uint16_t>(tile_id) * 16);
+            }
+            
+            // Verificar si el tile tiene datos
+            uint8_t tile_byte1 = mmu_->read(tile_addr);
+            uint8_t tile_byte2 = mmu_->read(tile_addr + 1);
+            
+            if (tile_byte1 != 0x00 || tile_byte2 != 0x00) {
+                tiles_pointing_to_real_data++;
+            } else {
+                tiles_pointing_to_empty++;
+            }
+        }
+        
+        printf("[PPU-TILEMAP-ANALYSIS] Frame %llu | Tilemap apunta a: %d tiles con datos, %d tiles vacíos\n",
+               static_cast<unsigned long long>(frame_counter_ + 1),
+               tiles_pointing_to_real_data, tiles_pointing_to_empty);
+        
+        if (tiles_pointing_to_real_data == 0) {
+            printf("[PPU-TILEMAP-ANALYSIS] ⚠️ PROBLEMA: Tilemap no apunta a tiles con datos aunque hay tiles en VRAM!\n");
         }
     }
     // -------------------------------------------
@@ -670,6 +716,34 @@ void PPU::render_scanline() {
             tile_addr = tile_data_base + (tile_id * 16);
         }
 
+        // --- Step 0325: Verificación de Cálculo de Dirección de Tile ---
+        // Verificar que el cálculo de dirección sea correcto para signed/unsigned addressing
+        static int tile_addr_verify_count = 0;
+        if (vram_has_tiles && ly_ == 0 && tile_addr_verify_count < 3 && x == 0) {
+            tile_addr_verify_count++;
+            
+            uint8_t sample_tile_id = mmu_->read(tile_map_base);
+            uint16_t calculated_addr;
+            
+            if (signed_addressing) {
+                int8_t signed_id = static_cast<int8_t>(sample_tile_id);
+                calculated_addr = tile_data_base + ((int8_t)sample_tile_id * 16);
+                printf("[PPU-TILE-ADDR-VERIFY] TileID: 0x%02X (signed: %d) | Base: 0x%04X | Calculado: 0x%04X\n",
+                       sample_tile_id, signed_id, tile_data_base, calculated_addr);
+            } else {
+                calculated_addr = tile_data_base + (sample_tile_id * 16);
+                printf("[PPU-TILE-ADDR-VERIFY] TileID: 0x%02X (unsigned) | Base: 0x%04X | Calculado: 0x%04X\n",
+                       sample_tile_id, tile_data_base, calculated_addr);
+            }
+            
+            // Verificar si hay tiles reales en esa dirección
+            uint8_t tile_byte1 = mmu_->read(calculated_addr);
+            uint8_t tile_byte2 = mmu_->read(calculated_addr + 1);
+            printf("[PPU-TILE-ADDR-VERIFY] Datos en 0x%04X: 0x%02X%02X\n",
+                   calculated_addr, tile_byte1, tile_byte2);
+        }
+        // -------------------------------------------
+
         // --- Step 0324: Verificación de renderizado con tiles reales ---
         // Solo verificar cuando hay tiles reales y en los primeros frames
         static int render_verify_count = 0;
@@ -723,15 +797,28 @@ void PPU::render_scanline() {
             uint8_t byte1 = mmu_->read(tile_line_addr);
             uint8_t byte2 = mmu_->read(tile_line_addr + 1);
             
-            // --- Step 0322: Solución de renderizado blanco - Tiles vacíos ---
-            // Si el tile está vacío (todos ceros), usar un tile de prueba temporalmente
-            // para poder ver algo en pantalla mientras el juego carga sus tiles.
-            // Fuente: Pan Docs - "Tile Data"
+            // --- Step 0325: Mejora de Detección de Tiles Vacíos ---
+            // Verificar TODO el tile (16 bytes) antes de considerarlo vacío
+            // Algunos tiles legítimos pueden tener líneas con 0x0000
             static bool empty_tile_detected = false;
-            if (byte1 == 0x00 && byte2 == 0x00) {
+            bool tile_is_empty = true;
+
+            // Verificar si TODO el tile está vacío (todas las 8 líneas = 16 bytes)
+            for (uint8_t line_check = 0; line_check < 8; line_check++) {
+                uint16_t check_addr = tile_addr + (line_check * 2);
+                uint8_t check_byte1 = mmu_->read(check_addr);
+                uint8_t check_byte2 = mmu_->read(check_addr + 1);
+                
+                if (check_byte1 != 0x00 || check_byte2 != 0x00) {
+                    tile_is_empty = false;
+                    break;
+                }
+            }
+
+            if (tile_is_empty) {
                 if (!empty_tile_detected && ly_ == 0 && x == 0) {
                     empty_tile_detected = true;
-                    printf("[PPU-FIX-EMPTY-TILE] Detectado tile vacío, usando tile de prueba temporalmente\n");
+                    printf("[PPU-FIX-EMPTY-TILE] Detectado tile completamente vacío en 0x%04X, usando tile de prueba\n", tile_addr);
                 }
                 // Generar un patrón simple de cuadros basado en la posición del tile
                 // Esto permite ver algo en pantalla mientras el juego carga tiles
@@ -740,10 +827,10 @@ void PPU::render_scanline() {
                 uint8_t checkerboard = (tile_x_in_map + tile_y_in_map) % 2;
                 
                 // Generar un patrón de línea basado en la línea dentro del tile
-                uint8_t line_in_tile = map_y % 8;
+                uint8_t line_in_tile_check = map_y % 8;
                 if (checkerboard == 0) {
                     // Patrón de cuadros: líneas alternas
-                    if (line_in_tile % 2 == 0) {
+                    if (line_in_tile_check % 2 == 0) {
                         byte1 = 0xFF;  // Línea completa
                         byte2 = 0xFF;
                     } else {
@@ -752,7 +839,7 @@ void PPU::render_scanline() {
                     }
                 } else {
                     // Patrón inverso
-                    if (line_in_tile % 2 == 0) {
+                    if (line_in_tile_check % 2 == 0) {
                         byte1 = 0x00;
                         byte2 = 0x00;
                     } else {
@@ -761,6 +848,7 @@ void PPU::render_scanline() {
                     }
                 }
             } else {
+                // Tile tiene datos, usar renderizado normal
                 // Si el tile tiene datos, marcar que ya no estamos usando tiles de prueba
                 if (empty_tile_detected && ly_ == 0 && x == 0) {
                     empty_tile_detected = false;

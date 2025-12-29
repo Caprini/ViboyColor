@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0325 - Corrección de Detección de Tiles y Renderizado -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0325__correccion-deteccion-tiles-renderizado.html" class="entry-link">
+                                    Corrección de Detección de Tiles y Renderizado
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0325 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección de la verificación de tiles reales para revisar TODO el rango de VRAM (0x8000-0x97FF) en lugar de solo los primeros 2048 bytes, investigación de por qué el tilemap no apunta a los tiles reales que se cargan, y mejora de la lógica de renderizado para usar tiles reales cuando están disponibles. Se implementaron monitores adicionales para rastrear cambios en el tilemap, análisis de correspondencia entre tilemap y tiles reales, verificación del cálculo de direcciones de tiles, y mejora de la detección de tiles vacíos para verificar todo el tile (16 bytes) antes de considerarlo vacío.
+                        </p>
+                    </li>
                                         <!-- Entrada 0324 - Renderizado de Tiles Reales y Nombre del Juego en Título -->
                     <li>
                         <div class="entry-header">

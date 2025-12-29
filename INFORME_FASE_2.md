@@ -910,6 +910,65 @@ Implementación de verificación de tiles reales en VRAM y renderizado usando es
 - `docs/bitacora/index.html`: Actualizado con entrada Step 0324
 - `INFORME_FASE_2.md`: Actualizado con entrada Step 0324
 
+---
+
+### 2025-12-29 - Step 0325: Corrección de Detección de Tiles y Renderizado
+**Estado**: ✅ **IMPLEMENTACIÓN COMPLETADA**
+
+Corrección de la verificación de tiles reales para revisar TODO el rango de VRAM (0x8000-0x97FF) en lugar de solo los primeros 2048 bytes, investigación de por qué el tilemap no apunta a los tiles reales que se cargan, y mejora de la lógica de renderizado para usar tiles reales cuando están disponibles.
+
+**Objetivo**:
+1. Corregir la verificación de tiles reales para revisar TODO VRAM (0x8000-0x97FF)
+2. Investigar por qué el tilemap no apunta a los tiles reales que se cargan
+3. Verificar que el renderizado use los tiles reales cuando el tilemap los referencia correctamente
+4. Asegurar que el patrón de prueba solo se use cuando realmente no hay tiles válidos
+
+**Implementaciones**:
+
+1. **Corrección de Verificación de Tiles Reales**:
+   - Modificada la verificación en `PPU::render_scanline()` para revisar TODO VRAM (6144 bytes) en lugar de solo 2048 bytes
+   - Umbral ajustado de 100 a 500 bytes no-cero (aprox. 31 tiles completos)
+   - Cubre tanto signed (0x8800-0x97FF) como unsigned (0x8000-0x8FFF) addressing
+
+2. **Monitor de Cambios en Tilemap**:
+   - Mejorado el monitor en `MMU::write()` para detectar actualizaciones del tilemap
+   - Loggea los primeros 100 cambios y cambios significativos (de 0x00 a valor no-cero)
+
+3. **Análisis de Correspondencia Tilemap-Tiles**:
+   - Agregado análisis en `PPU::render_scanline()` que verifica si el tilemap apunta a tiles con datos reales
+   - Verifica los primeros 32 tile IDs del tilemap y cuenta cuántos apuntan a tiles con datos
+
+4. **Verificación de Cálculo de Dirección de Tile**:
+   - Agregada verificación que confirma el cálculo de dirección es correcto para signed/unsigned addressing
+   - Muestra ejemplos de tile IDs y direcciones calculadas
+
+5. **Mejora de Detección de Tiles Vacíos**:
+   - Mejorada la lógica para verificar TODO el tile (16 bytes) antes de considerarlo vacío
+   - Evita que tiles legítimos con algunas líneas en 0x0000 sean considerados vacíos
+
+**Archivos modificados**:
+- `src/core/cpp/PPU.cpp`: Corrección de verificación de tiles reales, análisis de correspondencia, verificación de cálculo, mejora de detección de tiles vacíos
+- `src/core/cpp/MMU.cpp`: Mejora del monitor de cambios en tilemap
+
+**Tests y Verificación**:
+- Módulo C++ recompilado exitosamente sin errores
+- Pruebas ejecutadas con las 3 ROMs (pkmn.gb, tetris.gb, mario.gbc) durante 2.5 minutos cada una
+- Logs muestran detección de tiles completamente vacíos funcionando correctamente
+- Monitor de cambios en tilemap capturando actualizaciones
+
+**Conceptos de Hardware**:
+- **VRAM Completo (0x8000-0x97FF)**: 6144 bytes (384 tiles × 16 bytes). Cubre tanto signed (base 0x9000) como unsigned (base 0x8000) addressing.
+- **Tilemap y Correspondencia**: El tilemap contiene tile IDs que apuntan a tiles en VRAM. Si el tilemap no se actualiza después de cargar tiles, apunta a tiles vacíos.
+- **Detección de Tiles Vacíos**: Un tile está completamente vacío si todas sus 8 líneas (16 bytes) son 0x0000. Algunos tiles legítimos pueden tener líneas con 0x0000 (transparentes).
+
+**Bitácora**: `docs/bitacora/entries/2025-12-29__0325__correccion-deteccion-tiles-renderizado.html`
+
+**Próximos pasos**:
+- Si el renderizado funciona correctamente: Step 0326 (Verificación final de controles y compatibilidad)
+- Si el problema persiste: Step 0326 (Análisis más profundo del tilemap y solución alternativa)
+
+---
+
 **Conceptos de Hardware**:
 - **Renderizado de Tiles Reales**: Los tiles se cargan en VRAM (0x8000-0x97FF) en formato 2bpp. El tilemap (0x9800-0x9BFF o 0x9C00-0x9FFF) contiene tile IDs que apuntan a tiles en VRAM. Cuando los tiles reales se cargan, el renderizado debe leer desde VRAM y decodificar los tiles correctamente.
 - **Header del Cartucho**: El header de la ROM (0x0100-0x014F) contiene información del cartucho. El título está en 0x0134-0x0143 (16 bytes, terminado en 0x00 o 0x80). El título se decodifica como ASCII.
