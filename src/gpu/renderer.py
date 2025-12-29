@@ -581,6 +581,35 @@ class Renderer:
                 
                 # Diagnóstico desactivado para producción
                 
+                # --- Step 0335: Verificación Periódica del Renderizador ---
+                # Verificar que el renderizador sigue dibujando después de los primeros frames
+                if not hasattr(self, '_renderer_periodic_check_count'):
+                    self._renderer_periodic_check_count = 0
+                
+                if self._renderer_periodic_check_count % 100 == 0:
+                    if self._renderer_periodic_check_count < 200:  # Limitar a 200 logs
+                        if frame_indices is not None and len(frame_indices) > 0:
+                            # Contar índices en el framebuffer recibido
+                            index_counts = {0: 0, 1: 0, 2: 0, 3: 0}
+                            for idx in range(min(100, len(frame_indices))):
+                                color_idx = frame_indices[idx] & 0x03
+                                if color_idx in index_counts:
+                                    index_counts[color_idx] += 1
+                            
+                            print(f"[Renderer-Periodic] Frame {self._renderer_periodic_check_count} | "
+                                  f"Index counts (first 100): 0={index_counts[0]} 1={index_counts[1]} "
+                                  f"2={index_counts[2]} 3={index_counts[3]}")
+                            logger.info(f"[Renderer-Periodic] Frame {self._renderer_periodic_check_count} | "
+                                       f"Index counts (first 100): 0={index_counts[0]} 1={index_counts[1]} "
+                                       f"2={index_counts[2]} 3={index_counts[3]}")
+                            
+                            if index_counts[0] == 100 and index_counts[3] == 0:
+                                print(f"[Renderer-Periodic] ⚠️ ADVERTENCIA: Framebuffer completamente blanco en frame {self._renderer_periodic_check_count}!")
+                                logger.warning(f"[Renderer-Periodic] ⚠️ ADVERTENCIA: Framebuffer completamente blanco en frame {self._renderer_periodic_check_count}!")
+                
+                self._renderer_periodic_check_count += 1
+                # -------------------------------------------
+                
                 # --- Step 0256: DEBUG PALETTE FORCE (HIGH CONTRAST) ---
                 # Ignoramos BGP/OBP del hardware para ver los índices crudos de la PPU.
                 # Esto nos confirmará si la PPU está dibujando sprites/fondo.

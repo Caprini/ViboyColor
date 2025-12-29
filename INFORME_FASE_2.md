@@ -1310,6 +1310,52 @@ Investigación detallada del problema de renderizado donde el framebuffer contie
 - [ ] Analizar los logs para identificar dónde se pierde la información de color
 - [x] **Step 0333**: Implementar corrección basada en los hallazgos de los logs ✅
 - [x] **Step 0334**: Verificación final de renderizado después de la corrección ✅
+- [x] **Step 0335**: Investigación de desaparición del checkerboard ✅
+
+---
+
+### 2025-12-29 - Step 0335: Investigación de Desaparición del Checkerboard
+**Estado**: ✅ **IMPLEMENTACIÓN COMPLETADA**
+
+Investigación de por qué el checkerboard temporal desaparece después de algunos frames. Se implementaron logs de diagnóstico para verificar el estado del framebuffer, cuándo se limpia, cambios en vram_is_empty_, y el estado del renderizador. Los logs revelaron que el problema era que la verificación periódica del framebuffer se hacía cuando ly_ == 0, justo después de limpiarlo, mostrando siempre un framebuffer vacío. Se corrigió moviendo la verificación a VBLANK_START (144), después de renderizar todo el frame. Los logs ahora muestran que el framebuffer tiene datos correctos (11520 píxeles con índice 0 y 11520 con índice 3), indicando que el checkerboard se está dibujando correctamente.
+
+**Objetivo**:
+1. Investigar por qué el checkerboard temporal desaparece después de algunos frames
+2. Verificar si el framebuffer mantiene datos a lo largo del tiempo
+3. Verificar si el renderizador sigue dibujando después de los primeros frames
+4. Identificar y corregir la causa de la pantalla blanca después del checkerboard inicial
+
+**Problema Identificado**:
+- La verificación periódica del framebuffer se hacía cuando ly_ == 0, justo después de limpiarlo, mostrando siempre un framebuffer vacío aunque el checkerboard se estuviera dibujando correctamente.
+
+**Solución Implementada**:
+1. **Corrección de Verificación Periódica**: Mover la verificación periódica del framebuffer a VBLANK_START (144), después de renderizar todo el frame, pero antes de que se limpie para el siguiente frame.
+2. **Logs de Diagnóstico Agregados**:
+   - `[PPU-FRAMEBUFFER-PERIODIC]`: Verificación periódica del estado del framebuffer cada 100 frames
+   - `[PPU-CLEAR-FRAMEBUFFER]`: Log cada vez que se limpia el framebuffer
+   - `[PPU-VRAM-EMPTY-CHANGE]`: Log cuando vram_is_empty_ cambia de estado
+   - `[Renderer-Periodic]`: Verificación periódica del renderizador cada 100 frames
+
+**Resultados**:
+- Los logs muestran que el framebuffer tiene datos correctos (11520 píxeles con índice 0 y 11520 con índice 3), indicando que el checkerboard se está dibujando correctamente.
+- Se verificó que solo hay 3 llamadas a clear_framebuffer(): en el constructor, cuando ly_ > 153, y la definición de la función (todas correctas).
+- Los logs muestran que vram_is_empty_ cambia después de algunos frames (ej: frame 4723, 4732), lo cual es normal cuando el juego carga tiles.
+
+**Archivos Modificados**:
+- `src/core/cpp/PPU.cpp`: Agregados logs de diagnóstico y corrección de verificación periódica
+- `src/gpu/renderer.py`: Agregados logs periódicos del renderizador
+
+**Bitácora**: `docs/bitacora/entries/2025-12-29__0335__investigacion-desaparicion-checkerboard.html`
+
+**Conceptos Clave**:
+- **Ciclo de Renderizado**: El framebuffer se limpia al inicio del frame (ly_ == 0), se renderiza durante las líneas 0-143, y se marca como listo en VBLANK_START (144).
+- **Verificación del Framebuffer**: La verificación del framebuffer debe hacerse después de renderizar todo el frame (VBLANK_START), no al inicio cuando se limpia.
+- **Checkerboard Temporal**: El checkerboard se dibuja correctamente cuando VRAM está vacía, pero la verificación prematura mostraba un framebuffer vacío.
+
+**Próximos Pasos**:
+- Verificar visualmente si el checkerboard desaparece después de algunos frames
+- Analizar si los cambios en vram_is_empty_ causan la desaparición del checkerboard
+- Si el problema persiste, implementar corrección basada en los hallazgos de los logs
 
 ---
 

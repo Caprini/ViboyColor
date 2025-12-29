@@ -278,6 +278,40 @@ void PPU::step(int cpu_cycles) {
             frame_ready_ = true;
         }
         
+        // --- Step 0335: Verificación Periódica del Framebuffer ---
+        // Verificar que el framebuffer mantiene datos a lo largo del tiempo
+        // IMPORTANTE: Verificar cuando ly_ == VBLANK_START (144), después de renderizar todo el frame,
+        // pero ANTES de que se limpie para el siguiente frame
+        if (ly_ == VBLANK_START && frame_counter_ % 100 == 0) {
+            static int framebuffer_periodic_check_count = 0;
+            if (framebuffer_periodic_check_count < 20) {
+                framebuffer_periodic_check_count++;
+                
+                // Contar píxeles no-blancos en el framebuffer
+                int non_zero_pixels = 0;
+                int index_counts[4] = {0, 0, 0, 0};
+                for (size_t i = 0; i < FRAMEBUFFER_SIZE; i++) {
+                    uint8_t color_idx = framebuffer_[i] & 0x03;
+                    if (color_idx != 0) {
+                        non_zero_pixels++;
+                    }
+                    index_counts[color_idx]++;
+                }
+                
+                printf("[PPU-FRAMEBUFFER-PERIODIC] Frame %llu | Non-zero pixels: %d/23040 | "
+                       "Distribution: 0=%d 1=%d 2=%d 3=%d | VRAM empty: %s\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1),
+                       non_zero_pixels,
+                       index_counts[0], index_counts[1], index_counts[2], index_counts[3],
+                       vram_is_empty_ ? "YES" : "NO");
+                
+                if (non_zero_pixels == 0 && vram_is_empty_) {
+                    printf("[PPU-FRAMEBUFFER-PERIODIC] ⚠️ ADVERTENCIA: Framebuffer vacío aunque debería tener checkerboard!\n");
+                }
+            }
+        }
+        // -------------------------------------------
+        
         // Si pasamos la última línea (153), reiniciar a 0 (nuevo frame)
         if (ly_ > 153) {
             ly_ = 0;
@@ -466,6 +500,15 @@ uint8_t* PPU::get_framebuffer_ptr() {
 }
 
 void PPU::clear_framebuffer() {
+    // --- Step 0335: Log de Limpieza del Framebuffer ---
+    static int clear_framebuffer_log_count = 0;
+    if (clear_framebuffer_log_count < 20) {
+        clear_framebuffer_log_count++;
+        printf("[PPU-CLEAR-FRAMEBUFFER] Frame %llu | LY: %d | Limpiando framebuffer\n",
+               static_cast<unsigned long long>(frame_counter_ + 1), ly_);
+    }
+    // -------------------------------------------
+    
     // Rellena el framebuffer con el índice de color 0 (blanco en la paleta por defecto)
     std::fill(framebuffer_.begin(), framebuffer_.end(), 0);
 }
@@ -501,7 +544,31 @@ void PPU::render_scanline() {
             }
         }
         
-        vram_is_empty_ = (vram_non_zero < 200);
+        // --- Step 0335: Verificación de Cambios en vram_is_empty_ ---
+        // Verificar si vram_is_empty_ cambia después de algunos frames
+        static bool last_vram_is_empty = true;
+        bool new_vram_is_empty = (vram_non_zero < 200);
+        
+        if (new_vram_is_empty != last_vram_is_empty) {
+            static int vram_empty_change_log_count = 0;
+            if (vram_empty_change_log_count < 10) {
+                vram_empty_change_log_count++;
+                printf("[PPU-VRAM-EMPTY-CHANGE] Frame %llu | vram_is_empty_ cambió: %s -> %s\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1),
+                       last_vram_is_empty ? "YES" : "NO",
+                       new_vram_is_empty ? "YES" : "NO");
+                
+                if (last_vram_is_empty && !new_vram_is_empty) {
+                    printf("[PPU-VRAM-EMPTY-CHANGE] ⚠️ ADVERTENCIA: VRAM ya no está vacía, checkerboard debería desactivarse\n");
+                } else if (!last_vram_is_empty && new_vram_is_empty) {
+                    printf("[PPU-VRAM-EMPTY-CHANGE] VRAM se vació, checkerboard debería activarse\n");
+                }
+            }
+            last_vram_is_empty = new_vram_is_empty;
+        }
+        // -------------------------------------------
+        
+        vram_is_empty_ = new_vram_is_empty;
         
         static int vram_check_log_count = 0;
         if (vram_check_log_count < 5) {

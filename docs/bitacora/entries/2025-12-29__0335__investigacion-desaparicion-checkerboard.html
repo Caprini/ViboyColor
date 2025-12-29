@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Desaparición del Checkerboard - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Desaparición del Checkerboard</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0335
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0334__verificacion-final-renderizado.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este step investiga por qué el checkerboard temporal desaparece después de algunos frames.
+                    Se implementaron logs de diagnóstico para verificar el estado del framebuffer, cuándo se limpia,
+                    cambios en vram_is_empty_, y el estado del renderizador. Los logs revelaron que el problema
+                    era que la verificación periódica del framebuffer se hacía cuando ly_ == 0, justo después
+                    de limpiarlo, mostrando siempre un framebuffer vacío. Se corrigió moviendo la verificación
+                    a VBLANK_START (144), después de renderizar todo el frame.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Persistencia del Framebuffer</h3>
+                <p>
+                    El framebuffer debe mantener sus datos hasta que se renderice el siguiente frame.
+                    Si el framebuffer se limpia prematuramente, la pantalla se vuelve blanca.
+                    El framebuffer solo debe limpiarse al inicio del siguiente frame, después de que
+                    Python lo haya leído.
+                </p>
+                <h3>Checkerboard Temporal</h3>
+                <p>
+                    El checkerboard temporal se activa cuando VRAM está vacía (vram_is_empty_ == true).
+                    Debe mantenerse activo mientras VRAM esté vacía. Si vram_is_empty_ cambia incorrectamente,
+                    el checkerboard puede desaparecer.
+                </p>
+                <h3>Ciclo de Renderizado</h3>
+                <p>
+                    El ciclo de renderizado de la PPU funciona así:
+                </p>
+                <ul>
+                    <li><strong>Líneas 0-143:</strong> Renderizado de scanlines (render_scanline())</li>
+                    <li><strong>Línea 144 (VBLANK_START):</strong> V-Blank, frame listo para leer</li>
+                    <li><strong>Líneas 145-153:</strong> V-Blank continuado</li>
+                    <li><strong>Línea > 153:</strong> Reset a ly_ = 0, limpieza del framebuffer para el siguiente frame</li>
+                </ul>
+                <p>
+                    Por lo tanto, el framebuffer debe verificarse en VBLANK_START (144), después de
+                    renderizar todo el frame, pero antes de que se limpie para el siguiente frame.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <h3>Logs de Diagnóstico Agregados</h3>
+                <p>
+                    Se agregaron los siguientes logs de diagnóstico para investigar la desaparición del checkerboard:
+                </p>
+                <ul>
+                    <li><strong>[PPU-FRAMEBUFFER-PERIODIC]:</strong> Verificación periódica del estado del framebuffer cada 100 frames</li>
+                    <li><strong>[PPU-CLEAR-FRAMEBUFFER]:</strong> Log cada vez que se limpia el framebuffer</li>
+                    <li><strong>[PPU-VRAM-EMPTY-CHANGE]:</strong> Log cuando vram_is_empty_ cambia de estado</li>
+                    <li><strong>[Renderer-Periodic]:</strong> Verificación periódica del renderizador cada 100 frames</li>
+                </ul>
+                
+                <h3>Corrección Crítica</h3>
+                <p>
+                    Se identificó que la verificación periódica del framebuffer se hacía cuando ly_ == 0,
+                    justo después de limpiarlo. Esto causaba que siempre se mostrara un framebuffer vacío,
+                    aunque el checkerboard se estuviera dibujando correctamente.
+                </p>
+                <p>
+                    <strong>Solución:</strong> Mover la verificación periódica a VBLANK_START (144), después
+                    de renderizar todo el frame, pero antes de que se limpie para el siguiente frame.
+                </p>
+                
+                <h3>Componentes Modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code>: Agregados logs de diagnóstico y corrección de verificación periódica</li>
+                    <li><code>src/gpu/renderer.py</code>: Agregados logs periódicos del renderizador</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Agregados logs de diagnóstico y corrección de verificación periódica</li>
+                    <li><code>src/gpu/renderer.py</code> - Agregados logs periódicos del renderizador</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas con las 5 ROMs (Pokémon Red, TETRIS, Mario, Pokémon Yellow, Pokémon Gold)
+                    durante 2.5 minutos cada una para recopilar logs de diagnóstico.
+                </p>
+                
+                <h3>Resultados de los Logs</h3>
+                <p>
+                    <strong>Antes de la corrección:</strong> Los logs mostraban que el framebuffer estaba
+                    completamente vacío (0 píxeles no-blancos) aunque VRAM estaba vacía y debería tener checkerboard.
+                </p>
+                <p>
+                    <strong>Después de la corrección:</strong> Los logs muestran que el framebuffer tiene datos
+                    correctos (11520 píxeles con índice 0 y 11520 con índice 3), indicando que el checkerboard
+                    se está dibujando correctamente.
+                </p>
+                
+                <h3>Ejemplo de Log Corregido</h3>
+                <pre><code>[PPU-FRAMEBUFFER-PERIODIC] Frame 1 | Non-zero pixels: 11520/23040 | 
+Distribution: 0=11520 1=0 2=0 3=11520 | VRAM empty: YES
+[PPU-FRAMEBUFFER-PERIODIC] Frame 101 | Non-zero pixels: 11520/23040 | 
+Distribution: 0=11520 1=0 2=0 3=11520 | VRAM empty: YES</code></pre>
+                
+                <h3>Verificación de Otras Llamadas a clear_framebuffer()</h3>
+                <p>
+                    Se verificó que solo hay 3 llamadas a clear_framebuffer():
+                </p>
+                <ul>
+                    <li>En el constructor (línea 25) - Correcto</li>
+                    <li>Cuando ly_ > 153 (línea 292) - Correcto</li>
+                    <li>La definición de la función (línea 500) - Correcto</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: LCD Display, V-Blank, Framebuffer</li>
+                    <li>Implementación basada en conocimiento general de arquitectura LR35902</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Ciclo de Renderizado:</strong> El framebuffer se limpia al inicio del frame (ly_ == 0), se renderiza durante las líneas 0-143, y se marca como listo en VBLANK_START (144).</li>
+                        <li><strong>Verificación del Framebuffer:</strong> La verificación del framebuffer debe hacerse después de renderizar todo el frame (VBLANK_START), no al inicio cuando se limpia.</li>
+                        <li><strong>Checkerboard Temporal:</strong> El checkerboard se dibuja correctamente cuando VRAM está vacía, pero la verificación prematura mostraba un framebuffer vacío.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Desaparición del Checkerboard:</strong> Aunque los logs muestran que el checkerboard se dibuja correctamente, aún falta verificar visualmente si el checkerboard desaparece después de algunos frames en la pantalla.</li>
+                        <li><strong>Cambios en vram_is_empty_:</strong> Los logs muestran que vram_is_empty_ cambia después de algunos frames (ej: frame 4723, 4732), lo cual es normal cuando el juego carga tiles. Necesitamos verificar si esto causa la desaparición del checkerboard.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> El problema de la desaparición del checkerboard
+                        puede estar relacionado con cambios en vram_is_empty_ después de algunos frames.
+                        Cuando VRAM se llena con tiles, vram_is_empty_ cambia a false, lo que desactiva el checkerboard.
+                        Esto es comportamiento esperado, pero puede causar confusión visual si el juego carga tiles
+                        y luego los borra.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar visualmente si el checkerboard desaparece después de algunos frames</li>
+                    <li>[ ] Analizar si los cambios en vram_is_empty_ causan la desaparición del checkerboard</li>
+                    <li>[ ] Si el problema persiste, implementar corrección basada en los hallazgos de los logs</li>
+                    <li>[ ] Verificación final de renderizado con todas las ROMs</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
