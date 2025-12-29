@@ -224,6 +224,17 @@ cdef class PyPPU:
             return
         self._ppu.clear_framebuffer()
     
+    def confirm_framebuffer_read(self):
+        """
+        Step 0360: Confirma que Python leyó el framebuffer.
+        
+        Este método debe llamarse después de que Python termine de leer el framebuffer.
+        Permite que C++ limpie el framebuffer de forma segura sin condiciones de carrera.
+        """
+        if self._ppu == NULL:
+            return
+        self._ppu.confirm_framebuffer_read()
+    
     # Método para obtener el puntero C++ como entero (DEPRECADO: usar get_cpp_ptr() en su lugar)
     def get_cpp_ptr_as_int(self):
         """Obtiene el puntero C++ interno como entero (para uso en otros módulos Cython)."""

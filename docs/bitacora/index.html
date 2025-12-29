@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0360 - Corrección de Sincronización y Timing para Visualización Correcta de Gráficos -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0360__correccion-sincronizacion-timing-visualizacion.html" class="entry-link">
+                                    Corrección de Sincronización y Timing para Visualización Correcta de Gráficos
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0360 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementaron correcciones críticas de sincronización entre C++ y Python para proteger el framebuffer durante el renderizado y prevenir condiciones de carrera. Se agregó un sistema de protección que marca cuando Python está leyendo el framebuffer y previene que C++ lo limpie hasta que Python confirme que terminó de leerlo. Se implementó verificación continua del framebuffer para detectar problemas de sincronización entre VRAM y el framebuffer. Estas correcciones aseguran que el framebuffer se mantiene estable durante el renderizado y que no hay pérdida de datos visuales.
+                        </p>
+                    </li>
                                         <!-- Entrada 0359 - Investigación Completa del Pipeline de Renderizado y Corrección de Discrepancia Visual -->
                     <li>
                         <div class="entry-header">

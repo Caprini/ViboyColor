@@ -16,6 +16,7 @@ PPU::PPU(MMU* mmu)
     , framebuffer_(FRAMEBUFFER_SIZE, 0)  // Inicializar a índice 0 (blanco por defecto con paleta estándar)
     , frame_counter_(0)  // Step 0291: Inicializar contador de frames
     , vram_is_empty_(true)  // Step 0330: Inicializar como vacía, se actualizará en el primer frame
+    , framebuffer_being_read_(false)  // Step 0360: Inicializar flag de protección
 {
     // --- Step 0201: Garantizar estado inicial limpio (RAII) ---
     // En C++, el principio de RAII (Resource Acquisition Is Initialization) dicta que
@@ -800,10 +801,56 @@ void PPU::step(int cpu_cycles) {
             frame_counter_++;
             // Reiniciar flag de interrupción STAT al cambiar de frame
             stat_interrupt_line_ = 0;
-            // --- Step 0333: Limpiar Framebuffer al Inicio del Siguiente Frame ---
+            
+            // --- Step 0360: Verificación Continua del Framebuffer ---
+            // Verificar que el framebuffer se actualiza correctamente cuando hay tiles
+            if (frame_counter_ % 60 == 0) {
+                // Verificar estado de VRAM
+                int vram_non_zero = 0;
+                for (uint16_t addr = 0x8000; addr < 0x9800; addr++) {
+                    if (mmu_->read(addr) != 0x00) {
+                        vram_non_zero++;
+                    }
+                }
+                
+                // Verificar estado del framebuffer
+                int framebuffer_non_white = 0;
+                for (int i = 0; i < 160 * 144; i++) {
+                    if (framebuffer_[i] != 0) {
+                        framebuffer_non_white++;
+                    }
+                }
+                
+                // Si VRAM tiene tiles pero el framebuffer está vacío, hay un problema
+                if (vram_non_zero >= 200 && framebuffer_non_white < 100) {
+                    static int warning_count = 0;
+                    if (warning_count < 10) {
+                        warning_count++;
+                        printf("[PPU-FRAMEBUFFER-UPDATE] ⚠️ ADVERTENCIA: VRAM tiene tiles (%d bytes) "
+                               "pero framebuffer está vacío (%d píxeles no-blancos) en Frame %llu\n",
+                               vram_non_zero, framebuffer_non_white,
+                               static_cast<unsigned long long>(frame_counter_));
+                    }
+                }
+                
+                // Si ambos tienen datos, verificar correspondencia
+                if (vram_non_zero >= 200 && framebuffer_non_white >= 100) {
+                    static int success_log_count = 0;
+                    if (success_log_count < 10) {
+                        success_log_count++;
+                        printf("[PPU-FRAMEBUFFER-UPDATE] Frame %llu | VRAM: %d bytes | "
+                               "Framebuffer: %d píxeles no-blancos | ✅ Sincronizado\n",
+                               static_cast<unsigned long long>(frame_counter_),
+                               vram_non_zero, framebuffer_non_white);
+                    }
+                }
+            }
+            // -------------------------------------------
+            
+            // --- Step 0360: Limpiar Framebuffer al Inicio del Siguiente Frame ---
             // El framebuffer se limpia al inicio del siguiente frame (cuando LY se resetea a 0)
-            // Esto asegura que Python siempre lee el framebuffer ANTES de que se limpie
-            // El framebuffer del frame anterior ya fue leído por Python en el frame anterior
+            // PERO solo si Python no lo está leyendo (protección contra condiciones de carrera)
+            // clear_framebuffer() ahora verifica framebuffer_being_read_ internamente
             clear_framebuffer();
         }
     }
@@ -964,17 +1011,17 @@ bool PPU::get_frame_ready_and_reset() {
     if (frame_ready_) {
         frame_ready_ = false;
         
-        // --- Step 0333: CORRECCIÓN CRÍTICA - NO Limpiar Framebuffer Aquí ---
-        // El framebuffer NO se limpia aquí porque Python lo lee DESPUÉS de esta llamada
-        // Si limpiamos aquí, Python leerá un framebuffer vacío
-        // El framebuffer se limpia al inicio del siguiente frame (cuando LY se resetea a 0)
-        // Esto asegura que Python siempre lee el framebuffer ANTES de que se limpie
-        // 
+        // --- Step 0360: Protección del Framebuffer Durante Renderizado ---
+        // Marcar que Python va a leer el framebuffer
+        // NO limpiar el framebuffer aquí - se limpiará cuando Python confirme que lo leyó
+        framebuffer_being_read_ = true;
+        
         // Log de reset del flag (sin limpiar framebuffer)
         static int frame_ready_reset_log_count = 0;
         if (frame_ready_reset_log_count < 5) {
             frame_ready_reset_log_count++;
-            printf("[PPU-FRAME-READY-RESET] Frame %llu | Flag frame_ready_ reseteado (framebuffer NO limpiado aquí)\n",
+            printf("[PPU-FRAME-READY-RESET] Frame %llu | Flag frame_ready_ reseteado | "
+                   "Framebuffer protegido (Python va a leer)\n",
                    static_cast<unsigned long long>(frame_counter_));
         }
         // -------------------------------------------
@@ -989,8 +1036,23 @@ uint8_t* PPU::get_framebuffer_ptr() {
 }
 
 void PPU::clear_framebuffer() {
+    // --- Step 0360: Protección del Framebuffer Durante Renderizado ---
+    // Verificar que el framebuffer no se limpia mientras Python lo está leyendo
+    if (framebuffer_being_read_) {
+        static int warning_count = 0;
+        if (warning_count < 10) {
+            warning_count++;
+            printf("[PPU-FRAMEBUFFER-SYNC] ⚠️ ADVERTENCIA: Intentando limpiar framebuffer "
+                   "mientras Python lo está leyendo (Frame %llu, LY=%d)\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1), ly_);
+        }
+        // NO limpiar el framebuffer si Python lo está leyendo
+        return;
+    }
+    // -------------------------------------------
+    
     // --- Step 0348: Verificación de Condiciones de Carrera ---
-    // Verificar que el framebuffer no se limpia mientras se está leyendo
+    // Verificar que el framebuffer no se limpia durante renderizado
     static int clear_framebuffer_race_check_count = 0;
     if (clear_framebuffer_race_check_count < 50) {
         clear_framebuffer_race_check_count++;
@@ -1006,6 +1068,26 @@ void PPU::clear_framebuffer() {
     
     // Rellena el framebuffer con el índice de color 0 (blanco en la paleta por defecto)
     std::fill(framebuffer_.begin(), framebuffer_.end(), 0);
+}
+
+void PPU::confirm_framebuffer_read() {
+    // --- Step 0360: Confirmar Lectura del Framebuffer ---
+    // Python confirmó que leyó el framebuffer, ahora es seguro limpiarlo
+    if (framebuffer_being_read_) {
+        framebuffer_being_read_ = false;
+        
+        // Ahora es seguro limpiar el framebuffer
+        std::fill(framebuffer_.begin(), framebuffer_.end(), 0);
+        
+        static int confirm_log_count = 0;
+        if (confirm_log_count < 5) {
+            confirm_log_count++;
+            printf("[PPU-FRAMEBUFFER-SYNC] Frame %llu | Python confirmó lectura | "
+                   "Framebuffer limpiado de forma segura\n",
+                   static_cast<unsigned long long>(frame_counter_));
+        }
+    }
+    // -------------------------------------------
 }
 
 void PPU::render_scanline() {

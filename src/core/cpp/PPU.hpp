@@ -204,6 +204,14 @@ public:
      * Fuente: Práctica estándar de gráficos por ordenador (Back Buffer Clearing).
      */
     void clear_framebuffer();
+    
+    /**
+     * Step 0360: Confirma que Python leyó el framebuffer.
+     * 
+     * Este método debe llamarse después de que Python termine de leer el framebuffer.
+     * Permite que C++ limpie el framebuffer de forma segura sin condiciones de carrera.
+     */
+    void confirm_framebuffer_read();
 
 private:
     /**
@@ -271,6 +279,12 @@ private:
      * Se actualiza una vez por línea (en LY=0) para evitar verificaciones repetitivas.
      */
     bool vram_is_empty_;
+    
+    /**
+     * Step 0360: Flag para proteger el framebuffer durante el renderizado.
+     * Indica cuando Python está leyendo el framebuffer para evitar que C++ lo limpie.
+     */
+    bool framebuffer_being_read_;
     
     /**
      * Actualiza el modo PPU actual según el punto en la línea (line_cycles) y LY.

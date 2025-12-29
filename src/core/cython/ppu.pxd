@@ -45,4 +45,5 @@ cdef extern from "PPU.hpp":
         bool get_frame_ready_and_reset()
         uint8_t* get_framebuffer_ptr()
         void clear_framebuffer()
+        void confirm_framebuffer_read()
 

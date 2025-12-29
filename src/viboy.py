@@ -979,6 +979,11 @@ class Viboy:
                                               f"(t={read_end_time:.6f}s)")
                                     # -------------------------------------------
                                     
+                                    # --- Step 0360: Confirmar Lectura del Framebuffer ---
+                                    # Confirmar que Python leyó el framebuffer antes de que C++ lo limpie
+                                    # Esto previene condiciones de carrera entre C++ y Python
+                                    # -------------------------------------------
+                                    
                                     # 4. Verificar primeros 20 píxeles después de copiar
                                     first_20_after = [fb_data[i] & 0x03 for i in range(min(20, len(fb_data)))]
                                     
@@ -1083,9 +1088,21 @@ class Viboy:
                     if framebuffer_to_render is not None:
                         # Pasar la COPIA SEGURA al renderizador
                         self._renderer.render_frame(framebuffer_data=framebuffer_to_render)
+                        
+                        # --- Step 0360: Confirmar Lectura del Framebuffer ---
+                        # Confirmar que Python terminó de leer y renderizar el framebuffer
+                        # Esto permite que C++ limpie el framebuffer de forma segura
+                        if self._ppu is not None:
+                            self._ppu.confirm_framebuffer_read()
+                        # -------------------------------------------
                     else:
                         # Fallback: el renderer leerá el framebuffer directamente desde la PPU
                         self._renderer.render_frame()
+                        
+                        # --- Step 0360: Confirmar Lectura del Framebuffer (Fallback) ---
+                        if self._ppu is not None:
+                            self._ppu.confirm_framebuffer_read()
+                        # -------------------------------------------
                     
                     # --- Step 0309: Limitador de FPS y Reporte Correcto ---
                     # Sincronización con el reloj del host para mantener 60 FPS
