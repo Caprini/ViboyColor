@@ -211,6 +211,24 @@ void PPU::step(int cpu_cycles) {
         // Avanzar a la siguiente línea
         ly_ += 1;
         
+        // --- Step 0340: Detección de Tiles Reales al Inicio del Frame ---
+        // Detectar si hay tiles reales cuando LY se resetea a 0 (inicio del frame)
+        static bool tiles_were_detected_this_frame = false;
+        
+        if (ly_ == 0) {
+            // Verificar si hay tiles reales en VRAM
+            int non_zero_bytes = 0;
+            for (uint16_t addr = 0x8000; addr < 0x9800; addr++) {
+                uint8_t byte = mmu_->read(addr);
+                if (byte != 0x00) {
+                    non_zero_bytes++;
+                }
+            }
+            
+            tiles_were_detected_this_frame = (non_zero_bytes >= 200);
+        }
+        // -------------------------------------------
+        
         // --- Step 0339: Verificación de Secuencia de Líneas (continuación) ---
         if (ly_ != last_ly_logged && ly_sequence_check_count < 200) {
             ly_sequence_check_count++;
@@ -295,12 +313,80 @@ void PPU::step(int cpu_cycles) {
                 vblank_log++;
             }
             
+            // --- Step 0340: Verificación de Timing Cuando Se Marca Frame Ready ---
+            // Loggear cuándo se marca frame_ready_ y verificar que el framebuffer está completo
+            static int frame_ready_timing_log_count = 0;
+            
+            if (!frame_ready_) {
+                if (frame_ready_timing_log_count < 10) {
+                    frame_ready_timing_log_count++;
+                    
+                    // Verificar que el framebuffer tiene datos
+                    int total_non_zero = 0;
+                    for (int i = 0; i < FRAMEBUFFER_SIZE; i++) {
+                        if ((framebuffer_[i] & 0x03) != 0) {
+                            total_non_zero++;
+                        }
+                    }
+                    
+                    printf("[PPU-FRAME-READY-TIMING] Frame %llu | LY: %d (VBLANK_START) | "
+                           "frame_ready_ marcado | Non-zero pixels: %d/23040\n",
+                           static_cast<unsigned long long>(frame_counter_ + 1),
+                           ly_, total_non_zero);
+                }
+                
+                // CRÍTICO: Marcar frame como listo para renderizar
+                frame_ready_ = true;
+            }
+            
             // --- Step 0331: Log de Sincronización del Framebuffer ---
             static int frame_ready_log_count = 0;
             if (frame_ready_log_count < 5) {
                 frame_ready_log_count++;
                 printf("[PPU-FRAME-READY] Frame %llu | Frame marcado como listo (LY=144)\n",
                        static_cast<unsigned long long>(frame_counter_ + 1));
+            }
+            // -------------------------------------------
+            
+            // --- Step 0340: Verificación del Contenido del Framebuffer Cuando Hay Tiles Reales ---
+            // Cuando se completa el frame (LY=144) y había tiles reales, verificar el framebuffer
+            static int framebuffer_with_tiles_check_count = 0;
+            
+            if (tiles_were_detected_this_frame && framebuffer_with_tiles_check_count < 10) {
+                framebuffer_with_tiles_check_count++;
+                
+                // Contar índices en todo el framebuffer
+                int index_counts[4] = {0, 0, 0, 0};
+                int total_non_zero_pixels = 0;
+                
+                for (int y = 0; y < 144; y++) {
+                    size_t line_start = y * SCREEN_WIDTH;
+                    for (int x = 0; x < SCREEN_WIDTH; x++) {
+                        uint8_t color_idx = framebuffer_[line_start + x] & 0x03;
+                        if (color_idx < 4) {
+                            index_counts[color_idx]++;
+                            if (color_idx != 0) {
+                                total_non_zero_pixels++;
+                            }
+                        }
+                    }
+                }
+                
+                printf("[PPU-FRAMEBUFFER-WITH-TILES] Frame %llu | Tiles reales detectados | "
+                       "Total non-zero pixels: %d/23040 | Distribution: 0=%d 1=%d 2=%d 3=%d\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1),
+                       total_non_zero_pixels,
+                       index_counts[0], index_counts[1], index_counts[2], index_counts[3]);
+                
+                // Verificar algunos píxeles específicos (esquinas y centro)
+                int test_positions[][2] = {{0, 0}, {0, 159}, {71, 79}, {143, 0}, {143, 159}};
+                for (int i = 0; i < 5; i++) {
+                    int y = test_positions[i][0];
+                    int x = test_positions[i][1];
+                    size_t idx = y * SCREEN_WIDTH + x;
+                    uint8_t color_idx = framebuffer_[idx] & 0x03;
+                    printf("[PPU-FRAMEBUFFER-WITH-TILES] Pixel (%d, %d): index=%d\n", x, y, color_idx);
+                }
             }
             // -------------------------------------------
             
@@ -355,9 +441,6 @@ void PPU::step(int cpu_cycles) {
                 }
             }
             // -------------------------------------------
-            
-            // CRÍTICO: Marcar frame como listo para renderizar
-            frame_ready_ = true;
         }
         
         // --- Step 0335: Verificación Periódica del Framebuffer ---

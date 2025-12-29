@@ -706,6 +706,42 @@ class Renderer:
                 # NOTA: frame_indices se define más abajo, así que verificamos después de obtenerlo
                 # -------------------------------------------
                 
+                # --- Step 0340: Verificación de Correspondencia Entre Framebuffer y Visualización ---
+                # Verificar el contenido del framebuffer cuando se renderiza
+                if not hasattr(self, '_framebuffer_visualization_check_count'):
+                    self._framebuffer_visualization_check_count = 0
+                
+                if framebuffer_data is not None and self._framebuffer_visualization_check_count < 10:
+                    self._framebuffer_visualization_check_count += 1
+                    
+                    # Verificar primeros 20 píxeles
+                    first_20 = [framebuffer_data[i] & 0x03 for i in range(min(20, len(framebuffer_data)))]
+                    
+                    # Contar índices en los primeros 100 píxeles
+                    index_counts = [0, 0, 0, 0]
+                    non_zero_pixels = 0
+                    for i in range(min(100, len(framebuffer_data))):
+                        idx = framebuffer_data[i] & 0x03
+                        if idx < 4:
+                            index_counts[idx] += 1
+                            if idx != 0:
+                                non_zero_pixels += 1
+                    
+                    logger.info(f"[Renderer-Framebuffer-Visualization] Frame {self._framebuffer_visualization_check_count} | "
+                               f"First 20 indices: {first_20}")
+                    logger.info(f"[Renderer-Framebuffer-Visualization] Frame {self._framebuffer_visualization_check_count} | "
+                               f"Index counts (first 100): 0={index_counts[0]} 1={index_counts[1]} "
+                               f"2={index_counts[2]} 3={index_counts[3]} | Non-zero: {non_zero_pixels}/100")
+                    
+                    # Verificar algunos píxeles específicos (esquinas y centro)
+                    test_positions = [(0, 0), (0, 159), (71, 79), (143, 0), (143, 159)]
+                    for y, x in test_positions:
+                        idx = y * 160 + x
+                        if idx < len(framebuffer_data):
+                            color_idx = framebuffer_data[idx] & 0x03
+                            logger.info(f"[Renderer-Framebuffer-Visualization] Pixel ({x}, {y}): index={color_idx}")
+                # -------------------------------------------
+                
                 # --- STEP 0332: Diagnóstico de Framebuffer Recibido ---
                 # Verificar qué índices recibe el renderizador del framebuffer
                 # Usar diagnostic_data que puede ser framebuffer_data o frame_indices

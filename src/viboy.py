@@ -834,6 +834,25 @@ class Viboy:
                         # Esto asegura que Python siempre lee el framebuffer ANTES de que se limpie
                         if self._ppu is not None:
                             if self._ppu.get_frame_ready_and_reset():
+                                # --- Step 0340: Verificación de Timing de Lectura del Framebuffer ---
+                                if not hasattr(self, '_framebuffer_timing_count'):
+                                    self._framebuffer_timing_count = 0
+                                if self._framebuffer_timing_count < 10:
+                                    self._framebuffer_timing_count += 1
+                                    logger.info(f"[Viboy-Framebuffer-Timing] Frame {self._framebuffer_timing_count} | "
+                                               f"Frame ready detectado, leyendo framebuffer...")
+                                
+                                # --- Step 0340: Verificación de Timing Cuando Se Lee el Framebuffer ---
+                                read_start_time = time.time()
+                                
+                                if not hasattr(self, '_framebuffer_read_timing_count'):
+                                    self._framebuffer_read_timing_count = 0
+                                
+                                if self._framebuffer_read_timing_count < 10:
+                                    self._framebuffer_read_timing_count += 1
+                                    logger.info(f"[Viboy-Framebuffer-Read-Timing] Frame {self._framebuffer_read_timing_count} | "
+                                               f"Leyendo framebuffer en t={read_start_time:.6f}s")
+                                
                                 # --- Step 0332: Verificación Detallada de Copia del Framebuffer ---
                                 # 1. Obtener la vista directa de C++
                                 raw_view = self._ppu.framebuffer
@@ -883,6 +902,14 @@ class Viboy:
                                     
                                     # 7. Guardar la COPIA SEGURA para el renderizador
                                     framebuffer_to_render = fb_data
+                                    
+                                    # --- Step 0340: Finalizar Timing de Lectura del Framebuffer ---
+                                    read_end_time = time.time()
+                                    read_duration = (read_end_time - read_start_time) * 1000  # en milisegundos
+                                    
+                                    if self._framebuffer_read_timing_count <= 10:
+                                        logger.info(f"[Viboy-Framebuffer-Read-Timing] Frame {self._framebuffer_read_timing_count} | "
+                                                   f"Framebuffer leído en {read_duration:.3f}ms")
                                 else:
                                     logger.error("[Viboy-Framebuffer-Copy-Detailed] ⚠️ Framebuffer es None!")
                                 # -------------------------------------------
