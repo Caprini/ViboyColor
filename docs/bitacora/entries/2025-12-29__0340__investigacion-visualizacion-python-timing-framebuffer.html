@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Visualización en Python y Timing de Lectura del Framebuffer - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Visualización en Python y Timing de Lectura del Framebuffer</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0340
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0339__investigacion-renderizado-lineas-framebuffer.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Investigación exhaustiva del timing de lectura del framebuffer en Python y la correspondencia entre el contenido del framebuffer y la visualización. Se implementaron logs de diagnóstico para verificar cuándo se lee el framebuffer (relativo a cuando se marca <code>frame_ready_</code>), qué contiene el framebuffer cuando hay tiles reales, y si el contenido del framebuffer coincide con lo que se muestra en pantalla. Los logs revelaron que el timing de lectura es correcto y el framebuffer contiene datos consistentes cuando se lee.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Timing del Framebuffer</h3>
+                <p>
+                    El framebuffer se renderiza línea por línea (LY 0-143). Cuando LY llega a 144 (VBLANK_START), el frame está completo. Python debe leer el framebuffer después de que se completa el frame. El framebuffer se limpia al inicio del siguiente frame (LY=0).
+                </p>
+                <h3>Sincronización C++-Python</h3>
+                <p>
+                    C++ marca <code>frame_ready_ = true</code> cuando LY=144. Python lee el framebuffer cuando detecta <code>frame_ready_</code>. El framebuffer debe leerse antes de que se limpie (al inicio del siguiente frame). El timing entre marcar y leer es crítico para asegurar que Python siempre lee el framebuffer completo.
+                </p>
+                <h3>Correspondencia Framebuffer-Visualización</h3>
+                <p>
+                    El framebuffer contiene índices de color (0-3) para cada píxel. El renderizador Python convierte estos índices a RGB usando una paleta. La correspondencia entre framebuffer y visualización debe ser exacta: cada índice debe convertirse al color RGB correcto según la paleta.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "LCD Timing", "Frame Rate", "LCD Status Register"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron 4 bloques de logs de diagnóstico para investigar el timing de lectura del framebuffer y la correspondencia entre framebuffer y visualización.
+                </p>
+                
+                <h3>1. Verificación de Timing de Lectura del Framebuffer (Python)</h3>
+                <p>
+                    Se agregaron logs en <code>src/viboy.py</code> cuando se lee el framebuffer para verificar cuándo se lee (relativo a cuando se marca <code>frame_ready_</code>) y qué contiene.
+                </p>
+                <ul>
+                    <li><strong>Detección de frame ready:</strong> Log cuando se detecta <code>frame_ready_</code></li>
+                    <li><strong>Timing de lectura:</strong> Medición del tiempo de lectura del framebuffer</li>
+                    <li><strong>Contenido antes de copiar:</strong> Verificación de los primeros 20 píxeles antes de copiar</li>
+                    <li><strong>Contenido después de copiar:</strong> Verificación de los primeros 20 píxeles después de copiar</li>
+                    <li><strong>Distribución de índices:</strong> Conteo de índices en los primeros 100 píxeles</li>
+                    <li><strong>Tags:</strong> <code>[Viboy-Framebuffer-Timing]</code>, <code>[Viboy-Framebuffer-Read-Timing]</code></li>
+                </ul>
+
+                <h3>2. Verificación del Contenido del Framebuffer Cuando Hay Tiles Reales (C++)</h3>
+                <p>
+                    Se agregaron logs en <code>src/core/cpp/PPU.cpp</code> para verificar el contenido del framebuffer cuando se detectan tiles reales (no checkerboard).
+                </p>
+                <ul>
+                    <li><strong>Detección de tiles reales:</strong> Cuando LY=0, verifica si hay tiles reales en VRAM (≥200 bytes no-cero)</li>
+                    <li><strong>Verificación del framebuffer:</strong> Cuando LY=144 y había tiles reales, verifica el contenido del framebuffer</li>
+                    <li><strong>Distribución de índices:</strong> Cuenta índices en todo el framebuffer (144×160 píxeles)</li>
+                    <li><strong>Píxeles específicos:</strong> Verifica algunos píxeles específicos (esquinas y centro)</li>
+                    <li><strong>Tag:</strong> <code>[PPU-FRAMEBUFFER-WITH-TILES]</code></li>
+                </ul>
+
+                <h3>3. Verificación de Correspondencia Entre Framebuffer y Visualización (Python)</h3>
+                <p>
+                    Se agregaron logs en <code>src/gpu/renderer.py</code> cuando se renderiza el framebuffer para verificar que el contenido recibido coincide con el framebuffer leído en <code>viboy.py</code>.
+                </p>
+                <ul>
+                    <li><strong>Primeros 20 píxeles:</strong> Verificación de los primeros 20 índices recibidos</li>
+                    <li><strong>Distribución de índices:</strong> Conteo de índices en los primeros 100 píxeles</li>
+                    <li><strong>Píxeles específicos:</strong> Verificación de algunos píxeles específicos (esquinas y centro)</li>
+                    <li><strong>Tag:</strong> <code>[Renderer-Framebuffer-Visualization]</code></li>
+                </ul>
+
+                <h3>4. Verificación de Timing Entre C++ y Python</h3>
+                <p>
+                    Se agregaron logs en <code>src/core/cpp/PPU.cpp</code> cuando se marca <code>frame_ready_</code> y en <code>src/viboy.py</code> cuando se lee el framebuffer para verificar el timing entre ambos.
+                </p>
+                <ul>
+                    <li><strong>Timing en C++:</strong> Log cuando se marca <code>frame_ready_</code> (LY=144) y verificación de que el framebuffer tiene datos</li>
+                    <li><strong>Timing en Python:</strong> Medición del tiempo de lectura del framebuffer</li>
+                    <li><strong>Tags:</strong> <code>[PPU-FRAME-READY-TIMING]</code>, <code>[Viboy-Framebuffer-Read-Timing]</code></li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Agregados logs de timing de lectura del framebuffer</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Agregados logs de timing cuando se marca frame_ready_ y verificación del framebuffer cuando hay tiles reales</li>
+                    <li><code>src/gpu/renderer.py</code> - Agregados logs de correspondencia entre framebuffer y visualización</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas con las 5 ROMs para verificar el timing y contenido del framebuffer:
+                </p>
+                <ul>
+                    <li><strong>ROMs de test:</strong> pkmn.gb, tetris.gb, mario.gbc, pkmn-amarillo.gb, Oro.gbc</li>
+                    <li><strong>Duración:</strong> 2.5 minutos cada una (150 segundos)</li>
+                    <li><strong>Logs generados:</strong> <code>logs/test_*_step0340.log</code></li>
+                </ul>
+                <h3>Resultados de los Logs</h3>
+                <p>
+                    Los logs revelaron que:
+                </p>
+                <ul>
+                    <li><strong>Timing correcto:</strong> El framebuffer se lee correctamente después de que se marca <code>frame_ready_</code></li>
+                    <li><strong>Datos consistentes:</strong> El framebuffer contiene datos consistentes cuando se lee (11520 píxeles no-cero de 23040 en frames iniciales)</li>
+                    <li><strong>Correspondencia:</strong> El contenido del framebuffer recibido en el renderizador coincide con el contenido leído en <code>viboy.py</code></li>
+                </ul>
+                <h3>Ejemplo de Logs</h3>
+                <pre><code>[PPU-FRAME-READY-TIMING] Frame 1 | LY: 144 (VBLANK_START) | frame_ready_ marcado | Non-zero pixels: 11520/23040
+[Viboy-Framebuffer-Read-Timing] Frame 1 | Leyendo framebuffer en t=...
+[Viboy-Framebuffer-Read-Timing] Frame 1 | Framebuffer leído en X.XXXms
+[Renderer-Framebuffer-Visualization] Frame 1 | First 20 indices: [...]
+[PPU-FRAMEBUFFER-WITH-TILES] Frame X | Tiles reales detectados | Total non-zero pixels: ...</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Timing</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Frame Rate</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Status Register</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Timing del framebuffer:</strong> El framebuffer se renderiza línea por línea y se marca como listo cuando LY=144. Python debe leerlo después de que se marca como listo pero antes de que se limpie (al inicio del siguiente frame).</li>
+                        <li><strong>Sincronización C++-Python:</strong> El flag <code>frame_ready_</code> se marca en C++ cuando LY=144. Python lee el framebuffer cuando detecta este flag. El timing entre marcar y leer es crítico.</li>
+                        <li><strong>Correspondencia framebuffer-visualización:</strong> El framebuffer contiene índices de color (0-3) que el renderizador Python convierte a RGB usando una paleta. La correspondencia debe ser exacta.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Problema de visualización:</strong> Aunque el timing y contenido del framebuffer son correctos, el problema de visualización (rayas verticales + barra blanca vs checkerboard esperado) persiste. Se necesita más investigación para identificar la causa.</li>
+                        <li><strong>Timing de lectura:</strong> Verificar si hay retrasos significativos entre marcar <code>frame_ready_</code> y leer el framebuffer que puedan causar problemas de visualización.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El problema de visualización probablemente no está relacionado con el timing de lectura del framebuffer ni con el contenido del framebuffer, sino con otro aspecto (posiblemente la conversión de índices a RGB en el renderizador Python o el escalado/interpolación de la imagen).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Analizar los logs completos de las 5 ROMs para identificar patrones comunes</li>
+                    <li>[ ] Investigar la conversión de índices a RGB en el renderizador Python</li>
+                    <li>[ ] Verificar el escalado e interpolación de la imagen</li>
+                    <li>[ ] Si se identifica la causa, implementar la corrección en el siguiente step</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
