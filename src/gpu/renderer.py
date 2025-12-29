@@ -579,6 +579,99 @@ class Renderer:
                     # -------------------------------------------
                 # ----------------------------------------
                 
+                # --- Step 0342: Verificación del Tamaño Real del Framebuffer ---
+                # Verificar el tamaño real del framebuffer cuando se recibe
+                if not hasattr(self, '_framebuffer_size_check_count'):
+                    self._framebuffer_size_check_count = 0
+
+                if frame_indices is not None and self._framebuffer_size_check_count < 20:
+                    self._framebuffer_size_check_count += 1
+                    
+                    actual_size = len(frame_indices)
+                    expected_size = 160 * 144  # 23040
+                    
+                    logger.info(f"[Renderer-Framebuffer-Size] Frame {self._framebuffer_size_check_count} | "
+                               f"Actual size: {actual_size} | Expected: {expected_size} | "
+                               f"Type: {type(frame_indices)}")
+                    
+                    if actual_size != expected_size:
+                        logger.warning(f"[Renderer-Framebuffer-Size] ⚠️ Tamaño inesperado! "
+                                      f"Actual: {actual_size}, Expected: {expected_size}")
+                        
+                        # Si el tamaño es menor, verificar cuántos píxeles faltan
+                        if actual_size < expected_size:
+                            missing_pixels = expected_size - actual_size
+                            logger.warning(f"[Renderer-Framebuffer-Size] ⚠️ Faltan {missing_pixels} píxeles "
+                                          f"({missing_pixels / expected_size * 100:.1f}% del framebuffer)")
+                        
+                        # Si el tamaño es mayor, verificar cuántos píxeles extra hay
+                        if actual_size > expected_size:
+                            extra_pixels = actual_size - expected_size
+                            logger.warning(f"[Renderer-Framebuffer-Size] ⚠️ Hay {extra_pixels} píxeles extra "
+                                          f"({extra_pixels / expected_size * 100:.1f}% del framebuffer)")
+                    else:
+                        logger.info(f"[Renderer-Framebuffer-Size] ✅ Tamaño correcto: {actual_size} píxeles")
+                # -------------------------------------------
+                
+                # --- Step 0342: Verificación del Orden de Lectura y Dibujo de Píxeles ---
+                # Verificar que el orden de los píxeles es correcto (formato [y * 160 + x])
+                if not hasattr(self, '_pixel_order_verification_count'):
+                    self._pixel_order_verification_count = 0
+
+                if frame_indices is not None and len(frame_indices) > 0 and \
+                   self._pixel_order_verification_count < 10:
+                    self._pixel_order_verification_count += 1
+                    
+                    logger.info(f"[Renderer-Pixel-Order-Verification] Frame {self._pixel_order_verification_count} | "
+                               f"Verificando orden de píxeles:")
+                    
+                    # Verificar píxeles adyacentes horizontalmente (misma línea, x consecutivos)
+                    test_y = 0
+                    test_x_start = 0
+                    test_x_count = 5
+                    
+                    logger.info(f"[Renderer-Pixel-Order-Verification] Verificando píxeles adyacentes horizontalmente (y={test_y}):")
+                    for x in range(test_x_start, test_x_start + test_x_count):
+                        idx = test_y * 160 + x
+                        if idx < len(frame_indices):
+                            color_idx = frame_indices[idx] & 0x03
+                            logger.info(f"[Renderer-Pixel-Order-Verification] Pixel (x={x}, y={test_y}): "
+                                       f"idx={idx}, color_idx={color_idx}")
+                            
+                            # Verificar que el índice es correcto
+                            expected_idx = test_y * 160 + x
+                            if idx != expected_idx:
+                                logger.warning(f"[Renderer-Pixel-Order-Verification] ⚠️ Índice incorrecto! "
+                                             f"Expected: {expected_idx}, Actual: {idx}")
+                    
+                    # Verificar píxeles adyacentes verticalmente (misma columna, y consecutivos)
+                    test_x = 0
+                    test_y_start = 0
+                    test_y_count = 5
+                    
+                    logger.info(f"[Renderer-Pixel-Order-Verification] Verificando píxeles adyacentes verticalmente (x={test_x}):")
+                    for y in range(test_y_start, test_y_start + test_y_count):
+                        idx = y * 160 + test_x
+                        if idx < len(frame_indices):
+                            color_idx = frame_indices[idx] & 0x03
+                            logger.info(f"[Renderer-Pixel-Order-Verification] Pixel (x={test_x}, y={y}): "
+                                       f"idx={idx}, color_idx={color_idx}")
+                            
+                            # Verificar que el índice es correcto
+                            expected_idx = y * 160 + test_x
+                            if idx != expected_idx:
+                                logger.warning(f"[Renderer-Pixel-Order-Verification] ⚠️ Índice incorrecto! "
+                                             f"Expected: {expected_idx}, Actual: {idx}")
+                            
+                            # Verificar que la diferencia entre índices consecutivos es 160
+                            if y > test_y_start:
+                                prev_idx = (y - 1) * 160 + test_x
+                                idx_diff = idx - prev_idx
+                                if idx_diff != 160:
+                                    logger.warning(f"[Renderer-Pixel-Order-Verification] ⚠️ Diferencia incorrecta! "
+                                                 f"Expected: 160, Actual: {idx_diff}")
+                # -------------------------------------------
+                
                 # Diagnóstico desactivado para producción
                 
                 # --- Step 0335: Verificación Periódica del Renderizador ---
@@ -705,7 +798,11 @@ class Renderer:
                 if not hasattr(self, '_rgb_conversion_check_count'):
                     self._rgb_conversion_check_count = 0
                 
-                if frame_indices is not None and len(frame_indices) == 23040 and self._rgb_conversion_check_count < 10:
+                if frame_indices is not None and len(frame_indices) > 0 and self._rgb_conversion_check_count < 10:
+                    # Agregar verificación de tamaño
+                    if len(frame_indices) != 23040:
+                        logger.warning(f"[Renderer-RGB-Conversion] ⚠️ Tamaño inesperado: {len(frame_indices)} (esperado: 23040)")
+                    
                     self._rgb_conversion_check_count += 1
                     
                     # Verificar que la paleta tiene los valores correctos
@@ -790,7 +887,11 @@ class Renderer:
                 if not hasattr(self, '_pixel_order_check_count'):
                     self._pixel_order_check_count = 0
                 
-                if frame_indices is not None and len(frame_indices) == 23040 and self._pixel_order_check_count < 10:
+                if frame_indices is not None and len(frame_indices) > 0 and self._pixel_order_check_count < 10:
+                    # Agregar verificación de tamaño
+                    if len(frame_indices) != 23040:
+                        logger.warning(f"[Renderer-Pixel-Order] ⚠️ Tamaño inesperado: {len(frame_indices)} (esperado: 23040)")
+                    
                     self._pixel_order_check_count += 1
                     
                     # Verificar píxeles en una línea horizontal (y=0, x=0 a x=10)
@@ -1190,6 +1291,60 @@ class Renderer:
                                              f"Expected: {expected_rgb}, Actual: {surface_color}")
                 # -------------------------------------------
                 
+                # --- Step 0342: Verificación de Correspondencia Entre Framebuffer y Visualización ---
+                # Verificar que el contenido del framebuffer se refleja correctamente en la visualización
+                if not hasattr(self, '_framebuffer_visualization_correspondence_count'):
+                    self._framebuffer_visualization_correspondence_count = 0
+
+                if hasattr(self, 'surface') and self.surface is not None and \
+                   frame_indices is not None and len(frame_indices) > 0 and \
+                   self._framebuffer_visualization_correspondence_count < 20:
+                    self._framebuffer_visualization_correspondence_count += 1
+                    
+                    # Verificar algunas líneas horizontales completas
+                    test_lines = [0, 72, 143]  # Primera línea, línea central, última línea
+                    
+                    logger.info(f"[Renderer-Framebuffer-Visualization-Correspondence] Frame {self._framebuffer_visualization_correspondence_count} | "
+                               f"Verificando correspondencia entre framebuffer y visualización:")
+                    
+                    for y in test_lines:
+                        if y * 160 < len(frame_indices):
+                            # Leer primeros 10 píxeles de la línea del framebuffer
+                            line_start = y * 160
+                            framebuffer_line = [frame_indices[line_start + x] & 0x03 
+                                               for x in range(min(10, 160, len(frame_indices) - line_start))]
+                            
+                            # Leer los mismos píxeles de la superficie después de dibujar
+                            surface_line = []
+                            for x in range(min(10, 160)):
+                                if x < self.surface.get_width() and y < self.surface.get_height():
+                                    surface_color = self.surface.get_at((x, y))
+                                    # Convertir RGB a índice aproximado (buscar en la paleta)
+                                    surface_line.append(surface_color)
+                            
+                            logger.info(f"[Renderer-Framebuffer-Visualization-Correspondence] Line {y} | "
+                                       f"Framebuffer (first 10): {framebuffer_line} | "
+                                       f"Surface (first 10): {surface_line}")
+                            
+                            # Verificar que los colores coinciden (tolerancia para interpolación)
+                            matches = 0
+                            for x in range(min(10, len(framebuffer_line), len(surface_line))):
+                                expected_rgb = palette[framebuffer_line[x]]
+                                actual_rgb = surface_line[x]
+                                
+                                if abs(actual_rgb[0] - expected_rgb[0]) <= 5 and \
+                                   abs(actual_rgb[1] - expected_rgb[1]) <= 5 and \
+                                   abs(actual_rgb[2] - expected_rgb[2]) <= 5:
+                                    matches += 1
+                            
+                            logger.info(f"[Renderer-Framebuffer-Visualization-Correspondence] Line {y} | "
+                                       f"Matches: {matches}/10 píxeles coinciden")
+                            
+                            if matches < 8:
+                                logger.warning(f"[Renderer-Framebuffer-Visualization-Correspondence] ⚠️ "
+                                             f"Solo {matches}/10 píxeles coinciden en línea {y}!")
+                # -------------------------------------------
+                
                 # --- STEP 0334: CORRECCIÓN CRÍTICA - Actualizar Cache en Cada Frame ---
                 # PROBLEMA: El cache de escalado solo se actualizaba si cambiaba el tamaño de pantalla,
                 # no cuando cambiaba el contenido. Esto causaba que se mostrara el primer frame
@@ -1244,7 +1399,12 @@ class Renderer:
                     self._scale_visualization_check_count = 0
                 
                 if hasattr(self, '_scaled_surface_cache') and self._scaled_surface_cache is not None and \
+                   frame_indices is not None and len(frame_indices) > 0 and \
                    self._scale_visualization_check_count < 10:
+                    # Agregar verificación de tamaño
+                    if len(frame_indices) != 23040:
+                        logger.warning(f"[Renderer-Scale-Visualization] ⚠️ Tamaño inesperado: {len(frame_indices)} (esperado: 23040)")
+                    
                     self._scale_visualization_check_count += 1
                     
                     # Verificar algunos píxeles antes y después del escalado

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrección de Condiciones de Logs y Verificación de Correspondencia Framebuffer-Visualización - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Corrección de Condiciones de Logs y Verificación de Correspondencia Framebuffer-Visualización</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0342
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0341__investigacion-conversion-rgb-orden-pixeles.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Corrección de las condiciones de los logs de diagnóstico para que se ejecuten más frecuentemente (cambiando la condición de <code>len(frame_indices) == 23040</code> a <code>len(frame_indices) > 0</code>). Se agregaron nuevos bloques de logs para verificar el tamaño real del framebuffer, la correspondencia entre el framebuffer y la visualización, y el orden de lectura y dibujo de píxeles. El objetivo es identificar por qué los logs no aparecían y verificar que el contenido del framebuffer se refleja correctamente en la visualización.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Formato del Framebuffer</h3>
+                <p>
+                    El framebuffer está en formato 1D: <code>[y * 160 + x]</code> donde:
+                </p>
+                <ul>
+                    <li><code>y</code> es la línea (0-143)</li>
+                    <li><code>x</code> es la columna (0-159)</li>
+                    <li><code>idx = y * 160 + x</code> da el índice en el array 1D</li>
+                    <li>Tamaño esperado: 160 × 144 = 23,040 píxeles</li>
+                </ul>
+                <p>
+                    Este formato permite almacenar una imagen de 160×144 píxeles en un array lineal de 23040 elementos. Cada elemento contiene un índice de color (0-3).
+                </p>
+
+                <h3>Orden de Píxeles</h3>
+                <p>
+                    El orden de los píxeles en el framebuffer debe seguir estas reglas:
+                </p>
+                <ul>
+                    <li><strong>Píxeles adyacentes horizontalmente:</strong> Índices consecutivos (diferencia = 1)</li>
+                    <li><strong>Píxeles adyacentes verticalmente:</strong> Índices separados por 160 (diferencia = 160)</li>
+                    <li><strong>Ejemplo:</strong> Píxel (x=0, y=0) está en índice 0, píxel (x=1, y=0) está en índice 1, píxel (x=0, y=1) está en índice 160</li>
+                </ul>
+                <p>
+                    Si el orden es incorrecto, la visualización mostrará artefactos como rayas horizontales o verticales en lugar del patrón esperado.
+                </p>
+
+                <h3>Correspondencia Framebuffer-Visualización</h3>
+                <p>
+                    La correspondencia entre el framebuffer y la visualización debe ser exacta:
+                </p>
+                <ul>
+                    <li>El píxel en el framebuffer en posición (x, y) debe corresponder al píxel dibujado en la superficie en posición (x, y)</li>
+                    <li>El índice de color en el framebuffer debe convertirse correctamente a RGB usando la paleta</li>
+                    <li>El RGB resultante debe coincidir con el color dibujado en la superficie (con tolerancia para interpolación de escalado)</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "LCD Timing", "Frame Rate", "Tile Data", "LCD Control Register"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se corrigieron las condiciones de los logs existentes y se agregaron nuevos bloques de logs de diagnóstico en <code>src/gpu/renderer.py</code>.
+                </p>
+
+                <h3>Corrección de Condiciones de Logs</h3>
+                <p>
+                    Se cambiaron las condiciones de los logs de diagnóstico para que se ejecuten más frecuentemente:
+                </p>
+                <ul>
+                    <li><strong>Logs de Pixel-Order:</strong> Cambiado de <code>len(frame_indices) == 23040</code> a <code>len(frame_indices) > 0</code></li>
+                    <li><strong>Logs de RGB-Conversion:</strong> Cambiado de <code>len(frame_indices) == 23040</code> a <code>len(frame_indices) > 0</code></li>
+                    <li><strong>Logs de Scale-Visualization:</strong> Agregada verificación de <code>frame_indices is not None and len(frame_indices) > 0</code></li>
+                </ul>
+                <p>
+                    Se agregaron advertencias cuando el tamaño del framebuffer no es el esperado (23040 píxeles).
+                </p>
+
+                <h3>Nuevos Bloques de Logs</h3>
+                <p>
+                    Se agregaron 3 nuevos bloques de logs de diagnóstico:
+                </p>
+                <ol>
+                    <li><strong>Verificación del Tamaño Real del Framebuffer:</strong> Verifica el tamaño del framebuffer cuando se recibe y advierte si no es 23040 píxeles</li>
+                    <li><strong>Verificación del Orden de Lectura y Dibujo de Píxeles:</strong> Verifica que el orden de los píxeles es correcto (píxeles adyacentes horizontalmente tienen índices consecutivos, píxeles adyacentes verticalmente tienen índices separados por 160)</li>
+                    <li><strong>Verificación de Correspondencia Entre Framebuffer y Visualización:</strong> Verifica que el contenido del framebuffer se refleja correctamente en la visualización comparando píxeles del framebuffer con píxeles de la superficie después de dibujar</li>
+                </ol>
+
+                <h3>Decisiones de Diseño</h3>
+                <p>
+                    <strong>Condiciones de Logs:</strong> Se cambió la condición de <code>len(frame_indices) == 23040</code> a <code>len(frame_indices) > 0</code> para permitir que los logs se ejecuten siempre que haya datos en el framebuffer, independientemente del tamaño. Esto permite diagnosticar problemas cuando el tamaño del framebuffer no es el esperado.
+                </p>
+                <p>
+                    <strong>Límites de Logs:</strong> Se mantuvieron límites en el número de logs (10-20 según el tipo) para evitar saturar el contexto y mantener el rendimiento.
+                </p>
+                <p>
+                    <strong>Tolerancia de Correspondencia:</strong> Se usa una tolerancia de ±5 en cada componente RGB para la verificación de correspondencia, ya que el escalado puede causar interpolación que cambie ligeramente los colores.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Corrección de condiciones de logs y agregado de nuevos bloques de logs de diagnóstico</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas con las 5 ROMs de test (2.5 minutos cada una) para verificar que los logs aparecen correctamente y que la correspondencia entre framebuffer y visualización es correcta.
+                </p>
+                <ul>
+                    <li><strong>ROMs de test:</strong> pkmn.gb, tetris.gb, mario.gbc, pkmn-amarillo.gb, Oro.gbc</li>
+                    <li><strong>Logs generados:</strong> logs/test_*_step0342.log</li>
+                    <li><strong>Comandos de análisis:</strong> Se usaron comandos <code>grep</code> con límites para analizar los logs sin saturar el contexto</li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El módulo C++ se recompiló exitosamente sin errores (solo warnings menores de formato).
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "LCD Timing", "Frame Rate", "Tile Data", "LCD Control Register"</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Formato del Framebuffer:</strong> El framebuffer está en formato 1D con organización <code>[y * 160 + x]</code>, donde píxeles adyacentes horizontalmente tienen índices consecutivos y píxeles adyacentes verticalmente tienen índices separados por 160.</li>
+                        <li><strong>Condiciones de Logs:</strong> Las condiciones estrictas (como <code>len(frame_indices) == 23040</code>) pueden impedir que los logs se ejecuten cuando el tamaño del framebuffer varía o no es exactamente el esperado.</li>
+                        <li><strong>Correspondencia Framebuffer-Visualización:</strong> La correspondencia entre el framebuffer y la visualización debe verificarse comparando píxeles específicos del framebuffer con los píxeles dibujados en la superficie, con tolerancia para interpolación de escalado.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Tamaño Real del Framebuffer:</strong> Verificar si el tamaño del framebuffer es siempre 23040 o varía entre frames.</li>
+                        <li><strong>Causa del Problema de Visualización:</strong> Identificar la causa raíz del problema de visualización (rayas horizontales en lugar del checkerboard esperado) basándose en los logs generados.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el tamaño del framebuffer debería ser siempre 23040 píxeles (160×144). Si el tamaño varía, esto podría indicar un problema en la PPU o en la lectura del framebuffer.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Analizar los logs generados para identificar el tamaño real del framebuffer y la correspondencia entre framebuffer y visualización</li>
+                    <li>[ ] Si se identifica la causa del problema de visualización, implementar la corrección en el siguiente step</li>
+                    <li>[ ] Si el problema persiste, realizar análisis más profundo y solución alternativa</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

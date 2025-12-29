@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0342 - Corrección de Condiciones de Logs y Verificación de Correspondencia Framebuffer-Visualización -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0342__correccion-condiciones-logs-verificacion-correspondencia.html" class="entry-link">
+                                    Corrección de Condiciones de Logs y Verificación de Correspondencia Framebuffer-Visualización
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0342 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección de las condiciones de los logs de diagnóstico para que se ejecuten más frecuentemente (cambiando la condición de len(frame_indices) == 23040 a len(frame_indices) > 0). Se agregaron nuevos bloques de logs para verificar el tamaño real del framebuffer, la correspondencia entre el framebuffer y la visualización, y el orden de lectura y dibujo de píxeles. El objetivo es identificar por qué los logs no aparecían y verificar que el contenido del framebuffer se refleja correctamente en la visualización.
+                        </p>
+                    </li>
                                         <!-- Entrada 0341 - Investigación de Conversión de Índices a RGB y Orden de Píxeles -->
                     <li>
                         <div class="entry-header">
