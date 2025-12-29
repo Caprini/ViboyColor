@@ -840,6 +840,10 @@ class Viboy:
         try:
             # Bucle principal del emulador
             while self.running:
+                # --- Step 0361: Investigación de Rendimiento ---
+                # Identificar qué causa el FPS muy bajo
+                frame_start_time = time.time()
+                # -------------------------------------------
                 
                 # --- Step 0200: La limpieza del framebuffer ahora es responsabilidad de la PPU ---
                 # La PPU limpia el framebuffer sincrónicamente cuando LY se resetea a 0,
@@ -1086,6 +1090,30 @@ class Viboy:
                     # --- Step 0219: Pasar snapshot inmutable al renderizador ---
                     # Si tenemos un framebuffer capturado (snapshot), pasarlo al renderer
                     if framebuffer_to_render is not None:
+                        # --- Step 0361: Verificación de Llamada a render_frame() ---
+                        # Verificar que render_frame() se llama y recibe datos correctos
+                        if not hasattr(self, '_render_call_count'):
+                            self._render_call_count = 0
+                        
+                        self._render_call_count += 1
+                        
+                        # Verificar contenido antes de copiar
+                        non_white_before = sum(1 for idx in framebuffer_to_render[:1000] if idx != 0)
+                        
+                        if self._render_call_count <= 20:
+                            logger.info(f"[Viboy-Render-Call] Call #{self._render_call_count} | "
+                                       f"Non-white pixels (first 1000): {non_white_before}/1000")
+                            
+                            # Mostrar primeros 20 índices
+                            first_20 = list(framebuffer_to_render[:20])
+                            logger.info(f"[Viboy-Render-Call] First 20 indices: {first_20}")
+                            
+                            # Advertencia si está vacío
+                            if non_white_before < 10:
+                                logger.warning(f"[Viboy-Render-Call] ⚠️ ADVERTENCIA: "
+                                              f"Framebuffer está vacío cuando se va a renderizar!")
+                        # -------------------------------------------
+                        
                         # Pasar la COPIA SEGURA al renderizador
                         self._renderer.render_frame(framebuffer_data=framebuffer_to_render)
                         
@@ -1296,6 +1324,26 @@ class Viboy:
                 # -----------------------------------------------
                 
                 self.frame_count += 1
+                
+                # --- Step 0361: Investigación de Rendimiento (Final del Frame) ---
+                frame_end_time = time.time()
+                frame_duration = (frame_end_time - frame_start_time) * 1000  # ms
+                
+                if not hasattr(self, '_performance_check_count'):
+                    self._performance_check_count = 0
+                
+                self._performance_check_count += 1
+                
+                if self._performance_check_count <= 20:
+                    logger.info(f"[Viboy-Performance] Frame {self.frame_count} | "
+                               f"Duration: {frame_duration:.2f}ms | "
+                               f"FPS: {1000.0 / frame_duration:.1f}")
+                    
+                    # Advertencia si el frame toma demasiado tiempo
+                    if frame_duration > 100:  # Más de 100ms = menos de 10 FPS
+                        logger.warning(f"[Viboy-Performance] ⚠️ ADVERTENCIA: "
+                                      f"Frame toma {frame_duration:.2f}ms (muy lento!)")
+                # -------------------------------------------
                 
                 # --- Step 0298: Ejecutar acciones de simulación de entrada ---
                 if simulate_input and self._joypad is not None:

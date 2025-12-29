@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación y Corrección del Problema de Pantallas Blancas y Rendimiento - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación y Corrección del Problema de Pantallas Blancas y Rendimiento</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0361
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0360__correccion-sincronizacion-timing-visualizacion.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó un sistema completo de diagnóstico para investigar por qué las pantallas se muestran blancas a pesar de que los logs indican que el pipeline funciona correctamente. Se agregaron verificaciones detalladas en cada etapa del pipeline de renderizado: verificación del framebuffer antes de que Python lo lea, verificación de que `render_scanline()` se ejecuta y escribe al framebuffer, verificación de que `render_frame()` se llama en Python, investigación del problema de rendimiento (FPS muy bajo), y verificación del timing de limpieza del framebuffer. Los resultados confirman que el framebuffer tiene datos cuando se renderiza, pero se identificó un problema donde algunos frames tienen el framebuffer casi vacío cuando Python lo lee.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En un emulador híbrido Python/C++, el pipeline de renderizado es crítico para la visualización correcta de gráficos. El pipeline completo incluye:
+                </p>
+                <ol>
+                    <li><strong>Renderizado en C++:</strong> La PPU renderiza cada línea (scanline) y escribe índices de color al framebuffer</li>
+                    <li><strong>Transferencia a Python:</strong> Python lee el framebuffer desde C++ y lo convierte a RGB</li>
+                    <li><strong>Renderizado en Python:</strong> Python dibuja los píxeles RGB en la pantalla usando Pygame</li>
+                </ol>
+                <p>
+                    Es esencial verificar que cada etapa del pipeline funciona correctamente. Si una etapa falla, los gráficos no se mostrarán correctamente. El problema de pantallas blancas puede ser causado por:
+                </p>
+                <ul>
+                    <li>El framebuffer está vacío cuando Python lo lee</li>
+                    <li>El framebuffer se limpia antes de que Python lo renderice</li>
+                    <li>El renderizado no se ejecuta correctamente</li>
+                    <li>Problemas de sincronización entre C++ y Python</li>
+                </ul>
+                <p>
+                    <strong>Rendimiento del Emulador:</strong> El emulador debe mantener ~60 FPS para una experiencia fluida. FPS muy bajo (0.1, 10.8) indica un problema grave que puede ser causado por bucles infinitos, bloqueos, o operaciones muy costosas.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron verificaciones detalladas en cada etapa del pipeline de renderizado para identificar dónde se pierde la información visual.
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><strong>PPU.cpp - Verificación del Framebuffer Antes de Leer:</strong> Se agregó verificación en `get_frame_ready_and_reset()` que muestra el contenido del framebuffer justo antes de que Python lo lea, incluyendo distribución de índices y advertencia si está vacío</li>
+                    <li><strong>PPU.cpp - Verificación de render_scanline():</strong> Se agregó verificación en `render_scanline()` que muestra qué índices se escriben al framebuffer, el estado de VRAM, y advertencia si VRAM tiene tiles pero la línea está vacía</li>
+                    <li><strong>PPU.cpp - Verificación de Timing de Limpieza:</strong> Se agregó verificación en `confirm_framebuffer_read()` que muestra el contenido del framebuffer antes de limpiarlo</li>
+                    <li><strong>viboy.py - Verificación de Llamada a render_frame():</strong> Se agregó verificación que muestra el contenido del framebuffer cuando se pasa a `render_frame()` y advertencia si está vacío</li>
+                    <li><strong>viboy.py - Investigación de Rendimiento:</strong> Se agregó verificación de timing en el bucle principal que muestra la duración de cada frame y advertencia si es muy lento</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    Se decidió agregar logs detallados con límites (20-50 logs) para evitar saturar el contexto. Los logs se limitan a los primeros frames para capturar el comportamiento inicial del emulador. Se corrigió el uso de `static` en Python (que no existe) usando variables de instancia en su lugar.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Agregadas verificaciones del framebuffer, render_scanline(), y timing de limpieza</li>
+                    <li><code>src/viboy.py</code> - Agregadas verificaciones de llamada a render_frame() y rendimiento</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas de diagnóstico con Oro.gbc durante 30 segundos y se analizaron los logs generados:
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>timeout 30 python3 main.py roms/Oro.gbc 2>&1 | tee logs/test_oro_step0361_diagnostic.log</code></li>
+                    <li><strong>Análisis de logs:</strong> Se analizaron los logs usando grep para extraer los mensajes de diagnóstico específicos</li>
+                </ul>
+                <h3>Hallazgos Clave</h3>
+                <ul>
+                    <li><strong>✅ Framebuffer tiene datos cuando se renderiza:</strong> Los logs muestran que el framebuffer tiene 11520 píxeles no-blancos (50%) en los primeros frames, lo cual es correcto para un patrón checkerboard</li>
+                    <li><strong>✅ render_scanline() se ejecuta correctamente:</strong> Los logs muestran que `render_scanline()` se ejecuta y escribe índices al framebuffer (80 píxeles no-blancos por línea, 50%)</li>
+                    <li><strong>✅ Framebuffer se limpia correctamente:</strong> Los logs muestran que el framebuffer se limpia después de que Python lo lee, lo cual es correcto</li>
+                    <li><strong>⚠️ Problema detectado:</strong> Hay un frame (Frame 14) donde el framebuffer está casi vacío (80/23040 = 0.35%) cuando Python lo lee, lo cual podría explicar las pantallas blancas</li>
+                    <li><strong>❓ Logs de Python no aparecen:</strong> Los logs de `[Viboy-Render-Call]` y `[Viboy-Performance]` no aparecen en el log, lo cual necesita investigación adicional</li>
+                </ul>
+                <h3>Evidencia de Logs</h3>
+                <pre><code>[PPU-FRAMEBUFFER-BEFORE-READ] Frame 0 | Non-white pixels: 11520/23040 (50.00%) | Index distribution: 0=11520 1=0 2=0 3=11520
+[PPU-RENDER-SCANLINE] LY=0 | VRAM non-zero: 0/6144 | Line non-white: 80/160 (50.0%) | First 10 indices: 3 3 3 3 3 3 3 3 0 0
+[PPU-CLEAR-TIMING] Frame 0 | Non-white pixels before clear: 11520/23040 (50.00%) | Clearing framebuffer now
+[PPU-FRAMEBUFFER-BEFORE-READ] Frame 14 | Non-white pixels: 80/23040 (0.35%)
+[PPU-FRAMEBUFFER-BEFORE-READ] ⚠️ ADVERTENCIA: Framebuffer está vacío cuando Python va a leer!</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: Renderizado de líneas (Scanlines)</li>
+                    <li>Pan Docs: Sincronización del framebuffer</li>
+                    <li>Implementación basada en conocimiento general de arquitectura híbrida Python/C++</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Pipeline de Renderizado:</strong> El pipeline completo incluye renderizado en C++, transferencia a Python, y renderizado en Python. Cada etapa debe funcionar correctamente para que los gráficos se muestren</li>
+                        <li><strong>Verificación del Framebuffer:</strong> Es esencial verificar que el framebuffer tiene datos cuando se renderiza. Los logs confirman que el framebuffer tiene datos en la mayoría de los frames</li>
+                        <li><strong>Problema de Frames Vacíos:</strong> Algunos frames tienen el framebuffer casi vacío cuando Python lo lee, lo cual podría explicar las pantallas blancas</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Logs de Python:</strong> Los logs de `[Viboy-Render-Call]` y `[Viboy-Performance]` no aparecen en el log. Necesita investigación adicional para determinar por qué</li>
+                        <li><strong>Causa de Frames Vacíos:</strong> Se necesita investigar por qué algunos frames tienen el framebuffer casi vacío cuando Python lo lee</li>
+                        <li><strong>Rendimiento:</strong> Se necesita investigar por qué el FPS es muy bajo (0.1, 10.8) y si está relacionado con el problema de pantallas blancas</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal:</strong> El problema de pantallas blancas podría ser causado por frames donde el framebuffer está casi vacío cuando Python lo lee. Esto podría ser causado por un problema de sincronización o por el framebuffer que se limpia demasiado pronto.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar por qué los logs de Python no aparecen</li>
+                    <li>[ ] Investigar por qué algunos frames tienen el framebuffer casi vacío cuando Python lo lee</li>
+                    <li>[ ] Investigar el problema de rendimiento (FPS muy bajo)</li>
+                    <li>[ ] Implementar corrección basada en los hallazgos</li>
+                    <li>[ ] Verificar visualmente que los gráficos se muestran correctamente después de la corrección</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

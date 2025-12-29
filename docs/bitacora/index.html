@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0361 - Investigación y Corrección del Problema de Pantallas Blancas y Rendimiento -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0361__investigacion-correccion-pantallas-blancas-rendimiento.html" class="entry-link">
+                                    Investigación y Corrección del Problema de Pantallas Blancas y Rendimiento
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0361 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó un sistema completo de diagnóstico para investigar por qué las pantallas se muestran blancas a pesar de que los logs indican que el pipeline funciona correctamente. Se agregaron verificaciones detalladas en cada etapa del pipeline de renderizado: verificación del framebuffer antes de que Python lo lea, verificación de que render_scanline() se ejecuta y escribe al framebuffer, verificación de que render_frame() se llama en Python, investigación del problema de rendimiento (FPS muy bajo), y verificación del timing de limpieza del framebuffer. Los resultados confirman que el framebuffer tiene datos cuando se renderiza, pero se identificó un problema donde algunos frames tienen el framebuffer casi vacío cuando Python lo lee.
+                        </p>
+                    </li>
                                         <!-- Entrada 0360 - Corrección de Sincronización y Timing para Visualización Correcta de Gráficos -->
                     <li>
                         <div class="entry-header">

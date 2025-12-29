@@ -1009,6 +1009,38 @@ void PPU::set_lyc(uint8_t value) {
 
 bool PPU::get_frame_ready_and_reset() {
     if (frame_ready_) {
+        // --- Step 0361: Verificación del Framebuffer Antes de Leer ---
+        // Verificar que el framebuffer tiene datos justo antes de que Python lo lea
+        int non_white_pixels = 0;
+        int index_counts[4] = {0, 0, 0, 0};
+        
+        for (int i = 0; i < 160 * 144; i++) {
+            uint8_t idx = framebuffer_[i];
+            index_counts[idx]++;
+            if (idx != 0) {
+                non_white_pixels++;
+            }
+        }
+        
+        static int framebuffer_check_count = 0;
+        if (framebuffer_check_count < 20) {
+            framebuffer_check_count++;
+            
+            printf("[PPU-FRAMEBUFFER-BEFORE-READ] Frame %llu | "
+                   "Non-white pixels: %d/23040 (%.2f%%) | "
+                   "Index distribution: 0=%d 1=%d 2=%d 3=%d\n",
+                   static_cast<unsigned long long>(frame_counter_),
+                   non_white_pixels, (non_white_pixels * 100.0) / 23040,
+                   index_counts[0], index_counts[1], index_counts[2], index_counts[3]);
+            
+            // Advertencia si el framebuffer está vacío
+            if (non_white_pixels < 100) {
+                printf("[PPU-FRAMEBUFFER-BEFORE-READ] ⚠️ ADVERTENCIA: "
+                       "Framebuffer está vacío cuando Python va a leer!\n");
+            }
+        }
+        // -------------------------------------------
+        
         frame_ready_ = false;
         
         // --- Step 0360: Protección del Framebuffer Durante Renderizado ---
@@ -1074,6 +1106,27 @@ void PPU::confirm_framebuffer_read() {
     // --- Step 0360: Confirmar Lectura del Framebuffer ---
     // Python confirmó que leyó el framebuffer, ahora es seguro limpiarlo
     if (framebuffer_being_read_) {
+        // --- Step 0361: Verificación de Timing de Limpieza ---
+        // Verificar que el framebuffer no se limpia demasiado pronto
+        int non_white_before_clear = 0;
+        for (int i = 0; i < 160 * 144; i++) {
+            if (framebuffer_[i] != 0) {
+                non_white_before_clear++;
+            }
+        }
+        
+        static int clear_timing_check_count = 0;
+        if (clear_timing_check_count < 20) {
+            clear_timing_check_count++;
+            
+            printf("[PPU-CLEAR-TIMING] Frame %llu | "
+                   "Non-white pixels before clear: %d/23040 (%.2f%%) | "
+                   "Clearing framebuffer now\n",
+                   static_cast<unsigned long long>(frame_counter_),
+                   non_white_before_clear, (non_white_before_clear * 100.0) / 23040);
+        }
+        // -------------------------------------------
+        
         framebuffer_being_read_ = false;
         
         // Ahora es seguro limpiar el framebuffer
@@ -2602,6 +2655,46 @@ void PPU::render_scanline() {
         // Advertencia si la línea está completamente vacía
         if (non_zero_pixels == 0 && ly_ < 144) {
             printf("[PPU-FRAMEBUFFER-LINE] ⚠️ ADVERTENCIA: Línea %d completamente vacía después de renderizar!\n", ly_);
+        }
+    }
+    // -------------------------------------------
+    
+    // --- Step 0361: Verificación de render_scanline() ---
+    // Verificar que render_scanline() realmente escribe al framebuffer
+    static int render_scanline_check_count = 0;
+    if (render_scanline_check_count < 50 && ly_ < 144) {
+        render_scanline_check_count++;
+        
+        // Verificar la línea renderizada
+        int line_non_white = 0;
+        for (int x = 0; x < 160; x++) {
+            uint8_t idx = framebuffer_[ly_ * 160 + x];
+            if (idx != 0) {
+                line_non_white++;
+            }
+        }
+        
+        // Verificar estado de VRAM
+        int vram_non_zero = 0;
+        for (uint16_t addr = 0x8000; addr < 0x9800; addr++) {
+            if (mmu_->read(addr) != 0x00) {
+                vram_non_zero++;
+            }
+        }
+        
+        printf("[PPU-RENDER-SCANLINE] LY=%d | VRAM non-zero: %d/6144 | "
+               "Line non-white: %d/160 (%.1f%%) | "
+               "First 10 indices: ",
+               ly_, vram_non_zero, line_non_white, (line_non_white * 100.0) / 160);
+        
+        for (int x = 0; x < 10; x++) {
+            printf("%d ", framebuffer_[ly_ * 160 + x]);
+        }
+        printf("\n");
+        
+        // Advertencia si VRAM tiene tiles pero la línea está vacía
+        if (vram_non_zero >= 200 && line_non_white < 10) {
+            printf("[PPU-RENDER-SCANLINE] ⚠️ ADVERTENCIA: VRAM tiene tiles pero línea está vacía!\n");
         }
     }
     // -------------------------------------------
