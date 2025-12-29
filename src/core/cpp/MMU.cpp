@@ -999,6 +999,50 @@ void MMU::write(uint16_t addr, uint8_t value) {
                    vram_write_stats_count, vram_erase_count,
                    (vram_erase_count * 100.0) / vram_write_stats_count);
         }
+        
+        // --- Step 0357: Monitoreo Detallado para TETRIS y Mario ---
+        // Monitorear TODAS las escrituras a VRAM (incluyendo ceros) para entender por qué no cargan tiles
+        static int vram_write_all_count = 0;
+        static int vram_write_all_log_count = 0;
+        
+        vram_write_all_count++;
+        
+        // Loggear las primeras 1000 escrituras (incluyendo ceros) para TETRIS y Mario
+        if (vram_write_all_log_count < 1000) {
+            vram_write_all_log_count++;
+            
+            // Obtener información del estado
+            uint16_t pc = debug_current_pc;
+            bool lcd_is_on = false;
+            bool in_vblank = false;
+            uint64_t frame = 0;
+            uint8_t ly = 0;
+            
+            if (ppu_ != nullptr) {
+                lcd_is_on = ppu_->is_lcd_on();
+                ly = ppu_->get_ly();
+                in_vblank = (ly >= 144);
+                frame = ppu_->get_frame_counter();
+            }
+            
+            printf("[MMU-VRAM-WRITE-ALL] Write #%d | Addr=0x%04X | Value=0x%02X | "
+                   "PC=0x%04X | Frame %llu | LY=%d | LCD=%s | VBLANK=%s\n",
+                   vram_write_all_log_count, addr, value, pc,
+                   static_cast<unsigned long long>(frame), ly,
+                   lcd_is_on ? "ON" : "OFF",
+                   in_vblank ? "YES" : "NO");
+        }
+        
+        // Loggear estadísticas cada 1000 escrituras
+        if (vram_write_all_count > 0 && vram_write_all_count % 1000 == 0) {
+            int non_zero_count = 0;
+            // Contar escrituras no-cero en las últimas 1000
+            // (simplificado: contar todas las escrituras no-cero hasta ahora)
+            // Nota: Este contador se actualiza en el bloque anterior
+            printf("[MMU-VRAM-WRITE-ALL-STATS] Total writes=%d | Non-zero writes=%d\n",
+                   vram_write_all_count, vram_write_non_zero_count);
+        }
+        // -------------------------------------------
     }
     // -------------------------------------------
     

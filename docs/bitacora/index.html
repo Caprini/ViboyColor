@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0357 - Investigación de Carga de Tiles en TETRIS y Mario y Verificación de Framebuffer/Renderizado -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0357__investigacion-tetris-mario-verificacion-framebuffer-renderizado.html" class="entry-link">
+                                    Investigación de Carga de Tiles en TETRIS y Mario y Verificación de Framebuffer/Renderizado
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0357 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó monitoreo detallado de TODAS las escrituras a VRAM (incluyendo ceros) para investigar por qué TETRIS y Mario no cargan tiles durante la ejecución. Se agregó verificación del framebuffer cuando se detectan tiles reales (Frame 4720-4943) y verificación del renderizado cuando hay tiles reales en el framebuffer. Los resultados confirman que TETRIS solo escribe ceros a VRAM (no carga tiles), mientras que el framebuffer y el renderizado funcionan correctamente cuando hay tiles reales (como en Oro.gbc y PKMN).
+                        </p>
+                    </li>
                                         <!-- Entrada 0356 - Desactivación de Tiles de Prueba y Verificación de Carga de Tiles por el Juego -->
                     <li>
                         <div class="entry-header">

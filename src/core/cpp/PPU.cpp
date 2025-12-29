@@ -275,6 +275,44 @@ void PPU::step(int cpu_cycles) {
         if (non_zero_bytes >= 200) {
             printf("[PPU-VRAM-PERIODIC-NO-TEST-TILES] ✅ Tiles reales detectados! Verificando framebuffer...\n");
         }
+        
+        // --- Step 0357: Verificación del Framebuffer Cuando Se Cargan Tiles ---
+        // Verificar si el framebuffer se actualiza cuando se cargan tiles reales
+        if (non_zero_bytes >= 200 && frame_counter_ >= 4700 && frame_counter_ <= 5000) {
+            // Estamos en el rango de frames donde se cargan tiles (Frame 4720-4943)
+            static int framebuffer_check_count = 0;
+            
+            if (framebuffer_check_count < 20) {
+                framebuffer_check_count++;
+                
+                // Verificar el contenido del framebuffer
+                int non_white_pixels = 0;
+                int index_counts[4] = {0, 0, 0, 0};
+                
+                for (int i = 0; i < 160 * 144; i++) {
+                    uint8_t idx = framebuffer_[i];
+                    index_counts[idx]++;
+                    if (idx != 0) {  // 0 = blanco
+                        non_white_pixels++;
+                    }
+                }
+                
+                printf("[PPU-FRAMEBUFFER-WITH-TILES] Frame %llu | VRAM has tiles | "
+                       "Framebuffer: Non-white pixels=%d/23040 (%.2f%%) | "
+                       "Index distribution: 0=%d 1=%d 2=%d 3=%d\n",
+                       static_cast<unsigned long long>(frame_counter_),
+                       non_white_pixels, (non_white_pixels * 100.0) / 23040,
+                       index_counts[0], index_counts[1], index_counts[2], index_counts[3]);
+                
+                // Verificar si el framebuffer tiene datos de tiles reales
+                if (non_white_pixels > 100) {
+                    printf("[PPU-FRAMEBUFFER-WITH-TILES] ✅ Framebuffer contiene datos de tiles reales!\n");
+                } else {
+                    printf("[PPU-FRAMEBUFFER-WITH-TILES] ⚠️ Framebuffer aún está mayormente vacío\n");
+                }
+            }
+        }
+        // -------------------------------------------
     }
     // -------------------------------------------
     

@@ -724,6 +724,48 @@ class Renderer:
                 else:
                     logger.info(f"[Renderer-Conditions] frame_indices disponible: length={len(frame_indices)}")
                     print(f"[Renderer-Conditions] frame_indices disponible: length={len(frame_indices)}")
+                
+                # --- Step 0357: Verificación del Renderizado Cuando Hay Tiles Reales ---
+                # Verificar si el renderizado funciona correctamente cuando hay tiles reales
+                if frame_indices and len(frame_indices) == 23040:
+                    # Contar píxeles no-blancos
+                    non_white_count = sum(1 for idx in frame_indices[:1000] if idx != 0)
+                    
+                    if non_white_count > 50:
+                        # Hay tiles reales en el framebuffer
+                        if not hasattr(self, '_renderer_with_tiles_log_count'):
+                            self._renderer_with_tiles_log_count = 0
+                        
+                        if self._renderer_with_tiles_log_count < 10:
+                            self._renderer_with_tiles_log_count += 1
+                            
+                            logger.info(f"[Renderer-With-Tiles] Framebuffer received with tiles | "
+                                       f"Non-white pixels in first 1000: {non_white_count}/1000")
+                            print(f"[Renderer-With-Tiles] Framebuffer received with tiles | "
+                                  f"Non-white pixels in first 1000: {non_white_count}/1000")
+                            
+                            # Verificar conversión de índices a RGB
+                            # Obtener paleta desde BGP
+                            bgp = self.mmu.read(IO_BGP)
+                            palette_map = {
+                                0: (bgp >> 0) & 0x03,
+                                1: (bgp >> 2) & 0x03,
+                                2: (bgp >> 4) & 0x03,
+                                3: (bgp >> 6) & 0x03,
+                            }
+                            
+                            sample_indices = list(frame_indices[0:20])
+                            sample_rgb = [PALETTE_GREYSCALE[palette_map[idx]] for idx in sample_indices]
+                            
+                            logger.info(f"[Renderer-With-Tiles] Sample indices: {sample_indices[:10]}")
+                            logger.info(f"[Renderer-With-Tiles] Sample RGB: {sample_rgb[:10]}")
+                            print(f"[Renderer-With-Tiles] Sample indices: {sample_indices[:10]}")
+                            print(f"[Renderer-With-Tiles] Sample RGB: {sample_rgb[:10]}")
+                            
+                            # Verificar que los píxeles se dibujan
+                            logger.info(f"[Renderer-With-Tiles] ✅ Renderizando framebuffer con tiles reales")
+                            print(f"[Renderer-With-Tiles] ✅ Renderizando framebuffer con tiles reales")
+                # -------------------------------------------
                 # -------------------------------------------
                 
                 # --- Step 0342: Verificación del Tamaño Real del Framebuffer ---
