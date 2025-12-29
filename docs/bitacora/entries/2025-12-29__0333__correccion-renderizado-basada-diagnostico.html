@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0333: Corrección de Renderizado Basada en Diagnóstico - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Step 0333: Corrección de Renderizado Basada en Diagnóstico</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0333
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0332__investigacion-correccion-renderizado-framebuffer.html">Anterior (0332)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este step implementa correcciones críticas en la configuración del logger y el código de diagnóstico
+                    para identificar dónde se pierde la información de color en el pipeline de renderizado. Se agregó
+                    configuración explícita del logger para asegurar que los logs de nivel INFO aparezcan correctamente,
+                    se implementaron logs con <code>print()</code> como fallback para garantizar visibilidad, y se
+                    mejoró el código de diagnóstico para ejecutarse tanto cuando el framebuffer se recibe como parámetro
+                    como cuando se obtiene directamente desde la PPU.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Pipeline de Renderizado Python</h3>
+                <p>
+                    El pipeline de renderizado en Viboy Color sigue esta secuencia:
+                </p>
+                <ol>
+                    <li><strong>C++ (PPU)</strong>: Escribe índices de color (0-3) en el framebuffer</li>
+                    <li><strong>Cython</strong>: Expone el framebuffer como memoryview</li>
+                    <li><strong>Python (viboy.py)</strong>: Copia el framebuffer a bytearray (snapshot inmutable)</li>
+                    <li><strong>Python (renderer.py)</strong>: Convierte índices a RGB usando la paleta</li>
+                    <li><strong>Pygame</strong>: Dibuja los píxeles RGB en la pantalla</li>
+                </ol>
+                <p>
+                    El problema identificado en el Step 0332 es que el framebuffer en C++ contiene datos correctos
+                    (80/160 píxeles no-blancos según logs de C++), pero la pantalla se muestra completamente blanca.
+                    Esto sugiere que la información de color se pierde en algún punto del pipeline Python.
+                </p>
+                <h3>Configuración del Logger</h3>
+                <p>
+                    El logger de Python debe estar configurado correctamente para mostrar logs de nivel INFO.
+                    Si el logger no está configurado o está configurado con un nivel más alto (WARNING, ERROR),
+                    los logs de diagnóstico no aparecerán, impidiendo identificar dónde se pierde la información.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <h3>1. Configuración Explícita del Logger</h3>
+                <p>
+                    Se agregó configuración explícita del logger en <code>src/viboy.py</code> para asegurar que
+                    los logs de nivel INFO aparezcan correctamente:
+                </p>
+                <pre><code># --- Step 0333: Configuración Explícita del Logger ---
+# Asegurar que el logger muestra logs de nivel INFO
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s: %(message)s',
+    force=True  # Forzar reconfiguración si ya estaba configurado
+)
+# -------------------------------------------</code></pre>
+                <p>
+                    El parámetro <code>force=True</code> asegura que la configuración se aplique incluso si el logger
+                    ya estaba configurado previamente.
+                </p>
+                
+                <h3>2. Logs con print() como Fallback</h3>
+                <p>
+                    Se agregaron logs con <code>print()</code> además de <code>logger.info()</code> para asegurar
+                    que los logs aparezcan incluso si hay problemas con la configuración del logger:
+                </p>
+                <pre><code># --- Step 0333: Logs con print() como fallback ---
+log_msg = f"[Renderer-Framebuffer-Diagnostic] Frame {self._framebuffer_diagnostic_count} | ..."
+print(log_msg)  # Fallback a print()
+logger.info(log_msg)  # Logger normal
+# -------------------------------------------</code></pre>
+                
+                <h3>3. Verificación de Ejecución del Código de Diagnóstico</h3>
+                <p>
+                    Se agregaron logs de entrada al código de diagnóstico para verificar que se ejecuta correctamente.
+                    El código ahora verifica tanto cuando el framebuffer se recibe como parámetro como cuando se
+                    obtiene directamente desde la PPU:
+                </p>
+                <pre><code># --- STEP 0333: Verificación de Ejecución del Código de Diagnóstico ---
+if framebuffer_data is not None:
+    print(f"[Renderer-Diagnostic-Entry] Framebuffer recibido como parámetro, longitud: {len(framebuffer_data)}")
+    logger.info(f"[Renderer-Diagnostic-Entry] Framebuffer recibido como parámetro, longitud: {len(framebuffer_data)}")
+    diagnostic_data = framebuffer_data
+else:
+    # Obtener desde PPU y verificar
+    if frame_indices is not None:
+        print(f"[Renderer-Diagnostic-Entry] Framebuffer obtenido desde PPU, longitud: {len(frame_indices)}")
+        logger.info(f"[Renderer-Diagnostic-Entry] Framebuffer obtenido desde PPU, longitud: {len(frame_indices)}")
+        diagnostic_data = frame_indices
+# -------------------------------------------</code></pre>
+                
+                <h3>4. Verificación de Dibujo de Píxeles</h3>
+                <p>
+                    Se agregaron logs en el punto de dibujo de píxeles para verificar que los colores RGB son correctos
+                    antes de dibujarlos:
+                </p>
+                <pre><code># --- STEP 0333: Verificación de Dibujo de Píxeles ---
+if self._pixel_draw_check_count < 5:
+    self._pixel_draw_check_count += 1
+    test_pixels = [(0, 0), (80, 72), (159, 143)]
+    for x, y in test_pixels:
+        idx = y * 160 + x
+        if idx < len(frame_indices):
+            color_index = frame_indices[idx] & 0x03
+            rgb_color = palette[color_index]
+            print(f"[Renderer-Pixel-Draw] Pixel ({x}, {y}): index={color_index} -> RGB={rgb_color}")
+            logger.info(f"[Renderer-Pixel-Draw] Pixel ({x}, {y}): index={color_index} -> RGB={rgb_color}")
+# -------------------------------------------</code></pre>
+                
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Doble logging (print + logger)</strong>: Se usa tanto <code>print()</code> como
+                        <code>logger.info()</code> para asegurar que los logs aparezcan incluso si hay problemas
+                        con la configuración del logger.</li>
+                    <li><strong>Variable diagnostic_data</strong>: Se usa una variable <code>diagnostic_data</code>
+                        que puede ser <code>framebuffer_data</code> o <code>frame_indices</code> para unificar
+                        el código de diagnóstico.</li>
+                    <li><strong>Límite de logs</strong>: Los logs de diagnóstico se limitan a los primeros 5 frames
+                        para evitar saturar el contexto.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Configuración explícita del logger y logs con print() como fallback</li>
+                    <li><code>src/gpu/renderer.py</code> - Mejoras en el código de diagnóstico y verificación de dibujo de píxeles</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se recompiló el módulo C++ y se ejecutaron pruebas con las 5 ROMs según el plan:
+                </p>
+                <ul>
+                    <li><strong>Compilación:</strong> Módulo C++ recompilado exitosamente sin errores</li>
+                    <li><strong>Pruebas:</strong> Se ejecutaron pruebas con las 5 ROMs (pkmn.gb, tetris.gb, mario.gbc, pkmn-amarillo.gb, Oro.gbc)</li>
+                    <li><strong>Logs:</strong> Los logs de diagnóstico ahora aparecen correctamente con la configuración explícita del logger</li>
+                </ul>
+                <p>
+                    <strong>Comando de compilación:</strong>
+                </p>
+                <pre><code>python3 setup.py build_ext --inplace</code></pre>
+                <p>
+                    <strong>Comando de prueba (ejemplo):</strong>
+                </p>
+                <pre><code>timeout 150 python3 main.py roms/pkmn.gb 2>&1 | tee logs/test_pkmn_step0333.log</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Python Logging Documentation: <a href="https://docs.python.org/3/library/logging.html">https://docs.python.org/3/library/logging.html</a></li>
+                    <li>Step 0332: Investigación y Corrección del Renderizado de Framebuffer (anterior)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Configuración del Logger:</strong> El logger de Python debe configurarse explícitamente
+                            para mostrar logs de nivel INFO. El parámetro <code>force=True</code> asegura que la
+                            configuración se aplique incluso si el logger ya estaba configurado.</li>
+                        <li><strong>Pipeline de Renderizado:</strong> El pipeline de renderizado tiene múltiples puntos
+                            donde la información de color puede perderse. Los logs de diagnóstico ayudan a identificar
+                            exactamente dónde ocurre el problema.</li>
+                        <li><strong>Doble Logging:</strong> Usar tanto <code>print()</code> como <code>logger.info()</code>
+                            proporciona redundancia y asegura que los logs aparezcan incluso si hay problemas con la
+                            configuración del logger.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Análisis de Logs:</strong> Se necesita analizar los logs de diagnóstico de las
+                            5 ROMs para identificar dónde se pierde la información de color en el pipeline.</li>
+                        <li><strong>Corrección Específica:</strong> Una vez identificado el problema mediante los logs,
+                            se implementará la corrección específica en el Step 0334.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el problema está en el pipeline Python (viboy.py → renderer.py) basándose en
+                        la evidencia de que el framebuffer en C++ contiene datos correctos pero la pantalla se muestra
+                        completamente blanca. Los logs de diagnóstico confirmarán o refutarán esta hipótesis.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Analizar logs de diagnóstico de las 5 ROMs para identificar dónde se pierde la información de color</li>
+                    <li>[ ] Implementar corrección específica basada en los hallazgos de los logs</li>
+                    <li>[ ] Verificar que el checkerboard temporal se muestra correctamente en todas las ROMs</li>
+                    <li>[ ] Step 0334: Verificación final de renderizado o análisis más profundo según los resultados</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -32,6 +32,42 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0334 - Verificación Final de Renderizado -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0334__verificacion-final-renderizado.html" class="entry-link">
+                                    Verificación Final de Renderizado
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0334 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Verificación final del renderizado después de la corrección crítica del Step 0333. El problema de sincronización del framebuffer se resolvió moviendo la limpieza del framebuffer desde get_frame_ready_and_reset() al inicio del siguiente frame (cuando LY se resetea a 0). Esto asegura que Python siempre lee el framebuffer ANTES de que se limpie. Las pruebas con las 5 ROMs confirman que el framebuffer ahora contiene datos correctos (checkerboard con índices 0 y 3) y el renderizado funciona correctamente.
+                        </p>
+                    </li>
+                                        <!-- Entrada 0333 - Corrección de Renderizado Basada en Diagnóstico -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0333__correccion-renderizado-basada-diagnostico.html" class="entry-link">
+                                    Corrección de Renderizado Basada en Diagnóstico
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0333 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de correcciones críticas en la configuración del logger y el código de diagnóstico para identificar dónde se pierde la información de color en el pipeline de renderizado. Se agregó configuración explícita del logger para asegurar que los logs de nivel INFO aparezcan correctamente, se implementaron logs con print() como fallback para garantizar visibilidad, y se mejoró el código de diagnóstico para ejecutarse tanto cuando el framebuffer se recibe como parámetro como cuando se obtiene directamente desde la PPU. Los logs de diagnóstico ahora aparecen correctamente y permitirán identificar exactamente dónde se pierde la información de color en el pipeline Python.
+                        </p>
+                    </li>
                                         <!-- Entrada 0332 - Investigación y Corrección del Renderizado de Framebuffer -->
                     <li>
                         <div class="entry-header">

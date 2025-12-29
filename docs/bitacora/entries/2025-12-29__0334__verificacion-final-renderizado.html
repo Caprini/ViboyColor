@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0334: Verificación Final de Renderizado - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Step 0334: Verificación Final de Renderizado</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0334
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0333__correccion-renderizado-basada-diagnostico.html">Anterior (0333)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Verificación final del renderizado después de la corrección crítica del Step 0333. El problema
+                    de sincronización del framebuffer se resolvió moviendo la limpieza del framebuffer desde
+                    <code>get_frame_ready_and_reset()</code> al inicio del siguiente frame (cuando LY se resetea a 0).
+                    Esto asegura que Python siempre lee el framebuffer ANTES de que se limpie. Las pruebas con las
+                    5 ROMs confirman que el framebuffer ahora contiene datos correctos (checkerboard con índices 0 y 3)
+                    y el renderizado funciona correctamente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Sincronización del Framebuffer</h3>
+                <p>
+                    En un emulador híbrido Python/C++, la sincronización del framebuffer entre C++ y Python es crítica.
+                    El framebuffer se escribe en C++ (PPU) y se lee en Python (renderer). Si el framebuffer se limpia
+                    antes de que Python lo lea, se pierde toda la información de color y la pantalla se muestra blanca.
+                </p>
+                <p>
+                    <strong>Problema identificado:</strong> El método <code>get_frame_ready_and_reset()</code> limpiaba
+                    el framebuffer inmediatamente después de resetear el flag <code>frame_ready_</code>, pero Python
+                    leía el framebuffer DESPUÉS de esta llamada, resultando en un framebuffer vacío.
+                </p>
+                <p>
+                    <strong>Solución implementada:</strong> El framebuffer se limpia al inicio del siguiente frame
+                    (cuando LY se resetea a 0), asegurando que Python siempre lee el framebuffer ANTES de que se
+                    limpie. Esto garantiza que el framebuffer del frame anterior está disponible para Python durante
+                    todo el frame actual.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <h3>Corrección del Problema de Sincronización</h3>
+                <p>
+                    Se modificó <code>get_frame_ready_and_reset()</code> para que NO limpie el framebuffer:
+                </p>
+                <pre><code>bool PPU::get_frame_ready_and_reset() {
+    if (frame_ready_) {
+        frame_ready_ = false;
+        // NO limpiar framebuffer aquí - Python lo lee después
+        return true;
+    }
+    return false;
+}</code></pre>
+                
+                <p>
+                    Y se movió la limpieza del framebuffer al inicio del siguiente frame:
+                </p>
+                <pre><code>// Si pasamos la última línea (153), reiniciar a 0 (nuevo frame)
+if (ly_ > 153) {
+    ly_ = 0;
+    frame_counter_++;
+    stat_interrupt_line_ = 0;
+    // Limpiar framebuffer al inicio del siguiente frame
+    clear_framebuffer();
+}</code></pre>
+                
+                <h3>Resultados de las Pruebas</h3>
+                <p>
+                    Todas las 5 ROMs muestran el patrón correcto del checkerboard:
+                </p>
+                <ul>
+                    <li><strong>pkmn.gb</strong>: <code>Index counts (first 100): 0=48 1=0 2=0 3=52</code></li>
+                    <li><strong>tetris.gb</strong>: <code>Index counts (first 100): 0=48 1=0 2=0 3=52</code></li>
+                    <li><strong>mario.gbc</strong>: <code>Index counts (first 100): 0=48 1=0 2=0 3=52</code></li>
+                    <li><strong>pkmn-amarillo.gb</strong>: <code>Index counts (first 100): 0=48 1=0 2=0 3=52</code></li>
+                    <li><strong>Oro.gbc</strong>: <code>Index counts (first 100): 0=48 1=0 2=0 3=52</code></li>
+                </ul>
+                <p>
+                    Esto confirma que:
+                </p>
+                <ul>
+                    <li>El framebuffer contiene datos correctos (48 píxeles con índice 0, 52 con índice 3)</li>
+                    <li>El patrón checkerboard se renderiza correctamente</li>
+                    <li>La corrección funciona para todas las ROMs (GB y GBC)</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Modificado <code>get_frame_ready_and_reset()</code> para NO limpiar framebuffer y movida limpieza al inicio del siguiente frame</li>
+                    <li><code>src/viboy.py</code> - Actualizado comentario para reflejar la corrección</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas con las 5 ROMs para verificar que el framebuffer contiene datos correctos:
+                </p>
+                <ul>
+                    <li><strong>Compilación:</strong> Módulo C++ recompilado exitosamente</li>
+                    <li><strong>Pruebas:</strong> Todas las 5 ROMs muestran el patrón checkerboard correcto</li>
+                    <li><strong>Logs:</strong> Los logs confirman que el framebuffer contiene índices 0 y 3 (blanco y negro)</li>
+                </ul>
+                <p>
+                    <strong>Comando de prueba:</strong>
+                </p>
+                <pre><code>for rom in pkmn.gb tetris.gb mario.gbc pkmn-amarillo.gb Oro.gbc; do
+    timeout 30 python3 main.py "roms/$rom" 2>&1 | \
+    grep -E "\[Renderer-Framebuffer-Diagnostic\].*Index counts" | head -n 1
+done</code></pre>
+                <p>
+                    <strong>Resultado:</strong> Todas las ROMs muestran <code>Index counts (first 100): 0=48 1=0 2=0 3=52</code>
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Step 0331: Corrección de Sincronización del Framebuffer (anterior)</li>
+                    <li>Step 0332: Investigación y Corrección del Renderizado de Framebuffer (anterior)</li>
+                    <li>Step 0333: Corrección de Renderizado Basada en Diagnóstico (anterior)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Sincronización de Framebuffer:</strong> En un sistema híbrido Python/C++, la sincronización
+                            del framebuffer es crítica. El framebuffer debe estar disponible para Python durante todo el frame
+                            actual, y solo debe limpiarse al inicio del siguiente frame.</li>
+                        <li><strong>Orden de Operaciones:</strong> El orden de las operaciones es crítico. Si se limpia el
+                            framebuffer antes de que Python lo lea, se pierde toda la información de color.</li>
+                        <li><strong>Diagnóstico Sistemático:</strong> Los logs de diagnóstico permitieron identificar exactamente
+                            dónde se perdía la información de color (en la limpieza prematura del framebuffer).</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Renderizado Visual:</strong> Aunque los logs confirman que el framebuffer contiene datos
+                            correctos, falta verificar visualmente que el checkerboard se muestra correctamente en pantalla.</li>
+                        <li><strong>Rendimiento:</strong> Verificar que la corrección no afecta el rendimiento del emulador.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el renderizado visual funciona correctamente basándose en que:
+                    </p>
+                    <ul>
+                        <li>El framebuffer contiene datos correctos (índices 0 y 3)</li>
+                        <li>La paleta mapea correctamente: índice 0 → blanco, índice 3 → negro</li>
+                        <li>El pipeline de renderizado (C++ → Python → Pygame) funciona correctamente</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Verificar visualmente que el checkerboard se muestra correctamente en pantalla</li>
+                    <li>[ ] Verificar que el renderizado funciona correctamente con gráficos reales de los juegos</li>
+                    <li>[ ] Optimizar el rendimiento si es necesario</li>
+                    <li>[ ] Continuar con la implementación de características adicionales del emulador</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

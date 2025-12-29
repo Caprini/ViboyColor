@@ -530,10 +530,18 @@ class Renderer:
             try:
                 # --- STEP 0308: SNAPSHOT INMUTABLE OPTIMIZADO ---
                 # Si se proporciona framebuffer_data, usar ese snapshot en lugar de leer desde PPU
+                diagnostic_data = None  # Inicializar para diagnóstico
+                
                 if framebuffer_data is not None:
                     # Ya es un snapshot inmutable (bytearray)
                     frame_indices = framebuffer_data
                     snapshot_time = 0.0  # No hay overhead si ya viene como snapshot
+                    diagnostic_data = framebuffer_data  # Usar framebuffer_data para diagnóstico
+                    
+                    # --- STEP 0333: Verificación de Ejecución del Código de Diagnóstico (si framebuffer_data fue proporcionado) ---
+                    print(f"[Renderer-Diagnostic-Entry] Framebuffer recibido como parámetro, longitud: {len(framebuffer_data)}")
+                    logger.info(f"[Renderer-Diagnostic-Entry] Framebuffer recibido como parámetro, longitud: {len(framebuffer_data)}")
+                    # -------------------------------------------
                 else:
                     # Obtener framebuffer como memoryview (Zero-Copy)
                     # El framebuffer es ahora uint8_t con índices de color (0-3) en formato 1D
@@ -558,6 +566,17 @@ class Renderer:
                         frame_indices = bytearray(bytes(frame_indices_mv))  # Snapshot inmutable optimizado
                     
                     snapshot_time = (time.time() - snapshot_start) * 1000  # en milisegundos
+                    
+                    # --- STEP 0333: Verificación de Ejecución del Código de Diagnóstico (después de obtener frame_indices) ---
+                    # Verificar que el código de diagnóstico se ejecuta
+                    if frame_indices is not None:
+                        print(f"[Renderer-Diagnostic-Entry] Framebuffer obtenido desde PPU, longitud: {len(frame_indices)}")
+                        logger.info(f"[Renderer-Diagnostic-Entry] Framebuffer obtenido desde PPU, longitud: {len(frame_indices)}")
+                        diagnostic_data = frame_indices  # Usar frame_indices para diagnóstico
+                    else:
+                        print("[Renderer-Diagnostic-Entry] ⚠️ Framebuffer es None después de obtener desde PPU!")
+                        logger.warning("[Renderer-Diagnostic-Entry] ⚠️ Framebuffer es None después de obtener desde PPU!")
+                    # -------------------------------------------
                 # ----------------------------------------
                 
                 # Diagnóstico desactivado para producción
@@ -585,9 +604,15 @@ class Renderer:
                 ]
                 # ----------------------------------------
                 
+                # --- STEP 0333: Verificación de Ejecución del Código de Diagnóstico ---
+                # Verificar que el código de diagnóstico se ejecuta
+                # NOTA: frame_indices se define más abajo, así que verificamos después de obtenerlo
+                # -------------------------------------------
+                
                 # --- STEP 0332: Diagnóstico de Framebuffer Recibido ---
                 # Verificar qué índices recibe el renderizador del framebuffer
-                if framebuffer_data is not None and len(framebuffer_data) > 0:
+                # Usar diagnostic_data que puede ser framebuffer_data o frame_indices
+                if diagnostic_data is not None and len(diagnostic_data) > 0:
                     if not hasattr(self, '_framebuffer_diagnostic_count'):
                         self._framebuffer_diagnostic_count = 0
                     if self._framebuffer_diagnostic_count < 5:
@@ -595,17 +620,21 @@ class Renderer:
                         
                         # Contar índices en el framebuffer
                         index_counts = {0: 0, 1: 0, 2: 0, 3: 0}
-                        for idx in range(min(100, len(framebuffer_data))):  # Primeros 100 píxeles
-                            color_idx = framebuffer_data[idx] & 0x03
+                        for idx in range(min(100, len(diagnostic_data))):  # Primeros 100 píxeles
+                            color_idx = diagnostic_data[idx] & 0x03
                             if color_idx in index_counts:
                                 index_counts[color_idx] += 1
                         
-                        logger.info(f"[Renderer-Framebuffer-Diagnostic] Frame {self._framebuffer_diagnostic_count} | "
-                                   f"Index counts (first 100): 0={index_counts[0]} 1={index_counts[1]} "
-                                   f"2={index_counts[2]} 3={index_counts[3]}")
+                        # --- Step 0333: Logs con print() como fallback ---
+                        log_msg = f"[Renderer-Framebuffer-Diagnostic] Frame {self._framebuffer_diagnostic_count} | " \
+                                  f"Index counts (first 100): 0={index_counts[0]} 1={index_counts[1]} " \
+                                  f"2={index_counts[2]} 3={index_counts[3]}"
+                        print(log_msg)  # Fallback a print()
+                        logger.info(log_msg)  # Logger normal
+                        # -------------------------------------------
                         
                         # Verificar primeros 20 píxeles
-                        first_20 = [framebuffer_data[i] & 0x03 for i in range(min(20, len(framebuffer_data)))]
+                        first_20 = [diagnostic_data[i] & 0x03 for i in range(min(20, len(diagnostic_data)))]
                         logger.info(f"[Renderer-Framebuffer-Diagnostic] First 20 indices: {first_20}")
                         
                         # Verificar que el índice 3 se convierte a negro
@@ -692,6 +721,24 @@ class Renderer:
                     self.surface = pygame.Surface((GB_WIDTH, GB_HEIGHT))
                 
                 WIDTH, HEIGHT = 160, 144
+                
+                # --- STEP 0333: Verificación de Dibujo de Píxeles ---
+                # Verificar que los píxeles se dibujan con los colores correctos
+                if not hasattr(self, '_pixel_draw_check_count'):
+                    self._pixel_draw_check_count = 0
+                if self._pixel_draw_check_count < 5:
+                    self._pixel_draw_check_count += 1
+                    
+                    # Verificar algunos píxeles específicos antes de dibujar
+                    test_pixels = [(0, 0), (80, 72), (159, 143)]
+                    for x, y in test_pixels:
+                        idx = y * 160 + x
+                        if idx < len(frame_indices):
+                            color_index = frame_indices[idx] & 0x03
+                            rgb_color = palette[color_index]
+                            print(f"[Renderer-Pixel-Draw] Pixel ({x}, {y}): index={color_index} -> RGB={rgb_color}")
+                            logger.info(f"[Renderer-Pixel-Draw] Pixel ({x}, {y}): index={color_index} -> RGB={rgb_color}")
+                # -------------------------------------------
                 
                 # --- STEP 0332: Verificación de Aplicación de Paleta ---
                 # Verificar que la paleta se aplica correctamente al dibujar píxeles

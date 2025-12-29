@@ -39,6 +39,15 @@ except ImportError:
 # Configurar logger antes de usarlo
 logger = logging.getLogger(__name__)
 
+# --- Step 0333: Configuración Explícita del Logger ---
+# Asegurar que el logger muestra logs de nivel INFO
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s: %(message)s',
+    force=True  # Forzar reconfiguración si ya estaba configurado
+)
+# -------------------------------------------
+
 # Importar componentes C++ (core nativo)
 try:
     from viboy_core import PyCPU, PyMMU, PyPPU, PyRegisters, PyTimer, PyJoypad
@@ -819,8 +828,10 @@ class Viboy:
                     if self._use_cpp:
                         self._cpu.run_scanline()
                         
-                        # --- Step 0219: SNAPSHOT INMUTABLE ---
-                        # Verificar si el frame está listo usando el método de la PPU
+                        # --- Step 0333: SNAPSHOT INMUTABLE (CORREGIDO) ---
+                        # CORRECCIÓN CRÍTICA: get_frame_ready_and_reset() ahora NO limpia el framebuffer
+                        # El framebuffer se limpia al inicio del siguiente frame (cuando LY se resetea a 0)
+                        # Esto asegura que Python siempre lee el framebuffer ANTES de que se limpie
                         if self._ppu is not None:
                             if self._ppu.get_frame_ready_and_reset():
                                 # --- Step 0332: Verificación Detallada de Copia del Framebuffer ---
@@ -836,8 +847,10 @@ class Viboy:
                                         self._framebuffer_copy_detailed_count = 0
                                     if self._framebuffer_copy_detailed_count < 5:
                                         self._framebuffer_copy_detailed_count += 1
-                                        logger.info(f"[Viboy-Framebuffer-Copy-Detailed] Frame {self._framebuffer_copy_detailed_count} | "
-                                                   f"First 20 indices before copy: {first_20_before}")
+                                        log_msg = f"[Viboy-Framebuffer-Copy-Detailed] Frame {self._framebuffer_copy_detailed_count} | " \
+                                                 f"First 20 indices before copy: {first_20_before}"
+                                        print(log_msg)  # Fallback a print()
+                                        logger.info(log_msg)  # Logger normal
                                     
                                     # 3. --- STEP 0219: SNAPSHOT INMUTABLE ---
                                     # Hacemos una copia profunda inmediata a la memoria de Python.
