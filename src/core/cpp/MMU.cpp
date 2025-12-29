@@ -983,6 +983,40 @@ void MMU::write(uint16_t addr, uint8_t value) {
                     tiles_loaded_log++;
                 }
                 
+                // --- Step 0336: Análisis de Velocidad de Carga de Tiles ---
+                // Analizar cuándo y cómo se cargan los tiles
+                static uint64_t first_tile_loaded_frame = 0;
+                static int tiles_loaded_total = 0;
+                static int tiles_loaded_this_second = 0;
+                static uint64_t last_second_frame = 0;
+                
+                // Obtener frame_counter desde PPU si está disponible
+                uint64_t current_frame = 0;
+                if (ppu_ != nullptr) {
+                    current_frame = ppu_->get_frame_counter();
+                }
+                
+                tiles_loaded_total++;
+                
+                if (first_tile_loaded_frame == 0) {
+                    first_tile_loaded_frame = current_frame;
+                    printf("[TILE-LOAD-TIMING] Primer tile cargado en Frame %llu (PC:0x%04X)\n",
+                           static_cast<unsigned long long>(first_tile_loaded_frame), debug_current_pc);
+                }
+                
+                // Contar tiles cargados por segundo (aproximado: 60 frames = 1 segundo)
+                if (current_frame / 60 != last_second_frame / 60) {
+                    if (tiles_loaded_this_second > 0) {
+                        printf("[TILE-LOAD-TIMING] Segundo %llu: %d tiles cargados (Total: %d)\n",
+                               static_cast<unsigned long long>(current_frame / 60), 
+                               tiles_loaded_this_second, tiles_loaded_total);
+                    }
+                    tiles_loaded_this_second = 0;
+                    last_second_frame = current_frame;
+                }
+                tiles_loaded_this_second++;
+                // -------------------------------------------
+                
                 // --- Step 0327: Verificación Inmediata de VRAM al Cargar Tiles ---
                 // Cuando se detecta que se cargó un tile, verificar inmediatamente el estado de VRAM
                 // Esto captura el momento en que hay tiles antes de que se limpien

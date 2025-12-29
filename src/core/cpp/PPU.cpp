@@ -715,6 +715,20 @@ void PPU::render_scanline() {
     uint8_t scy = mmu_->read(IO_SCY);
     uint8_t scx = mmu_->read(IO_SCX);
 
+    // --- Step 0336: Verificación de Scroll ---
+    // Verificar que el scroll se aplica correctamente
+    static int scroll_check_count = 0;
+    if (scroll_check_count < 10 && ly_ == 72) {
+        scroll_check_count++;
+        
+        printf("[PPU-SCROLL] Frame %llu | LY: %d | SCX: %d | SCY: %d | "
+               "MapX: %d | MapY: %d\n",
+               static_cast<unsigned long long>(frame_counter_ + 1),
+               ly_, scx, scy,
+               (0 + scx) & 0xFF, (ly_ + scy) & 0xFF);
+    }
+    // -------------------------------------------
+
     uint16_t tile_map_base = (lcdc & 0x08) ? 0x9C00 : 0x9800;
     bool signed_addressing = (lcdc & 0x10) == 0;
     uint16_t tile_data_base = signed_addressing ? 0x9000 : 0x8000;
@@ -1095,6 +1109,25 @@ void PPU::render_scanline() {
             tile_addr = tile_data_base + (tile_id * 16);
         }
 
+        // --- Step 0336: Verificación de Direccionamiento ---
+        // Verificar que el direccionamiento signed/unsigned es correcto
+        static int addressing_check_count = 0;
+        if (addressing_check_count < 10 && ly_ == 72 && x == 0) {
+            addressing_check_count++;
+            
+            printf("[PPU-ADDRESSING] Frame %llu | TileID: 0x%02X | Signed: %d | "
+                   "DataBase: 0x%04X | TileAddr: 0x%04X\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1),
+                   tile_id, signed_addressing ? 1 : 0,
+                   tile_data_base, tile_addr);
+            
+            if (signed_addressing) {
+                int8_t signed_id = static_cast<int8_t>(tile_id);
+                printf("[PPU-ADDRESSING] Signed ID: %d (0x%02X)\n", signed_id, tile_id);
+            }
+        }
+        // -------------------------------------------
+
         // --- Step 0325: Verificación de Cálculo de Dirección de Tile ---
         // Verificar que el cálculo de dirección sea correcto para signed/unsigned addressing
         static int tile_addr_verify_count = 0;
@@ -1345,6 +1378,34 @@ void PPU::render_scanline() {
             }
             // -----------------------------------------
             
+            // --- Step 0336: Verificación de Decodificación de Tiles ---
+            // Verificar que la decodificación 2bpp es correcta
+            static int tile_decode_check_count = 0;
+            if (tile_decode_check_count < 10 && ly_ == 72 && x < 32) {
+                if (x % 8 == 0) {  // Cada tile (8 píxeles)
+                    tile_decode_check_count++;
+                    
+                    // Verificar decodificación de algunos píxeles del tile
+                    printf("[PPU-TILE-DECODE] Frame %llu | TileID: 0x%02X | Addr: 0x%04X | "
+                           "Byte1: 0x%02X Byte2: 0x%02X\n",
+                           static_cast<unsigned long long>(frame_counter_ + 1),
+                           tile_id, tile_line_addr, byte1, byte2);
+                    
+                    // Decodificar algunos píxeles manualmente para verificar
+                    for (int test_bit = 7; test_bit >= 0; test_bit--) {
+                        uint8_t bit_low = (byte1 >> test_bit) & 1;
+                        uint8_t bit_high = (byte2 >> test_bit) & 1;
+                        uint8_t color_idx = (bit_high << 1) | bit_low;
+                        
+                        if (test_bit == 7 || test_bit == 0) {  // Primer y último píxel
+                            printf("[PPU-TILE-DECODE] Pixel %d: bit_low=%d bit_high=%d color_idx=%d\n",
+                                   test_bit, bit_low, bit_high, color_idx);
+                        }
+                    }
+                }
+            }
+            // -------------------------------------------
+            
             uint8_t bit_index = 7 - (map_x % 8);
             uint8_t bit_low = (byte1 >> bit_index) & 1;
             uint8_t bit_high = (byte2 >> bit_index) & 1;
@@ -1358,6 +1419,22 @@ void PPU::render_scanline() {
             // color_index 2 -> (BGP >> 4) & 3 = 2
             // color_index 3 -> (BGP >> 6) & 3 = 3
             uint8_t final_color = (bgp >> (color_index * 2)) & 0x03;
+            
+            // --- Step 0336: Verificación de Aplicación de Paleta ---
+            // Verificar que la paleta BGP se aplica correctamente
+            static int palette_apply_check_count = 0;
+            if (palette_apply_check_count < 10 && ly_ == 72 && x < 32) {
+                if (x % 8 == 0) {  // Cada tile
+                    palette_apply_check_count++;
+                    
+                    printf("[PPU-PALETTE-APPLY] Frame %llu | ColorIndex: %d | BGP: 0x%02X | "
+                           "FinalColor: %d | BGP mapping: %d->%d\n",
+                           static_cast<unsigned long long>(frame_counter_ + 1),
+                           color_index, bgp, final_color,
+                           color_index, final_color);
+                }
+            }
+            // -------------------------------------------
             
             // --- Step 0313: Log de diagnóstico - verificar lectura de tile data ---
             static int tile_data_log_count = 0;
@@ -1408,6 +1485,25 @@ void PPU::render_scanline() {
             }
             
             framebuffer_[line_start_index + x] = final_color;
+            
+            // --- Step 0336: Verificación de Escritura en Framebuffer ---
+            // Verificar que el índice final se escribió correctamente en el framebuffer
+            static int framebuffer_write_check_count = 0;
+            if (framebuffer_write_check_count < 10 && ly_ == 72 && x < 32) {
+                if (x % 8 == 0) {  // Cada tile
+                    framebuffer_write_check_count++;
+                    
+                    size_t framebuffer_idx = ly_ * SCREEN_WIDTH + x;
+                    uint8_t framebuffer_value = framebuffer_[framebuffer_idx] & 0x03;
+                    
+                    if (framebuffer_value != final_color) {
+                        printf("[PPU-PALETTE-APPLY] ⚠️ PROBLEMA: Framebuffer tiene %d pero debería tener %d\n",
+                               framebuffer_value, final_color);
+                    }
+                }
+            }
+            // -------------------------------------------
+            
             // -------------------------------------------------------------
         }
     }

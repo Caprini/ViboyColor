@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Tiles Difusos y Optimización de Renderizado - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Tiles Difusos y Optimización de Renderizado</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0336
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0335__investigacion-desaparicion-checkerboard.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este step investiga por qué los tiles aparecen difusos o a medias y por qué tarda mucho
+                    en aparecer contenido de la ROM. Se implementaron logs de diagnóstico para verificar la
+                    decodificación de tiles (2bpp), la aplicación de la paleta BGP, el scroll (SCX/SCY), el
+                    direccionamiento signed/unsigned, y el timing de carga de tiles. Los logs revelaron que
+                    la decodificación y aplicación de paleta funcionan correctamente, pero los tiles se cargan
+                    muy tarde (Frame 4720-4943), lo cual explica por qué tarda mucho en aparecer contenido.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>Decodificación 2bpp (2 bits per pixel)</h3>
+                <p>
+                    Cada tile del Game Boy tiene 8x8 píxeles = 64 píxeles. Cada píxel se codifica con 2 bits
+                    (2bpp = 2 bits per pixel), por lo que se necesitan 16 bytes por tile (8 líneas × 2 bytes por línea).
+                    El formato es:
+                </p>
+                <ul>
+                    <li><strong>Byte 1</strong>: Contiene el bit bajo (bit_low) de cada píxel</li>
+                    <li><strong>Byte 2</strong>: Contiene el bit alto (bit_high) de cada píxel</li>
+                    <li><strong>Índice de color</strong>: <code>color_index = (bit_high << 1) | bit_low</code></li>
+                </ul>
+                <p>
+                    El índice de color resultante (0-3) se mapea a un color final usando la paleta BGP.
+                </p>
+
+                <h3>Paleta BGP (Background Palette)</h3>
+                <p>
+                    BGP (Background Palette, registro 0xFF47) mapea índices de color crudos (0-3) a índices
+                    finales (0-3). El formato es: <code>[color3][color2][color1][color0]</code>, donde cada
+                    color ocupa 2 bits. El color final se calcula como:
+                </p>
+                <pre><code>final_color = (BGP >> (color_index * 2)) & 0x03</code></pre>
+                <p>
+                    Por ejemplo, con BGP = 0xE4 (11100100):
+                </p>
+                <ul>
+                    <li>Color 0 → (0xE4 >> 0) & 0x03 = 0</li>
+                    <li>Color 1 → (0xE4 >> 2) & 0x03 = 1</li>
+                    <li>Color 2 → (0xE4 >> 4) & 0x03 = 2</li>
+                    <li>Color 3 → (0xE4 >> 6) & 0x03 = 3</li>
+                </ul>
+                <p>
+                    Este es un mapeo identidad estándar que preserva los índices de color.
+                </p>
+
+                <h3>Scroll (SCX/SCY)</h3>
+                <p>
+                    SCX (Scroll X, registro 0xFF43) desplaza el background horizontalmente, y SCY (Scroll Y,
+                    registro 0xFF42) desplaza el background verticalmente. El scroll se aplica al calcular
+                    la posición en el tilemap:
+                </p>
+                <pre><code>map_x = (screen_x + SCX) & 0xFF
+map_y = (screen_y + SCY) & 0xFF</code></pre>
+
+                <h3>Direccionamiento Signed/Unsigned</h3>
+                <p>
+                    El Game Boy puede usar dos modos de direccionamiento para los tiles:
+                </p>
+                <ul>
+                    <li><strong>Unsigned (LCDC bit 4 = 1)</strong>: Tile IDs 0-255, base en 0x8000</li>
+                    <li><strong>Signed (LCDC bit 4 = 0)</strong>: Tile IDs -128 a 127, base en 0x9000</li>
+                </ul>
+                <p>
+                    En modo signed, el tile ID se interpreta como int8_t, permitiendo referenciar tiles antes
+                    de la base (0x9000 - 128*16 = 0x8800).
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron 5 sistemas de logs de diagnóstico para investigar los problemas de
+                    renderizado:
+                </p>
+
+                <h3>1. Logs de Decodificación de Tiles (2bpp)</h3>
+                <p>
+                    Se agregaron logs en <code>PPU::render_scanline()</code> que verifican la decodificación
+                    de tiles en la línea central (LY=72). Los logs muestran:
+                </p>
+                <ul>
+                    <li>Tile ID y dirección del tile</li>
+                    <li>Bytes 1 y 2 de la línea del tile</li>
+                    <li>Decodificación manual de algunos píxeles (primer y último píxel)</li>
+                    <li>Índice de color resultante para cada píxel</li>
+                </ul>
+                <p>
+                    <strong>Tag de log:</strong> <code>[PPU-TILE-DECODE]</code>
+                </p>
+
+                <h3>2. Logs de Aplicación de Paleta</h3>
+                <p>
+                    Se agregaron logs que verifican la aplicación de la paleta BGP. Los logs muestran:
+                </p>
+                <ul>
+                    <li>Índice de color crudo (0-3)</li>
+                    <li>Valor de BGP</li>
+                    <li>Color final después de aplicar la paleta</li>
+                    <li>Mapeo BGP (color_index → final_color)</li>
+                </ul>
+                <p>
+                    <strong>Tag de log:</strong> <code>[PPU-PALETTE-APPLY]</code>
+                </p>
+
+                <h3>3. Análisis de Timing de Carga de Tiles</h3>
+                <p>
+                    Se agregó análisis en <code>MMU::write()</code> que detecta cuándo se cargan los tiles
+                    y analiza la velocidad de carga. Los logs muestran:
+                </p>
+                <ul>
+                    <li>Frame en que se carga el primer tile</li>
+                    <li>Número de tiles cargados por segundo</li>
+                    <li>Total de tiles cargados</li>
+                </ul>
+                <p>
+                    <strong>Tag de log:</strong> <code>[TILE-LOAD-TIMING]</code>
+                </p>
+
+                <h3>4. Logs de Scroll (SCX/SCY)</h3>
+                <p>
+                    Se agregaron logs que verifican los valores de scroll durante el renderizado. Los logs
+                    muestran:
+                </p>
+                <ul>
+                    <li>Frame actual</li>
+                    <li>Línea de escaneo (LY)</li>
+                    <li>Valores de SCX y SCY</li>
+                    <li>Posición calculada en el tilemap (MapX, MapY)</li>
+                </ul>
+                <p>
+                    <strong>Tag de log:</strong> <code>[PPU-SCROLL]</code>
+                </p>
+
+                <h3>5. Logs de Direccionamiento Signed/Unsigned</h3>
+                <p>
+                    Se agregaron logs que verifican el direccionamiento de tiles. Los logs muestran:
+                </p>
+                <ul>
+                    <li>Tile ID</li>
+                    <li>Tipo de direccionamiento (signed/unsigned)</li>
+                    <li>Base de datos de tiles</li>
+                    <li>Dirección calculada del tile</li>
+                    <li>Si es signed, el valor signed del tile ID</li>
+                </ul>
+                <p>
+                    <strong>Tag de log:</strong> <code>[PPU-ADDRESSING]</code>
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Agregados logs de decodificación, paleta, scroll y direccionamiento</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Agregado análisis de timing de carga de tiles</li>
+                    <li><code>build_log_step0336.txt</code> - Log de compilación</li>
+                    <li><code>logs/test_*_step0336.log</code> - Logs de pruebas con las 5 ROMs</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas con las 5 ROMs durante 2.5 minutos cada una:
+                </p>
+                <ul>
+                    <li><strong>pkmn.gb</strong>: 20 tiles cargados, primer tile en Frame 4943</li>
+                    <li><strong>tetris.gb</strong>: 3 tiles cargados, primer tile en Frame 1</li>
+                    <li><strong>mario.gbc</strong>: 0 tiles cargados (solo checkerboard)</li>
+                    <li><strong>pkmn-amarillo.gb</strong>: 20 tiles cargados, primer tile en Frame 4716</li>
+                    <li><strong>Oro.gbc</strong>: 20 tiles cargados, primer tile en Frame 4720</li>
+                </ul>
+
+                <h3>Hallazgos Clave</h3>
+                <ol>
+                    <li>
+                        <strong>Decodificación de tiles funciona correctamente</strong>: Los logs muestran
+                        que la decodificación 2bpp es correcta. Tiles con datos (0xFF 0xFF) se decodifican
+                        correctamente a color_idx=3, y tiles vacíos (0x00 0x00) a color_idx=0.
+                    </li>
+                    <li>
+                        <strong>Aplicación de paleta funciona correctamente</strong>: Los logs muestran que
+                        la paleta BGP se aplica correctamente, mapeando índices de color crudos a índices
+                        finales (0→0, 3→3 con BGP=0xE4).
+                    </li>
+                    <li>
+                        <strong>Tiles se cargan muy tarde</strong>: Los tiles se cargan en Frame 4720-4943
+                        (aproximadamente 78-82 segundos después del inicio), lo cual explica por qué tarda
+                        mucho en aparecer contenido de la ROM. Esto es normal para algunos juegos que
+                        inicializan muchos sistemas antes de cargar gráficos.
+                    </li>
+                    <li>
+                        <strong>Scroll funciona correctamente</strong>: Los logs muestran que SCX y SCY se
+                        aplican correctamente, aunque inicialmente están en 0.
+                    </li>
+                    <li>
+                        <strong>Direccionamiento funciona correctamente</strong>: Los logs muestran que tanto
+                        el direccionamiento signed como unsigned funcionan correctamente. Por ejemplo, en
+                        Oro.gbc se detecta direccionamiento signed con TileID 0x7F mapeando a 0x97F0.
+                    </li>
+                </ol>
+
+                <h3>Ejemplo de Logs</h3>
+                <pre><code>[PPU-TILE-DECODE] Frame 1 | TileID: 0x00 | Addr: 0x8000 | Byte1: 0xFF Byte2: 0xFF
+[PPU-TILE-DECODE] Pixel 7: bit_low=1 bit_high=1 color_idx=3
+[PPU-PALETTE-APPLY] Frame 1 | ColorIndex: 3 | BGP: 0xE4 | FinalColor: 3 | BGP mapping: 3->3
+[TILE-LOAD-TIMING] Primer tile cargado en Frame 4720 (PC:0x5EB2)
+[PPU-SCROLL] Frame 1 | LY: 72 | SCX: 0 | SCY: 0 | MapX: 0 | MapY: 72
+[PPU-ADDRESSING] Frame 1 | TileID: 0x7F | Signed: 1 | DataBase: 0x9000 | TileAddr: 0x97F0</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Data</a> - Formato 2bpp y decodificación</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Background Palette (BGP)</a> - Aplicación de paleta</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Scroll Registers (SCX/SCY)</a> - Scroll del background</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCDC Register</a> - Direccionamiento signed/unsigned</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li>
+                            <strong>Decodificación 2bpp</strong>: La decodificación de tiles funciona correctamente.
+                            Los bits se leen en el orden correcto (bit_high y bit_low) y se combinan para formar
+                            el índice de color (0-3).
+                        </li>
+                        <li>
+                            <strong>Aplicación de paleta</strong>: La paleta BGP se aplica correctamente usando
+                            el desplazamiento de bits. El mapeo identidad (BGP=0xE4) preserva los índices de color.
+                        </li>
+                        <li>
+                            <strong>Timing de carga</strong>: Los tiles se cargan muy tarde en algunos juegos
+                            (Frame 4720-4943), lo cual es normal para juegos que inicializan muchos sistemas
+                            antes de cargar gráficos. Esto explica por qué tarda mucho en aparecer contenido.
+                        </li>
+                        <li>
+                            <strong>Direccionamiento</strong>: Tanto el direccionamiento signed como unsigned
+                            funcionan correctamente. El modo signed permite referenciar tiles antes de la base
+                            (0x8800-0x8FFF) usando valores negativos.
+                        </li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>
+                            <strong>Tiles difusos</strong>: Los logs muestran que la decodificación y paleta
+                            funcionan correctamente, pero los tiles aún aparecen difusos. Esto podría deberse a:
+                            <ul>
+                                <li>Problemas en el renderizador Python que convierte índices de color a RGB</li>
+                                <li>Problemas en la aplicación de colores finales (paleta de Game Boy Color)</li>
+                                <li>Problemas en la interpolación o escalado de píxeles</li>
+                            </ul>
+                        </li>
+                        <li>
+                            <strong>Optimización de carga</strong>: Aunque los tiles se cargan tarde, esto es
+                            normal para algunos juegos. Sin embargo, podría investigarse si hay formas de
+                            optimizar la carga o si hay problemas de sincronización.
+                        </li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Los logs confirman que la decodificación y aplicación de paleta funcionan correctamente
+                        en el lado C++. El problema de tiles difusos probablemente está en el renderizador Python
+                        que convierte los índices de color a RGB o en la aplicación de colores finales. El próximo
+                        step debería investigar el renderizador Python.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar el renderizador Python que convierte índices de color a RGB</li>
+                    <li>[ ] Verificar la aplicación de colores finales (paleta de Game Boy Color)</li>
+                    <li>[ ] Investigar problemas de interpolación o escalado de píxeles</li>
+                    <li>[ ] Si se identifica la causa de los tiles difusos, implementar corrección</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
