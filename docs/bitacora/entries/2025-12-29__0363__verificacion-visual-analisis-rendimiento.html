@@ -220,15 +220,78 @@ if self._render_perf_frame_count % 60 == 0:
                 </div>
             </section>
 
-            <!-- 8. Próximos Pasos -->
+            <!-- 8. Análisis de Logs -->
+            <section id="analisis-logs">
+                <h2>Análisis de Logs de Pruebas</h2>
+                <p>
+                    Se ejecutaron pruebas completas con las 6 ROMs (60 segundos cada una) y se analizaron los logs generados.
+                </p>
+                
+                <h3>Resultados de Rendimiento</h3>
+                <ul>
+                    <li><strong>render_scanline()</strong>: 9-56 microsegundos (promedio ~25 μs) - Excelente rendimiento</li>
+                    <li><strong>get_frame_ready_and_reset()</strong>: 0 microsegundos - Instantáneo</li>
+                    <li><strong>Lectura del framebuffer (Python)</strong>: 0.02-0.05ms (promedio ~0.03ms) - Extremadamente rápido</li>
+                    <li><strong>FPS observados</strong>: 51-53 FPS (mejor que los 0.1-10.8 reportados anteriormente)</li>
+                </ul>
+                
+                <h3>Problema Crítico Identificado</h3>
+                <p>
+                    <strong>Condición de Carrera en el Framebuffer</strong>: Se encontraron múltiples advertencias en todos los logs:
+                </p>
+                <pre><code>[PPU-FRAMEBUFFER-STABILITY] ⚠️ ADVERTENCIA: Framebuffer cambió mientras Python lo leía!</code></pre>
+                <p>
+                    <strong>Estadísticas de advertencias por ROM</strong>:
+                </p>
+                <ul>
+                    <li>Mario: 24 advertencias</li>
+                    <li>Oro: 35 advertencias</li>
+                    <li>PKMN Amarillo: 19 advertencias</li>
+                    <li>PKMN: 22 advertencias</li>
+                    <li>Tetris: 26 advertencias</li>
+                    <li>Zelda DX: 7291 advertencias ⚠️ (MUY ALTO)</li>
+                </ul>
+                
+                <h3>Análisis del Problema</h3>
+                <p>
+                    El código actual protege contra <strong>limpieza</strong> del framebuffer cuando <code>framebuffer_being_read_</code> está activo, 
+                    pero <strong>NO protege contra escritura</strong> de nuevos datos. Esto significa que:
+                </p>
+                <ol>
+                    <li>Python marca el framebuffer como "siendo leído" (<code>framebuffer_being_read_ = true</code>)</li>
+                    <li>Mientras Python lee el framebuffer, la PPU continúa renderizando el siguiente frame</li>
+                    <li>La PPU escribe nuevos datos al framebuffer mientras Python lo está leyendo</li>
+                    <li>Esto causa condiciones de carrera y gráficos corruptos</li>
+                </ol>
+                
+                <p>
+                    <strong>Causa raíz</strong>: El flag <code>framebuffer_being_read_</code> solo previene la limpieza del framebuffer, 
+                    pero no previene que <code>render_scanline()</code> escriba nuevos datos mientras Python está leyendo.
+                </p>
+                
+                <h3>Frames Vacíos</h3>
+                <p>
+                    Se encontraron frames completamente vacíos (0 píxeles no-blancos) en varios juegos, especialmente en Oro. 
+                    Esto puede ser comportamiento normal del juego (pantallas negras durante transiciones) o un problema de sincronización.
+                </p>
+                
+                <p>
+                    <strong>Reporte completo disponible en</strong>: 
+                    <code>docs/bitacora/entries/2025-12-29__0363__analisis-logs-reporte.md</code>
+                </p>
+            </section>
+
+            <!-- 9. Próximos Pasos -->
             <section id="proximos-pasos">
                 <h2>Próximos Pasos</h2>
                 <ul>
-                    <li>[ ] Ejecutar pruebas visuales completas con las 6 ROMs para verificar que las correcciones del Step 0362 funcionan</li>
-                    <li>[ ] Analizar logs generados para confirmar que las correcciones de timing del framebuffer funcionan correctamente</li>
-                    <li>[ ] Analizar métricas de rendimiento para identificar cuellos de botella en el pipeline</li>
-                    <li>[ ] Si el problema persiste, investigar más a fondo las causas (rendimiento, sincronización, pipeline de renderizado)</li>
-                    <li>[ ] Si es necesario, implementar soluciones alternativas (doble buffering, optimizaciones adicionales)</li>
+                    <li>[✅] Ejecutar pruebas visuales completas con las 6 ROMs</li>
+                    <li>[✅] Analizar logs generados para confirmar que las correcciones funcionan</li>
+                    <li>[✅] Analizar métricas de rendimiento (conclusión: rendimiento excelente, no es el problema)</li>
+                    <li>[✅] Identificar problema crítico: condición de carrera en el framebuffer</li>
+                    <li>[ ] Implementar doble buffering para eliminar condiciones de carrera (Step 0364)</li>
+                    <li>[ ] Investigar por qué Zelda DX tiene tantas advertencias (7291 vs 19-35 en otros juegos)</li>
+                    <li>[ ] Verificar si los frames vacíos son comportamiento normal o un problema</li>
                 </ul>
             </section>
         </main>
