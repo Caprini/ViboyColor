@@ -36,6 +36,26 @@ from ..memory.mmu import IO_LCDC, IO_BGP, IO_SCX, IO_SCY, IO_OBP0, IO_OBP1, IO_W
 
 logger = logging.getLogger(__name__)
 
+# --- Step 0346: Verificación y Configuración del Logger ---
+# Verificar que el logger está configurado correctamente
+if logger.level == logging.NOTSET:
+    # Si el logger no tiene nivel configurado, configurarlo explícitamente
+    logger.setLevel(logging.INFO)
+
+# Verificar que el logger tiene handlers
+if not logger.handlers:
+    # Si no tiene handlers, agregar uno básico
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
+# Loggear que el logger está configurado
+logger.info(f"[Renderer-Logger-Config] Logger configurado: level={logger.level}, handlers={len(logger.handlers)}")
+print(f"[Renderer-Logger-Config] Logger configurado: level={logger.level}, handlers={len(logger.handlers)}")
+# -------------------------------------------
+
 # Constantes de la Game Boy
 GB_WIDTH = 160  # Ancho de la pantalla en píxeles
 GB_HEIGHT = 144  # Alto de la pantalla en píxeles
@@ -513,6 +533,33 @@ class Renderer:
         
         Fuente: Pan Docs - LCD Control Register, Background Tile Map, Window
         """
+        # --- Step 0346: Logs de Diagnóstico al Inicio de render_frame() ---
+        # Verificar que render_frame() se ejecuta usando tanto logger como print()
+        if not hasattr(self, '_render_frame_entry_debug_count'):
+            self._render_frame_entry_debug_count = 0
+        
+        self._render_frame_entry_debug_count += 1
+        
+        # Usar tanto logger como print() para asegurar que el log aparezca
+        debug_msg = (f"[Renderer-Frame-Entry] Frame {self._render_frame_entry_debug_count} | "
+                    f"render_frame() ejecutado | framebuffer_data is None: {framebuffer_data is None}")
+        
+        # Loggear con logger
+        logger.info(debug_msg)
+        
+        # Loggear con print() como fallback
+        print(debug_msg)
+        
+        # Loggear también a stderr para asegurar que se capture
+        import sys
+        print(debug_msg, file=sys.stderr)
+        
+        if self._render_frame_entry_debug_count <= 20:
+            if framebuffer_data is not None:
+                logger.info(f"[Renderer-Frame-Entry] framebuffer_data length: {len(framebuffer_data)}")
+                print(f"[Renderer-Frame-Entry] framebuffer_data length: {len(framebuffer_data)}")
+        # -------------------------------------------
+        
         # --- STEP 0308: Monitor de Rendimiento Mejorado ([PERFORMANCE-TRACE]) ---
         import time
         frame_start = None
@@ -631,6 +678,22 @@ class Renderer:
                                        f"framebuffer_data length: {len(framebuffer_data)}")
                     # -------------------------------------------
                 # ----------------------------------------
+                
+                # --- Step 0346: Verificación de Condiciones de los Logs ---
+                # Verificar que frame_indices está disponible antes de los bloques de diagnóstico
+                if 'frame_indices' not in locals():
+                    logger.warning("[Renderer-Conditions] frame_indices no está definido")
+                    print("[Renderer-Conditions] frame_indices no está definido")
+                elif frame_indices is None:
+                    logger.warning("[Renderer-Conditions] frame_indices es None")
+                    print("[Renderer-Conditions] frame_indices es None")
+                elif len(frame_indices) == 0:
+                    logger.warning(f"[Renderer-Conditions] frame_indices está vacío (length=0)")
+                    print(f"[Renderer-Conditions] frame_indices está vacío (length=0)")
+                else:
+                    logger.info(f"[Renderer-Conditions] frame_indices disponible: length={len(frame_indices)}")
+                    print(f"[Renderer-Conditions] frame_indices disponible: length={len(frame_indices)}")
+                # -------------------------------------------
                 
                 # --- Step 0342: Verificación del Tamaño Real del Framebuffer ---
                 # Verificar el tamaño real del framebuffer cuando se recibe

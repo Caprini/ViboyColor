@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificación y Corrección de Logs del Renderer - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Verificación y Corrección de Logs del Renderer</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0346
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0345__analisis-detallado-correspondencia-framebuffer-visualizacion.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementaron logs de diagnóstico al inicio de `render_frame()` para verificar que se ejecuta correctamente, se verificó y corrigió la configuración del sistema de logging, se verificó que la redirección de salida captura todos los logs (stdout y stderr), y se agregaron verificaciones de condiciones de los logs. Los logs ahora aparecen correctamente en los archivos de log generados, confirmando que el renderer se ejecuta y que los logs de correspondencia framebuffer-visualización del Step 0343 también funcionan correctamente.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Sistema de Logging en Python:</strong> El sistema de logging de Python permite registrar eventos durante la ejecución de un programa. El módulo `logging` proporciona diferentes niveles de log (DEBUG, INFO, WARNING, ERROR, CRITICAL) y diferentes handlers (StreamHandler, FileHandler, etc.) para dirigir los logs a diferentes destinos (consola, archivo, etc.).
+                </p>
+                <p>
+                    <strong>Redirección de Salida:</strong> En sistemas Unix/Linux, es posible redirigir la salida estándar (stdout) y la salida de error (stderr) a archivos o a otros procesos. El comando `2>&1` redirige stderr a stdout, y `tee` duplica la salida tanto a un archivo como a la consola. Esto es útil para capturar todos los logs (tanto de `logger` como de `print()`) en un archivo mientras se siguen mostrando en la consola.
+                </p>
+                <p>
+                    <strong>Configuración de Logger:</strong> Un logger puede heredar su configuración del logger raíz o tener su propia configuración. Si un logger no tiene nivel configurado (NOTSET), hereda el nivel del logger padre. Si no tiene handlers, los logs se propagan al logger padre. Para asegurar que los logs aparezcan, es importante configurar explícitamente el nivel y agregar handlers si es necesario.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron cuatro mejoras principales al sistema de logging del renderer:
+                </p>
+                
+                <h3>1. Logs de Diagnóstico al Inicio de render_frame()</h3>
+                <p>
+                    Se agregaron logs inmediatamente al inicio de `render_frame()` que verifican que el método se ejecuta correctamente. Los logs usan tanto `logger.info()` como `print()` para asegurar que aparezcan incluso si hay problemas con la configuración del logger. También se envían a stderr como fallback adicional.
+                </p>
+                <pre><code># --- Step 0346: Logs de Diagnóstico al Inicio de render_frame() ---
+if not hasattr(self, '_render_frame_entry_debug_count'):
+    self._render_frame_entry_debug_count = 0
+
+self._render_frame_entry_debug_count += 1
+
+debug_msg = (f"[Renderer-Frame-Entry] Frame {self._render_frame_entry_debug_count} | "
+            f"render_frame() ejecutado | framebuffer_data is None: {framebuffer_data is None}")
+
+logger.info(debug_msg)
+print(debug_msg)
+print(debug_msg, file=sys.stderr)
+# -------------------------------------------</code></pre>
+
+                <h3>2. Verificación y Configuración del Logger</h3>
+                <p>
+                    Se agregó código al inicio del módulo `renderer.py` que verifica que el logger esté configurado correctamente. Si el logger no tiene nivel configurado (NOTSET), se configura explícitamente a INFO. Si no tiene handlers, se agrega un StreamHandler básico.
+                </p>
+                <pre><code># --- Step 0346: Verificación y Configuración del Logger ---
+if logger.level == logging.NOTSET:
+    logger.setLevel(logging.INFO)
+
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+# -------------------------------------------</code></pre>
+
+                <h3>3. Verificación de Redirección de Salida</h3>
+                <p>
+                    Se agregaron logs de prueba al inicio de `run()` en `viboy.py` que verifican que la redirección de salida funciona correctamente. Los logs se envían tanto a stdout como a stderr para asegurar que ambos streams se capturen.
+                </p>
+                <pre><code># --- Step 0346: Verificación de Redirección de Salida ---
+test_msg = "[Viboy-Output-Test] Verificando redirección de salida"
+logger.info(test_msg)
+print(test_msg)
+print(test_msg, file=sys.stderr)
+# -------------------------------------------</code></pre>
+
+                <h3>4. Verificación de Condiciones de los Logs</h3>
+                <p>
+                    Se agregaron verificaciones después de obtener `frame_indices` que verifican que la variable está disponible antes de usarla en los bloques de diagnóstico. Esto ayuda a identificar si los logs no aparecen porque las condiciones no se cumplen.
+                </p>
+                <pre><code># --- Step 0346: Verificación de Condiciones de los Logs ---
+if 'frame_indices' not in locals():
+    logger.warning("[Renderer-Conditions] frame_indices no está definido")
+elif frame_indices is None:
+    logger.warning("[Renderer-Conditions] frame_indices es None")
+elif len(frame_indices) == 0:
+    logger.warning(f"[Renderer-Conditions] frame_indices está vacío (length=0)")
+else:
+    logger.info(f"[Renderer-Conditions] frame_indices disponible: length={len(frame_indices)}")
+# -------------------------------------------</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Múltiples métodos de logging:</strong> Se usan tanto `logger.info()` como `print()` para asegurar que los logs aparezcan incluso si hay problemas con la configuración del logger. Esto es especialmente importante para logs de diagnóstico críticos.</li>
+                    <li><strong>Logs a stderr:</strong> Se envían logs también a stderr como fallback adicional, ya que algunos sistemas pueden redirigir stdout y stderr de manera diferente.</li>
+                    <li><strong>Configuración explícita del logger:</strong> Se configura explícitamente el logger en el módulo para asegurar que funcione correctamente independientemente de cómo se configure el logger raíz.</li>
+                    <li><strong>Verificación de condiciones:</strong> Se verifican las condiciones antes de ejecutar los bloques de diagnóstico para identificar problemas tempranamente.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Agregados logs de diagnóstico al inicio de `render_frame()`, verificación y configuración del logger, y verificación de condiciones de los logs</li>
+                    <li><code>src/viboy.py</code> - Agregados logs de verificación de redirección de salida al inicio de `run()`</li>
+                    <li><code>logs/test_tetris_step0346_quick.log</code> - Archivo de log generado durante las pruebas</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutó una prueba rápida (30 segundos) con Tetris para verificar que los logs aparecen correctamente:
+                </p>
+                <ul>
+                    <li><strong>Comando ejecutado:</strong> <code>timeout 30 python3 main.py roms/tetris.gb 2>&1 | tee logs/test_tetris_step0346_quick.log</code></li>
+                    <li><strong>Resultado:</strong> Todos los logs aparecen correctamente en el archivo de log</li>
+                    <li><strong>Logs verificados:</strong>
+                        <ul>
+                            <li>✅ <code>[Renderer-Logger-Config]</code> - Aparece al inicio del programa</li>
+                            <li>✅ <code>[Viboy-Output-Test]</code> - Aparece al inicio del programa</li>
+                            <li>✅ <code>[Renderer-Frame-Entry]</code> - Aparece en cada frame</li>
+                            <li>✅ <code>[Renderer-Conditions]</code> - Aparece cuando frame_indices está disponible</li>
+                            <li>✅ <code>[Renderer-Framebuffer-Size]</code> - Aparece en los primeros frames</li>
+                            <li>✅ <code>[Renderer-Pixel-Order-Verification]</code> - Aparece en los primeros frames</li>
+                            <li>✅ <code>[Renderer-Framebuffer-Visualization-Correspondence]</code> - Aparece en los primeros frames (del Step 0343)</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Los logs confirman que el renderer se ejecuta correctamente y que el framebuffer tiene el tamaño correcto (23040 píxeles = 160x144).
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Python Documentation: <a href="https://docs.python.org/3/library/logging.html">logging — Logging facility for Python</a></li>
+                    <li>Python Documentation: <a href="https://docs.python.org/3/library/sys.html#sys.stdout">sys.stdout, sys.stderr</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Sistema de Logging de Python:</strong> El sistema de logging de Python es jerárquico. Los loggers hijos heredan la configuración del logger padre si no tienen su propia configuración. Es importante configurar explícitamente el nivel y los handlers si se quiere asegurar que los logs aparezcan.</li>
+                        <li><strong>Redirección de Salida:</strong> La redirección `2>&1` captura tanto stdout como stderr. El comando `tee` duplica la salida a un archivo y a la consola. Esto es útil para capturar todos los logs mientras se siguen mostrando en la consola.</li>
+                        <li><strong>Múltiples métodos de logging:</strong> Usar tanto `logger.info()` como `print()` puede ser útil para asegurar que los logs aparezcan incluso si hay problemas con la configuración del logger. Sin embargo, esto puede generar logs duplicados si ambos funcionan correctamente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Rendimiento de logging:</strong> El logging puede tener un impacto en el rendimiento si se usa en bucles críticos. Se debe considerar desactivar los logs en producción o usar niveles de log más altos.</li>
+                        <li><strong>Gestión de logs grandes:</strong> Los archivos de log pueden crecer rápidamente. Se debe considerar rotación de logs o limitar la cantidad de logs generados.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que la redirección de salida funciona correctamente en todos los sistemas Unix/Linux. En sistemas Windows, puede ser necesario usar diferentes comandos o herramientas.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Analizar los logs de correspondencia framebuffer-visualización generados para identificar problemas de visualización</li>
+                    <li>[ ] Si se identifican problemas, implementar correcciones basadas en los hallazgos</li>
+                    <li>[ ] Verificar que la visualización coincide con el framebuffer en diferentes ROMs</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

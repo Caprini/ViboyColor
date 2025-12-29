@@ -763,6 +763,17 @@ class Viboy:
         self.running = True
         self.verbose = True  # Para heartbeat
         
+        # --- Step 0346: Verificación de Redirección de Salida ---
+        # Verificar que la redirección de salida funciona correctamente
+        test_msg = "[Viboy-Output-Test] Verificando redirección de salida"
+        logger.info(test_msg)
+        print(test_msg)
+        print(test_msg, file=sys.stderr)
+        
+        logger.info(f"[Viboy-Output-Test] stdout: {sys.stdout}, stderr: {sys.stderr}")
+        print(f"[Viboy-Output-Test] stdout: {sys.stdout}, stderr: {sys.stderr}")
+        # -------------------------------------------
+        
         # --- Step 0344: Inicializar Timer de Debug al Iniciar el Emulador ---
         # Reiniciar timer cuando se inicia una nueva ejecución
         self._start_time = time.time()
