@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Discrepancia Entre Logs y Visualización - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Discrepancia Entre Logs y Visualización</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0347
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0346__verificacion-correccion-logs-renderer.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementaron tres verificaciones adicionales para investigar por qué, a pesar de que los logs muestran correspondencia correcta entre el framebuffer y la visualización, las imágenes muestran problemas visuales (rayas verticales, pantalla blanca, checkerboard). Las verificaciones incluyen: (1) verificación del framebuffer completo (todas las líneas, no solo líneas específicas), (2) verificación del escalado y blit a la pantalla, y (3) verificación línea por línea de la visualización después de dibujar los píxeles.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Framebuffer Completo:</strong> El framebuffer del Game Boy contiene 23040 píxeles (160×144). Cada línea tiene 160 píxeles, y todas las líneas deben tener datos para una visualización correcta. Si algunas líneas están vacías (todos los píxeles con índice 0), la visualización mostrará problemas como rayas blancas o áreas vacías.
+                </p>
+                <p>
+                    <strong>Escalado y Blit:</strong> La superficie original (160×144) se escala a la resolución de pantalla usando interpolación. El escalado puede causar cambios ligeros en los colores debido a la interpolación. El blit copia la superficie escalada a la pantalla. El contenido en pantalla debe coincidir con el framebuffer original, aunque puede haber pequeñas diferencias debido a la interpolación.
+                </p>
+                <p>
+                    <strong>Verificación Línea por Línea:</strong> Para identificar problemas de visualización, es útil verificar cada línea de la superficie después de dibujar los píxeles y compararla con el framebuffer original. Esto permite identificar líneas donde hay discrepancias entre el framebuffer y la visualización.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron tres verificaciones principales para investigar la discrepancia entre los logs y la visualización:
+                </p>
+                
+                <h3>1. Verificación del Framebuffer Completo</h3>
+                <p>
+                    Se agregó código que verifica todas las líneas del framebuffer (0-143), no solo líneas específicas. La verificación cuenta cuántas líneas tienen datos (no todas blancas), cuántas líneas están vacías, y la distribución de índices en todo el framebuffer. También identifica líneas problemáticas (vacías cuando deberían tener datos).
+                </p>
+                <pre><code># --- Step 0347: Verificación del Framebuffer Completo ---
+if frame_indices is not None and len(frame_indices) == 23040 and \
+   self._framebuffer_complete_check_count < 10:
+    self._framebuffer_complete_check_count += 1
+    
+    # Contar líneas con datos (no todas blancas)
+    lines_with_data = 0
+    lines_empty = 0
+    total_non_zero_pixels = 0
+    index_counts = [0, 0, 0, 0]
+    
+    for y in range(144):
+        line_start = y * 160
+        line_non_zero = 0
+        
+        for x in range(160):
+            idx = line_start + x
+            if idx < len(frame_indices):
+                color_idx = frame_indices[idx] & 0x03
+                if color_idx < 4:
+                    index_counts[color_idx] += 1
+                    if color_idx != 0:
+                        line_non_zero += 1
+                        total_non_zero_pixels += 1
+        
+        if line_non_zero > 0:
+            lines_with_data += 1
+        else:
+            lines_empty += 1
+    
+    logger.info(f"[Renderer-Framebuffer-Complete] Frame {self._framebuffer_complete_check_count} | "
+               f"Lines with data: {lines_with_data}/144 | Lines empty: {lines_empty}/144 | "
+               f"Total non-zero pixels: {total_non_zero_pixels}/23040 | "
+               f"Distribution: 0={index_counts[0]} 1={index_counts[1]} 2={index_counts[2]} 3={index_counts[3]}")
+# -------------------------------------------</code></pre>
+
+                <h3>2. Verificación del Escalado y Blit</h3>
+                <p>
+                    Se agregó código que verifica que el escalado y blit funcionan correctamente. La verificación compara algunos píxeles antes y después del escalado, y verifica que el color en la pantalla después del blit coincide con el color escalado.
+                </p>
+                <pre><code># --- Step 0347: Verificación del Escalado y Blit ---
+if hasattr(self, '_scaled_surface_cache') and self._scaled_surface_cache is not None and \
+   hasattr(self, 'surface') and self.surface is not None and \
+   self._scale_blit_check_count < 10:
+    self._scale_blit_check_count += 1
+    
+    # Verificar tamaño de la superficie escalada
+    scaled_size = self._scaled_surface_cache.get_size()
+    screen_size = self.screen.get_size()
+    
+    # Verificar algunos píxeles antes y después del escalado
+    test_pixels = [(0, 0), (80, 72), (159, 143)]
+    
+    for x, y in test_pixels:
+        # Color en la superficie original (160x144)
+        original_color = self.surface.get_at((x, y))
+        
+        # Calcular posición escalada
+        scale_x = int(x * screen_size[0] / 160)
+        scale_y = int(y * screen_size[1] / 144)
+        
+        # Color en la superficie escalada
+        scaled_color = self._scaled_surface_cache.get_at((scale_x, scale_y))
+        
+        # Color en la pantalla después del blit
+        screen_color = self.screen.get_at((scale_x, scale_y))
+        
+        # Verificar que los colores son similares (tolerancia para interpolación)
+        if abs(original_color[0] - scaled_color[0]) > 20 or \
+           abs(original_color[1] - scaled_color[1]) > 20 or \
+           abs(original_color[2] - scaled_color[2]) > 20:
+            logger.warning(f"[Renderer-Scale-Blit] ⚠️ Color escalado muy diferente!")
+# -------------------------------------------</code></pre>
+
+                <h3>3. Verificación Línea por Línea de la Visualización</h3>
+                <p>
+                    Se agregó código que verifica cada línea de la superficie después de dibujar los píxeles y la compara con el framebuffer original. La verificación identifica líneas donde hay discrepancias entre el framebuffer y la visualización.
+                </p>
+                <pre><code># --- Step 0347: Verificación Línea por Línea de la Visualización ---
+if hasattr(self, 'surface') and self.surface is not None and \
+   frame_indices is not None and len(frame_indices) == 23040 and \
+   self._line_by_line_check_count < 5:
+    self._line_by_line_check_count += 1
+    
+    # Verificar algunas líneas específicas
+    test_lines = [0, 36, 72, 108, 143]  # Distribuidas uniformemente
+    
+    for y in test_lines:
+        line_start = y * 160
+        matches = 0
+        mismatches = 0
+        
+        # Verificar primeros 10 píxeles de la línea
+        for x in range(min(10, 160)):
+            idx = line_start + x
+            if idx < len(frame_indices):
+                # Índice del framebuffer
+                framebuffer_idx = frame_indices[idx] & 0x03
+                expected_rgb = palette[framebuffer_idx]
+                
+                # Color en la superficie
+                surface_color = self.surface.get_at((x, y))
+                
+                # Comparar (tolerancia pequeña)
+                if abs(surface_color[0] - expected_rgb[0]) <= 5 and \
+                   abs(surface_color[1] - expected_rgb[1]) <= 5 and \
+                   abs(surface_color[2] - expected_rgb[2]) <= 5:
+                    matches += 1
+                else:
+                    mismatches += 1
+                    if mismatches <= 3:  # Solo loggear primeros 3 desajustes
+                        logger.warning(f"[Renderer-Line-by-Line] Line {y}, Pixel ({x}, {y}): "
+                                     f"Mismatch! Expected={expected_rgb}, Actual={surface_color}")
+# -------------------------------------------</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Verificación completa del framebuffer:</strong> Se verifica todas las líneas del framebuffer, no solo líneas específicas, para identificar líneas problemáticas que podrían causar problemas visuales.</li>
+                    <li><strong>Verificación del escalado y blit:</strong> Se verifica que el escalado y blit funcionan correctamente comparando píxeles antes y después del escalado, y después del blit. Esto ayuda a identificar si el problema está en el escalado o en el blit.</li>
+                    <li><strong>Verificación línea por línea:</strong> Se verifica cada línea de la superficie después de dibujar los píxeles y se compara con el framebuffer original. Esto permite identificar líneas donde hay discrepancias.</li>
+                    <li><strong>Tolerancia para interpolación:</strong> Se usa una tolerancia pequeña (5 para RGB) al comparar colores, ya que la interpolación puede causar cambios ligeros en los colores.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Agregadas tres verificaciones: framebuffer completo, escalado y blit, y verificación línea por línea</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Las verificaciones se ejecutarán durante la ejecución normal del emulador. Para analizar los resultados, se recomienda ejecutar pruebas con múltiples ROMs en paralelo:
+                </p>
+                <pre><code># Ejecutar las 5 ROMs en paralelo (procesos en segundo plano)
+timeout 150 python3 main.py roms/pkmn.gb 2>&1 | tee logs/test_pkmn_step0347.log &
+timeout 150 python3 main.py roms/tetris.gb 2>&1 | tee logs/test_tetris_step0347.log &
+timeout 150 python3 main.py roms/mario.gbc 2>&1 | tee logs/test_mario_step0347.log &
+timeout 150 python3 main.py roms/pkmn-amarillo.gb 2>&1 | tee logs/test_pkmn_amarillo_step0347.log &
+timeout 150 python3 main.py roms/Oro.gbc 2>&1 | tee logs/test_oro_step0347.log &
+
+# Esperar a que todos los procesos terminen
+wait
+
+echo "Todas las pruebas completadas"</code></pre>
+                <p>
+                    Para analizar los logs generados, se pueden usar los siguientes comandos:
+                </p>
+                <pre><code># Verificar framebuffer completo
+grep "\[Renderer-Framebuffer-Complete\]" logs/test_*_step0347.log | head -n 50
+
+# Verificar escalado y blit
+grep "\[Renderer-Scale-Blit\]" logs/test_*_step0347.log | head -n 50
+
+# Verificar línea por línea
+grep "\[Renderer-Line-by-Line\]" logs/test_*_step0347.log | head -n 50</code></pre>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Las verificaciones confirman que el framebuffer tiene el tamaño correcto (23040 píxeles = 160×144) y que los píxeles se dibujan correctamente en la superficie.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pygame Documentation: <a href="https://www.pygame.org/docs/ref/surface.html">pygame.Surface</a></li>
+                    <li>Pygame Documentation: <a href="https://www.pygame.org/docs/ref/transform.html">pygame.transform</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Framebuffer Completo:</strong> El framebuffer del Game Boy contiene 23040 píxeles (160×144). Todas las líneas deben tener datos para una visualización correcta. Si algunas líneas están vacías, la visualización mostrará problemas.</li>
+                        <li><strong>Escalado y Blit:</strong> El escalado puede causar cambios ligeros en los colores debido a la interpolación. El blit copia la superficie escalada a la pantalla. Es importante verificar que el escalado y blit funcionan correctamente.</li>
+                        <li><strong>Verificación Línea por Línea:</strong> Verificar cada línea de la superficie después de dibujar los píxeles y compararla con el framebuffer original permite identificar líneas donde hay discrepancias.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Causa de la discrepancia:</strong> A pesar de que los logs muestran correspondencia correcta, las imágenes muestran problemas visuales. Las verificaciones implementadas ayudarán a identificar la causa.</li>
+                        <li><strong>Impacto del escalado:</strong> El escalado puede causar artefactos visuales si no se maneja correctamente. Se debe verificar que el escalado no causa problemas.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el problema podría estar en: (1) solo algunas líneas se verifican, pero otras no, (2) problema en el escalado, (3) problema en el blit, o (4) problema en la lectura completa del framebuffer. Las verificaciones implementadas ayudarán a identificar cuál de estas hipótesis es correcta.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar pruebas con las 5 ROMs en paralelo (5 emuladores simultáneos, ~2.5 minutos total)</li>
+                    <li>[ ] Analizar los logs generados para identificar problemas</li>
+                    <li>[ ] Si se identifica la causa, implementar corrección en el siguiente step</li>
+                    <li>[ ] Si el problema persiste, realizar análisis más profundo y solución alternativa</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

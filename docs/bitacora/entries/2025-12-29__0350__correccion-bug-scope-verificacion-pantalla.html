@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrección de Bug de Scope en Verificación de Pantalla - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Corrección de Bug de Scope en Verificación de Pantalla</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0350
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0349__ejecucion-pruebas-analisis-logs-sincronizacion.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se corrigió un bug de scope en el código de verificación de actualización de pantalla. El problema era que <code>frame_indices</code> se definía dentro del bloque condicional <code>if self.use_cpp_ppu and self.cpp_ppu is not None:</code>, pero el código de verificación de pantalla estaba fuera de ese bloque (después de <code>pygame.display.flip()</code>), por lo que <code>frame_indices</code> no estaba disponible cuando se ejecutaba la verificación. La solución fue guardar <code>frame_indices</code> en una variable de instancia (<code>self._current_frame_indices</code>) cuando se obtiene, y actualizar el código de verificación para usar esta variable de instancia. Además, se movió el código de verificación de pantalla dentro del bloque de PPU C++ (antes del <code>return</code>) para que se ejecute cuando se usa PPU C++.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Scope de Variables en Python:</strong> Las variables definidas dentro de un bloque condicional (<code>if</code>, <code>else</code>, <code>try</code>, <code>except</code>) solo están disponibles dentro de ese bloque. Para usar una variable fuera del bloque donde se define, se debe: (1) guardarla en una variable de instancia (<code>self.variable</code>), (2) definirla antes del bloque condicional, o (3) pasar la variable como parámetro. En este caso, <code>frame_indices</code> se definía dentro del bloque <code>if self.use_cpp_ppu and self.cpp_ppu is not None:</code>, pero el código de verificación de pantalla estaba fuera de ese bloque, por lo que <code>frame_indices</code> no estaba disponible cuando se ejecutaba la verificación.
+                </p>
+                <p>
+                    <strong>Actualización de Pantalla:</strong> <code>pygame.display.flip()</code> actualiza la pantalla con el contenido del buffer. Debe llamarse después de dibujar todo el contenido. El contenido en pantalla debe coincidir con el framebuffer dibujado. Para verificar que la pantalla se actualiza correctamente, se debe leer el contenido de la pantalla después de <code>flip()</code> y compararlo con el framebuffer original. Si el código de verificación está después de un <code>return</code>, nunca se ejecutará.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron tres cambios principales para corregir el bug de scope:
+                </p>
+                
+                <h3>1. Guardar frame_indices en Variable de Instancia</h3>
+                <p>
+                    Se agregó código para guardar <code>frame_indices</code> en <code>self._current_frame_indices</code> cuando se obtiene, tanto cuando se proporciona <code>framebuffer_data</code> como parámetro como cuando se obtiene desde PPU C++.
+                </p>
+                <pre><code># --- Step 0350: Guardar frame_indices en Variable de Instancia ---
+# Guardar frame_indices en una variable de instancia para que esté disponible en todo el método
+self._current_frame_indices = frame_indices
+# --- Step 0350: Log de Guardado de frame_indices ---
+if not hasattr(self, '_frame_indices_saved_count'):
+    self._frame_indices_saved_count = 0
+
+self._frame_indices_saved_count += 1
+
+if self._frame_indices_saved_count <= 10:
+    logger.info(f"[Renderer-Frame-Indices-Saved] Frame {self._frame_indices_saved_count} | "
+               f"frame_indices guardado en self._current_frame_indices (length={len(self._current_frame_indices)})")
+    print(f"[Renderer-Frame-Indices-Saved] Frame {self._frame_indices_saved_count} | "
+          f"frame_indices guardado en self._current_frame_indices (length={len(self._current_frame_indices)})")
+# -------------------------------------------</code></pre>
+
+                <h3>2. Actualizar Código de Verificación de Pantalla</h3>
+                <p>
+                    Se actualizó el código de verificación de pantalla para usar <code>self._current_frame_indices</code> en lugar de verificar <code>frame_indices</code> en <code>locals()</code>. Además, se movió el código de verificación dentro del bloque de PPU C++ (antes del <code>return</code>) para que se ejecute cuando se usa PPU C++.
+                </p>
+                <pre><code># --- Step 0348: Verificación de Actualización de Pantalla (dentro del bloque PPU C++) ---
+# Verificar que la pantalla se actualiza correctamente después de flip()
+# NOTA: Este código debe ejecutarse ANTES del return para que se ejecute cuando se usa PPU C++
+if hasattr(self, 'screen') and self.screen is not None and \
+   hasattr(self, '_current_frame_indices') and self._current_frame_indices is not None and \
+   self._screen_update_check_count < 10:
+    self._screen_update_check_count += 1
+    
+    # Verificar algunos píxeles en la pantalla después de flip()
+    test_pixels = [(0, 0), (80, 72), (159, 143)]
+    
+    logger.info(f"[Renderer-Screen-Update] Frame {self._screen_update_check_count} | "
+               f"Verificando pantalla después de flip():")
+    print(f"[Renderer-Screen-Update] Frame {self._screen_update_check_count} | "
+          f"Verificando pantalla después de flip():")
+    
+    # Usar self._current_frame_indices en lugar de frame_indices
+    frame_indices = self._current_frame_indices
+    
+    for x, y in test_pixels:
+        # Calcular posición escalada
+        scale_x = int(x * self.screen.get_width() / 160)
+        scale_y = int(y * self.screen.get_height() / 144)
+        
+        # Color en la pantalla después de flip()
+        if scale_x < self.screen.get_width() and scale_y < self.screen.get_height():
+            screen_color = self.screen.get_at((scale_x, scale_y))
+            
+            # Obtener índice original del framebuffer
+            idx = y * 160 + x
+            if idx < len(frame_indices):
+                framebuffer_idx = frame_indices[idx] & 0x03
+                expected_rgb = palette[framebuffer_idx]
+                
+                logger.info(f"[Renderer-Screen-Update] Pixel ({x}, {y}): "
+                           f"Framebuffer index={framebuffer_idx}, Expected RGB={expected_rgb}, "
+                           f"Screen RGB={screen_color}")
+                print(f"[Renderer-Screen-Update] Pixel ({x}, {y}): "
+                      f"Framebuffer index={framebuffer_idx}, Expected RGB={expected_rgb}, "
+                      f"Screen RGB={screen_color}")
+                
+                # Verificar que los colores coinciden (tolerancia para interpolación)
+                if abs(screen_color[0] - expected_rgb[0]) > 10 or \
+                   abs(screen_color[1] - expected_rgb[1]) > 10 or \
+                   abs(screen_color[2] - expected_rgb[2]) > 10:
+                    logger.warning(f"[Renderer-Screen-Update] ⚠️ Color en pantalla no coincide!")
+                    print(f"[Renderer-Screen-Update] ⚠️ Color en pantalla no coincide!")
+# -------------------------------------------</code></pre>
+
+                <h3>3. Agregar Logs de Depuración</h3>
+                <p>
+                    Se agregaron logs de depuración para verificar que el código de verificación se ejecuta correctamente y para diagnosticar problemas de scope.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Corrección de bug de scope con <code>frame_indices</code>, guardado en variable de instancia, actualización de código de verificación de pantalla, y movimiento del código de verificación dentro del bloque de PPU C++</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutó una prueba rápida (10 segundos) con Tetris para verificar que la corrección funciona correctamente:
+                </p>
+                <ul>
+                    <li><strong>Logs de guardado:</strong> Los logs de <code>[Renderer-Frame-Indices-Saved]</code> aparecen correctamente, confirmando que <code>frame_indices</code> se guarda en <code>self._current_frame_indices</code></li>
+                    <li><strong>Logs de verificación de pantalla:</strong> Los logs de <code>[Renderer-Screen-Update]</code> aparecen correctamente, confirmando que el código de verificación se ejecuta</li>
+                    <li><strong>Correspondencia de colores:</strong> Los logs muestran que los colores en pantalla coinciden con el framebuffer (no hay advertencias de "Color en pantalla no coincide")</li>
+                </ul>
+                <pre><code># Ejemplo de logs exitosos:
+[Renderer-Frame-Indices-Saved] Frame 1 | frame_indices guardado en self._current_frame_indices (length=23040)
+[Renderer-Screen-Update-Entry] Frame 1 | Entrando a verificación de pantalla
+[Renderer-Screen-Update-Debug] Frame 1 | has_screen=True, has_frame_indices=True, check_count=0
+[Renderer-Screen-Update] Frame 1 | Verificando pantalla después de flip():
+[Renderer-Screen-Update] Pixel (0, 0): Framebuffer index=3, Expected RGB=(8, 24, 32), Screen RGB=Color(8, 24, 32, 255)
+[Renderer-Screen-Update] Pixel (80, 72): Framebuffer index=0, Expected RGB=(255, 255, 255), Screen RGB=Color(255, 255, 255, 255)
+[Renderer-Screen-Update] Pixel (159, 143): Framebuffer index=0, Expected RGB=(255, 255, 255), Screen RGB=Color(255, 255, 255, 255)</code></pre>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El código funciona correctamente con el módulo C++ compilado, confirmando que la corrección de scope no afecta la funcionalidad del renderizador.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Python Documentation: <a href="https://docs.python.org/3/tutorial/classes.html#instance-objects">Instance Objects</a> - Scope de variables de instancia</li>
+                    <li>Python Documentation: <a href="https://docs.python.org/3/tutorial/classes.html#scopes-and-namespaces">Scopes and Namespaces</a> - Scope de variables en Python</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Scope de Variables:</strong> Las variables definidas dentro de bloques condicionales solo están disponibles dentro de ese bloque. Para usar una variable fuera del bloque, se debe guardar en una variable de instancia o definirla antes del bloque.</li>
+                        <li><strong>Orden de Ejecución:</strong> El código que está después de un <code>return</code> nunca se ejecuta. Si se necesita ejecutar código después de una operación (como <code>pygame.display.flip()</code>), debe estar antes del <code>return</code>.</li>
+                        <li><strong>Variables de Instancia:</strong> Las variables de instancia (<code>self.variable</code>) están disponibles en todo el método, independientemente de dónde se definan. Esto las hace ideales para compartir datos entre diferentes partes del método.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Pruebas completas:</strong> Se ejecutó una prueba rápida, pero no se pudieron ejecutar pruebas completas con las 5 ROMs debido a problemas de espacio en el dispositivo. Las pruebas completas deberían ejecutarse cuando haya espacio disponible.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el código de verificación de pantalla funciona correctamente para todas las ROMs, basándose en que funciona correctamente para Tetris. Esta suposición debería verificarse con pruebas completas cuando haya espacio disponible.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar pruebas completas con las 5 ROMs cuando haya espacio disponible</li>
+                    <li>[ ] Analizar los logs de verificación de pantalla para identificar cualquier problema de correspondencia entre framebuffer y pantalla</li>
+                    <li>[ ] Si se identifican problemas, implementar correcciones basadas en los hallazgos</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

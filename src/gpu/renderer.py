@@ -582,6 +582,21 @@ class Renderer:
                 if framebuffer_data is not None:
                     # Ya es un snapshot inmutable (bytearray)
                     frame_indices = framebuffer_data
+                    # --- Step 0350: Guardar frame_indices en Variable de Instancia ---
+                    # Guardar frame_indices en una variable de instancia para que esté disponible en todo el método
+                    self._current_frame_indices = frame_indices
+                    # --- Step 0350: Log de Guardado de frame_indices ---
+                    if not hasattr(self, '_frame_indices_saved_count'):
+                        self._frame_indices_saved_count = 0
+                    
+                    self._frame_indices_saved_count += 1
+                    
+                    if self._frame_indices_saved_count <= 10:
+                        logger.info(f"[Renderer-Frame-Indices-Saved] Frame {self._frame_indices_saved_count} | "
+                                   f"frame_indices guardado en self._current_frame_indices (length={len(self._current_frame_indices)})")
+                        print(f"[Renderer-Frame-Indices-Saved] Frame {self._frame_indices_saved_count} | "
+                              f"frame_indices guardado en self._current_frame_indices (length={len(self._current_frame_indices)})")
+                    # -------------------------------------------
                     snapshot_time = 0.0  # No hay overhead si ya viene como snapshot
                     diagnostic_data = framebuffer_data  # Usar framebuffer_data para diagnóstico
                     
@@ -637,6 +652,22 @@ class Renderer:
                     except AttributeError:
                         # Fallback: convertir memoryview a bytes usando bytes() constructor
                         frame_indices = bytearray(bytes(frame_indices_mv))  # Snapshot inmutable optimizado
+                    
+                    # --- Step 0350: Guardar frame_indices en Variable de Instancia ---
+                    # Guardar frame_indices en una variable de instancia para que esté disponible en todo el método
+                    self._current_frame_indices = frame_indices
+                    # --- Step 0350: Log de Guardado de frame_indices ---
+                    if not hasattr(self, '_frame_indices_saved_count'):
+                        self._frame_indices_saved_count = 0
+                    
+                    self._frame_indices_saved_count += 1
+                    
+                    if self._frame_indices_saved_count <= 10:
+                        logger.info(f"[Renderer-Frame-Indices-Saved] Frame {self._frame_indices_saved_count} | "
+                                   f"frame_indices guardado en self._current_frame_indices (length={len(self._current_frame_indices)})")
+                        print(f"[Renderer-Frame-Indices-Saved] Frame {self._frame_indices_saved_count} | "
+                              f"frame_indices guardado en self._current_frame_indices (length={len(self._current_frame_indices)})")
+                    # -------------------------------------------
                     
                     snapshot_time = (time.time() - snapshot_start) * 1000  # en milisegundos
                     
@@ -1780,6 +1811,84 @@ class Renderer:
                     self._performance_trace_count += 1
                 # ----------------------------------------
                 
+                # --- Step 0348: Verificación de Actualización de Pantalla (dentro del bloque PPU C++) ---
+                # Verificar que la pantalla se actualiza correctamente después de flip()
+                # NOTA: Este código debe ejecutarse ANTES del return para que se ejecute cuando se usa PPU C++
+                if not hasattr(self, '_screen_update_entry_count'):
+                    self._screen_update_entry_count = 0
+                
+                self._screen_update_entry_count += 1
+                if self._screen_update_entry_count <= 5:
+                    logger.info(f"[Renderer-Screen-Update-Entry] Frame {self._screen_update_entry_count} | "
+                               f"Entrando a verificación de pantalla")
+                    print(f"[Renderer-Screen-Update-Entry] Frame {self._screen_update_entry_count} | "
+                          f"Entrando a verificación de pantalla")
+                
+                if not hasattr(self, '_screen_update_check_count'):
+                    self._screen_update_check_count = 0
+                
+                # --- Step 0350: Debug de Condiciones de Verificación de Pantalla ---
+                if not hasattr(self, '_screen_update_debug_count'):
+                    self._screen_update_debug_count = 0
+                
+                self._screen_update_debug_count += 1
+                if self._screen_update_debug_count <= 5:
+                    has_screen = hasattr(self, 'screen') and self.screen is not None
+                    has_frame_indices = hasattr(self, '_current_frame_indices') and self._current_frame_indices is not None
+                    logger.info(f"[Renderer-Screen-Update-Debug] Frame {self._screen_update_debug_count} | "
+                               f"has_screen={has_screen}, has_frame_indices={has_frame_indices}, "
+                               f"check_count={self._screen_update_check_count}")
+                    print(f"[Renderer-Screen-Update-Debug] Frame {self._screen_update_debug_count} | "
+                          f"has_screen={has_screen}, has_frame_indices={has_frame_indices}, "
+                          f"check_count={self._screen_update_check_count}")
+                # -------------------------------------------
+                
+                if hasattr(self, 'screen') and self.screen is not None and \
+                   hasattr(self, '_current_frame_indices') and self._current_frame_indices is not None and \
+                   self._screen_update_check_count < 10:
+                    self._screen_update_check_count += 1
+                    
+                    # Verificar algunos píxeles en la pantalla después de flip()
+                    test_pixels = [(0, 0), (80, 72), (159, 143)]
+                    
+                    logger.info(f"[Renderer-Screen-Update] Frame {self._screen_update_check_count} | "
+                               f"Verificando pantalla después de flip():")
+                    print(f"[Renderer-Screen-Update] Frame {self._screen_update_check_count} | "
+                          f"Verificando pantalla después de flip():")
+                    
+                    # Usar self._current_frame_indices en lugar de frame_indices
+                    frame_indices = self._current_frame_indices
+                    
+                    for x, y in test_pixels:
+                        # Calcular posición escalada
+                        scale_x = int(x * self.screen.get_width() / 160)
+                        scale_y = int(y * self.screen.get_height() / 144)
+                        
+                        # Color en la pantalla después de flip()
+                        if scale_x < self.screen.get_width() and scale_y < self.screen.get_height():
+                            screen_color = self.screen.get_at((scale_x, scale_y))
+                            
+                            # Obtener índice original del framebuffer
+                            idx = y * 160 + x
+                            if idx < len(frame_indices):
+                                framebuffer_idx = frame_indices[idx] & 0x03
+                                expected_rgb = palette[framebuffer_idx]
+                                
+                                logger.info(f"[Renderer-Screen-Update] Pixel ({x}, {y}): "
+                                           f"Framebuffer index={framebuffer_idx}, Expected RGB={expected_rgb}, "
+                                           f"Screen RGB={screen_color}")
+                                print(f"[Renderer-Screen-Update] Pixel ({x}, {y}): "
+                                      f"Framebuffer index={framebuffer_idx}, Expected RGB={expected_rgb}, "
+                                      f"Screen RGB={screen_color}")
+                                
+                                # Verificar que los colores coinciden (tolerancia para interpolación)
+                                if abs(screen_color[0] - expected_rgb[0]) > 10 or \
+                                   abs(screen_color[1] - expected_rgb[1]) > 10 or \
+                                   abs(screen_color[2] - expected_rgb[2]) > 10:
+                                    logger.warning(f"[Renderer-Screen-Update] ⚠️ Color en pantalla no coincide!")
+                                    print(f"[Renderer-Screen-Update] ⚠️ Color en pantalla no coincide!")
+                # -------------------------------------------
+                
                 return
             except Exception as e:
                 # Fallback a método Python si hay error
@@ -2114,7 +2223,24 @@ class Renderer:
         if not hasattr(self, '_screen_update_check_count'):
             self._screen_update_check_count = 0
         
+        # --- Step 0350: Debug de Condiciones de Verificación de Pantalla ---
+        if not hasattr(self, '_screen_update_debug_count'):
+            self._screen_update_debug_count = 0
+        
+        self._screen_update_debug_count += 1
+        if self._screen_update_debug_count <= 5:
+            has_screen = hasattr(self, 'screen') and self.screen is not None
+            has_frame_indices = hasattr(self, '_current_frame_indices') and self._current_frame_indices is not None
+            logger.info(f"[Renderer-Screen-Update-Debug] Frame {self._screen_update_debug_count} | "
+                       f"has_screen={has_screen}, has_frame_indices={has_frame_indices}, "
+                       f"check_count={self._screen_update_check_count}")
+            print(f"[Renderer-Screen-Update-Debug] Frame {self._screen_update_debug_count} | "
+                  f"has_screen={has_screen}, has_frame_indices={has_frame_indices}, "
+                  f"check_count={self._screen_update_check_count}")
+        # -------------------------------------------
+        
         if hasattr(self, 'screen') and self.screen is not None and \
+           hasattr(self, '_current_frame_indices') and self._current_frame_indices is not None and \
            self._screen_update_check_count < 10:
             self._screen_update_check_count += 1
             
@@ -2126,6 +2252,9 @@ class Renderer:
             print(f"[Renderer-Screen-Update] Frame {self._screen_update_check_count} | "
                   f"Verificando pantalla después de flip():")
             
+            # Usar self._current_frame_indices en lugar de frame_indices
+            frame_indices = self._current_frame_indices
+            
             for x, y in test_pixels:
                 # Calcular posición escalada
                 scale_x = int(x * self.screen.get_width() / 160)
@@ -2136,25 +2265,24 @@ class Renderer:
                     screen_color = self.screen.get_at((scale_x, scale_y))
                     
                     # Obtener índice original del framebuffer
-                    if 'frame_indices' in locals() and frame_indices is not None:
-                        idx = y * 160 + x
-                        if idx < len(frame_indices):
-                            framebuffer_idx = frame_indices[idx] & 0x03
-                            expected_rgb = palette[framebuffer_idx]
-                            
-                            logger.info(f"[Renderer-Screen-Update] Pixel ({x}, {y}): "
-                                       f"Framebuffer index={framebuffer_idx}, Expected RGB={expected_rgb}, "
-                                       f"Screen RGB={screen_color}")
-                            print(f"[Renderer-Screen-Update] Pixel ({x}, {y}): "
-                                  f"Framebuffer index={framebuffer_idx}, Expected RGB={expected_rgb}, "
-                                  f"Screen RGB={screen_color}")
-                            
-                            # Verificar que los colores coinciden (tolerancia para interpolación)
-                            if abs(screen_color[0] - expected_rgb[0]) > 10 or \
-                               abs(screen_color[1] - expected_rgb[1]) > 10 or \
-                               abs(screen_color[2] - expected_rgb[2]) > 10:
-                                logger.warning(f"[Renderer-Screen-Update] ⚠️ Color en pantalla no coincide!")
-                                print(f"[Renderer-Screen-Update] ⚠️ Color en pantalla no coincide!")
+                    idx = y * 160 + x
+                    if idx < len(frame_indices):
+                        framebuffer_idx = frame_indices[idx] & 0x03
+                        expected_rgb = palette[framebuffer_idx]
+                        
+                        logger.info(f"[Renderer-Screen-Update] Pixel ({x}, {y}): "
+                                   f"Framebuffer index={framebuffer_idx}, Expected RGB={expected_rgb}, "
+                                   f"Screen RGB={screen_color}")
+                        print(f"[Renderer-Screen-Update] Pixel ({x}, {y}): "
+                              f"Framebuffer index={framebuffer_idx}, Expected RGB={expected_rgb}, "
+                              f"Screen RGB={screen_color}")
+                        
+                        # Verificar que los colores coinciden (tolerancia para interpolación)
+                        if abs(screen_color[0] - expected_rgb[0]) > 10 or \
+                           abs(screen_color[1] - expected_rgb[1]) > 10 or \
+                           abs(screen_color[2] - expected_rgb[2]) > 10:
+                            logger.warning(f"[Renderer-Screen-Update] ⚠️ Color en pantalla no coincide!")
+                            print(f"[Renderer-Screen-Update] ⚠️ Color en pantalla no coincide!")
         # -------------------------------------------
         
         # --- Step 0348: Contar Frames Mostrados ---
