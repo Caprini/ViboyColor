@@ -1155,6 +1155,126 @@ void MMU::write(uint16_t addr, uint8_t value) {
         }
     }
 
+    // --- Step 0354: Investigación de Borrado de Datos Iniciales en VRAM ---
+    // Detectar cuándo y quién borra los datos iniciales en VRAM
+    if (addr >= 0x8000 && addr < 0x9800) {
+        // Variables estáticas para detección de borrado
+        static int vram_non_zero_bytes = 0;
+        static bool vram_initial_state_checked = false;
+        static int vram_erase_detection_count = 0;
+        static int erase_by_game_count = 0;
+        static int erase_by_emulator_count = 0;
+        
+        // Verificar estado inicial de VRAM una vez
+        if (!vram_initial_state_checked) {
+            vram_initial_state_checked = true;
+            
+            // Contar bytes no-cero en VRAM
+            for (uint16_t check_addr = 0x8000; check_addr < 0x9800; check_addr++) {
+                uint8_t byte = memory_[check_addr];
+                if (byte != 0x00) {
+                    vram_non_zero_bytes++;
+                }
+            }
+            
+            printf("[MMU-VRAM-ERASE-DETECTION] Initial VRAM state | Non-zero bytes: %d/6144 (%.2f%%)\n",
+                   vram_non_zero_bytes, (vram_non_zero_bytes * 100.0) / 6144);
+        }
+        
+        // Obtener valor anterior antes de escribir
+        uint8_t old_value = memory_[addr];
+        
+        // Detectar cuando se borran datos (escritura de 0x00 a una dirección que tenía datos)
+        if (value == 0x00 && old_value != 0x00) {
+            vram_non_zero_bytes--;
+            vram_erase_detection_count++;
+            
+            // Obtener PC del CPU
+            uint16_t pc = debug_current_pc;
+            
+            // Obtener frame y estado del LCD desde PPU (si está disponible)
+            uint64_t frame = 0;
+            uint8_t ly = 0;
+            bool lcd_is_on = false;
+            bool in_vblank = false;
+            
+            if (ppu_ != nullptr) {
+                frame = ppu_->get_frame_counter();
+                ly = ppu_->get_ly();
+                lcd_is_on = ppu_->is_lcd_on();
+                in_vblank = (ly >= 144);
+            }
+            
+            // Determinar si es el juego (ROM) o el emulador quien borra
+            bool is_game_code = (pc >= 0x0000 && pc < 0x8000);
+            bool is_boot_rom = (pc >= 0x0000 && pc < 0x0100);
+            
+            if (is_game_code && !is_boot_rom) {
+                erase_by_game_count++;
+            } else {
+                erase_by_emulator_count++;
+            }
+            
+            // Loggear los primeros 100 borrados
+            if (vram_erase_detection_count <= 100) {
+                printf("[MMU-VRAM-ERASE-DETECTION] Erase #%d | Addr=0x%04X | Old value=0x%02X | "
+                       "PC=0x%04X | Frame %llu | LY: %d | LCD=%s | VBLANK=%s | "
+                       "Remaining non-zero: %d/6144 (%.2f%%)\n",
+                       vram_erase_detection_count, addr, old_value, pc,
+                       static_cast<unsigned long long>(frame), ly,
+                       lcd_is_on ? "ON" : "OFF",
+                       in_vblank ? "YES" : "NO",
+                       vram_non_zero_bytes, (vram_non_zero_bytes * 100.0) / 6144);
+            }
+            
+            // Loggear quién borra los datos (primeros 20 de cada tipo)
+            if (erase_by_game_count <= 20 && is_game_code && !is_boot_rom) {
+                printf("[MMU-VRAM-ERASE-SOURCE] Erase by GAME | PC=0x%04X | Addr=0x%04X | "
+                       "Old value=0x%02X | Total game erases=%d\n",
+                       pc, addr, old_value, erase_by_game_count);
+            } else if (erase_by_emulator_count <= 20 && (!is_game_code || is_boot_rom)) {
+                printf("[MMU-VRAM-ERASE-SOURCE] Erase by EMULATOR/BOOT | PC=0x%04X | Addr=0x%04X | "
+                       "Old value=0x%02X | Total emulator erases=%d\n",
+                       pc, addr, old_value, erase_by_emulator_count);
+            }
+            
+            // Loggear estadísticas cada 100 borrados
+            int total_erases = erase_by_game_count + erase_by_emulator_count;
+            if (total_erases > 0 && total_erases % 100 == 0) {
+                printf("[MMU-VRAM-ERASE-SOURCE-STATS] Total erases=%d | By game=%d (%.2f%%) | "
+                       "By emulator/boot=%d (%.2f%%)\n",
+                       total_erases,
+                       erase_by_game_count, (erase_by_game_count * 100.0) / total_erases,
+                       erase_by_emulator_count, (erase_by_emulator_count * 100.0) / total_erases);
+            }
+            
+            // Loggear timing del borrado (primeros 50)
+            static int erase_timing_count = 0;
+            erase_timing_count++;
+            if (erase_timing_count <= 50) {
+                printf("[MMU-VRAM-ERASE-TIMING] Erase #%d | Frame %llu | LY: %d | "
+                       "LCD=%s | VBLANK=%s | PC=0x%04X | Addr=0x%04X\n",
+                       erase_timing_count,
+                       static_cast<unsigned long long>(frame), ly,
+                       lcd_is_on ? "ON" : "OFF",
+                       in_vblank ? "YES" : "NO",
+                       pc, addr);
+            }
+            
+            // Advertencia si VRAM se está vaciando significativamente
+            if (vram_non_zero_bytes < 200 && vram_erase_detection_count > 50) {
+                static bool warning_printed = false;
+                if (!warning_printed) {
+                    warning_printed = true;
+                    printf("[MMU-VRAM-ERASE-DETECTION] ⚠️ ADVERTENCIA: VRAM se está vaciando! "
+                           "Non-zero bytes: %d/6144 (%.2f%%)\n",
+                           vram_non_zero_bytes, (vram_non_zero_bytes * 100.0) / 6144);
+                }
+            }
+        }
+    }
+    // -------------------------------------------
+
     memory_[addr] = value;
     
     // --- Step 0323: Verificación de Tile Completo después de escribir ---

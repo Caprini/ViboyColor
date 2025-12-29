@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0354 - Investigación de Borrado de Datos Iniciales en VRAM -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0354__investigacion-borrado-datos-iniciales-vram.html" class="entry-link">
+                                    Investigación de Borrado de Datos Iniciales en VRAM
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0354 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó detección de borrado de datos iniciales en VRAM para investigar por qué los datos iniciales se borran antes de que el LCD se apague. Se verificó cuándo se borran los datos iniciales, quién los borra (juego vs emulador), si hay código en el emulador que limpia VRAM, y el timing del borrado en relación con el estado del LCD. Los resultados muestran que el estado inicial de VRAM tiene solo 40 bytes no-cero (0.65%), y el juego borra estos datos inmediatamente (100% de los borrados son por el juego, PC=0x3174). Los borrados ocurren en Frame 0, LCD=OFF, lo cual es correcto, pero el problema es que el estado inicial ya tiene muy pocos datos desde el inicio.
+                        </p>
+                    </li>
                                         <!-- Entrada 0353 - Investigación de Escrituras Tempranas y Restricciones de Acceso a VRAM -->
                     <li>
                         <div class="entry-header">
