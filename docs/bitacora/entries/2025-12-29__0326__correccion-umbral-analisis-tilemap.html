@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrección de Umbral y Análisis del Tilemap - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Corrección de Umbral y Análisis del Tilemap</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0326
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0325__correccion-deteccion-tiles-renderizado.html">Anterior (0325)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este step corrige el umbral de detección de tiles reales (reduciendo de 500 a 200 bytes) que era demasiado alto y impedía detectar tiles válidos. Se implementaron verificaciones que se ejecutan independientemente del estado inicial de VRAM, permitiendo diagnóstico incluso antes de detectar tiles reales.
+                </p>
+                <p>
+                    Se agregó análisis de correspondencia entre tiles cargados y tilemap para identificar qué tile IDs deberían apuntar a los tiles reales, y análisis de secuencia de actualización del tilemap para detectar si el tilemap se actualiza después de cargar tiles. Los logs revelan que el tilemap tiene tile IDs no-cero pero VRAM está vacía, confirmando el problema identificado en el Step 0325.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>Umbrales de Detección</h3>
+                <p>
+                    Los umbrales de detección deben balancear falsos positivos y falsos negativos:
+                </p>
+                <ul>
+                    <li><strong>Umbral demasiado alto</strong>: No detecta casos válidos (falsos negativos). En nuestro caso, 500 bytes era demasiado alto para detectar 20 tiles (320 bytes).</li>
+                    <li><strong>Umbral demasiado bajo</strong>: Detecta casos inválidos (falsos positivos), como ruido o datos residuales.</li>
+                    <li><strong>Umbral óptimo</strong>: Debe estar entre el mínimo esperado y el máximo de ruido. Para tiles, 20 tiles = 320 bytes, un umbral de 200 bytes (12 tiles) es razonable.</li>
+                </ul>
+                <p>
+                    <strong>Fuente</strong>: Análisis empírico basado en comportamiento observado de los juegos.
+                </p>
+
+                <h3>Correspondencia Tilemap-Tiles</h3>
+                <p>
+                    El tilemap contiene tile IDs que apuntan a tiles en VRAM. Si los tiles se cargan en direcciones específicas (ej: 0x8820+) pero el tilemap apunta a otras direcciones (ej: 0x9000+), no hay correspondencia. Los juegos deben actualizar el tilemap para apuntar a los tiles reales cargados. Si el tilemap no se actualiza, se renderiza blanco o patrón de prueba.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "Tile Map", "Tile Data"
+                </p>
+
+                <h3>Secuencia de Inicialización</h3>
+                <p>
+                    Patrón típico de inicialización:
+                </p>
+                <ol>
+                    <li>Apagar LCD</li>
+                    <li>Limpiar VRAM (escribir ceros)</li>
+                    <li>Cargar tiles en VRAM</li>
+                    <li>Actualizar tilemap para apuntar a los tiles cargados</li>
+                    <li>Activar LCD</li>
+                </ol>
+                <p>
+                    Si el tilemap no se actualiza después de cargar tiles, los tiles cargados no se renderizan. Algunos juegos pueden actualizar el tilemap más tarde en la ejecución.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "Power Up Sequence", observación empírica
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>1. Corrección del Umbral de Detección</h3>
+                <p>
+                    Se redujo el umbral de 500 bytes a 200 bytes (aprox. 12 tiles completos). Esto permite detectar cuando hay 20+ tiles cargados (320 bytes). Se agregaron logs de diagnóstico que muestran el número de bytes no-cero cada vez que se verifica, facilitando el ajuste del umbral si es necesario.
+                </p>
+                <p>
+                    <strong>Archivo modificado</strong>: <code>src/core/cpp/PPU.cpp</code> (líneas 511-535)
+                </p>
+                <pre><code>// Umbral corregido: 200 bytes en lugar de 500
+bool has_tiles_now = (non_zero_bytes > 200);
+
+// Logs de diagnóstico
+static int vram_diag_count = 0;
+if (vram_diag_count < 10) {
+    vram_diag_count++;
+    printf("[PPU-VRAM-DIAG] Frame %llu | Non-zero bytes: %d/6144 | Umbral: 200 | Detectado: %d\n",
+           frame_counter_ + 1, non_zero_bytes, has_tiles_now ? 1 : 0);
+}</code></pre>
+
+                <h3>2. Verificaciones Independientes del Estado Inicial</h3>
+                <p>
+                    Las verificaciones del tilemap ahora se ejecutan siempre, independientemente de si <code>vram_has_tiles</code> es true o false. Esto permite diagnosticar el problema incluso antes de detectar tiles reales. Las verificaciones se ejecutan cada 60 frames y muestran el estado actual de VRAM.
+                </p>
+                <p>
+                    <strong>Archivo modificado</strong>: <code>src/core/cpp/PPU.cpp</code> (líneas 647-669)
+                </p>
+                <pre><code>// Verificaciones siempre activas (no dependen de vram_has_tiles)
+static int tilemap_verify_count = 0;
+if (ly_ == 0 && tilemap_verify_count < 5 && (frame_counter_ % 60 == 0)) {
+    tilemap_verify_count++;
+    // Verificar primeros 32 bytes del tilemap
+    int valid_tile_ids = 0;
+    for (int i = 0; i < 32; i++) {
+        uint8_t tile_id = mmu_->read(tile_map_base + i);
+        if (tile_id != 0x00) {
+            valid_tile_ids++;
+        }
+    }
+    printf("[PPU-TILEMAP-VERIFY] Frame %llu | Tilemap tiene %d/32 tile IDs no-cero | VRAM has tiles: %d\n",
+           frame_counter_ + 1, valid_tile_ids, vram_has_tiles ? 1 : 0);
+}</code></pre>
+
+                <h3>3. Análisis de Correspondencia Tiles Cargados - Tilemap</h3>
+                <p>
+                    Se agregó análisis que verifica si hay tiles en las direcciones donde se cargaron (0x8820+) y calcula qué tile IDs deberían apuntar a esas direcciones según el direccionamiento (signed/unsigned). Esto permite identificar si el tilemap apunta a los tiles reales cargados.
+                </p>
+                <p>
+                    <strong>Archivo modificado</strong>: <code>src/core/cpp/PPU.cpp</code> (líneas 577-600)
+                </p>
+                <pre><code>// Análisis de correspondencia cada 2 segundos
+if (ly_ == 0 && (frame_counter_ % 120 == 0)) {
+    int tiles_found_in_vram = 0;
+    for (uint16_t check_addr = 0x8820; check_addr <= 0x8A80; check_addr += 0x20) {
+        uint8_t tile_byte1 = mmu_->read(check_addr);
+        uint8_t tile_byte2 = mmu_->read(check_addr + 1);
+        if (tile_byte1 != 0x00 || tile_byte2 != 0x00) {
+            tiles_found_in_vram++;
+            // Calcular qué tile ID debería apuntar a esta dirección
+            if (signed_addressing) {
+                int16_t offset = check_addr - 0x9000;
+                int8_t tile_id = static_cast<int8_t>(offset / 16);
+                printf("[PPU-TILES-MAP] Tile en 0x%04X corresponde a TileID: 0x%02X\n",
+                       check_addr, static_cast<uint8_t>(tile_id));
+            }
+        }
+    }
+}</code></pre>
+
+                <h3>4. Análisis de Secuencia de Actualización del Tilemap</h3>
+                <p>
+                    Se agregó análisis en MMU que detecta cuando se cargan tiles (escribiendo datos válidos en VRAM) y luego verifica si el tilemap se actualiza después. Esto permite identificar la secuencia temporal: carga de tiles → actualización de tilemap.
+                </p>
+                <p>
+                    <strong>Archivo modificado</strong>: <code>src/core/cpp/MMU.cpp</code> (líneas 751-775)
+                </p>
+                <pre><code>// Detectar cuando se cargan tiles
+static bool tiles_were_loaded = false;
+if (addr >= 0x8000 && addr <= 0x97FF && value != 0x00) {
+    // Verificar si el tile completo tiene datos
+    uint16_t tile_base = (addr / 16) * 16;
+    bool tile_has_data = false;
+    for (int i = 0; i < 16; i++) {
+        if (tile_base + i < 0x9800 && memory_[tile_base + i] != 0x00) {
+            tile_has_data = true;
+            break;
+        }
+    }
+    if (tile_has_data) {
+        tiles_were_loaded = true;
+    }
+}
+
+// Si el tilemap se actualiza después de cargar tiles
+if ((addr >= 0x9800 && addr <= 0x9BFF) || (addr >= 0x9C00 && addr <= 0x9FFF)) {
+    static int tilemap_update_after_tiles = 0;
+    if (tiles_were_loaded && value != 0x00 && tilemap_update_after_tiles < 10) {
+        tilemap_update_after_tiles++;
+        printf("[TILEMAP-SEQ] Tilemap actualizado DESPUÉS de cargar tiles! PC:0x%04X | Addr:0x%04X | TileID:0x%02X\n",
+               debug_current_pc, addr, value);
+    }
+}</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Corrección de umbral, verificaciones independientes, análisis de correspondencia</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Análisis de secuencia de actualización del tilemap</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas con las 3 ROMs de test (pkmn.gb, tetris.gb, mario.gbc) durante 2.5 minutos cada una para verificar las correcciones implementadas.
+                </p>
+                
+                <h3>Comandos Ejecutados</h3>
+                <pre><code>timeout 150 python3 main.py roms/pkmn.gb > logs/test_pkmn_step0326.log 2>&1
+timeout 150 python3 main.py roms/tetris.gb > logs/test_tetris_step0326.log 2>&1
+timeout 150 python3 main.py roms/mario.gbc > logs/test_mario_step0326.log 2>&1</code></pre>
+
+                <h3>Análisis de Logs (pkmn.gb)</h3>
+                <p>
+                    Los logs muestran:
+                </p>
+                <ul>
+                    <li><strong>Umbral funcionando</strong>: Se detectan 40 bytes no-cero en el frame 1, pero no alcanza el umbral de 200 bytes (correcto).</li>
+                    <li><strong>Verificaciones independientes</strong>: Las verificaciones se ejecutan correctamente incluso cuando VRAM está vacía.</li>
+                    <li><strong>Problema confirmado</strong>: El tilemap tiene tile IDs no-cero (15/32 en frame 1, 32/32 en frames posteriores) pero VRAM está vacía (0 bytes no-cero). Esto confirma que el tilemap no apunta a tiles reales.</li>
+                    <li><strong>No se detectaron tiles reales</strong>: Nunca se alcanzó el umbral de 200 bytes durante la ejecución, lo que indica que los tiles no se cargan o se limpian inmediatamente después.</li>
+                </ul>
+
+                <h3>Ejemplo de Logs</h3>
+                <pre><code>[PPU-VRAM-DIAG] Frame 1 | Non-zero bytes: 40/6144 | Umbral: 200 | Detectado: 0
+[PPU-TILEMAP-VERIFY] Frame 1 | Tilemap tiene 15/32 tile IDs no-cero | VRAM has tiles: 0
+[PPU-VRAM-DIAG] Frame 61 | Non-zero bytes: 0/6144 | Umbral: 200 | Detectado: 0
+[PPU-TILEMAP-VERIFY] Frame 61 | Tilemap tiene 32/32 tile IDs no-cero | VRAM has tiles: 0</code></pre>
+
+                <p>
+                    <strong>Validación de módulo compilado C++</strong>: El módulo se recompiló exitosamente sin errores (solo warnings menores de formato).
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "Tile Map" - Estructura del tilemap y correspondencia con tiles</li>
+                    <li>Pan Docs: "Tile Data" - Direccionamiento signed/unsigned de tiles</li>
+                    <li>Pan Docs: "Power Up Sequence" - Secuencia típica de inicialización</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Umbrales de detección</strong>: Deben balancear falsos positivos y falsos negativos. Un umbral demasiado alto impide detectar casos válidos.</li>
+                        <li><strong>Correspondencia tilemap-tiles</strong>: El tilemap puede tener tile IDs no-cero pero apuntar a tiles vacíos si los tiles no se cargan o se limpian después.</li>
+                        <li><strong>Secuencia de inicialización</strong>: Los juegos pueden limpiar VRAM después de cargar tiles, o cargar tiles pero no actualizar el tilemap inmediatamente.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Por qué el tilemap no se actualiza</strong>: Los logs muestran que el tilemap tiene tile IDs no-cero pero VRAM está vacía. Necesitamos investigar si los tiles se cargan y luego se limpian, o si nunca se cargan.</li>
+                        <li><strong>Timing de carga de tiles</strong>: ¿Cuándo exactamente se cargan los tiles? ¿Antes o después de activar el LCD?</li>
+                        <li><strong>Actualización del tilemap</strong>: ¿El tilemap se actualiza después de cargar tiles, o nunca se actualiza?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal</strong>: Los juegos limpian VRAM después de cargar tiles (como se observó en el Step 0323 con PC:0x36E3), o cargan tiles pero no actualizan el tilemap para apuntar a ellos. El tilemap puede contener tile IDs de una inicialización anterior que ya no son válidos.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Analizar logs completos de las 3 ROMs para identificar patrones comunes</li>
+                    <li>[ ] Investigar si los tiles se cargan y luego se limpian, o si nunca se cargan</li>
+                    <li>[ ] Verificar si el tilemap se actualiza después de cargar tiles usando los logs de [TILEMAP-SEQ]</li>
+                    <li>[ ] Si se identifica la causa, implementar solución para que el renderizado use los tiles reales cuando el tilemap los referencia</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

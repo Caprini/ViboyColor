@@ -749,6 +749,39 @@ void MMU::write(uint16_t addr, uint8_t value) {
     }
     // -------------------------------------------
     
+    // --- Step 0326: Análisis de Secuencia de Actualización de Tilemap ---
+    // Detectar si el tilemap se actualiza después de cargar tiles
+    // Usar el mismo mecanismo que [TILE-LOADED] para detectar cuando se cargan tiles
+    static bool tiles_were_loaded = false;
+    
+    // Detectar cuando se cargan tiles (verificar si hay datos válidos en VRAM)
+    if (addr >= 0x8000 && addr <= 0x97FF && value != 0x00) {
+        // Verificar si el tile completo tiene datos (no solo este byte)
+        uint16_t tile_base = (addr / 16) * 16;
+        bool tile_has_data = false;
+        for (int i = 0; i < 16; i++) {
+            if (tile_base + i < 0x9800 && memory_[tile_base + i] != 0x00) {
+                tile_has_data = true;
+                break;
+            }
+        }
+        if (tile_has_data) {
+            tiles_were_loaded = true;
+        }
+    }
+    
+    // Si el tilemap se actualiza con un tile ID no-cero después de cargar tiles
+    if ((addr >= 0x9800 && addr <= 0x9BFF) || (addr >= 0x9C00 && addr <= 0x9FFF)) {
+        static int tilemap_update_after_tiles = 0;
+        
+        if (tiles_were_loaded && value != 0x00 && tilemap_update_after_tiles < 10) {
+            tilemap_update_after_tiles++;
+            printf("[TILEMAP-SEQ] Tilemap actualizado DESPUÉS de cargar tiles! PC:0x%04X | Addr:0x%04X | TileID:0x%02X\n",
+                   debug_current_pc, addr, value);
+        }
+    }
+    // -------------------------------------------
+    
     // --- Step 0291: Rastreo de Rutina de Limpieza VRAM (PC:0x36E3) ---
     // Rastrear la ejecución alrededor de PC:0x36E3 para entender
     // qué hace esta rutina y si hay código después que carga tiles.

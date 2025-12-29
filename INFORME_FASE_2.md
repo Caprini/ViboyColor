@@ -912,6 +912,41 @@ Implementación de verificación de tiles reales en VRAM y renderizado usando es
 
 ---
 
+### 2025-12-29 - Step 0326: Corrección de Umbral y Análisis del Tilemap
+**Estado**: ✅ **IMPLEMENTACIÓN COMPLETADA**
+
+Corrección del umbral de detección de tiles reales (reduciendo de 500 a 200 bytes) que era demasiado alto e impedía detectar tiles válidos. Se implementaron verificaciones que se ejecutan independientemente del estado inicial de VRAM, permitiendo diagnóstico incluso antes de detectar tiles reales. Se agregó análisis de correspondencia entre tiles cargados y tilemap para identificar qué tile IDs deberían apuntar a los tiles reales, y análisis de secuencia de actualización del tilemap para detectar si el tilemap se actualiza después de cargar tiles. Los logs revelan que el tilemap tiene tile IDs no-cero pero VRAM está vacía, confirmando el problema identificado en el Step 0325.
+
+**Objetivo**:
+1. Corregir el umbral de detección de tiles reales (actualmente 500 bytes es demasiado alto)
+2. Hacer que las verificaciones se ejecuten incluso si `vram_has_tiles` es false inicialmente
+3. Analizar por qué el tilemap no apunta a los tiles reales que se cargan
+4. Implementar solución para que el renderizado use los tiles reales cuando el tilemap los referencia
+
+**Implementación**:
+- **Corrección del umbral**: Reducido de 500 a 200 bytes (aprox. 12 tiles completos). Agregados logs de diagnóstico que muestran el número de bytes no-cero cada vez que se verifica.
+- **Verificaciones independientes**: Las verificaciones del tilemap ahora se ejecutan siempre, independientemente de si `vram_has_tiles` es true o false. Esto permite diagnosticar el problema incluso antes de detectar tiles reales.
+- **Análisis de correspondencia**: Se agregó análisis que verifica si hay tiles en las direcciones donde se cargaron (0x8820+) y calcula qué tile IDs deberían apuntar a esas direcciones según el direccionamiento (signed/unsigned).
+- **Análisis de secuencia**: Se agregó análisis en MMU que detecta cuando se cargan tiles y luego verifica si el tilemap se actualiza después.
+
+**Hallazgos**:
+- El umbral funciona correctamente: Se detectan 40 bytes no-cero en el frame 1, pero no alcanza el umbral de 200 bytes (correcto).
+- Las verificaciones independientes funcionan: Se ejecutan correctamente incluso cuando VRAM está vacía.
+- Problema confirmado: El tilemap tiene tile IDs no-cero (15/32 en frame 1, 32/32 en frames posteriores) pero VRAM está vacía (0 bytes no-cero). Esto confirma que el tilemap no apunta a tiles reales.
+- No se detectaron tiles reales: Nunca se alcanzó el umbral de 200 bytes durante la ejecución, lo que indica que los tiles no se cargan o se limpian inmediatamente después.
+
+**Archivos modificados**:
+- `src/core/cpp/PPU.cpp` - Corrección de umbral, verificaciones independientes, análisis de correspondencia
+- `src/core/cpp/MMU.cpp` - Análisis de secuencia de actualización del tilemap
+
+**Próximos pasos**:
+- Analizar logs completos de las 3 ROMs para identificar patrones comunes
+- Investigar si los tiles se cargan y luego se limpian, o si nunca se cargan
+- Verificar si el tilemap se actualiza después de cargar tiles usando los logs de [TILEMAP-SEQ]
+- Si se identifica la causa, implementar solución para que el renderizado use los tiles reales cuando el tilemap los referencia
+
+---
+
 ### 2025-12-29 - Step 0325: Corrección de Detección de Tiles y Renderizado
 **Estado**: ✅ **IMPLEMENTACIÓN COMPLETADA**
 

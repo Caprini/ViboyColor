@@ -508,9 +508,19 @@ void PPU::render_scanline() {
             }
         }
         
-        // Si hay más de 500 bytes no-cero (aprox. 31 tiles completos), asumir que hay tiles reales
-        // Ajustado desde 100 porque ahora revisamos 3x más bytes
-        bool has_tiles_now = (non_zero_bytes > 500);
+        // --- Step 0326: Umbral CORREGIDO de detección de tiles reales ---
+        // Reducir umbral de 500 a 200 bytes (aprox. 12 tiles completos)
+        // 20 tiles = 320 bytes, que debería detectarse fácilmente
+        bool has_tiles_now = (non_zero_bytes > 200);
+        
+        // Loggear siempre el número de bytes no-cero para diagnóstico
+        static int vram_diag_count = 0;
+        if (vram_diag_count < 10) {
+            vram_diag_count++;
+            printf("[PPU-VRAM-DIAG] Frame %llu | Non-zero bytes: %d/6144 | Umbral: 200 | Detectado: %d\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1),
+                   non_zero_bytes, has_tiles_now ? 1 : 0);
+        }
         
         if (has_tiles_now != vram_has_tiles) {
             vram_has_tiles = has_tiles_now;
@@ -522,6 +532,7 @@ void PPU::render_scanline() {
                        static_cast<unsigned long long>(frame_counter_ + 1), non_zero_bytes);
             }
         }
+        // -------------------------------------------
     }
     // -------------------------------------------
 
@@ -564,6 +575,33 @@ void PPU::render_scanline() {
         
         if (tiles_pointing_to_real_data == 0) {
             printf("[PPU-TILEMAP-ANALYSIS] ⚠️ PROBLEMA: Tilemap no apunta a tiles con datos aunque hay tiles en VRAM!\n");
+        }
+    }
+    // -------------------------------------------
+    
+    // --- Step 0326: Análisis de Correspondencia Tiles Cargados - Tilemap ---
+    // Cuando se detectan tiles cargados, verificar si el tilemap apunta a ellos
+    if (ly_ == 0 && (frame_counter_ % 120 == 0)) {  // Cada 2 segundos
+        // Verificar si hay tiles en las direcciones donde se cargaron (0x8820+)
+        int tiles_found_in_vram = 0;
+        for (uint16_t check_addr = 0x8820; check_addr <= 0x8A80; check_addr += 0x20) {
+            uint8_t tile_byte1 = mmu_->read(check_addr);
+            uint8_t tile_byte2 = mmu_->read(check_addr + 1);
+            if (tile_byte1 != 0x00 || tile_byte2 != 0x00) {
+                tiles_found_in_vram++;
+                
+                // Calcular qué tile ID debería apuntar a esta dirección (signed addressing)
+                if (signed_addressing) {
+                    int16_t offset = check_addr - 0x9000;
+                    int8_t tile_id = static_cast<int8_t>(offset / 16);
+                    printf("[PPU-TILES-MAP] Tile en 0x%04X corresponde a TileID: 0x%02X (signed: %d)\n",
+                           check_addr, static_cast<uint8_t>(tile_id), tile_id);
+                }
+            }
+        }
+        
+        if (tiles_found_in_vram > 0) {
+            printf("[PPU-TILES-MAP] Encontrados %d tiles en VRAM (0x8820-0x8A80)\n", tiles_found_in_vram);
         }
     }
     // -------------------------------------------
@@ -644,10 +682,10 @@ void PPU::render_scanline() {
 
     size_t line_start_index = ly_ * 160;
 
-    // --- Step 0324: Verificación del Tilemap con Tiles Reales ---
-    // Verificar que el tilemap apunta a tiles válidos cuando hay tiles reales
+    // --- Step 0326: Verificaciones siempre activas ---
+    // Ejecutar verificaciones incluso si vram_has_tiles es false para diagnóstico
     static int tilemap_verify_count = 0;
-    if (vram_has_tiles && ly_ == 0 && tilemap_verify_count < 3) {
+    if (ly_ == 0 && tilemap_verify_count < 5 && (frame_counter_ % 60 == 0)) {
         tilemap_verify_count++;
         
         // Verificar primeros 32 bytes del tilemap (primera fila)
@@ -659,11 +697,16 @@ void PPU::render_scanline() {
             }
         }
         
-        printf("[PPU-TILEMAP-VERIFY] Frame %llu | Tilemap tiene %d/32 tile IDs no-cero\n",
-               static_cast<unsigned long long>(frame_counter_ + 1), valid_tile_ids);
+        printf("[PPU-TILEMAP-VERIFY] Frame %llu | Tilemap tiene %d/32 tile IDs no-cero | VRAM has tiles: %d\n",
+               static_cast<unsigned long long>(frame_counter_ + 1),
+               valid_tile_ids, vram_has_tiles ? 1 : 0);
         
         if (valid_tile_ids == 0) {
-            printf("[PPU-TILEMAP-VERIFY] ⚠️ ADVERTENCIA: Tilemap está vacío aunque hay tiles en VRAM!\n");
+            printf("[PPU-TILEMAP-VERIFY] ⚠️ ADVERTENCIA: Tilemap está vacío");
+            if (vram_has_tiles) {
+                printf(" aunque hay tiles en VRAM!");
+            }
+            printf("\n");
         }
     }
     // -------------------------------------------
