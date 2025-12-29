@@ -88,7 +88,7 @@ En cada interacción que toque código, sigue estos pasos estrictamente:
 5.  **Bitácora y Web**:
     - Generar la entrada HTML correspondiente en `docs/bitacora/entries/`.
     - **ACTUALIZAR SIEMPRE** el archivo `docs/bitacora/index.html` con la nueva entrada.
-    - **ACTUALIZAR SIEMPRE** el archivo `INFORME_FASE_2.md` con la nueva entrada del Step correspondiente.
+    - **ACTUALIZAR SIEMPRE** el informe dividido en `docs/informe_fase_2/` con la nueva entrada del Step correspondiente (ver sección 7B).
 6.  **Control de Versiones (CRÍTICO)**:
     - AL FINAL de cada respuesta, proporciona los comandos exactos para:
     - `git add .`
@@ -164,11 +164,123 @@ En la sección "Tests y Verificación" del HTML generado, debes incluir:
 
 **Salida del Asistente:**
 Al final de cada respuesta con código, genera:
-1.  Bloque para `INFORME_FASE_2.md`.
+1.  Bloque para el informe dividido en `docs/informe_fase_2/` (ver sección 7B).
 2.  Archivo HTML completo para la bitácora.
 3.  **Código actualizado para `docs/bitacora/index.html`** (o diff claro).
 4.  Confirmación de que los tests pasan.
 5.  **Comandos GIT + PUSH**.
+
+---
+
+## 7B) INFORME DIVIDIDO (docs/informe_fase_2/) — CRÍTICO
+
+El informe de desarrollo se divide en partes más pequeñas para facilitar la legibilidad y el manejo por los agentes de IA.
+
+**Estructura:**
+- Directorio: `docs/informe_fase_2/`
+- Índice: `docs/informe_fase_2/index.md` - Lista todas las partes con sus rangos de Steps
+- Partes: `docs/informe_fase_2/parte_XX_steps_YYYY_ZZZZ.md` - Cada parte contiene aproximadamente 1500-2000 líneas
+
+**Reglas de Actualización:**
+
+1. **Identificar la Parte Correcta**:
+   - Consulta `docs/informe_fase_2/index.md` para encontrar qué parte contiene el Step que necesitas documentar
+   - Cada parte tiene un rango de Steps (ej: parte_01 contiene Steps 0308-0334)
+
+2. **Actualizar Solo la Parte Correspondiente**:
+   - Abre la parte correcta (ej: `parte_01_steps_0308_0334.md`)
+   - Añade la nueva entrada del Step al principio de la sección "## Entradas de Desarrollo"
+   - Mantén el orden cronológico (más recientes primero)
+
+3. **Formato de Entrada en el Informe**:
+   - Cada entrada debe seguir el mismo formato que las entradas existentes
+   - Incluir: fecha, Step ID, título, estado, descripción, archivos afectados, conceptos de hardware, etc.
+
+4. **Gestión de Tamaño**:
+   - **Tamaño máximo por parte**: 2000 líneas
+   - Si una parte excede 2000 líneas después de añadir una entrada:
+     - Divide la parte creando una nueva parte
+     - Actualiza el índice (`index.md`) con la nueva división
+     - Renombra los archivos si es necesario para mantener los rangos correctos
+
+5. **Ejemplo de Actualización**:
+   ```markdown
+   ## Entradas de Desarrollo
+   
+   ### 2025-12-29 - Step 0335: Título del Step
+   **Estado**: ✅ Completado
+   
+   Descripción del Step...
+   
+   ---
+   
+   ### 2025-12-29 - Step 0334: Step Anterior
+   ...
+   ```
+
+6. **NO Crear Archivos Individuales por Step**:
+   - A diferencia de la bitácora HTML (que tiene un archivo por entrada), el informe usa partes que agrupan múltiples Steps
+   - Solo crea nuevas partes cuando una parte existente excede el límite de líneas
+
+7. **Mantenimiento del Índice**:
+   - Si divides una parte, actualiza `docs/informe_fase_2/index.md` para reflejar la nueva estructura
+   - El índice debe mostrar todas las partes con sus rangos de Steps correctos
+
+---
+
+## 7B) INFORME DIVIDIDO (docs/informe_fase_2/) — CRÍTICO
+
+El informe de desarrollo se divide en partes más pequeñas para facilitar la legibilidad y el manejo por los agentes de IA.
+
+**Estructura:**
+- Directorio: `docs/informe_fase_2/`
+- Índice: `docs/informe_fase_2/index.md` - Lista todas las partes con sus rangos de Steps
+- Partes: `docs/informe_fase_2/parte_XX_steps_YYYY_ZZZZ.md` - Cada parte contiene aproximadamente 1500-2000 líneas
+
+**Reglas de Actualización:**
+
+1. **Identificar la Parte Correcta**:
+   - Consulta `docs/informe_fase_2/index.md` para encontrar qué parte contiene el Step que necesitas documentar
+   - Cada parte tiene un rango de Steps (ej: parte_01 contiene Steps 0308-0334)
+
+2. **Actualizar Solo la Parte Correspondiente**:
+   - Abre la parte correcta (ej: `parte_01_steps_0308_0334.md`)
+   - Añade la nueva entrada del Step al principio de la sección "## Entradas de Desarrollo"
+   - Mantén el orden cronológico (más recientes primero)
+
+3. **Formato de Entrada en el Informe**:
+   - Cada entrada debe seguir el mismo formato que las entradas existentes
+   - Incluir: fecha, Step ID, título, estado, descripción, archivos afectados, conceptos de hardware, etc.
+
+4. **Gestión de Tamaño**:
+   - **Tamaño máximo por parte**: 2000 líneas
+   - Si una parte excede 2000 líneas después de añadir una entrada:
+     - Divide la parte creando una nueva parte
+     - Actualiza el índice (`index.md`) con la nueva división
+     - Renombra los archivos si es necesario para mantener los rangos correctos
+
+5. **Ejemplo de Actualización**:
+   ```markdown
+   ## Entradas de Desarrollo
+   
+   ### 2025-12-29 - Step 0335: Título del Step
+   **Estado**: ✅ Completado
+   
+   Descripción del Step...
+   
+   ---
+   
+   ### 2025-12-29 - Step 0334: Step Anterior
+   ...
+   ```
+
+6. **NO Crear Archivos Individuales por Step**:
+   - A diferencia de la bitácora HTML (que tiene un archivo por entrada), el informe usa partes que agrupan múltiples Steps
+   - Solo crea nuevas partes cuando una parte existente excede el límite de líneas
+
+7. **Mantenimiento del Índice**:
+   - Si divides una parte, actualiza `docs/informe_fase_2/index.md` para reflejar la nueva estructura
+   - El índice debe mostrar todas las partes con sus rangos de Steps correctos
 
 ---
 
