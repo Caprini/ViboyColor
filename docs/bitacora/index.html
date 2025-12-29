@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0356 - Desactivación de Tiles de Prueba y Verificación de Carga de Tiles por el Juego -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0356__desactivacion-tiles-prueba-verificacion-carga-tiles.html" class="entry-link">
+                                    Desactivación de Tiles de Prueba y Verificación de Carga de Tiles por el Juego
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0356 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se desactivó load_test_tiles() para permitir que los juegos carguen sus propios tiles sin interferencia de tiles de prueba. Se agregó monitoreo detallado de escrituras no-cero a VRAM y verificación periódica del estado de VRAM sin tiles de prueba. Los resultados muestran que los juegos no cargan tiles nuevos durante la ejecución: todas las escrituras a VRAM son ceros (0x00), y VRAM permanece vacía durante toda la ejecución. El estado inicial de VRAM tiene 95.49% de bytes no-cero, pero el juego los borra inmediatamente escribiendo ceros desde PC=0x36E3.
+                        </p>
+                    </li>
                                         <!-- Entrada 0355 - Investigación de Inicialización de VRAM y Discrepancia en Datos Iniciales -->
                     <li>
                         <div class="entry-header">

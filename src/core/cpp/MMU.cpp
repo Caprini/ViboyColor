@@ -1355,6 +1355,76 @@ void MMU::write(uint16_t addr, uint8_t value) {
         }
     }
     // -------------------------------------------
+    
+    // --- Step 0356: Monitoreo de Escrituras No-Cero a VRAM ---
+    // Monitorear si los juegos cargan tiles después de desactivar tiles de prueba
+    if (addr >= 0x8000 && addr < 0x9800 && value != 0x00) {
+        static int vram_non_zero_write_count = 0;
+        static int vram_tile_sequences_detected = 0;
+        
+        vram_non_zero_write_count++;
+        
+        // Loggear todas las escrituras no-cero (no solo las primeras 100)
+        if (vram_non_zero_write_count <= 500) {
+            // Obtener PC del CPU (si está disponible)
+            uint16_t pc = debug_current_pc;
+            
+            // Obtener estado del LCD desde PPU (si está disponible)
+            bool lcd_is_on = false;
+            bool in_vblank = false;
+            uint64_t frame = 0;
+            
+            if (ppu_ != nullptr) {
+                lcd_is_on = ppu_->is_lcd_on();
+                uint8_t ly = ppu_->get_ly();
+                in_vblank = (ly >= 144);
+                frame = ppu_->get_frame_counter();
+            }
+            
+            printf("[MMU-VRAM-NON-ZERO-WRITE] Write #%d | Addr=0x%04X | Value=0x%02X | "
+                   "PC=0x%04X | Frame %llu | LCD=%s | VBLANK=%s\n",
+                   vram_non_zero_write_count, addr, value, pc,
+                   static_cast<unsigned long long>(frame),
+                   lcd_is_on ? "ON" : "OFF",
+                   in_vblank ? "YES" : "NO");
+        }
+        
+        // Verificar si esta escritura es parte de una secuencia de 16 bytes (tile completo)
+        if ((addr & 0x0F) == 0x00) {
+            // Estamos en el inicio de un tile (cada tile es 16 bytes)
+            // Verificar si las siguientes 15 direcciones también tienen datos no-cero
+            bool is_tile_sequence = true;
+            uint64_t frame = 0;
+            if (ppu_ != nullptr) {
+                frame = ppu_->get_frame_counter();
+            }
+            
+            for (int i = 0; i < 16; i++) {
+                uint16_t check_addr = (addr & 0xFFF0) + i;
+                if (check_addr < 0x9800) {
+                    uint8_t byte = memory_[check_addr - 0x8000];
+                    if (i == 0 && byte == 0x00 && value == 0x00) {
+                        is_tile_sequence = false;
+                        break;
+                    }
+                }
+            }
+            
+            if (is_tile_sequence && vram_tile_sequences_detected < 50) {
+                vram_tile_sequences_detected++;
+                printf("[MMU-VRAM-TILE-SEQUENCE] Tile sequence detected #%d | Addr=0x%04X | Frame %llu\n",
+                       vram_tile_sequences_detected, addr,
+                       static_cast<unsigned long long>(frame));
+            }
+        }
+        
+        // Loggear estadísticas cada 1000 escrituras
+        if (vram_non_zero_write_count > 0 && vram_non_zero_write_count % 1000 == 0) {
+            printf("[MMU-VRAM-NON-ZERO-WRITE-STATS] Total non-zero writes=%d | Tile sequences=%d\n",
+                   vram_non_zero_write_count, vram_tile_sequences_detected);
+        }
+    }
+    // -------------------------------------------
 
     memory_[addr] = value;
     
@@ -1773,7 +1843,16 @@ void MMU::dump_vram_initial_state() {
 }
 
 // --- Step 0353: Verificación del Estado Inicial de VRAM ---
+// --- Step 0356: Verificación de Orden de Ejecución ---
 void MMU::check_initial_vram_state() {
+    static bool already_called = false;
+    
+    if (!already_called) {
+        already_called = true;
+        printf("[MMU-VRAM-INITIAL-STATE-CALL] check_initial_vram_state() called\n");
+    }
+    // -------------------------------------------
+    
     int non_zero_bytes = 0;
     int complete_tiles = 0;
     

@@ -301,12 +301,17 @@ class Viboy:
         # Esto permite avanzar con gráficos visibles mientras se investiga por qué
         # los juegos no cargan tiles automáticamente.
         # Step 0313: Añadir log para verificar ejecución
-        if load_test_tiles and self._use_cpp and self._mmu is not None:
-            print("[VIBOY] Ejecutando load_test_tiles()...")
-            self._mmu.load_test_tiles()
-            print("[VIBOY] load_test_tiles() ejecutado")
-        else:
-            print(f"[VIBOY] load_test_tiles() NO ejecutado: load_test_tiles={load_test_tiles}, use_cpp={self._use_cpp}, mmu={self._mmu is not None}")
+        # --- Step 0356: DESACTIVACIÓN DE TILES DE PRUEBA ---
+        # Desactivar load_test_tiles() para permitir que los juegos carguen sus propios tiles
+        # sin interferencia de tiles de prueba
+        # if load_test_tiles and self._use_cpp and self._mmu is not None:
+        #     print("[VIBOY] Ejecutando load_test_tiles()...")
+        #     self._mmu.load_test_tiles()
+        #     print("[VIBOY] load_test_tiles() ejecutado")
+        # else:
+        #     print(f"[VIBOY] load_test_tiles() NO ejecutado: load_test_tiles={load_test_tiles}, use_cpp={self._use_cpp}, mmu={self._mmu is not None}")
+        print("[VIBOY] load_test_tiles() DESACTIVADO (Step 0356) - Los juegos cargarán sus propios tiles")
+        # --- Fin Step 0356 ---
         # --- Fin Step 0298/0311 ---
         
         # Mostrar información del cartucho cargado

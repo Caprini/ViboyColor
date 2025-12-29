@@ -234,6 +234,50 @@ void PPU::step(int cpu_cycles) {
     }
     // -------------------------------------------
     
+    // --- Step 0356: Verificación Periódica de VRAM Sin Tiles de Prueba ---
+    // Verificar si los juegos cargan tiles reales después de desactivar tiles de prueba
+    static int vram_periodic_check_count = 0;
+    
+    if (frame_counter_ % 100 == 0 && vram_periodic_check_count < 50) {
+        vram_periodic_check_count++;
+        
+        // Contar bytes no-cero en VRAM
+        int non_zero_bytes = 0;
+        int complete_tiles = 0;
+        
+        for (uint16_t addr = 0x8000; addr < 0x9800; addr += 16) {
+            bool tile_has_data = false;
+            int tile_non_zero = 0;
+            
+            for (int i = 0; i < 16; i++) {
+                uint8_t byte = mmu_->read(addr + i);
+                if (byte != 0x00) {
+                    non_zero_bytes++;
+                    tile_non_zero++;
+                    tile_has_data = true;
+                }
+            }
+            
+            // Si el tile tiene al menos 8 bytes no-cero, considerarlo un tile completo
+            if (tile_non_zero >= 8) {
+                complete_tiles++;
+            }
+        }
+        
+        printf("[PPU-VRAM-PERIODIC-NO-TEST-TILES] Frame %llu | Non-zero bytes: %d/6144 (%.2f%%) | "
+               "Complete tiles: %d/384 (%.2f%%) | Has real tiles: %s\n",
+               static_cast<unsigned long long>(frame_counter_),
+               non_zero_bytes, (non_zero_bytes * 100.0) / 6144,
+               complete_tiles, (complete_tiles * 100.0) / 384,
+               (non_zero_bytes >= 200) ? "YES" : "NO");
+        
+        // Si se detectan tiles reales, verificar el framebuffer
+        if (non_zero_bytes >= 200) {
+            printf("[PPU-VRAM-PERIODIC-NO-TEST-TILES] ✅ Tiles reales detectados! Verificando framebuffer...\n");
+        }
+    }
+    // -------------------------------------------
+    
     // --- Step 0227: FIX LCD DISABLE BEHAVIOR ---
     // Pan Docs: When LCD is disabled (LCDC bit 7 = 0), the PPU stops immediately
     // and the LY register is reset to 0 and remains fixed at 0. The internal clock
