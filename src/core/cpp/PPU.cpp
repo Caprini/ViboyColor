@@ -125,6 +125,42 @@ void PPU::step(int cpu_cycles) {
     }
     // -------------------------------------------
     
+    // --- Step 0353: Verificación de Cambios de Estado del LCD ---
+    // Verificar si el LCD se apaga durante la ejecución
+    static bool last_lcd_state_step0353 = false;
+    static int lcd_state_change_count = 0;
+    
+    bool current_lcd_state = lcd_enabled;
+    
+    if (current_lcd_state != last_lcd_state_step0353) {
+        lcd_state_change_count++;
+        
+        printf("[PPU-LCD-STATE-CHANGE] Change #%d | Frame %llu | LY: %d | "
+               "LCD changed from %s to %s\n",
+               lcd_state_change_count,
+               static_cast<unsigned long long>(frame_counter_),
+               ly_,
+               last_lcd_state_step0353 ? "ON" : "OFF",
+               current_lcd_state ? "ON" : "OFF");
+        
+        // Si el LCD se apaga, verificar el estado de VRAM
+        if (!current_lcd_state) {
+            int non_zero_bytes = 0;
+            for (uint16_t addr = 0x8000; addr < 0x9800; addr++) {
+                uint8_t byte = mmu_->read(addr);
+                if (byte != 0x00) {
+                    non_zero_bytes++;
+                }
+            }
+            
+            printf("[PPU-LCD-STATE-CHANGE] LCD OFF | VRAM non-zero bytes: %d/6144 (%.2f%%)\n",
+                   non_zero_bytes, (non_zero_bytes * 100.0) / 6144);
+        }
+        
+        last_lcd_state_step0353 = current_lcd_state;
+    }
+    // -------------------------------------------
+    
     // --- Step 0329: Forzar BG Display ON si LCD está ON ---
     // Asegurar que BG Display está activo si el LCD está activo
     // Esto previene pantallas blancas cuando el juego desactiva BG Display

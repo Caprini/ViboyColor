@@ -735,6 +735,49 @@ void MMU::write(uint16_t addr, uint8_t value) {
     
     // Verificar si la escritura es a VRAM (0x8000-0x97FF)
     if (addr >= 0x8000 && addr < 0x9800) {
+        // --- Step 0353: Monitoreo Desde el Inicio ---
+        // Monitorear VRAM desde el inicio de la ejecución, no solo después de activar logs
+        static int vram_write_from_start_count = 0;
+        static int vram_write_non_zero_from_start = 0;
+        static bool vram_monitoring_initialized = false;
+        
+        if (!vram_monitoring_initialized) {
+            vram_monitoring_initialized = true;
+            printf("[MMU-VRAM-MONITOR-INIT] Monitoreo de VRAM inicializado desde el inicio\n");
+        }
+        
+        vram_write_from_start_count++;
+        
+        if (value != 0x00) {
+            vram_write_non_zero_from_start++;
+            
+            // Loggear todas las escrituras no-cero (no solo las primeras 100)
+            if (vram_write_non_zero_from_start <= 200) {
+                // Obtener PC del CPU (si está disponible)
+                uint16_t pc = debug_current_pc;
+                
+                // Obtener estado del LCD desde PPU (si está disponible)
+                bool lcd_is_on = false;
+                if (ppu_ != nullptr) {
+                    lcd_is_on = ppu_->is_lcd_on();
+                }
+                
+                printf("[MMU-VRAM-WRITE-FROM-START] Non-zero write #%d | Addr=0x%04X | Value=0x%02X | "
+                       "PC=0x%04X | LCD=%s | Total writes=%d\n",
+                       vram_write_non_zero_from_start, addr, value, pc,
+                       lcd_is_on ? "ON" : "OFF", vram_write_from_start_count);
+            }
+        }
+        
+        // Loggear estadísticas cada 1000 escrituras
+        if (vram_write_from_start_count > 0 && vram_write_from_start_count % 1000 == 0) {
+            printf("[MMU-VRAM-WRITE-FROM-START-STATS] Total writes=%d | Non-zero writes=%d | "
+                   "Non-zero ratio=%.2f%%\n",
+                   vram_write_from_start_count, vram_write_non_zero_from_start,
+                   (vram_write_non_zero_from_start * 100.0) / vram_write_from_start_count);
+        }
+        // -------------------------------------------
+        
         vram_write_total_count++;
         
         if (value != 0x00) {
@@ -785,15 +828,47 @@ void MMU::write(uint16_t addr, uint8_t value) {
                    (vram_write_non_zero_count * 100.0) / vram_write_total_count);
         }
         
+        // --- Step 0353: Verificación de Restricciones de Acceso a VRAM ---
+        // Verificar si hay restricciones de acceso a VRAM cuando LCD=ON
+        // Obtener estado del LCD desde PPU (si está disponible)
+        bool lcd_is_on = false;
+        bool in_vblank = false;
+        
+        if (ppu_ != nullptr) {
+            lcd_is_on = ppu_->is_lcd_on();
+            // Verificar si estamos en VBLANK (LY >= 144)
+            uint8_t ly = ppu_->get_ly();
+            in_vblank = (ly >= 144);
+        }
+        
+        // Verificar si el acceso está restringido
+        bool access_restricted = lcd_is_on && !in_vblank;
+        
+        if (access_restricted && value != 0x00) {
+            static int restricted_access_count = 0;
+            restricted_access_count++;
+            
+            if (restricted_access_count <= 50) {
+                // Obtener PC del CPU (si está disponible)
+                uint16_t pc = debug_current_pc;
+                
+                printf("[MMU-VRAM-ACCESS-RESTRICTED] Write #%d | Addr=0x%04X | Value=0x%02X | "
+                       "PC=0x%04X | LCD=ON, not in VBLANK | Access should be restricted\n",
+                       restricted_access_count, addr, value, pc);
+            }
+        }
+        // TODO: Implementar restricciones de acceso a VRAM cuando LCD=ON (excepto VBLANK)
+        // -------------------------------------------
+        
         // Tarea 3: Verificación de Timing de Escrituras a VRAM (LCD Apagado vs Encendido)
         static int vram_write_lcd_timing_count = 0;
         if (vram_write_lcd_timing_count < 50) {
             vram_write_lcd_timing_count++;
             
             // Obtener estado del LCD desde PPU (si está disponible)
-            bool lcd_is_on = false;
+            bool lcd_is_on_timing = false;
             if (ppu_ != nullptr) {
-                lcd_is_on = ppu_->is_lcd_on();
+                lcd_is_on_timing = ppu_->is_lcd_on();
             }
             
             // Obtener PC del CPU (ya está disponible en debug_current_pc)
@@ -802,10 +877,10 @@ void MMU::write(uint16_t addr, uint8_t value) {
             printf("[MMU-VRAM-WRITE-LCD-TIMING] Write #%d | Addr=0x%04X | Value=0x%02X | "
                    "LCD=%s | PC=0x%04X\n",
                    vram_write_lcd_timing_count, addr, value,
-                   lcd_is_on ? "ON" : "OFF", pc);
+                   lcd_is_on_timing ? "ON" : "OFF", pc);
             
             // Advertencia si se escribe a VRAM cuando el LCD está encendido
-            if (lcd_is_on && value != 0x00) {
+            if (lcd_is_on_timing && value != 0x00) {
                 printf("[MMU-VRAM-WRITE-LCD-TIMING] ⚠️ ADVERTENCIA: Escritura a VRAM cuando LCD está encendido!\n");
             }
         }
@@ -1205,6 +1280,10 @@ void MMU::load_rom(const uint8_t* data, size_t size) {
     // --- Step 0297: Dump Inicial de VRAM ---
     // Crear un dump detallado del estado inicial de VRAM
     dump_vram_initial_state();
+    
+    // --- Step 0353: Verificación del Estado Inicial de VRAM ---
+    // Verificar el estado inicial de VRAM cuando se carga la ROM
+    check_initial_vram_state();
 }
 
 void MMU::setPPU(PPU* ppu) {
@@ -1465,6 +1544,42 @@ void MMU::dump_vram_initial_state() {
     
     printf("[VRAM-INIT-DUMP] Fin del dump inicial\n");
 }
+
+// --- Step 0353: Verificación del Estado Inicial de VRAM ---
+void MMU::check_initial_vram_state() {
+    int non_zero_bytes = 0;
+    int complete_tiles = 0;
+    
+    for (uint16_t addr = 0x8000; addr < 0x9800; addr += 16) {
+        bool tile_has_data = false;
+        int tile_non_zero = 0;
+        
+        for (int i = 0; i < 16; i++) {
+            uint8_t byte = memory_[addr - 0x8000 + i];
+            if (byte != 0x00) {
+                non_zero_bytes++;
+                tile_non_zero++;
+                tile_has_data = true;
+            }
+        }
+        
+        if (tile_non_zero >= 8) {
+            complete_tiles++;
+        }
+    }
+    
+    printf("[MMU-VRAM-INITIAL-STATE] VRAM initial state | Non-zero bytes: %d/6144 (%.2f%%) | "
+           "Complete tiles: %d/384 (%.2f%%)\n",
+           non_zero_bytes, (non_zero_bytes * 100.0) / 6144,
+           complete_tiles, (complete_tiles * 100.0) / 384);
+    
+    if (non_zero_bytes > 200) {
+        printf("[MMU-VRAM-INITIAL-STATE] ✅ VRAM tiene datos iniciales (posiblemente desde ROM)\n");
+    } else {
+        printf("[MMU-VRAM-INITIAL-STATE] ⚠️ VRAM está vacía al inicio\n");
+    }
+}
+// -------------------------------------------
 
 // --- Step 0298: Hack Temporal - Carga Manual de Tiles ---
 void MMU::load_test_tiles() {

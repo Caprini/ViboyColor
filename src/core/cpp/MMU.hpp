@@ -152,6 +152,14 @@ public:
      * Tile Data y Tile Map en formato hexadecimal.
      */
     void dump_vram_initial_state();
+    
+    /**
+     * Step 0353: Verificación del Estado Inicial de VRAM
+     * 
+     * Verifica el estado inicial de VRAM cuando se carga la ROM para entender
+     * si VRAM tiene datos al inicio (antes de que el juego empiece a ejecutarse).
+     */
+    void check_initial_vram_state();
 
     /**
      * Step 0247: Memory Timeline & PC Tracker

@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0353 - Investigación de Escrituras Tempranas y Restricciones de Acceso a VRAM -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0353__investigacion-escrituras-tempranas-restricciones-vram.html" class="entry-link">
+                                    Investigación de Escrituras Tempranas y Restricciones de Acceso a VRAM
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0353 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó monitoreo de VRAM desde el inicio de la ejecución para investigar por qué los juegos escriben solo ceros (0x00) a VRAM durante la ejecución. Se verificó el estado inicial de VRAM cuando se carga la ROM, se investigaron restricciones de acceso a VRAM cuando LCD=ON, y se monitorearon cambios de estado del LCD. Los resultados muestran que los juegos SÍ tienen datos iniciales en VRAM (92-98% de bytes no-cero), pero todas las escrituras durante la ejecución son ceros (0% de escrituras no-cero). El LCD se apaga y se enciende durante la ejecución, pero cuando se apaga, VRAM ya tiene solo 40 bytes no-cero (0.65%), sugiriendo que los datos iniciales se borran antes de que el juego pueda cargar tiles nuevos.
+                        </p>
+                    </li>
                                         <!-- Entrada 0352 - Investigación de Por Qué VRAM No Se Llena con Tiles -->
                     <li>
                         <div class="entry-header">
