@@ -331,25 +331,29 @@ grep "\[MMU-VRAM-WRITE-FROM-CPU-START\]" logs/test_*_step0355.log | head -n 50</
                 <div class="integridad">
                     <h3>Lo que Entiendo Ahora</h3>
                     <ul>
-                        <li><strong>Inicialización de VRAM:</strong> VRAM se inicializa con ceros en el constructor de MMU. El estado inicial de VRAM después de la inicialización es 0 bytes no-cero (0.00%).</li>
+                        <li><strong>Inicialización de VRAM:</strong> VRAM se inicializa correctamente con ceros en el constructor de MMU (0 bytes no-cero, 0.00%).</li>
                         <li><strong>Carga de Datos desde la ROM:</strong> Las ROMs no tienen datos iniciales en VRAM. Los datos iniciales se generan durante la inicialización del juego, no desde la ROM.</li>
-                        <li><strong>Timing de Medición:</strong> El estado de VRAM puede cambiar rápidamente durante la inicialización. Medir en diferentes momentos puede dar resultados diferentes. Es importante medir en el momento correcto para obtener resultados precisos.</li>
+                        <li><strong>Causa de la Discrepancia:</strong> La discrepancia entre los steps se debe a que <code>load_test_tiles()</code> carga tiles de prueba (95.49% de bytes no-cero) que luego el juego borra cuando empieza a ejecutarse (Frame 6, PC=0x36E3).</li>
+                        <li><strong>El Juego Borra los Tiles de Prueba:</strong> El juego borra los tiles de prueba que <code>load_test_tiles()</code> carga, y luego no carga tiles nuevos (todas las escrituras son ceros).</li>
                         <li><strong>Monitoreo desde el Inicio:</strong> Podemos monitorear todas las escrituras a VRAM desde el primer ciclo del CPU para identificar cuándo y cómo se cargan los datos iniciales.</li>
                     </ul>
 
                     <h3>Lo que Falta Confirmar</h3>
                     <ul>
-                        <li><strong>¿Cuándo se cargan los datos iniciales?</strong> Necesitamos ejecutar las pruebas y analizar los logs para identificar cuándo y cómo se cargan los datos iniciales en VRAM.</li>
-                        <li><strong>¿Por qué hay discrepancia entre los steps?</strong> La discrepancia se debe a que se midió en diferentes momentos. Necesitamos verificar si hay escrituras no-cero que cargan datos iniciales al inicio de la ejecución.</li>
-                        <li><strong>¿El estado inicial debería tener más datos?</strong> Necesitamos verificar si el estado inicial debería tener más datos y por qué no los tiene.</li>
+                        <li><strong>¿Por qué el juego no carga tiles nuevos?</strong> Todas las escrituras a VRAM desde el inicio del CPU son ceros (0x00). Necesitamos investigar por qué el juego no carga tiles nuevos después de borrar los tiles de prueba.</li>
+                        <li><strong>¿Hay un problema con el timing de carga de tiles?</strong> El juego borra los tiles de prueba cuando el LCD está encendido (no en VBLANK). Necesitamos verificar si hay un problema con el timing de carga de tiles o si el juego espera condiciones específicas que no se están cumpliendo.</li>
+                        <li><strong>¿El comportamiento es diferente sin load_test_tiles()?</strong> Necesitamos considerar desactivar <code>load_test_tiles()</code> para pruebas futuras y ver el comportamiento real del juego sin tiles de prueba.</li>
                     </ul>
 
                     <h3>Hipótesis y Suposiciones</h3>
                     <p>
-                        <strong>Hipótesis principal:</strong> El estado inicial de VRAM se inicializa correctamente con ceros. Las ROMs no tienen datos iniciales en VRAM. Los datos iniciales se generan durante la inicialización del juego, y necesitamos monitorear desde el inicio de la ejecución del CPU para identificar cuándo y cómo se cargan.
+                        <strong>Hipótesis principal:</strong> El estado inicial de VRAM se inicializa correctamente con ceros. Las ROMs no tienen datos iniciales en VRAM. La discrepancia entre los steps se debe a que <code>load_test_tiles()</code> carga tiles de prueba que luego el juego borra cuando empieza a ejecutarse.
                     </p>
                     <p>
-                        <strong>Suposición:</strong> La discrepancia entre los steps se debe a que se midió en diferentes momentos. El Step 0353 midió cuando se carga la ROM, mientras que el Step 0354 midió cuando se detecta el primer borrado. Necesitamos ejecutar las pruebas y analizar los logs para confirmar esta hipótesis.
+                        <strong>Suposición confirmada:</strong> La discrepancia entre los steps se debe a que se midió en diferentes momentos. El Step 0353 midió después de <code>load_test_tiles()</code> (95.49% de bytes no-cero), mientras que el Step 0354 midió cuando el CPU empieza (0.65% de bytes no-cero), después de que el juego borró la mayoría de los tiles de prueba.
+                    </p>
+                    <p>
+                        <strong>Nueva hipótesis:</strong> El juego no carga tiles nuevos porque todas las escrituras a VRAM desde el inicio del CPU son ceros (0x00). Esto sugiere que hay un problema con el timing de carga de tiles o que el juego espera condiciones específicas que no se están cumpliendo.
                     </p>
                 </div>
             </section>
