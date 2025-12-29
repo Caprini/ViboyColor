@@ -1277,6 +1277,28 @@ class Viboy:
                                     print(f"[SIM-INPUT] Frame {frames} ({frames/60.0:.1f}s): RELEASE {button.upper()}")
                 # --- Fin Step 0298 ---
                 
+                # --- Step 0358: Simulación de Interacción del Usuario ---
+                # Simular presiones de botones para verificar si TETRIS y Mario requieren interacción
+                if self._joypad is not None:
+                    if self.frame_count == 3000:  # Después de ~50 segundos
+                        # Simular presionar START
+                        if isinstance(self._joypad, PyJoypad):
+                            self._joypad.press_button(button_index_map.get("start", 7))
+                        else:
+                            self._joypad.press("start")
+                        logger.info("[Viboy-User-Interaction] Simulando presión de START en Frame 3000")
+                        print("[Viboy-User-Interaction] Simulando presión de START en Frame 3000")
+                    
+                    if self.frame_count == 3100:  # Un frame después
+                        # Liberar START
+                        if isinstance(self._joypad, PyJoypad):
+                            self._joypad.release_button(button_index_map.get("start", 7))
+                        else:
+                            self._joypad.release("start")
+                        logger.info("[Viboy-User-Interaction] Liberando START en Frame 3100")
+                        print("[Viboy-User-Interaction] Liberando START en Frame 3100")
+                # -------------------------------------------
+                
                 # --- Step 0240: Monitor GPS (Navegador) ---
                 # Reporta la posición de la CPU y el estado del hardware cada segundo (60 frames)
                 # Step 0317: Optimización - Desactivado por defecto para mejorar rendimiento
