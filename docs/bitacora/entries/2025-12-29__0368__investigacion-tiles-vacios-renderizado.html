@@ -268,26 +268,61 @@ if (addr >= 0x8000 && addr <= 0x97FF && value != 0x00) {
             <!-- 6. Hallazgos Clave -->
             <section id="hallazgos">
                 <h2>Hallazgos Clave</h2>
-                <h3>Causa Raíz Identificada</h3>
+                <h3>Hallazgos Iniciales (Ejecución Corta)</h3>
                 <p>
-                    <strong>VRAM está completamente vacía cuando se renderiza.</strong> Esto significa que:
+                    En la ejecución inicial (30-60 segundos), los logs confirmaron:
                 </p>
                 <ul>
-                    <li>Los tiles no se han cargado todavía cuando se intenta renderizar</li>
-                    <li>O el juego aún no está cargando tiles (está en fase de inicialización)</li>
+                    <li><strong>VRAM está completamente vacía:</strong> 0/6144 bytes no-cero durante el renderizado (Frame 1-5)</li>
+                    <li><strong>Todos los tiles vacíos inicialmente:</strong> 0/20 tiles con datos en los primeros frames</li>
+                    <li><strong>El tilemap apunta a tiles vacíos:</strong> Todos los tile IDs son 0x00 en los primeros frames</li>
+                    <li><strong>El checkerboard se activa correctamente:</strong> Se activa cuando detecta tiles vacíos</li>
                 </ul>
-                <h3>Problemas Confirmados</h3>
+                
+                <h3>Hallazgos de Ejecución Extendida (2.5 minutos)</h3>
+                <p>
+                    Después de ejecutar todas las ROMs durante 2.5 minutos, se descubrieron hallazgos importantes:
+                </p>
                 <ol>
-                    <li><strong>VRAM vacía:</strong> 0/6144 bytes no-cero durante el renderizado</li>
-                    <li><strong>Todos los tiles vacíos:</strong> 0/20 tiles con datos</li>
-                    <li><strong>Tilemap apunta a tiles vacíos:</strong> Todos los tile IDs son 0x00</li>
-                    <li><strong>Checkerboard funciona correctamente:</strong> Se activa cuando detecta tiles vacíos</li>
+                    <li><strong>Los tiles SÍ se cargan después de algunos frames:</strong>
+                        <ul>
+                            <li>Después del Frame 5-6, los logs muestran: <code>Tiles with data: 20/20 | Tiles empty: 0/20</code></li>
+                            <li>Esto confirma que los tiles se cargan eventualmente, pero no en el primer frame</li>
+                        </ul>
+                    </li>
+                    <li><strong>Hay escrituras a VRAM durante V-Blank:</strong>
+                        <ul>
+                            <li>Los logs de <code>[MMU-VRAM-WRITE-TIMING]</code> muestran escrituras durante V-Blank (Mode: 1, LY: 145-149)</li>
+                            <li>Ejemplo: <code>Frame: 4720 | LY: 145 | Mode: 1 | Addr:0x8800 | Value:0xFF</code></li>
+                            <li>Esto es correcto según el hardware: los tiles se cargan durante V-Blank</li>
+                        </ul>
+                    </li>
+                    <li><strong>vram_is_empty_ cambia eventualmente:</strong>
+                        <ul>
+                            <li>En algunos juegos (Oro.gbc, PKMN Amarillo, PKMN), <code>vram_is_empty_</code> cambia de YES a NO después de varios miles de frames</li>
+                            <li>Ejemplo: <code>Frame 4723 | vram_is_empty_ cambió: YES -> NO</code> (Oro.gbc)</li>
+                            <li>Ejemplo: <code>Frame 4719 | vram_is_empty_ cambió: YES -> NO</code> (PKMN Amarillo)</li>
+                            <li>Ejemplo: <code>Frame 4946 | vram_is_empty_ cambió: YES -> NO</code> (PKMN)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Discrepancia en verificación de VRAM:</strong>
+                        <ul>
+                            <li>Los logs muestran que los tiles tienen datos (<code>Tiles with data: 20/20</code>) pero la verificación de VRAM muestra <code>VRAM non-zero: 0/6144</code></li>
+                            <li>Esto sugiere que puede haber un problema con la verificación de VRAM o que los tiles están en una parte diferente de VRAM</li>
+                            <li>O que la verificación de VRAM se ejecuta en un momento diferente al de la verificación de tiles</li>
+                        </ul>
+                    </li>
                 </ol>
-                <h3>Hipótesis para Próximos Steps</h3>
+                
+                <h3>Causa Raíz Identificada</h3>
+                <p>
+                    <strong>Los tiles se cargan después del primer frame, pero hay un problema de timing o de verificación.</strong>
+                </p>
                 <ul>
-                    <li>El juego puede estar cargando tiles después del primer frame (necesita más tiempo de ejecución)</li>
-                    <li>Puede haber un problema con la inicialización de VRAM o con la carga de tiles desde la ROM</li>
-                    <li>El timing de actualización de <code>vram_is_empty_</code> puede necesitar ajustarse</li>
+                    <li>Los tiles se cargan durante V-Blank (correcto según el hardware)</li>
+                    <li>Los tiles tienen datos después del Frame 5-6 (confirmado por logs)</li>
+                    <li>Pero la verificación de VRAM muestra 0/6144 incluso cuando los tiles tienen datos (discrepancia)</li>
+                    <li>El problema puede ser que <code>vram_is_empty_</code> se actualiza solo en LY=0, y si los tiles se cargan después, seguirá siendo <code>true</code> durante todo el frame</li>
                 </ul>
             </section>
 
@@ -330,11 +365,23 @@ if (addr >= 0x8000 && addr <= 0x97FF && value != 0x00) {
             <!-- 9. Próximos Pasos -->
             <section id="proximos-pasos">
                 <h2>Próximos Pasos</h2>
+                <h3>Ejecución Extendida Completada</h3>
+                <p>
+                    ✅ Se ejecutaron todas las ROMs durante 2.5 minutos. Los hallazgos confirman que:
+                </p>
                 <ul>
-                    <li>[ ] Ejecutar el emulador por más tiempo (varios minutos) para ver si los tiles se cargan después del primer frame</li>
-                    <li>[ ] Verificar si hay escrituras a VRAM después del renderizado usando los logs de timing</li>
-                    <li>[ ] Si los tiles no se cargan, investigar por qué el juego no está cargando tiles (problema de inicialización o de ROM)</li>
-                    <li>[ ] Considerar ajustar el timing de actualización de <code>vram_is_empty_</code> si es necesario</li>
+                    <li>✅ Los tiles SÍ se cargan después de algunos frames (Frame 5-6)</li>
+                    <li>✅ Hay escrituras a VRAM durante V-Blank (correcto según el hardware)</li>
+                    <li>✅ <code>vram_is_empty_</code> cambia eventualmente en algunos juegos</li>
+                </ul>
+                
+                <h3>Próximos Pasos Sugeridos</h3>
+                <ul>
+                    <li>[ ] Investigar la discrepancia entre la verificación de VRAM (0/6144) y la verificación de tiles (20/20 con datos)</li>
+                    <li>[ ] Verificar si el problema es que <code>vram_is_empty_</code> se actualiza solo en LY=0, y si los tiles se cargan después, seguirá siendo <code>true</code> durante todo el frame</li>
+                    <li>[ ] Considerar actualizar <code>vram_is_empty_</code> más frecuentemente o en diferentes momentos (no solo en LY=0)</li>
+                    <li>[ ] Verificar si la verificación de VRAM está verificando el rango correcto (0x8000-0x97FF) o si hay un problema con cómo se lee VRAM</li>
+                    <li>[ ] Si los tiles tienen datos pero VRAM muestra 0/6144, investigar si los tiles están en una parte diferente de VRAM o si hay un problema con la verificación</li>
                 </ul>
             </section>
         </main>
