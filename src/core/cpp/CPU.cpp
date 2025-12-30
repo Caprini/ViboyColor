@@ -487,6 +487,69 @@ int CPU::step() {
     was_halted_step382 = halted_;
     // -------------------------------------------
     
+    // --- Step 0385: Detector de Wait-Loop Genérico ---
+    // Detecta bucles de polling sin asumir banco/PC específico
+    // Objetivo: localizar automáticamente el PC más repetido (el bucle donde Zelda DX se queda congelado)
+    // Umbral: 5000 repeticiones del mismo PC indica bucle de espera (polling)
+    static uint16_t last_pc_for_loop = 0xFFFF;
+    static int same_pc_streak = 0;
+    static const int WAITLOOP_THRESHOLD = 5000;
+    
+    if (original_pc == last_pc_for_loop) {
+        same_pc_streak++;
+        
+        // Detectar loop cuando se alcanza el umbral (primera vez)
+        if (same_pc_streak == WAITLOOP_THRESHOLD && !wait_loop_detected_) {
+            wait_loop_detected_ = true;
+            wait_loop_trace_active_ = true;
+            wait_loop_trace_count_ = 0;
+            
+            // Activar trazado de MMIO/RAM en la MMU
+            mmu_->set_waitloop_trace(true);
+            
+            uint16_t bank = mmu_->get_current_rom_bank();
+            uint16_t af = regs_->get_af();
+            uint16_t hl = regs_->get_hl();
+            uint8_t ime = ime_ ? 1 : 0;
+            uint8_t ie = mmu_->read(0xFFFF);
+            uint8_t if_reg = mmu_->read(0xFF0F);
+            
+            printf("[WAITLOOP-DETECT] ⚠️ Bucle detectado! PC:0x%04X Bank:%d repetido %d veces\n",
+                   original_pc, bank, same_pc_streak);
+            printf("[WAITLOOP-DETECT] Estado: AF:0x%04X HL:0x%04X IME:%d IE:0x%02X IF:0x%02X\n",
+                   af, hl, ime, ie, if_reg);
+            printf("[WAITLOOP-DETECT] Activando trazado de 200 iteraciones...\n");
+        }
+    } else {
+        same_pc_streak = 0;
+    }
+    last_pc_for_loop = original_pc;
+    
+    // Trazado activo del loop (máx 200 iteraciones)
+    if (wait_loop_trace_active_ && wait_loop_trace_count_ < 200) {
+        uint16_t bank = mmu_->get_current_rom_bank();
+        uint8_t opcode = mmu_->read(original_pc);
+        uint8_t byte1 = (regs_->pc < 0xFFFF) ? mmu_->read(regs_->pc) : 0x00;
+        uint8_t byte2 = (regs_->pc < 0xFFFE) ? mmu_->read(regs_->pc + 1) : 0x00;
+        
+        printf("[WAITLOOP-TRACE] #%d PC:0x%04X Bank:%d OP:%02X %02X %02X | AF:%04X BC:%04X DE:%04X HL:%04X SP:%04X | IME:%d IE:%02X IF:%02X\n",
+               wait_loop_trace_count_,
+               original_pc, bank,
+               opcode, byte1, byte2,
+               regs_->get_af(), regs_->get_bc(), regs_->get_de(), regs_->get_hl(), regs_->sp,
+               ime_ ? 1 : 0, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
+        
+        wait_loop_trace_count_++;
+        
+        if (wait_loop_trace_count_ >= 200) {
+            wait_loop_trace_active_ = false;
+            // Desactivar trazado de MMIO/RAM en la MMU
+            mmu_->set_waitloop_trace(false);
+            printf("[WAITLOOP-TRACE] Fin del trazado (200 iteraciones completadas)\n");
+        }
+    }
+    // -------------------------------------------
+    
     // --- Step 0279: Monitor de Reinicio (Reset Loop Detection) ---
     // Detecta cuando el PC pasa por los vectores de reinicio (0x0000 o 0x0100)
     // Esto indica que el juego está en un bucle de reinicio, posiblemente debido a:
@@ -501,18 +564,63 @@ int CPU::step() {
                ime_ ? 1 : 0, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
     }
     
-    // --- Step 0279: Seguimiento del Handler de V-Blank ---
+    // --- Step 0385: Trazado Acotado del Handler de VBlank ---
     // Detecta cuando el código entra al handler de V-Blank (0x0040)
-    // Esto nos permite verificar si el handler se ejecuta correctamente y qué hace
+    // y traza las primeras 80 instrucciones del handler (solo para los primeros 3 VBlanks)
+    // Objetivo: ver si el VBlank ISR está actualizando los flags que el main-loop espera
     // Fuente: Pan Docs - "Interrupt Vectors": 0x0040 es el vector de V-Blank
+    static int vblank_entry_count = 0;
+    static bool vblank_isr_trace_active = false;
+    static int vblank_isr_trace_count = 0;
+    static const int MAX_VBLANK_ENTRIES = 3;
+    static const int MAX_ISR_TRACE = 80;
+    
     if (original_pc == 0x0040) {
-        printf("[VBLANK-ENTRY] Vector 0x%04X alcanzado. SP:0x%04X | HL:0x%04X | A:0x%02X | Bank:%d\n",
-               original_pc, regs_->sp, regs_->get_hl(), regs_->a, mmu_->get_current_rom_bank());
+        vblank_entry_count++;
         
-        // --- Step 0281: Rastreo del Destino del Salto en 0x0040 ---
-        // Leemos la dirección de salto (JP nn) que suele estar en el vector de interrupción
-        uint16_t jump_target = mmu_->read(0x0041) | (static_cast<uint16_t>(mmu_->read(0x0042)) << 8);
-        printf("[VBLANK-TRACE] Vector 0x0040: JP 0x%04X detectado. Iniciando rastreo del handler...\n", jump_target);
+        if (vblank_entry_count <= MAX_VBLANK_ENTRIES) {
+            printf("[VBLANK-ENTER] #%d Vector 0x%04X alcanzado | SP:0x%04X HL:0x%04X A:0x%02X Bank:%d IME:%d IE:%02X IF:%02X\n",
+                   vblank_entry_count,
+                   original_pc, regs_->sp, regs_->get_hl(), regs_->a, mmu_->get_current_rom_bank(),
+                   ime_ ? 1 : 0, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
+            
+            // Activar trazado del ISR y de MMIO en la MMU
+            vblank_isr_trace_active = true;
+            vblank_isr_trace_count = 0;
+            mmu_->set_vblank_isr_trace(true);
+        }
+    }
+    
+    // Trazado activo del ISR VBlank (máx 80 instrucciones, solo para primeros 3 VBlanks)
+    if (vblank_isr_trace_active && vblank_isr_trace_count < MAX_ISR_TRACE) {
+        uint16_t bank = mmu_->get_current_rom_bank();
+        uint8_t opcode = mmu_->read(original_pc);
+        uint8_t byte1 = (regs_->pc < 0xFFFF) ? mmu_->read(regs_->pc) : 0x00;
+        uint8_t byte2 = (regs_->pc < 0xFFFE) ? mmu_->read(regs_->pc + 1) : 0x00;
+        
+        printf("[VBLANK-TRACE] ISR#%d Step#%d PC:0x%04X Bank:%d OP:%02X %02X %02X | AF:%04X HL:%04X SP:%04X\n",
+               vblank_entry_count,
+               vblank_isr_trace_count,
+               original_pc, bank,
+               opcode, byte1, byte2,
+               regs_->get_af(), regs_->get_hl(), regs_->sp);
+        
+        vblank_isr_trace_count++;
+        
+        // Detectar salida del ISR (RETI 0xD9 o RET 0xC9)
+        if (opcode == 0xD9 || opcode == 0xC9) {
+            vblank_isr_trace_active = false;
+            mmu_->set_vblank_isr_trace(false);
+            printf("[VBLANK-TRACE] ISR#%d terminado (instrucción %d)\n",
+                   vblank_entry_count, vblank_isr_trace_count);
+        }
+        
+        if (vblank_isr_trace_count >= MAX_ISR_TRACE) {
+            vblank_isr_trace_active = false;
+            mmu_->set_vblank_isr_trace(false);
+            printf("[VBLANK-TRACE] ISR#%d trazado completado (80 instrucciones)\n",
+                   vblank_entry_count);
+        }
     }
     
     // --- Step 0294: Monitor de Verificación de VRAM en ISRs ([ISR-VRAM-CHECK]) ---

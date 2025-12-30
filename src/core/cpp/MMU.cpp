@@ -68,7 +68,11 @@ MMU::MMU()
     , ram_bank_(0)
     , ram_enabled_(false)
     , vram_write_total_step382_(0)
-    , vram_write_nonzero_step382_(0) {
+    , vram_write_nonzero_step382_(0)
+    , waitloop_trace_active_(false)
+    , vblank_isr_trace_active_(false)
+    , waitloop_mmio_count_(0)
+    , waitloop_ram_count_(0) {
     // Inicializar memoria a 0
     // --- Step 0189: Inicialización de Registros de Hardware (Post-BIOS) ---
     // Estos son los valores que los registros de I/O tienen después de que la
@@ -483,6 +487,75 @@ uint8_t MMU::read(uint16_t addr) const {
         d732_read_log_count++;
     }
 
+    // --- Step 0385: Trazado de MMIO/RAM durante Wait-Loop ---
+    // Loguear accesos a MMIO, HRAM y WRAM (direcciones repetidas) cuando el wait-loop está activo
+    if (waitloop_trace_active_) {
+        // MMIO (0xFF00-0xFFFF) - máx 300 líneas
+        if (addr >= 0xFF00 && addr <= 0xFFFF && waitloop_mmio_count_ < 300) {
+            uint8_t val = memory_[addr];
+            // Nombres de registros clave (Pan Docs)
+            const char* reg_name = "";
+            if (addr == 0xFF44) reg_name = "LY";
+            else if (addr == 0xFF41) reg_name = "STAT";
+            else if (addr == 0xFF40) reg_name = "LCDC";
+            else if (addr == 0xFF0F) reg_name = "IF";
+            else if (addr == 0xFFFF) reg_name = "IE";
+            else if (addr == 0xFF04) reg_name = "DIV";
+            else if (addr == 0xFF05) reg_name = "TIMA";
+            else if (addr == 0xFF4F) reg_name = "VBK";
+            else if (addr == 0xFF4D) reg_name = "KEY1";
+            else if (addr >= 0xFF51 && addr <= 0xFF55) reg_name = "HDMA";
+            else if (addr == 0xFF68 || addr == 0xFF69) reg_name = "BGPAL";
+            else if (addr == 0xFF6A || addr == 0xFF6B) reg_name = "OBPAL";
+            
+            printf("[WAITLOOP-MMIO] Read 0x%04X (%s) -> 0x%02X\n", addr, reg_name, val);
+            waitloop_mmio_count_++;
+        }
+        
+        // HRAM (0xFF80-0xFFFE) - máx 200 líneas
+        else if (addr >= 0xFF80 && addr <= 0xFFFE && waitloop_ram_count_ < 200) {
+            uint8_t val = memory_[addr];
+            printf("[WAITLOOP-RAM] Read HRAM 0x%04X -> 0x%02X\n", addr, val);
+            waitloop_ram_count_++;
+        }
+        
+        // WRAM (0xC000-0xDFFF) - solo direcciones "calientes" (top 8), máx 200 líneas totales
+        else if (addr >= 0xC000 && addr <= 0xDFFF && waitloop_ram_count_ < 200) {
+            // Mantener un contador simple de accesos por dirección (solo las primeras 8 distintas)
+            static std::map<uint16_t, int> wram_access_map;
+            wram_access_map[addr]++;
+            
+            // Solo loguear si es una de las primeras 8 direcciones distintas accedidas
+            if (wram_access_map.size() <= 8) {
+                uint8_t val = memory_[addr];
+                printf("[WAITLOOP-RAM] Read WRAM 0x%04X -> 0x%02X (accesos: %d)\n",
+                       addr, val, wram_access_map[addr]);
+                waitloop_ram_count_++;
+            }
+        }
+    }
+    
+    // Trazado de MMIO durante VBlank ISR (similarsolo MMIO, sin límite interno aquí)
+    if (vblank_isr_trace_active_) {
+        if (addr >= 0xFF00 && addr <= 0xFFFF) {
+            uint8_t val = memory_[addr];
+            const char* reg_name = "";
+            if (addr == 0xFF44) reg_name = "LY";
+            else if (addr == 0xFF41) reg_name = "STAT";
+            else if (addr == 0xFF40) reg_name = "LCDC";
+            else if (addr == 0xFF0F) reg_name = "IF";
+            else if (addr == 0xFFFF) reg_name = "IE";
+            else if (addr == 0xFF4F) reg_name = "VBK";
+            else if (addr == 0xFF4D) reg_name = "KEY1";
+            else if (addr >= 0xFF51 && addr <= 0xFF55) reg_name = "HDMA";
+            else if (addr == 0xFF68 || addr == 0xFF69) reg_name = "BGPAL";
+            else if (addr == 0xFF6A || addr <= 0xFF6B) reg_name = "OBPAL";
+            
+            printf("[VBLANK-ISR-MMIO] Read 0x%04X (%s) -> 0x%02X\n", addr, reg_name, val);
+        }
+    }
+    // -------------------------------------------
+    
     // Resto de direcciones: memoria plana
     return memory_[addr];
 }
@@ -497,6 +570,71 @@ void MMU::write(uint16_t addr, uint8_t value) {
     }
 
     value &= 0xFF;
+    
+    // --- Step 0385: Trazado de Escrituras durante Wait-Loop y VBlank ISR ---
+    // Loguear escrituras a MMIO, HRAM y WRAM cuando los trazados están activos
+    if (waitloop_trace_active_) {
+        // MMIO (0xFF00-0xFFFF) - máx 300 líneas
+        if (addr >= 0xFF00 && addr <= 0xFFFF && waitloop_mmio_count_ < 300) {
+            const char* reg_name = "";
+            if (addr == 0xFF44) reg_name = "LY";
+            else if (addr == 0xFF41) reg_name = "STAT";
+            else if (addr == 0xFF40) reg_name = "LCDC";
+            else if (addr == 0xFF0F) reg_name = "IF";
+            else if (addr == 0xFFFF) reg_name = "IE";
+            else if (addr == 0xFF04) reg_name = "DIV";
+            else if (addr == 0xFF4F) reg_name = "VBK";
+            else if (addr == 0xFF4D) reg_name = "KEY1";
+            else if (addr >= 0xFF51 && addr <= 0xFF55) reg_name = "HDMA";
+            else if (addr == 0xFF68 || addr == 0xFF69) reg_name = "BGPAL";
+            else if (addr == 0xFF6A || addr == 0xFF6B) reg_name = "OBPAL";
+            
+            printf("[WAITLOOP-MMIO] Write 0x%04X (%s) <- 0x%02X\n", addr, reg_name, value);
+            waitloop_mmio_count_++;
+        }
+        
+        // HRAM (0xFF80-0xFFFE) - máx 200 líneas
+        else if (addr >= 0xFF80 && addr <= 0xFFFE && waitloop_ram_count_ < 200) {
+            printf("[WAITLOOP-RAM] Write HRAM 0x%04X <- 0x%02X\n", addr, value);
+            waitloop_ram_count_++;
+        }
+        
+        // WRAM (0xC000-0xDFFF) - solo direcciones "calientes", máx 200 líneas totales
+        else if (addr >= 0xC000 && addr <= 0xDFFF && waitloop_ram_count_ < 200) {
+            static std::map<uint16_t, int> wram_write_map;
+            wram_write_map[addr]++;
+            
+            if (wram_write_map.size() <= 8) {
+                printf("[WAITLOOP-RAM] Write WRAM 0x%04X <- 0x%02X (accesos: %d)\n",
+                       addr, value, wram_write_map[addr]);
+                waitloop_ram_count_++;
+            }
+        }
+    }
+    
+    // Trazado de escrituras durante VBlank ISR (especialmente HDMA, VBK, paletas, IF clears)
+    if (vblank_isr_trace_active_) {
+        if (addr >= 0xFF00 && addr <= 0xFFFF) {
+            const char* reg_name = "";
+            if (addr == 0xFF40) reg_name = "LCDC";
+            else if (addr == 0xFF0F) reg_name = "IF";
+            else if (addr == 0xFFFF) reg_name = "IE";
+            else if (addr == 0xFF4F) reg_name = "VBK";
+            else if (addr == 0xFF4D) reg_name = "KEY1";
+            else if (addr >= 0xFF51 && addr <= 0xFF55) reg_name = "HDMA";
+            else if (addr == 0xFF68 || addr == 0xFF69) reg_name = "BGPAL";
+            else if (addr == 0xFF6A || addr == 0xFF6B) reg_name = "OBPAL";
+            
+            printf("[VBLANK-ISR-MMIO] Write 0x%04X (%s) <- 0x%02X\n", addr, reg_name, value);
+        }
+        
+        // Escrituras a HRAM/WRAM (flags del engine)
+        if ((addr >= 0xFF80 && addr <= 0xFFFE) || (addr >= 0xC000 && addr <= 0xDFFF)) {
+            const char* zone = (addr >= 0xFF80) ? "HRAM" : "WRAM";
+            printf("[VBLANK-ISR-RAM] Write %s 0x%04X <- 0x%02X\n", zone, addr, value);
+        }
+    }
+    // -------------------------------------------
     
     // --- Step 0383: Instrumentación de Escrituras MMIO Críticas (Solo en Wait-Loop Bank 28) ---
     // Detectar escrituras a registros críticos cuando estamos en el bucle de espera.
@@ -1873,6 +2011,20 @@ void MMU::setJoypad(Joypad* joypad) {
         joypad_->setMMU(this);
     }
     // -------------------------------------------
+}
+
+void MMU::set_waitloop_trace(bool active) {
+    // --- Step 0385: Activar/desactivar trazado de MMIO/RAM durante wait-loop ---
+    waitloop_trace_active_ = active;
+    if (active) {
+        waitloop_mmio_count_ = 0;
+        waitloop_ram_count_ = 0;
+    }
+}
+
+void MMU::set_vblank_isr_trace(bool active) {
+    // --- Step 0385: Activar/desactivar trazado de MMIO durante VBlank ISR ---
+    vblank_isr_trace_active_ = active;
 }
 
 void MMU::request_interrupt(uint8_t bit) {

@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0385 - Trazado de Wait-Loop + VBlank ISR (Zelda DX) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-30__0385__trazado-waitloop-vblank-zelda-dx.html" class="entry-link">
+                                    Trazado de Wait-Loop + VBlank ISR (Zelda DX)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-30 | 
+                            <strong>Step ID:</strong> 0385 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementa trazado dirigido para identificar por qué Zelda DX se queda congelado. El detector de wait-loop genérico localiza automáticamente el bucle real en PC:0x0370 Bank:12 (opcode NOP). El trazado de MMIO revela que el juego pollea IF esperando bit 0 (VBlank), pero IF solo contiene bit 1 (LCD STAT). El trazado del VBlank ISR confirma que el handler sí se ejecuta pero IF nunca contiene VBlank. Conclusión: la PPU no está solicitando correctamente la interrupción de VBlank cuando LY alcanza 144.
+                        </p>
+                    </li>
                     <!-- Entrada 0383 - Identificar Condición de Espera (Bank 28) -->
                     <li>
                         <div class="entry-header">

@@ -191,6 +191,26 @@ public:
      */
     uint16_t debug_current_pc;
 
+    /**
+     * Step 0385: Activa/desactiva el trazado de MMIO y RAM durante el wait-loop.
+     * 
+     * Cuando está activo, el MMU loguea accesos a MMIO (0xFF00-0xFFFF),
+     * HRAM (0xFF80-0xFFFE) y direcciones repetidas en WRAM (0xC000-0xDFFF).
+     * 
+     * @param active true para activar trazado, false para desactivar
+     */
+    void set_waitloop_trace(bool active);
+    
+    /**
+     * Step 0385: Activa/desactiva el trazado de MMIO dentro del ISR VBlank.
+     * 
+     * Cuando está activo, el MMU loguea accesos a MMIO durante el ISR VBlank,
+     * especialmente escrituras a HDMA, VBK, paletas, y clears de IF.
+     * 
+     * @param active true para activar trazado, false para desactivar
+     */
+    void set_vblank_isr_trace(bool active);
+
 private:
     /**
      * Memoria principal: 65536 bytes (64KB)
@@ -275,6 +295,12 @@ private:
     // --- Step 0382: Contadores de diagnóstico para VRAM ---
     mutable int vram_write_total_step382_;
     mutable int vram_write_nonzero_step382_;
+    
+    // --- Step 0385: Flags de trazado de wait-loop y VBlank ISR ---
+    mutable bool waitloop_trace_active_;
+    mutable bool vblank_isr_trace_active_;
+    mutable int waitloop_mmio_count_;
+    mutable int waitloop_ram_count_;
 };
 
 #endif // MMU_HPP
