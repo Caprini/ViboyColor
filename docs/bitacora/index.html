@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0372 - Investigación de Pantallas Completamente Blancas -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-30__0372__investigacion-pantallas-completamente-blancas.html" class="entry-link">
+                                    Investigación de Pantallas Completamente Blancas
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-30 | 
+                            <strong>Step ID:</strong> 0372 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementaron verificaciones de diagnóstico exhaustivas en todas las etapas del pipeline de renderizado para investigar por qué las pantallas están completamente blancas. Los logs confirman que el pipeline funciona correctamente: render_scanline() se ejecuta, escribe datos al framebuffer (checkerboard), el intercambio de buffers funciona, y Python lee los datos correctamente. El renderizador también recibe los datos. Sin embargo, se identificó un problema crítico: render_scanline() se ejecuta en Mode 2 (OAM Search) en lugar de Mode 0 (H-Blank), lo cual puede afectar el timing del renderizado.
+                        </p>
+                    </li>
                                         <!-- Entrada 0371 - Pruebas Extendidas y Verificación de Renderizado de Tiles Reales -->
                     <li>
                         <div class="entry-header">

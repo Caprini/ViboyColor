@@ -947,6 +947,39 @@ class Viboy:
                                     logger.info(f"[Viboy-Framebuffer-Read-Timing] Frame {self._framebuffer_read_timing_count} | "
                                                f"Leyendo framebuffer en t={read_start_time:.6f}s")
                                 
+                                # --- Step 0372: Tarea 6 - Verificar Estado del Framebuffer en Python ---
+                                # Obtener el framebuffer usando la propiedad (memoryview)
+                                raw_view = self._ppu.framebuffer
+                                if raw_view is not None:
+                                    # Verificar contenido antes de copiar
+                                    if not hasattr(self, '_framebuffer_read_verify_count'):
+                                        self._framebuffer_read_verify_count = 0
+                                    
+                                    self._framebuffer_read_verify_count += 1
+                                    
+                                    if self._framebuffer_read_verify_count <= 50:
+                                        # Verificar primeros 100 píxeles
+                                        non_zero_count = 0
+                                        index_counts = [0, 0, 0, 0]
+                                        
+                                        for i in range(min(100, len(raw_view))):
+                                            color_idx = raw_view[i] & 0x03
+                                            index_counts[color_idx] += 1
+                                            if color_idx != 0:
+                                                non_zero_count += 1
+                                        
+                                        logger.info(f"[Viboy-Framebuffer-Read] Frame {self._framebuffer_read_verify_count} | "
+                                                   f"Non-zero pixels (first 100): {non_zero_count}/100 | "
+                                                   f"Distribution: 0={index_counts[0]} 1={index_counts[1]} 2={index_counts[2]} 3={index_counts[3]}")
+                                        print(f"[Viboy-Framebuffer-Read] Frame {self._framebuffer_read_verify_count} | "
+                                              f"Non-zero pixels (first 100): {non_zero_count}/100 | "
+                                              f"Distribution: 0={index_counts[0]} 1={index_counts[1]} 2={index_counts[2]} 3={index_counts[3]}")
+                                        
+                                        if non_zero_count == 0:
+                                            logger.warning("[Viboy-Framebuffer-Read] ⚠️ PROBLEMA: Framebuffer completamente vacío cuando Python lo lee!")
+                                            print("[Viboy-Framebuffer-Read] ⚠️ PROBLEMA: Framebuffer completamente vacío cuando Python lo lee!")
+                                # -------------------------------------------
+                                
                                 # --- Step 0332: Verificación Detallada de Copia del Framebuffer ---
                                 # --- Step 0365: Verificación de Lectura del Framebuffer en Python ---
                                 # 1. Obtener la vista directa de C++

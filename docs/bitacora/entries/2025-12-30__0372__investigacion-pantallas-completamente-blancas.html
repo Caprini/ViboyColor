@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Pantallas Completamente Blancas - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Pantallas Completamente Blancas</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-30
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0372
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-30__0371__pruebas-extendidas-verificacion-renderizado-tiles-reales.html">Anterior (Step 0371)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementaron verificaciones de diagnóstico exhaustivas en todas las etapas del pipeline de renderizado para investigar por qué las pantallas están completamente blancas. Los logs confirman que el pipeline funciona correctamente: `render_scanline()` se ejecuta, escribe datos al framebuffer (checkerboard), el intercambio de buffers funciona, y Python lee los datos correctamente. El renderizador también recibe los datos. Sin embargo, se identificó un problema crítico: `render_scanline()` se ejecuta en Mode 2 (OAM Search) en lugar de Mode 0 (H-Blank), lo cual puede afectar el timing del renderizado.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Pipeline de Renderizado C++ → Python</h3>
+                <p>
+                    El pipeline de renderizado funciona en varias etapas:
+                </p>
+                <ol>
+                    <li><strong>C++ PPU (`render_scanline()`)</strong>: Escribe índices de color (0-3) al `framebuffer_back_` durante H-Blank (Mode 0).</li>
+                    <li><strong>C++ PPU (`swap_framebuffers()`)</strong>: Intercambia `framebuffer_back_` y `framebuffer_front_` cuando se completa un frame completo (LY=144).</li>
+                    <li><strong>C++ PPU (`get_frame_ready_and_reset()`)</strong>: Marca el frame como listo y devuelve puntero a `framebuffer_front_`.</li>
+                    <li><strong>Python (`viboy.py`)</strong>: Lee el framebuffer desde C++ y crea un snapshot inmutable.</li>
+                    <li><strong>Python (`renderer.py`)</strong>: Convierte índices a RGB y dibuja en la pantalla.</li>
+                </ol>
+                <p>
+                    <strong>Timing del Renderizado:</strong> Según Pan Docs, el renderizado de una línea debe ocurrir durante H-Blank (Mode 0), después de que Mode 3 (Pixel Transfer) completa. Si `render_scanline()` se ejecuta en un modo diferente, puede haber problemas de sincronización.
+                </p>
+                <p>
+                    <strong>Checkerboard Temporal:</strong> Cuando VRAM está vacía (`vram_is_empty_ == true`), se activa un patrón checkerboard (alternando índices 0 y 3) para visualizar que el renderizado funciona mientras el juego carga tiles.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se agregaron verificaciones de diagnóstico en 6 puntos críticos del pipeline:
+                </p>
+                
+                <h3>Verificaciones Implementadas</h3>
+                <ol>
+                    <li><strong>Ejecución de `render_scanline()`</strong>: Logs al inicio de la función confirmando ejecución y modo/timing.</li>
+                    <li><strong>Escritura al framebuffer</strong>: Verificación después de escribir todos los píxeles de la línea, contando píxeles no-blancos y distribución de índices.</li>
+                    <li><strong>Activación del checkerboard</strong>: Logs cuando se detecta que el checkerboard debería activarse y cuando se escribe al framebuffer.</li>
+                    <li><strong>Framebuffer antes de que Python lo lea</strong>: Verificación en `get_frame_ready_and_reset()` antes de `swap_framebuffers()`, contando píxeles no-blancos en `framebuffer_back_`.</li>
+                    <li><strong>Framebuffer después del intercambio</strong>: Verificación en `swap_framebuffers()` después del intercambio, contando píxeles no-blancos en `framebuffer_front_`.</li>
+                    <li><strong>Framebuffer en Python</strong>: Verificación cuando Python lee el framebuffer de C++, analizando los primeros 100 píxeles.</li>
+                </ol>
+
+                <h3>Hallazgos Clave</h3>
+                <ul>
+                    <li>✅ <strong>`render_scanline()` se ejecuta</strong>: Se ejecuta en cada línea visible (LY 0-143), pero en Mode 2 (OAM Search) en lugar de Mode 0 (H-Blank).</li>
+                    <li>✅ <strong>Se escriben datos al framebuffer</strong>: 80/160 píxeles no-blancos por línea (checkerboard), distribución 0=80, 3=80.</li>
+                    <li>✅ <strong>Checkerboard se activa</strong>: Se activa correctamente cuando VRAM está vacía y tiles están vacíos.</li>
+                    <li>✅ <strong>Framebuffer tiene datos antes del intercambio</strong>: 11520/23040 píxeles no-blancos (50% - checkerboard completo).</li>
+                    <li>✅ <strong>Framebuffer mantiene datos después del intercambio</strong>: 11520/23040 píxeles no-blancos en `framebuffer_front_`.</li>
+                    <li>✅ <strong>Python lee los datos</strong>: 52/100 píxeles no-blancos en los primeros 100 píxeles.</li>
+                    <li>✅ <strong>Renderizador recibe los datos</strong>: 11520/23040 píxeles no-blancos, patrón checkerboard correcto [3,3,3,3,3,3,3,3,0,0,0,0,0,0,0,0,3,3,3,3].</li>
+                </ul>
+
+                <h3>Problema Crítico Identificado</h3>
+                <p>
+                    <strong>`render_scanline()` se ejecuta en Mode 2 (OAM Search) en lugar de Mode 0 (H-Blank)</strong>. Según Pan Docs, el renderizado debe ocurrir durante H-Blank (Mode 0), después de que Mode 3 (Pixel Transfer) completa. Aunque los datos se escriben correctamente, esto puede causar problemas de timing y sincronización.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Agregadas verificaciones en `render_scanline()`, `get_frame_ready_and_reset()`, y `swap_framebuffers()`</li>
+                    <li><code>src/viboy.py</code> - Agregada verificación cuando Python lee el framebuffer de C++</li>
+                    <li><code>logs/test_*_step0372.log</code> - Logs de diagnóstico de las 6 ROMs de prueba</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas cortas (30 segundos) con las 6 ROMs principales para capturar logs de diagnóstico:
+                </p>
+                <ul>
+                    <li><strong>ROMs probadas:</strong> tetris.gb, mario.gbc, zelda-dx.gbc, Oro.gbc, pkmn.gb, pkmn-amarillo.gb</li>
+                    <li><strong>Comando ejecutado:</strong> <code>timeout 30 python3 main.py roms/[ROM].gb[c] > logs/test_[ROM]_step0372.log 2>&1</code></li>
+                    <li><strong>Análisis de logs:</strong> Se analizaron los logs usando comandos `grep` con límites para identificar dónde se pierde la información</li>
+                </ul>
+
+                <h3>Evidencia de Logs</h3>
+                <pre><code>[PPU-RENDER-EXECUTION] Frame 1 | LY: 0 | render_scanline() ejecutado | Count: 1
+[PPU-RENDER-EXECUTION] Mode: 2 (0=H-Blank, 1=V-Blank, 2=OAM, 3=Pixel Transfer) | LY: 0 | Expected: H-Blank (0)
+
+[PPU-FRAMEBUFFER-WRITE] Frame 1 | LY: 0 | Non-zero pixels written: 80/160 | Distribution: 0=80 1=0 2=0 3=80
+
+[PPU-CHECKERBOARD-ACTIVATE] Frame 1 | LY: 0 | X: 0 | Checkerboard activado | Tile empty: YES | VRAM empty: YES | Count: 1
+
+[PPU-FRAMEBUFFER-BEFORE-READ] Frame 1 | Total non-zero pixels: 11520/23040 | Distribution: 0=11520 1=0 2=0 3=11520
+
+[PPU-FRAMEBUFFER-AFTER-SWAP] Frame 1 | Total non-zero pixels in front: 11520/23040 | Distribution: 0=11520 1=0 2=0 3=11520
+
+[Viboy-Framebuffer-Read] Frame 1 | Non-zero pixels (first 100): 52/100 | Distribution: 0=48 1=0 2=0 3=52
+
+[Renderer-Received] Frame 1 | First 20 indices: [3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3] | Non-zero pixels: 11520/23040 (50.00%)</code></pre>
+
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El módulo se recompiló exitosamente con las nuevas verificaciones. Los logs confirman que todas las etapas del pipeline funcionan correctamente.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Timing, Background, Window</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">PPU Modes (Mode 0, 1, 2, 3)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Pipeline de renderizado:</strong> El pipeline C++ → Python funciona correctamente. Los datos se escriben, se intercambian, y se leen sin pérdida de información.</li>
+                        <li><strong>Timing del renderizado:</strong> `render_scanline()` debe ejecutarse durante H-Blank (Mode 0), no durante OAM Search (Mode 2). Esto es crítico para la sincronización correcta.</li>
+                        <li><strong>Checkerboard temporal:</strong> El checkerboard se activa y funciona correctamente cuando VRAM está vacía, generando un patrón visible (50% píxeles no-blancos).</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Problema de timing:</strong> Por qué `render_scanline()` se ejecuta en Mode 2 en lugar de Mode 0. Esto requiere investigar dónde se llama la función y en qué momento del ciclo de la PPU.</li>
+                        <li><strong>Conversión RGB:</strong> Si el renderizador Python está convirtiendo correctamente los índices (0, 3) a RGB. Los índices 0 y 3 deberían convertirse a blanco y negro respectivamente según la paleta BGP.</li>
+                        <li><strong>Dibujado en pantalla:</strong> Si Pygame está dibujando correctamente los píxeles RGB en la superficie de la ventana.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El problema de las pantallas completamente blancas NO está en el pipeline de datos (que funciona correctamente), sino posiblemente en:
+                    </p>
+                    <ol>
+                        <li>El timing incorrecto de `render_scanline()` (Mode 2 vs Mode 0) que puede causar problemas de sincronización.</li>
+                        <li>La conversión de índices a RGB en el renderizador Python.</li>
+                        <li>El dibujado de píxeles en la superficie de Pygame.</li>
+                    </ol>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar por qué `render_scanline()` se ejecuta en Mode 2 en lugar de Mode 0 y corregir el timing.</li>
+                    <li>[ ] Verificar la conversión de índices a RGB en el renderizador Python (especialmente índices 0 y 3).</li>
+                    <li>[ ] Verificar que Pygame está dibujando correctamente los píxeles RGB en la superficie de la ventana.</li>
+                    <li>[ ] Si el problema persiste, considerar desactivar completamente el checkerboard temporal y forzar renderizado normal para aislar el problema.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

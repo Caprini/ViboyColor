@@ -1031,6 +1031,34 @@ bool PPU::get_frame_ready_and_reset() {
     // -------------------------------------------
     
     if (frame_ready_) {
+        // --- Step 0372: Tarea 4 - Verificar Estado del Framebuffer Antes de que Python lo Lea ---
+        static int framebuffer_before_read_count = 0;
+        framebuffer_before_read_count++;
+        
+        if (framebuffer_before_read_count <= 50) {
+            // Verificar contenido del framebuffer_back_ antes de intercambiar
+            int total_non_zero = 0;
+            int index_counts[4] = {0, 0, 0, 0};
+            
+            for (size_t i = 0; i < framebuffer_back_.size(); i++) {
+                uint8_t color_idx = framebuffer_back_[i] & 0x03;
+                index_counts[color_idx]++;
+                if (color_idx != 0) {
+                    total_non_zero++;
+                }
+            }
+            
+            printf("[PPU-FRAMEBUFFER-BEFORE-READ] Frame %llu | "
+                   "Total non-zero pixels: %d/23040 | Distribution: 0=%d 1=%d 2=%d 3=%d\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1),
+                   total_non_zero, index_counts[0], index_counts[1], index_counts[2], index_counts[3]);
+            
+            if (total_non_zero == 0) {
+                printf("[PPU-FRAMEBUFFER-BEFORE-READ] ⚠️ PROBLEMA CRÍTICO: Framebuffer completamente vacío antes de que Python lo lea!\n");
+            }
+        }
+        // -------------------------------------------
+        
         // --- Step 0364: Doble Buffering ---
         // Marcar que hay un frame completo listo para intercambiar
         framebuffer_swap_pending_ = true;
@@ -1103,6 +1131,34 @@ void PPU::swap_framebuffers() {
     
     // Limpiar el buffer back para el siguiente frame
     std::fill(framebuffer_back_.begin(), framebuffer_back_.end(), 0);
+    
+    // --- Step 0372: Tarea 5 - Verificar Estado del Framebuffer Después del Intercambio ---
+    static int framebuffer_after_swap_count = 0;
+    framebuffer_after_swap_count++;
+    
+    if (framebuffer_after_swap_count <= 50) {
+        // Verificar contenido del framebuffer_front_ después del intercambio
+        int total_non_zero = 0;
+        int index_counts[4] = {0, 0, 0, 0};
+        
+        for (size_t i = 0; i < framebuffer_front_.size(); i++) {
+            uint8_t color_idx = framebuffer_front_[i] & 0x03;
+            index_counts[color_idx]++;
+            if (color_idx != 0) {
+                total_non_zero++;
+            }
+        }
+        
+        printf("[PPU-FRAMEBUFFER-AFTER-SWAP] Frame %llu | "
+               "Total non-zero pixels in front: %d/23040 | Distribution: 0=%d 1=%d 2=%d 3=%d\n",
+               static_cast<unsigned long long>(frame_counter_ + 1),
+               total_non_zero, index_counts[0], index_counts[1], index_counts[2], index_counts[3]);
+        
+        if (total_non_zero == 0) {
+            printf("[PPU-FRAMEBUFFER-AFTER-SWAP] ⚠️ PROBLEMA CRÍTICO: Framebuffer front completamente vacío después del intercambio!\n");
+        }
+    }
+    // -------------------------------------------
     
     // Log detallado
     static int swap_detailed_count = 0;
@@ -1220,6 +1276,25 @@ void PPU::render_scanline() {
     if (mmu_ == nullptr) {
         return;
     }
+    
+    // --- Step 0372: Tarea 1 - Verificar si render_scanline() se Ejecuta ---
+    static int render_scanline_execution_count = 0;
+    render_scanline_execution_count++;
+    
+    if (render_scanline_execution_count <= 100) {
+        printf("[PPU-RENDER-EXECUTION] Frame %llu | LY: %d | "
+               "render_scanline() ejecutado | Count: %d\n",
+               static_cast<unsigned long long>(frame_counter_ + 1), ly_,
+               render_scanline_execution_count);
+    }
+    
+    // Verificar que se llama en el momento correcto (H-Blank, MODE_0)
+    if (render_scanline_execution_count <= 100) {
+        printf("[PPU-RENDER-EXECUTION] Mode: %d (0=H-Blank, 1=V-Blank, 2=OAM, 3=Pixel Transfer) | "
+               "LY: %d | Expected: H-Blank (0)\n",
+               mode_, ly_);
+    }
+    // -------------------------------------------
     
     // --- Step 0366: Verificación de Ejecución ---
     // NOTA: render_scanline() se llama en H-Blank (MODE_0) después de que MODE_3 (Pixel Transfer)
@@ -2552,6 +2627,9 @@ void PPU::render_scanline() {
             }
             // -------------------------------------------
 
+            // --- Step 0372: Tarea 3 - Verificar si el Checkerboard se Activa ---
+            static int checkerboard_activation_count = 0;
+            
             // --- Step 0330: Lógica Optimizada del Checkerboard Temporal ---
             // Activar checkerboard cuando:
             // 1. El tile está completamente vacío (todas las líneas = 0x00)
@@ -2559,6 +2637,15 @@ void PPU::render_scanline() {
             // Esto previene pantallas blancas cuando el tilemap apunta a direcciones inválidas
             // OPTIMIZACIÓN: Usar variable vram_is_empty_ en lugar de verificar VRAM en cada píxel
             if (tile_is_empty && enable_checkerboard_temporal && vram_is_empty_) {
+                checkerboard_activation_count++;
+                
+                if (checkerboard_activation_count <= 100) {
+                    printf("[PPU-CHECKERBOARD-ACTIVATE] Frame %llu | LY: %d | X: %d | "
+                           "Checkerboard activado | Tile empty: YES | VRAM empty: YES | "
+                           "Count: %d\n",
+                           static_cast<unsigned long long>(frame_counter_ + 1), ly_, x,
+                           checkerboard_activation_count);
+                }
                 // --- Step 0330: Usar Variable de Estado en lugar de Verificar VRAM ---
                 // En lugar de verificar VRAM en cada píxel, usar la variable vram_is_empty_
                 // que se actualiza una vez por línea (en LY=0)
@@ -2595,6 +2682,15 @@ void PPU::render_scanline() {
                             byte1 = 0xFF;
                             byte2 = 0xFF;
                         }
+                    }
+                    
+                    // --- Step 0372: Tarea 3 - Verificar si el Checkerboard se Escribe al Framebuffer ---
+                    if (checkerboard_activation_count <= 100 && x < 10) {
+                        uint8_t checkerboard_idx = (x + ly_) % 2 == 0 ? 0 : 3;
+                        printf("[PPU-CHECKERBOARD-WRITE] Frame %llu | LY: %d | X: %d | "
+                               "Checkerboard index: %d (0=blanco, 3=negro)\n",
+                               static_cast<unsigned long long>(frame_counter_ + 1), ly_, x,
+                               checkerboard_idx);
                     }
                 }
             } else if (tile_is_empty) {
@@ -3320,6 +3416,35 @@ void PPU::render_scanline() {
         // Advertencia si VRAM tiene tiles pero la línea está vacía
         if (vram_non_zero >= 200 && line_non_white < 10) {
             printf("[PPU-RENDER-SCANLINE] ⚠️ ADVERTENCIA: VRAM tiene tiles pero línea está vacía!\n");
+        }
+    }
+    // -------------------------------------------
+    
+    // --- Step 0372: Tarea 2 - Verificar si render_scanline() Escribe al Framebuffer ---
+    static int framebuffer_write_verify_count = 0;
+    framebuffer_write_verify_count++;
+    
+    if (framebuffer_write_verify_count <= 100) {
+        // Verificar que se escribieron datos al framebuffer_back_
+        size_t line_start = ly_ * SCREEN_WIDTH;
+        int non_zero_pixels = 0;
+        int index_counts[4] = {0, 0, 0, 0};
+        
+        for (int x = 0; x < SCREEN_WIDTH; x++) {
+            uint8_t color_idx = framebuffer_back_[line_start + x] & 0x03;
+            index_counts[color_idx]++;
+            if (color_idx != 0) {
+                non_zero_pixels++;
+            }
+        }
+        
+        printf("[PPU-FRAMEBUFFER-WRITE] Frame %llu | LY: %d | "
+               "Non-zero pixels written: %d/160 | Distribution: 0=%d 1=%d 2=%d 3=%d\n",
+               static_cast<unsigned long long>(frame_counter_ + 1), ly_,
+               non_zero_pixels, index_counts[0], index_counts[1], index_counts[2], index_counts[3]);
+        
+        if (non_zero_pixels == 0) {
+            printf("[PPU-FRAMEBUFFER-WRITE] ⚠️ PROBLEMA: No se escribieron píxeles no-blancos al framebuffer!\n");
         }
     }
     // -------------------------------------------
