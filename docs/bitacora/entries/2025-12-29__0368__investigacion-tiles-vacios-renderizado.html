@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Por Qué Todos los Tiles Están Vacíos Durante el Renderizado - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Por Qué Todos los Tiles Están Vacíos Durante el Renderizado</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0368
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0367__correccion-attributeerror-framebuffer-copy-detailed-count.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementaron verificaciones detalladas para investigar por qué todos los tiles leídos de VRAM están vacíos (0x00) durante el renderizado. 
+                    Se agregaron logs de diagnóstico en múltiples puntos del pipeline de renderizado: verificación de VRAM durante el renderizado (no solo en LY=0), 
+                    logs de qué tiles se leen del tilemap y su contenido, verificación detallada de tiles vacíos, y logs de timing de carga de tiles vs renderizado. 
+                    Los logs confirman que VRAM está completamente vacía cuando se renderiza (0/6144 bytes no-cero), todos los tiles están vacíos (0/20 tiles con datos), 
+                    y el tilemap apunta a tiles vacíos (todos los tile IDs son 0x00). La causa raíz identificada es que VRAM está vacía cuando se renderiza, 
+                    lo que indica que los tiles no se han cargado todavía o el juego aún no los está cargando.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Timing de Carga de Tiles en Game Boy</h3>
+                <p>
+                    En la Game Boy real, los tiles se cargan en VRAM durante V-Blank (cuando el LCD está apagado o durante las líneas 144-153). 
+                    Sin embargo, algunos juegos cargan tiles durante H-Blank o incluso durante el renderizado activo.
+                </p>
+                <p>
+                    <strong>Problema de timing en emuladores:</strong>
+                </p>
+                <ul>
+                    <li>Si el emulador renderiza antes de que los tiles se carguen, verá tiles vacíos</li>
+                    <li>Si <code>vram_is_empty_</code> se actualiza solo una vez por frame (en LY=0), puede estar desactualizado durante el renderizado</li>
+                    <li>El checkerboard temporal se activa cuando todos los tiles están vacíos, pero si los tiles se cargan después, el checkerboard seguirá activo</li>
+                </ul>
+                <h3>Verificación de Tiles Vacíos</h3>
+                <p>
+                    La verificación de tiles vacíos debe ser precisa:
+                </p>
+                <ul>
+                    <li>Un tile está vacío si <strong>todas</strong> sus 8 líneas (16 bytes) son 0x00</li>
+                    <li>Algunos tiles legítimos pueden tener líneas con 0x00, pero no todas</li>
+                    <li>Si la verificación es incorrecta, puede marcar tiles con datos como vacíos</li>
+                </ul>
+                <h3>Checkerboard Temporal</h3>
+                <p>
+                    El checkerboard temporal es una ayuda visual que se activa cuando:
+                </p>
+                <ol>
+                    <li>El tile está completamente vacío (<code>tile_is_empty == true</code>)</li>
+                    <li>VRAM está completamente vacía (<code>vram_is_empty_ == true</code>)</li>
+                    <li>El checkerboard está habilitado (<code>enable_checkerboard_temporal == true</code>)</li>
+                </ol>
+                <p>
+                    Si cualquiera de estas condiciones no se cumple, el renderizado normal debería funcionar.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron 4 tipos de verificaciones para investigar el problema de tiles vacíos:
+                </p>
+                
+                <h3>1. Verificación de VRAM Durante el Renderizado</h3>
+                <p>
+                    Se agregó verificación de VRAM no solo en LY=0, sino también durante el renderizado (LY=0, LY=72, LY=143) 
+                    para detectar si VRAM se carga después de que se actualiza <code>vram_is_empty_</code>.
+                </p>
+                <pre><code>// Verificar VRAM en este momento
+int vram_non_zero = 0;
+for (uint16_t i = 0; i < 6144; i++) {
+    if (mmu_->read(0x8000 + i) != 0x00) {
+        vram_non_zero++;
+    }
+}
+
+printf("[PPU-VRAM-DURING-RENDER] Frame %llu | LY: %d | Mode: %d | "
+       "VRAM non-zero: %d/6144 (%.2f%%) | vram_is_empty_: %s\n",
+       frame_counter_ + 1, ly_, mode_,
+       vram_non_zero, (vram_non_zero * 100.0) / 6144,
+       vram_is_empty_ ? "YES" : "NO");</code></pre>
+
+                <h3>2. Verificación de Qué Tiles se Leen del Tilemap</h3>
+                <p>
+                    Se agregaron logs detallados de qué tiles se leen del tilemap y su contenido, 
+                    verificando si los tiles tienen datos o están vacíos.
+                </p>
+                <pre><code>// Leer tile ID del tilemap
+uint8_t tile_id = mmu_->read(tilemap_addr);
+
+// Calcular dirección del tile
+uint16_t tile_addr;
+if (unsigned_addressing) {
+    tile_addr = data_base + (tile_id * 16);
+} else {
+    int8_t signed_tile_id = static_cast<int8_t>(tile_id);
+    tile_addr = data_base + ((signed_tile_id + 128) * 16);
+}
+
+// Verificar contenido del tile
+uint8_t tile_byte1 = mmu_->read(tile_addr);
+uint8_t tile_byte2 = mmu_->read(tile_addr + 1);
+bool tile_has_data = (tile_byte1 != 0x00 || tile_byte2 != 0x00);
+
+printf("[PPU-TILEMAP-READ] Frame %llu | LY: %d | X: %d | "
+       "Tilemap[0x%04X]=0x%02X | TileAddr=0x%04X | "
+       "Byte1=0x%02X Byte2=0x%02X | HasData=%s\n",
+       frame_counter_ + 1, ly_, x,
+       tilemap_addr, tile_id, tile_addr,
+       tile_byte1, tile_byte2, tile_has_data ? "YES" : "NO");</code></pre>
+
+                <h3>3. Verificación Detallada de Tiles Vacíos</h3>
+                <p>
+                    Se agregaron logs detallados de la verificación de tiles vacíos, mostrando cuántas líneas tienen datos 
+                    y cuántas están vacías, y por qué el checkerboard se activa o no.
+                </p>
+                <pre><code>// Verificar cada línea del tile
+int lines_with_data = 0;
+int lines_empty = 0;
+for (uint8_t line_check = 0; line_check < 8; line_check++) {
+    uint16_t check_addr = tile_addr + (line_check * 2);
+    uint8_t check_byte1 = mmu_->read(check_addr);
+    uint8_t check_byte2 = mmu_->read(check_addr + 1);
+    
+    if (check_byte1 != 0x00 || check_byte2 != 0x00) {
+        lines_with_data++;
+    } else {
+        lines_empty++;
+    }
+}
+
+bool tile_is_empty_result = (lines_with_data == 0);
+
+printf("[PPU-TILE-EMPTY-CHECK] Frame %llu | LY: %d | X: %d | "
+       "TileAddr=0x%04X | LinesWithData=%d LinesEmpty=%d | "
+       "tile_is_empty=%s | vram_is_empty_=%s | enable_checkerboard=%s\n",
+       frame_counter_ + 1, ly_, x,
+       tile_addr, lines_with_data, lines_empty,
+       tile_is_empty_result ? "YES" : "NO",
+       vram_is_empty_ ? "YES" : "NO",
+       enable_checkerboard_temporal ? "YES" : "NO");</code></pre>
+
+                <h3>4. Verificación de Tiles Disponibles y Timing</h3>
+                <p>
+                    Se agregó verificación de tiles disponibles al inicio de <code>render_scanline()</code> 
+                    y logs de timing de escritura a VRAM en <code>MMU.cpp</code>.
+                </p>
+                <pre><code>// Verificar primeros 20 tiles del tilemap
+for (int i = 0; i < 20; i++) {
+    uint8_t tile_id = mmu_->read(map_base + i);
+    uint16_t tile_addr;
+    // ... calcular dirección del tile ...
+    
+    // Verificar si el tile tiene datos
+    bool has_data = false;
+    for (int j = 0; j < 16; j++) {
+        if (mmu_->read(tile_addr + j) != 0x00) {
+            has_data = true;
+            break;
+        }
+    }
+    
+    if (has_data) tiles_with_data++;
+    else tiles_empty++;
+}
+
+printf("[PPU-TILES-AVAILABLE] Frame %llu | LY: %d | "
+       "Tiles with data: %d/20 | Tiles empty: %d/20\n",
+       frame_counter_ + 1, ly_,
+       tiles_with_data, tiles_empty);</code></pre>
+
+                <h3>Logs de Timing en MMU.cpp</h3>
+                <p>
+                    Se agregaron logs de timing cuando se escriben tiles no-cero a VRAM, 
+                    mostrando el frame, LY y modo cuando ocurre la escritura.
+                </p>
+                <pre><code>// En MMU.cpp, cuando se escribe a VRAM
+if (addr >= 0x8000 && addr <= 0x97FF && value != 0x00) {
+    uint64_t frame_counter_from_ppu = 0;
+    uint8_t ly_from_ppu = 0;
+    uint8_t mode_from_ppu = 0;
+    
+    if (ppu_ != nullptr) {
+        frame_counter_from_ppu = ppu_->get_frame_counter();
+        ly_from_ppu = ppu_->get_ly();
+        mode_from_ppu = ppu_->get_mode();
+    }
+    
+    printf("[MMU-VRAM-WRITE-TIMING] PC:0x%04X | Addr:0x%04X | Value:0x%02X | "
+           "Frame: %llu | LY: %d | Mode: %d\n",
+           debug_current_pc, addr, value,
+           frame_counter_from_ppu, ly_from_ppu, mode_from_ppu);
+}</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Agregadas verificaciones de VRAM durante renderizado, logs de tiles leídos del tilemap, verificación detallada de tiles vacíos, y verificación de tiles disponibles</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Agregados logs de timing de escritura a VRAM</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas con ROMs de test (Tetris, Mario, Oro) para generar logs de diagnóstico. 
+                    Los logs confirman el problema identificado:
+                </p>
+                <ul>
+                    <li><strong>VRAM está completamente vacía:</strong> <code>VRAM non-zero: 0/6144 (0.00%)</code> tanto en LY=0 como en LY=72</li>
+                    <li><strong>Todos los tiles están vacíos:</strong> <code>Tiles with data: 0/20 | Tiles empty: 20/20</code></li>
+                    <li><strong>El tilemap apunta a tiles vacíos:</strong> Todos los tile IDs son <code>0x00</code>, que apuntan al tile 0 (que está vacío)</li>
+                    <li><strong>El checkerboard se activa correctamente:</strong> <code>Checkerboard se activará para este tile</code></li>
+                </ul>
+                <h3>Ejemplo de Logs Generados</h3>
+                <pre><code>[PPU-VRAM-DURING-RENDER] Frame 1 | LY: 0 | Mode: 2 | VRAM non-zero: 0/6144 (0.00%) | vram_is_empty_: YES
+[PPU-TILES-AVAILABLE] Frame 1 | LY: 0 | Tiles with data: 0/20 | Tiles empty: 20/20
+[PPU-TILES-AVAILABLE] ⚠️ PROBLEMA: Todos los tiles están vacíos, checkerboard se activará
+[PPU-TILEMAP-READ] Frame 1 | LY: 0 | X: 0 | Tilemap[0x9800]=0x00 | TileAddr=0x8000 | Byte1=0x00 Byte2=0x00 | HasData=NO
+[PPU-TILEMAP-READ] ⚠️ Tile vacío detectado - activará checkerboard si vram_is_empty_=true
+[PPU-TILE-EMPTY-CHECK] Frame 1 | LY: 0 | X: 0 | TileAddr=0x8000 | LinesWithData=0 LinesEmpty=8 | tile_is_empty=YES | vram_is_empty_=YES | enable_checkerboard=YES
+[PPU-TILE-EMPTY-CHECK] ✅ Checkerboard se activará para este tile</code></pre>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> El código se compiló exitosamente y los logs se generan correctamente durante la ejecución.
+                </p>
+            </section>
+
+            <!-- 6. Hallazgos Clave -->
+            <section id="hallazgos">
+                <h2>Hallazgos Clave</h2>
+                <h3>Causa Raíz Identificada</h3>
+                <p>
+                    <strong>VRAM está completamente vacía cuando se renderiza.</strong> Esto significa que:
+                </p>
+                <ul>
+                    <li>Los tiles no se han cargado todavía cuando se intenta renderizar</li>
+                    <li>O el juego aún no está cargando tiles (está en fase de inicialización)</li>
+                </ul>
+                <h3>Problemas Confirmados</h3>
+                <ol>
+                    <li><strong>VRAM vacía:</strong> 0/6144 bytes no-cero durante el renderizado</li>
+                    <li><strong>Todos los tiles vacíos:</strong> 0/20 tiles con datos</li>
+                    <li><strong>Tilemap apunta a tiles vacíos:</strong> Todos los tile IDs son 0x00</li>
+                    <li><strong>Checkerboard funciona correctamente:</strong> Se activa cuando detecta tiles vacíos</li>
+                </ol>
+                <h3>Hipótesis para Próximos Steps</h3>
+                <ul>
+                    <li>El juego puede estar cargando tiles después del primer frame (necesita más tiempo de ejecución)</li>
+                    <li>Puede haber un problema con la inicialización de VRAM o con la carga de tiles desde la ROM</li>
+                    <li>El timing de actualización de <code>vram_is_empty_</code> puede necesitar ajustarse</li>
+                </ul>
+            </section>
+
+            <!-- 7. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "Tile Data", "Tile Map", "VRAM (Video RAM)"</li>
+                    <li>Pan Docs: "LCD Timing", "Background", "Window"</li>
+                </ul>
+            </section>
+
+            <!-- 8. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Timing de carga de tiles:</strong> Los tiles se cargan en VRAM durante V-Blank o H-Blank, pero el renderizado puede ocurrir antes de que se carguen</li>
+                        <li><strong>Verificación de tiles vacíos:</strong> Un tile está vacío si todas sus 8 líneas (16 bytes) son 0x00</li>
+                        <li><strong>Checkerboard temporal:</strong> Se activa cuando el tile está vacío, VRAM está vacía, y el checkerboard está habilitado</li>
+                        <li><strong>Problema de timing:</strong> Si VRAM está vacía cuando se renderiza, todos los tiles aparecerán vacíos y el checkerboard se activará</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Carga de tiles después del primer frame:</strong> Si el juego carga tiles después de algunos frames, necesitamos ejecutar el emulador por más tiempo</li>
+                        <li><strong>Inicialización de VRAM:</strong> Si hay un problema con la inicialización de VRAM o con la carga de tiles desde la ROM</li>
+                        <li><strong>Timing de actualización de vram_is_empty_:</strong> Si necesita actualizarse más frecuentemente o en diferentes momentos</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que el problema es de timing (tiles se cargan después del renderizado), 
+                        pero necesitamos más evidencia ejecutando el emulador por más tiempo para ver si los tiles se cargan eventualmente.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 9. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar el emulador por más tiempo (varios minutos) para ver si los tiles se cargan después del primer frame</li>
+                    <li>[ ] Verificar si hay escrituras a VRAM después del renderizado usando los logs de timing</li>
+                    <li>[ ] Si los tiles no se cargan, investigar por qué el juego no está cargando tiles (problema de inicialización o de ROM)</li>
+                    <li>[ ] Considerar ajustar el timing de actualización de <code>vram_is_empty_</code> si es necesario</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

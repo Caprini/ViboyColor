@@ -16,12 +16,12 @@ Este informe ha sido dividido en varias partes para facilitar la legibilidad y e
 
 ## Partes del Informe
 
-### Parte 1: Steps 308 - 360
+### Parte 1: Steps 308 - 368
 
 - **Archivo**: [parte_01_steps_0308_0334.md](parte_01_steps_0308_0334.md)
-- **Rango de Steps**: 308 a 360
-- **Número de Steps**: 53
-- **Líneas**: ~3600
+- **Rango de Steps**: 308 a 368
+- **Número de Steps**: 61
+- **Líneas**: ~3800
 
 ### Parte 2: Steps 267 - 307
 

@@ -166,9 +166,9 @@ class Renderer:
         # Inicializar Pygame
         pygame.init()
         
-        # Crear ventana
-        self.screen = pygame.display.set_mode((self.window_width, self.window_height))
-        pygame.display.set_caption("Viboy Color")
+        # Crear ventana redimensionable
+        self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)
+        pygame.display.set_caption("ViboyColor")
         
         # OPTIMIZACIÓN: Tile Caching
         # La Game Boy tiene 384 tiles únicos en VRAM (0x8000-0x97FF = 6KB = 384 tiles * 16 bytes)
@@ -355,11 +355,16 @@ class Renderer:
             if elapsed >= duration:
                 break
             
-            # Manejar eventos (permitir cerrar durante la carga)
+            # Manejar eventos (permitir cerrar durante la carga y redimensionar)
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
                     break
+                elif event.type == pygame.VIDEORESIZE:
+                    self.window_width = event.w
+                    self.window_height = event.h
+                    # Actualizar el tamaño de la superficie de la ventana
+                    self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         running = False
@@ -2836,6 +2841,13 @@ class Renderer:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
+            
+            # Manejar redimensionamiento de ventana
+            elif event.type == pygame.VIDEORESIZE:
+                self.window_width = event.w
+                self.window_height = event.h
+                # Actualizar el tamaño de la superficie de la ventana
+                self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)
             
             # Manejar eventos de teclado para el Joypad
             if self.joypad is not None:

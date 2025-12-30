@@ -1297,6 +1297,40 @@ void PPU::render_scanline() {
     }
     // -------------------------------------------
     
+    // --- Step 0368: Verificación de VRAM Durante el Renderizado ---
+    // Verificar VRAM no solo en LY=0, sino también durante el renderizado
+    // para detectar si VRAM se carga después de que se actualiza vram_is_empty_
+    static int vram_during_render_check_count = 0;
+    if (vram_during_render_check_count < 20 && ly_ < 144) {
+        if (ly_ == 0 || ly_ == 72 || ly_ == 143) {  // Primera, central, última línea
+            vram_during_render_check_count++;
+            
+            // Verificar VRAM en este momento
+            int vram_non_zero = 0;
+            for (uint16_t i = 0; i < 6144; i++) {
+                if (mmu_->read(0x8000 + i) != 0x00) {
+                    vram_non_zero++;
+                }
+            }
+            
+            printf("[PPU-VRAM-DURING-RENDER] Frame %llu | LY: %d | Mode: %d | "
+                   "VRAM non-zero: %d/6144 (%.2f%%) | vram_is_empty_: %s\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1), ly_, mode_,
+                   vram_non_zero, (vram_non_zero * 100.0) / 6144,
+                   vram_is_empty_ ? "YES" : "NO");
+            
+            if (vram_non_zero > 200 && vram_is_empty_) {
+                printf("[PPU-VRAM-DURING-RENDER] ⚠️ PROBLEMA: VRAM tiene %d bytes no-cero pero vram_is_empty_=true!\n",
+                       vram_non_zero);
+            }
+            if (vram_non_zero < 200 && !vram_is_empty_) {
+                printf("[PPU-VRAM-DURING-RENDER] ⚠️ PROBLEMA: VRAM tiene solo %d bytes no-cero pero vram_is_empty_=false!\n",
+                       vram_non_zero);
+            }
+        }
+    }
+    // -------------------------------------------
+    
     // --- Step 0330: Flag para controlar checkerboard temporal ---
     static bool enable_checkerboard_temporal = true;  // Flag para controlar
     // -------------------------------------------
@@ -1953,6 +1987,60 @@ void PPU::render_scanline() {
         }
     }
     // -------------------------------------------
+    
+    // --- Step 0368: Verificación de Tiles Disponibles al Inicio de Renderizado ---
+    // Verificar si hay tiles cuando se renderiza (timing de carga vs renderizado)
+    static int tiles_available_check_count = 0;
+    if (tiles_available_check_count < 20 && ly_ < 144) {
+        if (ly_ == 0 || ly_ == 72) {
+            tiles_available_check_count++;
+            
+            uint8_t lcdc = mmu_->read(IO_LCDC);
+            uint16_t map_base = (lcdc & 0x08) ? 0x9C00 : 0x9800;
+            bool unsigned_addressing = (lcdc & 0x10) != 0;
+            uint16_t data_base = unsigned_addressing ? 0x8000 : 0x9000;
+            
+            int tiles_with_data = 0;
+            int tiles_empty = 0;
+            
+            // Verificar primeros 20 tiles del tilemap
+            for (int i = 0; i < 20; i++) {
+                uint8_t tile_id = mmu_->read(map_base + i);
+                uint16_t tile_addr;
+                if (unsigned_addressing) {
+                    tile_addr = data_base + (tile_id * 16);
+                } else {
+                    int8_t signed_id = static_cast<int8_t>(tile_id);
+                    tile_addr = data_base + ((signed_id + 128) * 16);
+                }
+                
+                // Verificar si el tile tiene datos
+                bool has_data = false;
+                for (int j = 0; j < 16; j++) {
+                    if (mmu_->read(tile_addr + j) != 0x00) {
+                        has_data = true;
+                        break;
+                    }
+                }
+                
+                if (has_data) {
+                    tiles_with_data++;
+                } else {
+                    tiles_empty++;
+                }
+            }
+            
+            printf("[PPU-TILES-AVAILABLE] Frame %llu | LY: %d | "
+                   "Tiles with data: %d/20 | Tiles empty: %d/20\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1), ly_,
+                   tiles_with_data, tiles_empty);
+            
+            if (tiles_with_data == 0) {
+                printf("[PPU-TILES-AVAILABLE] ⚠️ PROBLEMA: Todos los tiles están vacíos, checkerboard se activará\n");
+            }
+        }
+    }
+    // -------------------------------------------
 
     for (int x = 0; x < 160; ++x) {
         uint8_t map_x = (x + scx) & 0xFF;
@@ -1987,6 +2075,48 @@ void PPU::render_scanline() {
                 }
                 printf("[PPU-RENDER-LOOP] X=%d | Tile ID=0x%02X | Tile Addr=0x%04X\n",
                        x, tile_id, tile_addr_check);
+            }
+        }
+        // -------------------------------------------
+        
+        // --- Step 0368: Verificación de Qué Tiles se Leen del Tilemap ---
+        // Logs detallados de qué tiles se leen del tilemap y su contenido
+        static int tilemap_read_check_count = 0;
+        if (tilemap_read_check_count < 50 && ly_ < 144) {
+            if (ly_ == 0 || ly_ == 72) {  // Primera y central línea
+                if (x < 80 && x % 8 == 0) {  // Primera mitad de la pantalla, cada tile (8 píxeles)
+                    tilemap_read_check_count++;
+                    
+                    // Leer tile ID del tilemap (ya leído arriba)
+                    // Calcular dirección del tile
+                    uint8_t lcdc = mmu_->read(IO_LCDC);
+                    bool unsigned_addressing = (lcdc & 0x10) != 0;
+                    uint16_t data_base = unsigned_addressing ? 0x8000 : 0x9000;
+                    
+                    uint16_t tile_addr;
+                    if (unsigned_addressing) {
+                        tile_addr = data_base + (tile_id * 16);
+                    } else {
+                        int8_t signed_tile_id = static_cast<int8_t>(tile_id);
+                        tile_addr = data_base + ((signed_tile_id + 128) * 16);
+                    }
+                    
+                    // Verificar contenido del tile
+                    uint8_t tile_byte1 = mmu_->read(tile_addr);
+                    uint8_t tile_byte2 = mmu_->read(tile_addr + 1);
+                    bool tile_has_data = (tile_byte1 != 0x00 || tile_byte2 != 0x00);
+                    
+                    printf("[PPU-TILEMAP-READ] Frame %llu | LY: %d | X: %d | "
+                           "Tilemap[0x%04X]=0x%02X | TileAddr=0x%04X | "
+                           "Byte1=0x%02X Byte2=0x%02X | HasData=%s\n",
+                           static_cast<unsigned long long>(frame_counter_ + 1), ly_, x,
+                           tile_map_addr, tile_id, tile_addr,
+                           tile_byte1, tile_byte2, tile_has_data ? "YES" : "NO");
+                    
+                    if (!tile_has_data) {
+                        printf("[PPU-TILEMAP-READ] ⚠️ Tile vacío detectado - activará checkerboard si vram_is_empty_=true\n");
+                    }
+                }
             }
         }
         // -------------------------------------------
@@ -2162,11 +2292,30 @@ void PPU::render_scanline() {
             static bool empty_tile_detected = false;
             bool tile_is_empty = true;
 
+            // --- Step 0368: Verificación Detallada de Tiles Vacíos ---
+            // Logs detallados de la verificación de tiles vacíos
+            static int tile_empty_check_count = 0;
+            bool should_log_tile_empty = false;
+            if (tile_empty_check_count < 30 && ly_ < 144) {
+                if (ly_ == 0 || ly_ == 72) {
+                    if (x < 80 && x % 8 == 0) {  // Cada tile en primera mitad
+                        should_log_tile_empty = true;
+                        tile_empty_check_count++;
+                    }
+                }
+            }
+            // -------------------------------------------
+
             // Verificar si TODO el tile está vacío (todas las 8 líneas = 16 bytes)
+            int lines_with_data = 0;
+            int lines_empty = 0;
             for (uint8_t line_check = 0; line_check < 8; line_check++) {
                 uint16_t check_addr = tile_addr + (line_check * 2);
                 if (check_addr < 0x8000 || check_addr > 0x97FF) {
                     tile_is_empty = true;
+                    if (should_log_tile_empty) {
+                        lines_empty++;
+                    }
                     break;
                 }
                 uint8_t check_byte1 = mmu_->read(check_addr);
@@ -2174,9 +2323,39 @@ void PPU::render_scanline() {
                 
                 if (check_byte1 != 0x00 || check_byte2 != 0x00) {
                     tile_is_empty = false;
+                    if (should_log_tile_empty) {
+                        lines_with_data++;
+                    }
                     break;
+                } else {
+                    if (should_log_tile_empty) {
+                        lines_empty++;
+                    }
                 }
             }
+            
+            // Log detallado de la verificación de tiles vacíos
+            if (should_log_tile_empty) {
+                bool tile_is_empty_result = (lines_with_data == 0);
+                
+                printf("[PPU-TILE-EMPTY-CHECK] Frame %llu | LY: %d | X: %d | "
+                       "TileAddr=0x%04X | LinesWithData=%d LinesEmpty=%d | "
+                       "tile_is_empty=%s | vram_is_empty_=%s | enable_checkerboard=%s\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1), ly_, x,
+                       tile_addr, lines_with_data, lines_empty,
+                       tile_is_empty_result ? "YES" : "NO",
+                       vram_is_empty_ ? "YES" : "NO",
+                       enable_checkerboard_temporal ? "YES" : "NO");
+                
+                if (tile_is_empty_result && vram_is_empty_ && enable_checkerboard_temporal) {
+                    printf("[PPU-TILE-EMPTY-CHECK] ✅ Checkerboard se activará para este tile\n");
+                } else if (!tile_is_empty_result) {
+                    printf("[PPU-TILE-EMPTY-CHECK] ✅ Tile tiene datos, renderizado normal\n");
+                } else {
+                    printf("[PPU-TILE-EMPTY-CHECK] ⚠️ Tile vacío pero checkerboard NO se activará\n");
+                }
+            }
+            // -------------------------------------------
 
             // --- Step 0330: Lógica Optimizada del Checkerboard Temporal ---
             // Activar checkerboard cuando:

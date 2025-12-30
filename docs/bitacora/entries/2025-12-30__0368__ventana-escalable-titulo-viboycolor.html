@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ventana Escalable y Título ViboyColor - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Ventana Escalable y Título ViboyColor</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-30
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0368
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0367__correccion-attributeerror-framebuffer-copy-detailed-count.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó la capacidad de redimensionar la ventana del emulador usando la bandera <code>pygame.RESIZABLE</code> en <code>pygame.display.set_mode()</code>. 
+                    Se cambió el título de la ventana de "Viboy Color" a "ViboyColor" para una identidad visual más compacta. Se agregó el manejo del evento <code>pygame.VIDEORESIZE</code> 
+                    en los métodos <code>handle_events()</code> y <code>_show_loading_screen()</code> para actualizar dinámicamente las dimensiones de la ventana cuando el usuario la redimensiona. 
+                    El renderizado se adapta automáticamente al nuevo tamaño usando <code>pygame.transform.scale()</code>.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Ventanas Redimensionables en Interfaces Gráficas</h3>
+                <p>
+                    En aplicaciones gráficas modernas, permitir que los usuarios redimensionen las ventanas es una característica estándar que mejora la experiencia de usuario. 
+                    Esto es especialmente útil para emuladores, donde los usuarios pueden querer ajustar el tamaño de la ventana según sus preferencias o el tamaño de su pantalla.
+                </p>
+                <p>
+                    Pygame proporciona la bandera <code>pygame.RESIZABLE</code> que permite que la ventana sea redimensionable. Cuando esta bandera está activada:
+                </p>
+                <ul>
+                    <li>El usuario puede arrastrar los bordes de la ventana para cambiar su tamaño</li>
+                    <li>Se genera el evento <code>pygame.VIDEORESIZE</code> cada vez que se redimensiona la ventana</li>
+                    <li>El evento contiene las nuevas dimensiones en los atributos <code>event.w</code> (ancho) y <code>event.h</code> (alto)</li>
+                </ul>
+                <h3>Escalado de Gráficos</h3>
+                <p>
+                    Cuando se redimensiona la ventana, el contenido debe escalarse para adaptarse al nuevo tamaño. En el emulador, el framebuffer interno tiene un tamaño fijo 
+                    de 160x144 píxeles (tamaño nativo de Game Boy), y este se escala a las dimensiones de la ventana usando <code>pygame.transform.scale()</code>. 
+                    Este método interpola los píxeles para ajustar el contenido al nuevo tamaño, manteniendo la proporción original cuando es posible.
+                </p>
+                <p>
+                    <strong>Nota:</strong> Aunque la ventana es redimensionable, el contenido del emulador se escalará para llenar la ventana, lo que puede resultar en distorsión 
+                    si el usuario hace la ventana muy ancha o muy alta. Para mantener la proporción correcta, sería necesario calcular un factor de escala que mantenga la relación 
+                    160:144, pero por ahora se permite cualquier tamaño para dar flexibilidad al usuario.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se modificó la clase <code>Renderer</code> en <code>src/gpu/renderer.py</code> para hacer la ventana redimensionable y cambiar el título.
+                </p>
+                
+                <h3>Modificaciones en el Constructor (__init__)</h3>
+                <p>
+                    Se cambió la llamada a <code>pygame.display.set_mode()</code> para incluir la bandera <code>pygame.RESIZABLE</code>:
+                </p>
+                <pre><code># Antes:
+self.screen = pygame.display.set_mode((self.window_width, self.window_height))
+
+# Después:
+self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)</code></pre>
+                <p>
+                    Se cambió el título de la ventana de "Viboy Color" a "ViboyColor":
+                </p>
+                <pre><code># Antes:
+pygame.display.set_caption("Viboy Color")
+
+# Después:
+pygame.display.set_caption("ViboyColor")</code></pre>
+
+                <h3>Manejo del Evento VIDEORESIZE en handle_events()</h3>
+                <p>
+                    Se agregó el manejo del evento <code>pygame.VIDEORESIZE</code> en el método <code>handle_events()</code> para actualizar las dimensiones de la ventana cuando el usuario la redimensiona:
+                </p>
+                <pre><code>for event in pygame.event.get():
+    if event.type == pygame.QUIT:
+        return False
+    
+    # Manejar redimensionamiento de ventana
+    elif event.type == pygame.VIDEORESIZE:
+        self.window_width = event.w
+        self.window_height = event.h
+        # Actualizar el tamaño de la superficie de la ventana
+        self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)</code></pre>
+                <p>
+                    Cuando se detecta el evento <code>VIDEORESIZE</code>, se actualizan las variables <code>self.window_width</code> y <code>self.window_height</code> con las nuevas dimensiones, 
+                    y se vuelve a llamar a <code>pygame.display.set_mode()</code> con el nuevo tamaño para actualizar la superficie de la ventana.
+                </p>
+
+                <h3>Manejo del Evento VIDEORESIZE en _show_loading_screen()</h3>
+                <p>
+                    Se agregó el mismo manejo del evento <code>pygame.VIDEORESIZE</code> en el método <code>_show_loading_screen()</code> para mantener la consistencia durante la pantalla de carga:
+                </p>
+                <pre><code>for event in pygame.event.get():
+    if event.type == pygame.QUIT:
+        running = False
+        break
+    elif event.type == pygame.VIDEORESIZE:
+        self.window_width = event.w
+        self.window_height = event.h
+        # Actualizar el tamaño de la superficie de la ventana
+        self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)
+    elif event.type == pygame.KEYDOWN:
+        if event.key == pygame.K_ESCAPE:
+            running = False
+            break</code></pre>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Bandera RESIZABLE:</strong> Se usa solo <code>pygame.RESIZABLE</code> sin otras banderas adicionales, manteniendo la simplicidad</li>
+                    <li><strong>Actualización de dimensiones:</strong> Se actualizan tanto las variables internas como la superficie de la ventana para mantener consistencia</li>
+                    <li><strong>Título simplificado:</strong> Se cambió de "Viboy Color" a "ViboyColor" para una identidad visual más compacta y moderna</li>
+                    <li><strong>Escalado automático:</strong> El renderizado existente ya usa <code>pygame.transform.scale()</code>, por lo que se adapta automáticamente al nuevo tamaño</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Agregada bandera <code>pygame.RESIZABLE</code> en <code>set_mode()</code>, cambiado título a "ViboyColor", agregado manejo de <code>pygame.VIDEORESIZE</code> en <code>handle_events()</code> y <code>_show_loading_screen()</code></li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La funcionalidad se verificó manualmente ejecutando el emulador:
+                </p>
+                <ul>
+                    <li><strong>Verificación visual:</strong> Se confirmó que la ventana puede ser redimensionada arrastrando los bordes</li>
+                    <li><strong>Título de ventana:</strong> Se confirmó que el título ahora muestra "ViboyColor" en lugar de "Viboy Color"</li>
+                    <li><strong>Adaptación del contenido:</strong> Se confirmó que el contenido del emulador se escala correctamente al redimensionar la ventana</li>
+                    <li><strong>Pantalla de carga:</strong> Se confirmó que el redimensionamiento también funciona durante la pantalla de carga</li>
+                    <li><strong>Icono:</strong> Se confirmó que el icono de la ventana sigue funcionando correctamente (ya estaba implementado previamente)</li>
+                </ul>
+                <p>
+                    <strong>Nota:</strong> No se requirieron tests unitarios adicionales ya que esta es una funcionalidad de interfaz de usuario que se verifica mejor visualmente.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Documentación de Pygame: <a href="https://www.pygame.org/docs/ref/display.html#pygame.display.set_mode">pygame.display.set_mode()</a></li>
+                    <li>Documentación de Pygame: <a href="https://www.pygame.org/docs/ref/event.html#pygame.event">Eventos de Pygame</a></li>
+                    <li>Documentación de Pygame: <a href="https://www.pygame.org/docs/ref/display.html#pygame.display.set_caption">pygame.display.set_caption()</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Ventanas redimensionables en Pygame:</strong> La bandera <code>pygame.RESIZABLE</code> permite que los usuarios redimensionen la ventana, y Pygame genera eventos <code>VIDEORESIZE</code> cuando esto ocurre</li>
+                        <li><strong>Eventos de Pygame:</strong> Los eventos se manejan en el bucle de eventos usando <code>pygame.event.get()</code>, y cada evento tiene un tipo y atributos específicos según el tipo</li>
+                        <li><strong>Actualización de superficie:</strong> Cuando se redimensiona la ventana, es necesario volver a llamar a <code>pygame.display.set_mode()</code> con las nuevas dimensiones para actualizar la superficie de la ventana</li>
+                        <li><strong>Escalado automático:</strong> El uso de <code>pygame.transform.scale()</code> en el código de renderizado existente permite que el contenido se adapte automáticamente al nuevo tamaño de la ventana</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>Si sería beneficioso mantener la proporción de aspecto 160:144 cuando se redimensiona la ventana (actualmente se permite cualquier proporción)</li>
+                        <li>Si hay algún impacto en el rendimiento cuando se redimensiona frecuentemente (probablemente mínimo)</li>
+                    </ul>
+
+                    <h3>Hipótesis y Observaciones</h3>
+                    <ul>
+                        <li>El cambio de título a "ViboyColor" es más consistente con la identidad visual moderna del proyecto</li>
+                        <li>La capacidad de redimensionar la ventana mejora la usabilidad, especialmente en pantallas de diferentes tamaños</li>
+                        <li>El manejo del evento <code>VIDEORESIZE</code> debe hacerse en todos los lugares donde se manejan eventos para mantener consistencia</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Considerar mantener la proporción de aspecto 160:144 al redimensionar (opcional)</li>
+                    <li>[ ] Continuar con otras mejoras de interfaz de usuario según se requiera</li>
+                    <li>[ ] Continuar con el desarrollo del emulador según el roadmap</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                <a href="../index.html">← Volver al Índice</a>
+            </p>
+            <p class="footer-note">
+                Viboy Color - Proyecto Educativo Open Source
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+

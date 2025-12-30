@@ -1433,6 +1433,31 @@ void MMU::write(uint16_t addr, uint8_t value) {
                    in_vblank ? "YES" : "NO");
         }
         
+        // --- Step 0368: Logs de Timing de Carga de Tiles vs Renderizado ---
+        // Agregar logs de timing cuando se escriben tiles no-cero a VRAM
+        static int vram_write_timing_count = 0;
+        if (vram_write_timing_count < 50 && addr >= 0x8000 && addr <= 0x97FF && value != 0x00) {
+            vram_write_timing_count++;
+            
+            // Obtener estado desde PPU
+            uint64_t frame_counter_from_ppu = 0;
+            uint8_t ly_from_ppu = 0;
+            uint8_t mode_from_ppu = 0;
+            
+            if (ppu_ != nullptr) {
+                frame_counter_from_ppu = ppu_->get_frame_counter();
+                ly_from_ppu = ppu_->get_ly();
+                mode_from_ppu = ppu_->get_mode();
+            }
+            
+            printf("[MMU-VRAM-WRITE-TIMING] PC:0x%04X | Addr:0x%04X | Value:0x%02X | "
+                   "Frame: %llu | LY: %d | Mode: %d\n",
+                   debug_current_pc, addr, value,
+                   static_cast<unsigned long long>(frame_counter_from_ppu),
+                   ly_from_ppu, mode_from_ppu);
+        }
+        // -------------------------------------------
+        
         // Verificar si esta escritura es parte de una secuencia de 16 bytes (tile completo)
         if ((addr & 0x0F) == 0x00) {
             // Estamos en el inicio de un tile (cada tile es 16 bytes)
