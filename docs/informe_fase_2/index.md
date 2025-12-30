@@ -16,12 +16,12 @@ Este informe ha sido dividido en varias partes para facilitar la legibilidad y e
 
 ## Partes del Informe
 
-### Parte 0: Steps 370 - 390
+### Parte 0: Steps 370 - 392
 
 - **Archivo**: [parte_00_steps_0370_0379.md](parte_00_steps_0370_0379.md)
-- **Rango de Steps**: 370 a 390
-- **Número de Steps**: 21
-- **Líneas**: ~1550
+- **Rango de Steps**: 370 a 392
+- **Número de Steps**: 23
+- **Líneas**: ~1700
 
 ### Parte 1: Steps 308 - 369
 

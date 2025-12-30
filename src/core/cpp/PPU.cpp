@@ -1444,13 +1444,17 @@ void PPU::render_scanline() {
     // Verificar VRAM una vez por línea (en LY=0) en lugar de 160 veces por línea
     // Esto mejora significativamente el rendimiento y asegura consistencia
     if (ly_ == 0) {
-        // Verificar si VRAM está completamente vacía
+        // --- Step 0392: FIX - Verificar VRAM dual-bank correctamente ---
+        // CRÍTICO: Usar read_vram_bank() para leer desde ambos bancos VRAM
+        // En lugar de mmu_->read() que puede no acceder correctamente a los bancos
         int vram_non_zero = 0;
+        // Verificar banco 0 (tiledata principal)
         for (uint16_t i = 0; i < 6144; i++) {
-            if (mmu_->read(0x8000 + i) != 0x00) {
+            if (mmu_->read_vram_bank(0, i) != 0x00) {
                 vram_non_zero++;
             }
         }
+        // -------------------------------------------
         
         // --- Step 0335: Verificación de Cambios en vram_is_empty_ ---
         // Verificar si vram_is_empty_ cambia después de algunos frames
@@ -1631,12 +1635,14 @@ void PPU::render_scanline() {
         if (vblank_vram_check_count < 10 || (frame_counter_ % 60 == 0)) {
             vblank_vram_check_count++;
             
+            // --- Step 0392: FIX - Usar read_vram_bank() ---
             int vram_non_zero = 0;
             for (uint16_t i = 0; i < 6144; i++) {
-                if (mmu_->read(0x8000 + i) != 0x00) {
+                if (mmu_->read_vram_bank(0, i) != 0x00) {
                     vram_non_zero++;
                 }
             }
+            // -------------------------------------------
             
             bool new_vram_is_empty = (vram_non_zero < 200);
             
@@ -1663,13 +1669,14 @@ void PPU::render_scanline() {
         if (ly_ == 0 || ly_ == 72 || ly_ == 143) {  // Primera, central, última línea
             vram_during_render_check_count++;
             
-            // Verificar VRAM en este momento
+            // --- Step 0392: FIX - Usar read_vram_bank() ---
             int vram_non_zero = 0;
             for (uint16_t i = 0; i < 6144; i++) {
-                if (mmu_->read(0x8000 + i) != 0x00) {
+                if (mmu_->read_vram_bank(0, i) != 0x00) {
                     vram_non_zero++;
                 }
             }
+            // -------------------------------------------
             
             printf("[PPU-VRAM-DURING-RENDER] Frame %llu | LY: %d | Mode: %d | "
                    "VRAM non-zero: %d/6144 (%.2f%%) | vram_is_empty_: %s\n",
@@ -1694,6 +1701,57 @@ void PPU::render_scanline() {
     // -------------------------------------------
     
     uint8_t lcdc = mmu_->read(IO_LCDC);
+    
+    // --- Step 0392: Instrumentación Zelda DX - Contexto por Frame ---
+    // Log de contexto al inicio de cada frame (primeros 10 frames + cuando VRAM cambia)
+    static int zelda_context_log_count = 0;
+    static bool last_vram_empty_state = true;
+    static int zelda_sample_after_load_count = 0;
+    
+    bool should_log_context = false;
+    if (ly_ == 0) {
+        if (zelda_context_log_count < 10) {
+            should_log_context = true;
+            zelda_context_log_count++;
+        } else if (vram_is_empty_ != last_vram_empty_state) {
+            // VRAM cambió de estado (vacía -> llena o viceversa)
+            should_log_context = true;
+            printf("[PPU-ZELDA-VRAM-STATE-CHANGE] Frame %llu | VRAM cambió: %s -> %s\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1),
+                   last_vram_empty_state ? "EMPTY" : "LOADED",
+                   vram_is_empty_ ? "EMPTY" : "LOADED");
+        }
+        last_vram_empty_state = vram_is_empty_;
+    }
+    
+    if (should_log_context) {
+        uint8_t scx = mmu_->read(IO_SCX);
+        uint8_t scy = mmu_->read(IO_SCY);
+        uint8_t wy = mmu_->read(IO_WY);
+        uint8_t wx = mmu_->read(IO_WX);
+        
+        // --- Step 0392: FIX - Recalcular vram_non_zero usando read_vram_bank() ---
+        int vram_non_zero_now = 0;
+        for (uint16_t i = 0; i < 6144; i++) {
+            if (mmu_->read_vram_bank(0, i) != 0x00) {
+                vram_non_zero_now++;
+            }
+        }
+        // -------------------------------------------
+        
+        printf("[PPU-ZELDA-CONTEXT] Frame %llu | LCDC=0x%02X SCX=%d SCY=%d WY=%d WX=%d | "
+               "vram_is_empty_=%s vram_non_zero=%d/6144\n",
+               static_cast<unsigned long long>(frame_counter_ + 1),
+               lcdc, scx, scy, wy, wx,
+               vram_is_empty_ ? "YES" : "NO",
+               vram_non_zero_now);
+        
+        // Si VRAM ya no está vacía, activar muestras adicionales
+        if (!vram_is_empty_ && zelda_sample_after_load_count == 0) {
+            zelda_sample_after_load_count = 1;  // Activar muestras post-carga
+        }
+    }
+    // -------------------------------------------
     
     // --- Step 0313: Logs de diagnóstico LCDC y BGP ---
     static int lcdc_log_count = 0;
@@ -2406,6 +2464,83 @@ void PPU::render_scanline() {
 
         uint16_t tile_map_addr = tile_map_base + (map_y / 8) * 32 + (map_x / 8);
         uint8_t tile_id = mmu_->read(tile_map_addr);
+        
+        // --- Step 0392: Instrumentación Zelda DX - Muestra de Tiles ---
+        // Log detallado para X específicos (0, 8, 16, 80) en líneas 0 y 72
+        // Primeros 10 frames (80 muestras) + muestras cuando VRAM se carga (frames 676-725)
+        static int zelda_sample_log_count = 0;
+        
+        bool should_log_zelda_sample = false;
+        if ((ly_ == 0 || ly_ == 72) && (x == 0 || x == 8 || x == 16 || x == 80)) {
+            if (zelda_sample_log_count < 80) {
+                // Primeros 10 frames (8 muestras por frame)
+                should_log_zelda_sample = true;
+            } else if (frame_counter_ >= 676 && frame_counter_ <= 725 && !vram_is_empty_) {
+                // VRAM cargada: loguear frames 676-725 (50 frames después de carga)
+                should_log_zelda_sample = true;
+            }
+        }
+        
+        if (should_log_zelda_sample) {
+            zelda_sample_log_count++;
+            
+            // Calcular tile_addr según addressing mode
+            uint16_t tile_addr_sample;
+            if (signed_addressing) {
+                int8_t signed_id = static_cast<int8_t>(tile_id);
+                tile_addr_sample = tile_data_base + (signed_id * 16);
+            } else {
+                tile_addr_sample = tile_data_base + (tile_id * 16);
+            }
+            
+            // Leer atributo CGB (banco de tile)
+            uint16_t tile_map_offset_sample = tile_map_addr - 0x8000;
+            uint8_t tile_attr_sample = mmu_->read_vram_bank(1, tile_map_offset_sample);
+            uint8_t tile_bank_sample = (tile_attr_sample >> 3) & 0x01;
+            
+            // Leer bytes del tile para la línea actual
+            uint8_t line_in_tile_sample = map_y % 8;
+            uint16_t tile_line_addr_sample = tile_addr_sample + (line_in_tile_sample * 2);
+            
+            uint8_t byte1_sample = 0, byte2_sample = 0;
+            if (tile_line_addr_sample >= 0x8000 && tile_line_addr_sample <= 0x97FF) {
+                uint16_t tile_line_offset_sample = tile_line_addr_sample - 0x8000;
+                byte1_sample = mmu_->read_vram_bank(tile_bank_sample, tile_line_offset_sample);
+                byte2_sample = mmu_->read_vram_bank(tile_bank_sample, tile_line_offset_sample + 1);
+            }
+            
+            // Verificar si tile está vacío (todos los bytes 0)
+            bool tile_is_empty_sample = true;
+            if (tile_line_addr_sample >= 0x8000 && tile_line_addr_sample <= 0x97FF) {
+                uint16_t tile_offset_sample = tile_addr_sample - 0x8000;
+                for (int line = 0; line < 8; line++) {
+                    uint16_t offset = tile_offset_sample + (line * 2);
+                    uint8_t b1 = mmu_->read_vram_bank(tile_bank_sample, offset);
+                    uint8_t b2 = mmu_->read_vram_bank(tile_bank_sample, offset + 1);
+                    if (b1 != 0x00 || b2 != 0x00) {
+                        tile_is_empty_sample = false;
+                        break;
+                    }
+                }
+            }
+            
+            printf("[PPU-ZELDA-SAMPLE] Frame %llu | LY:%d X:%d | "
+                   "tilemap_base=0x%04X tilemap_addr=0x%04X tile_id=0x%02X | "
+                   "tile_attr=0x%02X tile_bank=%d | "
+                   "tiledata_base=0x%04X tile_addr=0x%04X | "
+                   "byte1=0x%02X byte2=0x%02X | "
+                   "tile_is_empty=%s | "
+                   "vram_is_empty_=%s enable_checkerboard=%s\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1), ly_, x,
+                   tile_map_base, tile_map_addr, tile_id,
+                   tile_attr_sample, tile_bank_sample,
+                   tile_data_base, tile_addr_sample,
+                   byte1_sample, byte2_sample,
+                   tile_is_empty_sample ? "YES" : "NO",
+                   vram_is_empty_ ? "YES" : "NO",
+                   enable_checkerboard_temporal ? "YES" : "NO");
+        }
+        // -------------------------------------------
         
         // --- Step 0389: CGB BG Map Attributes ---
         // En CGB, cada tile del BG map tiene un byte de atributos en VRAM bank 1.

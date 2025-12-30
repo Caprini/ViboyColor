@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0392 - Fix PPU: VRAM Dual-Bank Addressing -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-30__0392__fix-ppu-vram-dual-bank-addressing.html" class="entry-link">
+                                    Fix PPU: VRAM Dual-Bank Addressing
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-30 | 
+                            <strong>Step ID:</strong> 0392 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Fix crítico: PPU calculaba vram_is_empty_ usando mmu->read() que no accedía correctamente a bancos VRAM dual-bank (Step 0389). Cambio a read_vram_bank(0, i) en 4 ubicaciones. Instrumentación diagnóstica revela: Zelda DX carga VRAM en Frame 676 (973 bytes no-cero). Verificación confirma tiles reales detectados (byte2=0xFF) y checkerboard desactivado correctamente. PPU ahora renderiza tiles reales cuando VRAM tiene datos. Corrección aplicada en: cálculo LY=0, V-Blank, durante renderizado, y log contexto.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0391 - Diagnóstico Zelda DX: Carga VRAM Sin Wait-Loop -->
                     <li>
                         <div class="entry-header">
