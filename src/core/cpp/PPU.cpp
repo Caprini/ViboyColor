@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>  // Step 0321: Para abs()
 #include <chrono>  // Step 0363: Para diagnóstico de rendimiento
+#include <vector>  // Step 0370: Para std::vector en verificación de discrepancia
 
 PPU::PPU(MMU* mmu) 
     : mmu_(mmu)
@@ -1294,6 +1295,173 @@ void PPU::render_scanline() {
                    static_cast<unsigned long long>(frame_counter_ + 1),
                    vram_non_zero, vram_is_empty_ ? "YES" : "NO");
         }
+        
+        // --- Step 0370: Investigación de Discrepancia VRAM vs Tiles ---
+        // Cuando se detecta que los tiles tienen datos pero VRAM muestra 0/6144
+        static int discrepancy_check_count = 0;
+        if (discrepancy_check_count < 20) {
+            discrepancy_check_count++;
+            
+            // Verificación 1: VRAM completa (0x8000-0x97FF)
+            int vram_complete_non_zero = 0;
+            for (uint16_t i = 0; i < 6144; i++) {
+                if (mmu_->read(0x8000 + i) != 0x00) {
+                    vram_complete_non_zero++;
+                }
+            }
+            
+            // Verificación 2: Tiles específicos que apunta el tilemap
+            uint8_t lcdc_temp = mmu_->read(IO_LCDC);
+            uint16_t map_base = (lcdc_temp & 0x08) ? 0x9C00 : 0x9800;
+            bool unsigned_addressing = (lcdc_temp & 0x10) != 0;
+            uint16_t data_base = unsigned_addressing ? 0x8000 : 0x8800;
+            
+            int tiles_with_data = 0;
+            int tiles_empty = 0;
+            std::vector<uint16_t> tile_addresses_checked;
+            
+            // Verificar primeros 20 tiles del tilemap
+            for (int i = 0; i < 20; i++) {
+                uint8_t tile_id = mmu_->read(map_base + i);
+                uint16_t tile_addr;
+                
+                if (unsigned_addressing) {
+                    tile_addr = data_base + (tile_id * 16);
+                } else {
+                    int8_t signed_id = static_cast<int8_t>(tile_id);
+                    tile_addr = data_base + ((signed_id + 128) * 16);
+                }
+                
+                // Verificar si el tile tiene datos
+                bool has_data = false;
+                for (int j = 0; j < 16; j++) {
+                    uint8_t byte = mmu_->read(tile_addr + j);
+                    if (byte != 0x00) {
+                        has_data = true;
+                        break;
+                    }
+                }
+                
+                if (has_data) {
+                    tiles_with_data++;
+                    tile_addresses_checked.push_back(tile_addr);
+                } else {
+                    tiles_empty++;
+                }
+            }
+            
+            // Verificar si las direcciones de tiles están en el rango verificado
+            int tiles_in_range = 0;
+            int tiles_out_of_range = 0;
+            for (uint16_t tile_addr : tile_addresses_checked) {
+                if (tile_addr >= 0x8000 && tile_addr <= 0x97FF) {
+                    tiles_in_range++;
+                } else {
+                    tiles_out_of_range++;
+                    printf("[PPU-DISCREPANCY] ⚠️ Tile en dirección fuera de rango: 0x%04X\n", tile_addr);
+                }
+            }
+            
+            printf("[PPU-DISCREPANCY] Frame %llu | VRAM complete: %d/6144 non-zero | "
+                   "Tiles with data: %d/20 | Tiles in range: %d | Tiles out of range: %d\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1),
+                   vram_complete_non_zero, tiles_with_data, tiles_in_range, tiles_out_of_range);
+            
+            if (tiles_with_data > 0 && vram_complete_non_zero == 0) {
+                printf("[PPU-DISCREPANCY] ⚠️ PROBLEMA: Tiles tienen datos pero VRAM completa muestra 0!\n");
+                printf("[PPU-DISCREPANCY] Verificando direcciones específicas de tiles...\n");
+                
+                // Verificar cada dirección de tile específica
+                for (uint16_t tile_addr : tile_addresses_checked) {
+                    int tile_bytes_non_zero = 0;
+                    for (int j = 0; j < 16; j++) {
+                        if (mmu_->read(tile_addr + j) != 0x00) {
+                            tile_bytes_non_zero++;
+                        }
+                    }
+                    printf("[PPU-DISCREPANCY] TileAddr=0x%04X | Non-zero bytes: %d/16\n",
+                           tile_addr, tile_bytes_non_zero);
+                }
+            }
+        }
+        // -------------------------------------------
+        
+        // --- Step 0370: Verificación Completa de Rangos de VRAM ---
+        // Verificar todos los rangos posibles donde pueden estar los tiles
+        static int vram_range_check_count = 0;
+        if (vram_range_check_count < 10) {
+            vram_range_check_count++;
+            
+            // Rango 1: 0x8000-0x8FFF (unsigned addressing, tiles 0-127)
+            int range1_non_zero = 0;
+            for (uint16_t i = 0; i < 4096; i++) {
+                if (mmu_->read(0x8000 + i) != 0x00) {
+                    range1_non_zero++;
+                }
+            }
+            
+            // Rango 2: 0x8800-0x97FF (signed addressing, tiles -128 a 127, tile 0 en 0x9000)
+            int range2_non_zero = 0;
+            for (uint16_t i = 0; i < 4096; i++) {
+                if (mmu_->read(0x8800 + i) != 0x00) {
+                    range2_non_zero++;
+                }
+            }
+            
+            // Rango completo: 0x8000-0x97FF (6144 bytes)
+            int range_complete_non_zero = 0;
+            for (uint16_t i = 0; i < 6144; i++) {
+                if (mmu_->read(0x8000 + i) != 0x00) {
+                    range_complete_non_zero++;
+                }
+            }
+            
+            printf("[PPU-VRAM-RANGE] Frame %llu | "
+                   "Range 0x8000-0x8FFF: %d/4096 | "
+                   "Range 0x8800-0x97FF: %d/4096 | "
+                   "Range 0x8000-0x97FF: %d/6144\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1),
+                   range1_non_zero, range2_non_zero, range_complete_non_zero);
+            
+            // Verificar si hay tiles en rangos superpuestos
+            if (range1_non_zero > 0 && range2_non_zero > 0) {
+                printf("[PPU-VRAM-RANGE] ⚠️ Tiles en ambos rangos (superposición)\n");
+            }
+        }
+        // -------------------------------------------
+    }
+    // -------------------------------------------
+    
+    // --- Step 0370: Actualización Mejorada de vram_is_empty_ ---
+    // Actualizar vram_is_empty_ no solo en LY=0, sino también durante V-Blank
+    // cuando los tiles se cargan típicamente
+    if (ly_ >= 144 && ly_ <= 153 && mode_ == MODE_1_VBLANK) {
+        // Actualizar vram_is_empty_ durante V-Blank para capturar tiles cargados
+        static int vblank_vram_check_count = 0;
+        if (vblank_vram_check_count < 10 || (frame_counter_ % 60 == 0)) {
+            vblank_vram_check_count++;
+            
+            int vram_non_zero = 0;
+            for (uint16_t i = 0; i < 6144; i++) {
+                if (mmu_->read(0x8000 + i) != 0x00) {
+                    vram_non_zero++;
+                }
+            }
+            
+            bool new_vram_is_empty = (vram_non_zero < 200);
+            
+            // Solo actualizar si cambió
+            if (new_vram_is_empty != vram_is_empty_) {
+                printf("[PPU-VRAM-UPDATE-VBLANK] Frame %llu | LY: %d | "
+                       "vram_is_empty_ cambió: %s -> %s | VRAM non-zero: %d/6144\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1), ly_,
+                       vram_is_empty_ ? "YES" : "NO",
+                       new_vram_is_empty ? "YES" : "NO",
+                       vram_non_zero);
+                
+                vram_is_empty_ = new_vram_is_empty;
+            }
+        }
     }
     // -------------------------------------------
     
@@ -2233,6 +2401,33 @@ void PPU::render_scanline() {
 
         uint8_t line_in_tile = map_y % 8;
         uint16_t tile_line_addr = tile_addr + (line_in_tile * 2);
+
+        // --- Step 0370: Verificación de Rango de Direcciones de Tiles ---
+        // Verificar que las direcciones de tiles calculadas están en el rango correcto
+        static int tile_addr_range_check_count = 0;
+        if (tile_addr_range_check_count < 50 && ly_ < 144) {
+            if (ly_ == 0 || ly_ == 72) {
+                if (x % 8 == 0) {  // Cada tile
+                    tile_addr_range_check_count++;
+                    
+                    // Verificar que tile_addr está en rango válido
+                    bool in_range = (tile_addr >= 0x8000 && tile_addr <= 0x97FF);
+                    
+                    if (!in_range) {
+                        printf("[PPU-TILE-ADDR-RANGE] Frame %llu | LY: %d | X: %d | "
+                               "TileID: 0x%02X | TileAddr: 0x%04X | ⚠️ FUERA DE RANGO!\n",
+                               static_cast<unsigned long long>(frame_counter_ + 1), ly_, x,
+                               tile_id, tile_addr);
+                    } else if (tile_addr_range_check_count <= 10) {
+                        printf("[PPU-TILE-ADDR-RANGE] Frame %llu | LY: %d | X: %d | "
+                               "TileID: 0x%02X | TileAddr: 0x%04X | ✅ En rango\n",
+                               static_cast<unsigned long long>(frame_counter_ + 1), ly_, x,
+                               tile_id, tile_addr);
+                    }
+                }
+            }
+        }
+        // -------------------------------------------
 
         // --- Step 0329: Verificación de Direcciones de Tiles Durante Renderizado ---
         // Verificar que la dirección del tile está en el rango válido antes de leer
