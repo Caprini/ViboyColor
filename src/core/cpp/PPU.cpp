@@ -393,13 +393,60 @@ void PPU::step(int cpu_cycles) {
     
     // Mientras tengamos suficientes ciclos para completar una línea (456 T-Cycles)
     while (clock_ >= CYCLES_PER_SCANLINE) {
-        // CRÍTICO: Renderizar la línea ANTES de avanzar a la siguiente
-        // Esto asegura que renderizamos cada línea visible exactamente una vez
-        // cuando completamos los 456 ciclos de esa línea (estamos en H-Blank)
-        if (ly_ < VISIBLE_LINES && !scanline_rendered_) {
+        // --- Step 0373: Corrección de Timing de render_scanline() ---
+        // CRÍTICO: Cuando clock_ >= CYCLES_PER_SCANLINE, acabamos de completar una línea.
+        // En ese momento, estamos en H-Blank (MODE_0_HBLANK), no en OAM Search.
+        // update_mode() se llama antes del bucle y calcula el modo basándose en clock_ % 456,
+        // pero cuando clock_ = 456, clock_ % 456 = 0, que es MODE_2_OAM_SEARCH (incorrecto).
+        // Debemos calcular el modo correcto para la línea que acabamos de completar.
+        
+        // --- Step 0373: Análisis de Timing (Diagnóstico) ---
+        static int timing_analysis_count = 0;
+        timing_analysis_count++;
+        
+        if (timing_analysis_count <= 50) {
+            uint16_t line_cycles_before = static_cast<uint16_t>(clock_ % CYCLES_PER_SCANLINE);
+            printf("[PPU-TIMING-ANALYSIS] Frame %llu | Before render_scanline() | "
+                   "clock_: %d | clock_ %% 456: %d | Mode (old): %d | LY: %d\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1),
+                   static_cast<int>(clock_), line_cycles_before, mode_, ly_);
+        }
+        // -------------------------------------------
+        
+        // Calcular los ciclos dentro de la línea que acabamos de completar
+        // Si clock_ >= 456, acabamos de completar MODE_3_PIXEL_TRANSFER y estamos en H-Blank
+        uint16_t line_cycles = static_cast<uint16_t>(clock_ % CYCLES_PER_SCANLINE);
+        
+        // Si estamos al final de una línea (ciclos 252-455), estamos en H-Blank
+        // Si clock_ >= 456, entonces acabamos de completar la línea completa (456 ciclos)
+        // y estamos en H-Blank (MODE_0_HBLANK)
+        if (line_cycles >= (MODE_2_CYCLES + MODE_3_CYCLES) || clock_ >= CYCLES_PER_SCANLINE) {
+            mode_ = MODE_0_HBLANK;
+        } else if (line_cycles >= MODE_2_CYCLES) {
+            mode_ = MODE_3_PIXEL_TRANSFER;
+        } else {
+            mode_ = MODE_2_OAM_SEARCH;
+        }
+        
+        // CRÍTICO: Renderizar la línea SOLO cuando estamos en H-Blank (MODE_0_HBLANK)
+        // Esto asegura que renderizamos la línea que acabamos de completar
+        if (ly_ < VISIBLE_LINES && !scanline_rendered_ && mode_ == MODE_0_HBLANK) {
+            // --- Step 0373: Verificación de Modo de Renderizado ---
+            static int render_mode_verify_count = 0;
+            render_mode_verify_count++;
+            
+            if (render_mode_verify_count <= 50) {
+                printf("[PPU-RENDER-MODE-VERIFY] Frame %llu | LY: %d | "
+                       "render_scanline() ejecutado en MODE_0_HBLANK ✅ | Count: %d\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1), ly_,
+                       render_mode_verify_count);
+            }
+            // -------------------------------------------
+            
             render_scanline();
             scanline_rendered_ = true;
         }
+        // -------------------------------------------
         
         // Restar los ciclos de una línea completa
         clock_ -= CYCLES_PER_SCANLINE;

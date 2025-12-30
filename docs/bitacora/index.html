@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0373 - Corrección de Timing de render_scanline() -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-30__0373__correccion-timing-render-scanline.html" class="entry-link">
+                                    Corrección de Timing de render_scanline()
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-30 | 
+                            <strong>Step ID:</strong> 0373 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se corrigió el timing de render_scanline() para que se ejecute solo en MODE_0_HBLANK (después de completar MODE_3_PIXEL_TRANSFER), en lugar de ejecutarse en MODE_2_OAM_SEARCH como ocurría anteriormente. La corrección calcula el modo correcto dentro del bucle while (clock_ >= CYCLES_PER_SCANLINE) antes de llamar a render_scanline(), asegurando que cuando completamos una línea (clock_ >= 456), estamos en H-Blank (MODE_0_HBLANK). Los logs confirman que render_scanline() ahora se ejecuta correctamente en MODE_0_HBLANK en todas las líneas visibles.
+                        </p>
+                    </li>
                                         <!-- Entrada 0372 - Investigación de Pantallas Completamente Blancas -->
                     <li>
                         <div class="entry-header">
