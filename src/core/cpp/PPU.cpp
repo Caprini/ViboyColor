@@ -2372,6 +2372,24 @@ void PPU::render_scanline() {
 
         uint16_t tile_map_addr = tile_map_base + (map_y / 8) * 32 + (map_x / 8);
         uint8_t tile_id = mmu_->read(tile_map_addr);
+        
+        // --- Step 0389: CGB BG Map Attributes ---
+        // En CGB, cada tile del BG map tiene un byte de atributos en VRAM bank 1.
+        // Bit 3 selecciona el banco VRAM del tile pattern (0 o 1).
+        // Otros bits (paleta, flips, prioridad) se ignoran por ahora (implementación mínima).
+        // Fuente: Pan Docs - CGB Registers, BG Map Attributes
+        uint16_t tile_map_offset = tile_map_addr - 0x8000;  // Offset relativo a VRAM
+        uint8_t tile_attr = mmu_->read_vram_bank(1, tile_map_offset);  // Leer atributo desde bank 1
+        uint8_t tile_bank = (tile_attr >> 3) & 0x01;  // Bit 3: banco del tile pattern
+        
+        static int cgb_attr_log_count = 0;
+        if (cgb_attr_log_count < 50 && ly_ < 3 && x < 16) {
+            cgb_attr_log_count++;
+            printf("[CGB-BG-ATTR] LY:%d X:%d | TileMapAddr:0x%04X | TileID:0x%02X | "
+                   "Attr:0x%02X | TileBank:%d\n",
+                   ly_, x, tile_map_addr, tile_id, tile_attr, tile_bank);
+        }
+        // -------------------------------------------
 
         // --- Step 0366: Verificación del Bucle de Renderizado ---
         static int render_loop_count = 0;
@@ -2634,8 +2652,10 @@ void PPU::render_scanline() {
         } else {
             // Dirección válida, leer datos del tile
             // --- RESTAURADO: LÓGICA REAL DE VRAM ---
-            uint8_t byte1 = mmu_->read(tile_line_addr);
-            uint8_t byte2 = mmu_->read(tile_line_addr + 1);
+            // --- Step 0389: Leer desde el banco VRAM correcto según atributo CGB ---
+            uint16_t tile_line_offset = tile_line_addr - 0x8000;  // Offset relativo a VRAM
+            uint8_t byte1 = mmu_->read_vram_bank(tile_bank, tile_line_offset);
+            uint8_t byte2 = mmu_->read_vram_bank(tile_bank, tile_line_offset + 1);
             
             // --- Step 0329: Mejora de Detección de Tiles Vacíos y Checkerboard Temporal ---
             // Verificar TODO el tile (16 bytes) antes de considerarlo vacío

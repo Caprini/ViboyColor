@@ -301,6 +301,39 @@ private:
     mutable bool vblank_isr_trace_active_;
     mutable int waitloop_mmio_count_;
     mutable int waitloop_ram_count_;
+    
+    // --- Step 0389: CGB VRAM Banking ---
+    // CGB tiene 2 bancos de VRAM (8KB total = 2 x 4KB)
+    // - VRAM Bank 0: 0x8000-0x9FFF (4KB) - Tiles + Tilemap
+    // - VRAM Bank 1: 0x8000-0x9FFF (4KB) - Tiles alternos + Atributos de Tilemap
+    // El registro VBK (0xFF4F) bit 0 selecciona qué banco ve la CPU.
+    // El PPU puede acceder a ambos bancos simultáneamente durante el renderizado.
+    //
+    // Fuente: Pan Docs - CGB Registers, VRAM Banks
+    std::vector<uint8_t> vram_bank0_;  // Banco 0 de VRAM (4KB)
+    std::vector<uint8_t> vram_bank1_;  // Banco 1 de VRAM (4KB)
+    uint8_t vram_bank_;                // Banco actual seleccionado por VBK (0 o 1)
+    
+public:
+    /**
+     * Step 0389: Acceso directo a bancos VRAM para el PPU
+     * 
+     * El PPU necesita acceso a ambos bancos de VRAM para renderizar correctamente en modo CGB:
+     * - VRAM Bank 0: Tile IDs y tile patterns
+     * - VRAM Bank 1: Atributos de tiles (paleta, flips, banco de tile)
+     * 
+     * @param bank Número de banco (0 o 1)
+     * @param offset Offset dentro del banco (0x0000-0x1FFF para 8KB)
+     * @return Byte leído del banco VRAM
+     */
+    inline uint8_t read_vram_bank(uint8_t bank, uint16_t offset) const {
+        if (bank == 0 && offset < vram_bank0_.size()) {
+            return vram_bank0_[offset];
+        } else if (bank == 1 && offset < vram_bank1_.size()) {
+            return vram_bank1_[offset];
+        }
+        return 0xFF;  // Fuera de rango
+    }
 };
 
 #endif // MMU_HPP

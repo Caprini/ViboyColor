@@ -72,7 +72,11 @@ MMU::MMU()
     , waitloop_trace_active_(false)
     , vblank_isr_trace_active_(false)
     , waitloop_mmio_count_(0)
-    , waitloop_ram_count_(0) {
+    , waitloop_ram_count_(0)
+    , vram_bank0_(0x2000, 0)  // Step 0389: Banco 0 de VRAM (8KB)
+    , vram_bank1_(0x2000, 0)  // Step 0389: Banco 1 de VRAM (8KB)
+    , vram_bank_(0)           // Step 0389: Banco actual (0 por defecto)
+{
     // Inicializar memoria a 0
     // --- Step 0189: Inicialización de Registros de Hardware (Post-BIOS) ---
     // Estos son los valores que los registros de I/O tienen después de que la
@@ -426,19 +430,31 @@ uint8_t MMU::read(uint16_t addr) const {
         }
     }
 
-    // --- Step 0289: Monitor de Lecturas de VRAM ([VRAM-READ]) ---
-    // Captura lecturas de VRAM (0x8000-0x9FFF) para verificar qué valores lee la PPU.
-    // Esto permite confirmar si la PPU está leyendo datos válidos o solo ceros.
-    // Fuente: Pan Docs - "VRAM (Video RAM)": 0x8000-0x9FFF contiene Tile Data y Tile Maps
+    // --- Step 0389: CGB VRAM Banking ---
+    // VRAM (0x8000-0x9FFF) tiene 2 bancos en CGB.
+    // El registro VBK (0xFF4F) bit 0 selecciona qué banco ve la CPU.
+    // Fuente: Pan Docs - CGB Registers, VRAM Banks
     if (addr >= 0x8000 && addr <= 0x9FFF) {
-        uint8_t vram_value = memory_[addr];
+        uint16_t offset = addr - 0x8000;  // Offset dentro del banco (0x0000-0x1FFF)
+        uint8_t vram_value = (vram_bank_ == 0) ? vram_bank0_[offset] : vram_bank1_[offset];
+        
+        // --- Step 0289: Monitor de Lecturas de VRAM ([VRAM-READ]) ---
         static int vram_read_count = 0;
         if (vram_read_count < 100) {  // Límite para evitar saturación
-            printf("[VRAM-READ] Read %04X -> %02X (PC:0x%04X Bank:%d)\n",
-                   addr, vram_value, debug_current_pc, current_rom_bank_);
+            printf("[VRAM-READ] Read %04X -> %02X (PC:0x%04X Bank:%d VRAMBank:%d)\n",
+                   addr, vram_value, debug_current_pc, current_rom_bank_, vram_bank_);
             vram_read_count++;
         }
         return vram_value;
+    }
+    
+    // --- Step 0389: Registro VBK (0xFF4F) - VRAM Bank Select ---
+    // Lectura de VBK devuelve 0xFE | banco_actual (bit 0)
+    // Bits 1-7: siempre 1 (no implementados)
+    // Bit 0: banco actual (0 o 1)
+    // Fuente: Pan Docs - CGB Registers, FF4F - VBK
+    if (addr == 0xFF4F) {
+        return 0xFE | (vram_bank_ & 0x01);
     }
     
     // --- RAM Externa (0xA000-0xBFFF) ---
@@ -1850,6 +1866,37 @@ void MMU::write(uint16_t addr, uint8_t value) {
                    vram_write_total_step382_, vram_write_nonzero_step382_,
                    (vram_write_nonzero_step382_ * 100.0) / vram_write_total_step382_);
         }
+    }
+    // -------------------------------------------
+    
+    // --- Step 0389: Manejo de Escritura a VBK (0xFF4F) ---
+    // VBK selecciona qué banco de VRAM es visible para la CPU (bit 0)
+    // Fuente: Pan Docs - CGB Registers, FF4F - VBK
+    if (addr == 0xFF4F) {
+        vram_bank_ = value & 0x01;  // Solo bit 0 es utilizado
+        static int vbk_write_count = 0;
+        if (vbk_write_count < 50) {
+            printf("[VBK-WRITE] PC:0x%04X | VBK <- 0x%02X | VRAM Bank: %d\n",
+                   debug_current_pc, value, vram_bank_);
+            vbk_write_count++;
+        }
+        // No escribir en memory_[], VBK no está en el espacio de memoria normal
+        return;
+    }
+    // -------------------------------------------
+    
+    // --- Step 0389: CGB VRAM Banking - Escrituras ---
+    // Redirigir escrituras a VRAM (0x8000-0x9FFF) al banco seleccionado
+    // Fuente: Pan Docs - CGB Registers, VRAM Banks
+    if (addr >= 0x8000 && addr <= 0x9FFF) {
+        uint16_t offset = addr - 0x8000;
+        if (vram_bank_ == 0) {
+            vram_bank0_[offset] = value;
+        } else {
+            vram_bank1_[offset] = value;
+        }
+        // No escribir en memory_[], VRAM ahora está en bancos separados
+        return;
     }
     // -------------------------------------------
 

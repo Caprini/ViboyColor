@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0389 - Soporte CGB Mínimo (VBK/atributos BG) + trazado del nuevo wait-loop (Zelda DX) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-30__0389__cgb-vbk-bg-attributes-zelda-dx.html" class="entry-link">
+                                    Soporte CGB Mínimo (VBK/atributos BG) + trazado del nuevo wait-loop (Zelda DX)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-30 | 
+                            <strong>Step ID:</strong> 0389 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementado soporte CGB mínimo para Zelda DX: VRAM dual-bank (8KB total, 2 bancos de 4KB), registro VBK (0xFF4F) para selección de banco CPU-visible, y lectura de BG Map Attributes desde VRAM bank 1 (especialmente bit 3 para selección de banco de tile pattern). PPU ahora lee tiles desde el banco correcto según atributos CGB. Sistema estable sin regresiones en Tetris/Mario. Infraestructura CGB operacional. Zelda DX aún no escribe a VBK (fase temprana). Próximo paso: HDMA y paletas CGB para desbloquear progreso.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0388 - STAT Rising-Edge y Recuperación IE/IME (Zelda DX) -->
                     <li>
                         <div class="entry-header">
