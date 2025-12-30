@@ -1212,33 +1212,8 @@ class Viboy:
                                 # Fallback a get_fps() si tick_time no está disponible
                                 fps = fps_from_clock if fps_from_clock > 0 else TARGET_FPS
                             
-                            # Obtener título del juego desde el cartucho
-                            game_title = "Viboy Color v0.0.2"
-                            if self._cartridge is not None:
-                                try:
-                                    header_info = self._cartridge.get_header_info()
-                                    cart_title = header_info.get('title', '')
-                                    if cart_title and cart_title != 'UNKNOWN' and cart_title.strip():
-                                        game_title = f"Viboy Color v0.0.2 - {cart_title}"
-                                    else:
-                                        game_title = "Viboy Color v0.0.2"
-                                except Exception:
-                                    game_title = "Viboy Color v0.0.2"
-                            
-                            # --- Step 0344: Agregar Timer de Debug al Título ---
-                            # Calcular tiempo transcurrido
-                            current_time = time.time()
-                            elapsed_time = current_time - self._start_time
-                            
-                            # Construir string del timer
-                            timer_str = f"Time: {elapsed_time:.3f}s"
-                            if self._first_event_detected and self._first_event_time is not None:
-                                first_event_elapsed = self._first_event_time - self._start_time
-                                timer_str += f" | First Event: {first_event_elapsed:.3f}s"
-                            
-                            # Actualizar título con FPS y timer
-                            pygame.display.set_caption(f"{game_title} - FPS: {fps:.1f} - {timer_str}")
-                            # -------------------------------------------
+                            # Título simplificado (Step 0369: solo "ViboyColor")
+                            pygame.display.set_caption("ViboyColor")
                     
                     # --- Step 0317: Optimización - Logs de debug desactivados por defecto ---
                     # Los logs se ejecutan solo si ENABLE_DEBUG_LOGS es True
