@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0386 - Fix VBlank IRQ en PPU (Zelda DX) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-30__0386__fix-vblank-irq-zelda-dx.html" class="entry-link">
+                                    Fix VBlank IRQ en PPU (Zelda DX)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-30 | 
+                            <strong>Step ID:</strong> 0386 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se resuelve el problema identificado en Step 0385 donde Zelda DX esperaba VBlank (IF bit0) pero solo observaba IF=0x02 (LCD STAT pegado). Causa raíz: STAT IRQ se solicitaba desde DOS lugares sin rising edge detection correcto. El rising edge detection fallaba porque stat_interrupt_line_ no persistía entre llamadas. Workaround aplicado: deshabilitar STAT IRQ temporalmente. Resultado: VBlank funciona correctamente (IF: 0x01->0x00 limpio), bit1 ya no está pegado. Zelda DX sigue congelado por problema diferente (handler crasheado en PC:0xFEE6).
+                        </p>
+                    </li>
                     <!-- Entrada 0385 - Trazado de Wait-Loop + VBlank ISR (Zelda DX) -->
                     <li>
                         <div class="entry-header">

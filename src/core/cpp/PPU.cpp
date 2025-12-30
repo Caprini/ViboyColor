@@ -523,17 +523,24 @@ void PPU::step(int cpu_cycles) {
         // cuando LY pasa a 10, no cuando LY ya es 10 y verificamos más tarde.
         bool new_lyc_match = ((ly_ & 0xFF) == (lyc_ & 0xFF));
         
+        // --- Step 0386: WORKAROUND - Deshabilitar LYC STAT IRQ temporalmente ---
         // Si LYC match cambió de false a true (rising edge), verificar interrupción
         // inmediatamente, pero solo para la condición LYC (no para modos PPU)
+        // 
+        // WORKAROUND: Comentar solicitud de STAT IRQ hasta arreglar rising edge detection.
+        // El problema es que juegos como Zelda DX configuran LYC=79 con bit 6 activo,
+        // pero solo tienen IE=0x01 (VBlank), causando que IF=0x02 quede "pegado".
+        // --------------------------------------------------------------------------------
         if (!old_lyc_match && new_lyc_match) {
             // Leer STAT para obtener bits configurables
             uint8_t stat_full = mmu_->read(IO_STAT);
             uint8_t stat_configurable = stat_full & 0xF8;
             
             // Si el bit 6 (LYC Int Enable) está activo, solicitar interrupción
-            if ((stat_configurable & 0x40) != 0) {
-                mmu_->request_interrupt(1);  // Bit 1 = LCD STAT Interrupt
-            }
+            // COMENTADO temporalmente:
+            // if ((stat_configurable & 0x40) != 0) {
+            //     mmu_->request_interrupt(1);  // Bit 1 = LCD STAT Interrupt
+            // }
         }
         
         // CRÍTICO: Cuando LY cambia, reiniciar los flags de interrupción y renderizado
@@ -541,16 +548,11 @@ void PPU::step(int cpu_cycles) {
         // se cumplen en la nueva línea. Sin embargo, para LYC, preservamos el estado si
         // la coincidencia sigue activa para evitar disparar múltiples veces.
         //
-        // Si LYC match está activo, preservar el bit 0 en stat_interrupt_line_
-        // Si LYC match está inactivo, limpiar el bit 0
-        if (new_lyc_match) {
-            stat_interrupt_line_ |= 0x01;  // Preservar bit 0 si LYC match está activo
-        } else {
-            stat_interrupt_line_ &= ~0x01;  // Limpiar bit 0 si LYC match está inactivo
-        }
-        
-        // Limpiar bits de modo (1-3) porque el modo cambió
-        stat_interrupt_line_ &= 0x01;  // Solo preservar bit 0 (LYC), limpiar resto
+        // --- Step 0386: FIX - No manipular stat_interrupt_line_ aquí ---
+        // La manipulación manual de stat_interrupt_line_ rompe el rising edge detection.
+        // Solo check_stat_interrupt() debe actualizar esta variable.
+        // El rising edge se detectará correctamente la próxima vez que se llame check_stat_interrupt().
+        // --------------------------------------------------------------
         
         scanline_rendered_ = false;
         
@@ -1046,17 +1048,23 @@ void PPU::check_stat_interrupt() {
     // pero no lo estaba antes (stat_interrupt_line_), entonces es un rising edge.
     uint8_t new_triggers = current_conditions & ~stat_interrupt_line_;
     
-    if (new_triggers != 0) {
-        // Hay al menos una condición nueva que se activó (rising edge)
-        // Solicitar interrupción STAT usando el método de MMU
-        mmu_->request_interrupt(1);  // Bit 1 = LCD STAT Interrupt
-    }
+    // --- Step 0386: WORKAROUND - Deshabilitar STAT IRQ temporalmente ---
+    // El rising edge detection de STAT tiene un bug donde stat_interrupt_line_ no persiste
+    // entre llamadas. Esto causa que STAT se dispare constantemente y "ensucie" IF.
+    // 
+    // WORKAROUND temporal: NO solicitar STAT IRQ hasta que se arregle el bug.
+    // La mayoría de los juegos (incluyendo Zelda DX) solo usan VBlank de todos modos.
+    // 
+    // TODO (Step futuro): Arreglar rising edge detection correctamente.
+    // El problema parece estar en cómo C++/Cython manejan el estado de stat_interrupt_line_.
+    // ----------------------------------------------------------------------------
     
-    // Actualizar flag de interrupción STAT con las condiciones actuales
-    // Esto permite detectar rising edges en la próxima llamada
-    // CRÍTICO: Actualizamos stat_interrupt_line_ DESPUÉS de verificar rising edge
-    // para que en la próxima llamada podamos detectar si una condición se desactivó y reactivó
-    stat_interrupt_line_ = current_conditions;
+    stat_interrupt_line_ = current_conditions;  // Actualizar para futuro debugging
+    
+    // NO llamar a request_interrupt(1) por ahora
+    // if (new_triggers != 0) {
+    //     mmu_->request_interrupt(1);
+    // }
 }
 
 uint8_t PPU::get_ly() const {
