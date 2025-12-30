@@ -708,12 +708,13 @@ void PPU::step(int cpu_cycles) {
             
             // --- Step 0339: Verificación del Estado Completo del Framebuffer al Final del Frame ---
             // Verificar el estado completo del framebuffer cuando se completa el frame (LY=144)
+            // --- Step 0365: Actualizado para verificar framebuffer_back_ en lugar de front ---
             static int framebuffer_complete_check_count = 0;
             
             if (framebuffer_complete_check_count < 20) {
                 framebuffer_complete_check_count++;
                 
-                // Contar líneas con datos (no todas blancas)
+                // Contar líneas con datos (no todas blancas) en framebuffer_back_
                 int lines_with_data = 0;
                 int total_non_zero_pixels = 0;
                 int index_counts[4] = {0, 0, 0, 0};
@@ -723,7 +724,7 @@ void PPU::step(int cpu_cycles) {
                     int line_non_zero = 0;
                     
                     for (int x = 0; x < SCREEN_WIDTH; x++) {
-                        uint8_t color_idx = framebuffer_front_[line_start + x] & 0x03;
+                        uint8_t color_idx = framebuffer_back_[line_start + x] & 0x03;
                         if (color_idx < 4) {
                             index_counts[color_idx]++;
                             if (color_idx != 0) {
@@ -739,7 +740,7 @@ void PPU::step(int cpu_cycles) {
                 }
                 
                 printf("[PPU-FRAMEBUFFER-COMPLETE] Frame %llu | LY: %d (VBLANK_START) | "
-                       "Lines with data: %d/144 | Total non-zero pixels: %d/23040 | "
+                       "Back buffer - Lines with data: %d/144 | Total non-zero pixels: %d/23040 | "
                        "Distribution: 0=%d 1=%d 2=%d 3=%d\n",
                        static_cast<unsigned long long>(frame_counter_ + 1),
                        ly_, lines_with_data, total_non_zero_pixels,
@@ -753,7 +754,7 @@ void PPU::step(int cpu_cycles) {
                 
                 // Advertencia si el framebuffer está completamente vacío
                 if (total_non_zero_pixels == 0) {
-                    printf("[PPU-FRAMEBUFFER-COMPLETE] ⚠️ ADVERTENCIA: Framebuffer completamente vacío al final del frame!\n");
+                    printf("[PPU-FRAMEBUFFER-COMPLETE] ⚠️ ADVERTENCIA: Back buffer completamente vacío al final del frame!\n");
                 }
             }
             // -------------------------------------------
@@ -1079,31 +1080,49 @@ uint8_t* PPU::get_framebuffer_ptr() {
 }
 
 void PPU::swap_framebuffers() {
-    // --- Step 0364: Doble Buffering ---
-    // Intercambiar los buffers usando std::swap (eficiente, solo intercambia punteros internos)
+    // --- Step 0365: Verificación Detallada del Intercambio ---
+    // Contar píxeles no-blancos en ambos buffers antes del intercambio
+    int back_non_zero_before = 0;
+    int front_non_zero_before = 0;
+    
+    for (size_t i = 0; i < framebuffer_back_.size(); i++) {
+        if (framebuffer_back_[i] != 0) back_non_zero_before++;
+        if (framebuffer_front_[i] != 0) front_non_zero_before++;
+    }
+    
+    // Intercambiar
     std::swap(framebuffer_front_, framebuffer_back_);
     framebuffer_swap_pending_ = false;
+    
+    // Contar píxeles no-blancos después del intercambio
+    int front_non_zero_after = 0;
+    for (size_t i = 0; i < framebuffer_front_.size(); i++) {
+        if (framebuffer_front_[i] != 0) front_non_zero_after++;
+    }
     
     // Limpiar el buffer back para el siguiente frame
     std::fill(framebuffer_back_.begin(), framebuffer_back_.end(), 0);
     
-    // Log de diagnóstico (limitado)
-    static int swap_log_count = 0;
-    if (swap_log_count < 20) {
-        swap_log_count++;
+    // Log detallado
+    static int swap_detailed_count = 0;
+    if (swap_detailed_count < 20) {
+        swap_detailed_count++;
+        printf("[PPU-SWAP-DETAILED] Frame %llu | "
+               "Back before: %d non-zero | Front before: %d non-zero | "
+               "Front after: %d non-zero\n",
+               static_cast<unsigned long long>(frame_counter_ + 1),
+               back_non_zero_before, front_non_zero_before, front_non_zero_after);
         
-        // Contar píxeles no-blancos en el buffer front después del intercambio
-        int non_zero_pixels = 0;
-        for (size_t i = 0; i < framebuffer_front_.size(); i++) {
-            if (framebuffer_front_[i] != 0) {
-                non_zero_pixels++;
-            }
+        if (back_non_zero_before > 0 && front_non_zero_after == 0) {
+            printf("[PPU-SWAP-DETAILED] ⚠️ PROBLEMA: Back tenía datos pero front está vacío después del intercambio!\n");
         }
         
-        printf("[PPU-SWAP-BUFFERS] Frame %llu | Buffers intercambiados | "
-               "Front tiene %d píxeles no-blancos\n",
-               static_cast<unsigned long long>(frame_counter_ + 1),
-               non_zero_pixels);
+        // Mostrar primeros 20 píxeles del front después del intercambio
+        printf("[PPU-SWAP-DETAILED] Front first 20 pixels: ");
+        for (int i = 0; i < 20; i++) {
+            printf("%d ", framebuffer_front_[i] & 0x03);
+        }
+        printf("\n");
     }
 }
 
@@ -1160,27 +1179,24 @@ void PPU::render_scanline() {
         
         // Verificar que la línea tiene datos después de renderizar
         if (ly_ == 143) {
-            // Última línea visible - verificar framebuffer completo
-            int total_non_white = 0;
-            for (int i = 0; i < 160 * 144; i++) {
-                if (framebuffer_front_[i] != 0) {
-                    total_non_white++;
-                }
-            }
-            
+            // Última línea visible - verificar framebuffer_back_ completo (Step 0365)
             static int frame_complete_check_count = 0;
-            if (frame_complete_check_count < 10) {
+            if (frame_complete_check_count < 20) {
                 frame_complete_check_count++;
                 
-                printf("[PPU-FRAME-COMPLETE] Frame %llu | All 144 lines rendered | "
-                       "Total non-white pixels: %d/23040 (%.2f%%)\n",
-                       static_cast<unsigned long long>(frame_counter_),
-                       total_non_white, (total_non_white * 100.0) / 23040);
+                int total_non_zero = 0;
+                for (size_t i = 0; i < framebuffer_back_.size(); i++) {
+                    if (framebuffer_back_[i] != 0) {
+                        total_non_zero++;
+                    }
+                }
                 
-                // Advertencia si el framebuffer está vacío después de renderizar todas las líneas
-                if (total_non_white < 100) {
-                    printf("[PPU-FRAME-COMPLETE] ⚠️ ADVERTENCIA: "
-                           "Framebuffer está vacío después de renderizar todas las líneas!\n");
+                printf("[PPU-FRAME-COMPLETE] Frame %llu | Back buffer has %d/23040 non-zero pixels (%.2f%%)\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1), total_non_zero,
+                       (total_non_zero * 100.0) / 23040);
+                
+                if (total_non_zero == 0) {
+                    printf("[PPU-FRAME-COMPLETE] ⚠️ PROBLEMA: Back buffer está completamente vacío!\n");
                 }
             }
             
@@ -2685,13 +2701,42 @@ void PPU::render_scanline() {
                ly_, vram_non_zero, line_non_white, (line_non_white * 100.0) / 160);
         
         for (int x = 0; x < 10; x++) {
-            printf("%d ", framebuffer_front_[ly_ * 160 + x]);
+            printf("%d ", framebuffer_back_[ly_ * 160 + x]);  // Step 0365: Corregido para usar back
         }
         printf("\n");
         
         // Advertencia si VRAM tiene tiles pero la línea está vacía
         if (vram_non_zero >= 200 && line_non_white < 10) {
             printf("[PPU-RENDER-SCANLINE] ⚠️ ADVERTENCIA: VRAM tiene tiles pero línea está vacía!\n");
+        }
+    }
+    // -------------------------------------------
+    
+    // --- Step 0365: Verificación de Escritura al Framebuffer Back (DESPUÉS del renderizado) ---
+    // Verificar que render_scanline() escribió datos al framebuffer_back_
+    static int render_write_check_count = 0;
+    if (render_write_check_count < 50 && ly_ < 144) {
+        // Verificar que se escribieron datos en esta línea
+        size_t line_start_index = ly_ * SCREEN_WIDTH;
+        int non_zero_written = 0;
+        for (int x = 0; x < SCREEN_WIDTH; x++) {
+            if (framebuffer_back_[line_start_index + x] != 0) {
+                non_zero_written++;
+            }
+        }
+        
+        if (ly_ == 0 || ly_ == 72 || ly_ == 143) {  // Primera, central, última línea
+            render_write_check_count++;
+            printf("[PPU-RENDER-WRITE] Frame %llu | LY: %d | "
+                   "Non-zero pixels written to back: %d/160\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1), ly_, non_zero_written);
+            
+            // Mostrar primeros 20 píxeles escritos
+            printf("[PPU-RENDER-WRITE] First 20 pixels: ");
+            for (int x = 0; x < 20; x++) {
+                printf("%d ", framebuffer_back_[line_start_index + x] & 0x03);
+            }
+            printf("\n");
         }
     }
     // -------------------------------------------

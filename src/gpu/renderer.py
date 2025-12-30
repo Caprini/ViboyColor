@@ -606,6 +606,49 @@ class Renderer:
                     # -------------------------------------------
                     
                     # --- Step 0343: Logs de Diagnóstico Adicionales (cuando framebuffer_data es proporcionado) ---
+                    # --- Step 0365: Verificación de Renderizado en Python ---
+                    if framebuffer_data is not None:
+                        # Verificar contenido del framebuffer recibido
+                        first_20_indices = [framebuffer_data[i] & 0x03 for i in range(min(20, len(framebuffer_data)))]
+                        non_zero_count = sum(1 for i in range(len(framebuffer_data)) if (framebuffer_data[i] & 0x03) != 0)
+                        
+                        if not hasattr(self, '_renderer_check_count'):
+                            self._renderer_check_count = 0
+                        if self._renderer_check_count < 20:
+                            self._renderer_check_count += 1
+                            log_msg = f"[Renderer-Received] Frame {self._renderer_check_count} | " \
+                                     f"First 20 indices: {first_20_indices} | " \
+                                     f"Non-zero pixels: {non_zero_count}/23040 ({non_zero_count*100/23040:.2f}%)"
+                            print(log_msg, flush=True)
+                            logger.info(log_msg)
+                            
+                            if non_zero_count == 0:
+                                log_msg = f"[Renderer-Received] ⚠️ PROBLEMA: Renderizador recibe framebuffer completamente vacío!"
+                                print(log_msg, flush=True)
+                                logger.warning(log_msg)
+                            
+                            # Verificar conversión RGB para los primeros píxeles
+                            if len(framebuffer_data) > 0:
+                                # Obtener paleta (BGP)
+                                bgp = self.cpp_ppu.get_bgp() if self.cpp_ppu else 0xE4
+                                palette_map = {
+                                    0: ((bgp >> 0) & 0x03),
+                                    1: ((bgp >> 2) & 0x03),
+                                    2: ((bgp >> 4) & 0x03),
+                                    3: ((bgp >> 6) & 0x03)
+                                }
+                                # Mapeo de índices de paleta a RGB (simplificado)
+                                rgb_map = {0: (255, 255, 255), 1: (192, 192, 192), 2: (96, 96, 96), 3: (0, 0, 0)}
+                                sample_rgb = []
+                                for i in range(min(10, len(framebuffer_data))):
+                                    idx = framebuffer_data[i] & 0x03
+                                    palette_idx = palette_map.get(idx, 0)
+                                    rgb = rgb_map.get(palette_idx, (255, 255, 255))
+                                    sample_rgb.append(rgb)
+                                log_msg = f"[Renderer-RGB] First 10 RGB values: {sample_rgb}"
+                                print(log_msg, flush=True)
+                                logger.info(log_msg)
+                    
                     if not hasattr(self, '_render_frame_entry_count'):
                         self._render_frame_entry_count = 0
 
@@ -1512,6 +1555,30 @@ class Renderer:
                     self.surface = self._px_array_surface
                 
                 render_time = (time.time() - render_start) * 1000  # en milisegundos
+                
+                # --- Step 0365: Verificación de la Superficie Después de Dibujar ---
+                # Verificar que los píxeles se dibujan correctamente en la superficie
+                if not hasattr(self, '_renderer_check_count'):
+                    self._renderer_check_count = 0
+                if self._renderer_check_count <= 20 and hasattr(self, 'surface') and self.surface is not None:
+                    # Verificar que la superficie tiene datos
+                    sample_pixels = []
+                    for y in range(min(5, 144)):  # SCREEN_HEIGHT = 144
+                        for x in range(min(5, 160)):  # SCREEN_WIDTH = 160
+                            pixel = self.surface.get_at((x, y))
+                            sample_pixels.append(pixel)
+                    
+                    log_msg = f"[Renderer-Surface] First 25 pixels on surface: {sample_pixels}"
+                    print(log_msg, flush=True)
+                    logger.info(log_msg)
+                    
+                    # Verificar que no todos son blancos
+                    white_count = sum(1 for p in sample_pixels if p == (255, 255, 255))
+                    if white_count == len(sample_pixels):
+                        log_msg = f"[Renderer-Surface] ⚠️ PROBLEMA: Todos los píxeles en la superficie son blancos!"
+                        print(log_msg, flush=True)
+                        logger.warning(log_msg)
+                # ----------------------------------------
                 
                 # --- Step 0363: Diagnóstico de Rendimiento en Renderer ---
                 # Reportar tiempo de renderizado cada 60 frames

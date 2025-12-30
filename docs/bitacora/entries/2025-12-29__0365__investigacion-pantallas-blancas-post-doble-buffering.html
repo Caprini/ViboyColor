@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investigación de Pantallas Blancas Post-Doble Buffering - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Investigación de Pantallas Blancas Post-Doble Buffering</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0365
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0364__implementacion-doble-buffering.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    A pesar de que el doble buffering eliminó completamente las condiciones de carrera (0 advertencias vs 7291 antes), 
+                    todas las ROMs siguen mostrando pantallas completamente blancas. Se implementaron verificaciones detalladas en cada 
+                    etapa del pipeline de renderizado (escritura al framebuffer back, intercambio de buffers, lectura en Python, renderizado) 
+                    para identificar exactamente dónde se pierden los datos. Los logs confirman que el intercambio funciona correctamente 
+                    y que Python lee datos del framebuffer, pero el renderizado normal no está escribiendo datos al framebuffer_back_ 
+                    (todas las líneas están vacías). Los 11520 píxeles no-blancos que aparecen en el intercambio parecen venir del checkerboard, 
+                    no del renderizado normal de tiles.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Pipeline de Renderizado Completo en Emuladores Híbridos</h3>
+                <p>
+                    En un emulador híbrido C++/Python, el pipeline de renderizado tiene múltiples etapas que deben funcionar correctamente:
+                </p>
+                <ol>
+                    <li><strong>Renderizado en C++ (PPU):</strong> <code>render_scanline()</code> escribe píxeles al <code>framebuffer_back_</code> durante MODE_3_PIXEL_TRANSFER</li>
+                    <li><strong>Intercambio de buffers:</strong> Cuando se completa un frame (LY=144), se intercambian <code>framebuffer_front_</code> y <code>framebuffer_back_</code> usando <code>std::swap()</code></li>
+                    <li><strong>Lectura en Python:</strong> Python lee el <code>framebuffer_front_</code> a través de Cython (memoryview zero-copy)</li>
+                    <li><strong>Copia inmutable:</strong> Python crea un <code>bytearray</code> snapshot del framebuffer para protegerlo de cambios</li>
+                    <li><strong>Renderizado en Python:</strong> El renderizador convierte índices de color (0-3) a RGB usando la paleta BGP y dibuja en Pygame</li>
+                    <li><strong>Actualización de pantalla:</strong> Pygame muestra la superficie en la ventana</li>
+                </ol>
+                <p>
+                    <strong>Cualquier problema en cualquiera de estas etapas causará pantallas blancas o gráficos corruptos.</strong>
+                </p>
+                <h3>Verificación de Datos en Cada Etapa</h3>
+                <p>
+                    Es crítico verificar que los datos se mantienen correctos en cada etapa:
+                </p>
+                <ul>
+                    <li><strong>Si el framebuffer_back_ está vacío:</strong> El problema está en el renderizado C++ (no se escriben datos durante MODE_3)</li>
+                    <li><strong>Si el framebuffer_front_ está vacío después del intercambio:</strong> El problema está en el intercambio (aunque <code>std::swap()</code> es atómico)</li>
+                    <li><strong>Si Python lee ceros:</strong> El problema está en la lectura o el wrapper de Cython</li>
+                    <li><strong>Si el renderizador recibe ceros:</strong> El problema está en la transferencia de datos (snapshot)</li>
+                    <li><strong>Si la superficie está blanca:</strong> El problema está en el renderizado Python (conversión RGB o dibujo)</li>
+                </ul>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <h3>Verificaciones Implementadas</h3>
+                <p>
+                    Se implementaron verificaciones detalladas en cada etapa del pipeline:
+                </p>
+                <ol>
+                    <li><strong>Verificación de escritura al framebuffer_back_:</strong> Al final de <code>render_scanline()</code>, se verifica que se escribieron datos no-blancos en las líneas 0, 72 y 143</li>
+                    <li><strong>Verificación de frame completo:</strong> Cuando LY=143 y mode=MODE_1_VBLANK, se verifica que el framebuffer_back_ tiene datos antes del intercambio</li>
+                    <li><strong>Verificación de intercambio:</strong> En <code>swap_framebuffers()</code>, se cuenta píxeles no-blancos antes y después del intercambio</li>
+                    <li><strong>Verificación de lectura en Python:</strong> En <code>viboy.py</code>, se verifica el contenido del framebuffer antes y después de la copia</li>
+                    <li><strong>Verificación de renderizado:</strong> En <code>renderer.py</code>, se verifica que el renderizador recibe datos y que la superficie tiene píxeles no-blancos</li>
+                </ol>
+                <h3>Correcciones Realizadas</h3>
+                <ul>
+                    <li><strong>Movimiento de verificación:</strong> La verificación de escritura se movió al final de <code>render_scanline()</code> (después de escribir) en lugar del principio</li>
+                    <li><strong>Corrección de buffer:</strong> Se corrigió código que verificaba <code>framebuffer_front_</code> cuando debería verificar <code>framebuffer_back_</code></li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Agregadas verificaciones en <code>render_scanline()</code>, <code>swap_framebuffers()</code> y verificación de frame completo</li>
+                    <li><code>src/viboy.py</code> - Agregada verificación de lectura del framebuffer antes y después de la copia</li>
+                    <li><code>src/gpu/renderer.py</code> - Agregada verificación de datos recibidos y verificación de superficie después de dibujar</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron pruebas con las 6 ROMs (TETRIS, Mario, Zelda DX, Oro, PKMN, PKMN-Amarillo) 
+                    para analizar los logs de verificación:
+                </p>
+                <h3>Hallazgos de los Logs</h3>
+                <ul>
+                    <li><strong>✅ Intercambio funciona correctamente:</strong> Back buffer tiene 11520 píxeles no-blancos (50%), front los recibe correctamente</li>
+                    <li><strong>✅ Python lee correctamente:</strong> Lee 52 píxeles no-blancos en los primeros 100 (datos presentes)</li>
+                    <li><strong>❌ Renderizado normal no escribe datos:</strong> Todas las líneas renderizadas están vacías (0 píxeles no-blancos)</li>
+                    <li><strong>❌ Los 11520 píxeles no-blancos parecen venir del checkerboard:</strong> No del renderizado normal de tiles</li>
+                </ul>
+                <h3>Logs de Ejemplo</h3>
+                <pre><code>[PPU-SWAP-DETAILED] Frame 1 | Back before: 11520 non-zero | Front before: 0 non-zero | Front after: 11520 non-zero
+[PPU-SWAP-DETAILED] Front first 20 pixels: 3 3 3 3 3 3 3 3 0 0 0 0 0 0 0 0 3 3 3 3
+[Python-Read-Framebuffer] Frame 1 | First 20 indices: [3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3] | Non-zero in first 100: 52/100
+[Python-Read-Framebuffer] ✅ Copia correcta: 52 non-zero pixels</code></pre>
+                <p>
+                    <strong>Problema identificado:</strong> El renderizado normal no está escribiendo datos al framebuffer_back_ durante MODE_3_PIXEL_TRANSFER. 
+                    Todas las líneas están vacías, lo que sugiere que <code>render_scanline()</code> no está ejecutando la lógica de renderizado de tiles, 
+                    o que la VRAM está vacía cuando se intenta renderizar.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Controller (PPU)</a></li>
+                    <li>Implementación basada en conocimiento general de arquitectura LR35902 y sistemas de renderizado con doble buffering</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Pipeline de renderizado:</strong> El pipeline completo desde C++ hasta Pygame tiene múltiples etapas que deben funcionar correctamente</li>
+                        <li><strong>Verificación de datos:</strong> Es crítico verificar cada etapa para identificar dónde se pierden los datos</li>
+                        <li><strong>Doble buffering funciona:</strong> El intercambio de buffers funciona correctamente, eliminando condiciones de carrera</li>
+                        <li><strong>Problema en renderizado:</strong> El renderizado normal no está escribiendo datos al framebuffer_back_, todas las líneas están vacías</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Por qué render_scanline() no escribe datos:</strong> Necesito investigar si la VRAM está vacía, si MODE_3 no se ejecuta, o si hay otro problema</li>
+                        <li><strong>Origen de los 11520 píxeles no-blancos:</strong> Confirmar si vienen del checkerboard o de otro lugar</li>
+                        <li><strong>Por qué las pantallas están blancas:</strong> Aunque Python lee datos, las pantallas están blancas, lo que sugiere un problema en el renderizado Python</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El renderizado normal no está escribiendo datos porque la VRAM está vacía cuando se intenta renderizar, 
+                        o porque MODE_3_PIXEL_TRANSFER no se está ejecutando correctamente. Los 11520 píxeles no-blancos vienen del checkerboard, 
+                        que se activa cuando VRAM está vacía, pero el checkerboard no se está mostrando en la pantalla (posible problema en el renderizado Python).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar por qué <code>render_scanline()</code> no escribe datos durante MODE_3_PIXEL_TRANSFER</li>
+                    <li>[ ] Verificar si la VRAM está vacía cuando se intenta renderizar</li>
+                    <li>[ ] Verificar si MODE_3_PIXEL_TRANSFER se está ejecutando correctamente</li>
+                    <li>[ ] Investigar por qué las pantallas están blancas aunque Python lee datos del framebuffer</li>
+                    <li>[ ] Verificar si el problema está en la conversión RGB o en el dibujo en Pygame</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

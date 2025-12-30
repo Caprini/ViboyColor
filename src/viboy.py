@@ -948,28 +948,51 @@ class Viboy:
                                                f"Leyendo framebuffer en t={read_start_time:.6f}s")
                                 
                                 # --- Step 0332: Verificación Detallada de Copia del Framebuffer ---
+                                # --- Step 0365: Verificación de Lectura del Framebuffer en Python ---
                                 # 1. Obtener la vista directa de C++
                                 raw_view = self._ppu.framebuffer
                                 
                                 # 2. Verificar que el framebuffer tiene datos antes de copiar
                                 if raw_view is not None:
-                                    # Verificar primeros 20 píxeles antes de copiar
+                                    # Verificar contenido ANTES de copiar
                                     first_20_before = [raw_view[i] & 0x03 for i in range(min(20, len(raw_view)))]
+                                    non_zero_before = sum(1 for i in range(min(100, len(raw_view))) if (raw_view[i] & 0x03) != 0)
                                     
-                                    if not hasattr(self, '_framebuffer_copy_detailed_count'):
-                                        self._framebuffer_copy_detailed_count = 0
-                                    if self._framebuffer_copy_detailed_count < 5:
-                                        self._framebuffer_copy_detailed_count += 1
-                                        log_msg = f"[Viboy-Framebuffer-Copy-Detailed] Frame {self._framebuffer_copy_detailed_count} | " \
-                                                 f"First 20 indices before copy: {first_20_before}"
-                                        print(log_msg)  # Fallback a print()
-                                        logger.info(log_msg)  # Logger normal
+                                    if not hasattr(self, '_python_read_check_count'):
+                                        self._python_read_check_count = 0
+                                    if self._python_read_check_count < 20:
+                                        self._python_read_check_count += 1
+                                        log_msg = f"[Python-Read-Framebuffer] Frame {self._python_read_check_count} | " \
+                                                 f"First 20 indices: {first_20_before} | " \
+                                                 f"Non-zero in first 100: {non_zero_before}/100"
+                                        print(log_msg, flush=True)
+                                        logger.info(log_msg)
+                                        
+                                        if non_zero_before == 0:
+                                            log_msg = f"[Python-Read-Framebuffer] ⚠️ PROBLEMA: Framebuffer está completamente vacío cuando Python lo lee!"
+                                            print(log_msg, flush=True)
+                                            logger.warning(log_msg)
                                     
                                     # 3. --- STEP 0219: SNAPSHOT INMUTABLE ---
                                     # Hacemos una copia profunda inmediata a la memoria de Python.
                                     # Esto "congela" el frame y nos protege de cualquier cambio en C++.
                                     fb_data = bytearray(raw_view)
                                     # ----------------------------------------
+                                    
+                                    # Verificar contenido DESPUÉS de copiar
+                                    first_20_after = [fb_data[i] & 0x03 for i in range(min(20, len(fb_data)))]
+                                    non_zero_after = sum(1 for i in range(min(100, len(fb_data))) if (fb_data[i] & 0x03) != 0)
+                                    
+                                    if self._python_read_check_count <= 20:
+                                        if first_20_before != first_20_after:
+                                            log_msg = f"[Python-Read-Framebuffer] ⚠️ PROBLEMA: La copia cambió los datos! " \
+                                                     f"Before: {first_20_before} | After: {first_20_after}"
+                                            print(log_msg, flush=True)
+                                            logger.warning(log_msg)
+                                        else:
+                                            log_msg = f"[Python-Read-Framebuffer] ✅ Copia correcta: {non_zero_after} non-zero pixels"
+                                            print(log_msg, flush=True)
+                                            logger.info(log_msg)
                                     
                                     # --- Step 0348: Loggear cuándo se completa la lectura del framebuffer ---
                                     read_end_time = time.time()

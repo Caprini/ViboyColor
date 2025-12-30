@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0365 - Investigación de Pantallas Blancas Post-Doble Buffering -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0365__investigacion-pantallas-blancas-post-doble-buffering.html" class="entry-link">
+                                    Investigación de Pantallas Blancas Post-Doble Buffering
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0365 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            A pesar de que el doble buffering eliminó completamente las condiciones de carrera (0 advertencias vs 7291 antes), todas las ROMs siguen mostrando pantallas completamente blancas. Se implementaron verificaciones detalladas en cada etapa del pipeline de renderizado (escritura al framebuffer back, intercambio de buffers, lectura en Python, renderizado) para identificar exactamente dónde se pierden los datos. Los logs confirman que el intercambio funciona correctamente y que Python lee datos del framebuffer, pero el renderizado normal no está escribiendo datos al framebuffer_back_ (todas las líneas están vacías). Los 11520 píxeles no-blancos que aparecen en el intercambio parecen venir del checkerboard, no del renderizado normal de tiles.
+                        </p>
+                    </li>
                                         <!-- Entrada 0364 - Implementación de Doble Buffering para Eliminar Condiciones de Carrera -->
                     <li>
                         <div class="entry-header">
