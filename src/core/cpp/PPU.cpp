@@ -2890,6 +2890,66 @@ void PPU::render_scanline() {
     }
     // -----------------------------------------
     
+    // --- Step 0371: Verificación de Renderizado Cuando Hay Tiles Reales ---
+    // Verificar que el renderizado normal se ejecuta cuando hay tiles reales
+    // y que el checkerboard se desactiva
+    
+    // Cuando vram_is_empty_ cambia de YES a NO (tiles recién cargados)
+    static bool last_vram_is_empty_for_render = true;
+    if (last_vram_is_empty_for_render != vram_is_empty_) {
+        if (last_vram_is_empty_for_render && !vram_is_empty_ && ly_ < 144) {
+            static int tiles_loaded_render_check_count = 0;
+            if (tiles_loaded_render_check_count < 10) {
+                tiles_loaded_render_check_count++;
+                
+                printf("[PPU-TILES-LOADED-RENDER] Frame %llu | LY: %d | "
+                       "Tiles recién cargados! Verificando renderizado...\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1), ly_);
+                
+                // Verificar que el renderizado normal se ejecuta
+                // (esto se verificará en el siguiente render_scanline)
+            }
+        }
+        last_vram_is_empty_for_render = vram_is_empty_;
+    }
+    
+    // Verificar contenido del framebuffer cuando hay tiles reales
+    if (!vram_is_empty_ && ly_ == 72) {
+        static int render_with_real_tiles_count = 0;
+        if (render_with_real_tiles_count < 20) {
+            render_with_real_tiles_count++;
+            
+            // Verificar que el framebuffer tiene datos de tiles reales (no solo checkerboard)
+            size_t line_start = ly_ * SCREEN_WIDTH;
+            int non_zero_pixels = 0;
+            int index_counts[4] = {0, 0, 0, 0};
+            
+            for (int x = 0; x < SCREEN_WIDTH; x++) {
+                uint8_t color_idx = framebuffer_back_[line_start + x] & 0x03;
+                index_counts[color_idx]++;
+                if (color_idx != 0) {
+                    non_zero_pixels++;
+                }
+            }
+            
+            // Verificar si es checkerboard (solo índices 0 y 3) o tiles reales (índices 0, 1, 2, 3)
+            bool is_checkerboard = (index_counts[1] == 0 && index_counts[2] == 0 && 
+                                    index_counts[0] > 0 && index_counts[3] > 0);
+            
+            printf("[PPU-RENDER-WITH-REAL-TILES] Frame %llu | LY: %d | "
+                   "Non-zero pixels: %d/160 | Is checkerboard: %s | "
+                   "Distribution: 0=%d 1=%d 2=%d 3=%d\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1), ly_,
+                   non_zero_pixels, is_checkerboard ? "YES" : "NO",
+                   index_counts[0], index_counts[1], index_counts[2], index_counts[3]);
+            
+            if (is_checkerboard && !vram_is_empty_) {
+                printf("[PPU-RENDER-WITH-REAL-TILES] ⚠️ PROBLEMA: Checkerboard activo aunque hay tiles reales!\n");
+            }
+        }
+    }
+    // -----------------------------------------
+    
     // --- Step 0284: Renderizar Window después del Background ---
     // La Window se dibuja encima del Background pero debajo de los Sprites
     // Solo se renderiza si está habilitada (LCDC bit 5) y las condiciones WY/WX se cumplen
