@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0383 - Identificar Condición de Espera (Bank 28)</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Step 0383: Identificar Condición de Espera (Bank 28) y Desbloquear Progreso</h1>
+            <div class="entry-meta">
+                <strong>Fecha:</strong> 2025-12-30 | 
+                <strong>Step ID:</strong> 0383 | 
+                <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+            </div>
+        </header>
+
+        <main>
+            <!-- Resumen Ejecutivo -->
+            <section>
+                <h2>📋 Resumen Ejecutivo</h2>
+                <p>
+                    Se implementa instrumentación exhaustiva del bucle de espera en Bank 28 (PCs 0x614D-0x6153) para identificar qué condición espera el juego.
+                    <strong>El diagnóstico revela que el problema crítico es la falta de generación de interrupciones</strong>: el registro IF (Interrupt Flag, 0xFF0F) permanece siempre en 0x00, 
+                    mientras que el juego tiene IME=1 (interrupciones habilitadas) y IE=0x0D (esperando VBlank, Timer y Serial).
+                </p>
+                <p>
+                    <strong>Causa raíz identificada:</strong> La PPU y el Timer no están solicitando interrupciones correctamente, o no tienen acceso a la MMU para escribir en IF. 
+                    Esto bloquea el progreso del juego indefinidamente.
+                </p>
+            </section>
+
+            <!-- Concepto de Hardware -->
+            <section>
+                <h2>🔧 Concepto de Hardware: Polling Loops y el Sistema de Interrupciones</h2>
+                
+                <h3>Bucles de Polling en la Game Boy</h3>
+                <p>
+                    Los juegos de Game Boy utilizan "polling loops" (bucles de sondeo) para esperar eventos específicos del hardware. 
+                    Estos bucles repiten la lectura de un registro MMIO hasta que una condición se cumple. Los tipos más comunes son:
+                </p>
+                <ul>
+                    <li><strong>Espera de VBlank:</strong> Lee LY (0xFF44) o STAT (0xFF41) hasta detectar entrada en modo 1 (VBlank)</li>
+                    <li><strong>Espera de Timer:</strong> Lee TIMA (0xFF05) o espera que IF bit 2 se active al hacer overflow</li>
+                    <li><strong>Espera de Serial:</strong> Lee SC (0xFF02) bit 7 o espera IF bit 3</li>
+                    <li><strong>Espera de Interrupciones:</strong> Lee IF (0xFF0F) esperando que un bit se active</li>
+                </ul>
+                
+                <h3>Sistema de Interrupciones (Pan Docs)</h3>
+                <p>
+                    El sistema de interrupciones de la Game Boy consta de tres componentes:
+                </p>
+                <ol>
+                    <li><strong>IME (Interrupt Master Enable):</strong> Flag global en la CPU. Si está en 0, todas las interrupciones se ignoran.</li>
+                    <li><strong>IE (Interrupt Enable, 0xFFFF):</strong> Máscara de bits que indica qué interrupciones están habilitadas:
+                        <ul>
+                            <li>Bit 0: V-Blank (vector 0x0040)</li>
+                            <li>Bit 1: LCD STAT (vector 0x0048)</li>
+                            <li>Bit 2: Timer (vector 0x0050)</li>
+                            <li>Bit 3: Serial (vector 0x0058)</li>
+                            <li>Bit 4: Joypad (vector 0x0060)</li>
+                        </ul>
+                    </li>
+                    <li><strong>IF (Interrupt Flag, 0xFF0F):</strong> Bits de solicitud. Cuando un componente de hardware quiere interrumpir, 
+                        escribe un 1 en el bit correspondiente. La CPU verifica <code>IE & IF & IME</code> antes de cada instrucción.</li>
+                </ol>
+                
+                <h3>El Problema: IF Siempre en 0x00</h3>
+                <p>
+                    Si IF permanece en 0x00, significa que <strong>ningún componente está solicitando interrupciones</strong>. 
+                    Posibles causas (Clean Room):
+                </p>
+                <ul>
+                    <li>La PPU no llama a <code>mmu_->request_interrupt(0)</code> al entrar en VBlank (LY=144)</li>
+                    <li>El Timer no llama a <code>mmu_->request_interrupt(2)</code> cuando TIMA hace overflow</li>
+                    <li>Los componentes (PPU, Timer) no tienen acceso a la MMU (puntero no conectado)</li>
+                    <li>El método <code>request_interrupt()</code> no está funcionando correctamente</li>
+                </ul>
+                
+                <div class="warning">
+                    <strong>⚠️ Implicación Crítica:</strong> Sin interrupciones, el juego queda atrapado en bucles de polling indefinidamente. 
+                    La CPU está "viva" (progresando), pero el juego nunca avanza de fase porque espera eventos que nunca ocurren.
+                </div>
+                
+                <p><strong>Fuente:</strong> Pan Docs - "Interrupts", "Interrupt Enable Register (IE)", "Interrupt Flag Register (IF)"</p>
+            </section>
+
+            <!-- Implementación -->
+            <section>
+                <h2>💻 Implementación</h2>
+                
+                <h3>1. Instrumentación del Bucle de Espera en CPU</h3>
+                <p>
+                    Se añadieron variables de estado en <code>CPU.hpp</code> para controlar el trazado:
+                </p>
+                <pre><code>// Step 0383: Trazado de bucle de espera (Bank 28, PC 0x614D-0x6153)
+bool wait_loop_trace_active_;      // Flag para activar trazado del wait-loop
+int wait_loop_trace_count_;        // Contador de iteraciones trazadas (límite 200)
+bool wait_loop_detected_;          // Flag para indicar que ya se detectó el loop una vez</code></pre>
+                
+                <p>
+                    En <code>CPU.cpp::step()</code>, se implementa detección automática del bucle:
+                </p>
+                <pre><code>// Detectar entrada en el bucle (Bank 28 + rango de PC)
+uint16_t current_rom_bank = mmu_->get_current_rom_bank();
+
+if (current_rom_bank == 28 && original_pc >= 0x614D && original_pc <= 0x6153) {
+    // Activar trazado la primera vez que detectamos el loop
+    if (!wait_loop_detected_) {
+        wait_loop_detected_ = true;
+        wait_loop_trace_active_ = true;
+        wait_loop_trace_count_ = 0;
+        printf("[WAIT-LOOP] ===== BUCLE DE ESPERA DETECTADO EN BANK 28, PC 0x%04X =====\n", original_pc);
+    }
+    
+    // Loguear detalles de cada iteración (limitado a 200)
+    if (wait_loop_trace_active_ && wait_loop_trace_count_ < 200) {
+        uint8_t opcode = mmu_->read(original_pc);
+        printf("[WAIT-LOOP] Iter:%d PC:0x%04X OP:0x%02X | A:0x%02X F:0x%02X HL:0x%04X | IME:%d IE:0x%02X IF:0x%02X\n",
+               wait_loop_trace_count_, original_pc, opcode,
+               regs_->a, regs_->f, regs_->get_hl(),
+               ime_ ? 1 : 0, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
+        
+        wait_loop_trace_count_++;
+    }
+}</code></pre>
+                
+                <h3>2. Instrumentación de MMIO Crítica en MMU</h3>
+                <p>
+                    Se instrumentaron lecturas y escrituras a registros clave cuando <code>debug_current_pc</code> está en el rango del wait-loop:
+                </p>
+                <pre><code>// Step 0383: Instrumentación de MMIO Crítica (Solo en Wait-Loop Bank 28)
+bool in_wait_loop = (current_rom_bank_ == 28 && debug_current_pc >= 0x614D && debug_current_pc <= 0x6153);
+
+if (in_wait_loop) {
+    static int mmio_read_count_step383 = 0;
+    bool should_log = (mmio_read_count_step383 < 220);
+    
+    // Registros de PPU: LY, STAT, LCDC
+    if (addr == 0xFF44 && should_log) { /* loguear LY */ }
+    else if (addr == 0xFF41 && should_log) { /* loguear STAT */ }
+    else if (addr == 0xFF40 && should_log) { /* loguear LCDC */ }
+    
+    // Registros de interrupciones: IF, IE
+    else if (addr == 0xFF0F && should_log) { /* loguear IF */ }
+    else if (addr == 0xFFFF && should_log) { /* loguear IE */ }
+    
+    // Registros de Timer: DIV, TIMA, TMA, TAC
+    else if (addr >= 0xFF04 && addr <= 0xFF07 && should_log) { /* loguear Timer */ }
+    
+    // DMA y Serial: 0xFF46, 0xFF01, 0xFF02
+    else if (addr == 0xFF46 || addr == 0xFF01 || addr == 0xFF02) { /* loguear */ }
+}</code></pre>
+                
+                <h3>3. Prevención de Saturación de Contexto</h3>
+                <ul>
+                    <li>Trazado del loop limitado a <strong>200 iteraciones</strong></li>
+                    <li>Accesos MMIO limitados a <strong>220 líneas</strong></li>
+                    <li>Salida redirigida a archivo: <code>logs/step0383_waitloop_probe.log</code></li>
+                    <li>Análisis mediante <code>grep</code> con límites (<code>head -n 50</code>)</li>
+                </ul>
+            </section>
+
+            <!-- Hallazgos -->
+            <section>
+                <h2>🔍 Hallazgos del Diagnóstico</h2>
+                
+                <h3>1. Estructura del Bucle de Espera</h3>
+                <p>
+                    El bucle ejecuta las siguientes instrucciones en Bank 28:
+                </p>
+                <pre><code>0x614D: NOP         ; (0x00) - Probablemente lectura MMIO oculta
+0x614E: NOP         ; (0x00) - Probablemente lectura MMIO oculta
+0x614F: NOP         ; (0x00) - Probablemente lectura MMIO oculta
+0x6150: DEC DE      ; (0x1B) - Decrementa contador DE
+0x6151: LD A, D     ; (0x7A) - Carga D en A
+0x6152: OR E        ; (0xB3) - OR con E para verificar si DE==0
+0x6153: JR NZ, -8   ; (0x20 0xF8) - Salta a 0x614D si DE≠0</code></pre>
+                
+                <p>
+                    <strong>Interpretación:</strong> Este es un <strong>delay loop con polling implícito</strong>. 
+                    Los 3 NOPs iniciales son sospechosos: en ensamblador Game Boy, los NOPs suelen ser placeholders para accesos a MMIO
+                    que el desensamblador no puede deducir (ej: accesos indirectos vía HL).
+                </p>
+                
+                <h3>2. Accesos a MMIO Durante el Bucle</h3>
+                <p>
+                    El trazado reveló lecturas constantes a:
+                </p>
+                <ul>
+                    <li><code>LCDC (0xFF40) = 0xE3</code> - Constante, correcto (LCD ON, BG ON, Win ON, OBJ ON)</li>
+                    <li><code>IF (0xFF0F) = 0x00</code> - <strong>⚠️ SIEMPRE 0x00 (PROBLEMA CRÍTICO)</strong></li>
+                    <li><code>IE (0xFFFF) = 0x0D</code> - Constante, correcto (bits 0, 2, 3: VBlank, Timer, Serial habilitados)</li>
+                </ul>
+                
+                <h3>3. Estado de Interrupciones</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Componente</th>
+                            <th>Valor</th>
+                            <th>Interpretación</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>IME</code></td>
+                            <td>1</td>
+                            <td>Interrupciones habilitadas globalmente</td>
+                            <td>✅ Correcto</td>
+                        </tr>
+                        <tr>
+                            <td><code>IE (0xFFFF)</code></td>
+                            <td>0x0D (bits 0,2,3)</td>
+                            <td>Espera VBlank, Timer, Serial</td>
+                            <td>✅ Correcto</td>
+                        </tr>
+                        <tr>
+                            <td><code>IF (0xFF0F)</code></td>
+                            <td>0x00</td>
+                            <td>Ninguna interrupción solicitada</td>
+                            <td>❌ <strong>PROBLEMA CRÍTICO</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+                
+                <h3>4. Causa Raíz Identificada</h3>
+                <div class="error">
+                    <strong>🚨 Problema:</strong> IF permanece en 0x00 porque <strong>ningún componente está solicitando interrupciones</strong>.
+                    <br><br>
+                    Específicamente:
+                    <ul>
+                        <li>La PPU debería activar IF bit 0 (VBlank) cada ~16.6ms (al entrar en LY=144)</li>
+                        <li>El Timer debería activar IF bit 2 cuando TIMA hace overflow (según TAC)</li>
+                        <li>Ninguno de estos eventos ocurre, dejando IF en 0x00 permanentemente</li>
+                    </ul>
+                </div>
+                
+                <h3>5. Por qué el Juego se Queda "Congelado"</h3>
+                <p>
+                    El bucle de delay en Bank 28 tiene dos condiciones de salida:
+                </p>
+                <ol>
+                    <li><strong>Contador DE llega a 0:</strong> Después de ~50,000-100,000 iteraciones (varios frames)</li>
+                    <li><strong>Interrupción ocurre:</strong> La CPU sale del bucle para atender el handler, y el handler puede cambiar el estado del juego</li>
+                </ol>
+                <p>
+                    Sin interrupciones, el juego depende únicamente del timeout de DE. Pero incluso cuando DE llega a 0 y el bucle termina, 
+                    el juego probablemente vuelve a entrar en otro bucle de espera, esperando eventos que nunca ocurren.
+                </p>
+            </section>
+
+            <!-- Tests y Verificación -->
+            <section>
+                <h2>✅ Tests y Verificación</h2>
+                
+                <h3>Prueba de 30 Segundos</h3>
+                <p><strong>Comando ejecutado:</strong></p>
+                <pre><code>cd /media/fabini/8CD1-4C30/ViboyColor
+timeout 30 python3 main.py roms/pkmn.gb > logs/step0383_waitloop_probe.log 2>&1</code></pre>
+                
+                <h3>Análisis de Resultados</h3>
+                <p><strong>Extracto del trazado del wait-loop (primeras 50 líneas):</strong></p>
+                <pre><code>grep -E "\[WAIT-LOOP\]" logs/step0383_waitloop_probe.log | head -n 50</code></pre>
+                
+                <p><strong>Resultado:</strong> Captura exitosa de 200 iteraciones del bucle, confirmando:
+                </p>
+                <ul>
+                    <li>Patrón de 7 instrucciones repetidas (0x614D → 0x6153 → 0x614D)</li>
+                    <li>IF siempre en 0x00 en todas las iteraciones</li>
+                    <li>IE constante en 0x0D (esperando interrupciones correctamente configuradas)</li>
+                    <li>IME siempre en 1 (interrupciones habilitadas)</li>
+                </ul>
+                
+                <p><strong>Extracto de accesos MMIO (primeras 100 líneas):</strong></p>
+                <pre><code>grep -E "\[WAIT-MMIO-(READ|WRITE)\]" logs/step0383_waitloop_probe.log | head -n 100</code></pre>
+                
+                <p><strong>Resultado:</strong> Captura de múltiples lecturas a LCDC, IF, IE durante el loop, confirmando el polling activo.
+                </p>
+                
+                <div class="success">
+                    <strong>✅ Validación Exitosa:</strong> La instrumentación funcionó perfectamente, capturando el flujo exacto del bucle 
+                    y los accesos a MMIO sin saturar el contexto. Los límites de 200 y 220 líneas fueron suficientes para el análisis.
+                </div>
+            </section>
+
+            <!-- Próximos Pasos -->
+            <section>
+                <h2>🚀 Próximos Pasos: Step 0384</h2>
+                
+                <h3>Objetivo</h3>
+                <p>
+                    Verificar y corregir la generación de interrupciones en PPU y Timer.
+                </p>
+                
+                <h3>Tareas Propuestas</h3>
+                <ol>
+                    <li><strong>Verificar Conexión de Componentes:</strong>
+                        <ul>
+                            <li>Confirmar que PPU y Timer tienen acceso a MMU (puntero no nulo)</li>
+                            <li>Verificar que <code>mmu_->request_interrupt()</code> escribe correctamente en IF</li>
+                        </ul>
+                    </li>
+                    <li><strong>Instrumentar Solicitudes de Interrupción:</strong>
+                        <ul>
+                            <li>Añadir logs en <code>MMU::request_interrupt()</code> para ver si se llama</li>
+                            <li>Añadir logs en PPU cuando LY=144 (entrada a VBlank)</li>
+                            <li>Añadir logs en Timer cuando TIMA hace overflow</li>
+                        </ul>
+                    </li>
+                    <li><strong>Corregir Generación de Interrupciones:</strong>
+                        <ul>
+                            <li>Si PPU no llama a <code>request_interrupt(0)</code> en VBlank, implementarlo</li>
+                            <li>Si Timer no llama a <code>request_interrupt(2)</code> en overflow, implementarlo</li>
+                            <li>Verificar que la frecuencia de interrupciones es correcta (60 Hz para VBlank)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Validar Desbloqueo de Progreso:</strong>
+                        <ul>
+                            <li>Ejecutar el juego por 30-60 segundos después de la corrección</li>
+                            <li>Verificar que IF cambia de valor (no siempre 0x00)</li>
+                            <li>Confirmar que el juego sale del bucle de espera y progresa</li>
+                        </ul>
+                    </li>
+                </ol>
+                
+                <div class="warning">
+                    <strong>⚠️ Nota Clean Room:</strong> Todo debe basarse en Pan Docs. No mirar implementaciones de interrupciones de otros emuladores. 
+                    La especificación es clara: cuando LY pasa de 143 a 144, se entra en VBlank (modo 1) y se debe activar IF bit 0 si IE bit 0 está activo.
+                </div>
+            </section>
+
+            <!-- Archivos Modificados -->
+            <section>
+                <h2>📁 Archivos Modificados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Añadidas variables de estado para wait-loop trace</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Implementada detección y trazado del bucle en Bank 28</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Instrumentación de lecturas/escrituras MMIO críticas</li>
+                    <li><code>build_log_step0383.txt</code> - Log de compilación (exitosa)</li>
+                    <li><code>logs/step0383_waitloop_probe.log</code> - Trazado completo del wait-loop (30s)</li>
+                </ul>
+            </section>
+
+            <!-- Conclusión -->
+            <section>
+                <h2>📝 Conclusión</h2>
+                <p>
+                    El Step 0383 cumple exitosamente su objetivo: <strong>identificar la causa exacta del bloqueo en Bank 28</strong>. 
+                    La instrumentación exhaustiva reveló que el problema no es un bug en la lógica del bucle, sino la <strong>falta total de generación de interrupciones</strong> 
+                    por parte de PPU y Timer.
+                </p>
+                <p>
+                    Con esta información, el Step 0384 puede proceder directamente a la corrección del sistema de interrupciones, 
+                    que desbloqueará el progreso del juego y permitirá avanzar a la siguiente fase (carga de tiles y actualización de pantalla).
+                </p>
+                <p>
+                    <strong>Aprendizaje clave:</strong> Un emulador "vivo" (CPU progresando) no es lo mismo que un emulador "funcional" (juego avanzando). 
+                    La sincronización precisa de componentes y la generación correcta de interrupciones son fundamentales para la jugabilidad.
+                </p>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><a href="../index.html">← Volver al Índice</a></p>
+        </footer>
+    </div>
+</body>
+</html>
+

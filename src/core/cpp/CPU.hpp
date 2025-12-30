@@ -533,6 +533,12 @@ private:
     int instruction_counter_step382_;  // Contador de instrucciones ejecutadas
     uint16_t last_pc_sample_;          // Último PC muestreado
     int pc_repeat_count_;              // Contador de repeticiones del mismo PC
+    
+    // ========== Estado de Diagnóstico (Step 0383) ==========
+    // Trazado de bucle de espera (Bank 28, PC 0x614D-0x6153)
+    bool wait_loop_trace_active_;      // Flag para activar trazado del wait-loop
+    int wait_loop_trace_count_;        // Contador de iteraciones trazadas (límite 200)
+    bool wait_loop_detected_;          // Flag para indicar que ya se detectó el loop una vez
 };
 
 #endif // CPU_HPP

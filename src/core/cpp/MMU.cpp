@@ -310,6 +310,67 @@ uint8_t MMU::read(uint16_t addr) const {
         return p1_value;
     }
     
+    // --- Step 0383: Instrumentación de MMIO Crítica (Solo en Wait-Loop Bank 28) ---
+    // Detectar si estamos en el bucle de espera (Bank 28, PC 0x614D-0x6153)
+    // y loguear accesos a registros clave que podrían ser la condición de salida.
+    // Clean Room: basado en Pan Docs (secciones de interrupciones, timer, PPU).
+    bool in_wait_loop = (current_rom_bank_ == 28 && debug_current_pc >= 0x614D && debug_current_pc <= 0x6153);
+    
+    if (in_wait_loop) {
+        static int mmio_read_count_step383 = 0;
+        bool should_log = (mmio_read_count_step383 < 220);  // Límite para no saturar
+        
+        // Registros críticos de PPU
+        if (addr == 0xFF44 && should_log) {  // LY
+            uint8_t ly_val = (ppu_ != nullptr) ? ppu_->get_ly() : memory_[addr];
+            printf("[WAIT-MMIO-READ] PC:0x%04X -> LY(0xFF44) = 0x%02X (%d)\n", debug_current_pc, ly_val, ly_val);
+            mmio_read_count_step383++;
+        } else if (addr == 0xFF41 && should_log) {  // STAT
+            uint8_t stat_val = memory_[addr];
+            printf("[WAIT-MMIO-READ] PC:0x%04X -> STAT(0xFF41) = 0x%02X (Mode:%d)\n", 
+                   debug_current_pc, stat_val, stat_val & 0x03);
+            mmio_read_count_step383++;
+        } else if (addr == 0xFF40 && should_log) {  // LCDC
+            printf("[WAIT-MMIO-READ] PC:0x%04X -> LCDC(0xFF40) = 0x%02X\n", debug_current_pc, memory_[addr]);
+            mmio_read_count_step383++;
+        }
+        // Registros de interrupciones
+        else if (addr == 0xFF0F && should_log) {  // IF
+            printf("[WAIT-MMIO-READ] PC:0x%04X -> IF(0xFF0F) = 0x%02X\n", debug_current_pc, memory_[addr]);
+            mmio_read_count_step383++;
+        } else if (addr == 0xFFFF && should_log) {  // IE
+            printf("[WAIT-MMIO-READ] PC:0x%04X -> IE(0xFFFF) = 0x%02X\n", debug_current_pc, memory_[addr]);
+            mmio_read_count_step383++;
+        }
+        // Registros de Timer
+        else if (addr == 0xFF04 && should_log) {  // DIV
+            uint8_t div_val = (timer_ != nullptr) ? timer_->read_div() : memory_[addr];
+            printf("[WAIT-MMIO-READ] PC:0x%04X -> DIV(0xFF04) = 0x%02X (%d)\n", debug_current_pc, div_val, div_val);
+            mmio_read_count_step383++;
+        } else if (addr == 0xFF05 && should_log) {  // TIMA
+            printf("[WAIT-MMIO-READ] PC:0x%04X -> TIMA(0xFF05) = 0x%02X\n", debug_current_pc, memory_[addr]);
+            mmio_read_count_step383++;
+        } else if (addr == 0xFF06 && should_log) {  // TMA
+            printf("[WAIT-MMIO-READ] PC:0x%04X -> TMA(0xFF06) = 0x%02X\n", debug_current_pc, memory_[addr]);
+            mmio_read_count_step383++;
+        } else if (addr == 0xFF07 && should_log) {  // TAC
+            printf("[WAIT-MMIO-READ] PC:0x%04X -> TAC(0xFF07) = 0x%02X\n", debug_current_pc, memory_[addr]);
+            mmio_read_count_step383++;
+        }
+        // DMA y Serial
+        else if (addr == 0xFF46 && should_log) {  // DMA
+            printf("[WAIT-MMIO-READ] PC:0x%04X -> DMA(0xFF46) = 0x%02X\n", debug_current_pc, memory_[addr]);
+            mmio_read_count_step383++;
+        } else if (addr == 0xFF01 && should_log) {  // SB (Serial Data)
+            printf("[WAIT-MMIO-READ] PC:0x%04X -> SB(0xFF01) = 0x%02X\n", debug_current_pc, memory_[addr]);
+            mmio_read_count_step383++;
+        } else if (addr == 0xFF02 && should_log) {  // SC (Serial Control)
+            printf("[WAIT-MMIO-READ] PC:0x%04X -> SC(0xFF02) = 0x%02X\n", debug_current_pc, memory_[addr]);
+            mmio_read_count_step383++;
+        }
+    }
+    // -----------------------------------------
+    
     // --- Step 0226: DEBUG DE LY (Registro 0xFF44) ---
     // Instrumentación para verificar si la CPU está leyendo correctamente el registro LY
     // y si este valor cambia con el tiempo. Esto ayudará a diagnosticar por qué el
@@ -436,6 +497,38 @@ void MMU::write(uint16_t addr, uint8_t value) {
     }
 
     value &= 0xFF;
+    
+    // --- Step 0383: Instrumentación de Escrituras MMIO Críticas (Solo en Wait-Loop Bank 28) ---
+    // Detectar escrituras a registros críticos cuando estamos en el bucle de espera.
+    // Clean Room: basado en Pan Docs (secciones de interrupciones, timer, PPU).
+    bool in_wait_loop_write = (current_rom_bank_ == 28 && debug_current_pc >= 0x614D && debug_current_pc <= 0x6153);
+    
+    if (in_wait_loop_write && addr >= 0xFF00) {  // Solo MMIO
+        static int mmio_write_count_step383 = 0;
+        bool should_log = (mmio_write_count_step383 < 220);
+        
+        // Registros críticos de PPU
+        if ((addr == 0xFF40 || addr == 0xFF41 || addr == 0xFF44) && should_log) {
+            printf("[WAIT-MMIO-WRITE] PC:0x%04X -> Addr(0x%04X) = 0x%02X\n", debug_current_pc, addr, value);
+            mmio_write_count_step383++;
+        }
+        // Registros de interrupciones
+        else if ((addr == 0xFF0F || addr == 0xFFFF) && should_log) {
+            printf("[WAIT-MMIO-WRITE] PC:0x%04X -> Addr(0x%04X) = 0x%02X (Interrupts)\n", debug_current_pc, addr, value);
+            mmio_write_count_step383++;
+        }
+        // Registros de Timer
+        else if ((addr >= 0xFF04 && addr <= 0xFF07) && should_log) {
+            printf("[WAIT-MMIO-WRITE] PC:0x%04X -> Addr(0x%04X) = 0x%02X (Timer)\n", debug_current_pc, addr, value);
+            mmio_write_count_step383++;
+        }
+        // DMA y Serial
+        else if ((addr == 0xFF46 || addr == 0xFF01 || addr == 0xFF02) && should_log) {
+            printf("[WAIT-MMIO-WRITE] PC:0x%04X -> Addr(0x%04X) = 0x%02X\n", debug_current_pc, addr, value);
+            mmio_write_count_step383++;
+        }
+    }
+    // -----------------------------------------
 
     // --- Step 0251: IMPLEMENTACIÓN DMA (OAM TRANSFER) ---
     if (addr == 0xFF46) {

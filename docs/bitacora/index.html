@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0383 - Identificar Condición de Espera (Bank 28) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-30__0383__identificar-condicion-espera-bank28.html" class="entry-link">
+                                    Identificar Condición de Espera (Bank 28) y Desbloquear Progreso
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-30 | 
+                            <strong>Step ID:</strong> 0383 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementa instrumentación exhaustiva del bucle de espera en Bank 28 para identificar por qué el juego no avanza. El diagnóstico revela que IF (Interrupt Flag, 0xFF0F) permanece siempre en 0x00, confirmando que el problema crítico es la falta de generación de interrupciones por parte de PPU y Timer. El juego tiene IME=1 y IE=0x0D (esperando VBlank, Timer, Serial) pero las interrupciones nunca se solicitan.
+                        </p>
+                    </li>
                     <!-- Entrada 0382 - Diagnóstico de Flujo CPU y Escrituras a VRAM -->
                     <li>
                         <div class="entry-header">

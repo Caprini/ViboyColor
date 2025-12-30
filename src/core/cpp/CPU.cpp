@@ -12,13 +12,15 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       last_af_(0xFFFF), last_bc_(0xFFFF), last_de_(0xFFFF), last_hl_(0xFFFF), reg_trace_count_(0),
       jump_trace_active_(false), jump_trace_count_(0), hw_state_trace_active_(false),
       hw_state_samples_(0), hw_state_sample_counter_(0),
-      instruction_counter_step382_(0), last_pc_sample_(0xFFFF), pc_repeat_count_(0) {
+      instruction_counter_step382_(0), last_pc_sample_(0xFFFF), pc_repeat_count_(0),
+      wait_loop_trace_active_(false), wait_loop_trace_count_(0), wait_loop_detected_(false) {
     // Validación básica (en producción, podríamos usar assert)
     // Por ahora, confiamos en que Python pasa punteros válidos
     // IME inicia en false por seguridad (el juego lo activará si lo necesita)
     // Step 0287: Inicialización de miembros de diagnóstico (reemplazan variables static)
     // Step 0293: Inicialización de monitores de rastreo post-limpieza
     // Step 0382: Inicialización de PC sampler
+    // Step 0383: Inicialización de trazado de wait-loop
 }
 
 CPU::~CPU() {
@@ -888,17 +890,44 @@ int CPU::step() {
     }
     // -----------------------------------------
     
-    // --- Step 0280: Sniper de Polling con Estado de IE ---
-    // Monitoreamos el bucle de polling (PC: 0x614D-0x6153) para ver si alguien
-    // está escribiendo en IE (0xFFFF) durante la espera, o si IE cambia mágicamente
-    // Esto nos ayudará a entender por qué IE se queda en 0x00 cuando debería estar habilitado
-    // Fuente: Análisis del Step 0279 - El juego está atascado esperando que 0xD732 cambie
-    if (original_pc >= 0x614D && original_pc <= 0x6153) {
-        static int polling_watch_count = 0;
-        if (polling_watch_count < 20) {
-            printf("[POLLING-WATCH] PC:%04X | IE:0x%02X | IF:0x%02X | IME:%d | D732:0x%02X\n",
-                   original_pc, mmu_->read(0xFFFF), mmu_->read(0xFF0F), ime_ ? 1 : 0, mmu_->read(0xD732));
-            polling_watch_count++;
+    // --- Step 0383: Trazado de Bucle de Espera (Bank 28, PC 0x614D-0x6153) ---
+    // Instrumentación exhaustiva del bucle de polling para identificar qué registro/condición
+    // está esperando el juego y por qué no avanza. Clean Room: basado en Pan Docs (polling loops).
+    // El objetivo es capturar exactamente qué instrucciones se ejecutan y qué accesos a MMIO realiza.
+    uint16_t current_rom_bank = mmu_->get_current_rom_bank();
+    
+    // Detectar entrada en el bucle (Bank 28 + rango de PC)
+    if (current_rom_bank == 28 && original_pc >= 0x614D && original_pc <= 0x6153) {
+        // Activar trazado la primera vez que detectamos el loop
+        if (!wait_loop_detected_) {
+            wait_loop_detected_ = true;
+            wait_loop_trace_active_ = true;
+            wait_loop_trace_count_ = 0;
+            printf("[WAIT-LOOP] ===== BUCLE DE ESPERA DETECTADO EN BANK 28, PC 0x%04X =====\n", original_pc);
+            printf("[WAIT-LOOP] Comenzando trazado limitado (200 iteraciones)...\n");
+        }
+        
+        // Loguear detalles de cada iteración (limitado a 200)
+        if (wait_loop_trace_active_ && wait_loop_trace_count_ < 200) {
+            uint8_t opcode = mmu_->read(original_pc);
+            uint8_t next_byte1 = mmu_->read((original_pc + 1) & 0xFFFF);
+            uint8_t next_byte2 = mmu_->read((original_pc + 2) & 0xFFFF);
+            
+            printf("[WAIT-LOOP] Iter:%d PC:0x%04X OP:0x%02X %02X %02X | A:0x%02X F:0x%02X HL:0x%04X | IME:%d IE:0x%02X IF:0x%02X\n",
+                   wait_loop_trace_count_,
+                   original_pc, opcode, next_byte1, next_byte2,
+                   regs_->a, regs_->f, regs_->get_hl(),
+                   ime_ ? 1 : 0,
+                   mmu_->read(0xFFFF),  // IE
+                   mmu_->read(0xFF0F)); // IF
+            
+            wait_loop_trace_count_++;
+            
+            // Desactivar trazado después de 200 iteraciones
+            if (wait_loop_trace_count_ >= 200) {
+                wait_loop_trace_active_ = false;
+                printf("[WAIT-LOOP] ===== FIN DEL TRAZADO (límite alcanzado) =====\n");
+            }
         }
     }
     // -----------------------------------------
