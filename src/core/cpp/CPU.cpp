@@ -13,7 +13,8 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       jump_trace_active_(false), jump_trace_count_(0), hw_state_trace_active_(false),
       hw_state_samples_(0), hw_state_sample_counter_(0),
       instruction_counter_step382_(0), last_pc_sample_(0xFFFF), pc_repeat_count_(0),
-      wait_loop_trace_active_(false), wait_loop_trace_count_(0), wait_loop_detected_(false) {
+      wait_loop_trace_active_(false), wait_loop_trace_count_(0), wait_loop_detected_(false),
+      ring_idx_(0), crash_dumped_(false) {
     // Validación básica (en producción, podríamos usar assert)
     // Por ahora, confiamos en que Python pasa punteros válidos
     // IME inicia en false por seguridad (el juego lo activará si lo necesita)
@@ -21,6 +22,10 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
     // Step 0293: Inicialización de monitores de rastreo post-limpieza
     // Step 0382: Inicialización de PC sampler
     // Step 0383: Inicialización de trazado de wait-loop
+    // Step 0387: Inicialización de ring buffer para diagnóstico de crash en FE00-FEFF
+    for (int i = 0; i < RING_SIZE; i++) {
+        ring_buffer_[i] = {};
+    }
 }
 
 CPU::~CPU() {
@@ -1290,6 +1295,56 @@ int CPU::step() {
     
     // Fetch: Leer opcode de memoria
     uint8_t opcode = fetch_byte();
+    
+    // --- Step 0387: Ring Buffer y Detección de Crash en FE00-FEFF ---
+    // Capturar snapshot de la instrucción actual en el ring buffer
+    {
+        uint8_t op1 = (original_pc + 1 <= 0xFFFF) ? mmu_->read(original_pc + 1) : 0x00;
+        uint8_t op2 = (original_pc + 2 <= 0xFFFF) ? mmu_->read(original_pc + 2) : 0x00;
+        
+        ring_buffer_[ring_idx_].pc = original_pc;
+        ring_buffer_[ring_idx_].sp = regs_->sp;
+        ring_buffer_[ring_idx_].af = regs_->get_af();
+        ring_buffer_[ring_idx_].bc = regs_->get_bc();
+        ring_buffer_[ring_idx_].de = regs_->get_de();
+        ring_buffer_[ring_idx_].hl = regs_->get_hl();
+        ring_buffer_[ring_idx_].bank = mmu_->get_current_rom_bank();
+        ring_buffer_[ring_idx_].op = opcode;
+        ring_buffer_[ring_idx_].op1 = op1;
+        ring_buffer_[ring_idx_].op2 = op2;
+        ring_buffer_[ring_idx_].ime = ime_ ? 1 : 0;
+        ring_buffer_[ring_idx_].ie = mmu_->read(0xFFFF);
+        ring_buffer_[ring_idx_].if_flag = mmu_->read(0xFF0F);
+        
+        ring_idx_ = (ring_idx_ + 1) % RING_SIZE;
+    }
+    
+    // Detectar crash: si PC entra en la región FE00-FEFF (OAM/unusable)
+    if (!crash_dumped_ && original_pc >= 0xFE00 && original_pc <= 0xFEFF) {
+        crash_dumped_ = true;
+        
+        printf("[CRASH-PC] ⚠️ PC CORRUPTO DETECTADO: PC=0x%04X (región OAM/no usable)\n", original_pc);
+        printf("[CRASH-PC] Bank=%d SP=0x%04X AF=0x%04X BC=0x%04X DE=0x%04X HL=0x%04X\n",
+               mmu_->get_current_rom_bank(), regs_->sp,
+               regs_->get_af(), regs_->get_bc(), regs_->get_de(), regs_->get_hl());
+        printf("[CRASH-PC] IME=%d IE=0x%02X IF=0x%02X\n",
+               ime_ ? 1 : 0, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
+        printf("[CRASH-PC] Últimas %d instrucciones ejecutadas (en orden cronológico):\n", RING_SIZE);
+        
+        // Imprimir ring buffer en orden cronológico (desde la más antigua hasta la más reciente)
+        for (int i = 0; i < RING_SIZE; i++) {
+            int idx = (ring_idx_ + i) % RING_SIZE;
+            const InstrSnapshot& snap = ring_buffer_[idx];
+            
+            printf("[CRASH-RING] #%02d PC:0x%04X Bank:%d OP:%02X %02X %02X | SP:%04X AF:%04X BC:%04X DE:%04X HL:%04X | IME:%d IE:%02X IF:%02X\n",
+                   i, snap.pc, snap.bank, snap.op, snap.op1, snap.op2,
+                   snap.sp, snap.af, snap.bc, snap.de, snap.hl,
+                   snap.ime, snap.ie, snap.if_flag);
+        }
+        
+        printf("[CRASH-PC] Fin del dump. El emulador continuará pero este PC es inválido.\n");
+    }
+    // -----------------------------------------
     
     // --- Step 0273: Sniper Trace - Ejecutar verificación ANTES del switch ---
     // Ejecutamos la verificación aquí para capturar el estado ANTES de ejecutar la instrucción
@@ -2720,7 +2775,38 @@ int CPU::step() {
             // Retorna de una rutina de interrupción y reactiva IME
             // Fuente: Pan Docs - RETI: 4 M-Cycles
             {
+                // --- Step 0387: Trazado de RETI pop ---
+                static int reti_pop_log = 0;
+                uint16_t sp_before_pop = regs_->sp;
+                uint8_t byte_low = 0xFF;
+                uint8_t byte_high = 0xFF;
+                
+                if (reti_pop_log < 30) {
+                    byte_low = mmu_->read(sp_before_pop);
+                    byte_high = mmu_->read(sp_before_pop + 1);
+                    uint16_t reconstructed_addr = (static_cast<uint16_t>(byte_high) << 8) | byte_low;
+                    
+                    printf("[RETI-POP-PC] ANTES: SP=0x%04X Bytes=[0x%02X,0x%02X] Reconstruct=0x%04X\n",
+                           sp_before_pop, byte_low, byte_high, reconstructed_addr);
+                }
+                // -------------------------------------------
+                
                 uint16_t return_addr = pop_word();
+                
+                // --- Step 0387: Verificar return_addr después del pop ---
+                if (reti_pop_log < 30) {
+                    printf("[RETI-POP-PC] DESPUES: return_addr=0x%04X SP=0x%04X IME=1\n",
+                           return_addr, regs_->sp);
+                    reti_pop_log++;
+                    
+                    // Guardrail: verificar si return_addr es sospechoso (región FE**)
+                    if (return_addr >= 0xFE00 && return_addr <= 0xFEFF) {
+                        printf("[RETI-POP-PC] ⚠️ RETURN ADDRESS CORRUPTO: 0x%04X (región OAM/no usable!)\n",
+                               return_addr);
+                    }
+                }
+                // -------------------------------------------
+                
                 regs_->pc = return_addr;
                 ime_ = true;  // IME se reactiva automáticamente
                 cycles_ += 4;  // RETI consume 4 M-Cycles
@@ -3290,9 +3376,36 @@ uint8_t CPU::handle_interrupts() {
             irq_service_log++;
         }
         // -------------------------------------------
+        
+        // --- Step 0387: Trazado de Stack en IRQ Push ---
+        static int irq_push_log = 0;
+        uint16_t sp_before_push = regs_->sp;
+        if (irq_push_log < 30) {
+            printf("[IRQ-PUSH-PC] ANTES: SP=0x%04X PC_to_push=0x%04X\n",
+                   sp_before_push, prev_pc);
+        }
+        // -------------------------------------------
 
         // Guardar PC en la pila (dirección de retorno)
         push_word(prev_pc);
+        
+        // --- Step 0387: Verificar stack después del push ---
+        if (irq_push_log < 30) {
+            uint16_t sp_after_push = regs_->sp;
+            uint8_t byte_low = mmu_->read(sp_after_push);
+            uint8_t byte_high = mmu_->read(sp_after_push + 1);
+            printf("[IRQ-PUSH-PC] DESPUES: SP=0x%04X Written=[0x%02X,0x%02X] Reconstruct=0x%04X\n",
+                   sp_after_push, byte_low, byte_high,
+                   (static_cast<uint16_t>(byte_high) << 8) | byte_low);
+            irq_push_log++;
+            
+            // Guardrail: verificar si SP está en rango peligroso
+            if (sp_after_push < 0xC000 || sp_after_push >= 0xFE00) {
+                printf("[STACK-WARN] ⚠️ SP en rango peligroso: 0x%04X (debería estar en C000-FDFF)\n",
+                       sp_after_push);
+            }
+        }
+        // -------------------------------------------
         
         // Saltar al vector de interrupción
         regs_->pc = vector;

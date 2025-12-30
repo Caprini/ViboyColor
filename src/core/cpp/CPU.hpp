@@ -539,6 +539,25 @@ private:
     bool wait_loop_trace_active_;      // Flag para activar trazado del wait-loop
     int wait_loop_trace_count_;        // Contador de iteraciones trazadas (límite 200)
     bool wait_loop_detected_;          // Flag para indicar que ya se detectó el loop una vez
+    
+    // ========== Estado de Diagnóstico (Step 0387) ==========
+    // Ring buffer para capturar últimas N instrucciones antes de crash
+    struct InstrSnapshot {
+        uint16_t pc;
+        uint16_t sp;
+        uint16_t af, bc, de, hl;
+        uint8_t bank;
+        uint8_t op;
+        uint8_t op1;
+        uint8_t op2;
+        uint8_t ime;
+        uint8_t ie;
+        uint8_t if_flag;
+    };
+    static constexpr int RING_SIZE = 64;
+    InstrSnapshot ring_buffer_[RING_SIZE];
+    int ring_idx_;
+    bool crash_dumped_;
 };
 
 #endif // CPU_HPP

@@ -571,6 +571,23 @@ void MMU::write(uint16_t addr, uint8_t value) {
 
     value &= 0xFF;
     
+    // --- Step 0387: Trazado de Escrituras a FE00-FEFF (OAM/Unusable) ---
+    // Detectar escrituras a la región OAM/no usable para diagnosticar corrupción
+    static int fe_write_count = 0;
+    if (addr >= 0xFE00 && addr <= 0xFEFF && fe_write_count < 60) {
+        printf("[MMU-FE-WRITE] PC=0x%04X addr=0x%04X value=0x%02X Bank=%d",
+               debug_current_pc, addr, value, get_current_rom_bank());
+        
+        // Distinguir entre OAM válido (FE00-FE9F) y región no usable (FEA0-FEFF)
+        if (addr >= 0xFEA0) {
+            printf(" ⚠️ UNUSABLE REGION\n");
+        } else {
+            printf(" (OAM valid)\n");
+        }
+        fe_write_count++;
+    }
+    // -------------------------------------------
+    
     // --- Step 0385: Trazado de Escrituras durante Wait-Loop y VBlank ISR ---
     // Loguear escrituras a MMIO, HRAM y WRAM cuando los trazados están activos
     if (waitloop_trace_active_) {
