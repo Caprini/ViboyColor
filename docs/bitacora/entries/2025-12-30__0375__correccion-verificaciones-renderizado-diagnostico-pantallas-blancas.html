@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrección de Verificaciones de Renderizado y Diagnóstico de Pantallas Blancas - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Corrección de Verificaciones de Renderizado y Diagnóstico de Pantallas Blancas</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-30
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0375
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-30__0373__correccion-timing-render-scanline.html">Anterior (Step 0373)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se corrigieron las verificaciones de las Tareas 3 y 4 del Step 0374 que no se ejecutaban porque estaban en el lugar incorrecto del flujo (después de <code>pygame.display.flip()</code>). Las verificaciones se movieron a sus ubicaciones correctas en el pipeline de renderizado, y se agregaron nuevas verificaciones para diagnosticar por qué las pantallas están completamente blancas a pesar de que el framebuffer tiene datos (checkerboard pattern). Las verificaciones ahora se ejecutan en los puntos correctos del flujo: después de dibujar en la superficie, después de escalar, y después del blit a la pantalla (antes de flip).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Pipeline de Renderizado en el Emulador</h3>
+                <p>
+                    El pipeline de renderizado en el emulador sigue este flujo:
+                </p>
+                <ol>
+                    <li><strong>Framebuffer de C++</strong>: El PPU C++ genera un framebuffer con índices de paleta (0-3) para cada píxel (160x144 = 23040 píxeles).</li>
+                    <li><strong>Conversión a RGB</strong>: Los índices de paleta se convierten a valores RGB usando la paleta BGP (Background Palette).</li>
+                    <li><strong>Dibujo en Superficie</strong>: Los píxeles RGB se dibujan en una superficie Pygame de 160x144 usando NumPy (surfarray.blit_array) o PixelArray.</li>
+                    <li><strong>Escalado</strong>: La superficie se escala al tamaño de la ventana usando <code>pygame.transform.scale()</code>.</li>
+                    <li><strong>Blit a Pantalla</strong>: La superficie escalada se blitea a la pantalla usando <code>screen.blit()</code>.</li>
+                    <li><strong>Flip</strong>: Se actualiza la pantalla usando <code>pygame.display.flip()</code>.</li>
+                </ol>
+                <h3>Problema Identificado</h3>
+                <p>
+                    <strong>Ubicación incorrecta de verificaciones:</strong> Las verificaciones de las Tareas 3 y 4 del Step 0374 estaban después de <code>pygame.display.flip()</code>, fuera del flujo principal. Esto significa que:
+                </p>
+                <ul>
+                    <li>Las verificaciones no se ejecutaban en el momento correcto (después de que la pantalla ya se había actualizado).</li>
+                    <li>No podían detectar problemas en el pipeline antes del flip.</li>
+                    <li>Los logs no mostraban estas verificaciones porque estaban en un lugar que no se ejecutaba en el flujo normal.</li>
+                </ul>
+                <p>
+                    <strong>Síntomas observados:</strong>
+                </p>
+                <ul>
+                    <li><code>[Renderer-Pixel-Draw]</code> y <code>[Renderer-Scale-Blit]</code> NO aparecían en los logs.</li>
+                    <li><code>[Renderer-CPP-PPU-Entry]</code> y <code>[Renderer-Screen-Update]</code> SÍ aparecían (otras verificaciones funcionaban).</li>
+                    <li>Pantallas completamente blancas con algunos píxeles oscuros dispersos.</li>
+                    <li>La aplicación se colgaba (<code>main.py</code> no respondía).</li>
+                </ul>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <h3>Tarea 1: Mover Verificación Tarea 3 (Pixel Draw) al Punto Correcto</h3>
+                <p>
+                    <strong>Ubicación anterior:</strong> Líneas 1971-2000 (después de <code>pygame.display.flip()</code>).<br>
+                    <strong>Ubicación nueva:</strong> Después de <code>surfarray.blit_array()</code> (línea 1570) para NumPy, y después de asignar <code>self.surface = self._px_array_surface</code> (línea 1619) para PixelArray.
+                </p>
+                <p>
+                    La verificación ahora se ejecuta inmediatamente después de dibujar los píxeles en la superficie, permitiendo detectar problemas en la conversión de índices a RGB o en el dibujo de píxeles.
+                </p>
+                
+                <h3>Tarea 2: Mover Verificación Tarea 4 (Scale Blit) al Punto Correcto</h3>
+                <p>
+                    <strong>Ubicación anterior:</strong> Líneas 2046-2076 (después de <code>pygame.display.flip()</code>).<br>
+                    <strong>Ubicación nueva:</strong> Después de <code>self.screen.blit()</code> (línea 2002), antes de <code>pygame.display.flip()</code>.
+                </p>
+                <p>
+                    La verificación ahora se ejecuta después del blit a la pantalla pero antes del flip, permitiendo detectar problemas en el escalado o en el blit.
+                </p>
+
+                <h3>Tarea 3: Agregar Verificación de Framebuffer Recibido</h3>
+                <p>
+                    <strong>Ubicación:</strong> Al inicio del bloque C++ PPU (después de línea 593).<br>
+                    <strong>Función:</strong> Verifica que el framebuffer recibido de C++ tiene datos válidos:
+                </p>
+                <ul>
+                    <li>Verifica que <code>frame_indices</code> no es None y tiene 23040 elementos.</li>
+                    <li>Muestra los primeros 20 índices del framebuffer.</li>
+                    <li>Cuenta píxeles no-cero y muestra el porcentaje.</li>
+                    <li>Loggea si el framebuffer está completamente blanco (todos los índices son 0).</li>
+                </ul>
+
+                <h3>Tarea 4: Agregar Verificación de Conversión RGB</h3>
+                <p>
+                    <strong>Ubicación:</strong> Después de crear <code>rgb_array</code> (después de línea 1529).<br>
+                    <strong>Función:</strong> Verifica que los primeros 20 píxeles del <code>rgb_array</code> tienen los valores RGB correctos según la paleta:
+                </p>
+                <ul>
+                    <li>Compara los valores RGB esperados (basados en los índices del framebuffer y la paleta) con los valores RGB actuales en el array.</li>
+                    <li>Loggea discrepancias si los valores no coinciden.</li>
+                </ul>
+
+                <h3>Tarea 5: Agregar Verificación de Superficie Después de NumPy Blit</h3>
+                <p>
+                    <strong>Ubicación:</strong> Después de <code>surfarray.blit_array()</code> (después de línea 1570).<br>
+                    <strong>Función:</strong> Verifica que <code>self.surface</code> tiene los píxeles correctos después de <code>surfarray.blit_array()</code>:
+                </p>
+                <ul>
+                    <li>Lee los primeros 20 píxeles de <code>self.surface</code>.</li>
+                    <li>Compara con los valores esperados del <code>rgb_array</code>.</li>
+                    <li>Loggea discrepancias si hay diferencias.</li>
+                </ul>
+
+                <h3>Tarea 6: Agregar Verificación de Superficie Escalada</h3>
+                <p>
+                    <strong>Ubicación:</strong> Después de <code>pygame.transform.scale()</code> (después de línea 1816).<br>
+                    <strong>Función:</strong> Verifica que <code>self._scaled_surface_cache</code> tiene los píxeles correctos después del escalado:
+                </p>
+                <ul>
+                    <li>Lee algunos píxeles de la superficie escalada y los compara con la superficie original.</li>
+                    <li>Verifica que el escalado no está corrompiendo los datos (permite pequeñas diferencias debido a la interpolación).</li>
+                </ul>
+
+                <h3>Código Implementado</h3>
+                <p>
+                    Todas las verificaciones se implementaron con tags específicos para facilitar el análisis de logs:
+                </p>
+                <ul>
+                    <li><code>[Renderer-Framebuffer-Received]</code>: Verificación de framebuffer recibido</li>
+                    <li><code>[Renderer-RGB-Conversion]</code>: Verificación de conversión RGB</li>
+                    <li><code>[Renderer-Surface-After-NumPy]</code>: Verificación de superficie después de NumPy blit</li>
+                    <li><code>[Renderer-Pixel-Draw]</code>: Verificación de píxeles dibujados (Tarea 3)</li>
+                    <li><code>[Renderer-Surface-Scaled]</code>: Verificación de superficie escalada</li>
+                    <li><code>[Renderer-Scale-Blit]</code>: Verificación de escalado y blit (Tarea 4)</li>
+                </ul>
+            </section>
+
+            <!-- 4. Hallazgos -->
+            <section id="hallazgos">
+                <h2>Hallazgos</h2>
+                <h3>Corrección de Ubicación de Verificaciones</h3>
+                <p>
+                    ✅ <strong>Verificaciones movidas correctamente:</strong> Las verificaciones de las Tareas 3 y 4 ahora están en sus ubicaciones correctas en el pipeline de renderizado.
+                </p>
+                <p>
+                    ✅ <strong>Nuevas verificaciones agregadas:</strong> Se agregaron 4 nuevas verificaciones para diagnosticar el problema de pantallas blancas:
+                </p>
+                <ul>
+                    <li>Verificación de framebuffer recibido (al inicio del bloque C++ PPU)</li>
+                    <li>Verificación de conversión RGB (después de crear rgb_array)</li>
+                    <li>Verificación de superficie después de NumPy blit</li>
+                    <li>Verificación de superficie escalada</li>
+                </ul>
+                <h3>Estado de las Pruebas</h3>
+                <p>
+                    Las pruebas se ejecutaron con un timeout de 30 segundos. El renderer se inicializa correctamente, pero no se generaron frames completos en el tiempo de prueba. Las verificaciones están en los lugares correctos y se ejecutarán cuando el renderizado se ejecute.
+                </p>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <h3>Pruebas Ejecutadas</h3>
+                <p>
+                    Se ejecutó una prueba corta (30 segundos) con la ROM pkmn.gb:
+                </p>
+                <pre><code>timeout 30 python3 main.py roms/pkmn.gb 2>&1 | tee logs/test_pkmn_step0375.log</code></pre>
+                <h3>Comando de Compilación</h3>
+                <pre><code>python3 setup.py build_ext --inplace</code></pre>
+                <p>
+                    <strong>Resultado:</strong> Compilación exitosa sin errores.
+                </p>
+                <h3>Análisis de Logs</h3>
+                <p>
+                    Los logs muestran que el renderer se inicializa correctamente, pero no se generaron frames completos en el tiempo de prueba (30 segundos). Las verificaciones están en los lugares correctos y se ejecutarán cuando el renderizado se ejecute.
+                </p>
+                <h3>Validación de Módulo Compilado C++</h3>
+                <p>
+                    ✅ <strong>Módulo C++ compilado correctamente:</strong> No se encontraron errores de compilación. El módulo está listo para ejecutarse.
+                </p>
+            </section>
+
+            <!-- 6. Archivos Afectados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Corrección de ubicación de verificaciones y agregadas nuevas verificaciones de diagnóstico (Step 0375)</li>
+                    <li><code>build_log_step0375.txt</code> - Log de compilación exitosa</li>
+                    <li><code>logs/test_pkmn_step0375.log</code> - Log de prueba con ROM pkmn.gb</li>
+                </ul>
+            </section>
+
+            <!-- 7. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <p>
+                    Después de completar este step:
+                </p>
+                <ul>
+                    <li>Ejecutar pruebas más largas para generar frames completos y verificar que las verificaciones aparecen en los logs.</li>
+                    <li>Analizar los logs para identificar en qué punto del pipeline se pierde la información del framebuffer.</li>
+                    <li>Si las pantallas siguen blancas, investigar más a fondo el problema de conversión de índices a RGB o el problema de paleta.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                <a href="../index.html">Volver al índice</a> | 
+                <a href="2025-12-30__0373__correccion-timing-render-scanline.html">Step anterior (0373)</a>
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+

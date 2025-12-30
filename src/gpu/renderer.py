@@ -579,7 +579,51 @@ class Renderer:
         
         # OPTIMIZACIÓN: Si usamos PPU C++, hacer blit directo del framebuffer
         if self.use_cpp_ppu and self.cpp_ppu is not None:
+            # --- Step 0374: Verificación de Entrada al Bloque C++ PPU ---
+            if not hasattr(self, '_cpp_ppu_entry_verify_count'):
+                self._cpp_ppu_entry_verify_count = 0
+            
+            self._cpp_ppu_entry_verify_count += 1
+            
+            if self._cpp_ppu_entry_verify_count <= 10:
+                logger.info(f"[Renderer-CPP-PPU-Entry] Frame {self._cpp_ppu_entry_verify_count} | "
+                           f"Entrando al bloque C++ PPU | use_cpp_ppu={self.use_cpp_ppu} | cpp_ppu is None: {self.cpp_ppu is None}")
+                print(f"[Renderer-CPP-PPU-Entry] Frame {self._cpp_ppu_entry_verify_count} | "
+                      f"Entrando al bloque C++ PPU | use_cpp_ppu={self.use_cpp_ppu} | cpp_ppu is None: {self.cpp_ppu is None}")
+            # -------------------------------------------
+            
             try:
+                # --- Step 0375: Tarea 3 - Verificación de Framebuffer Recibido ---
+                # Verificar que el framebuffer recibido tiene datos válidos
+                if framebuffer_data is not None:
+                    if not hasattr(self, '_framebuffer_received_verify_count'):
+                        self._framebuffer_received_verify_count = 0
+                    
+                    self._framebuffer_received_verify_count += 1
+                    
+                    if self._framebuffer_received_verify_count <= 10:
+                        # Verificar que frame_indices no es None y tiene 23040 elementos
+                        first_20_indices = [framebuffer_data[i] & 0x03 for i in range(min(20, len(framebuffer_data)))]
+                        non_zero_count = sum(1 for i in range(len(framebuffer_data)) if (framebuffer_data[i] & 0x03) != 0)
+                        
+                        logger.info(f"[Renderer-Framebuffer-Received] Frame {self._framebuffer_received_verify_count} | "
+                                   f"Length: {len(framebuffer_data)} | "
+                                   f"First 20 indices: {first_20_indices} | "
+                                   f"Non-zero pixels: {non_zero_count}/23040 ({non_zero_count*100/23040:.2f}%)")
+                        print(f"[Renderer-Framebuffer-Received] Frame {self._framebuffer_received_verify_count} | "
+                              f"Length: {len(framebuffer_data)} | "
+                              f"First 20 indices: {first_20_indices} | "
+                              f"Non-zero pixels: {non_zero_count}/23040 ({non_zero_count*100/23040:.2f}%)")
+                        
+                        if len(framebuffer_data) != 23040:
+                            logger.warning(f"[Renderer-Framebuffer-Received] ⚠️ PROBLEMA: Framebuffer tiene {len(framebuffer_data)} elementos, esperado 23040!")
+                            print(f"[Renderer-Framebuffer-Received] ⚠️ PROBLEMA: Framebuffer tiene {len(framebuffer_data)} elementos, esperado 23040!")
+                        
+                        if non_zero_count == 0:
+                            logger.warning("[Renderer-Framebuffer-Received] ⚠️ PROBLEMA: Framebuffer completamente blanco (todos los índices son 0)!")
+                            print("[Renderer-Framebuffer-Received] ⚠️ PROBLEMA: Framebuffer completamente blanco (todos los índices son 0)!")
+                # -------------------------------------------
+                
                 # --- STEP 0308: SNAPSHOT INMUTABLE OPTIMIZADO ---
                 # Si se proporciona framebuffer_data, usar ese snapshot en lugar de leer desde PPU
                 diagnostic_data = None  # Inicializar para diagnóstico
@@ -634,8 +678,8 @@ class Renderer:
                             
                             # Verificar conversión RGB para los primeros píxeles
                             if len(framebuffer_data) > 0:
-                                # Obtener paleta (BGP)
-                                bgp = self.cpp_ppu.get_bgp() if self.cpp_ppu else 0xE4
+                                # Obtener paleta (BGP) desde MMU (registro I/O 0xFF47)
+                                bgp = self.mmu.read(IO_BGP) if self.mmu else 0xE4
                                 palette_map = {
                                     0: ((bgp >> 0) & 0x03),
                                     1: ((bgp >> 2) & 0x03),
@@ -1149,6 +1193,52 @@ class Renderer:
                             elif not all(0 <= c <= 255 for c in rgb_color):
                                 logger.warning(f"[Renderer-RGB-Conversion] ⚠️ PROBLEMA: RGB fuera de rango: {rgb_color}")
                 # -------------------------------------------
+                
+                # --- Step 0374: Tarea 2 - Verificar Conversión de Índices a RGB ---
+                # Verificar que los índices se convierten correctamente a RGB usando BGP
+                if frame_indices is not None and len(frame_indices) > 0:
+                    if not hasattr(self, '_rgb_conversion_verify_count'):
+                        self._rgb_conversion_verify_count = 0
+                    
+                    self._rgb_conversion_verify_count += 1
+                    
+                    if self._rgb_conversion_verify_count <= 50:
+                        # Obtener paleta (BGP) desde MMU (registro I/O 0xFF47)
+                        bgp = self.mmu.read(IO_BGP) if self.mmu else 0xE4
+                        palette_map = {
+                            0: ((bgp >> 0) & 0x03),
+                            1: ((bgp >> 2) & 0x03),
+                            2: ((bgp >> 4) & 0x03),
+                            3: ((bgp >> 6) & 0x03)
+                        }
+                        
+                        # Mapeo de índices de paleta a RGB (grayscale)
+                        rgb_map = {0: (255, 255, 255), 1: (192, 192, 192), 2: (96, 96, 96), 3: (0, 0, 0)}
+                        
+                        # Verificar primeros 20 píxeles
+                        sample_indices = []
+                        sample_rgb = []
+                        
+                        for i in range(min(20, len(frame_indices))):
+                            idx = frame_indices[i] & 0x03
+                            palette_idx = palette_map.get(idx, 0)
+                            rgb = rgb_map.get(palette_idx, (255, 255, 255))
+                            sample_indices.append(idx)
+                            sample_rgb.append(rgb)
+                        
+                        logger.info(f"[Renderer-RGB-Conversion] Frame {self._rgb_conversion_verify_count} | "
+                                   f"Sample indices: {sample_indices} | Sample RGB: {sample_rgb}")
+                        print(f"[Renderer-RGB-Conversion] Frame {self._rgb_conversion_verify_count} | "
+                              f"Sample indices: {sample_indices} | Sample RGB: {sample_rgb}")
+                        
+                        # Verificar que el índice 3 se convierte a negro
+                        if 3 in sample_indices:
+                            idx_3_pos = sample_indices.index(3)
+                            rgb_3 = sample_rgb[idx_3_pos]
+                            if rgb_3 != (0, 0, 0):
+                                logger.warning(f"[Renderer-RGB-Conversion] ⚠️ PROBLEMA: Índice 3 no se convierte a negro! RGB: {rgb_3}")
+                                print(f"[Renderer-RGB-Conversion] ⚠️ PROBLEMA: Índice 3 no se convierte a negro! RGB: {rgb_3}")
+                # -------------------------------------------
                 # ----------------------------------------
                 
                 # --- STEP 0333: Verificación de Ejecución del Código de Diagnóstico ---
@@ -1474,6 +1564,42 @@ class Renderer:
                         mask = indices_array == i
                         rgb_array[mask] = rgb
                     
+                    # --- Step 0375: Tarea 4 - Verificación de Conversión RGB ---
+                    # Verificar que los primeros 20 píxeles del rgb_array tienen los valores RGB correctos
+                    if not hasattr(self, '_rgb_conversion_verify_count'):
+                        self._rgb_conversion_verify_count = 0
+                    
+                    self._rgb_conversion_verify_count += 1
+                    
+                    if self._rgb_conversion_verify_count <= 10:
+                        # Verificar los primeros 20 píxeles
+                        first_20_rgb = []
+                        first_20_indices_original = []
+                        for i in range(min(20, len(frame_indices))):
+                            idx = frame_indices[i] & 0x03
+                            first_20_indices_original.append(idx)
+                            expected_rgb = palette[idx]
+                            # rgb_array está en formato (144, 160, 3), así que necesitamos calcular (y, x)
+                            y = i // 160
+                            x = i % 160
+                            if y < 144 and x < 160:
+                                actual_rgb = tuple(rgb_array[y, x])
+                                first_20_rgb.append(actual_rgb)
+                                
+                                if actual_rgb != expected_rgb:
+                                    logger.warning(f"[Renderer-RGB-Conversion] ⚠️ PROBLEMA: Pixel {i} (x={x}, y={y}) | "
+                                                  f"Index={idx} | Expected RGB={expected_rgb} | Actual RGB={actual_rgb}")
+                                    print(f"[Renderer-RGB-Conversion] ⚠️ PROBLEMA: Pixel {i} (x={x}, y={y}) | "
+                                          f"Index={idx} | Expected RGB={expected_rgb} | Actual RGB={actual_rgb}")
+                        
+                        logger.info(f"[Renderer-RGB-Conversion] Frame {self._rgb_conversion_verify_count} | "
+                                   f"First 20 indices: {first_20_indices_original} | "
+                                   f"First 20 RGB: {first_20_rgb}")
+                        print(f"[Renderer-RGB-Conversion] Frame {self._rgb_conversion_verify_count} | "
+                              f"First 20 indices: {first_20_indices_original} | "
+                              f"First 20 RGB: {first_20_rgb}")
+                    # -------------------------------------------
+                    
                     # --- Step 0337: Verificación de Aplicación de Paleta en NumPy ---
                     if not hasattr(self, '_numpy_palette_check_count'):
                         self._numpy_palette_check_count = 0
@@ -1509,6 +1635,76 @@ class Renderer:
                     # surfarray espera (width, height, channels), así que necesitamos (160, 144, 3)
                     rgb_array_swapped = np.swapaxes(rgb_array, 0, 1)  # (160, 144, 3)
                     surfarray.blit_array(self.surface, rgb_array_swapped)
+                    
+                    # --- Step 0375: Tarea 5 - Verificación de Superficie Después de NumPy Blit ---
+                    # Verificar que self.surface tiene los píxeles correctos después de surfarray.blit_array()
+                    if not hasattr(self, '_surface_after_numpy_verify_count'):
+                        self._surface_after_numpy_verify_count = 0
+                    
+                    self._surface_after_numpy_verify_count += 1
+                    
+                    if self._surface_after_numpy_verify_count <= 10:
+                        # Leer los primeros 20 píxeles de self.surface y comparar con los valores esperados del rgb_array
+                        surface_pixels = []
+                        expected_pixels = []
+                        for x in range(min(20, 160)):
+                            pixel_color = self.surface.get_at((x, 0)) if hasattr(self.surface, 'get_at') else None
+                            if pixel_color:
+                                surface_pixels.append(pixel_color[:3])  # Solo RGB, ignorar alpha
+                            
+                            # Obtener el valor esperado del rgb_array_swapped (formato width, height, channels)
+                            if x < 160:
+                                expected_rgb = tuple(rgb_array_swapped[x, 0])
+                                expected_pixels.append(expected_rgb)
+                        
+                        logger.info(f"[Renderer-Surface-After-NumPy] Frame {self._surface_after_numpy_verify_count} | "
+                                   f"Surface pixels (first 20): {surface_pixels} | "
+                                   f"Expected pixels (first 20): {expected_pixels}")
+                        print(f"[Renderer-Surface-After-NumPy] Frame {self._surface_after_numpy_verify_count} | "
+                              f"Surface pixels (first 20): {surface_pixels} | "
+                              f"Expected pixels (first 20): {expected_pixels}")
+                        
+                        # Verificar discrepancias
+                        discrepancies = []
+                        for i in range(min(len(surface_pixels), len(expected_pixels))):
+                            if surface_pixels[i] != expected_pixels[i]:
+                                discrepancies.append((i, surface_pixels[i], expected_pixels[i]))
+                        
+                        if discrepancies:
+                            logger.warning(f"[Renderer-Surface-After-NumPy] ⚠️ PROBLEMA: {len(discrepancies)} discrepancias encontradas: {discrepancies}")
+                            print(f"[Renderer-Surface-After-NumPy] ⚠️ PROBLEMA: {len(discrepancies)} discrepancias encontradas: {discrepancies}")
+                    # -------------------------------------------
+                    
+                    # --- Step 0375: Tarea 3 - Verificar que los Píxeles se Dibujan en la Superficie (NumPy) ---
+                    # Verificar que los píxeles se dibujan correctamente en la superficie después de dibujar
+                    if hasattr(self, 'surface') and self.surface is not None:
+                        if not hasattr(self, '_pixel_draw_verify_count'):
+                            self._pixel_draw_verify_count = 0
+                        
+                        self._pixel_draw_verify_count += 1
+                        
+                        if self._pixel_draw_verify_count <= 50:
+                            # Verificar píxeles en la superficie (primeros 20 píxeles de la primera línea)
+                            surface_pixels = []
+                            for x in range(min(20, 160)):
+                                pixel_color = self.surface.get_at((x, 0)) if hasattr(self.surface, 'get_at') else None
+                                if pixel_color:
+                                    surface_pixels.append(pixel_color[:3])  # Solo RGB, ignorar alpha
+                            
+                            logger.info(f"[Renderer-Pixel-Draw] Frame {self._pixel_draw_verify_count} | "
+                                       f"Surface pixels (first 20): {surface_pixels}")
+                            print(f"[Renderer-Pixel-Draw] Frame {self._pixel_draw_verify_count} | "
+                                  f"Surface pixels (first 20): {surface_pixels}")
+                            
+                            # Verificar que hay píxeles negros (índice 3 → RGB(0,0,0))
+                            black_pixels = [p for p in surface_pixels if p == (0, 0, 0)]
+                            # Obtener sample_indices del framebuffer para comparar
+                            if frame_indices is not None and len(frame_indices) >= 20:
+                                sample_indices_check = [frame_indices[i] & 0x03 for i in range(min(20, len(frame_indices)))]
+                                if any(idx == 3 for idx in sample_indices_check) and len(black_pixels) == 0:
+                                    logger.warning("[Renderer-Pixel-Draw] ⚠️ PROBLEMA: No hay píxeles negros en la superficie aunque el framebuffer tiene índice 3!")
+                                    print("[Renderer-Pixel-Draw] ⚠️ PROBLEMA: No hay píxeles negros en la superficie aunque el framebuffer tiene índice 3!")
+                    # -------------------------------------------
                     
                 except ImportError:
                     # Fallback: PixelArray optimizado (más rápido que bucle simple)
@@ -1558,6 +1754,37 @@ class Renderer:
                     
                     px_array.close()
                     self.surface = self._px_array_surface
+                    
+                    # --- Step 0375: Tarea 3 - Verificar que los Píxeles se Dibujan en la Superficie (PixelArray) ---
+                    # Verificar que los píxeles se dibujan correctamente en la superficie después de dibujar
+                    if hasattr(self, 'surface') and self.surface is not None:
+                        if not hasattr(self, '_pixel_draw_verify_count_pxarray'):
+                            self._pixel_draw_verify_count_pxarray = 0
+                        
+                        self._pixel_draw_verify_count_pxarray += 1
+                        
+                        if self._pixel_draw_verify_count_pxarray <= 50:
+                            # Verificar píxeles en la superficie (primeros 20 píxeles de la primera línea)
+                            surface_pixels = []
+                            for x in range(min(20, 160)):
+                                pixel_color = self.surface.get_at((x, 0)) if hasattr(self.surface, 'get_at') else None
+                                if pixel_color:
+                                    surface_pixels.append(pixel_color[:3])  # Solo RGB, ignorar alpha
+                            
+                            logger.info(f"[Renderer-Pixel-Draw] Frame {self._pixel_draw_verify_count_pxarray} (PixelArray) | "
+                                       f"Surface pixels (first 20): {surface_pixels}")
+                            print(f"[Renderer-Pixel-Draw] Frame {self._pixel_draw_verify_count_pxarray} (PixelArray) | "
+                                  f"Surface pixels (first 20): {surface_pixels}")
+                            
+                            # Verificar que hay píxeles negros (índice 3 → RGB(0,0,0))
+                            black_pixels = [p for p in surface_pixels if p == (0, 0, 0)]
+                            # Obtener sample_indices del framebuffer para comparar
+                            if frame_indices is not None and len(frame_indices) >= 20:
+                                sample_indices_check = [frame_indices[i] & 0x03 for i in range(min(20, len(frame_indices)))]
+                                if any(idx == 3 for idx in sample_indices_check) and len(black_pixels) == 0:
+                                    logger.warning("[Renderer-Pixel-Draw] ⚠️ PROBLEMA: No hay píxeles negros en la superficie aunque el framebuffer tiene índice 3!")
+                                    print("[Renderer-Pixel-Draw] ⚠️ PROBLEMA: No hay píxeles negros en la superficie aunque el framebuffer tiene índice 3!")
+                    # -------------------------------------------
                 
                 render_time = (time.time() - render_start) * 1000  # en milisegundos
                 
@@ -1757,6 +1984,45 @@ class Renderer:
                 self._scaled_surface_cache = pygame.transform.scale(self.surface, current_screen_size)
                 self._cache_screen_size = current_screen_size
                 
+                # --- Step 0375: Tarea 6 - Verificación de Superficie Escalada ---
+                # Verificar que self._scaled_surface_cache tiene los píxeles correctos después del escalado
+                if not hasattr(self, '_surface_scaled_verify_count'):
+                    self._surface_scaled_verify_count = 0
+                
+                self._surface_scaled_verify_count += 1
+                
+                if self._surface_scaled_verify_count <= 10:
+                    # Leer algunos píxeles de la superficie escalada y comparar con la superficie original
+                    test_pixels = [(0, 0), (80, 72), (159, 143)]
+                    scale_x = current_screen_size[0] / 160
+                    scale_y = current_screen_size[1] / 144
+                    
+                    for x, y in test_pixels:
+                        # Color de la superficie original
+                        original_color = self.surface.get_at((x, y))[:3] if hasattr(self.surface, 'get_at') else None
+                        
+                        # Color de la superficie escalada (escalar las coordenadas)
+                        scaled_x = int(x * scale_x)
+                        scaled_y = int(y * scale_y)
+                        if scaled_x < current_screen_size[0] and scaled_y < current_screen_size[1]:
+                            scaled_color = self._scaled_surface_cache.get_at((scaled_x, scaled_y))[:3] if hasattr(self._scaled_surface_cache, 'get_at') else None
+                            
+                            logger.info(f"[Renderer-Surface-Scaled] Frame {self._surface_scaled_verify_count} | "
+                                       f"Pixel ({x}, {y}) → ({scaled_x}, {scaled_y}) | "
+                                       f"Original: {original_color} | Scaled: {scaled_color}")
+                            print(f"[Renderer-Surface-Scaled] Frame {self._surface_scaled_verify_count} | "
+                                  f"Pixel ({x}, {y}) → ({scaled_x}, {scaled_y}) | "
+                                  f"Original: {original_color} | Scaled: {scaled_color}")
+                            
+                            # Verificar que el escalado no está corrompiendo los datos (deben ser similares)
+                            if original_color and scaled_color:
+                                # Permitir pequeñas diferencias debido al escalado (interpolación)
+                                diff = sum(abs(original_color[i] - scaled_color[i]) for i in range(3))
+                                if diff > 50:  # Umbral de diferencia aceptable
+                                    logger.warning(f"[Renderer-Surface-Scaled] ⚠️ PROBLEMA: Diferencia grande en pixel ({x}, {y}): diff={diff}")
+                                    print(f"[Renderer-Surface-Scaled] ⚠️ PROBLEMA: Diferencia grande en pixel ({x}, {y}): diff={diff}")
+                # -------------------------------------------
+                
                 # --- Step 0337: Verificación de Escalado ---
                 if not hasattr(self, '_scale_check_count'):
                     self._scale_check_count = 0
@@ -1901,7 +2167,7 @@ class Renderer:
                             if hasattr(self, '_scaled_surface_cache') and self._scaled_surface_cache is not None:
                                 screen_pixels = []
                                 for i in range(10):
-                                    x, y = (i % 160) * self._scale, (i // 160) * self._scale
+                                    x, y = (i % 160) * self.scale, (i // 160) * self.scale
                                     if x < self.screen.get_width() and y < self.screen.get_height():
                                         pixel_color = self.screen.get_at((x, y))
                                         screen_pixels.append(pixel_color[:3])
@@ -1910,6 +2176,39 @@ class Renderer:
                 # -------------------------------------------
                 
                 self.screen.blit(self._scaled_surface_cache, (0, 0))
+                
+                # --- Step 0375: Tarea 4 - Verificar Escalado y Blit ---
+                # Verificar que los píxeles se copian correctamente a la pantalla después del escalado y blit
+                if not hasattr(self, '_scale_blit_verify_count'):
+                    self._scale_blit_verify_count = 0
+                
+                self._scale_blit_verify_count += 1
+                
+                if self._scale_blit_verify_count <= 50:
+                    # Verificar píxeles en la pantalla después del blit (primeros 20 píxeles escalados)
+                    screen_pixels = []
+                    scale_x = self.window_width // 160
+                    scale_y = self.window_height // 144
+                    
+                    for x in range(min(20, 160)):
+                        screen_x = x * scale_x
+                        if screen_x < self.window_width:
+                            pixel_color = self.screen.get_at((screen_x, 0)) if hasattr(self.screen, 'get_at') else None
+                            if pixel_color:
+                                screen_pixels.append(pixel_color[:3])  # Solo RGB, ignorar alpha
+                    
+                    logger.info(f"[Renderer-Scale-Blit] Frame {self._scale_blit_verify_count} | "
+                               f"Screen pixels after blit (first 20): {screen_pixels}")
+                    print(f"[Renderer-Scale-Blit] Frame {self._scale_blit_verify_count} | "
+                          f"Screen pixels after blit (first 20): {screen_pixels}")
+                    
+                    # Verificar que hay píxeles negros en la pantalla
+                    black_pixels = [p for p in screen_pixels if p == (0, 0, 0)]
+                    if len(black_pixels) == 0:
+                        logger.warning("[Renderer-Scale-Blit] ⚠️ PROBLEMA: No hay píxeles negros en la pantalla después del blit!")
+                        print("[Renderer-Scale-Blit] ⚠️ PROBLEMA: No hay píxeles negros en la pantalla después del blit!")
+                # -------------------------------------------
+                
                 # Actualizamos la pantalla
                 pygame.display.flip()
                 
@@ -1939,7 +2238,7 @@ class Renderer:
                             # Verificar después del flip
                             screen_pixels_after = []
                             for i in range(10):
-                                x, y = (i % 160) * self._scale, (i // 160) * self._scale
+                                x, y = (i % 160) * self.scale, (i // 160) * self.scale
                                 if x < self.screen.get_width() and y < self.screen.get_height():
                                     pixel_color = self.screen.get_at((x, y))
                                     screen_pixels_after.append(pixel_color[:3])
@@ -2270,6 +2569,21 @@ class Renderer:
         # Solo decodifica tiles que han cambiado desde el último frame
         self.update_tile_cache(palette)
         
+        # --- Step 0374: Tarea 6 - Verificar si el Buffer se Llena con Blanco Antes de Dibujar ---
+        # Verificar el orden: buffer.fill() debe ejecutarse ANTES de dibujar los píxeles
+        if not hasattr(self, '_buffer_fill_verify_count'):
+            self._buffer_fill_verify_count = 0
+        
+        self._buffer_fill_verify_count += 1
+        
+        if self._buffer_fill_verify_count <= 50:
+            logger.info(f"[Renderer-Buffer-Fill] Frame {self._buffer_fill_verify_count} | "
+                       f"Verificando orden de buffer.fill() y dibujo de píxeles")
+            print(f"[Renderer-Buffer-Fill] Frame {self._buffer_fill_verify_count} | "
+                  f"Verificando orden de buffer.fill() y dibujo de píxeles")
+            # NOTA: buffer.fill() se ejecuta ANTES de dibujar (línea siguiente), esto es correcto
+        # -------------------------------------------
+        
         # FIX: Limpiar framebuffer al principio de cada frame para eliminar artefactos
         # Esto asegura que no queden "fantasmas" de sprites o gráficos anteriores
         self.buffer.fill(palette[0])
@@ -2444,13 +2758,87 @@ class Renderer:
         # Los sprites se dibujan después del fondo para que aparezcan por encima
         sprites_drawn = self.render_sprites()
         
+        # --- Step 0374: Tarea 3 (Método Python) - Verificar que los Píxeles se Dibujan en el Buffer ---
+        # Verificar que los píxeles se dibujan correctamente en self.buffer después de dibujar
+        if hasattr(self, 'buffer') and self.buffer is not None:
+            if not hasattr(self, '_pixel_draw_verify_count_python'):
+                self._pixel_draw_verify_count_python = 0
+            
+            self._pixel_draw_verify_count_python += 1
+            
+            if self._pixel_draw_verify_count_python <= 50:
+                # Verificar píxeles en el buffer (primeros 20 píxeles de la primera línea)
+                buffer_pixels = []
+                for x in range(min(20, 160)):
+                    pixel_color = self.buffer.get_at((x, 0)) if hasattr(self.buffer, 'get_at') else None
+                    if pixel_color:
+                        buffer_pixels.append(pixel_color[:3])  # Solo RGB, ignorar alpha
+                
+                logger.info(f"[Renderer-Pixel-Draw-Python] Frame {self._pixel_draw_verify_count_python} | "
+                           f"Buffer pixels (first 20): {buffer_pixels}")
+                print(f"[Renderer-Pixel-Draw-Python] Frame {self._pixel_draw_verify_count_python} | "
+                      f"Buffer pixels (first 20): {buffer_pixels}")
+                
+                # Verificar que hay píxeles negros (índice 3 → RGB(0,0,0))
+                black_pixels = [p for p in buffer_pixels if p == (0, 0, 0)]
+                if len(black_pixels) == 0:
+                    logger.warning("[Renderer-Pixel-Draw-Python] ⚠️ PROBLEMA: No hay píxeles negros en el buffer después de dibujar!")
+                    print("[Renderer-Pixel-Draw-Python] ⚠️ PROBLEMA: No hay píxeles negros en el buffer después de dibujar!")
+        # -------------------------------------------
+        
         # Escalar el framebuffer a la ventana y hacer blit
         # pygame.transform.scale es rápido porque opera sobre una superficie completa
         scaled_buffer = pygame.transform.scale(self.buffer, (self.window_width, self.window_height))
         self.screen.blit(scaled_buffer, (0, 0))
         
+        # --- Step 0374: Tarea 4 (Método Python) - Verificar Escalado y Blit ---
+        # Verificar que los píxeles se copian correctamente a la pantalla después del escalado y blit
+        if not hasattr(self, '_scale_blit_verify_count_python'):
+            self._scale_blit_verify_count_python = 0
+        
+        self._scale_blit_verify_count_python += 1
+        
+        if self._scale_blit_verify_count_python <= 50:
+            # Verificar píxeles en la pantalla después del blit (primeros 20 píxeles escalados)
+            screen_pixels = []
+            scale_x = self.window_width // 160
+            scale_y = self.window_height // 144
+            
+            for x in range(min(20, 160)):
+                screen_x = x * scale_x
+                if screen_x < self.window_width:
+                    pixel_color = self.screen.get_at((screen_x, 0)) if hasattr(self.screen, 'get_at') else None
+                    if pixel_color:
+                        screen_pixels.append(pixel_color[:3])  # Solo RGB, ignorar alpha
+            
+            logger.info(f"[Renderer-Scale-Blit-Python] Frame {self._scale_blit_verify_count_python} | "
+                       f"Screen pixels after blit (first 20): {screen_pixels}")
+            print(f"[Renderer-Scale-Blit-Python] Frame {self._scale_blit_verify_count_python} | "
+                  f"Screen pixels after blit (first 20): {screen_pixels}")
+            
+            # Verificar que hay píxeles negros en la pantalla
+            black_pixels = [p for p in screen_pixels if p == (0, 0, 0)]
+            if len(black_pixels) == 0:
+                logger.warning("[Renderer-Scale-Blit-Python] ⚠️ PROBLEMA: No hay píxeles negros en la pantalla después del blit!")
+                print("[Renderer-Scale-Blit-Python] ⚠️ PROBLEMA: No hay píxeles negros en la pantalla después del blit!")
+        # -------------------------------------------
+        
         # Actualizar la pantalla
         pygame.display.flip()
+        
+        # --- Step 0374: Tarea 5 - Verificar Actualización de Pantalla ---
+        # Verificar que pygame.display.flip() se ejecuta y actualiza la pantalla
+        if not hasattr(self, '_screen_update_verify_count'):
+            self._screen_update_verify_count = 0
+        
+        self._screen_update_verify_count += 1
+        
+        if self._screen_update_verify_count <= 50:
+            logger.info(f"[Renderer-Screen-Update] Frame {self._screen_update_verify_count} | "
+                       f"pygame.display.flip() ejecutado")
+            print(f"[Renderer-Screen-Update] Frame {self._screen_update_verify_count} | "
+                  f"pygame.display.flip() ejecutado")
+        # -------------------------------------------
         
         # --- Step 0348: Verificación de Actualización de Pantalla ---
         # Verificar que la pantalla se actualiza correctamente después de flip()

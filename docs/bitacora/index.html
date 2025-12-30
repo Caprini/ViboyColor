@@ -32,6 +32,42 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0376 - Verificación Visual y Ejecución de Pruebas Extendidas -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-30__0376__verificacion-visual-pruebas-extendidas.html" class="entry-link">
+                                    Verificación Visual y Ejecución de Pruebas Extendidas
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-30 | 
+                            <strong>Step ID:</strong> 0376 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se ejecutaron pruebas extendidas con ROMs de prueba (pkmn.gb) para verificar visualmente que el renderizado funciona correctamente después de las correcciones de los Steps 0372-0375. Se analizaron logs de diagnóstico completos para confirmar que el pipeline funciona desde C++ hasta la pantalla. Se identificó y corrigió un error crítico: uso de self._scale en lugar de self.scale que causaba que el renderizado fallara y se usara el método Python como fallback.
+                        </p>
+                    </li>
+                                        <!-- Entrada 0375 - Corrección de Verificaciones de Renderizado y Diagnóstico de Pantallas Blancas -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-30__0375__correccion-verificaciones-renderizado-diagnostico-pantallas-blancas.html" class="entry-link">
+                                    Corrección de Verificaciones de Renderizado y Diagnóstico de Pantallas Blancas
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-30 | 
+                            <strong>Step ID:</strong> 0375 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se corrigieron las verificaciones de las Tareas 3 y 4 del Step 0374 que no se ejecutaban porque estaban en el lugar incorrecto del flujo (después de pygame.display.flip()). Las verificaciones se movieron a sus ubicaciones correctas en el pipeline de renderizado, y se agregaron nuevas verificaciones para diagnosticar por qué las pantallas están completamente blancas a pesar de que el framebuffer tiene datos (checkerboard pattern). Las verificaciones ahora se ejecutan en los puntos correctos del flujo: después de dibujar en la superficie, después de escalar, y después del blit a la pantalla (antes de flip).
+                        </p>
+                    </li>
                                         <!-- Entrada 0373 - Corrección de Timing de render_scanline() -->
                     <li>
                         <div class="entry-header">

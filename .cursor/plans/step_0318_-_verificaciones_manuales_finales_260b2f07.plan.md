@@ -25,7 +25,7 @@ Ejecutar las verificaciones manuales finales después de las optimizaciones del 
 
 1. Ejecutar el emulador:
    ```powershell
-               python main.py roms/pkmn.gb
+                  python main.py roms/pkmn.gb
    ```
 
 
@@ -54,7 +54,7 @@ Ejecutar las verificaciones manuales finales después de las optimizaciones del 
 
 1. Ejecutar el emulador:
    ```powershell
-               python main.py roms/pkmn.gb
+                  python main.py roms/pkmn.gb
    ```
 
 
@@ -90,7 +90,7 @@ Ejecutar las verificaciones manuales finales después de las optimizaciones del 
 
 1. **Probar ROM GB (DMG) - Pokémon Red**:
    ```powershell
-               python main.py roms/pkmn.gb
+                  python main.py roms/pkmn.gb
    ```
 
 
@@ -105,7 +105,7 @@ Ejecutar las verificaciones manuales finales después de las optimizaciones del 
 
 2. **Probar ROM GBC** (si está disponible):
    ```powershell
-               python main.py roms/[nombre_rom_gbc].gbc
+                  python main.py roms/[nombre_rom_gbc].gbc
    ```
 
 
@@ -139,7 +139,7 @@ Ejecutar las verificaciones manuales finales después de las optimizaciones del 
 
 1. Ejecutar el emulador:
    ```powershell
-               python main.py roms/pkmn.gb
+                  python main.py roms/pkmn.gb
    ```
 
 
@@ -309,6 +309,7 @@ Al finalizar cada verificación, reportar en el formato:
 - Detalles: [Descripción breve]
 - Problemas encontrados: [Lista o "Ninguno"]
 - Próximos pasos: [Si aplica]
+
 
 
 
