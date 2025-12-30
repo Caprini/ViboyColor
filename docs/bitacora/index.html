@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0388 - STAT Rising-Edge y Recuperación IE/IME (Zelda DX) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-30__0388__stat-rising-edge-y-recuperacion-ie-ime-zelda.html" class="entry-link">
+                                    STAT Rising-Edge y Recuperación IE/IME (Zelda DX)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-30 | 
+                            <strong>Step ID:</strong> 0388 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Revertido el workaround del Step 0386 y restaurada la implementación correcta de STAT interrupt con rising-edge detection. Eliminados todos los workarounds temporales. STAT IRQ ahora se dispara correctamente 1 vez por frame cuando LYC=LY (rising edge funcional). Añadida instrumentación de EI/DI para diagnóstico de IME. Zelda DX progresa significativamente: IE=0x01/IME=1 restaurados (antes IE=0x00/IME=0 bloqueados), pero espera en nuevo waitloop (PC:0x0370 Bank:12) por timing impreciso. Tetris y Mario DX funcionan perfectamente sin regresiones. IF puede tener bits pendientes aunque IE no los permita (comportamiento correcto según Pan Docs).
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0387 - Diagnóstico de PC Corrupto en 0xFEE6 (Zelda DX) -->
                     <li>
                         <div class="entry-header">

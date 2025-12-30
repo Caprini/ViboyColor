@@ -2886,8 +2886,17 @@ int CPU::step() {
             // Esta instrucción se usa típicamente al inicio de rutinas críticas
             // Fuente: Pan Docs - DI: 1 M-Cycle
             {
-                // --- Step 0274: Monitor de Instrucciones DI ---
-                printf("[CPU] DI (Disable Interrupts) en PC:0x%04X\n", (regs_->pc - 1) & 0xFFFF);
+                // --- Step 0388: Instrumentación de DI (limitada a 50) ---
+                static int di_log_count = 0;
+                if (di_log_count < 50) {
+                    di_log_count++;
+                    printf("[EI-DI] DI ejecutado | PC: 0x%04X | Bank: %d | "
+                           "IME: %d -> 0 | Count: %d\n",
+                           (regs_->pc - 1) & 0xFFFF, mmu_->get_current_rom_bank(),
+                           ime_ ? 1 : 0, di_log_count);
+                }
+                // -------------------------------------------
+                
                 ime_ = false;
                 ime_scheduled_ = false;  // Cancelar cualquier EI pendiente
                 cycles_ += 1;  // DI consume 1 M-Cycle
@@ -2901,12 +2910,17 @@ int CPU::step() {
             // Esto permite que la instrucción siguiente a EI se ejecute sin interrupciones
             // Fuente: Pan Docs - EI: 1 M-Cycle
             {
-                // --- Step 0294: Monitor de Instrucciones EI ([EI-TRACE]) ---
-                // Rastrea cuándo se ejecuta EI y el estado de IE e IME.
-                // Esto ayuda a entender cuándo se habilitan las interrupciones.
+                // --- Step 0388: Instrumentación de EI (limitada a 50) ---
                 uint8_t ie_val = mmu_->read(0xFFFF);
-                printf("[EI-TRACE] PC:0x%04X Bank:%d | IE:0x%02X IME:%d -> IME:1 (scheduled)\n",
-                       original_pc, mmu_->get_current_rom_bank(), ie_val, ime_ ? 1 : 0);
+                static int ei_log_count = 0;
+                if (ei_log_count < 50) {
+                    ei_log_count++;
+                    printf("[EI-DI] EI ejecutado | PC: 0x%04X | Bank: %d | "
+                           "IE: 0x%02X | IME: %d -> 1 (scheduled) | Count: %d\n",
+                           original_pc, mmu_->get_current_rom_bank(),
+                           ie_val, ime_ ? 1 : 0, ei_log_count);
+                }
+                // -------------------------------------------
                 
                 // Verificar qué interrupciones están habilitadas
                 if (ie_val != 0x00) {
