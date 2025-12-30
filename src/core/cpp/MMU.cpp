@@ -66,7 +66,9 @@ MMU::MMU()
     , ram_bank_size_(0x2000)
     , ram_bank_count_(0)
     , ram_bank_(0)
-    , ram_enabled_(false) {
+    , ram_enabled_(false)
+    , vram_write_total_step382_(0)
+    , vram_write_nonzero_step382_(0) {
     // Inicializar memoria a 0
     // --- Step 0189: Inicialización de Registros de Hardware (Post-BIOS) ---
     // Estos son los valores que los registros de I/O tienen después de que la
@@ -1524,6 +1526,52 @@ void MMU::write(uint16_t addr, uint8_t value) {
         }
     }
     // -------------------------------------------
+    
+    // --- Step 0382: Instrumentación de Escrituras a VRAM (Diagnóstico H1/H2) ---
+    // Detecta y registra escrituras a VRAM para determinar si:
+    // - H1: CPU no escribe a VRAM (flujo atascado)
+    // - H2: CPU escribe pero las escrituras se bloquean/no aplican
+    if (addr >= 0x8000 && addr <= 0x9FFF) {
+        vram_write_total_step382_++;
+        if (value != 0x00) {
+            vram_write_nonzero_step382_++;
+        }
+        
+        // Loggear solo las primeras 50 escrituras con detalle completo
+        static int vram_log_count_step382 = 0;
+        if (vram_log_count_step382 < 50) {
+            vram_log_count_step382++;
+            
+            // Obtener información de PPU si está disponible
+            uint8_t ppu_mode = 0;
+            uint8_t ly = 0;
+            uint8_t lcdc = memory_[0xFF40];
+            bool write_would_be_blocked = false;
+            
+            if (ppu_ != nullptr) {
+                ppu_mode = static_cast<uint8_t>(ppu_->get_mode());
+                ly = ppu_->get_ly();
+                
+                // En hardware real, VRAM no es accesible en Mode 3 (pixel transfer)
+                // Algunos emuladores también bloquean en Mode 2 (OAM search)
+                write_would_be_blocked = (ppu_mode == 3);
+            }
+            
+            printf("[MMU-VRAM-WRITE] #%d | PC:0x%04X | Addr:0x%04X | Val:0x%02X | "
+                   "Mode:%d | LY:%d | LCDC:0x%02X | Blocked:%s\n",
+                   vram_log_count_step382, debug_current_pc, addr, value,
+                   ppu_mode, ly, lcdc,
+                   write_would_be_blocked ? "YES" : "NO");
+        }
+        
+        // Resumen cada 1000 escrituras
+        if (vram_write_total_step382_ > 0 && vram_write_total_step382_ % 1000 == 0) {
+            printf("[MMU-VRAM-WRITE-SUMMARY] Total:%d | NonZero:%d | Ratio:%.2f%%\n",
+                   vram_write_total_step382_, vram_write_nonzero_step382_,
+                   (vram_write_nonzero_step382_ * 100.0) / vram_write_total_step382_);
+        }
+    }
+    // -------------------------------------------
 
     memory_[addr] = value;
     
@@ -2141,4 +2189,11 @@ void MMU::load_test_tiles() {
     printf("[LOAD-TEST-TILES]   Tile Map configurado con patron alternado\n");
 }
 // --- Fin Step 0298 ---
+
+// --- Step 0382: Estadísticas de escrituras a VRAM ---
+void MMU::get_vram_write_stats(int& total_writes, int& nonzero_writes) const {
+    total_writes = vram_write_total_step382_;
+    nonzero_writes = vram_write_nonzero_step382_;
+}
+// --- Fin Step 0382 ---
 

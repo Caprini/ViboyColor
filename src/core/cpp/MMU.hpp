@@ -170,6 +170,17 @@ public:
     void check_vram_state_at_point(const char* point_name);
 
     /**
+     * Step 0382: Obtener estadísticas de escrituras a VRAM.
+     * 
+     * Permite consultar cuántas escrituras totales y no-cero se han hecho a VRAM
+     * desde el inicio de la ejecución.
+     * 
+     * @param total_writes Referencia para almacenar el total de escrituras a VRAM
+     * @param nonzero_writes Referencia para almacenar escrituras no-cero a VRAM
+     */
+    void get_vram_write_stats(int& total_writes, int& nonzero_writes) const;
+
+    /**
      * Step 0247: Memory Timeline & PC Tracker
      * 
      * Campo público para rastrear el Program Counter (PC) actual de la CPU.
@@ -260,6 +271,10 @@ private:
     uint16_t normalize_rom_bank(uint16_t bank) const;
     void configure_mbc_from_header(uint8_t cart_type, uint8_t rom_size_code, uint8_t ram_size_code);
     void allocate_ram_from_header(uint8_t ram_size_code);
+    
+    // --- Step 0382: Contadores de diagnóstico para VRAM ---
+    mutable int vram_write_total_step382_;
+    mutable int vram_write_nonzero_step382_;
 };
 
 #endif // MMU_HPP

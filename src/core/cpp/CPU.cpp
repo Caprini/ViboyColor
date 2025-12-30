@@ -11,12 +11,14 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       in_post_cleanup_trace_(false), post_cleanup_trace_count_(0), reg_trace_active_(false),
       last_af_(0xFFFF), last_bc_(0xFFFF), last_de_(0xFFFF), last_hl_(0xFFFF), reg_trace_count_(0),
       jump_trace_active_(false), jump_trace_count_(0), hw_state_trace_active_(false),
-      hw_state_samples_(0), hw_state_sample_counter_(0) {
+      hw_state_samples_(0), hw_state_sample_counter_(0),
+      instruction_counter_step382_(0), last_pc_sample_(0xFFFF), pc_repeat_count_(0) {
     // Validación básica (en producción, podríamos usar assert)
     // Por ahora, confiamos en que Python pasa punteros válidos
     // IME inicia en false por seguridad (el juego lo activará si lo necesita)
     // Step 0287: Inicialización de miembros de diagnóstico (reemplazan variables static)
     // Step 0293: Inicialización de monitores de rastreo post-limpieza
+    // Step 0382: Inicialización de PC sampler
 }
 
 CPU::~CPU() {
@@ -439,6 +441,49 @@ int CPU::step() {
     // Capturamos el PC ANTES de procesar interrupciones para que los monitores
     // se ejecuten incluso cuando hay interrupciones que causan early return
     uint16_t original_pc = regs_->pc;
+    
+    // --- Step 0382: PC Sampler y Detección de Bucles (Diagnóstico H1) ---
+    // Muestrea el PC cada N instrucciones para detectar si la CPU está atascada en un bucle
+    instruction_counter_step382_++;
+    
+    // Muestrear cada 10,000 instrucciones (pero solo loggear las primeras 50 muestras)
+    static int sample_log_count_step382 = 0;
+    if (instruction_counter_step382_ % 10000 == 0 && sample_log_count_step382 < 50) {
+        sample_log_count_step382++;
+        
+        uint8_t ime = ime_ ? 1 : 0;
+        uint8_t ie = mmu_->read(0xFFFF);
+        uint8_t if_reg = mmu_->read(0xFF0F);
+        uint16_t bank = mmu_->get_current_rom_bank();
+        
+        printf("[CPU-SAMPLE] #%d | Instrs:%d | PC:0x%04X | Bank:%d | IME:%d | IE:0x%02X | IF:0x%02X | HALT:%d\n",
+               sample_log_count_step382, instruction_counter_step382_, original_pc, bank,
+               ime, ie, if_reg, halted_ ? 1 : 0);
+        
+        // Detectar bucle: mismo PC repitiéndose
+        if (original_pc == last_pc_sample_) {
+            pc_repeat_count_++;
+            if (pc_repeat_count_ > 3) {
+                printf("[CPU-LOOP-DETECT] ⚠️ PC:0x%04X se repite %d veces! Posible bucle de polling.\n",
+                       original_pc, pc_repeat_count_);
+            }
+        } else {
+            pc_repeat_count_ = 0;
+        }
+        last_pc_sample_ = original_pc;
+    }
+    
+    // Detectar transiciones de HALT
+    static bool was_halted_step382 = false;
+    if (halted_ && !was_halted_step382) {
+        printf("[CPU-HALT] Entrando en HALT | PC:0x%04X | IME:%d | IE:0x%02X | IF:0x%02X\n",
+               original_pc, ime_ ? 1 : 0, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
+    } else if (!halted_ && was_halted_step382) {
+        printf("[CPU-HALT] Saliendo de HALT | PC:0x%04X | IME:%d | IE:0x%02X | IF:0x%02X\n",
+               original_pc, ime_ ? 1 : 0, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
+    }
+    was_halted_step382 = halted_;
+    // -------------------------------------------
     
     // --- Step 0279: Monitor de Reinicio (Reset Loop Detection) ---
     // Detecta cuando el PC pasa por los vectores de reinicio (0x0000 o 0x0100)

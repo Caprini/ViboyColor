@@ -527,6 +527,12 @@ private:
     bool hw_state_trace_active_;  // Flag para activar rastreo de estado de hardware
     int hw_state_samples_;        // Contador de muestras de hardware
     int hw_state_sample_counter_; // Contador interno para muestreo
+    
+    // ========== Estado de Diagnóstico (Step 0382) ==========
+    // PC sampler y detección de bucles
+    int instruction_counter_step382_;  // Contador de instrucciones ejecutadas
+    uint16_t last_pc_sample_;          // Último PC muestreado
+    int pc_repeat_count_;              // Contador de repeticiones del mismo PC
 };
 
 #endif // CPU_HPP

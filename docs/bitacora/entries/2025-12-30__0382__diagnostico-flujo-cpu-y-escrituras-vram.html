@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnóstico de Flujo CPU y Escrituras a VRAM - Viboy Color</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Breadcrumb -->
+        <nav class="breadcrumb">
+            <a href="../index.html">Bitácora</a> &gt; <span>Step 0382</span>
+        </nav>
+
+        <!-- Header -->
+        <header>
+            <h1>Diagnóstico de Flujo CPU y Escrituras a VRAM</h1>
+            <p class="entry-meta">
+                <strong>Fecha:</strong> 2025-12-30 | 
+                <strong>Step ID:</strong> 0382 | 
+                <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+            </p>
+        </header>
+
+        <!-- Contenido Principal -->
+        <main>
+            <section>
+                <h2>Resumen</h2>
+                <p>
+                    Se implementa instrumentación completa para diagnosticar por qué <strong>VRAM permanece vacía (0/6144) tras 120 segundos</strong> en <code>pkmn.gb</code>, a pesar de que el renderizado funciona (checkerboard correcto) y el Joypad funciona (polling confirmado en Steps previos).
+                </p>
+                <p>
+                    El diagnóstico revela que la <strong>CPU SÍ escribe a VRAM</strong> (10,000+ escrituras), pero está ejecutando una rutina de <strong>borrado masivo</strong> (PC:0x36E3 escribe zeros) seguida de carga parcial de tiles (18.08% no-cero). El juego entonces entra en un <strong>loop de polling en Bank 28</strong> (PCs 0x614D-0x6153), esperando condiciones que el emulador no proporciona.
+                </p>
+            </section>
+
+            <section>
+                <h2>Contexto y Objetivo</h2>
+                <h3>Problema a Resolver</h3>
+                <p>
+                    Tras los Steps 0380-0381, confirmamos que:
+                </p>
+                <ul>
+                    <li>✅ El renderizado funciona (checkerboard visible)</li>
+                    <li>✅ El Joypad funciona (24,803 escrituras a P1, lectura de filas correcta)</li>
+                    <li>❌ <strong>VRAM permanece vacía</strong> (0/6144 bytes no-cero tras 120 segundos)</li>
+                </ul>
+                <p>
+                    <strong>Hipótesis a verificar</strong>:
+                </p>
+                <ul>
+                    <li><strong>H1 (CPU/flujo)</strong>: La CPU está atascada en un bucle/espera y nunca llega a cargar tiles.</li>
+                    <li><strong>H2 (VRAM bloqueada)</strong>: La CPU intenta cargar tiles pero las escrituras a <code>0x8000–0x9FFF</code> se bloquean incorrectamente.</li>
+                </ul>
+
+                <h3>Objetivo del Step</h3>
+                <p>
+                    Determinar cuál hipótesis (H1 o H2) es real mediante instrumentación de:
+                </p>
+                <ol>
+                    <li>Escrituras a VRAM (<code>0x8000-0x9FFF</code>)</li>
+                    <li>PC sampler y detección de bucles</li>
+                    <li>Estado de interrupciones (IE/IF/IME)</li>
+                </ol>
+            </section>
+
+            <section>
+                <h2>Concepto de Hardware</h2>
+                <h3>Acceso a VRAM por Modos PPU (Pan Docs)</h3>
+                <p>
+                    Según <strong>Pan Docs - VRAM Access</strong>:
+                </p>
+                <ul>
+                    <li><strong>VRAM (0x8000-0x9FFF)</strong>: Área donde se cargan tiles (Tile Data) y tilemaps (Tile Maps).</li>
+                    <li>
+                        <strong>Restricción de acceso</strong>: En hardware real, la CPU <strong>no puede</strong> acceder a VRAM durante <strong>PPU Mode 3</strong> (pixel transfer). 
+                        En otros modos (Mode 0 = H-Blank, Mode 1 = V-Blank, Mode 2 = OAM Search), la CPU sí puede acceder.
+                    </li>
+                    <li><strong>LCDC (0xFF40)</strong>: Controla el estado del LCD. Bit 7=1 activa el LCD.</li>
+                </ul>
+
+                <h3>Rol de VBlank y Timer (Pan Docs)</h3>
+                <p>
+                    Según <strong>Pan Docs - Interrupts</strong>:
+                </p>
+                <ul>
+                    <li><strong>VBlank (bit 0 de IE/IF)</strong>: Interrupción generada al inicio del período V-Blank (LY=144). Muchos juegos cargan tiles durante V-Blank para evitar artefactos visuales.</li>
+                    <li><strong>Timer (bit 2 de IE/IF)</strong>: Interrupción generada por el Timer al desbordar TIMA.</li>
+                    <li><strong>IME (Interrupt Master Enable)</strong>: Flag global que habilita/deshabilita el procesamiento de interrupciones.</li>
+                    <li>
+                        Si <strong>IE/IME/IF están mal manejados</strong>, el juego puede quedar polleando esperando una interrupción que nunca llega, 
+                        lo que bloquea la progresión (incluyendo la carga de tiles).
+                    </li>
+                </ul>
+            </section>
+
+            <section>
+                <h2>Implementación</h2>
+                <h3>Tarea 1: Instrumentación de Escrituras a VRAM (MMU)</h3>
+                <p>
+                    Se modificó <code>src/core/cpp/MMU.cpp</code> para agregar:
+                </p>
+                <ul>
+                    <li><strong>Contadores globales</strong>: <code>vram_write_total_step382_</code> y <code>vram_write_nonzero_step382_</code>.</li>
+                    <li>
+                        <strong>Logs limitados</strong>: Solo las primeras 50 escrituras con información completa:
+                        <ul>
+                            <li>PC actual (<code>debug_current_pc</code>)</li>
+                            <li>Dirección y valor (<code>addr</code>, <code>value</code>)</li>
+                            <li>Modo PPU, LY, LCDC (si PPU está conectada)</li>
+                            <li>Si la escritura estaría bloqueada en Mode 3 (<code>Blocked:YES/NO</code>)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Resúmenes cada 1000 escrituras</strong>: Total, no-cero, ratio.</li>
+                </ul>
+
+                <h3>Tarea 2: PC Sampler y Detección de Bucles (CPU)</h3>
+                <p>
+                    Se modificó <code>src/core/cpp/CPU.cpp</code> para agregar:
+                </p>
+                <ul>
+                    <li><strong>Muestreo cada 10,000 instrucciones</strong>: PC, Bank, IME, IE, IF, HALT (solo primeras 50 muestras).</li>
+                    <li><strong>Detección de bucles</strong>: Si el mismo PC se repite en múltiples muestras consecutivas, logge ar alerta.</li>
+                    <li><strong>Transiciones de HALT</strong>: Loggear cuando la CPU entra/sale del estado HALT.</li>
+                </ul>
+
+                <h3>Tarea 3: Verificación de Interrupciones (IE/IF/IME)</h3>
+                <p>
+                    Se reutilizó la instrumentación existente de <code>[IE-WRITE-TRACE]</code> (ya presente en MMU.cpp) para verificar:
+                </p>
+                <ul>
+                    <li>Escrituras a IE (0xFFFF)</li>
+                    <li>Qué interrupciones se habilitan</li>
+                    <li>Estado de IME (reportado por el PC sampler)</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2>Tests y Verificación</h2>
+                <h3>Compilación</h3>
+                <pre><code>cd /media/fabini/8CD1-4C30/ViboyColor
+python3 setup.py build_ext --inplace > build_log_step0382.txt 2>&1
+# Exit code: 0 (éxito)</code></pre>
+
+                <h3>Ejecución Controlada (30 segundos)</h3>
+                <pre><code>cd /media/fabini/8CD1-4C30/ViboyColor
+timeout 30 python3 main.py roms/pkmn.gb > logs/step0382_cpu_vram_probe.log 2>&1
+# Exit code: 124 (timeout correcto)</code></pre>
+
+                <h3>Extracción de Evidencia</h3>
+                <pre><code># Escrituras a VRAM
+grep -E "\[MMU-VRAM-(WRITE|BLOCK|WRITE-SUMMARY)\]" logs/step0382_cpu_vram_probe.log | head -n 120
+
+# PC sampler / bucles
+grep -E "\[CPU-(SAMPLE|LOOP-DETECT|HALT)\]" logs/step0382_cpu_vram_probe.log | head -n 120
+
+# Estado de interrupciones
+grep -E "\[IE-WRITE-TRACE\]" logs/step0382_cpu_vram_probe.log | head -n 60
+
+# Errores
+grep -i "error\|exception\|traceback" logs/step0382_cpu_vram_probe.log | head -n 60
+# (No se encontraron errores)</code></pre>
+
+                <h3>Resultados - Escrituras a VRAM</h3>
+                <pre><code>[MMU-VRAM-WRITE] #1 | PC:0x36E3 | Addr:0x8000 | Val:0x00 | Mode:0 | LY:83 | LCDC:0x81 | Blocked:NO
+[MMU-VRAM-WRITE] #2 | PC:0x36E3 | Addr:0x8001 | Val:0x00 | Mode:0 | LY:83 | LCDC:0x81 | Blocked:NO
+...
+[MMU-VRAM-WRITE] #50 | PC:0x36E3 | Addr:0x8031 | Val:0x00 | Mode:2 | LY:88 | LCDC:0x81 | Blocked:NO
+[MMU-VRAM-WRITE-SUMMARY] Total:1000 | NonZero:0 | Ratio:0.00%
+...
+[MMU-VRAM-WRITE-SUMMARY] Total:8000 | NonZero:0 | Ratio:0.00%
+[MMU-VRAM-WRITE-SUMMARY] Total:9000 | NonZero:808 | Ratio:8.98%
+[MMU-VRAM-WRITE-SUMMARY] Total:10000 | NonZero:1808 | Ratio:18.08%</code></pre>
+
+                <h3>Resultados - PC Sampler</h3>
+                <pre><code>[CPU-SAMPLE] #1 | Instrs:10000 | PC:0x1F80 | Bank:1 | IME:0 | IE:0x00 | IF:0x01 | HALT:0
+[CPU-SAMPLE] #2 | Instrs:20000 | PC:0x1F85 | Bank:1 | IME:0 | IE:0x00 | IF:0x01 | HALT:0
+...
+[CPU-SAMPLE] #11 | Instrs:110000 | PC:0x1CFA | Bank:1 | IME:0 | IE:0x0D | IF:0x00 | HALT:0
+[CPU-SAMPLE] #12 | Instrs:120000 | PC:0x6151 | Bank:28 | IME:1 | IE:0x0D | IF:0x00 | HALT:0
+[CPU-SAMPLE] #13 | Instrs:130000 | PC:0x614F | Bank:28 | IME:1 | IE:0x0D | IF:0x00 | HALT:0
+...
+[CPU-SAMPLE] #50 | Instrs:500000 | PC:0x6153 | Bank:28 | IME:1 | IE:0x0D | IF:0x00 | HALT:0</code></pre>
+
+                <h3>Resultados - Interrupciones</h3>
+                <pre><code>[IE-WRITE-TRACE] PC:0x1FAE Bank:1 | 0x00 -> 0x0D
+[IE-WRITE-TRACE]   Interrupciones habilitadas: V-Blank Timer Serial 
+[IE-WRITE-TRACE] ⚠️ V-BLANK INTERRUPT HABILITADA en PC:0x1FAE</code></pre>
+
+                <h3>Validación de Módulo Compilado C++</h3>
+                <p>✅ Todos los logs provienen de código C++ compilado (tags <code>[MMU-VRAM-WRITE]</code>, <code>[CPU-SAMPLE]</code>).</p>
+            </section>
+
+            <section>
+                <h2>Análisis de Resultados</h2>
+                <h3>✅ Confirmación: CPU SÍ Escribe a VRAM</h3>
+                <ul>
+                    <li><strong>10,000+ escrituras a VRAM</strong> detectadas en 30 segundos.</li>
+                    <li>PC: <code>0x36E3</code> (rutina de limpieza conocida de Steps previos).</li>
+                    <li>
+                        Modo PPU: Algunas escrituras se marcan como <code>Blocked:YES</code> en Mode 3, 
+                        pero la mayoría son en Mode 0/2 (no bloqueadas).
+                    </li>
+                    <li><strong>CRÍTICO</strong>: Las primeras 8,000 escrituras son <strong>todas ceros</strong> (<code>Val:0x00</code>).</li>
+                    <li>A partir de escritura #9000: <strong>808 no-cero</strong> (8.98%).</li>
+                    <li>Total final: <strong>1,808/10,000 no-cero</strong> (18.08%).</li>
+                </ul>
+
+                <h3>✅ Confirmación: CPU Ejecutándose Normalmente</h3>
+                <ul>
+                    <li><strong>NO hay bucle infinito</strong>: PC avanza por múltiples ubicaciones.</li>
+                    <li><strong>Cambio de banco detectado</strong>: Bank 1 → Bank 28 alrededor de 120,000 instrucciones.</li>
+                    <li>Polling en rango <code>0x614D-0x6153</code> (Bank 28) - comportamiento normal de espera.</li>
+                    <li><strong>IME=1</strong>, <strong>IE=0x0D</strong> (V-Blank+Timer+Serial habilitadas).</li>
+                    <li><strong>NO en HALT</strong>.</li>
+                </ul>
+
+                <h3>🔍 Conclusión</h3>
+                <p>
+                    El problema es una <strong>combinación de H1 y comportamiento de inicialización</strong>:
+                </p>
+                <ol>
+                    <li>La CPU SÍ escribe a VRAM (descarta H2 pura: no es un bloqueo completo).</li>
+                    <li>Pero está ejecutando una rutina de <strong>borrado masivo</strong> (<code>PC:0x36E3</code> escribe zeros).</li>
+                    <li>Luego carga <strong>algunos tiles</strong> (18.08%), pero insuficientes o en ubicación incorrecta.</li>
+                    <li>
+                        El juego entra en <strong>modo de espera/polling</strong> (Bank 28, PCs <code>0x614D-0x6153</code>), 
+                        esperando condiciones que el emulador no proporciona.
+                    </li>
+                </ol>
+
+                <p>
+                    <strong>La causa raíz</strong> es que el juego está esperando algo (probablemente carga de datos desde ROM o evento específico) 
+                    pero nuestro emulador no está proporcionando las condiciones correctas para que progrese.
+                </p>
+
+                <p>
+                    <strong>Próximo paso</strong> (Step 0383): Investigar qué está esperando el juego en Bank 28 (PCs <code>0x614D-0x6153</code>). 
+                    Posibles causas:
+                </p>
+                <ul>
+                    <li>Espera de interrupción específica (Timer, Serial)</li>
+                    <li>Espera de lectura de ROM (bancos adicionales)</li>
+                    <li>Espera de estado de hardware (PPU, Timer)</li>
+                    <li>Bug en opcodes relacionados con saltos condicionales o HALT</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2>Archivos Modificados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Declaración de contadores y función <code>get_vram_write_stats()</code></li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Instrumentación de escrituras a VRAM (Step 0382)</li>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Declaración de miembros para PC sampler</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - PC sampler y detección de bucles</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2>Referencias</h2>
+                <ul>
+                    <li><a href="https://gbdev.io/pandocs/VRAM_Accessing.html" target="_blank">Pan Docs - VRAM Access</a></li>
+                    <li><a href="https://gbdev.io/pandocs/Interrupts.html" target="_blank">Pan Docs - Interrupts</a></li>
+                    <li><a href="https://gbdev.io/pandocs/Tile_Data.html" target="_blank">Pan Docs - Tile Data</a></li>
+                    <li><a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html" target="_blank">Pan Docs - CPU Instruction Set</a></li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><a href="../index.html">← Volver a la Bitácora</a></p>
+        </footer>
+    </div>
+</body>
+</html>

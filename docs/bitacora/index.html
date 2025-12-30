@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0382 - Diagnóstico de Flujo CPU y Escrituras a VRAM -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-30__0382__diagnostico-flujo-cpu-y-escrituras-vram.html" class="entry-link">
+                                    Diagnóstico de Flujo CPU y Escrituras a VRAM
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-30 | 
+                            <strong>Step ID:</strong> 0382 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementa instrumentación completa para diagnosticar por qué VRAM permanece vacía tras 120 segundos. El diagnóstico revela que la CPU SÍ escribe a VRAM (10,000+ escrituras), pero está ejecutando una rutina de borrado masivo seguida de carga parcial de tiles (18.08% no-cero). El juego entra en un loop de polling en Bank 28, esperando condiciones que el emulador no proporciona.
+                        </p>
+                    </li>
                     <!-- Entrada 0380 - Diagnóstico Joypad (FF00) y Lectura de Filas -->
                     <li>
                         <div class="entry-header">
