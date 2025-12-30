@@ -1662,6 +1662,14 @@ void MMU::setTimer(Timer* timer) {
 
 void MMU::setJoypad(Joypad* joypad) {
     joypad_ = joypad;
+    
+    // --- Step 0379: Conexión bidireccional MMU <-> Joypad ---
+    // El Joypad necesita acceso a la MMU para solicitar interrupciones cuando
+    // se presiona un botón (falling edge). Establecer el puntero bidireccional.
+    if (joypad_ != nullptr) {
+        joypad_->setMMU(this);
+    }
+    // -------------------------------------------
 }
 
 void MMU::request_interrupt(uint8_t bit) {

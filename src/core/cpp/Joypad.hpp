@@ -3,6 +3,9 @@
 
 #include <cstdint>
 
+// Forward declaration de MMU para solicitar interrupciones
+class MMU;
+
 /**
  * Joypad - Subsistema de Entrada del Usuario
  * 
@@ -24,6 +27,11 @@
  * - Los bits 6-7 siempre leen como 1 (no se usan)
  * - Los bits 4-5 son escribibles y controlan la selección de fila
  * - Los bits 0-3 son de lectura y reflejan el estado de los botones de la fila seleccionada
+ * 
+ * IMPORTANTE - Interrupción de Joypad (Step 0379):
+ * - Cuando un botón cambia de "suelto" (1) a "presionado" (0), se solicita la interrupción de Joypad.
+ * - La interrupción de Joypad es el bit 4 del registro IF (0xFF0F), vector 0x0060.
+ * - Esta interrupción se solicita SOLO si hay un "falling edge" en P14-P17 (bits 0-3 del registro P1).
  * 
  * Fuente: Pan Docs - Joypad Input, P1 Register
  */
@@ -76,6 +84,16 @@ public:
      */
     void release_button(int button_index);
 
+    /**
+     * Establece el puntero a la MMU para poder solicitar interrupciones.
+     * 
+     * Step 0379: El Joypad necesita acceso a la MMU para solicitar la interrupción de Joypad
+     * cuando se presiona un botón (falling edge en P14-P17).
+     * 
+     * @param mmu Puntero a la instancia de MMU (puede ser nullptr)
+     */
+    void setMMU(MMU* mmu);
+
 private:
     /**
      * Estado de los botones de dirección (bits 0-3).
@@ -105,6 +123,14 @@ private:
      * Inicializado a 0xCF (ninguna fila seleccionada, bits 6-7 siempre a 1).
      */
     uint8_t p1_register_;
+
+    /**
+     * Puntero a la MMU para solicitar interrupciones.
+     * 
+     * Step 0379: Necesario para solicitar la interrupción de Joypad (bit 4, vector 0x0060)
+     * cuando se detecta un "falling edge" (botón presionado).
+     */
+    MMU* mmu_;
 };
 
 #endif // JOYPAD_HPP

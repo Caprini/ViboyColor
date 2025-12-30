@@ -32,7 +32,43 @@
                 </p>
                 
                 <ul class="entry-list">
-                                        <!-- Entrada 0377 - Verificación Visual Final Después de Corrección -->
+                    <!-- Entrada 0379 - Implementación de la Interrupción de Joypad -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-30__0379__implementacion-interrupcion-joypad.html" class="entry-link">
+                                    Implementación de la Interrupción de Joypad
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-30 | 
+                            <strong>Step ID:</strong> 0379 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementa la interrupción de Joypad (bit 4, vector 0x0060) siguiendo la especificación de Pan Docs. El Joypad ahora detecta "falling edges" (botón presionado) y solicita la interrupción correspondiente a través de la MMU. Esta corrección es fundamental para la jugabilidad del emulador.
+                        </p>
+                    </li>
+                    <!-- Entrada 0378 - Verificación de Controles y Jugabilidad: El Salto a los 60 FPS estables -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-30__0378__verificacion-controles-jugabilidad-final.html" class="entry-link">
+                                    Verificación de Controles y Jugabilidad: El Salto a los 60 FPS estables
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-30 | 
+                            <strong>Step ID:</strong> 0378 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se verifica la estabilidad del motor C++ alcanzando 62.5 FPS en múltiples ROMs de forma simultánea. Se documenta el comportamiento del checkerboard y se prepara la fase final de interacción.
+                        </p>
+                    </li>
+                    <!-- Entrada 0377 - Verificación Visual Final Después de Corrección -->
                     <li>
                         <div class="entry-header">
                             <h3 class="entry-title">

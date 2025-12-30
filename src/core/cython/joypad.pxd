@@ -9,6 +9,11 @@ pueda generar el código de enlace correcto.
 
 from libc.stdint cimport uint8_t
 
+# Forward declaration de MMU
+cdef extern from "MMU.hpp":
+    cdef cppclass MMU:
+        pass
+
 cdef extern from "Joypad.hpp":
     cdef cppclass Joypad:
         # Constructor
@@ -25,4 +30,7 @@ cdef extern from "Joypad.hpp":
         
         # Simula soltar un botón
         void release_button(int button_index)
+        
+        # Step 0379: Establecer puntero a MMU para solicitar interrupciones
+        void setMMU(MMU* mmu)
 
