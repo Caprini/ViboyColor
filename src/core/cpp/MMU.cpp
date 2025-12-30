@@ -764,6 +764,38 @@ void MMU::write(uint16_t addr, uint8_t value) {
         return;
     }
 
+    // --- Step 0384: Monitor de Escrituras a IF (0xFF0F) ---
+    // Instrumentar escrituras a IF para detectar cuándo y quién limpia bits
+    // Fuente: Pan Docs - "Interrupt Flag Register (IF)"
+    if (addr == 0xFF0F) {
+        uint8_t old_if = memory_[addr];
+        uint8_t new_if = value;
+        
+        static int if_write_count = 0;
+        if (if_write_count < 100) {
+            if_write_count++;
+            
+            // Detectar si se están limpiando bits (clear)
+            bool clearing_bits = (new_if & ~old_if) == 0 && new_if != old_if;
+            uint8_t cleared_bits = old_if & ~new_if;
+            
+            printf("[IF-WRITE] PC:0x%04X | IF: 0x%02X -> 0x%02X | %s",
+                   debug_current_pc, old_if, new_if,
+                   clearing_bits ? "CLEARING" : "SETTING");
+            
+            if (clearing_bits && cleared_bits != 0) {
+                printf(" | Cleared bits: ");
+                if (cleared_bits & 0x01) printf("VBlank ");
+                if (cleared_bits & 0x02) printf("LCD-STAT ");
+                if (cleared_bits & 0x04) printf("Timer ");
+                if (cleared_bits & 0x08) printf("Serial ");
+                if (cleared_bits & 0x10) printf("Joypad ");
+            }
+            printf("\n");
+        }
+    }
+    // -------------------------------------------
+    
     // --- Step 0294: Monitor Detallado de IE ([IE-WRITE-TRACE]) ---
     // Rastrea cambios en IE con desglose de bits para ver qué interrupciones
     // se habilitan y cuándo.
@@ -1849,20 +1881,27 @@ void MMU::request_interrupt(uint8_t bit) {
         return;  // Bit inválido, ignorar
     }
     
+    // --- Step 0384: Instrumentación de request_interrupt ---
     // Leer el valor actual del registro IF (0xFF0F)
-    uint8_t if_reg = read(0xFF0F);
+    uint8_t if_before = read(0xFF0F);
     
     // Activar el bit correspondiente (OR bitwise)
-    if_reg |= (1 << bit);
+    uint8_t if_after = if_before | (1 << bit);
     
     // Escribir el valor actualizado de vuelta a memoria
-    write(0xFF0F, if_reg);
+    write(0xFF0F, if_after);
 
-    static int irq_log_count = 0;
-    if (irq_log_count < 30) {
-        printf("[IRQ] Request bit=%u IF:%02X PC:%04X\n", bit, if_reg, debug_current_pc);
-        irq_log_count++;
+    // Loggear (límite: 50 líneas)
+    static int irq_req_log_count = 0;
+    if (irq_req_log_count < 50) {
+        const char* irq_names[] = {"VBlank", "LCD-STAT", "Timer", "Serial", "Joypad"};
+        printf("[IRQ-REQ] PC:0x%04X | Bit:%u (%s) | IF: 0x%02X -> 0x%02X\n", 
+               debug_current_pc, bit, 
+               (bit <= 4) ? irq_names[bit] : "Unknown",
+               if_before, if_after);
+        irq_req_log_count++;
     }
+    // -------------------------------------------
 }
 
 void MMU::configure_mbc_from_header(uint8_t cart_type, uint8_t rom_size_code, uint8_t ram_size_code) {

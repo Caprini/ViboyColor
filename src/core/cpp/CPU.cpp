@@ -3154,23 +3154,40 @@ uint8_t CPU::handle_interrupts() {
             vector = 0x0060;  // Joypad
         }
         
+        // --- Step 0384: Instrumentar servicio de interrupción ---
+        uint16_t prev_pc = regs_->pc;
+        uint8_t if_before_clear = if_reg;
+        
         // Limpiar el bit en IF (acknowledgement)
         uint8_t new_if = if_reg & ~interrupt_bit;
         mmu_->write(ADDR_IF, new_if);
         
-        uint16_t prev_pc = regs_->pc;
+        // Loggear (límite: 50 líneas)
+        static int irq_service_log = 0;
+        if (irq_service_log < 50) {
+            const char* irq_names[] = {"VBlank", "LCD-STAT", "Timer", "Serial", "Joypad"};
+            int bit_num = 0;
+            for (int i = 0; i < 5; i++) {
+                if (interrupt_bit & (1 << i)) {
+                    bit_num = i;
+                    break;
+                }
+            }
+            
+            printf("[IRQ-SERVICE] Vector:0x%04X (%s) | PC:0x%04X->0x%04X | "
+                   "IF: 0x%02X->0x%02X | IE:0x%02X | IME:%d\n",
+                   vector, (bit_num <= 4) ? irq_names[bit_num] : "Unknown",
+                   prev_pc, vector,
+                   if_before_clear, new_if, ie_reg, ime_ ? 1 : 0);
+            irq_service_log++;
+        }
+        // -------------------------------------------
 
         // Guardar PC en la pila (dirección de retorno)
         push_word(prev_pc);
         
         // Saltar al vector de interrupción
         regs_->pc = vector;
-
-        static int irq_service_log = 0;
-        if (irq_service_log < 20) {
-            printf("[IRQ] Service bit=%u IF:%02X IE:%02X prevPC:%04X -> vector:%04X\n", interrupt_bit, if_reg, ie_reg, prev_pc, vector);
-            irq_service_log++;
-        }
         
         // Retornar 5 M-Cycles consumidos por el procesamiento de interrupción
         return 5;

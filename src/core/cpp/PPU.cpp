@@ -556,18 +556,42 @@ void PPU::step(int cpu_cycles) {
         
         // Si llegamos a V-Blank (línea 144), solicitar interrupción y marcar frame listo
         if (ly_ == VBLANK_START) {
-            // CRÍTICO: Solicitar interrupción V-Blank usando el método de MMU
-            // Este bit corresponde a la interrupción V-Blank (bit 0 de IF).
-            //
-            // IMPORTANTE: IF se actualiza SIEMPRE cuando ocurre V-Blank,
-            // INDEPENDIENTEMENTE del estado de IME (Interrupt Master Enable).
-            // Usamos request_interrupt() para mantener consistencia con otras interrupciones.
-            mmu_->request_interrupt(0);  // Bit 0 = V-Blank Interrupt
-            static int vblank_log = 0;
-            if (vblank_log < 10) {
-                printf("[PPU] VBlank IRQ at LY=%u\n", ly_);
-                vblank_log++;
+            // --- Step 0384: Instrumentar VBlank IRQ ---
+            // Verificar que mmu_ no es nullptr antes de solicitar IRQ
+            if (mmu_ == nullptr) {
+                static bool null_warning_printed = false;
+                if (!null_warning_printed) {
+                    printf("[PPU-ERR] mmu_ == nullptr, no se puede solicitar VBlank IRQ!\n");
+                    null_warning_printed = true;
+                }
+                // Continuar sin solicitar IRQ
+            } else {
+                // Leer IF antes de solicitar la interrupción
+                uint8_t if_before = mmu_->read(0xFF0F);
+                
+                // CRÍTICO: Solicitar interrupción V-Blank usando el método de MMU
+                // Este bit corresponde a la interrupción V-Blank (bit 0 de IF).
+                //
+                // IMPORTANTE: IF se actualiza SIEMPRE cuando ocurre V-Blank,
+                // INDEPENDIENTEMENTE del estado de IME (Interrupt Master Enable).
+                // Usamos request_interrupt() para mantener consistencia con otras interrupciones.
+                mmu_->request_interrupt(0);  // Bit 0 = V-Blank Interrupt
+                
+                // Leer IF después de solicitar la interrupción
+                uint8_t if_after = mmu_->read(0xFF0F);
+                
+                // Loggear (límite: 30 líneas)
+                static int vblank_irq_log = 0;
+                if (vblank_irq_log < 30) {
+                    printf("[PPU-VBLANK-IRQ] Frame:%llu | LY:%d | Mode:%d | "
+                           "IF: 0x%02X -> 0x%02X\n",
+                           static_cast<unsigned long long>(frame_counter_),
+                           ly_, static_cast<int>(mode_),
+                           if_before, if_after);
+                    vblank_irq_log++;
+                }
             }
+            // -------------------------------------------
             
             // --- Step 0340: Verificación de Timing Cuando Se Marca Frame Ready ---
             // Loggear cuándo se marca frame_ready_ y verificar que el framebuffer está completo

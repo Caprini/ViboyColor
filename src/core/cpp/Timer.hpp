@@ -79,7 +79,8 @@ public:
      * 
      * @param value Nuevo valor para TIMA
      */
-    void write_tima(uint8_t value) { tima_ = value; }
+    void write_tima(uint8_t value);
+
 
     /**
      * Lee el valor del registro TMA (Timer Modulo).
@@ -107,7 +108,7 @@ public:
      * 
      * @param value Nuevo valor para TAC (solo bits 0-2 son significativos)
      */
-    void write_tac(uint8_t value) { tac_ = value; }
+    void write_tac(uint8_t value);
 
 private:
     /**
