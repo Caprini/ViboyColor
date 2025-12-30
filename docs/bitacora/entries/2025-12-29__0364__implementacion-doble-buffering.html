@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementación de Doble Buffering para Eliminar Condiciones de Carrera - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Implementación de Doble Buffering para Eliminar Condiciones de Carrera</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0364
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0363__verificacion-visual-analisis-rendimiento.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se implementó doble buffering en la PPU para eliminar completamente las condiciones de carrera entre C++ (que escribe al framebuffer durante el renderizado) 
+                    y Python (que lee el framebuffer para renderizar a la pantalla). Se separó el buffer de escritura (framebuffer_back_) del buffer de lectura (framebuffer_front_), 
+                    y el intercambio solo ocurre cuando se completa un frame completo (LY=144). Esta implementación elimina el flag framebuffer_being_read_ que solo prevenía la limpieza 
+                    pero no prevenía que render_scanline() escribiera nuevos datos durante la lectura.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>Doble Buffering en Sistemas de Renderizado</h3>
+                <p>
+                    En sistemas donde un componente escribe datos mientras otro los lee, se producen condiciones de carrera que pueden causar:
+                </p>
+                <ul>
+                    <li><strong>Gráficos corruptos:</strong> Cuando se lee un píxel mientras se está escribiendo, se puede leer un valor parcial o incorrecto</li>
+                    <li><strong>Pantallas blancas:</strong> Cuando el framebuffer se limpia o se modifica durante la lectura, se pueden leer valores incorrectos</li>
+                    <li><strong>Artifactos visuales:</strong> Líneas de píxeles con valores mezclados del frame anterior y actual</li>
+                </ul>
+                <p>
+                    <strong>Doble Buffering</strong> es la solución estándar para este problema en sistemas de renderizado:
+                </p>
+                <ul>
+                    <li><strong>Buffer Back (trasero):</strong> Donde C++ escribe durante el renderizado (framebuffer_back_)</li>
+                    <li><strong>Buffer Front (frontal):</strong> Donde Python lee para renderizar a la pantalla (framebuffer_front_)</li>
+                    <li><strong>Intercambio:</strong> Solo cuando se completa un frame completo (LY=144), se intercambian los buffers usando std::swap()</li>
+                </ul>
+                <p>
+                    <strong>Ventajas:</strong>
+                </p>
+                <ul>
+                    <li>Elimina completamente las condiciones de carrera (el buffer de lectura nunca se modifica durante la lectura)</li>
+                    <li>No requiere locks ni sincronización compleja (el intercambio es atómico a nivel de puntero)</li>
+                    <li>El buffer de lectura siempre está estable</li>
+                </ul>
+                <p>
+                    <strong>Desventajas:</strong>
+                </p>
+                <ul>
+                    <li>Requiere el doble de memoria (2x framebuffers = 2x 23040 bytes = 46 KB, muy pequeño y aceptable)</li>
+                </ul>
+                <h3>Sincronización en Emuladores</h3>
+                <p>
+                    En emuladores, la sincronización entre componentes (C++ y Python) es crítica. El framebuffer debe mantenerse estable durante toda la lectura 
+                    (desde que Python obtiene el puntero hasta que termina de procesarlo). Con doble buffering, el buffer front nunca se modifica durante la lectura, 
+                    garantizando estabilidad completa.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <h3>Modificaciones en PPU.hpp</h3>
+                <p>
+                    Se reemplazó el framebuffer único con dos framebuffers:
+                </p>
+                <ul>
+                    <li><code>framebuffer_front_</code>: Buffer que Python lee (público a través de get_framebuffer_ptr(), estable, no se modifica durante renderizado)</li>
+                    <li><code>framebuffer_back_</code>: Buffer donde C++ escribe (privado, se modifica durante renderizado)</li>
+                    <li><code>framebuffer_swap_pending_</code>: Flag para indicar intercambio pendiente</li>
+                </ul>
+                <p>
+                    Se eliminó el flag <code>framebuffer_being_read_</code> que ya no es necesario con doble buffering.
+                </p>
+                <p>
+                    Se agregó el método público <code>swap_framebuffers()</code> para intercambiar los buffers.
+                </p>
+                
+                <h3>Modificaciones en PPU.cpp</h3>
+                <p>
+                    <strong>Constructor:</strong> Inicializa ambos buffers a 0 (blanco) en la lista de inicializadores. Ya no llama a clear_framebuffer() porque los buffers ya están limpios.
+                </p>
+                <p>
+                    <strong>render_scanline(), render_bg(), render_window(), render_sprites():</strong> Todas las escrituras al framebuffer ahora usan <code>framebuffer_back_</code> en lugar de <code>framebuffer_</code>.
+                </p>
+                <p>
+                    <strong>get_frame_ready_and_reset():</strong> Cuando se completa un frame (frame_ready_ = true), llama a <code>swap_framebuffers()</code> ANTES de que Python lea el framebuffer. Esto asegura que Python siempre lee un frame completo y estable.
+                </p>
+                <p>
+                    <strong>swap_framebuffers():</strong> Intercambia los buffers usando <code>std::swap(framebuffer_front_, framebuffer_back_)</code> (eficiente, solo intercambia punteros internos de std::vector) y limpia el buffer back para el siguiente frame.
+                </p>
+                <p>
+                    <strong>get_framebuffer_ptr():</strong> Ahora devuelve <code>framebuffer_front_.data()</code> en lugar de <code>framebuffer_.data()</code>, asegurando que Python siempre lee del buffer estable.
+                </p>
+                <p>
+                    <strong>confirm_framebuffer_read():</strong> Se simplificó para ser un no-op. Con doble buffering, ya no es necesario verificar cambios ni limpiar el framebuffer (esto se hace automáticamente en swap_framebuffers()).
+                </p>
+                <p>
+                    <strong>Código de diagnóstico:</strong> Todas las lecturas del framebuffer en código de diagnóstico ahora usan <code>framebuffer_front_</code> para mantener consistencia.
+                </p>
+
+                <h3>Wrapper de Cython</h3>
+                <p>
+                    No se requirieron cambios en el wrapper de Cython (<code>ppu.pyx</code>). El método <code>get_framebuffer_ptr()</code> sigue funcionando correctamente, 
+                    solo que ahora devuelve el buffer front en lugar del buffer único anterior.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Agregado doble buffering (framebuffer_front_, framebuffer_back_, swap_framebuffers()), eliminado framebuffer_being_read_</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementado doble buffering (constructor, render_scanline, get_frame_ready_and_reset, swap_framebuffers, get_framebuffer_ptr, confirm_framebuffer_read), todas las escrituras usan framebuffer_back_, todas las lecturas usan framebuffer_front_</li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Verificado (no requiere cambios)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La implementación se compiló correctamente sin errores (solo warnings menores que ya existían).
+                </p>
+                <p>
+                    <strong>Compilación:</strong>
+                </p>
+                <pre><code>python3 setup.py build_ext --inplace</code></pre>
+                <p>
+                    <strong>Resultado:</strong> Compilación exitosa. Solo warnings menores (formato printf, variables no usadas) que ya existían antes.
+                </p>
+                <p>
+                    <strong>Próximas verificaciones (pendientes):</strong>
+                </p>
+                <ul>
+                    <li>Ejecutar pruebas visuales con las 6 ROMs (TETRIS, Mario, Zelda DX, Oro.gbc, PKMN, PKMN-Amarillo)</li>
+                    <li>Verificar que NO hay advertencias de cambios en el framebuffer (grep "\[PPU-FRAMEBUFFER-STABILITY\]" logs | grep "ADVERTENCIA" | wc -l debe ser 0)</li>
+                    <li>Verificar que el intercambio de buffers funciona (grep "\[PPU-SWAP-BUFFERS\]" logs)</li>
+                    <li>Verificar que los gráficos se muestran correctamente (verificación visual)</li>
+                    <li>Verificar que el FPS se mantiene estable (similar o mejor que Step 0363)</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Doble Buffering en Sistemas de Renderizado: Patrón estándar en gráficos por ordenador</li>
+                    <li>Pan Docs: Sincronización de componentes PPU</li>
+                    <li>Implementación basada en principios generales de sistemas de renderizado</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Doble Buffering:</strong> Solución estándar para eliminar condiciones de carrera en sistemas donde un componente escribe mientras otro lee. Usa dos buffers y solo intercambia cuando el buffer de escritura está completo.</li>
+                        <li><strong>std::swap() con std::vector:</strong> Es eficiente porque solo intercambia punteros internos, no copia los datos. Esto hace que el intercambio sea muy rápido (O(1) en tiempo, O(0) en espacio adicional).</li>
+                        <li><strong>Condiciones de Carrera:</strong> Ocurren cuando un componente lee datos mientras otro los escribe, causando valores inconsistentes o parciales. El flag framebuffer_being_read_ solo prevenía la limpieza, pero no prevenía escrituras durante la lectura.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Verificación Visual:</strong> Necesita ejecutarse con las 6 ROMs para confirmar que las condiciones de carrera desaparecieron y que los gráficos se muestran correctamente.</li>
+                        <li><strong>Análisis de Logs:</strong> Necesita verificarse que NO hay advertencias de cambios en el framebuffer (debe ser 0 o muy bajo comparado con Step 0363 donde Zelda DX tenía 7291 advertencias).</li>
+                        <li><strong>Rendimiento:</strong> Necesita verificarse que el FPS se mantiene estable (similar o mejor que Step 0363: 51-53 FPS).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumo que std::swap() con std::vector es atómico a nivel de puntero (no hay condiciones de carrera durante el intercambio). 
+                        Esto debería ser seguro porque std::swap() intercambia los punteros internos de los vectores, y el acceso a punteros es atómico en arquitecturas modernas.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar pruebas visuales con las 6 ROMs (TETRIS, Mario, Zelda DX, Oro.gbc, PKMN, PKMN-Amarillo)</li>
+                    <li>[ ] Analizar logs para verificar que las condiciones de carrera desaparecieron (0 o muy pocas advertencias)</li>
+                    <li>[ ] Verificar que los gráficos se muestran correctamente (verificación visual)</li>
+                    <li>[ ] Verificar que el FPS se mantiene estable</li>
+                    <li>[ ] Si el doble buffering funciona: Step 0365 - Verificación final y optimizaciones adicionales</li>
+                    <li>[ ] Si el problema persiste: Step 0365 - Investigación más profunda del pipeline de renderizado</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

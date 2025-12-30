@@ -14,17 +14,15 @@ PPU::PPU(MMU* mmu)
     , lyc_(0)
     , stat_interrupt_line_(0)
     , scanline_rendered_(false)
-    , framebuffer_(FRAMEBUFFER_SIZE, 0)  // Inicializar a índice 0 (blanco por defecto con paleta estándar)
     , frame_counter_(0)  // Step 0291: Inicializar contador de frames
     , vram_is_empty_(true)  // Step 0330: Inicializar como vacía, se actualizará en el primer frame
-    , framebuffer_being_read_(false)  // Step 0360: Inicializar flag de protección
+    , framebuffer_front_(FRAMEBUFFER_SIZE, 0)  // Step 0364: Inicializar buffer front a 0 (blanco)
+    , framebuffer_back_(FRAMEBUFFER_SIZE, 0)   // Step 0364: Inicializar buffer back a 0 (blanco)
+    , framebuffer_swap_pending_(false)          // Step 0364: Inicializar flag de intercambio
 {
-    // --- Step 0201: Garantizar estado inicial limpio (RAII) ---
-    // En C++, el principio de RAII (Resource Acquisition Is Initialization) dicta que
-    // un objeto debe estar en un estado completamente válido y conocido inmediatamente
-    // después de su construcción. El framebuffer debe estar limpio desde el momento
-    // en que la PPU nace, no en el primer ciclo de step().
-    clear_framebuffer();
+    // --- Step 0364: Doble Buffering ---
+    // Con doble buffering, los buffers ya están inicializados a 0 en la lista de inicializadores.
+    // No necesitamos llamar a clear_framebuffer() aquí porque los buffers ya están limpios.
     
     // CRÍTICO: Inicializar registros de la PPU con valores seguros
     // Si estos registros están en 0, la pantalla estará negra/blanca
@@ -292,7 +290,7 @@ void PPU::step(int cpu_cycles) {
                 int index_counts[4] = {0, 0, 0, 0};
                 
                 for (int i = 0; i < 160 * 144; i++) {
-                    uint8_t idx = framebuffer_[i];
+                    uint8_t idx = framebuffer_front_[i];
                     index_counts[idx]++;
                     if (idx != 0) {  // 0 = blanco
                         non_white_pixels++;
@@ -346,7 +344,7 @@ void PPU::step(int cpu_cycles) {
                 // Verificar el framebuffer en la primera línea (donde debería estar este tile)
                 int framebuffer_indices[160];
                 for (int x = 0; x < 160; x++) {
-                    framebuffer_indices[x] = framebuffer_[x] & 0x03;
+                    framebuffer_indices[x] = framebuffer_front_[x] & 0x03;
                 }
                 
                 printf("[PPU-VRAM-TO-FRAMEBUFFER] Framebuffer line 0 (first 20 pixels): ");
@@ -534,7 +532,7 @@ void PPU::step(int cpu_cycles) {
                     // Verificar que el framebuffer tiene datos
                     int total_non_zero = 0;
                     for (int i = 0; i < FRAMEBUFFER_SIZE; i++) {
-                        if ((framebuffer_[i] & 0x03) != 0) {
+                        if ((framebuffer_front_[i] & 0x03) != 0) {
                             total_non_zero++;
                         }
                     }
@@ -572,7 +570,7 @@ void PPU::step(int cpu_cycles) {
                 for (int y = 0; y < 144; y++) {
                     size_t line_start = y * SCREEN_WIDTH;
                     for (int x = 0; x < SCREEN_WIDTH; x++) {
-                        uint8_t color_idx = framebuffer_[line_start + x] & 0x03;
+                        uint8_t color_idx = framebuffer_front_[line_start + x] & 0x03;
                         if (color_idx < 4) {
                             index_counts[color_idx]++;
                             if (color_idx != 0) {
@@ -594,7 +592,7 @@ void PPU::step(int cpu_cycles) {
                     int y = test_positions[i][0];
                     int x = test_positions[i][1];
                     size_t idx = y * SCREEN_WIDTH + x;
-                    uint8_t color_idx = framebuffer_[idx] & 0x03;
+                    uint8_t color_idx = framebuffer_front_[idx] & 0x03;
                     printf("[PPU-FRAMEBUFFER-WITH-TILES] Pixel (%d, %d): index=%d\n", x, y, color_idx);
                 }
             }
@@ -618,7 +616,7 @@ void PPU::step(int cpu_cycles) {
                     int line_index_counts[4] = {0, 0, 0, 0};
                     
                     for (int x = 0; x < SCREEN_WIDTH; x++) {
-                        uint8_t color_idx = framebuffer_[line_start + x] & 0x03;
+                        uint8_t color_idx = framebuffer_front_[line_start + x] & 0x03;
                         if (color_idx < 4) {
                             index_counts[color_idx]++;
                             line_index_counts[color_idx]++;
@@ -683,7 +681,7 @@ void PPU::step(int cpu_cycles) {
                 // Contar índices en el framebuffer
                 int index_counts[4] = {0, 0, 0, 0};
                 for (int i = 0; i < FRAMEBUFFER_SIZE; i++) {
-                    uint8_t color_idx = framebuffer_[i] & 0x03;
+                    uint8_t color_idx = framebuffer_front_[i] & 0x03;
                     if (color_idx < 4) {
                         index_counts[color_idx]++;
                     }
@@ -725,7 +723,7 @@ void PPU::step(int cpu_cycles) {
                     int line_non_zero = 0;
                     
                     for (int x = 0; x < SCREEN_WIDTH; x++) {
-                        uint8_t color_idx = framebuffer_[line_start + x] & 0x03;
+                        uint8_t color_idx = framebuffer_front_[line_start + x] & 0x03;
                         if (color_idx < 4) {
                             index_counts[color_idx]++;
                             if (color_idx != 0) {
@@ -774,7 +772,7 @@ void PPU::step(int cpu_cycles) {
                 int non_zero_pixels = 0;
                 int index_counts[4] = {0, 0, 0, 0};
                 for (size_t i = 0; i < FRAMEBUFFER_SIZE; i++) {
-                    uint8_t color_idx = framebuffer_[i] & 0x03;
+                    uint8_t color_idx = framebuffer_front_[i] & 0x03;
                     if (color_idx != 0) {
                         non_zero_pixels++;
                     }
@@ -817,7 +815,7 @@ void PPU::step(int cpu_cycles) {
                 // Verificar estado del framebuffer
                 int framebuffer_non_white = 0;
                 for (int i = 0; i < 160 * 144; i++) {
-                    if (framebuffer_[i] != 0) {
+                    if (framebuffer_front_[i] != 0) {
                         framebuffer_non_white++;
                     }
                 }
@@ -1031,39 +1029,14 @@ bool PPU::get_frame_ready_and_reset() {
     // -------------------------------------------
     
     if (frame_ready_) {
-        // --- Step 0362: Verificación de Estabilidad del Framebuffer ---
-        // Capturar snapshot del framebuffer antes de marcarlo como leído
-        int non_white_before = 0;
-        uint8_t sample_indices[20];
-        for (int i = 0; i < 20; i++) {
-            sample_indices[i] = framebuffer_[i];
-            if (framebuffer_[i] != 0) {
-                non_white_before++;
-            }
-        }
+        // --- Step 0364: Doble Buffering ---
+        // Marcar que hay un frame completo listo para intercambiar
+        framebuffer_swap_pending_ = true;
         
-        static int stability_check_count = 0;
-        if (stability_check_count < 10) {
-            stability_check_count++;
-            
-            printf("[PPU-FRAMEBUFFER-STABILITY] Frame %llu | Before marking as read | "
-                   "Non-white (first 20): %d/20 | Sample indices: ",
-                   static_cast<unsigned long long>(frame_counter_), non_white_before);
-            for (int i = 0; i < 20; i++) {
-                printf("%d ", sample_indices[i]);
-            }
-            printf("\n");
-        }
+        // Intercambiar buffers ANTES de que Python lea
+        swap_framebuffers();
         
         frame_ready_ = false;
-        framebuffer_being_read_ = true;
-        
-        // Guardar snapshot para comparar después
-        static uint8_t saved_sample[20];
-        for (int i = 0; i < 20; i++) {
-            saved_sample[i] = sample_indices[i];
-        }
-        // -------------------------------------------
         
         // --- Step 0363: Diagnóstico de Rendimiento (fin) ---
         auto end_time = std::chrono::high_resolution_clock::now();
@@ -1100,70 +1073,56 @@ bool PPU::get_frame_ready_and_reset() {
 }
 
 uint8_t* PPU::get_framebuffer_ptr() {
-    return framebuffer_.data();
+    // --- Step 0364: Doble Buffering ---
+    // Devolver el buffer front (estable, no se modifica durante la lectura)
+    return framebuffer_front_.data();
+}
+
+void PPU::swap_framebuffers() {
+    // --- Step 0364: Doble Buffering ---
+    // Intercambiar los buffers usando std::swap (eficiente, solo intercambia punteros internos)
+    std::swap(framebuffer_front_, framebuffer_back_);
+    framebuffer_swap_pending_ = false;
+    
+    // Limpiar el buffer back para el siguiente frame
+    std::fill(framebuffer_back_.begin(), framebuffer_back_.end(), 0);
+    
+    // Log de diagnóstico (limitado)
+    static int swap_log_count = 0;
+    if (swap_log_count < 20) {
+        swap_log_count++;
+        
+        // Contar píxeles no-blancos en el buffer front después del intercambio
+        int non_zero_pixels = 0;
+        for (size_t i = 0; i < framebuffer_front_.size(); i++) {
+            if (framebuffer_front_[i] != 0) {
+                non_zero_pixels++;
+            }
+        }
+        
+        printf("[PPU-SWAP-BUFFERS] Frame %llu | Buffers intercambiados | "
+               "Front tiene %d píxeles no-blancos\n",
+               static_cast<unsigned long long>(frame_counter_ + 1),
+               non_zero_pixels);
+    }
 }
 
 void PPU::clear_framebuffer() {
-    // --- Step 0360: Protección del Framebuffer Durante Renderizado ---
-    // Verificar que el framebuffer no se limpia mientras Python lo está leyendo
-    if (framebuffer_being_read_) {
-        static int warning_count = 0;
-        if (warning_count < 10) {
-            warning_count++;
-            printf("[PPU-FRAMEBUFFER-SYNC] ⚠️ ADVERTENCIA: Intentando limpiar framebuffer "
-                   "mientras Python lo está leyendo (Frame %llu, LY=%d)\n",
-                   static_cast<unsigned long long>(frame_counter_ + 1), ly_);
-        }
-        // NO limpiar el framebuffer si Python lo está leyendo
-        return;
-    }
-    // -------------------------------------------
+    // --- Step 0364: Doble Buffering ---
+    // Con doble buffering, clear_framebuffer() ya no es necesario en la mayoría de casos.
+    // El buffer back se limpia automáticamente en swap_framebuffers().
+    // Este método se mantiene por compatibilidad pero solo limpia el buffer back.
     
-    // --- Step 0348: Verificación de Condiciones de Carrera ---
-    // Verificar que el framebuffer no se limpia durante renderizado
-    static int clear_framebuffer_race_check_count = 0;
-    if (clear_framebuffer_race_check_count < 50) {
-        clear_framebuffer_race_check_count++;
-        printf("[PPU-Clear-Framebuffer-Race] Frame %llu | LY: %d | Limpiando framebuffer\n",
-               static_cast<unsigned long long>(frame_counter_ + 1), ly_);
-        
-        // Advertencia si se limpia durante renderizado (no debería pasar)
-        if (ly_ > 0 && ly_ < 144) {
-            printf("[PPU-Clear-Framebuffer-Race] ⚠️ PROBLEMA: Framebuffer se limpia durante renderizado (LY=%d)!\n", ly_);
-        }
-    }
-    // -------------------------------------------
-    
-    // Rellena el framebuffer con el índice de color 0 (blanco en la paleta por defecto)
-    std::fill(framebuffer_.begin(), framebuffer_.end(), 0);
+    // Limpiar solo el buffer back (el front no debe tocarse)
+    std::fill(framebuffer_back_.begin(), framebuffer_back_.end(), 0);
 }
 
 void PPU::confirm_framebuffer_read() {
-    // --- Step 0362: Verificación de Estabilidad del Framebuffer ---
-    // Verificar que el framebuffer no cambió mientras Python lo leía
-    if (framebuffer_being_read_) {
-        // Verificar que el framebuffer no cambió mientras Python lo leía
-        static uint8_t saved_sample[20];
-        bool changed = false;
-        for (int i = 0; i < 20; i++) {
-            if (framebuffer_[i] != saved_sample[i]) {
-                changed = true;
-                break;
-            }
-        }
-        
-        if (changed) {
-            static int change_warning_count = 0;
-            if (change_warning_count < 10) {
-                change_warning_count++;
-                printf("[PPU-FRAMEBUFFER-STABILITY] ⚠️ ADVERTENCIA: "
-                       "Framebuffer cambió mientras Python lo leía!\n");
-            }
-        }
-        
-        framebuffer_being_read_ = false;
-        std::fill(framebuffer_.begin(), framebuffer_.end(), 0);
-    }
+    // --- Step 0364: Doble Buffering ---
+    // Con doble buffering, este método ya no es necesario pero se mantiene por compatibilidad
+    // con el código Python que lo llama. El buffer front ya no se modifica durante la lectura,
+    // y el buffer back se limpia automáticamente en swap_framebuffers().
+    // Este método puede quedar vacío o simplemente no hacer nada.
     // -------------------------------------------
 }
 
@@ -1204,7 +1163,7 @@ void PPU::render_scanline() {
             // Última línea visible - verificar framebuffer completo
             int total_non_white = 0;
             for (int i = 0; i < 160 * 144; i++) {
-                if (framebuffer_[i] != 0) {
+                if (framebuffer_front_[i] != 0) {
                     total_non_white++;
                 }
             }
@@ -1568,7 +1527,7 @@ void PPU::render_scanline() {
             size_t line_start = ly_ * SCREEN_WIDTH;
             int non_zero_pixels = 0;
             for (int x = 0; x < SCREEN_WIDTH; x++) {
-                uint8_t color_idx = framebuffer_[line_start + x] & 0x03;
+                uint8_t color_idx = framebuffer_front_[line_start + x] & 0x03;
                 if (color_idx != 0) {
                     non_zero_pixels++;
                 }
@@ -2045,7 +2004,7 @@ void PPU::render_scanline() {
             uint8_t bit_high = (byte2 >> bit_index) & 1;
             uint8_t color_index = (bit_high << 1) | bit_low;
             uint8_t final_color = (bgp >> (color_index * 2)) & 0x03;
-            framebuffer_[line_start_index + x] = final_color;
+            framebuffer_back_[line_start_index + x] = final_color;
         } else {
             // Dirección válida, leer datos del tile
             // --- RESTAURADO: LÓGICA REAL DE VRAM ---
@@ -2282,7 +2241,7 @@ void PPU::render_scanline() {
                        x, color_index, final_color, line_start_index + x);
             }
             
-            framebuffer_[line_start_index + x] = final_color;
+            framebuffer_back_[line_start_index + x] = final_color;
             
             // --- Step 0336: Verificación de Escritura en Framebuffer ---
             // Verificar que el índice final se escribió correctamente en el framebuffer
@@ -2292,7 +2251,7 @@ void PPU::render_scanline() {
                     framebuffer_write_check_count++;
                     
                     size_t framebuffer_idx = ly_ * SCREEN_WIDTH + x;
-                    uint8_t framebuffer_value = framebuffer_[framebuffer_idx] & 0x03;
+                    uint8_t framebuffer_value = framebuffer_front_[framebuffer_idx] & 0x03;
                     
                     if (framebuffer_value != final_color) {
                         printf("[PPU-PALETTE-APPLY] ⚠️ PROBLEMA: Framebuffer tiene %d pero debería tener %d\n",
@@ -2315,7 +2274,7 @@ void PPU::render_scanline() {
     if (ly_ == 72 && framebuffer_dump_count < 3) {  // Línea central (72 de 144)
         printf("[FRAMEBUFFER-DUMP] Frame %d, LY:72 | First 32 pixels (indices 0-31):\n", framebuffer_dump_count + 1);
         for(int x_dump = 0; x_dump < 32; x_dump++) {
-            printf("%02X ", framebuffer_[line_start_index + x_dump]);
+            printf("%02X ", framebuffer_front_[line_start_index + x_dump]);
             if ((x_dump + 1) % 16 == 0) printf("\n");
         }
         printf("\n");
@@ -2341,7 +2300,7 @@ void PPU::render_scanline() {
         
         // Contar índices no-cero en la línea central
         for (int x = 0; x < 160; x++) {
-            uint8_t idx = framebuffer_[line_start + x] & 0x03;
+            uint8_t idx = framebuffer_front_[line_start + x] & 0x03;
             if (idx != 0) non_zero_count++;
         }
         
@@ -2353,7 +2312,7 @@ void PPU::render_scanline() {
                 // Mostrar algunos píxeles de ejemplo
                 printf("[FRAMEBUFFER-DETAILED] Sample pixels (first 32): ");
                 for (int x = 0; x < 32; x++) {
-                    printf("%d ", framebuffer_[line_start + x] & 0x03);
+                    printf("%d ", framebuffer_front_[line_start + x] & 0x03);
                 }
                 printf("\n");
             }
@@ -2387,7 +2346,7 @@ void PPU::render_scanline() {
             size_t line_start = ly_ * SCREEN_WIDTH;
             int non_zero_pixels = 0;
             for (int x_check = 0; x_check < SCREEN_WIDTH; x_check++) {
-                uint8_t color_idx = framebuffer_[line_start + x_check] & 0x03;
+                uint8_t color_idx = framebuffer_front_[line_start + x_check] & 0x03;
                 if (color_idx != 0) {
                     non_zero_pixels++;
                 }
@@ -2421,7 +2380,7 @@ void PPU::render_scanline() {
         // Contar índices en la línea 72 (línea central)
         int index_counts[4] = {0, 0, 0, 0};
         for (int x = 0; x < SCREEN_WIDTH; x++) {
-            uint8_t color_idx = framebuffer_[ly_ * SCREEN_WIDTH + x] & 0x03;
+            uint8_t color_idx = framebuffer_front_[ly_ * SCREEN_WIDTH + x] & 0x03;
             if (color_idx < 4) {
                 index_counts[color_idx]++;
             }
@@ -2436,7 +2395,7 @@ void PPU::render_scanline() {
         int test_x_positions[] = {0, 40, 80, 120, 159};
         for (int i = 0; i < 5; i++) {
             int x = test_x_positions[i];
-            uint8_t color_idx = framebuffer_[ly_ * SCREEN_WIDTH + x] & 0x03;
+            uint8_t color_idx = framebuffer_front_[ly_ * SCREEN_WIDTH + x] & 0x03;
             printf("[PPU-FRAMEBUFFER-CONTENT] Pixel (%d, %d): index=%d\n", x, ly_, color_idx);
         }
     }
@@ -2569,7 +2528,7 @@ void PPU::render_scanline() {
                 // Verificar en el framebuffer
                 int framebuffer_x = x;  // Asumiendo que el tile empieza en x=0
                 if (framebuffer_x < SCREEN_WIDTH) {
-                    uint8_t actual_color_idx = framebuffer_[ly_ * SCREEN_WIDTH + framebuffer_x] & 0x03;
+                    uint8_t actual_color_idx = framebuffer_front_[ly_ * SCREEN_WIDTH + framebuffer_x] & 0x03;
                     if (actual_color_idx == expected_color_idx) {
                         pixels_rendered++;
                     }
@@ -2630,7 +2589,7 @@ void PPU::render_scanline() {
     int non_zero_pixels = 0;
     int color_counts[4] = {0, 0, 0, 0};
     for (int x = 0; x < SCREEN_WIDTH; x++) {
-        uint8_t color_idx = framebuffer_[line_start + x] & 0x03;
+        uint8_t color_idx = framebuffer_front_[line_start + x] & 0x03;
         if (color_idx != 0) {
             non_zero_pixels++;
         }
@@ -2667,7 +2626,7 @@ void PPU::render_scanline() {
         int non_zero_pixels = 0;
         
         for (int x = 0; x < SCREEN_WIDTH; x++) {
-            uint8_t color_idx = framebuffer_[line_start + x] & 0x03;
+            uint8_t color_idx = framebuffer_front_[line_start + x] & 0x03;
             if (color_idx < 4) {
                 index_counts[color_idx]++;
                 if (color_idx != 0) {
@@ -2686,7 +2645,7 @@ void PPU::render_scanline() {
         int test_x_positions[] = {0, 40, 80, 120, 159};
         for (int i = 0; i < 5; i++) {
             int x = test_x_positions[i];
-            uint8_t color_idx = framebuffer_[line_start + x] & 0x03;
+            uint8_t color_idx = framebuffer_front_[line_start + x] & 0x03;
             printf("[PPU-FRAMEBUFFER-LINE] Pixel (%d, %d): index=%d\n", x, ly_, color_idx);
         }
         
@@ -2706,7 +2665,7 @@ void PPU::render_scanline() {
         // Verificar la línea renderizada
         int line_non_white = 0;
         for (int x = 0; x < 160; x++) {
-            uint8_t idx = framebuffer_[ly_ * 160 + x];
+            uint8_t idx = framebuffer_front_[ly_ * 160 + x];
             if (idx != 0) {
                 line_non_white++;
             }
@@ -2726,7 +2685,7 @@ void PPU::render_scanline() {
                ly_, vram_non_zero, line_non_white, (line_non_white * 100.0) / 160);
         
         for (int x = 0; x < 10; x++) {
-            printf("%d ", framebuffer_[ly_ * 160 + x]);
+            printf("%d ", framebuffer_front_[ly_ * 160 + x]);
         }
         printf("\n");
         
@@ -2781,8 +2740,9 @@ void PPU::render_bg() {
     uint8_t tile_y = y_pos / TILE_SIZE;
     uint8_t line_in_tile = y_pos % TILE_SIZE;
     
-    // Índice base en el framebuffer para la línea actual
-    uint8_t* framebuffer_line = &framebuffer_[ly_ * SCREEN_WIDTH];
+    // --- Step 0364: Doble Buffering ---
+    // Índice base en el framebuffer back (donde escribimos) para la línea actual
+    uint8_t* framebuffer_line = &framebuffer_back_[ly_ * SCREEN_WIDTH];
     
     // Buffer temporal para decodificar una línea de tile
     uint8_t tile_line[8];
@@ -2924,10 +2884,10 @@ void PPU::render_window() {
             uint8_t final_color = (bgp >> (color_index * 2)) & 0x03;
             
             // Escribir el píxel en el framebuffer (la Window sobrescribe el Background)
-            framebuffer_[line_start_index + screen_x] = final_color;
+            framebuffer_back_[line_start_index + screen_x] = final_color;
         } else {
             // Si la dirección no es válida, usar color 0 (transparente/blanco)
-            framebuffer_[line_start_index + screen_x] = 0;
+            framebuffer_back_[line_start_index + screen_x] = 0;
         }
     }
 }
@@ -2989,8 +2949,9 @@ void PPU::render_sprites() {
     uint8_t obp1 = 0xE4;  // 11 10 01 00 (Mapeo identidad estándar)
     // -------------------------------------------
     
-    // Índice base en el framebuffer para la línea actual
-    uint8_t* framebuffer_line = &framebuffer_[ly_ * SCREEN_WIDTH];
+    // --- Step 0364: Doble Buffering ---
+    // Índice base en el framebuffer back (donde escribimos) para la línea actual
+    uint8_t* framebuffer_line = &framebuffer_back_[ly_ * SCREEN_WIDTH];
     
     // Buffer temporal para decodificar una línea de tile
     uint8_t tile_line[8];

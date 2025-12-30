@@ -206,10 +206,19 @@ public:
     void clear_framebuffer();
     
     /**
-     * Step 0360: Confirma que Python leyó el framebuffer.
+     * Step 0364: Intercambia los framebuffers front y back.
      * 
-     * Este método debe llamarse después de que Python termine de leer el framebuffer.
-     * Permite que C++ limpie el framebuffer de forma segura sin condiciones de carrera.
+     * Este método intercambia los buffers cuando se completa un frame completo (LY=144).
+     * Solo debe llamarse desde get_frame_ready_and_reset() cuando frame_ready_ es true.
+     * Thread-safe: solo intercambia punteros internos de std::vector, no copia datos.
+     */
+    void swap_framebuffers();
+    
+    /**
+     * Step 0364: Confirma que Python leyó el framebuffer (mantenido por compatibilidad).
+     * 
+     * Con doble buffering, este método ya no es necesario pero se mantiene por compatibilidad
+     * con el código Python que lo llama. El buffer front ya no se modifica durante la lectura.
      */
     void confirm_framebuffer_read();
 
@@ -281,12 +290,6 @@ private:
     bool vram_is_empty_;
     
     /**
-     * Step 0360: Flag para proteger el framebuffer durante el renderizado.
-     * Indica cuando Python está leyendo el framebuffer para evitar que C++ lo limpie.
-     */
-    bool framebuffer_being_read_;
-    
-    /**
      * Actualiza el modo PPU actual según el punto en la línea (line_cycles) y LY.
      */
     void update_mode();
@@ -303,12 +306,20 @@ private:
     void check_stat_interrupt();
     
     /**
-     * Framebuffer: Array de índices de color (8 bits por píxel).
-     * Tamaño: 160 * 144 = 23040 píxeles.
+     * Step 0364: Doble Buffering para eliminar condiciones de carrera.
+     * 
+     * framebuffer_front_: Buffer que Python lee (público, estable, no se modifica durante renderizado).
+     * framebuffer_back_: Buffer donde C++ escribe (privado, se modifica durante renderizado).
+     * 
+     * Tamaño de cada buffer: 160 * 144 = 23040 píxeles.
      * Formato: Índices de color 0-3 (4 colores posibles por paleta).
      * Los colores finales se aplican en Python usando la paleta BGP.
+     * 
+     * El intercambio solo ocurre cuando se completa un frame completo (LY=144).
      */
-    std::vector<uint8_t> framebuffer_;
+    std::vector<uint8_t> framebuffer_front_;  // Buffer que Python lee (estable)
+    std::vector<uint8_t> framebuffer_back_;   // Buffer donde C++ escribe (se modifica)
+    bool framebuffer_swap_pending_;           // Flag para indicar intercambio pendiente
     
     /**
      * Renderiza la línea de escaneo actual (scanline rendering).

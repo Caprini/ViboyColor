@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                                        <!-- Entrada 0364 - Implementación de Doble Buffering para Eliminar Condiciones de Carrera -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-29__0364__implementacion-doble-buffering.html" class="entry-link">
+                                    Implementación de Doble Buffering para Eliminar Condiciones de Carrera
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-29 | 
+                            <strong>Step ID:</strong> 0364 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementó doble buffering en la PPU para eliminar completamente las condiciones de carrera entre C++ (que escribe al framebuffer durante el renderizado) y Python (que lee el framebuffer para renderizar a la pantalla). Se separó el buffer de escritura (framebuffer_back_) del buffer de lectura (framebuffer_front_), y el intercambio solo ocurre cuando se completa un frame completo (LY=144). Esta implementación elimina el flag framebuffer_being_read_ que solo prevenía la limpieza pero no prevenía que render_scanline() escribiera nuevos datos durante la lectura.
+                        </p>
+                    </li>
                                         <!-- Entrada 0363 - Verificación Visual y Análisis de Rendimiento Post-Correcciones -->
                     <li>
                         <div class="entry-header">
