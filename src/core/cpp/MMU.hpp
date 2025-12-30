@@ -296,6 +296,11 @@ private:
     mutable int vram_write_total_step382_;
     mutable int vram_write_nonzero_step382_;
     
+    // --- Step 0391: Contadores por regiones VRAM ---
+    mutable int vram_tiledata_nonzero_writes_;  // 0x8000-0x97FF (tile patterns)
+    mutable int vram_tilemap_nonzero_writes_;   // 0x9800-0x9FFF (tile maps)
+    mutable int vram_region_summary_count_;     // Contador para resúmenes periódicos
+    
     // --- Step 0385: Flags de trazado de wait-loop y VBlank ISR ---
     mutable bool waitloop_trace_active_;
     mutable bool vblank_isr_trace_active_;

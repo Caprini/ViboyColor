@@ -907,6 +907,40 @@ void PPU::step(int cpu_cycles) {
             }
             // -------------------------------------------
             
+            // --- Step 0391: Monitor de Regiones VRAM (cada 120 frames, máx 10) ---
+            if (frame_counter_ % 120 == 0) {
+                static int vram_region_report_count = 0;
+                if (vram_region_report_count < 10) {
+                    vram_region_report_count++;
+                    
+                    // Contar bytes no-cero por región
+                    int bank0_tiledata_nonzero = 0;  // 0x8000-0x97FF (bank0)
+                    int bank0_tilemap_nonzero = 0;   // 0x9800-0x9FFF (bank0)
+                    
+                    // Bank0 tiledata (tile patterns)
+                    for (uint16_t addr = 0x8000; addr < 0x9800; addr++) {
+                        if (mmu_->read(addr) != 0x00) {
+                            bank0_tiledata_nonzero++;
+                        }
+                    }
+                    
+                    // Bank0 tilemap (tile maps)
+                    for (uint16_t addr = 0x9800; addr <= 0x9FFF; addr++) {
+                        if (mmu_->read(addr) != 0x00) {
+                            bank0_tilemap_nonzero++;
+                        }
+                    }
+                    
+                    printf("[PPU-VRAM-REGIONS] Frame %llu | TileData:%d TileMap:%d | "
+                           "TileData%%:%.1f%% TileMap%%:%.1f%%\n",
+                           static_cast<unsigned long long>(frame_counter_),
+                           bank0_tiledata_nonzero, bank0_tilemap_nonzero,
+                           (bank0_tiledata_nonzero * 100.0) / 6144,  // 0x8000-0x97FF = 6144 bytes
+                           (bank0_tilemap_nonzero * 100.0) / 2048);  // 0x9800-0x9FFF = 2048 bytes
+                }
+            }
+            // -------------------------------------------
+            
             // --- Step 0362: Corrección de Timing de Limpieza del Framebuffer ---
             // NO limpiar el framebuffer al inicio del siguiente frame
             // El framebuffer solo se limpiará cuando Python confirme que lo leyó

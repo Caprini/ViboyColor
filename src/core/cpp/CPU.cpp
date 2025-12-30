@@ -492,9 +492,9 @@ int CPU::step() {
     was_halted_step382 = halted_;
     // -------------------------------------------
     
-    // --- Step 0385: Detector de Wait-Loop Genérico ---
+    // --- Step 0391: Detector de Wait-Loop Quirúrgico para Zelda DX ---
     // Detecta bucles de polling sin asumir banco/PC específico
-    // Objetivo: localizar automáticamente el PC más repetido (el bucle donde Zelda DX se queda congelado)
+    // Objetivo: localizar automáticamente el PC más repetido y capturar valores de IE/IF/LCDC/STAT/LY
     // Umbral: 5000 repeticiones del mismo PC indica bucle de espera (polling)
     static uint16_t last_pc_for_loop = 0xFFFF;
     static int same_pc_streak = 0;
@@ -518,12 +518,16 @@ int CPU::step() {
             uint8_t ime = ime_ ? 1 : 0;
             uint8_t ie = mmu_->read(0xFFFF);
             uint8_t if_reg = mmu_->read(0xFF0F);
+            uint8_t lcdc = mmu_->read(0xFF40);
+            uint8_t stat = mmu_->read(0xFF41);
+            uint8_t ly = mmu_->read(0xFF44);
             
-            printf("[WAITLOOP-DETECT] ⚠️ Bucle detectado! PC:0x%04X Bank:%d repetido %d veces\n",
+            printf("[ZELDA-WAIT] ⚠️ Bucle detectado! PC:0x%04X Bank:%d repetido %d veces\n",
                    original_pc, bank, same_pc_streak);
-            printf("[WAITLOOP-DETECT] Estado: AF:0x%04X HL:0x%04X IME:%d IE:0x%02X IF:0x%02X\n",
-                   af, hl, ime, ie, if_reg);
-            printf("[WAITLOOP-DETECT] Activando trazado de 200 iteraciones...\n");
+            printf("[ZELDA-WAIT] Estado: AF:0x%04X HL:0x%04X IME:%d\n", af, hl, ime);
+            printf("[ZELDA-WAIT] IE:0x%02X IF:0x%02X LCDC:0x%02X STAT:0x%02X LY:0x%02X\n",
+                   ie, if_reg, lcdc, stat, ly);
+            printf("[ZELDA-WAIT] Activando trazado de 200 iteraciones...\n");
         }
     } else {
         same_pc_streak = 0;
@@ -537,12 +541,21 @@ int CPU::step() {
         uint8_t byte1 = (regs_->pc < 0xFFFF) ? mmu_->read(regs_->pc) : 0x00;
         uint8_t byte2 = (regs_->pc < 0xFFFE) ? mmu_->read(regs_->pc + 1) : 0x00;
         
-        printf("[WAITLOOP-TRACE] #%d PC:0x%04X Bank:%d OP:%02X %02X %02X | AF:%04X BC:%04X DE:%04X HL:%04X SP:%04X | IME:%d IE:%02X IF:%02X\n",
+        // Step 0391: Captura detallada de registros LCD
+        uint8_t ie = mmu_->read(0xFFFF);
+        uint8_t if_reg = mmu_->read(0xFF0F);
+        uint8_t lcdc = mmu_->read(0xFF40);
+        uint8_t stat = mmu_->read(0xFF41);
+        uint8_t ly = mmu_->read(0xFF44);
+        
+        printf("[ZELDA-WAIT] #%d PC:0x%04X Bank:%d OP:%02X %02X %02X | AF:%04X BC:%04X DE:%04X HL:%04X SP:%04X\n",
                wait_loop_trace_count_,
                original_pc, bank,
                opcode, byte1, byte2,
-               regs_->get_af(), regs_->get_bc(), regs_->get_de(), regs_->get_hl(), regs_->sp,
-               ime_ ? 1 : 0, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
+               regs_->get_af(), regs_->get_bc(), regs_->get_de(), regs_->get_hl(), regs_->sp);
+        printf("[ZELDA-WAIT-MMIO] #%d IME:%d IE:0x%02X IF:0x%02X LCDC:0x%02X STAT:0x%02X LY:0x%02X\n",
+               wait_loop_trace_count_,
+               ime_ ? 1 : 0, ie, if_reg, lcdc, stat, ly);
         
         wait_loop_trace_count_++;
         
@@ -550,7 +563,7 @@ int CPU::step() {
             wait_loop_trace_active_ = false;
             // Desactivar trazado de MMIO/RAM en la MMU
             mmu_->set_waitloop_trace(false);
-            printf("[WAITLOOP-TRACE] Fin del trazado (200 iteraciones completadas)\n");
+            printf("[ZELDA-WAIT] Fin del trazado (200 iteraciones completadas)\n");
         }
     }
     // -------------------------------------------

@@ -69,6 +69,9 @@ MMU::MMU()
     , ram_enabled_(false)
     , vram_write_total_step382_(0)
     , vram_write_nonzero_step382_(0)
+    , vram_tiledata_nonzero_writes_(0)  // Step 0391
+    , vram_tilemap_nonzero_writes_(0)   // Step 0391
+    , vram_region_summary_count_(0)     // Step 0391
     , waitloop_trace_active_(false)
     , vblank_isr_trace_active_(false)
     , waitloop_mmio_count_(0)
@@ -1888,6 +1891,27 @@ void MMU::write(uint16_t addr, uint8_t value) {
         if (value != 0x00) {
             vram_write_nonzero_step382_++;
         }
+        
+        // --- Step 0391: Conteo por regiones VRAM ---
+        // Tiledata: 0x8000-0x97FF (tile patterns, 6KB)
+        // Tilemap: 0x9800-0x9FFF (tile maps, 2KB)
+        if (value != 0x00) {
+            if (addr >= 0x8000 && addr <= 0x97FF) {
+                vram_tiledata_nonzero_writes_++;
+            } else if (addr >= 0x9800 && addr <= 0x9FFF) {
+                vram_tilemap_nonzero_writes_++;
+            }
+        }
+        
+        // Resumen cada 3000 escrituras (máx 10)
+        vram_region_summary_count_++;
+        if (vram_region_summary_count_ % 3000 == 0 && vram_region_summary_count_ <= 30000) {
+            printf("[VRAM-SUMMARY] tiledata_nonzero=%d tilemap_nonzero=%d total=%d\n",
+                   vram_tiledata_nonzero_writes_, 
+                   vram_tilemap_nonzero_writes_,
+                   vram_write_total_step382_);
+        }
+        // -------------------------------------------
         
         // Loggear solo las primeras 50 escrituras con detalle completo
         static int vram_log_count_step382 = 0;
