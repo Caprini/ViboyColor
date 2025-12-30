@@ -789,6 +789,7 @@ class Viboy:
         # -------------------------------------------
         
         # --- Step 0298: Simulación de Entrada ---
+        # --- Step 0381: Simulación Temprana de Input ---
         # Mapeo de nombres de botones a índices numéricos para PyJoypad C++
         button_index_map: dict[str, int] = {
             "right": 0,
@@ -802,23 +803,21 @@ class Viboy:
         }
         
         # Lista de acciones de simulación: (frames, botón, acción: "press" o "release")
-        # 5 segundos = 300 frames, 10 segundos = 600 frames
+        # Step 0381: Acciones más tempranas para verificar progreso del juego
         simulated_actions: list[tuple[int, str, str]] = []
         if simulate_input:
             simulated_actions = [
-                (300, "start", "press"),   # 5 segundos: Presionar START
-                (330, "start", "release"), # 5.5 segundos: Soltar START
-                (600, "a", "press"),       # 10 segundos: Presionar A
-                (630, "a", "release"),     # 10.5 segundos: Soltar A
-                (900, "down", "press"),    # 15 segundos: Presionar DOWN
-                (930, "down", "release"),  # 15.5 segundos: Soltar DOWN
+                (60, "start", "press"),     # 1 segundo: Presionar START
+                (90, "start", "release"),   # 1.5 segundos: Soltar START
+                (120, "a", "press"),        # 2 segundos: Presionar A
+                (150, "a", "release"),      # 2.5 segundos: Soltar A
             ]
-            print("🎮 Modo de simulación de entrada activado")
+            print("🎮 [Step 0381] Modo de simulación de entrada activado (acciones tempranas)")
             print("   Acciones programadas:")
             for frames, button, action in simulated_actions:
                 seconds = frames / 60.0
                 print(f"   - {seconds:.1f}s: {action.upper()} {button.upper()}")
-        # --- Fin Step 0298 ---
+        # --- Fin Step 0381 / Step 0298 ---
         
         print("🚀 Ejecutando el núcleo C++ con bucle de emulación nativo...")
         

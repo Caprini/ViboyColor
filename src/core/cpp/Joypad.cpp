@@ -9,6 +9,10 @@ Joypad::Joypad() : direction_keys_(0x0F), action_keys_(0x0F), p1_register_(0xFF)
     // p1_register_ = 0xFF (bits 6-7 a 1, bits 4-5 a 1 = ninguna fila seleccionada)
     // NOTA: Usamos 0xFF en lugar de 0xCF para que (p1_register_ & 0x10) y (p1_register_ & 0x20) no sean 0
     // mmu_ = nullptr (se establecerá mediante setMMU())
+    
+    // --- Step 0381: Log de creación de instancia ---
+    printf("[JOYPAD-CONSTRUCTOR] Nueva instancia de Joypad creada en %p\n", (void*)this);
+    // -------------------------------------------
 }
 
 Joypad::~Joypad() {
@@ -48,6 +52,19 @@ uint8_t Joypad::read_p1() const {
     // - Bits 0-3: nibble calculado
     uint8_t result = 0xC0 | (p1_register_ & 0x30) | (nibble & 0x0F);
     
+    // --- Step 0381: Instrumentación de Lectura de P1 con Estado de Botones ---
+    static int read_p1_log_count = 0;
+    if (read_p1_log_count < 500) {  // Aumentado de 100 a 500 para capturar frames 60-150
+        read_p1_log_count++;
+        printf("[JOYPAD-READ-P1] Instance=%p | direction_keys=0x%02X action_keys=0x%02X | "
+               "Dir_sel=%s Act_sel=%s | nibble=0x%02X result=0x%02X\n",
+               (void*)this, direction_keys_, action_keys_,
+               direction_row_selected ? "YES" : "NO",
+               action_row_selected ? "YES" : "NO",
+               nibble, result);
+    }
+    // -------------------------------------------
+    
     return result;
 }
 
@@ -86,6 +103,11 @@ void Joypad::press_button(int button_index) {
     uint8_t old_action_keys = action_keys_;
     // -------------------------------------------
     
+    // --- Step 0381: Log ANTES de modificar ---
+    printf("[JOYPAD-PRESS-BEFORE] Instance=%p | Button %d | direction_keys=0x%02X action_keys=0x%02X\n",
+           (void*)this, button_index, direction_keys_, action_keys_);
+    // -------------------------------------------
+    
     if (button_index < 4) {
         // Botones de dirección (0-3)
         // Poner el bit correspondiente a 0 (presionado)
@@ -97,6 +119,11 @@ void Joypad::press_button(int button_index) {
         // Poner el bit correspondiente a 0 (presionado)
         action_keys_ &= ~(1 << action_index);
     }
+    
+    // --- Step 0381: Log DESPUÉS de modificar ---
+    printf("[JOYPAD-PRESS-AFTER] Button %d | direction_keys=0x%02X action_keys=0x%02X\n",
+           button_index, direction_keys_, action_keys_);
+    // -------------------------------------------
     
     // --- Step 0379/0380: Solicitar Interrupción de Joypad en "Falling Edge" ---
     // Según Pan Docs: "The Joypad Interrupt is requested when a button changes from high to low"
