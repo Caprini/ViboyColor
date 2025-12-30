@@ -314,6 +314,27 @@ private:
     std::vector<uint8_t> vram_bank1_;  // Banco 1 de VRAM (4KB)
     uint8_t vram_bank_;                // Banco actual seleccionado por VBK (0 o 1)
     
+    // --- Step 0390: CGB HDMA (0xFF51-0xFF55) ---
+    // HDMA permite transferencia de datos desde ROM/RAM a VRAM sin intervención de CPU.
+    // Modos: General DMA (inmediato) y HBlank DMA (incremental por línea).
+    // Fuente: Pan Docs - CGB Registers, HDMA
+    uint8_t hdma1_;                     // 0xFF51: HDMA Source High
+    uint8_t hdma2_;                     // 0xFF52: HDMA Source Low
+    uint8_t hdma3_;                     // 0xFF53: HDMA Destination High
+    uint8_t hdma4_;                     // 0xFF54: HDMA Destination Low
+    uint8_t hdma5_;                     // 0xFF55: HDMA Length/Mode/Start
+    bool hdma_active_;                  // ¿HDMA en progreso?
+    uint16_t hdma_length_remaining_;    // Bytes restantes por transferir
+    
+    // --- Step 0390: CGB Paletas BG/OBJ (0xFF68-0xFF6B) ---
+    // CGB tiene 8 paletas BG y 8 paletas OBJ, cada una con 4 colores de 15 bits (BGR555).
+    // Total: 64 bytes por tipo de paleta.
+    // Fuente: Pan Docs - CGB Registers, Palettes
+    uint8_t bg_palette_data_[0x40];     // 64 bytes: 8 paletas BG × 4 colores × 2 bytes
+    uint8_t obj_palette_data_[0x40];    // 64 bytes: 8 paletas OBJ × 4 colores × 2 bytes
+    uint8_t bg_palette_index_;          // 0xFF68 (BCPS): Índice actual (0-0x3F) + autoinc (bit 7)
+    uint8_t obj_palette_index_;         // 0xFF6A (OCPS): Índice actual (0-0x3F) + autoinc (bit 7)
+    
 public:
     /**
      * Step 0389: Acceso directo a bancos VRAM para el PPU

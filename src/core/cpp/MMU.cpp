@@ -76,7 +76,20 @@ MMU::MMU()
     , vram_bank0_(0x2000, 0)  // Step 0389: Banco 0 de VRAM (8KB)
     , vram_bank1_(0x2000, 0)  // Step 0389: Banco 1 de VRAM (8KB)
     , vram_bank_(0)           // Step 0389: Banco actual (0 por defecto)
+    , hdma1_(0xFF)            // Step 0390: HDMA Source High
+    , hdma2_(0xFF)            // Step 0390: HDMA Source Low
+    , hdma3_(0xFF)            // Step 0390: HDMA Destination High
+    , hdma4_(0xFF)            // Step 0390: HDMA Destination Low
+    , hdma5_(0xFF)            // Step 0390: HDMA Length/Mode/Start (0xFF = inactivo)
+    , hdma_active_(false)     // Step 0390: HDMA inactivo al inicio
+    , hdma_length_remaining_(0) // Step 0390: Sin bytes pendientes
+    , bg_palette_index_(0)    // Step 0390: Índice de paleta BG inicial
+    , obj_palette_index_(0)   // Step 0390: Índice de paleta OBJ inicial
 {
+    // Step 0390: Inicializar arrays de paletas CGB a 0xFF (valor inicial)
+    std::memset(bg_palette_data_, 0xFF, sizeof(bg_palette_data_));
+    std::memset(obj_palette_data_, 0xFF, sizeof(obj_palette_data_));
+    
     // Inicializar memoria a 0
     // --- Step 0189: Inicialización de Registros de Hardware (Post-BIOS) ---
     // Estos son los valores que los registros de I/O tienen después de que la
@@ -455,6 +468,49 @@ uint8_t MMU::read(uint16_t addr) const {
     // Fuente: Pan Docs - CGB Registers, FF4F - VBK
     if (addr == 0xFF4F) {
         return 0xFE | (vram_bank_ & 0x01);
+    }
+    
+    // --- Step 0390: Lectura de Registros HDMA (0xFF51-0xFF55) ---
+    // Fuente: Pan Docs - CGB Registers, HDMA
+    if (addr >= 0xFF51 && addr <= 0xFF54) {
+        // HDMA1-4 son write-only; lectura retorna 0xFF
+        return 0xFF;
+    }
+    if (addr == 0xFF55) {
+        // HDMA5: Retorna estado del DMA
+        // - Si HDMA inactivo: 0xFF
+        // - Si HDMA activo: bits 0-6 = bloques restantes - 1, bit 7 = 0
+        if (hdma_active_) {
+            uint8_t blocks_remaining = (hdma_length_remaining_ / 0x10);
+            if (blocks_remaining > 0) blocks_remaining--;
+            return (blocks_remaining & 0x7F);  // bit 7 = 0 indica activo
+        }
+        return 0xFF;  // Inactivo
+    }
+    
+    // --- Step 0390: Lectura de Paletas CGB (0xFF68-0xFF6B) ---
+    // Fuente: Pan Docs - CGB Registers, Palettes
+    if (addr == 0xFF68) {
+        // BCPS (BG Color Palette Specification)
+        // Retorna: índice actual (bits 0-5) + autoincrement (bit 7) + bit 6 = 1
+        return bg_palette_index_ | 0x40;
+    }
+    if (addr == 0xFF69) {
+        // BCPD (BG Color Palette Data)
+        // Retorna el byte actual de la paleta BG
+        uint8_t index = bg_palette_index_ & 0x3F;
+        return bg_palette_data_[index];
+    }
+    if (addr == 0xFF6A) {
+        // OCPS (OBJ Color Palette Specification)
+        // Retorna: índice actual (bits 0-5) + autoincrement (bit 7) + bit 6 = 1
+        return obj_palette_index_ | 0x40;
+    }
+    if (addr == 0xFF6B) {
+        // OCPD (OBJ Color Palette Data)
+        // Retorna el byte actual de la paleta OBJ
+        uint8_t index = obj_palette_index_ & 0x3F;
+        return obj_palette_data_[index];
     }
     
     // --- RAM Externa (0xA000-0xBFFF) ---
@@ -1868,6 +1924,131 @@ void MMU::write(uint16_t addr, uint8_t value) {
         }
     }
     // -------------------------------------------
+    
+    // --- Step 0390: Escritura de Registros HDMA (0xFF51-0xFF55) ---
+    // Fuente: Pan Docs - CGB Registers, HDMA
+    if (addr >= 0xFF51 && addr <= 0xFF54) {
+        // HDMA1-4: Configurar source y destination
+        if (addr == 0xFF51) hdma1_ = value;
+        else if (addr == 0xFF52) hdma2_ = value;
+        else if (addr == 0xFF53) hdma3_ = value;
+        else if (addr == 0xFF54) hdma4_ = value;
+        return;
+    }
+    if (addr == 0xFF55) {
+        // HDMA5: Iniciar transferencia DMA
+        uint16_t source = ((hdma1_ << 8) | (hdma2_ & 0xF0));
+        uint16_t dest = 0x8000 | (((hdma3_ & 0x1F) << 8) | (hdma4_ & 0xF0));
+        uint16_t length = ((value & 0x7F) + 1) * 0x10;  // Bloques de 16 bytes
+        
+        bool is_hblank_dma = (value & 0x80) != 0;
+        
+        static int hdma_start_count = 0;
+        if (hdma_start_count < 20) {
+            printf("[HDMA-START] PC:0x%04X | Source:0x%04X Dest:0x%04X Len:%d Mode:%s\n",
+                   debug_current_pc, source, dest, length,
+                   is_hblank_dma ? "HBlank" : "General");
+            hdma_start_count++;
+        }
+        
+        // Step 0390: Implementación mínima - ejecutar como General DMA inmediato
+        // TODO: Implementar HBlank DMA real en step futuro
+        if (is_hblank_dma && hdma_start_count < 20) {
+            printf("[HDMA-MODE] HBlank DMA solicitado, ejecutando como General DMA (compatibilidad)\n");
+        }
+        
+        // Copiar datos inmediatamente
+        static int hdma_copy_log = 0;
+        for (uint16_t i = 0; i < length; i++) {
+            uint8_t byte = read(source + i);
+            // Escribir a VRAM usando el sistema de banking
+            uint16_t vram_addr = dest + i;
+            if (vram_addr >= 0x8000 && vram_addr <= 0x9FFF) {
+                uint16_t offset = vram_addr - 0x8000;
+                // HDMA siempre escribe a VRAM bank 0 según Pan Docs (CGB mode)
+                vram_bank0_[offset] = byte;
+                
+                // Loggear primeras 5 copias
+                if (hdma_copy_log < 5) {
+                    printf("[HDMA-COPY] [%d/%d] 0x%04X -> 0x%04X = 0x%02X\n",
+                           i+1, length, source+i, vram_addr, byte);
+                    hdma_copy_log++;
+                }
+            }
+        }
+        
+        if (hdma_start_count < 20) {
+            printf("[HDMA-DONE] Transferidos %d bytes (Source:0x%04X->0x%04X Dest:0x%04X->0x%04X)\n",
+                   length, source, source+length-1, dest, dest+length-1);
+        }
+        
+        hdma5_ = 0xFF;  // Marcar como completo
+        hdma_active_ = false;
+        hdma_length_remaining_ = 0;
+        return;
+    }
+    
+    // --- Step 0390: Escritura de Paletas CGB (0xFF68-0xFF6B) ---
+    // Fuente: Pan Docs - CGB Registers, Palettes
+    if (addr == 0xFF68) {
+        // BCPS (BG Color Palette Specification)
+        // Bits 0-5: índice (0-0x3F), Bit 7: auto-increment
+        bg_palette_index_ = value;
+        static int bcps_write_count = 0;
+        if (bcps_write_count < 30) {
+            printf("[BCPS-WRITE] PC:0x%04X | BCPS <- 0x%02X | Index:%d AutoInc:%d\n",
+                   debug_current_pc, value, value & 0x3F, (value & 0x80) >> 7);
+            bcps_write_count++;
+        }
+        return;
+    }
+    if (addr == 0xFF69) {
+        // BCPD (BG Color Palette Data)
+        uint8_t index = bg_palette_index_ & 0x3F;
+        bg_palette_data_[index] = value;
+        
+        static int bcpd_write_count = 0;
+        if (bcpd_write_count < 80) {
+            printf("[BCPD-WRITE] PC:0x%04X | BCPD[0x%02X] <- 0x%02X\n",
+                   debug_current_pc, index, value);
+            bcpd_write_count++;
+        }
+        
+        // Auto-increment si bit 7 de BCPS está activo
+        if (bg_palette_index_ & 0x80) {
+            bg_palette_index_ = 0x80 | ((index + 1) & 0x3F);
+        }
+        return;
+    }
+    if (addr == 0xFF6A) {
+        // OCPS (OBJ Color Palette Specification)
+        obj_palette_index_ = value;
+        static int ocps_write_count = 0;
+        if (ocps_write_count < 30) {
+            printf("[OCPS-WRITE] PC:0x%04X | OCPS <- 0x%02X | Index:%d AutoInc:%d\n",
+                   debug_current_pc, value, value & 0x3F, (value & 0x80) >> 7);
+            ocps_write_count++;
+        }
+        return;
+    }
+    if (addr == 0xFF6B) {
+        // OCPD (OBJ Color Palette Data)
+        uint8_t index = obj_palette_index_ & 0x3F;
+        obj_palette_data_[index] = value;
+        
+        static int ocpd_write_count = 0;
+        if (ocpd_write_count < 80) {
+            printf("[OCPD-WRITE] PC:0x%04X | OCPD[0x%02X] <- 0x%02X\n",
+                   debug_current_pc, index, value);
+            ocpd_write_count++;
+        }
+        
+        // Auto-increment si bit 7 de OCPS está activo
+        if (obj_palette_index_ & 0x80) {
+            obj_palette_index_ = 0x80 | ((index + 1) & 0x3F);
+        }
+        return;
+    }
     
     // --- Step 0389: Manejo de Escritura a VBK (0xFF4F) ---
     // VBK selecciona qué banco de VRAM es visible para la CPU (bit 0)

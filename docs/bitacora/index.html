@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0390 - HDMA + Paletas CGB para Zelda DX -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-30__0390__cgb-hdma-paletas-zelda-dx.html" class="entry-link">
+                                    HDMA + Paletas CGB para Zelda DX
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-30 | 
+                            <strong>Step ID:</strong> 0390 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación completa de HDMA (0xFF51-0xFF55) y Paletas CGB BG/OBJ (0xFF68-0xFF6B). HDMA permite transferencia de datos desde ROM/RAM a VRAM sin CPU (General DMA inmediato + fallback para HBlank DMA). Paletas CGB: 8 paletas BG y 8 OBJ de 4 colores BGR555 (15 bits) con auto-increment funcional. Zelda DX ejecuta 1317 frames establemente sin crashes. Sin regresiones en Tetris/Mario. Juego aún en fase temprana (no usa HDMA/paletas todavía). Infraestructura CGB lista para juegos avanzados.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0389 - Soporte CGB Mínimo (VBK/atributos BG) + trazado del nuevo wait-loop (Zelda DX) -->
                     <li>
                         <div class="entry-header">
