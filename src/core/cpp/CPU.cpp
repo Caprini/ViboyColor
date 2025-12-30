@@ -591,7 +591,7 @@ int CPU::step() {
     static bool vblank_isr_trace_active = false;
     static int vblank_isr_trace_count = 0;
     static const int MAX_VBLANK_ENTRIES = 3;
-    static const int MAX_ISR_TRACE = 80;
+    static const int MAX_ISR_TRACE = 5;  // Reducido para rendimiento óptimo
     
     if (original_pc == 0x0040) {
         vblank_entry_count++;

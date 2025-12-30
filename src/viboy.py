@@ -832,9 +832,10 @@ class Viboy:
                 palette_checked = True
         # ------------------------------------------------------------------------------------
         
-        # --- Step 0317: Optimización - Flag para controlar logs de debug ---
-        # Los logs pueden desactivarse para mejorar rendimiento
-        ENABLE_DEBUG_LOGS = False  # Cambiar a True para debugging
+        # --- Step 0393: Toggle de trazas via variable de entorno ---
+        # VBC_TRACE=1 activa trazas, por defecto desactivadas para rendimiento
+        import os
+        ENABLE_DEBUG_LOGS = os.getenv('VBC_TRACE', '0') == '1'
         # ------------------------------------------------------------------------------------
         
         try:
