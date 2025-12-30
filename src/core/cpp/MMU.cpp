@@ -1938,7 +1938,9 @@ void MMU::check_initial_vram_state() {
         int tile_non_zero = 0;
         
         for (int i = 0; i < 16; i++) {
-            uint8_t byte = memory_[addr - 0x8000 + i];
+            // Step 0379: Corrección crítica - NO restar 0x8000, leer directamente de VRAM
+            // BUG: memory_[addr - 0x8000 + i] leía desde ROM en lugar de VRAM
+            uint8_t byte = memory_[addr + i];
             if (byte != 0x00) {
                 non_zero_bytes++;
                 tile_non_zero++;
@@ -1980,7 +1982,9 @@ void MMU::check_vram_state_at_point(const char* point_name) {
             int tile_non_zero = 0;
             
             for (int i = 0; i < 16; i++) {
-                uint8_t byte = memory_[addr - 0x8000 + i];
+                // Step 0379: Corrección crítica - NO restar 0x8000, leer directamente de VRAM
+                // BUG: memory_[addr - 0x8000 + i] leía desde ROM en lugar de VRAM
+                uint8_t byte = memory_[addr + i];
                 if (byte != 0x00) {
                     non_zero_bytes++;
                     tile_non_zero++;
