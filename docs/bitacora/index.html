@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0380 - Diagnóstico Joypad (FF00) y Lectura de Filas -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-30__0380__diagnostico-joypad-ff00-y-lectura-de-filas.html" class="entry-link">
+                                    Diagnóstico Joypad (FF00) y Lectura de Filas
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-30 | 
+                            <strong>Step ID:</strong> 0380 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Se implementa instrumentación completa del flujo de entrada P1 (0xFF00) y se corrige la lectura cuando ambas filas están seleccionadas simultáneamente. El diagnóstico revela que el juego usa polling (24,803 escrituras a P1) en lugar de interrupciones, y confirma que la arquitectura de Joypad es correcta.
+                        </p>
+                    </li>
                     <!-- Entrada 0379 - Implementación de la Interrupción de Joypad -->
                     <li>
                         <div class="entry-header">

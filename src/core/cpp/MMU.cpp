@@ -290,11 +290,22 @@ uint8_t MMU::read(uint16_t addr) const {
     // La CPU escribe en P1 para seleccionar qué fila de botones leer, y lee
     // el estado de los botones de la fila seleccionada
     if (addr == 0xFF00) {
+        // --- Step 0380: Instrumentación de Lecturas de P1 (0xFF00) ---
+        static int p1_read_count = 0;
+        uint8_t p1_value = 0xCF;
+        
         if (joypad_ != nullptr) {
-            return joypad_->read_p1();
+            p1_value = joypad_->read_p1();
         }
-        // Si el Joypad no está conectado, devolver valor por defecto (0xCF = ninguna fila seleccionada)
-        return 0xCF;
+        
+        if (p1_read_count < 50) {
+            p1_read_count++;
+            printf("[MMU-JOYP-READ] PC:0x%04X | Read P1 = 0x%02X\n",
+                   debug_current_pc, p1_value);
+        }
+        // -------------------------------------------
+        
+        return p1_value;
     }
     
     // --- Step 0226: DEBUG DE LY (Registro 0xFF44) ---
@@ -479,6 +490,25 @@ void MMU::write(uint16_t addr, uint8_t value) {
 
     // Joypad P1
     if (addr == 0xFF00) {
+        // --- Step 0380: Instrumentación de Escrituras a P1 (0xFF00) ---
+        // Loggear escrituras a P1 para verificar si el juego está polleando el Joypad
+        static int p1_write_count = 0;
+        static uint8_t last_p1_write = 0xFF;
+        
+        if (p1_write_count < 50 || value != last_p1_write) {
+            if (p1_write_count < 50) {
+                p1_write_count++;
+            }
+            printf("[MMU-JOYP-WRITE] PC:0x%04X | Write P1 = 0x%02X | Bit4=%d Bit5=%d | IE=0x%02X IF=0x%02X IME=%d\n",
+                   debug_current_pc, value, 
+                   (value & 0x10) ? 1 : 0,  // Bit 4 (Direction row)
+                   (value & 0x20) ? 1 : 0,  // Bit 5 (Action row)
+                   memory_[0xFFFF], memory_[0xFF0F], 
+                   0);  // IME no está disponible en MMU, usar 0
+            last_p1_write = value;
+        }
+        // -------------------------------------------
+        
         if (joypad_ != nullptr) {
             joypad_->write_p1(value);
         }

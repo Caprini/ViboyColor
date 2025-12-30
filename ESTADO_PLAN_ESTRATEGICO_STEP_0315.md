@@ -106,28 +106,21 @@ El plan estratégico se divide en 3 fases:
 
 ### ✅ Gráficos
 
-- **Estado**: ⏳ **PENDIENTE DE VERIFICACIÓN FINAL**
+- **Estado**: ✅ **COMPLETADO** (Step 0378)
 - **Objetivo**: Renderizado correcto de tiles y sprites
-- **Progreso**: Correcciones aplicadas (Steps 0313-0314), pendiente verificación visual final
+- **Progreso**: Pipeline C++ -> Python verificado. Checkerboard funcional. Confirmados créditos de Pokémon en Step 0377.
 
-### ⏳ Rendimiento
+### ✅ Rendimiento
 
-- **Estado**: ✅ **OPTIMIZACIONES APLICADAS** (Step 0317), ⏳ **PENDIENTE VERIFICACIÓN MANUAL**
+- **Estado**: ✅ **COMPLETADO** (Step 0378)
 - **Objetivo**: FPS estable ~60 FPS
-- **Progreso**: 
-  - Análisis completado (Step 0316): FPS actual 6-32 FPS (variable, promedio ~25 FPS)
-  - **Causa identificada**: Tiempo entre frames variable (30-150ms), NO es problema de renderizado
-  - **Optimizaciones aplicadas**:
-    - Step 0316: Monitor de rendimiento desactivado
-    - Step 0317: Logs desactivados, verificación de paleta optimizada, imports optimizados, monitor GPS desactivado
-  - **FPS esperado después de optimizaciones**: 50-60 FPS estable (Step 0317)
-  - **Pendiente**: Verificar mejoras de FPS manualmente (Step 0317)
+- **Progreso**: 62.5 FPS estables verificados con múltiples instancias simultáneas. Sincronización perfecta.
 
 ### ⏳ Controles
 
-- **Estado**: ⏳ **PENDIENTE**
+- **Estado**: ⏳ **PENDIENTE DE INTERACCIÓN FINAL**
 - **Objetivo**: Entrada de usuario funcional
-- **Progreso**: Script de verificación creado, pendiente ejecutar
+- **Progreso**: Código migrado a C++, mapeo integrado en Pygame. Pendiente de avance manual en menú de Pokémon.
 
 ### ⏳ Compatibilidad
 

@@ -16,37 +16,37 @@ Joypad::~Joypad() {
 }
 
 uint8_t Joypad::read_p1() const {
+    // --- Step 0380: Corrección de Lectura de P1 para Selección Simultánea de Filas ---
+    // Pan Docs: "Both lines may be selected at the same time, in that case the button
+    // state is a logic AND of both line states."
+    // 
     // El registro P1 tiene bits 6-7 siempre a 1 (no se usan)
     // Los bits 4-5 vienen de p1_register_ (selección de fila)
-    // Los bits 0-3 dependen de qué fila esté seleccionada
+    // Los bits 0-3 dependen de qué fila(s) esté(n) seleccionada(s)
     
-    // Empezar con el valor base: bits 6-7 a 1, bits 0-3 a 1 (todos sueltos por defecto)
-    uint8_t result = 0xCF; // 1100 1111
+    // Empezar con bits 0-3 a 1 (todos sueltos por defecto)
+    uint8_t nibble = 0x0F; // 0000 1111
     
-    // Si bit 4 = 0, se seleccionan los botones de dirección
-    // (un bit a 0 en direction_keys_ significa botón presionado)
-    if ((p1_register_ & 0x10) == 0) {
-        // Bit 4 = 0: seleccionar fila de dirección
-        // Construir resultado: bits 6-7=1, bit 4=0, bit 5=1, bits 0-3 desde direction_keys_
-        // 0xC0 = bits 6-7=1, 0x20 = bit 5=1, pero 0xC0|0x20 = 0xE0 tiene bit 4=1
-        // Necesitamos limpiar bit 4: 0xE0 & 0xDF = 0xC0 (incorrecto, pierde bit 5)
-        // Solución: construir directamente 0xD0 (bits 6-7=1, bit 5=1, bit 4=0)
-        result = 0xD0; // bits 6-7=1, bit 5=1, bit 4=0
-        result |= (direction_keys_ & 0x0F); // bits 0-3 desde direction_keys_
+    // Si bit 4 = 0, incluir estado de botones de dirección
+    bool direction_row_selected = (p1_register_ & 0x10) == 0;
+    bool action_row_selected = (p1_register_ & 0x20) == 0;
+    
+    if (direction_row_selected) {
+        // Aplicar AND: un botón presionado (0) en cualquier fila resulta en 0
+        nibble &= direction_keys_;
     }
-    // Si bit 5 = 0, se seleccionan los botones de acción
-    // NOTA: Usamos else if porque solo una fila puede estar seleccionada a la vez
-    else if ((p1_register_ & 0x20) == 0) {
-        // Bit 5 = 0: seleccionar fila de acción
-        // Construir resultado: bits 6-7=1, bit 4=0, bit 5=1, bits 0-3 desde action_keys_
-        // NOTA: Los bits 4-5 se leen invertidos cuando se selecciona acción
-        // 0xE0 = bits 6-7=1, bit 5=1, bit 4=0
-        result = 0xE0; // bits 6-7=1, bit 5=1, bit 4=0
-        result |= (action_keys_ & 0x0F); // bits 0-3 desde action_keys_
+    
+    // Si bit 5 = 0, incluir estado de botones de acción
+    if (action_row_selected) {
+        // Aplicar AND: un botón presionado (0) en cualquier fila resulta en 0
+        nibble &= action_keys_;
     }
-    // Si ambos bits 4 y 5 son 1, ninguna fila está seleccionada
-    // En este caso, todos los bits 0-3 leen como 1 (todos sueltos)
-    // Esto ya está garantizado por el valor inicial de result (0xCF)
+    
+    // Construir resultado final:
+    // - Bits 6-7: siempre 1 (0xC0)
+    // - Bits 4-5: reflejar estado de selección desde p1_register_
+    // - Bits 0-3: nibble calculado
+    uint8_t result = 0xC0 | (p1_register_ & 0x30) | (nibble & 0x0F);
     
     return result;
 }
@@ -55,7 +55,24 @@ void Joypad::write_p1(uint8_t value) {
     // Solo los bits 4 y 5 son escribibles
     // El resto se ignoran
     // Preservamos los bits 6-7 (siempre a 1) y actualizamos solo bits 4-5
+    uint8_t old_p1 = p1_register_;
     p1_register_ = (value & 0x30) | 0xC0; // 0x30 = bits 4-5, 0xC0 = bits 6-7 a 1
+    
+    // --- Step 0380: Instrumentación de Selección de Filas ---
+    static int p1_select_count = 0;
+    if (p1_select_count < 50 || (old_p1 != p1_register_)) {
+        if (p1_select_count < 50) {
+            p1_select_count++;
+        }
+        bool direction_row_selected = (p1_register_ & 0x10) == 0;
+        bool action_row_selected = (p1_register_ & 0x20) == 0;
+        
+        printf("[JOYPAD-P1-SELECT] P1 = 0x%02X | Direction=%s Action=%s\n",
+               p1_register_,
+               direction_row_selected ? "SEL" : "---",
+               action_row_selected ? "SEL" : "---");
+    }
+    // -------------------------------------------
 }
 
 void Joypad::press_button(int button_index) {
@@ -81,7 +98,7 @@ void Joypad::press_button(int button_index) {
         action_keys_ &= ~(1 << action_index);
     }
     
-    // --- Step 0379: Solicitar Interrupción de Joypad en "Falling Edge" ---
+    // --- Step 0379/0380: Solicitar Interrupción de Joypad en "Falling Edge" ---
     // Según Pan Docs: "The Joypad Interrupt is requested when a button changes from high to low"
     // Es decir, cuando un botón pasa de 1 (suelto) a 0 (presionado).
     // 
@@ -113,15 +130,29 @@ void Joypad::press_button(int button_index) {
         }
     }
     
+    // --- Step 0380: Instrumentación de Eventos de Entrada ---
+    static int joypad_event_count = 0;
+    if (joypad_event_count < 50) {
+        joypad_event_count++;
+        printf("[JOYPAD-EVENT] Button %d pressed | Direction_row=%s Action_row=%s | "
+               "Falling_edge=%s | IRQ_requested=%s\n",
+               button_index,
+               direction_row_selected ? "SEL" : "---",
+               action_row_selected ? "SEL" : "---",
+               falling_edge_detected ? "YES" : "NO",
+               (falling_edge_detected && mmu_ != nullptr) ? "YES" : "NO");
+    }
+    // -------------------------------------------
+    
     if (falling_edge_detected && mmu_ != nullptr) {
         // Solicitar interrupción de Joypad (bit 4, vector 0x0060)
         mmu_->request_interrupt(0x10);
         
-        // Log temporal para diagnóstico (Step 0379)
+        // Log temporal para diagnóstico (Step 0379/0380)
         static int joypad_interrupt_log_count = 0;
         if (joypad_interrupt_log_count < 20) {
             joypad_interrupt_log_count++;
-            printf("[JOYPAD-INT] Button %d pressed | Interrupt requested (bit 0x10, vector 0x0060) | Count: %d\n",
+            printf("[JOYPAD-IRQ] Button %d pressed | Interrupt requested (bit 0x10, vector 0x0060) | Count: %d\n",
                    button_index, joypad_interrupt_log_count);
         }
     }

@@ -8,16 +8,9 @@
 
 ## Resumen Ejecutivo
 
-**Estado General**: ⏳ **PENDIENTE DE VERIFICACIÓN MANUAL** (Step 0317)
+**Estado General**: 🎮 **LISTO PARA INTERACCIÓN MANUAL** (Step 0378)
 
-**Nota Step 0317**: Después de las optimizaciones del bucle principal (Step 0317), se debe verificar nuevamente que:
-1. Los controles siguen funcionando correctamente
-2. La respuesta de los controles no se ha degradado con las optimizaciones
-3. El manejo de eventos pygame sigue funcionando eficientemente
-
-**Nota Step 0316**: El mapeo de teclas está documentado y el código de entrada está implementado. Se requiere verificación manual ejecutando el emulador y probando cada botón para confirmar que funcionan correctamente.
-
-**Nota**: El script `tools/verificacion_controles_step_0315.ps1` documenta el mapeo de teclas pero no ejecuta pruebas automáticas. La verificación debe ser manual ejecutando el emulador y probando cada botón.
+**Nota Step 0378**: El emulador se está ejecutando a 62.5 FPS estables. El pipeline de controles está integrado. Se requiere que el usuario presione START (Enter) o A (Z) en la ROM de Pokémon para confirmar el avance.
 
 ---
 
