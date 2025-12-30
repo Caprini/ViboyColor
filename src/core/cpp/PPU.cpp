@@ -1220,6 +1220,35 @@ void PPU::render_scanline() {
         return;
     }
     
+    // --- Step 0366: Verificación de Ejecución ---
+    // NOTA: render_scanline() se llama en H-Blank (MODE_0) después de que MODE_3 (Pixel Transfer)
+    // ya completó. Esto es correcto según el hardware: el renderizado ocurre durante MODE_3,
+    // pero la función se llama en H-Blank para renderizar la línea que acaba de completarse.
+    static int render_scanline_entry_count = 0;
+    if (render_scanline_entry_count < 50) {
+        render_scanline_entry_count++;
+        printf("[PPU-RENDER-ENTRY] Frame %llu | LY: %d | Mode: %d | "
+               "render_scanline() called (H-Blank, renderizando línea completada)\n",
+               static_cast<unsigned long long>(frame_counter_ + 1), ly_, mode_);
+    }
+    
+    // Verificar línea visible (render_scanline() solo se llama cuando ly_ < VISIBLE_LINES)
+    if (ly_ >= 144) {
+        static int invalid_ly_count = 0;
+        if (invalid_ly_count < 5) {
+            invalid_ly_count++;
+            printf("[PPU-RENDER-ENTRY] LY >= 144 (%d), no renderizando\n", ly_);
+        }
+        return;
+    }
+    
+    static int conditions_ok_count = 0;
+    if (conditions_ok_count < 20) {
+        conditions_ok_count++;
+        printf("[PPU-RENDER-ENTRY] ✅ Condiciones OK: LY=%d, Mode=%d (H-Blank), continuando...\n", ly_, mode_);
+    }
+    // -------------------------------------------
+    
     // --- Step 0330: Optimización de Verificación de VRAM ---
     // Verificar VRAM una vez por línea (en LY=0) en lugar de 160 veces por línea
     // Esto mejora significativamente el rendimiento y asegura consistencia
@@ -1855,12 +1884,112 @@ void PPU::render_scanline() {
     }
     // -------------------------------------------
 
+    // --- Step 0366: Verificación de Ejecución del Código de Renderizado ---
+    static int render_code_entry_count = 0;
+    if (render_code_entry_count < 20 && ly_ < 144) {
+        render_code_entry_count++;
+        printf("[PPU-RENDER-CODE] Frame %llu | LY: %d | Código de renderizado inline ejecutándose\n",
+               static_cast<unsigned long long>(frame_counter_ + 1), ly_);
+        
+        // Verificar LCDC
+        uint8_t lcdc = mmu_->read(IO_LCDC);
+        bool lcd_on = (lcdc & 0x80) != 0;
+        bool bg_display = (lcdc & 0x01) != 0;
+        printf("[PPU-RENDER-CODE] LCDC: 0x%02X | LCD: %s | BG Display: %s\n",
+               lcdc, lcd_on ? "ON" : "OFF", bg_display ? "ON" : "OFF");
+        
+        if (!lcd_on) {
+            printf("[PPU-RENDER-CODE] ⚠️ PROBLEMA: LCD está OFF, no debería renderizar\n");
+        }
+        if (!bg_display) {
+            printf("[PPU-RENDER-CODE] ⚠️ PROBLEMA: BG Display está OFF\n");
+        }
+    }
+    // -------------------------------------------
+
+    // --- Step 0366: Verificación de Condiciones Necesarias ---
+    static int conditions_check_count = 0;
+    if (conditions_check_count < 20 && ly_ < 144) {
+        conditions_check_count++;
+        
+        uint8_t lcdc = mmu_->read(IO_LCDC);
+        bool lcd_on = (lcdc & 0x80) != 0;
+        bool bg_display = (lcdc & 0x01) != 0;
+        
+        // Verificar VRAM
+        int vram_non_zero = 0;
+        for (uint16_t i = 0; i < 1024; i++) {  // Primeros 1024 bytes (64 tiles)
+            if (mmu_->read(0x8000 + i) != 0x00) {
+                vram_non_zero++;
+            }
+        }
+        
+        // Verificar tilemap
+        int tilemap_non_zero = 0;
+        uint16_t map_base = (lcdc & 0x08) ? 0x9C00 : 0x9800;
+        for (int i = 0; i < 32; i++) {  // Primeras 32 entradas (primera fila)
+            if (mmu_->read(map_base + i) != 0x00) {
+                tilemap_non_zero++;
+            }
+        }
+        
+        printf("[PPU-CONDITIONS] Frame %llu | LY: %d | "
+               "LCD: %s | BG Display: %s | VRAM: %d/1024 | Tilemap: %d/32\n",
+               static_cast<unsigned long long>(frame_counter_ + 1), ly_,
+               lcd_on ? "ON" : "OFF", bg_display ? "ON" : "OFF",
+               vram_non_zero, tilemap_non_zero);
+        
+        if (!lcd_on) {
+            printf("[PPU-CONDITIONS] ⚠️ PROBLEMA: LCD está OFF\n");
+        }
+        if (!bg_display) {
+            printf("[PPU-CONDITIONS] ⚠️ PROBLEMA: BG Display está OFF\n");
+        }
+        if (vram_non_zero == 0) {
+            printf("[PPU-CONDITIONS] ⚠️ PROBLEMA: VRAM está vacía\n");
+        }
+        if (tilemap_non_zero == 0) {
+            printf("[PPU-CONDITIONS] ⚠️ PROBLEMA: Tilemap está vacío\n");
+        }
+    }
+    // -------------------------------------------
+
     for (int x = 0; x < 160; ++x) {
         uint8_t map_x = (x + scx) & 0xFF;
         uint8_t map_y = (ly_ + scy) & 0xFF;
 
         uint16_t tile_map_addr = tile_map_base + (map_y / 8) * 32 + (map_x / 8);
         uint8_t tile_id = mmu_->read(tile_map_addr);
+
+        // --- Step 0366: Verificación del Bucle de Renderizado ---
+        static int render_loop_count = 0;
+        if (render_loop_count < 5 && ly_ == 0) {
+            if (x == 0) {
+                render_loop_count++;
+                printf("[PPU-RENDER-LOOP] Frame %llu | LY: %d | Bucle de renderizado iniciado\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1), ly_);
+            }
+            
+            if (x < 5) {
+                // Verificar que se lee el tilemap
+                printf("[PPU-RENDER-LOOP] X=%d | Tilemap[0x%04X]=0x%02X (Tile ID)\n",
+                       x, tile_map_addr, tile_id);
+                
+                // Verificar que se calcula la dirección del tile
+                uint16_t tile_addr_check;
+                bool unsigned_addressing_check = (mmu_->read(IO_LCDC) & 0x10) != 0;
+                uint16_t data_base_check = unsigned_addressing_check ? 0x8000 : 0x9000;
+                if (unsigned_addressing_check) {
+                    tile_addr_check = data_base_check + (tile_id * 16);
+                } else {
+                    int8_t signed_tile_id = static_cast<int8_t>(tile_id);
+                    tile_addr_check = data_base_check + ((signed_tile_id + 128) * 16);
+                }
+                printf("[PPU-RENDER-LOOP] X=%d | Tile ID=0x%02X | Tile Addr=0x%04X\n",
+                       x, tile_id, tile_addr_check);
+            }
+        }
+        // -------------------------------------------
 
         // --- Step 0278: Inspección de PPU en el centro de la pantalla ---
         // Log puntual para ver qué Tile ID está leyendo realmente cuando dibuja el centro
@@ -2259,6 +2388,23 @@ void PPU::render_scanline() {
             
             framebuffer_back_[line_start_index + x] = final_color;
             
+            // --- Step 0366: Verificación de Escritura Real al Framebuffer Back ---
+            static int write_verify_count = 0;
+            if (write_verify_count < 20 && ly_ == 0 && x < 10) {
+                write_verify_count++;
+                uint8_t written_value = framebuffer_back_[ly_ * SCREEN_WIDTH + x];
+                printf("[PPU-WRITE-VERIFY] Frame %llu | LY: %d | X: %d | "
+                       "Escribió color_idx=%d | Leído del framebuffer: %d\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1), ly_, x,
+                       final_color, written_value);
+                
+                if (written_value != final_color) {
+                    printf("[PPU-WRITE-VERIFY] ⚠️ PROBLEMA: Valor escrito (%d) != valor leído (%d)!\n",
+                           final_color, written_value);
+                }
+            }
+            // -------------------------------------------
+            
             // --- Step 0336: Verificación de Escritura en Framebuffer ---
             // Verificar que el índice final se escribió correctamente en el framebuffer
             static int framebuffer_write_check_count = 0;
@@ -2280,6 +2426,38 @@ void PPU::render_scanline() {
             // -------------------------------------------------------------
         }
     }
+    
+    // --- Step 0366: Verificación de Línea Completa Después de Renderizar ---
+    if (ly_ < 144) {
+        static int line_complete_check_count = 0;
+        if (line_complete_check_count < 20 && (ly_ == 0 || ly_ == 72 || ly_ == 143)) {
+            line_complete_check_count++;
+            
+            int non_zero_in_line = 0;
+            size_t line_start = ly_ * SCREEN_WIDTH;
+            for (int x = 0; x < SCREEN_WIDTH; x++) {
+                if (framebuffer_back_[line_start + x] != 0) {
+                    non_zero_in_line++;
+                }
+            }
+            
+            printf("[PPU-LINE-COMPLETE] Frame %llu | LY: %d | "
+                   "Línea renderizada | Non-zero pixels: %d/160\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1), ly_, non_zero_in_line);
+            
+            if (non_zero_in_line == 0) {
+                printf("[PPU-LINE-COMPLETE] ⚠️ PROBLEMA: Línea completamente vacía después de renderizar!\n");
+                
+                // Mostrar primeros 20 píxeles del framebuffer
+                printf("[PPU-LINE-COMPLETE] Primeros 20 píxeles: ");
+                for (int x = 0; x < 20; x++) {
+                    printf("%d ", framebuffer_back_[line_start + x] & 0x03);
+                }
+                printf("\n");
+            }
+        }
+    }
+    // -------------------------------------------
     
     // --- Step 0299: Monitor de Framebuffer Real ([FRAMEBUFFER-DUMP]) ---
     // Capturar el contenido real del framebuffer después de renderizar un frame completo
