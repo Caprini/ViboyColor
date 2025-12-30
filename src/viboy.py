@@ -1015,7 +1015,12 @@ class Viboy:
                                     # 4. Verificar primeros 20 píxeles después de copiar
                                     first_20_after = [fb_data[i] & 0x03 for i in range(min(20, len(fb_data)))]
                                     
+                                    # Inicializar contador si no existe
+                                    if not hasattr(self, '_framebuffer_copy_detailed_count'):
+                                        self._framebuffer_copy_detailed_count = 0
+                                    
                                     if self._framebuffer_copy_detailed_count <= 5:
+                                        self._framebuffer_copy_detailed_count += 1
                                         logger.info(f"[Viboy-Framebuffer-Copy-Detailed] First 20 indices after copy: {first_20_after}")
                                     
                                     # --- Step 0359: Verificación Framebuffer C++ → Python ---
@@ -1056,6 +1061,10 @@ class Viboy:
                                         color_idx = fb_data[idx] & 0x03
                                         if color_idx in index_counts:
                                             index_counts[color_idx] += 1
+                                    
+                                    # Inicializar contador si no existe (ya debería estar inicializado arriba, pero por seguridad)
+                                    if not hasattr(self, '_framebuffer_copy_detailed_count'):
+                                        self._framebuffer_copy_detailed_count = 0
                                     
                                     if self._framebuffer_copy_detailed_count <= 5:
                                         logger.info(f"[Viboy-Framebuffer-Copy-Detailed] Index counts in copy: "

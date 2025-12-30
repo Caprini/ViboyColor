@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corrección de AttributeError: _framebuffer_copy_detailed_count - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Corrección de AttributeError: _framebuffer_copy_detailed_count</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-29
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0367
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-29__0366__investigacion-renderizado-normal-no-escribe.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Se corrigió un <code>AttributeError</code> que ocurría durante la ejecución cuando el código intentaba acceder al atributo 
+                    <code>_framebuffer_copy_detailed_count</code> que no estaba inicializado en la clase <code>Viboy</code>. El error se producía 
+                    en el método <code>run()</code> cuando se intentaba verificar el contador antes de inicializarlo. Se agregó la inicialización 
+                    del contador usando el patrón <code>hasattr()</code> antes de usarlo, siguiendo la misma convención que otros contadores similares 
+                    en el código.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Este fix no está relacionado directamente con el hardware de la Game Boy, sino con la gestión de estado en el emulador. 
+                    Sin embargo, es importante entender que los contadores de diagnóstico son herramientas útiles para rastrear el comportamiento 
+                    del emulador sin afectar el rendimiento del bucle principal.
+                </p>
+                <h3>Inicialización Lazy de Atributos en Python</h3>
+                <p>
+                    En Python, es común usar el patrón de "inicialización lazy" (perezosa) para atributos que solo se necesitan en ciertas condiciones. 
+                    Este patrón consiste en:
+                </p>
+                <ol>
+                    <li>Verificar si el atributo existe usando <code>hasattr()</code></li>
+                    <li>Inicializarlo solo si no existe</li>
+                    <li>Usarlo normalmente después de la verificación</li>
+                </ol>
+                <p>
+                    Este patrón es útil cuando:
+                </p>
+                <ul>
+                    <li>El atributo solo se necesita en ciertas condiciones (ej: cuando se activa el modo debug)</li>
+                    <li>Se quiere evitar inicializar muchos atributos en el constructor si no se van a usar</li>
+                    <li>Se necesita mantener compatibilidad con código que puede o no inicializar el atributo</li>
+                </ul>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <h3>Problema Identificado</h3>
+                <p>
+                    Durante la ejecución, se producía el siguiente error:
+                </p>
+                <pre><code>AttributeError: 'Viboy' object has no attribute '_framebuffer_copy_detailed_count'
+  File "/media/fabini/8CD1-4C30/ViboyColor/src/viboy.py", line 1018, in run
+    if self._framebuffer_copy_detailed_count <= 5:</code></pre>
+                <p>
+                    El código intentaba acceder al atributo <code>_framebuffer_copy_detailed_count</code> sin verificar primero si existía, 
+                    causando un <code>AttributeError</code> cuando el atributo no estaba inicializado.
+                </p>
+                <h3>Solución Implementada</h3>
+                <p>
+                    Se agregó la inicialización del contador usando el patrón <code>hasattr()</code> antes de usarlo, siguiendo la misma 
+                    convención que otros contadores similares en el código (como <code>_framebuffer_copy_verify_count</code>).
+                </p>
+                <h3>Código Antes (Incorrecto)</h3>
+                <pre><code># 4. Verificar primeros 20 píxeles después de copiar
+first_20_after = [fb_data[i] & 0x03 for i in range(min(20, len(fb_data)))]
+
+if self._framebuffer_copy_detailed_count <= 5:  # ❌ AttributeError si no existe
+    logger.info(f"[Viboy-Framebuffer-Copy-Detailed] First 20 indices after copy: {first_20_after}")</code></pre>
+                <h3>Código Después (Correcto)</h3>
+                <pre><code># 4. Verificar primeros 20 píxeles después de copiar
+first_20_after = [fb_data[i] & 0x03 for i in range(min(20, len(fb_data)))]
+
+# Inicializar contador si no existe
+if not hasattr(self, '_framebuffer_copy_detailed_count'):
+    self._framebuffer_copy_detailed_count = 0
+
+if self._framebuffer_copy_detailed_count <= 5:
+    self._framebuffer_copy_detailed_count += 1
+    logger.info(f"[Viboy-Framebuffer-Copy-Detailed] First 20 indices after copy: {first_20_after}")</code></pre>
+                <h3>Ubicaciones Corregidas</h3>
+                <p>
+                    Se agregó la inicialización en dos lugares donde se usa el contador:
+                </p>
+                <ol>
+                    <li><strong>Línea ~1018:</strong> Antes de verificar los primeros 20 píxeles después de copiar</li>
+                    <li><strong>Línea ~1065:</strong> Antes de contar los índices en la copia (inicialización redundante por seguridad)</li>
+                </ol>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/viboy.py</code> - Agregada inicialización de <code>_framebuffer_copy_detailed_count</code> en dos lugares (líneas ~1018-1020 y ~1065-1067)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutó una prueba rápida para verificar que el error se corrigió:
+                </p>
+                <h3>Comando Ejecutado</h3>
+                <pre><code>timeout 5 python3 main.py roms/tetris.gb 2>&1 | grep -E "(Error|AttributeError|_framebuffer_copy_detailed_count)"</code></pre>
+                <h3>Resultado</h3>
+                <p>
+                    ✅ El error de <code>AttributeError: 'Viboy' object has no attribute '_framebuffer_copy_detailed_count'</code> ya no aparece.
+                </p>
+                <p>
+                    El código ahora inicializa el contador correctamente antes de usarlo, siguiendo el mismo patrón que otros contadores de diagnóstico en el código.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Python Documentation: <a href="https://docs.python.org/3/library/functions.html#hasattr">hasattr()</a> - Función para verificar si un objeto tiene un atributo</li>
+                    <li>Python Best Practices: Inicialización lazy de atributos</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Inicialización lazy:</strong> Es un patrón útil para atributos que solo se necesitan en ciertas condiciones, evitando inicializar muchos atributos en el constructor</li>
+                        <li><strong>hasattr():</strong> Permite verificar si un objeto tiene un atributo antes de acceder a él, evitando AttributeError</li>
+                        <li><strong>Consistencia de código:</strong> Es importante seguir el mismo patrón que otros contadores similares en el código para mantener la consistencia</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Inicialización en __init__:</strong> Considerar si sería mejor inicializar todos los contadores de diagnóstico en el constructor para evitar este tipo de errores</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Suposición:</strong> La inicialización lazy es preferible para contadores de diagnóstico que solo se usan en modo debug, 
+                        ya que evita inicializar muchos atributos innecesarios cuando el modo debug está desactivado. Esta suposición está respaldada por 
+                        el hecho de que otros contadores similares en el código usan el mismo patrón.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Considerar inicializar todos los contadores de diagnóstico en el constructor para evitar errores similares</li>
+                    <li>[ ] Verificar que no hay otros atributos que puedan tener el mismo problema</li>
+                    <li>[ ] Continuar con las pruebas del renderizado después de la corrección del Step 0366</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
