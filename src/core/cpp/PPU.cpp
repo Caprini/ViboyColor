@@ -20,6 +20,7 @@ PPU::PPU(MMU* mmu)
     , framebuffer_front_(FRAMEBUFFER_SIZE, 0)  // Step 0364: Inicializar buffer front a 0 (blanco)
     , framebuffer_back_(FRAMEBUFFER_SIZE, 0)   // Step 0364: Inicializar buffer back a 0 (blanco)
     , framebuffer_swap_pending_(false)          // Step 0364: Inicializar flag de intercambio
+    , checkerboard_active_(false)               // Step 0394: Inicializar checkerboard como inactivo
 {
     // --- Step 0364: Doble Buffering ---
     // Con doble buffering, los buffers ya están inicializados a 0 en la lista de inicializadores.
@@ -1440,55 +1441,57 @@ void PPU::render_scanline() {
     }
     // -------------------------------------------
     
-    // --- Step 0330: Optimización de Verificación de VRAM ---
+    // --- Step 0394: Optimización de Verificación de VRAM con Helpers Dual-Bank ---
     // Verificar VRAM una vez por línea (en LY=0) en lugar de 160 veces por línea
     // Esto mejora significativamente el rendimiento y asegura consistencia
     if (ly_ == 0) {
-        // --- Step 0392: FIX - Verificar VRAM dual-bank correctamente ---
-        // CRÍTICO: Usar read_vram_bank() para leer desde ambos bancos VRAM
-        // En lugar de mmu_->read() que puede no acceder correctamente a los bancos
-        int vram_non_zero = 0;
-        // Verificar banco 0 (tiledata principal)
-        for (uint16_t i = 0; i < 6144; i++) {
-            if (mmu_->read_vram_bank(0, i) != 0x00) {
-                vram_non_zero++;
+        // --- Step 0394: Usar helpers de conteo dual-bank ---
+        // CRÍTICO: Usar helpers que acceden correctamente a VRAM dual-bank
+        int tiledata_nonzero = count_vram_nonzero_bank0_tiledata();
+        int tilemap_nonzero = count_vram_nonzero_bank0_tilemap();
+        int vram_total_nonzero = tiledata_nonzero + tilemap_nonzero;
+        
+        // Actualizar estado de VRAM
+        bool old_vram_is_empty = vram_is_empty_;
+        vram_is_empty_ = (tiledata_nonzero < 200);
+        
+        // --- Step 0394: Transición de Estado del Checkerboard ---
+        // Detectar transiciones ON→OFF y OFF→ON
+        bool old_checkerboard = checkerboard_active_;
+        
+        if (vram_is_empty_) {
+            // VRAM vacía → checkerboard debería activarse cuando se encuentre tile vacío
+            // (la activación se hará en render_bg cuando tile_empty sea true)
+            if (!checkerboard_active_ && old_vram_is_empty) {
+                // Ya estaba vacía y sigue vacía, mantener checkerboard si ya está activo
+            }
+        } else {
+            // VRAM tiene datos → desactivar checkerboard inmediatamente
+            if (checkerboard_active_) {
+                checkerboard_active_ = false;
+                printf("[CHECKERBOARD-STATE] OFF | Frame %llu | LY: %d | "
+                       "TileData: %d/6144 (%.1f%%) | TileMap: %d/2048 (%.1f%%)\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1), ly_,
+                       tiledata_nonzero, (tiledata_nonzero * 100.0 / 6144),
+                       tilemap_nonzero, (tilemap_nonzero * 100.0 / 2048));
             }
         }
         // -------------------------------------------
         
-        // --- Step 0335: Verificación de Cambios en vram_is_empty_ ---
-        // Verificar si vram_is_empty_ cambia después de algunos frames
-        static bool last_vram_is_empty = true;
-        bool new_vram_is_empty = (vram_non_zero < 200);
-        
-        if (new_vram_is_empty != last_vram_is_empty) {
-            static int vram_empty_change_log_count = 0;
-            if (vram_empty_change_log_count < 10) {
-                vram_empty_change_log_count++;
-                printf("[PPU-VRAM-EMPTY-CHANGE] Frame %llu | vram_is_empty_ cambió: %s -> %s\n",
-                       static_cast<unsigned long long>(frame_counter_ + 1),
-                       last_vram_is_empty ? "YES" : "NO",
-                       new_vram_is_empty ? "YES" : "NO");
-                
-                if (last_vram_is_empty && !new_vram_is_empty) {
-                    printf("[PPU-VRAM-EMPTY-CHANGE] ⚠️ ADVERTENCIA: VRAM ya no está vacía, checkerboard debería desactivarse\n");
-                } else if (!last_vram_is_empty && new_vram_is_empty) {
-                    printf("[PPU-VRAM-EMPTY-CHANGE] VRAM se vació, checkerboard debería activarse\n");
-                }
-            }
-            last_vram_is_empty = new_vram_is_empty;
-        }
-        // -------------------------------------------
-        
-        vram_is_empty_ = new_vram_is_empty;
-        
-        static int vram_check_log_count = 0;
-        if (vram_check_log_count < 5) {
-            vram_check_log_count++;
-            printf("[PPU-VRAM-CHECK] Frame %llu | VRAM non-zero: %d/6144 | Empty: %s\n",
+        // --- Step 0394: Métricas VRAM periódicas (cada 120 frames, máx 10 líneas) ---
+        static int vram_metrics_count = 0;
+        if ((frame_counter_ + 1) % 120 == 0 && vram_metrics_count < 10) {
+            vram_metrics_count++;
+            uint8_t vbk = mmu_->read(0xFF4F);
+            printf("[VRAM-REGIONS] Frame %llu | tiledata_nonzero=%d/6144 (%.1f%%) | "
+                   "tilemap_nonzero=%d/2048 (%.1f%%) | vbk=%d | vram_is_empty=%s\n",
                    static_cast<unsigned long long>(frame_counter_ + 1),
-                   vram_non_zero, vram_is_empty_ ? "YES" : "NO");
+                   tiledata_nonzero, (tiledata_nonzero * 100.0 / 6144),
+                   tilemap_nonzero, (tilemap_nonzero * 100.0 / 2048),
+                   vbk & 1,
+                   vram_is_empty_ ? "YES" : "NO");
         }
+        // -------------------------------------------
         
         // --- Step 0370: Investigación de Discrepancia VRAM vs Tiles ---
         // Cuando se detecta que los tiles tienen datos pero VRAM muestra 0/6144
@@ -1626,7 +1629,7 @@ void PPU::render_scanline() {
     }
     // -------------------------------------------
     
-    // --- Step 0370: Actualización Mejorada de vram_is_empty_ ---
+    // --- Step 0394: Actualización Mejorada de vram_is_empty_ con Helpers Dual-Bank ---
     // Actualizar vram_is_empty_ no solo en LY=0, sino también durante V-Blank
     // cuando los tiles se cargan típicamente
     if (ly_ >= 144 && ly_ <= 153 && mode_ == MODE_1_VBLANK) {
@@ -1635,27 +1638,31 @@ void PPU::render_scanline() {
         if (vblank_vram_check_count < 10 || (frame_counter_ % 60 == 0)) {
             vblank_vram_check_count++;
             
-            // --- Step 0392: FIX - Usar read_vram_bank() ---
-            int vram_non_zero = 0;
-            for (uint16_t i = 0; i < 6144; i++) {
-                if (mmu_->read_vram_bank(0, i) != 0x00) {
-                    vram_non_zero++;
-                }
-            }
-            // -------------------------------------------
-            
-            bool new_vram_is_empty = (vram_non_zero < 200);
+            // --- Step 0394: Usar helpers de conteo dual-bank ---
+            int tiledata_nonzero = count_vram_nonzero_bank0_tiledata();
+            bool new_vram_is_empty = (tiledata_nonzero < 200);
             
             // Solo actualizar si cambió
             if (new_vram_is_empty != vram_is_empty_) {
                 printf("[PPU-VRAM-UPDATE-VBLANK] Frame %llu | LY: %d | "
-                       "vram_is_empty_ cambió: %s -> %s | VRAM non-zero: %d/6144\n",
+                       "vram_is_empty_ cambió: %s -> %s | TileData non-zero: %d/6144\n",
                        static_cast<unsigned long long>(frame_counter_ + 1), ly_,
                        vram_is_empty_ ? "YES" : "NO",
                        new_vram_is_empty ? "YES" : "NO",
-                       vram_non_zero);
+                       tiledata_nonzero);
                 
                 vram_is_empty_ = new_vram_is_empty;
+                
+                // --- Step 0394: Desactivar checkerboard si VRAM ya no está vacía ---
+                if (!new_vram_is_empty && checkerboard_active_) {
+                    checkerboard_active_ = false;
+                    int tilemap_nonzero = count_vram_nonzero_bank0_tilemap();
+                    printf("[CHECKERBOARD-STATE] OFF | Frame %llu | LY: %d | "
+                           "TileData: %d/6144 (%.1f%%) | TileMap: %d/2048 (%.1f%%)\n",
+                           static_cast<unsigned long long>(frame_counter_ + 1), ly_,
+                           tiledata_nonzero, (tiledata_nonzero * 100.0 / 6144),
+                           tilemap_nonzero, (tilemap_nonzero * 100.0 / 2048));
+                }
             }
         }
     }
@@ -2897,24 +2904,22 @@ void PPU::render_scanline() {
             }
             // -------------------------------------------
 
-            // --- Step 0372: Tarea 3 - Verificar si el Checkerboard se Activa ---
-            static int checkerboard_activation_count = 0;
-            
-            // --- Step 0330: Lógica Optimizada del Checkerboard Temporal ---
+            // --- Step 0394: Transición de Estado del Checkerboard con Logs Deterministas ---
             // Activar checkerboard cuando:
             // 1. El tile está completamente vacío (todas las líneas = 0x00)
             // 2. VRAM está completamente vacía (< 200 bytes no-cero)
             // Esto previene pantallas blancas cuando el tilemap apunta a direcciones inválidas
-            // OPTIMIZACIÓN: Usar variable vram_is_empty_ en lugar de verificar VRAM en cada píxel
             if (tile_is_empty && enable_checkerboard_temporal && vram_is_empty_) {
-                checkerboard_activation_count++;
-                
-                if (checkerboard_activation_count <= 100) {
-                    printf("[PPU-CHECKERBOARD-ACTIVATE] Frame %llu | LY: %d | X: %d | "
-                           "Checkerboard activado | Tile empty: YES | VRAM empty: YES | "
-                           "Count: %d\n",
+                // Detectar transición OFF→ON solo una vez
+                if (!checkerboard_active_) {
+                    checkerboard_active_ = true;
+                    int tiledata_nonzero = count_vram_nonzero_bank0_tiledata();
+                    int tilemap_nonzero = count_vram_nonzero_bank0_tilemap();
+                    printf("[CHECKERBOARD-STATE] ON | Frame %llu | LY: %d | X: %d | "
+                           "TileData: %d/6144 (%.1f%%) | TileMap: %d/2048 (%.1f%%)\n",
                            static_cast<unsigned long long>(frame_counter_ + 1), ly_, x,
-                           checkerboard_activation_count);
+                           tiledata_nonzero, (tiledata_nonzero * 100.0 / 6144),
+                           tilemap_nonzero, (tilemap_nonzero * 100.0 / 2048));
                 }
                 // --- Step 0330: Usar Variable de Estado en lugar de Verificar VRAM ---
                 // En lugar de verificar VRAM en cada píxel, usar la variable vram_is_empty_
@@ -2954,14 +2959,8 @@ void PPU::render_scanline() {
                         }
                     }
                     
-                    // --- Step 0372: Tarea 3 - Verificar si el Checkerboard se Escribe al Framebuffer ---
-                    if (checkerboard_activation_count <= 100 && x < 10) {
-                        uint8_t checkerboard_idx = (x + ly_) % 2 == 0 ? 0 : 3;
-                        printf("[PPU-CHECKERBOARD-WRITE] Frame %llu | LY: %d | X: %d | "
-                               "Checkerboard index: %d (0=blanco, 3=negro)\n",
-                               static_cast<unsigned long long>(frame_counter_ + 1), ly_, x,
-                               checkerboard_idx);
-                    }
+                    // --- Step 0394: Debugging de Checkerboard ya no necesario ---
+                    // El nuevo sistema de transiciones ON/OFF provee logs más claros
                 }
             } else if (tile_is_empty) {
                 // VRAM tiene datos, pero este tile específico está vacío
@@ -4187,5 +4186,45 @@ void PPU::check_game_tiles_loaded() {
     }
     
     last_vram_checksum = current_checksum;
+}
+
+// ============================================================================
+// Step 0394: Helpers de conteo de VRAM dual-bank
+// ============================================================================
+
+int PPU::count_vram_nonzero_bank0_tiledata() const {
+    // Contar bytes no-cero en la región de Tile Data (0x8000-0x97FF = 6144 bytes)
+    // CRÍTICO: Usar read_vram_bank() para acceder correctamente al banco VRAM dual-bank
+    if (mmu_ == nullptr) {
+        return 0;
+    }
+    
+    int count = 0;
+    for (uint16_t offset = 0x0000; offset < 0x1800; offset++) {  // 0x1800 = 6144 bytes
+        uint8_t byte = mmu_->read_vram_bank(0, offset);
+        if (byte != 0x00) {
+            count++;
+        }
+    }
+    
+    return count;
+}
+
+int PPU::count_vram_nonzero_bank0_tilemap() const {
+    // Contar bytes no-cero en la región de Tile Map (0x9800-0x9FFF = 2048 bytes)
+    // CRÍTICO: Usar read_vram_bank() para acceder correctamente al banco VRAM dual-bank
+    if (mmu_ == nullptr) {
+        return 0;
+    }
+    
+    int count = 0;
+    for (uint16_t offset = 0x1800; offset < 0x2000; offset++) {  // 0x1800-0x1FFF = 2048 bytes
+        uint8_t byte = mmu_->read_vram_bank(0, offset);
+        if (byte != 0x00) {
+            count++;
+        }
+    }
+    
+    return count;
 }
 

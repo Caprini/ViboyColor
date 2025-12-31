@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0394 - Fix Checkerboard Determinista + Métricas VRAM Dual-Bank -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-31__0394__fix-checkerboard-metricas-vram-dual-bank.html" class="entry-link">
+                                    Fix Checkerboard Determinista + Métricas VRAM Dual-Bank
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-31 | 
+                            <strong>Step ID:</strong> 0394 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Fix crítico: Checkerboard ahora es determinista y autocontenible. Se activa solo cuando VRAM está vacía y se desactiva automáticamente al detectar datos en VRAM. Las métricas VRAM ahora reportan valores correctos usando read_vram_bank() en vez de leer el buffer antiguo (memory_). Resultado: Tetris DX y Zelda DX muestran transiciones ON→OFF claras (Frame 676 OFF con 14.2% TileData), métricas VRAM correctas (TileData 66.8%, TileMap 100%), y logs inequívocos de estado. Helpers unificados: count_vram_nonzero_bank0_tiledata() y count_vram_nonzero_bank0_tilemap(). Estado explícito: checkerboard_active_ (bool). Métricas periódicas cada 120 frames.
+                        </p>
+                    </li>
+
                     <!-- Entrada 0393 - Suite Multi-ROM + Verificación Render/VRAM/FPS -->
                     <li>
                         <div class="entry-header">

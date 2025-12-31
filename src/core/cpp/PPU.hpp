@@ -290,6 +290,14 @@ private:
     bool vram_is_empty_;
     
     /**
+     * Step 0394: Estado del checkerboard determinista.
+     * Indica si el checkerboard está actualmente activo (renderizándose).
+     * Se activa cuando vram_is_empty_ es true y tile es vacío.
+     * Se desactiva cuando vram_is_empty_ cambia a false.
+     */
+    bool checkerboard_active_;
+    
+    /**
      * Actualiza el modo PPU actual según el punto en la línea (line_cycles) y LY.
      */
     void update_mode();
@@ -400,6 +408,13 @@ private:
      * cambia significativamente, indicando que el juego cargó tiles propios.
      */
     void check_game_tiles_loaded();
+    
+    /**
+     * Step 0394: Helpers para conteo de VRAM dual-bank.
+     * Cuentan bytes no-cero en cada región de VRAM usando read_vram_bank().
+     */
+    int count_vram_nonzero_bank0_tiledata() const;
+    int count_vram_nonzero_bank0_tilemap() const;
 };
 
 #endif // PPU_HPP
