@@ -978,6 +978,36 @@ class Viboy:
                                         if non_zero_count == 0:
                                             logger.warning("[Viboy-Framebuffer-Read] ⚠️ PROBLEMA: Framebuffer completamente vacío cuando Python lo lee!")
                                             print("[Viboy-Framebuffer-Read] ⚠️ PROBLEMA: Framebuffer completamente vacío cuando Python lo lee!")
+                                    
+                                    # --- Step 0395: Verificar pipeline framebuffer → Python ---
+                                    if not hasattr(self, '_python_fb_verify_count'):
+                                        self._python_fb_verify_count = 0
+                                    
+                                    current_frame = self._framebuffer_read_verify_count
+                                    should_verify = (current_frame == 676 or current_frame == 742)
+                                    
+                                    if should_verify and self._python_fb_verify_count < 2:
+                                        self._python_fb_verify_count += 1
+                                        
+                                        # Obtener snapshot completo del framebuffer
+                                        snapshot = self._ppu.get_framebuffer_snapshot()
+                                        if snapshot is not None:
+                                            # Calcular distribución de valores
+                                            import numpy as np
+                                            counts = [0, 0, 0, 0]
+                                            for y in range(144):
+                                                for x in range(160):
+                                                    value = snapshot[y, x] & 0x03
+                                                    if value < 4:
+                                                        counts[value] += 1
+                                            
+                                            total_pixels = 144 * 160
+                                            logger.info(f"[PYTHON-FB-VERIFY] Frame {current_frame} | "
+                                                       f"Distribution: 0={counts[0]} 1={counts[1]} 2={counts[2]} 3={counts[3]} | "
+                                                       f"Total: {total_pixels}")
+                                            print(f"[PYTHON-FB-VERIFY] Frame {current_frame} | "
+                                                  f"Distribution: 0={counts[0]} 1={counts[1]} 2={counts[2]} 3={counts[3]} | "
+                                                  f"Total: {total_pixels}")
                                 # -------------------------------------------
                                 
                                 # --- Step 0332: Verificación Detallada de Copia del Framebuffer ---

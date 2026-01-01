@@ -415,6 +415,33 @@ private:
      */
     int count_vram_nonzero_bank0_tiledata() const;
     int count_vram_nonzero_bank0_tilemap() const;
+    
+    /**
+     * Step 0395: Diagnóstico Visual: Snapshot del Framebuffer.
+     * Captura distribución de valores del framebuffer en frames clave.
+     */
+    void dump_framebuffer_snapshot();
+    
+    /**
+     * Step 0395: Verificar correspondencia tilemap → framebuffer.
+     * Valida que los tiles referenciados por el tilemap se renderizan correctamente.
+     */
+    void verify_tilemap_to_framebuffer(uint16_t screen_x, uint8_t tile_id, 
+                                       uint16_t tile_addr, uint8_t line_in_tile,
+                                       uint8_t pixel_in_tile, uint8_t* cached_tile_line);
+    
+    /**
+     * Step 0395: Verificar scroll y wrap-around.
+     * Detecta si la fragmentación visual proviene de scroll incorrecto.
+     */
+    void verify_scroll_wraparound(uint16_t screen_x);
+    
+    /**
+     * Step 0395: Verificar aplicación de paleta BGP.
+     * Confirma que la paleta mapea correctamente los índices de color.
+     */
+    void verify_palette_bgp(uint8_t tile_id, uint16_t tile_addr, 
+                            uint8_t line_in_tile, uint8_t color_index);
 };
 
 #endif // PPU_HPP

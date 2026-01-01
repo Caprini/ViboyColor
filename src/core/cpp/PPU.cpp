@@ -1248,6 +1248,10 @@ void PPU::swap_framebuffers() {
     // Limpiar el buffer back para el siguiente frame
     std::fill(framebuffer_back_.begin(), framebuffer_back_.end(), 0);
     
+    // --- Step 0395: Snapshot del framebuffer después del swap ---
+    dump_framebuffer_snapshot();
+    // -------------------------------------------
+    
     // --- Step 0372: Tarea 5 - Verificar Estado del Framebuffer Después del Intercambio ---
     static int framebuffer_after_swap_count = 0;
     framebuffer_after_swap_count++;
@@ -2196,12 +2200,62 @@ void PPU::render_scanline() {
     }
     // -----------------------------------------
 
-    // --- Step 0257: HARDWARE PALETTE BYPASS ---
-    // Forzar BGP = 0xE4 (mapeo identidad: 3->3, 2->2, 1->1, 0->0)
-    // Esto garantiza que los índices de color se preserven en el framebuffer,
-    // independientemente del estado de los registros de paleta en la MMU.
-    // uint8_t bgp = mmu_->read(IO_BGP); // COMENTADO: Ignorar MMU
-    uint8_t bgp = 0xE4;  // 11 10 01 00 (Mapeo identidad estándar)
+    // --- Step 0396: BGP CONSISTENTE DESDE MMU ---
+    // Leer BGP desde MMU para respetar la paleta que el juego configura.
+    // Anteriormente forzábamos 0xE4, pero esto causaba inconsistencia cuando
+    // el juego escribía otros valores (ej: 0x00 para fade out).
+    static uint8_t last_bgp = 0xFF;
+    uint8_t bgp = mmu_->read(IO_BGP);
+    
+    // Log limitado de cambios de BGP (solo en LY=0, máx 10 cambios)
+    if (bgp != last_bgp && ly_ == 0) {
+        static int bgp_change_log_count = 0;
+        if (bgp_change_log_count < 10) {
+            bgp_change_log_count++;
+            printf("[PPU-BGP-CHANGE] Frame %llu | BGP: 0x%02X -> 0x%02X\n", 
+                   frame_counter_ + 1, last_bgp, bgp);
+        }
+        last_bgp = bgp;
+    }
+    
+    // Advertencia limitada si BGP=0x00 (todo mapea a blanco - puede ser intencional)
+    if (bgp == 0x00 && ly_ == 0) {
+        static int bgp_zero_warning_count = 0;
+        if (bgp_zero_warning_count < 5) {
+            bgp_zero_warning_count++;
+            printf("[PPU-BGP-WARNING] Frame %llu | BGP=0x00 (todo mapea a blanco) - "
+                   "¿Intencional del juego?\n", frame_counter_ + 1);
+        }
+    }
+    
+    // --- Step 0396: Diagnóstico Frame 676 específico ---
+    // Frame 676 mostró framebuffer blanco aunque VRAM tenía 14.2% TileData
+    if (frame_counter_ + 1 == 676 && ly_ == 0) {
+        printf("[FRAME676-DIAG] === DIAGNÓSTICO FRAME 676 ===\n");
+        printf("[FRAME676-DIAG] BGP actual: 0x%02X\n", bgp);
+        printf("[FRAME676-DIAG] vram_is_empty_: %d\n", vram_is_empty_ ? 1 : 0);
+        printf("[FRAME676-DIAG] vram_has_tiles: %d\n", vram_has_tiles ? 1 : 0);
+        printf("[FRAME676-DIAG] LCDC: 0x%02X (BG Enable: %d)\n", 
+               lcdc, (lcdc & 0x01) ? 1 : 0);
+        printf("[FRAME676-DIAG] Tilemap base: 0x%04X\n", tile_map_base);
+        printf("[FRAME676-DIAG] Tiledata base: 0x%04X\n", tile_data_base);
+        
+        // Verificar primeros 10 tile IDs del tilemap
+        printf("[FRAME676-DIAG] Primeros 10 tile IDs: ");
+        for (int i = 0; i < 10; i++) {
+            uint8_t tile_id = mmu_->read(tile_map_base + i);
+            printf("0x%02X ", tile_id);
+        }
+        printf("\n");
+        
+        // Verificar primeros 16 bytes del primer tile
+        printf("[FRAME676-DIAG] Primeros 16 bytes del tile 0: ");
+        for (int i = 0; i < 16; i++) {
+            uint8_t tile_byte = mmu_->read(tile_data_base + i);
+            printf("0x%02X ", tile_byte);
+        }
+        printf("\n[FRAME676-DIAG] === FIN DIAGNÓSTICO ===\n");
+    }
     // -------------------------------------------
 
     size_t line_start_index = ly_ * 160;
@@ -3124,6 +3178,27 @@ void PPU::render_scanline() {
                 printf("[PPU-FRAMEBUFFER] X:%d | ColorIndex:%d FinalColor:%d -> framebuffer[%zu]\n",
                        x, color_index, final_color, line_start_index + x);
             }
+            
+            // --- Step 0395: Verificaciones de diagnóstico ---
+            // Verificar correspondencia tilemap → framebuffer
+            uint8_t pixel_in_tile = map_x % 8;
+            uint8_t line_in_tile = map_y % 8;
+            uint8_t cached_tile_line[8];
+            // Decodificar línea del tile para verificación
+            for (uint8_t i = 0; i < 8; i++) {
+                uint8_t temp_bit_idx = 7 - i;
+                uint8_t temp_bit_low = (byte1 >> temp_bit_idx) & 1;
+                uint8_t temp_bit_high = (byte2 >> temp_bit_idx) & 1;
+                cached_tile_line[i] = (temp_bit_high << 1) | temp_bit_low;
+            }
+            verify_tilemap_to_framebuffer(x, tile_id, tile_addr, line_in_tile, pixel_in_tile, cached_tile_line);
+            
+            // Verificar scroll y wrap-around
+            verify_scroll_wraparound(x);
+            
+            // Verificar aplicación de paleta BGP
+            verify_palette_bgp(tile_id, tile_addr, line_in_tile, color_index);
+            // -------------------------------------------
             
             framebuffer_back_[line_start_index + x] = final_color;
             
@@ -4226,5 +4301,230 @@ int PPU::count_vram_nonzero_bank0_tilemap() const {
     }
     
     return count;
+}
+
+// --- Step 0395: Diagnóstico Visual: Snapshot del Framebuffer ---
+void PPU::dump_framebuffer_snapshot() {
+    // Contador estático para limitar logs
+    static int snapshot_count = 0;
+    if (snapshot_count >= 10) {
+        return;  // Ya capturamos suficientes snapshots
+    }
+    
+    // Frames clave según el plan: 1, 676, 742, 1080
+    uint64_t current_frame = frame_counter_ + 1;
+    bool should_capture = (current_frame == 1 || current_frame == 676 || 
+                          current_frame == 742 || current_frame == 1080);
+    
+    if (!should_capture) {
+        return;
+    }
+    
+    snapshot_count++;
+    
+    // Contar distribución de valores (0, 1, 2, 3)
+    int counts[4] = {0, 0, 0, 0};
+    int lines_with_data = 0;
+    int lines_all_zero = 0;
+    
+    // Analizar por regiones (top: 0-47, mid: 48-95, bottom: 96-143)
+    int top_counts[4] = {0, 0, 0, 0};
+    int mid_counts[4] = {0, 0, 0, 0};
+    int bottom_counts[4] = {0, 0, 0, 0};
+    
+    for (uint8_t y = 0; y < SCREEN_HEIGHT; y++) {
+        bool line_has_data = false;
+        for (uint16_t x = 0; x < SCREEN_WIDTH; x++) {
+            uint8_t value = framebuffer_front_[y * SCREEN_WIDTH + x];
+            if (value < 4) {
+                counts[value]++;
+                
+                // Contar por región
+                if (y < 48) {
+                    top_counts[value]++;
+                } else if (y < 96) {
+                    mid_counts[value]++;
+                } else {
+                    bottom_counts[value]++;
+                }
+                
+                if (value != 0) {
+                    line_has_data = true;
+                }
+            }
+        }
+        
+        if (line_has_data) {
+            lines_with_data++;
+        } else {
+            lines_all_zero++;
+        }
+    }
+    
+    printf("[FRAMEBUFFER-SNAPSHOT] Frame %llu | "
+           "Distribution: 0=%d 1=%d 2=%d 3=%d | "
+           "LinesWithData=%d LinesAllZero=%d | "
+           "Top(0-47): 0=%d 1=%d 2=%d 3=%d | "
+           "Mid(48-95): 0=%d 1=%d 2=%d 3=%d | "
+           "Bottom(96-143): 0=%d 1=%d 2=%d 3=%d\n",
+           static_cast<unsigned long long>(current_frame),
+           counts[0], counts[1], counts[2], counts[3],
+           lines_with_data, lines_all_zero,
+           top_counts[0], top_counts[1], top_counts[2], top_counts[3],
+           mid_counts[0], mid_counts[1], mid_counts[2], mid_counts[3],
+           bottom_counts[0], bottom_counts[1], bottom_counts[2], bottom_counts[3]);
+}
+
+// --- Step 0395: Verificar correspondencia tilemap → framebuffer ---
+void PPU::verify_tilemap_to_framebuffer(uint16_t screen_x, uint8_t tile_id, 
+                                         uint16_t tile_addr, uint8_t line_in_tile,
+                                         uint8_t pixel_in_tile, uint8_t* cached_tile_line) {
+    // Límite: líneas 0, 72, 143; máx 5 ocurrencias
+    static int verify_count = 0;
+    if (verify_count >= 5) {
+        return;
+    }
+    
+    bool should_verify = (ly_ == 0 || ly_ == 72 || ly_ == 143);
+    if (!should_verify) {
+        return;
+    }
+    
+    verify_count++;
+    
+    // Leer bytes del tile desde VRAM usando read_vram_bank
+    uint16_t tile_line_addr = tile_addr + (line_in_tile * 2);
+    uint16_t tile_line_offset = tile_line_addr - 0x8000;
+    
+    uint8_t byte1 = 0, byte2 = 0;
+    if (tile_line_offset < 0x2000) {
+        byte1 = mmu_->read_vram_bank(0, tile_line_offset);
+        byte2 = mmu_->read_vram_bank(0, tile_line_offset + 1);
+    }
+    
+    // Decodificar manualmente los primeros 4 píxeles del tile
+    uint8_t expected_pixels[4];
+    for (uint8_t i = 0; i < 4; i++) {
+        uint8_t bit_low = (byte1 >> (7 - i)) & 0x01;
+        uint8_t bit_high = (byte2 >> (7 - i)) & 0x01;
+        expected_pixels[i] = (bit_high << 1) | bit_low;
+    }
+    
+    // Comparar con valores en framebuffer
+    size_t fb_index = ly_ * SCREEN_WIDTH + screen_x;
+    uint8_t fb_value = (fb_index < framebuffer_back_.size()) ? 
+                       framebuffer_back_[fb_index] : 0xFF;
+    
+    bool match = (fb_value == cached_tile_line[pixel_in_tile]);
+    
+    printf("[TILEMAP-TO-FB-VERIFY] Frame %llu | LY:%d X:%d | "
+           "TileID:0x%02X TileAddr:0x%04X | "
+           "TileBytes:0x%02X%02X | "
+           "ExpectedPixels[0-3]:%d,%d,%d,%d | "
+           "CachedTileLine[%d]:%d | FB[%zu]:%d | Match:%s\n",
+           static_cast<unsigned long long>(frame_counter_ + 1),
+           ly_, screen_x, tile_id, tile_addr,
+           byte1, byte2,
+           expected_pixels[0], expected_pixels[1], expected_pixels[2], expected_pixels[3],
+           pixel_in_tile, cached_tile_line[pixel_in_tile],
+           fb_index, fb_value, match ? "YES" : "NO");
+}
+
+// --- Step 0395: Verificar scroll y wrap-around ---
+void PPU::verify_scroll_wraparound(uint16_t screen_x) {
+    // Límite: Frame 676, 742 para Tetris DX; máx 30 ocurrencias
+    static int scroll_verify_count = 0;
+    if (scroll_verify_count >= 30) {
+        return;
+    }
+    
+    uint64_t current_frame = frame_counter_ + 1;
+    bool should_verify = (current_frame == 676 || current_frame == 742);
+    if (!should_verify) {
+        return;
+    }
+    
+    // Muestras: X=0, 40, 80, 120, 159 (5 muestras por línea)
+    bool is_sample_x = (screen_x == 0 || screen_x == 40 || screen_x == 80 || 
+                        screen_x == 120 || screen_x == 159);
+    if (!is_sample_x) {
+        return;
+    }
+    
+    scroll_verify_count++;
+    
+    uint8_t lcdc = mmu_->read(IO_LCDC);
+    uint8_t scx = mmu_->read(IO_SCX);
+    uint8_t scy = mmu_->read(IO_SCY);
+    
+    // Calcular posición en tilemap
+    uint8_t map_x = (screen_x + scx) & 0xFF;
+    uint8_t map_y = (ly_ + scy) & 0xFF;
+    uint8_t tile_x = map_x / TILE_SIZE;
+    uint8_t tile_y = map_y / TILE_SIZE;
+    
+    // Determinar tilemap base
+    uint16_t map_base = (lcdc & 0x08) != 0 ? TILEMAP_1 : TILEMAP_0;
+    
+    // Leer tile_id del tilemap
+    uint16_t tilemap_addr = map_base + (tile_y * 32 + tile_x);
+    uint8_t tile_id = mmu_->read(tilemap_addr);
+    
+    // Verificar wrap-around
+    bool wrap_x = ((screen_x + scx) > 255);
+    bool wrap_y = ((ly_ + scy) > 255);
+    
+    printf("[SCROLL-VERIFY] Frame %llu | LY:%d X:%d | "
+           "SCX:%d SCY:%d | map_x:%d map_y:%d | "
+           "wrap_x:%s wrap_y:%s | "
+           "TileMapAddr:0x%04X TileID:0x%02X\n",
+           static_cast<unsigned long long>(current_frame),
+           ly_, screen_x, scx, scy, map_x, map_y,
+           wrap_x ? "YES" : "NO", wrap_y ? "YES" : "NO",
+           tilemap_addr, tile_id);
+}
+
+// --- Step 0395: Verificar aplicación de paleta BGP ---
+void PPU::verify_palette_bgp(uint8_t tile_id, uint16_t tile_addr, 
+                              uint8_t line_in_tile, uint8_t color_index) {
+    // Límite: Frame 676, 742; máx 10 muestras
+    static int palette_verify_count = 0;
+    if (palette_verify_count >= 10) {
+        return;
+    }
+    
+    uint64_t current_frame = frame_counter_ + 1;
+    bool should_verify = (current_frame == 676 || current_frame == 742);
+    if (!should_verify) {
+        return;
+    }
+    
+    // Solo verificar algunos tiles con datos
+    if (color_index == 0) {
+        return;  // Skip tiles completamente transparentes
+    }
+    
+    palette_verify_count++;
+    
+    uint8_t bgp = mmu_->read(IO_BGP);
+    uint8_t final_color_calculated = (bgp >> (color_index * 2)) & 0x03;
+    
+    // Leer valor del framebuffer (aproximado: usar el último píxel renderizado)
+    // Nota: Esto es una aproximación, el valor real depende de dónde se escribió
+    size_t fb_index = ly_ * SCREEN_WIDTH;  // Inicio de la línea
+    uint8_t fb_value = (fb_index < framebuffer_back_.size()) ? 
+                       framebuffer_back_[fb_index] : 0xFF;
+    
+    bool match = (fb_value == final_color_calculated);
+    
+    printf("[PALETTE-VERIFY] Frame %llu | LY:%d | "
+           "TileID:0x%02X TileAddr:0x%04X | "
+           "color_index:%d BGP:0x%02X | "
+           "final_color_calculated:%d | "
+           "FB[%zu]:%d | Match:%s\n",
+           static_cast<unsigned long long>(current_frame),
+           ly_, tile_id, tile_addr,
+           color_index, bgp, final_color_calculated,
+           fb_index, fb_value, match ? "YES" : "NO");
 }
 

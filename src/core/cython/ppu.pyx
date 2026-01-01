@@ -246,4 +246,27 @@ cdef class PyPPU:
     cdef ppu.PPU* get_cpp_ptr(self):
         """Obtiene el puntero C++ interno directamente (para uso en otros módulos Cython)."""
         return self._ppu
+    
+    def get_framebuffer_snapshot(self):
+        """
+        Step 0395: Obtiene un snapshot del framebuffer completo como array NumPy.
+        
+        Returns:
+            numpy.ndarray de uint8 con forma (144, 160) - Zero-Copy desde C++
+        """
+        if self._ppu == NULL:
+            return None
+        
+        import numpy as np
+        cdef uint8_t* ptr = self._ppu.get_framebuffer_ptr()
+        
+        if ptr == NULL:
+            return None
+        
+        # Crear array NumPy desde el memoryview (Zero-Copy)
+        cdef unsigned char[:] view = <unsigned char[:144*160]>ptr
+        arr = np.asarray(view)
+        
+        # Reshape a (144, 160) para facilitar análisis
+        return arr.reshape((144, 160))
 

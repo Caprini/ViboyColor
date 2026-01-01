@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0395 - Diagnóstico Visual: Verificar Correspondencia Framebuffer vs Métricas VRAM - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Step 0395 - Diagnóstico Visual: Verificar Correspondencia Framebuffer vs Métricas VRAM</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-12-31
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0395
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2025-12-31__0394__fix-checkerboard-metricas-vram-dual-bank.html">Anterior (0394)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este step implementa un sistema completo de diagnóstico visual para verificar la correspondencia entre las métricas VRAM (que reportan valores correctos desde Step 0394) y el contenido real del framebuffer C++. Se implementan 5 funciones de verificación que capturan snapshots del framebuffer, validan la correspondencia tilemap→framebuffer, verifican scroll/wrap-around, validan la aplicación de paleta BGP, y verifican el pipeline C++→Python. Los resultados revelan discrepancias críticas: Frame 676 muestra framebuffer completamente blanco (0=23040) mientras las métricas VRAM reportan TileData 14.2%, y Frame 742 muestra BGP=0x00 causando mapeo incorrecto de colores.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El pipeline de renderizado del Game Boy sigue este flujo (según Pan Docs):
+                </p>
+                <ol>
+                    <li><strong>Tilemap → Tile ID</strong>: El PPU lee el tilemap (0x9800-0x9FFF) usando coordenadas (map_x, map_y) calculadas con SCX/SCY, obteniendo un tile_id (0-255).</li>
+                    <li><strong>Tile ID → Tile Address</strong>: Según el modo de direccionamiento (unsigned: 0x8000 + tile_id*16, signed: 0x9000 + (tile_id-128)*16), se calcula la dirección del tile en VRAM.</li>
+                    <li><strong>Decodificación 2bpp</strong>: Cada línea del tile (8 píxeles) ocupa 2 bytes consecutivos. Se decodifica: <code>color_index = (bit_high << 1) | bit_low</code> (valores 0-3).</li>
+                    <li><strong>Aplicación de Paleta BGP</strong>: El registro BGP (0xFF47) mapea cada color_index a un índice final: <code>final_color = (BGP >> (color_index * 2)) & 0x03</code>.</li>
+                    <li><strong>Escritura en Framebuffer</strong>: El valor final (0-3) se escribe en <code>framebuffer_back_[ly * 160 + x]</code>.</li>
+                    <li><strong>Swap de Buffers</strong>: Al completar el frame (LY=144), se intercambian <code>framebuffer_back_</code> ↔ <code>framebuffer_front_</code>.</li>
+                    <li><strong>Pipeline Python</strong>: Cython lee <code>framebuffer_front_</code> → NumPy → Pygame aplica colores RGB según paleta.</li>
+                </ol>
+                <p>
+                    <strong>Problema identificado</strong>: Las métricas VRAM (Step 0394) reportan valores correctos (TileData 14.2%, TileMap 100%), pero visualmente Tetris DX muestra texto fragmentado y Zelda DX reportó "no ve nada" (Step 0390). Esto sugiere una desconexión entre el contenido de VRAM y lo que se renderiza en el framebuffer.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron 5 funciones de diagnóstico en C++ y una verificación en Python:
+                </p>
+                
+                <h3>1. Snapshot del Framebuffer C++</h3>
+                <p>
+                    Función <code>dump_framebuffer_snapshot()</code> que captura la distribución de valores (0, 1, 2, 3) en frames clave (1, 676, 742, 1080). Analiza por regiones (top/mid/bottom) y cuenta líneas con datos vs líneas completamente blancas.
+                </p>
+
+                <h3>2. Verificación Tilemap → Framebuffer</h3>
+                <p>
+                    Función <code>verify_tilemap_to_framebuffer()</code> que valida línea por línea (LY=0, 72, 143) que los tiles referenciados por el tilemap se renderizan correctamente. Lee bytes del tile desde VRAM, decodifica manualmente los primeros 4 píxeles, y compara con los valores escritos en el framebuffer.
+                </p>
+
+                <h3>3. Verificación Scroll y Wrap-around</h3>
+                <p>
+                    Función <code>verify_scroll_wraparound()</code> que verifica SCX/SCY y el wrap-around del tilemap en frames 676 y 742. Muestra map_x, map_y, tilemap_addr, tile_id, y flags de wrap-around.
+                </p>
+
+                <h3>4. Verificación de Paleta BGP</h3>
+                <p>
+                    Función <code>verify_palette_bgp()</code> que confirma que la paleta mapea correctamente los índices de color. Compara el color_index decodificado, BGP leído, final_color calculado, y valor en framebuffer.
+                </p>
+
+                <h3>5. Verificación Pipeline C++ → Python</h3>
+                <p>
+                    Función <code>get_framebuffer_snapshot()</code> en Cython que retorna un array NumPy del framebuffer completo. En Python, se verifica la distribución de valores en frames 676 y 742 y se compara con el snapshot C++.
+                </p>
+
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code>: 5 funciones de diagnóstico agregadas</li>
+                    <li><code>src/core/cpp/PPU.hpp</code>: Declaraciones de funciones agregadas</li>
+                    <li><code>src/core/cython/ppu.pyx</code>: Función <code>get_framebuffer_snapshot()</code> agregada</li>
+                    <li><code>src/viboy.py</code>: Verificación Python del pipeline agregada</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Funciones de diagnóstico agregadas</li>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Declaraciones de funciones agregadas</li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Función get_framebuffer_snapshot() agregada</li>
+                    <li><code>src/viboy.py</code> - Verificación Python del pipeline agregada</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron tests con ROMs específicas y se analizaron logs:
+                </p>
+                <ul>
+                    <li><strong>ROMs de test</strong>: Tetris DX (30 segundos), Zelda DX (30 segundos)</li>
+                    <li><strong>Logs generados</strong>: <code>logs/step0395_tetris_dx.log</code>, <code>logs/step0395_zelda_dx.log</code></li>
+                    <li><strong>Análisis</strong>: Comandos grep con límites para evitar saturación de contexto</li>
+                </ul>
+
+                <h3>Resultados Clave</h3>
+                <table>
+                    <tr>
+                        <th>Frame</th>
+                        <th>ROM</th>
+                        <th>Framebuffer Distribution</th>
+                        <th>Observación</th>
+                    </tr>
+                    <tr>
+                        <td>1</td>
+                        <td>Tetris DX</td>
+                        <td>0=11520, 3=11520</td>
+                        <td>Checkerboard correcto (VRAM vacía)</td>
+                    </tr>
+                    <tr>
+                        <td>676</td>
+                        <td>Tetris DX</td>
+                        <td>0=23040 (todo blanco)</td>
+                        <td>⚠️ PROBLEMA: Framebuffer vacío aunque VRAM tiene 14.2% TileData</td>
+                    </tr>
+                    <tr>
+                        <td>742</td>
+                        <td>Tetris DX</td>
+                        <td>0=22560, 1=360, 3=120</td>
+                        <td>Algunos datos pero muy pocos (3 líneas con datos)</td>
+                    </tr>
+                    <tr>
+                        <td>1080</td>
+                        <td>Tetris DX</td>
+                        <td>0=130, 1=12295, 2=3262, 3=7353</td>
+                        <td>✅ Datos completos (144 líneas con datos)</td>
+                    </tr>
+                </table>
+
+                <h3>Hallazgos Críticos</h3>
+                <ul>
+                    <li><strong>Frame 676</strong>: Framebuffer completamente blanco (0=23040) mientras métricas VRAM reportan TileData 14.2%. Esto confirma la desconexión entre VRAM y renderizado.</li>
+                    <li><strong>Frame 742</strong>: BGP=0x00 detectado, causando que todos los colores se mapeen a 0 (blanco). Esto explica la fragmentación visual.</li>
+                    <li><strong>Tilemap → Framebuffer</strong>: Discrepancias detectadas - tiles vacíos (0x00) pero framebuffer tiene valores diferentes (checkerboard activo).</li>
+                    <li><strong>Pipeline Python</strong>: La distribución en Python coincide con C++, confirmando que el problema está en el renderizado C++, no en el pipeline.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Timing, Background, Scroll Registers, Background Palette (BGP)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Tile Data, Tile Maps, 2bpp Encoding</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Pipeline de Renderizado</strong>: El flujo completo desde tilemap hasta framebuffer, incluyendo decodificación 2bpp y aplicación de paleta BGP.</li>
+                        <li><strong>Doble Buffering</strong>: El sistema de swap de buffers (front/back) previene condiciones de carrera pero requiere verificación del contenido después del swap.</li>
+                        <li><strong>Diagnóstico Visual</strong>: La importancia de capturar snapshots en frames clave para identificar dónde se pierde la correspondencia entre VRAM y visualización.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>BGP=0x00 en Frame 742</strong>: Por qué el registro BGP está en 0x00 cuando debería tener un valor válido. ¿Es un problema de inicialización o el juego lo está escribiendo?</li>
+                        <li><strong>Framebuffer vacío en Frame 676</strong>: Si VRAM tiene 14.2% TileData, ¿por qué el framebuffer está completamente blanco? ¿El tilemap apunta a tiles vacíos o hay un problema en el renderizado?</li>
+                        <li><strong>Fragmentación visual</strong>: Si el framebuffer tiene datos correctos en Frame 1080, ¿por qué se ve fragmentado? ¿Es un problema de timing o de aplicación de paleta?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal</strong>: El problema está en la aplicación de la paleta BGP o en el momento en que se lee BGP. Si BGP=0x00, todos los color_index se mapean a 0 (blanco), lo que explicaría por qué el framebuffer está vacío aunque VRAM tenga datos.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar por qué BGP=0x00 en Frame 742 - ¿el juego lo escribe o es un problema de inicialización?</li>
+                    <li>[ ] Verificar si el tilemap apunta a tiles vacíos en Frame 676 aunque VRAM tenga datos</li>
+                    <li>[ ] Implementar corrección para asegurar que BGP tenga un valor válido durante el renderizado</li>
+                    <li>[ ] Verificar timing de lectura de BGP - ¿se lee antes o después de que el juego lo actualice?</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

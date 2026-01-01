@@ -32,6 +32,42 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0396 - Fix: BGP Consistente y Renderizado Respetando Paleta del Juego -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-31__0396__fix-bgp-consistente-respetar-paleta-juego.html" class="entry-link">
+                                    Fix: BGP Consistente y Renderizado Respetando Paleta del Juego
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-31 | 
+                            <strong>Step ID:</strong> 0396 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección de inconsistencia crítica de BGP: render_bg() ahora lee BGP desde MMU en lugar de forzar 0xE4, respetando la paleta que el juego configura. Resultados: Tetris DX cambia BGP dinámicamente (0xE4→0x00 en Frame 577 para fade out, 0x00→0xE4 en Frame 675), Zelda DX usa BGP=0x00 desde Frame 1 (pantalla blanca intencional). Diagnóstico Frame 676: framebuffer blanco explicado por tilemap vacío (Tetris) o BGP=0x00 intencional (Zelda), no por bug de BGP. Sistema de logging implementado: detecta cambios de BGP y advierte cuando BGP=0x00 (máx 5 warnings). BGP=0x00 es legítimo según Pan Docs (usado para fade out/transiciones).
+                        </p>
+                    </li>
+                    <!-- Entrada 0395 - Diagnóstico Visual: Verificar Correspondencia Framebuffer vs Métricas VRAM -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-31__0395__diagnostico-visual-framebuffer-vram.html" class="entry-link">
+                                    Diagnóstico Visual: Verificar Correspondencia Framebuffer vs Métricas VRAM
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-31 | 
+                            <strong>Step ID:</strong> 0395 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Sistema completo de diagnóstico visual implementado: 5 funciones de verificación (snapshot framebuffer, tilemap→framebuffer, scroll/wrap-around, paleta BGP, pipeline C++→Python). Resultados críticos: Frame 676 muestra framebuffer completamente blanco (0=23040) aunque VRAM tiene 14.2% TileData, confirmando desconexión. Frame 742 revela BGP=0x00 causando mapeo incorrecto de colores. Pipeline Python verificado: distribución coincide con C++, problema está en renderizado C++. Hallazgos: BGP=0x00 en Frame 742, framebuffer vacío en Frame 676 aunque VRAM tiene datos, fragmentación visual explicada por aplicación incorrecta de paleta.
+                        </p>
+                    </li>
                     <!-- Entrada 0394 - Fix Checkerboard Determinista + Métricas VRAM Dual-Bank -->
                     <li>
                         <div class="entry-header">
