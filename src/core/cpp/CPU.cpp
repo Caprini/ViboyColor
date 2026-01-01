@@ -14,7 +14,14 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       hw_state_samples_(0), hw_state_sample_counter_(0),
       instruction_counter_step382_(0), last_pc_sample_(0xFFFF), pc_repeat_count_(0),
       wait_loop_trace_active_(false), wait_loop_trace_count_(0), wait_loop_detected_(false),
-      ring_idx_(0), crash_dumped_(false) {
+      ring_idx_(0), crash_dumped_(false),
+      irq_vblank_requests_(0), irq_vblank_services_(0),
+      irq_stat_requests_(0), irq_stat_services_(0),
+      irq_timer_requests_(0), irq_timer_services_(0),
+      irq_serial_requests_(0), irq_serial_services_(0),
+      irq_joypad_requests_(0), irq_joypad_services_(0),
+      first_vblank_request_frame_(0), first_vblank_service_frame_(0),
+      irq_summary_logged_(false) {
     // Validación básica (en producción, podríamos usar assert)
     // Por ahora, confiamos en que Python pasa punteros válidos
     // IME inicia en false por seguridad (el juego lo activará si lo necesita)
@@ -3331,6 +3338,25 @@ uint8_t CPU::handle_interrupts() {
     // Calcular interrupciones pendientes (bits activos en ambos registros)
     uint8_t pending = ie_reg & if_reg;
     
+    // --- Step 0400: Tracking de requests de interrupciones ---
+    static uint8_t last_if_reg = 0;
+    if (if_reg != last_if_reg) {
+        // Detectar nuevas requests (bits que cambiaron de 0 a 1)
+        uint8_t new_requests = (if_reg & ~last_if_reg);
+        if (new_requests & 0x01) {
+            irq_vblank_requests_++;
+            if (first_vblank_request_frame_ == 0 && ppu_ != nullptr) {
+                first_vblank_request_frame_ = ppu_->get_frame_counter();
+            }
+        }
+        if (new_requests & 0x02) irq_stat_requests_++;
+        if (new_requests & 0x04) irq_timer_requests_++;
+        if (new_requests & 0x08) irq_serial_requests_++;
+        if (new_requests & 0x10) irq_joypad_requests_++;
+        last_if_reg = if_reg;
+    }
+    // -------------------------------------------
+    
     // --- Step 0264: HALT WAKEUP FIX (IME=0) ---
     // Según Pan Docs, cuando IME=0 y hay una interrupción pendiente habilitada en IE:
     // 1. La CPU DEBE SALIR DE HALT (despertar).
@@ -3361,18 +3387,26 @@ uint8_t CPU::handle_interrupts() {
         if (pending & 0x01) {
             interrupt_bit = 0x01;
             vector = 0x0040;  // V-Blank
+            irq_vblank_services_++;  // Step 0400
+            if (first_vblank_service_frame_ == 0 && ppu_ != nullptr) {
+                first_vblank_service_frame_ = ppu_->get_frame_counter();
+            }
         } else if (pending & 0x02) {
             interrupt_bit = 0x02;
             vector = 0x0048;  // LCD STAT
+            irq_stat_services_++;  // Step 0400
         } else if (pending & 0x04) {
             interrupt_bit = 0x04;
             vector = 0x0050;  // Timer
+            irq_timer_services_++;  // Step 0400
         } else if (pending & 0x08) {
             interrupt_bit = 0x08;
             vector = 0x0058;  // Serial
+            irq_serial_services_++;  // Step 0400
         } else if (pending & 0x10) {
             interrupt_bit = 0x10;
             vector = 0x0060;  // Joypad
+            irq_joypad_services_++;  // Step 0400
         }
         
         // --- Step 0384: Instrumentar servicio de interrupción ---
@@ -3660,5 +3694,53 @@ void CPU::run_scanline() {
     // Al final de la scanline, hemos acumulado exactamente 456 T-Cycles
     // La PPU ya ha sido actualizada después de cada instrucción, por lo que
     // está sincronizada correctamente con la CPU
+    
+    // --- Step 0400: Logging periódico de análisis comparativo ---
+    // Solo loguear en LY=0 para evitar saturar el log
+    if (ppu_ != nullptr && ppu_->get_ly() == 0) {
+        log_irq_summary();
+        if (mmu_ != nullptr) {
+            mmu_->log_init_sequence_summary();
+        }
+    }
+    // -------------------------------------------
+}
+
+// ========== Step 0400: Análisis Comparativo - Resumen de Interrupciones ==========
+
+void CPU::log_irq_summary() {
+    // Solo loguear una vez cada 720 frames (12 segundos a 60 FPS)
+    if (irq_summary_logged_) {
+        return;
+    }
+    
+    // Obtener frame actual del PPU (si está disponible)
+    uint64_t current_frame = 0;
+    if (ppu_ != nullptr) {
+        current_frame = ppu_->get_frame_counter();
+    }
+    
+    // Solo loguear después de 720 frames
+    if (current_frame < 720) {
+        return;
+    }
+    
+    irq_summary_logged_ = true;
+    
+    printf("[IRQ-SUMMARY] ========================================\n");
+    printf("[IRQ-SUMMARY] Resumen de Interrupciones (primeros 720 frames)\n");
+    printf("[IRQ-SUMMARY] VBlank: requests=%d services=%d (first_request=frame %llu, first_service=frame %llu)\n",
+           irq_vblank_requests_, irq_vblank_services_,
+           static_cast<unsigned long long>(first_vblank_request_frame_),
+           static_cast<unsigned long long>(first_vblank_service_frame_));
+    printf("[IRQ-SUMMARY] STAT: requests=%d services=%d\n",
+           irq_stat_requests_, irq_stat_services_);
+    printf("[IRQ-SUMMARY] Timer: requests=%d services=%d\n",
+           irq_timer_requests_, irq_timer_services_);
+    printf("[IRQ-SUMMARY] Serial: requests=%d services=%d\n",
+           irq_serial_requests_, irq_serial_services_);
+    printf("[IRQ-SUMMARY] Joypad: requests=%d services=%d\n",
+           irq_joypad_requests_, irq_joypad_services_);
+    printf("[IRQ-SUMMARY] ========================================\n");
 }
 

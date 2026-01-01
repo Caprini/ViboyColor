@@ -88,6 +88,13 @@ MMU::MMU()
     , hdma_length_remaining_(0) // Step 0390: Sin bytes pendientes
     , bg_palette_index_(0)    // Step 0390: Índice de paleta BG inicial
     , obj_palette_index_(0)   // Step 0390: Índice de paleta OBJ inicial
+    , last_lcdc_value_(0xFF)  // Step 0400: Valor inicial inválido
+    , last_bgp_value_(0xFF)   // Step 0400: Valor inicial inválido
+    , last_ie_value_(0xFF)    // Step 0400: Valor inicial inválido
+    , lcdc_change_frame_(-1)  // Step 0400: Sin cambio detectado
+    , bgp_change_frame_(-1)   // Step 0400: Sin cambio detectado
+    , ie_change_frame_(-1)    // Step 0400: Sin cambio detectado
+    , init_sequence_logged_(false)  // Step 0400: Sin log inicial
 {
     // Step 0390: Inicializar arrays de paletas CGB a 0xFF (valor inicial)
     std::memset(bg_palette_data_, 0xFF, sizeof(bg_palette_data_));
@@ -1055,6 +1062,15 @@ void MMU::write(uint16_t addr, uint8_t value) {
             if (!(old_ie & 0x01) && (new_ie & 0x01)) {
                 printf("[IE-WRITE-TRACE] ⚠️ V-BLANK INTERRUPT HABILITADA en PC:0x%04X\n", debug_current_pc);
             }
+            
+            // --- Step 0400: Tracking de cambios para análisis comparativo ---
+            if (last_ie_value_ != new_ie) {
+                last_ie_value_ = new_ie;
+                if (ppu_ != nullptr) {
+                    ie_change_frame_ = static_cast<int>(ppu_->get_frame_counter());
+                }
+            }
+            // -------------------------------------------
         }
     }
 
@@ -1095,6 +1111,15 @@ void MMU::write(uint16_t addr, uint8_t value) {
             if (!bg_display_old && bg_display_new) {
                 printf("[LCDC-TRACE] ⚠️ BG DISPLAY HABILITADO en PC:0x%04X\n", debug_current_pc);
             }
+            
+            // --- Step 0400: Tracking de cambios para análisis comparativo ---
+            if (last_lcdc_value_ != new_lcdc) {
+                last_lcdc_value_ = new_lcdc;
+                if (ppu_ != nullptr) {
+                    lcdc_change_frame_ = static_cast<int>(ppu_->get_frame_counter());
+                }
+            }
+            // -------------------------------------------
         }
     }
 
@@ -1108,6 +1133,15 @@ void MMU::write(uint16_t addr, uint8_t value) {
         if (old_bgp != value) {
             printf("[BGP-CHANGE] 0x%02X -> 0x%02X en PC:0x%04X (Bank:%d)\n",
                    old_bgp, value, debug_current_pc, current_rom_bank_);
+            
+            // --- Step 0400: Tracking de cambios para análisis comparativo ---
+            if (last_bgp_value_ != value) {
+                last_bgp_value_ = value;
+                if (ppu_ != nullptr) {
+                    bgp_change_frame_ = static_cast<int>(ppu_->get_frame_counter());
+                }
+            }
+            // -------------------------------------------
         }
     }
 
@@ -2749,4 +2783,36 @@ void MMU::get_vram_write_stats(int& total_writes, int& nonzero_writes) const {
     nonzero_writes = vram_write_nonzero_step382_;
 }
 // --- Fin Step 0382 ---
+
+// --- Step 0400: Análisis Comparativo - Secuencia de Inicialización ---
+void MMU::log_init_sequence_summary() {
+    // Solo loguear una vez cada 720 frames (12 segundos a 60 FPS)
+    if (init_sequence_logged_) {
+        return;
+    }
+    
+    // Obtener frame actual del PPU (si está disponible)
+    int current_frame = 0;
+    if (ppu_ != nullptr) {
+        current_frame = static_cast<int>(ppu_->get_frame_counter());
+    }
+    
+    // Solo loguear después de 720 frames
+    if (current_frame < 720) {
+        return;
+    }
+    
+    init_sequence_logged_ = true;
+    
+    printf("[INIT-SEQUENCE] ========================================\n");
+    printf("[INIT-SEQUENCE] Resumen de Secuencia de Inicialización (primeros 720 frames)\n");
+    printf("[INIT-SEQUENCE] LCDC: último valor=0x%02X, cambió en frame=%d\n",
+           last_lcdc_value_, lcdc_change_frame_);
+    printf("[INIT-SEQUENCE] BGP: último valor=0x%02X, cambió en frame=%d\n",
+           last_bgp_value_, bgp_change_frame_);
+    printf("[INIT-SEQUENCE] IE: último valor=0x%02X, cambió en frame=%d\n",
+           last_ie_value_, ie_change_frame_);
+    printf("[INIT-SEQUENCE] ========================================\n");
+}
+// --- Fin Step 0400 ---
 

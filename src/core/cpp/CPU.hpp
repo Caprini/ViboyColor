@@ -558,6 +558,29 @@ private:
     InstrSnapshot ring_buffer_[RING_SIZE];
     int ring_idx_;
     bool crash_dumped_;
+    
+    // ========== Estado de Diagnóstico (Step 0400) ==========
+    // Contadores de interrupciones por tipo
+    int irq_vblank_requests_;
+    int irq_vblank_services_;
+    int irq_stat_requests_;
+    int irq_stat_services_;
+    int irq_timer_requests_;
+    int irq_timer_services_;
+    int irq_serial_requests_;
+    int irq_serial_services_;
+    int irq_joypad_requests_;
+    int irq_joypad_services_;
+    uint64_t first_vblank_request_frame_;
+    uint64_t first_vblank_service_frame_;
+    bool irq_summary_logged_;
+    
+public:
+    /**
+     * Step 0400: Genera resumen de interrupciones para análisis comparativo.
+     * Registra requests/services por tipo de interrupción.
+     */
+    void log_irq_summary();
 };
 
 #endif // CPU_HPP

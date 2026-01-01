@@ -490,6 +490,26 @@ private:
      * Detecta cuándo se carga el tilemap y cuándo se cargan los tiles.
      */
     void analyze_load_timing();
+    
+    /**
+     * Step 0400: Captura snapshot de ejecución para análisis comparativo.
+     * Registra estado de registros críticos en frames clave.
+     */
+    void capture_execution_snapshot();
+    
+    /**
+     * Step 0400: Análisis de progresión de VRAM para comparación entre juegos.
+     * Registra evolución de tiledata, tilemap y unique_tile_ids cada 120 frames.
+     */
+    void analyze_vram_progression();
+    
+    /**
+     * Step 0400: Variables de tracking para progresión de VRAM.
+     */
+    uint64_t vram_progression_last_frame_;  // Último frame donde se registró progresión
+    int vram_progression_tiledata_threshold_;  // Frame donde tiledata cambia >5%
+    int vram_progression_tilemap_threshold_;   // Frame donde tilemap cambia >5%
+    int vram_progression_unique_tiles_threshold_;  // Frame donde unique_tiles >10
 };
 
 #endif // PPU_HPP

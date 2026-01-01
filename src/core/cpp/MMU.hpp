@@ -210,6 +210,12 @@ public:
      * @param active true para activar trazado, false para desactivar
      */
     void set_vblank_isr_trace(bool active);
+    
+    /**
+     * Step 0400: Genera resumen de secuencia de inicialización.
+     * Registra cambios de LCDC, BGP, IE/IME con frames.
+     */
+    void log_init_sequence_summary();
 
 private:
     /**
@@ -339,6 +345,15 @@ private:
     uint8_t obj_palette_data_[0x40];    // 64 bytes: 8 paletas OBJ × 4 colores × 2 bytes
     uint8_t bg_palette_index_;          // 0xFF68 (BCPS): Índice actual (0-0x3F) + autoinc (bit 7)
     uint8_t obj_palette_index_;         // 0xFF6A (OCPS): Índice actual (0-0x3F) + autoinc (bit 7)
+    
+    // --- Step 0400: Tracking de secuencia de inicialización ---
+    mutable uint8_t last_lcdc_value_;   // Último valor de LCDC
+    mutable uint8_t last_bgp_value_;    // Último valor de BGP
+    mutable uint8_t last_ie_value_;     // Último valor de IE
+    mutable int lcdc_change_frame_;     // Frame donde cambió LCDC
+    mutable int bgp_change_frame_;      // Frame donde cambió BGP
+    mutable int ie_change_frame_;       // Frame donde cambió IE
+    mutable bool init_sequence_logged_; // Flag para evitar logs repetidos
     
 public:
     /**

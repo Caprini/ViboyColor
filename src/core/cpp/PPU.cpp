@@ -22,6 +22,10 @@ PPU::PPU(MMU* mmu)
     , framebuffer_back_(FRAMEBUFFER_SIZE, 0)   // Step 0364: Inicializar buffer back a 0 (blanco)
     , framebuffer_swap_pending_(false)          // Step 0364: Inicializar flag de intercambio
     , checkerboard_active_(false)               // Step 0394: Inicializar checkerboard como inactivo
+    , vram_progression_last_frame_(0)           // Step 0400: Inicializar tracking de progresión
+    , vram_progression_tiledata_threshold_(-1)  // Step 0400: Sin threshold detectado
+    , vram_progression_tilemap_threshold_(-1)   // Step 0400: Sin threshold detectado
+    , vram_progression_unique_tiles_threshold_(-1)  // Step 0400: Sin threshold detectado
 {
     // --- Step 0364: Doble Buffering ---
     // Con doble buffering, los buffers ya están inicializados a 0 en la lista de inicializadores.
@@ -863,6 +867,11 @@ void PPU::step(int cpu_cycles) {
             frame_counter_++;
             // Reiniciar flag de interrupción STAT al cambiar de frame
             stat_interrupt_line_ = 0;
+            
+            // --- Step 0400: Análisis Comparativo ---
+            capture_execution_snapshot();
+            analyze_vram_progression();
+            // -------------------------------------------
             
             // --- Step 0360: Verificación Continua del Framebuffer ---
             // Verificar que el framebuffer se actualiza correctamente cuando hay tiles
@@ -4936,5 +4945,102 @@ void PPU::analyze_load_timing() {
                    (tiledata_nonzero * 100.0) / 6144);
         }
     }
+}
+
+// ========== Step 0400: Análisis Comparativo ==========
+
+void PPU::capture_execution_snapshot() {
+    if (mmu_ == nullptr) {
+        return;
+    }
+    
+    uint64_t current_frame = frame_counter_ + 1;
+    
+    // Capturar snapshots en frames clave: 1, 60, 120, 240, 480, 720
+    if (current_frame != 1 && current_frame != 60 && current_frame != 120 &&
+        current_frame != 240 && current_frame != 480 && current_frame != 720) {
+        return;
+    }
+    
+    // Solo capturar en LY=0 para evitar duplicados
+    if (ly_ != 0) {
+        return;
+    }
+    
+    // Leer registros críticos
+    uint8_t lcdc = mmu_->read(IO_LCDC);
+    uint8_t bgp = mmu_->read(IO_BGP);
+    uint8_t scx = mmu_->read(IO_SCX);
+    uint8_t scy = mmu_->read(IO_SCY);
+    uint8_t ie = mmu_->read(0xFFFF);
+    uint8_t if_reg = mmu_->read(0xFF0F);
+    
+    // Calcular métricas de VRAM
+    int tiledata_nonzero = count_vram_nonzero_bank0_tiledata();
+    int tilemap_nonzero = count_vram_nonzero_bank0_tilemap();
+    int unique_tile_ids = count_unique_tile_ids_in_tilemap();
+    bool gameplay = is_gameplay_state();
+    
+    printf("[EXEC-SNAPSHOT] Frame %llu | LCDC=0x%02X BGP=0x%02X SCX=%d SCY=%d | IE=0x%02X IF=0x%02X | TileData=%d/6144 (%.1f%%) TileMap=%d/1024 (%.1f%%) UniqueTiles=%d GameplayState=%s\n",
+           static_cast<unsigned long long>(current_frame),
+           lcdc, bgp, scx, scy,
+           ie, if_reg,
+           tiledata_nonzero, (tiledata_nonzero * 100.0) / 6144,
+           tilemap_nonzero, (tilemap_nonzero * 100.0) / 1024,
+           unique_tile_ids,
+           gameplay ? "YES" : "NO");
+}
+
+void PPU::analyze_vram_progression() {
+    if (mmu_ == nullptr) {
+        return;
+    }
+    
+    uint64_t current_frame = frame_counter_ + 1;
+    
+    // Registrar cada 120 frames
+    if (current_frame % 120 != 0) {
+        return;
+    }
+    
+    // Solo registrar en LY=0
+    if (ly_ != 0) {
+        return;
+    }
+    
+    // Calcular métricas actuales
+    int tiledata_nonzero = count_vram_nonzero_bank0_tiledata();
+    int tilemap_nonzero = count_vram_nonzero_bank0_tilemap();
+    int unique_tile_ids = count_unique_tile_ids_in_tilemap();
+    bool gameplay = is_gameplay_state();
+    
+    float tiledata_percent = (tiledata_nonzero * 100.0f) / 6144;
+    float tilemap_percent = (tilemap_nonzero * 100.0f) / 1024;
+    
+    // Detectar thresholds
+    if (vram_progression_tiledata_threshold_ == -1 && tiledata_percent > 5.0f) {
+        vram_progression_tiledata_threshold_ = static_cast<int>(current_frame);
+        printf("[VRAM-PROGRESSION] TileData threshold (>5%%) alcanzado en Frame %llu\n",
+               static_cast<unsigned long long>(current_frame));
+    }
+    
+    if (vram_progression_tilemap_threshold_ == -1 && tilemap_percent > 5.0f) {
+        vram_progression_tilemap_threshold_ = static_cast<int>(current_frame);
+        printf("[VRAM-PROGRESSION] TileMap threshold (>5%%) alcanzado en Frame %llu\n",
+               static_cast<unsigned long long>(current_frame));
+    }
+    
+    if (vram_progression_unique_tiles_threshold_ == -1 && unique_tile_ids > 10) {
+        vram_progression_unique_tiles_threshold_ = static_cast<int>(current_frame);
+        printf("[VRAM-PROGRESSION] UniqueTiles threshold (>10) alcanzado en Frame %llu\n",
+               static_cast<unsigned long long>(current_frame));
+    }
+    
+    printf("[VRAM-PROGRESSION] Frame %llu | TileData=%.1f%% TileMap=%.1f%% UniqueTiles=%d GameplayState=%s\n",
+           static_cast<unsigned long long>(current_frame),
+           tiledata_percent, tilemap_percent, unique_tile_ids,
+           gameplay ? "YES" : "NO");
+    
+    vram_progression_last_frame_ = current_frame;
 }
 

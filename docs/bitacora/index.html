@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0400 - Análisis Comparativo: Tetris DX vs Zelda DX/Pokemon Red -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-01-01__0400__analisis-comparativo-tetris-vs-zelda-pokemon.html" class="entry-link">
+                                    Análisis Comparativo: Tetris DX vs Zelda DX/Pokemon Red
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-01-01 | 
+                            <strong>Step ID:</strong> 0400 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Análisis comparativo sistemático entre Tetris DX (funciona) y Zelda DX/Pokemon Red (inicialización). Implementación de funciones de tracking: capture_execution_snapshot() (snapshots en frames clave), analyze_vram_progression() (evolución VRAM cada 120 frames), log_init_sequence_summary() (cambios LCDC/BGP/IE), log_irq_summary() (requests/services de interrupciones). Hallazgos críticos: (1) Tetris DX configura LCDC/BGP tarde (frames 677-711) después de cargar tiles, Zelda DX/Pokemon Red configuran temprano (frames 0-12). (2) Problema raíz: BGP=0x00 en Zelda DX/Pokemon Red (paleta inválida, todos colores blancos). (3) Tetris DX NO usa interrupciones (IE=0x00, polling puro), Zelda DX usa STAT intensivamente (145 requests), Pokemon Red usa VBlank intensivamente (612 requests). (4) Tetris DX carga tiles en frame 720 (23% TileData, 256 tiles únicos), Zelda DX/Pokemon Red NUNCA cargan tiles (0% TileData). Conclusión: juegos esperan que Boot ROM configure BGP a valor válido (0xFC/0xE4), pero sin Boot ROM queda en 0x00. Próximo paso: implementar Boot ROM stub.
+                        </p>
+                    </li>
                     <!-- Entrada 0399 - Mejorar Métricas: Diversidad de Tile IDs y Estado Jugable -->
                     <li>
                         <div class="entry-header">
