@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guía de Boot ROM Legal y Configuración - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Guía de Boot ROM Legal y Configuración</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-01
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0403
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-01__0402__bootrom-cli-env-y-stub.html">Anterior (Step 0402)</a></li>
+                    <li><a href="#">Siguiente (Step 0404)</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Documentación completa y reproducible del uso de Boot ROM en Viboy Color, manteniendo estricta conformidad clean-room. Se explica cómo el usuario puede proveer su propia Boot ROM (extraída legalmente), cómo validar tamaño sin exponer contenido, y cómo configurar el emulador mediante CLI o variables de entorno. Se detallan los tamaños válidos (DMG: 256 bytes, CGB: 2304 bytes), los métodos de configuración (flag <code>--bootrom</code>, variable <code>VIBOY_BOOTROM</code>, y modo stub <code>--bootrom-stub</code>), y qué buscar en los logs para verificar funcionamiento correcto. Esta documentación asegura que el proyecto mantiene su naturaleza educativa y legal, sin incluir binarios propietarios.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware (Pan Docs - Boot ROM, Power Up Sequence)</h2>
+                
+                <h3>¿Qué es la Boot ROM?</h3>
+                <p>
+                    La <strong>Boot ROM</strong> es un pequeño programa almacenado en memoria ROM interna de la Game Boy que se ejecuta al encender la consola, <strong>antes</strong> de transferir control al cartucho. Su propósito principal es:
+                </p>
+                <ul>
+                    <li><strong>Mostrar el logo de Nintendo</strong>: Animación característica del logo que se desplaza hacia abajo.</li>
+                    <li><strong>Validar el cartucho</strong>: Verificar que el logo del header del cartucho coincide con el esperado (checksum anti-piratería).</li>
+                    <li><strong>Inicializar hardware</strong>: Configurar registros de PPU, APU, y otros componentes a valores predecibles.</li>
+                    <li><strong>Transferir control</strong>: Saltar a la dirección <code>0x0100</code> del cartucho para ejecutar el juego.</li>
+                </ul>
+                
+                <h3>Tamaños de Boot ROM</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Modelo</th>
+                            <th>Tamaño</th>
+                            <th>Dirección de Mapeo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>DMG (Game Boy clásico)</td>
+                            <td>256 bytes</td>
+                            <td>0x0000-0x00FF</td>
+                        </tr>
+                        <tr>
+                            <td>CGB (Game Boy Color)</td>
+                            <td>2304 bytes</td>
+                            <td>0x0000-0x00FF + 0x0200-0x08FF</td>
+                        </tr>
+                    </tbody>
+                </table>
+                
+                <h3>Registro 0xFF50: Boot ROM Disable</h3>
+                <p>
+                    El registro <strong>0xFF50</strong> controla la visibilidad de la Boot ROM:
+                </p>
+                <ul>
+                    <li><strong>0xFF50 = 0x00</strong> (inicial): Boot ROM está mapeada y visible en las direcciones correspondientes.</li>
+                    <li><strong>0xFF50 = 0x01+</strong>: Boot ROM se desmapea permanentemente (no reversible), y el cartucho pasa a ser visible en <code>0x0000-0x00FF</code>.</li>
+                </ul>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - Boot ROM, 0xFF50 Register.
+                </p>
+                
+                <h3>Por qué algunos juegos dependen de la Boot ROM</h3>
+                <p>
+                    Los juegos asumen que la Boot ROM configuró el hardware correctamente. Sin ella, registros críticos pueden tener valores incorrectos:
+                </p>
+                <ul>
+                    <li><strong>BGP (0xFF47)</strong>: Paleta de Background. Boot ROM lo configura a <code>0xFC</code> o <code>0xE4</code>. Sin Boot ROM, queda en <code>0x00</code> (todos los colores blancos, pantalla invisible).</li>
+                    <li><strong>LCDC (0xFF40)</strong>: Control de LCD. Boot ROM lo configura a <code>0x91</code> (LCD ON, BG ON).</li>
+                    <li><strong>Registros CGB</strong>: Boot ROM de CGB configura registros específicos de Color (VBK, BCPS, BCPD, KEY1, SVBK, etc.).</li>
+                </ul>
+                
+                <h3>Legalidad y Clean Room</h3>
+                <p>
+                    <strong>⚠️ IMPORTANTE</strong>: La Boot ROM es propiedad de Nintendo y está protegida por copyright. <strong>NO se incluye en este proyecto</strong>. El usuario debe:
+                </p>
+                <ul>
+                    <li>Extraer la Boot ROM de su propia Game Boy física (legal para uso personal).</li>
+                    <li>O usar el emulador en modo <strong>skip-boot</strong> (sin Boot ROM, con valores post-boot predefinidos).</li>
+                    <li>O usar el modo <strong>stub</strong> (simulación mínima de estado post-boot sin binario propietario).</li>
+                </ul>
+            </section>
+
+            <!-- 3. Configuración -->
+            <section id="configuracion">
+                <h2>Configuración: Cómo Usar Boot ROM en Viboy</h2>
+                
+                <h3>Método 1: Flag de línea de comandos (--bootrom)</h3>
+                <p>
+                    Pasar el path a la Boot ROM como argumento:
+                </p>
+                <pre><code>python3 main.py --bootrom /path/to/boot_dmg.bin roms/Tetris.gb
+python3 main.py --bootrom /path/to/boot_cgb.bin roms/PokemonOro.gbc</code></pre>
+                
+                <h3>Método 2: Variable de entorno (VIBOY_BOOTROM)</h3>
+                <p>
+                    Configurar la variable de entorno una vez y usarla para todas las ejecuciones:
+                </p>
+                <pre><code># Bash/Linux
+export VIBOY_BOOTROM=/path/to/boot_cgb.bin
+python3 main.py roms/PokemonOro.gbc
+
+# Windows PowerShell
+$env:VIBOY_BOOTROM="C:\path\to\boot_cgb.bin"
+python main.py roms\PokemonOro.gbc</code></pre>
+                
+                <h3>Método 3: Modo Stub (--bootrom-stub)</h3>
+                <p>
+                    Si no se tiene Boot ROM real, usar modo stub (sin binario propietario, solo configura estado post-boot mínimo):
+                </p>
+                <pre><code>python3 main.py --bootrom-stub roms/PokemonOro.gbc</code></pre>
+                <p>
+                    <strong>Nota</strong>: El modo stub NO ejecuta la secuencia completa de la Boot ROM (no muestra logo, no valida cartucho). Solo configura registros I/O a valores post-boot básicos. Algunos juegos (especialmente CGB) pueden requerir Boot ROM real para funcionar correctamente.
+                </p>
+                
+                <h3>Prioridad de Configuración</h3>
+                <p>
+                    Si se especifican múltiples métodos, el orden de prioridad es:
+                </p>
+                <ol>
+                    <li><code>--bootrom PATH</code> (flag explícito)</li>
+                    <li><code>--bootrom-stub</code> (si no hay flag <code>--bootrom</code>)</li>
+                    <li><code>VIBOY_BOOTROM</code> (variable de entorno, si no hay flags)</li>
+                    <li>Modo skip-boot (si ninguno de los anteriores está configurado)</li>
+                </ol>
+            </section>
+
+            <!-- 4. Validación -->
+            <section id="validacion">
+                <h2>Validación: Cómo Verificar la Boot ROM</h2>
+                
+                <h3>Verificar Tamaño Sin Exponer Contenido</h3>
+                <p>
+                    Para confirmar que el archivo tiene el tamaño correcto sin mostrar su contenido:
+                </p>
+                <pre><code># Linux/Bash
+ls -lh /path/to/boot.bin
+
+# Python (cross-platform)
+python3 -c 'import os,sys; p=sys.argv[1]; print(f"{p}: {os.path.getsize(p)} bytes")' /path/to/boot.bin</code></pre>
+                <p>
+                    Tamaños esperados:
+                </p>
+                <ul>
+                    <li><strong>DMG</strong>: exactamente <code>256 bytes</code></li>
+                    <li><strong>CGB</strong>: exactamente <code>2304 bytes</code> (2048 + 256)</li>
+                </ul>
+                
+                <h3>Qué Buscar en los Logs</h3>
+                <p>
+                    Al ejecutar con Boot ROM, buscar estas líneas en la salida (ejemplos acotados, sin saturar contexto):
+                </p>
+                <pre><code># Búsqueda segura (limitada a primeras 50 líneas)
+grep -E '\[BOOTROM\]|FF50' log.txt | head -n 50</code></pre>
+                <p>
+                    <strong>Indicadores de éxito</strong>:
+                </p>
+                <ul>
+                    <li><code>[BOOTROM] Loaded ... bytes</code>: Boot ROM cargada correctamente.</li>
+                    <li><code>[BOOTROM] Enabled, PC=0x0000</code>: Ejecución comienza desde Boot ROM.</li>
+                    <li><code>WRITE 0xFF50 = 0x01</code>: Juego deshabilitó Boot ROM (completó secuencia).</li>
+                    <li><code>[BOOTROM] Disabled by FF50</code>: Boot ROM se desmapeó correctamente.</li>
+                </ul>
+                
+                <h3>Verificar Que NO Se Incluyó en el Repositorio</h3>
+                <p>
+                    Confirmar que <code>.gitignore</code> excluye binarios propietarios:
+                </p>
+                <pre><code>grep -E "\.bin|boot_rom" .gitignore</code></pre>
+                <p>
+                    Debe contener líneas como:
+                </p>
+                <pre><code>*.bin
+boot_rom*
+bootrom*</code></pre>
+            </section>
+
+            <!-- 5. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>docs/bitacora/entries/2026-01-01__0403__guia-bootrom-legal-y-configuracion.html</code> - Documentación creada (esta página).</li>
+                    <li><code>docs/bitacora/index.html</code> - Índice actualizado con nueva entrada.</li>
+                    <li><code>docs/informe_fase_2/index.md</code> - Índice del informe actualizado.</li>
+                    <li><code>docs/informe_fase_2/parte_00_steps_0370_0402.md</code> - Informe actualizado con entrada del Step 0403.</li>
+                </ul>
+            </section>
+
+            <!-- 6. Ejemplos de Uso -->
+            <section id="ejemplos">
+                <h2>Ejemplos de Uso Completos</h2>
+                
+                <h3>Ejemplo 1: Tetris (DMG) Con Boot ROM</h3>
+                <pre><code># Paso 1: Verificar tamaño
+python3 -c 'import os; print(os.path.getsize("boot_dmg.bin"))'  # Debe ser 256
+
+# Paso 2: Ejecutar
+python3 main.py --bootrom boot_dmg.bin roms/Tetris.gb
+
+# Paso 3: Verificar logs
+grep -E '\[BOOTROM\]|FF50' logs/tetris.log | head -n 20</code></pre>
+                
+                <h3>Ejemplo 2: Pokémon Oro (CGB) Con Variable de Entorno</h3>
+                <pre><code># Paso 1: Configurar variable de entorno
+export VIBOY_BOOTROM=/home/user/boot_cgb.bin
+
+# Paso 2: Verificar tamaño
+python3 -c 'import os; print(os.path.getsize("/home/user/boot_cgb.bin"))'  # Debe ser 2304
+
+# Paso 3: Ejecutar
+python3 main.py roms/PokemonOro.gbc
+
+# Paso 4: Verificar logs
+grep '\[BOOTROM\]' logs/pokemonoro.log | head -n 30</code></pre>
+                
+                <h3>Ejemplo 3: Zelda DX (CGB) Con Modo Stub</h3>
+                <pre><code># Paso 1: Ejecutar con stub (sin Boot ROM real)
+python3 main.py --bootrom-stub roms/ZeldaDX.gbc
+
+# Paso 2: Verificar configuración post-boot
+grep -E 'LCDC|BGP|FF50' logs/zeldadx.log | head -n 20</code></pre>
+            </section>
+
+            <!-- 7. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs</strong>: <a href="https://gbdev.io/pandocs/Power_Up_Sequence.html" target="_blank">Power Up Sequence</a> - Valores de registros post-boot.</li>
+                    <li><strong>Pan Docs</strong>: <a href="https://gbdev.io/pandocs/Memory_Map.html#boot-rom" target="_blank">Boot ROM</a> - Mapeo y tamaños de Boot ROM.</li>
+                    <li><strong>Pan Docs</strong>: <a href="https://gbdev.io/pandocs/Memory_Map.html#ff50--boot-disable-boot-rom-write-only" target="_blank">0xFF50 Register</a> - Control de deshabilitación de Boot ROM.</li>
+                    <li><strong>GBEDG</strong>: <a href="https://hacktix.github.io/GBEDG/bootrom/" target="_blank">Boot ROM Behavior</a> - Comportamiento de la Boot ROM en DMG y CGB.</li>
+                </ul>
+            </section>
+
+            <!-- 8. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Boot ROM es opcional</strong>: Viboy puede funcionar en tres modos: Boot ROM real (provista por usuario), modo stub (configuración mínima), o skip-boot (sin Boot ROM).</li>
+                        <li><strong>Tamaños exactos</strong>: DMG usa 256 bytes, CGB usa 2304 bytes (diferente mapeo de memoria).</li>
+                        <li><strong>0xFF50 es crítico</strong>: Escribir cualquier valor ≥1 desmapea Boot ROM permanentemente, revelando ROM del cartucho.</li>
+                        <li><strong>Valores post-boot</strong>: BGP=0xFC, LCDC=0x91, IE=0x01 son valores típicos después de Boot ROM (según Pan Docs).</li>
+                        <li><strong>Compliance legal</strong>: NO incluir binarios propietarios, NO distribuir Boot ROM, solo documentar cómo el usuario puede proveerla.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Comportamiento CGB avanzado</strong>: Confirmar que Boot ROM de CGB configura correctamente registros específicos (VBK, BCPS, KEY1, SVBK) necesarios para juegos como Zelda DX/Pokémon.</li>
+                        <li><strong>Stub vs Boot ROM real</strong>: Cuantificar qué juegos funcionan con stub vs los que requieren Boot ROM real (testing empírico pendiente).</li>
+                        <li><strong>Logo scrolling</strong>: Validar visualmente que, al usar Boot ROM real, el logo de Nintendo aparece y se desplaza correctamente (requiere Boot ROM + PPU funcionando).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <ul>
+                        <li><strong>Hipótesis</strong>: Juegos CGB que sobrescriben BGP a 0x00 (como Zelda DX/Pokémon Red) dependen de configuración avanzada de paletas CGB que solo Boot ROM real provee correctamente.</li>
+                        <li><strong>Suposición</strong>: Modo stub es suficiente para la mayoría de juegos DMG, pero insuficiente para juegos CGB complejos (a validar en Step 0404).</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 9. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[x] <strong>Step 0403</strong>: Documentación de uso de Boot ROM (este documento).</li>
+                    <li>[ ] <strong>Step 0404</strong>: Implementar separación clara DMG/CGB post-boot, instrumentación de diagnóstico, y ajustes de renderizado CGB.</li>
+                    <li>[ ] Testing empírico: Comparar comportamiento con Boot ROM real vs stub vs skip-boot en ROMs variadas.</li>
+                    <li>[ ] Documentar hallazgos de Step 0404 (qué registros/condiciones bloquean Zelda DX/Pokémon).</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

@@ -96,54 +96,15 @@ MMU::MMU()
     , ie_change_frame_(-1)    // Step 0400: Sin cambio detectado
     , init_sequence_logged_(false)  // Step 0400: Sin log inicial
     , boot_rom_enabled_(false)  // Step 0401: Boot ROM deshabilitada por defecto
+    , hardware_mode_(HardwareMode::DMG)  // Step 0404: Modo DMG por defecto
 {
     // Step 0390: Inicializar arrays de paletas CGB a 0xFF (valor inicial)
     std::memset(bg_palette_data_, 0xFF, sizeof(bg_palette_data_));
     std::memset(obj_palette_data_, 0xFF, sizeof(obj_palette_data_));
     
-    // Inicializar memoria a 0
-    // --- Step 0189: Inicialización de Registros de Hardware (Post-BIOS) ---
-    // Estos son los valores que los registros de I/O tienen después de que la
-    // Boot ROM finaliza. Los juegos dependen de este estado inicial.
-    // Fuente: Pan Docs - "Power Up Sequence"
-    
-    // PPU / Video
-    memory_[0xFF40] = 0x91; // LCDC
-    memory_[0xFF41] = 0x85; // STAT (bits escribibles 3-7, bits 0-2 controlados por PPU)
-    memory_[0xFF42] = 0x00; // SCY
-    memory_[0xFF43] = 0x00; // SCX
-    // 0xFF44: LY se controla dinámicamente por la PPU
-    memory_[0xFF45] = 0x00; // LYC
-    memory_[0xFF46] = 0xFF; // DMA
-    memory_[0xFF47] = 0xFC; // BGP (Post-BIOS: 0xFC, aunque muchos juegos esperan 0xE4)
-    memory_[0xFF48] = 0xFF; // OBP0
-    memory_[0xFF49] = 0xFF; // OBP1
-    memory_[0xFF4A] = 0x00; // WY
-    memory_[0xFF4B] = 0x00; // WX
-
-    // Sonido (APU) - Valores iniciales
-    memory_[0xFF10] = 0x80; // NR10
-    memory_[0xFF11] = 0xBF; // NR11
-    memory_[0xFF12] = 0xF3; // NR12
-    memory_[0xFF14] = 0xBF; // NR14
-    memory_[0xFF16] = 0x3F; // NR21
-    memory_[0xFF17] = 0x00; // NR22
-    memory_[0xFF19] = 0xBF; // NR24
-    memory_[0xFF1A] = 0x7F; // NR30
-    memory_[0xFF1B] = 0xFF; // NR31
-    memory_[0xFF1C] = 0x9F; // NR32
-    memory_[0xFF1E] = 0xBF; // NR34
-    memory_[0xFF20] = 0xFF; // NR41
-    memory_[0xFF21] = 0x00; // NR42
-    memory_[0xFF22] = 0x00; // NR43
-    memory_[0xFF23] = 0xBF; // NR44
-    memory_[0xFF24] = 0x77; // NR50
-    memory_[0xFF25] = 0xF3; // NR51
-    memory_[0xFF26] = 0xF1; // NR52 (F1 para DMG)
-
-    // Interrupciones
-    memory_[0xFF0F] = 0x01; // IF (V-Blank interrupt request)
-    memory_[0xFFFF] = 0x00; // IE
+    // Step 0404: Inicializar registros I/O según el modo de hardware
+    // Valores de Power Up Sequence (Pan Docs) para DMG/CGB
+    initialize_io_registers();
     
     // NOTA: Los siguientes registros se controlan dinámicamente por hardware:
     // - 0xFF04 (DIV): Controlado por Timer
@@ -2285,6 +2246,24 @@ void MMU::load_rom(const uint8_t* data, size_t size) {
     uint8_t cart_type = (size > 0x0147) ? data[0x0147] : 0x00;
     uint8_t rom_size_code = (size > 0x0148) ? data[0x0148] : 0x00;
     uint8_t ram_size_code = (size > 0x0149) ? data[0x0149] : 0x00;
+    
+    // --- Step 0404: Detección automática de modo CGB ---
+    // Byte 0x0143 del header indica compatibilidad CGB
+    // - 0x80: CGB funcionalidad (funciona en DMG también)
+    // - 0xC0: CGB only (solo funciona en CGB)
+    // - Otros valores: DMG only
+    // Fuente: Pan Docs - "Cartridge Header", "0143 - CGB Flag"
+    uint8_t cgb_flag = (size > 0x0143) ? data[0x0143] : 0x00;
+    bool is_cgb_rom = (cgb_flag == 0x80 || cgb_flag == 0xC0);
+    
+    if (is_cgb_rom) {
+        set_hardware_mode(HardwareMode::CGB);
+        printf("[MMU] ROM CGB detectada (flag=0x%02X). Modo hardware: CGB\n", cgb_flag);
+    } else {
+        set_hardware_mode(HardwareMode::DMG);
+        printf("[MMU] ROM DMG detectada (flag=0x%02X). Modo hardware: DMG\n", cgb_flag);
+    }
+    // -------------------------------------------
 
     configure_mbc_from_header(cart_type, rom_size_code, ram_size_code);
     update_bank_mapping();
@@ -2882,6 +2861,114 @@ int MMU::is_boot_rom_enabled() const {
     return boot_rom_enabled_ ? 1 : 0;
 }
 // --- Fin Step 0401 ---
+
+// --- Step 0404: Hardware Mode Management ---
+void MMU::set_hardware_mode(HardwareMode mode) {
+    hardware_mode_ = mode;
+    printf("[MMU] Modo de hardware configurado: %s\n", 
+           (mode == HardwareMode::CGB) ? "CGB" : "DMG");
+    
+    // Reinicializar registros I/O según el nuevo modo
+    initialize_io_registers();
+}
+
+HardwareMode MMU::get_hardware_mode() const {
+    return hardware_mode_;
+}
+
+void MMU::initialize_io_registers() {
+    // --- Step 0404: Inicialización de Registros de Hardware según Modo ---
+    // Valores de Power Up Sequence según Pan Docs para DMG y CGB.
+    // Los juegos dependen de este estado inicial.
+    // Fuente: Pan Docs - "Power Up Sequence", "CGB Registers"
+    
+    bool is_cgb = (hardware_mode_ == HardwareMode::CGB);
+    
+    // ===== PPU / Video =====
+    memory_[0xFF40] = 0x91; // LCDC (LCD ON, BG ON, Window OFF, BG Tilemap 0x9800)
+    memory_[0xFF41] = 0x85; // STAT (bits escribibles 3-7, bits 0-2 controlados por PPU)
+    memory_[0xFF42] = 0x00; // SCY (Scroll Y)
+    memory_[0xFF43] = 0x00; // SCX (Scroll X)
+    // 0xFF44: LY se controla dinámicamente por la PPU
+    memory_[0xFF45] = 0x00; // LYC (LY Compare)
+    memory_[0xFF46] = 0xFF; // DMA (inactivo)
+    memory_[0xFF47] = 0xFC; // BGP (Paleta BG: 11221100 = 0xFC)
+    memory_[0xFF48] = 0xFF; // OBP0 (Paleta OBJ 0)
+    memory_[0xFF49] = 0xFF; // OBP1 (Paleta OBJ 1)
+    memory_[0xFF4A] = 0x00; // WY (Window Y)
+    memory_[0xFF4B] = 0x00; // WX (Window X)
+    
+    // ===== CGB-Specific Registers =====
+    if (is_cgb) {
+        // VBK (0xFF4F): VRAM Bank Select (CGB only)
+        // DMG: No existe este registro
+        // CGB: 0x00 al inicio (banco 0 por defecto)
+        memory_[0xFF4F] = 0x00;
+        
+        // KEY1 (0xFF4D): Prepare Speed Switch (CGB only)
+        // DMG: No existe
+        // CGB: 0x00 al inicio (modo normal, no double-speed)
+        memory_[0xFF4D] = 0x00;
+        
+        // SVBK (0xFF70): WRAM Bank Select (CGB only)
+        // DMG: No existe
+        // CGB: 0x01 al inicio (banco 1 por defecto, banco 0 siempre mapeado en 0xC000-0xCFFF)
+        memory_[0xFF70] = 0x01;
+        
+        // BCPS/BCPD (0xFF68/0xFF69): BG Palette Specification/Data (CGB only)
+        memory_[0xFF68] = 0x00; // BCPS: Índice 0, no auto-increment
+        memory_[0xFF69] = 0x00; // BCPD: Dato inicial
+        
+        // OCPS/OCPD (0xFF6A/0xFF6B): OBJ Palette Specification/Data (CGB only)
+        memory_[0xFF6A] = 0x00; // OCPS: Índice 0, no auto-increment
+        memory_[0xFF6B] = 0x00; // OCPD: Dato inicial
+        
+        // HDMA Registers (0xFF51-0xFF55): CGB DMA (Horizontal/General)
+        memory_[0xFF51] = 0xFF; // HDMA1: Source High (inactivo)
+        memory_[0xFF52] = 0xFF; // HDMA2: Source Low (inactivo)
+        memory_[0xFF53] = 0xFF; // HDMA3: Destination High (inactivo)
+        memory_[0xFF54] = 0xFF; // HDMA4: Destination Low (inactivo)
+        memory_[0xFF55] = 0xFF; // HDMA5: Length/Mode/Start (inactivo)
+    }
+
+    // ===== Sonido (APU) - Valores iniciales =====
+    memory_[0xFF10] = 0x80; // NR10 (Channel 1 Sweep)
+    memory_[0xFF11] = 0xBF; // NR11 (Channel 1 Length/Duty)
+    memory_[0xFF12] = 0xF3; // NR12 (Channel 1 Envelope)
+    memory_[0xFF14] = 0xBF; // NR14 (Channel 1 Frequency Hi)
+    memory_[0xFF16] = 0x3F; // NR21 (Channel 2 Length/Duty)
+    memory_[0xFF17] = 0x00; // NR22 (Channel 2 Envelope)
+    memory_[0xFF19] = 0xBF; // NR24 (Channel 2 Frequency Hi)
+    memory_[0xFF1A] = 0x7F; // NR30 (Channel 3 DAC Enable)
+    memory_[0xFF1B] = 0xFF; // NR31 (Channel 3 Length)
+    memory_[0xFF1C] = 0x9F; // NR32 (Channel 3 Output Level)
+    memory_[0xFF1E] = 0xBF; // NR34 (Channel 3 Frequency Hi)
+    memory_[0xFF20] = 0xFF; // NR41 (Channel 4 Length)
+    memory_[0xFF21] = 0x00; // NR42 (Channel 4 Envelope)
+    memory_[0xFF22] = 0x00; // NR43 (Channel 4 Polynomial Counter)
+    memory_[0xFF23] = 0xBF; // NR44 (Channel 4 Control)
+    memory_[0xFF24] = 0x77; // NR50 (Master Volume & VIN Panning)
+    memory_[0xFF25] = 0xF3; // NR51 (Sound Panning)
+    
+    // NR52 (Sound ON/OFF) varía según hardware
+    // DMG: 0xF1 (Sound ON, todos los canales activos)
+    // CGB: 0xF0 o 0xF1 según modelo
+    memory_[0xFF26] = is_cgb ? 0xF0 : 0xF1;
+
+    // ===== Interrupciones =====
+    memory_[0xFF0F] = 0x01; // IF (V-Blank interrupt request inicial)
+    memory_[0xFFFF] = 0x00; // IE (Sin interrupciones habilitadas inicialmente)
+    
+    // NOTA: Los siguientes registros se controlan dinámicamente por hardware:
+    // - 0xFF04 (DIV): Controlado por Timer
+    // - 0xFF05 (TIMA): Controlado por Timer
+    // - 0xFF06 (TMA): Controlado por Timer
+    // - 0xFF07 (TAC): Controlado por Timer
+    // - 0xFF00 (P1): Controlado por Joypad
+    
+    printf("[MMU] Registros I/O inicializados para modo %s\n", is_cgb ? "CGB" : "DMG");
+}
+// --- Fin Step 0404 ---
 
 // --- Step 0402: Modo stub de Boot ROM ---
 void MMU::enable_bootrom_stub(bool enable, bool cgb_mode) {

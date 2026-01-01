@@ -32,6 +32,42 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0404 - CGB Post-Boot Clean-Room y Diagnóstico -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-01__0404__cgb-postboot-cleanroom-y-diagnostico.html" class="entry-link">
+                                    CGB Post-Boot Clean-Room y Diagnóstico
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-01 | 
+                            <strong>Step ID:</strong> 0404 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación clean-room de separación explícita entre modos DMG (Game Boy clásico) y CGB (Game Boy Color) para inicialización correcta de registros I/O según Pan Docs Power Up Sequence. Añadido enum HardwareMode (DMG/CGB) en MMU con detección automática leyendo byte 0x0143 del header de la ROM. Implementada función initialize_io_registers() que configura registros PPU (LCDC/STAT/SCY/SCX/BGP/OBP/WY/WX), APU (NR10-NR52), interrupciones (IF/IE), y registros CGB-específicos: VBK (VRAM Banking), KEY1 (Speed Switch), SVBK (WRAM Banking), BCPS/BCPD (BG Palettes), OCPS/OCPD (OBJ Palettes), HDMA1-HDMA5 (DMA). Wrappers Cython exponen set_hardware_mode(), get_hardware_mode(), initialize_io_registers() a Python. Detección automática funciona correctamente: Tetris DX detectado como CGB (flag=0x80), registros inicializados para modo CGB. Compilación exitosa. Sistema preparado para instrumentación diagnóstica dirigida (próximos pasos: monitors de registros críticos, ajustes de renderizado CGB, tests con Zelda DX/Pokémon Red).
+                        </p>
+                    </li>
+                    <!-- Entrada 0403 - Guía de Boot ROM Legal y Configuración -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-01__0403__guia-bootrom-legal-y-configuracion.html" class="entry-link">
+                                    Guía de Boot ROM Legal y Configuración
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-01 | 
+                            <strong>Step ID:</strong> 0403 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Documentación completa y reproducible del uso de Boot ROM en Viboy Color, manteniendo estricta conformidad clean-room. Se explica cómo el usuario puede proveer su propia Boot ROM (extraída legalmente), cómo validar tamaño sin exponer contenido (DMG: 256 bytes, CGB: 2304 bytes), y cómo configurar el emulador mediante CLI (--bootrom PATH, --bootrom-stub) o variables de entorno (VIBOY_BOOTROM). Se detallan los tres modos de arranque: Boot ROM real (PC=0x0000, ejecución desde Boot ROM hasta FF50), modo stub (configuración mínima post-boot sin binario), y skip-boot (valores post-boot predefinidos). Se proporcionan ejemplos completos de uso, métodos de validación sin exponer contenido binario, y qué buscar en logs ([BOOTROM], FF50) para verificar funcionamiento correcto. Se enfatiza la legalidad (Boot ROM es propiedad de Nintendo, NO incluida en repo) y por qué algunos juegos dependen de ella (BGP, LCDC, registros CGB). Esta documentación asegura compliance legal y facilita la reproducibilidad para usuarios que aporten su propia Boot ROM.
+                        </p>
+                    </li>
                     <!-- Entrada 0402 - Integración Frontend Boot ROM + Modo Stub Sin Archivo -->
                     <li>
                         <div class="entry-header">

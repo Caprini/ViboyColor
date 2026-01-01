@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CGB Post-Boot Clean-Room y Diagnóstico - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>CGB Post-Boot Clean-Room y Diagnóstico</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-01
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0404
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-01__0403__guia-bootrom-legal-y-configuracion.html">Anterior (Step 0403)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación clean-room de separación explícita entre modos DMG (Game Boy clásico) y CGB (Game Boy Color) para inicialización correcta de registros I/O según Pan Docs Power Up Sequence. Añadido enum <code>HardwareMode</code> (DMG/CGB) en MMU con detección automática leyendo byte 0x0143 del header de la ROM. Implementada función <code>initialize_io_registers()</code> que configura registros PPU, APU, interrupciones y registros CGB-específicos (VBK, KEY1, SVBK, BCPS/BCPD, OCPS/OCPD, HDMA) según el modo actual. Wrappers Cython exponen <code>set_hardware_mode()</code>, <code>get_hardware_mode()</code> e <code>initialize_io_registers()</code> a Python. Detección automática funciona correctamente: Tetris DX detectado como CGB (flag=0x80), registros inicializados para modo CGB. Sistema preparado para instrumentación diagnóstica dirigida (próximos pasos) para identificar qué registros/condiciones bloquean Zelda DX/Pokémon Red en inicialización.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware (Pan Docs - Power Up Sequence, CGB Registers)</h2>
+                
+                <h3>Diferencias DMG vs CGB en Power Up Sequence</h3>
+                <p>
+                    Game Boy clásico (DMG) y Game Boy Color (CGB) tienen secuencias de inicialización diferentes. La <strong>Power Up Sequence</strong> documentada en Pan Docs especifica los valores iniciales de los registros I/O después de que el sistema arranca (con o sin Boot ROM).
+                </p>
+                
+                <h4>Registros Comunes (DMG y CGB)</h4>
+                <ul>
+                    <li><strong>LCDC (0xFF40)</strong>: 0x91 (LCD ON, BG ON, Window OFF, BG Tilemap 0x9800)</li>
+                    <li><strong>STAT (0xFF41)</strong>: 0x85 (bits 3-7 escribibles, bits 0-2 controlados por PPU)</li>
+                    <li><strong>SCY/SCX (0xFF42/0xFF43)</strong>: 0x00 (scroll en posición inicial)</li>
+                    <li><strong>BGP (0xFF47)</strong>: 0xFC (paleta DMG: 11221100, blanco a negro)</li>
+                    <li><strong>OBP0/OBP1 (0xFF48/0xFF49)</strong>: 0xFF (paletas de sprites)</li>
+                    <li><strong>WY/WX (0xFF4A/0xFF4B)</strong>: 0x00 (Window en posición inicial)</li>
+                    <li><strong>APU Registers (0xFF10-0xFF26)</strong>: Valores específicos por canal</li>
+                    <li><strong>IF (0xFF0F)</strong>: 0x01 (VBlank interrupt request inicial)</li>
+                    <li><strong>IE (0xFFFF)</strong>: 0x00 (sin interrupciones habilitadas inicialmente)</li>
+                </ul>
+                
+                <h4>Registros Específicos de CGB</h4>
+                <p>
+                    CGB introduce registros adicionales que NO existen en DMG:
+                </p>
+                <ul>
+                    <li><strong>VBK (0xFF4F)</strong>: VRAM Bank Select. Valor inicial: 0x00 (banco 0 por defecto). Permite seleccionar entre 2 bancos de VRAM de 8KB cada uno.</li>
+                    <li><strong>KEY1 (0xFF4D)</strong>: Prepare Speed Switch. Valor inicial: 0x00 (modo normal, no double-speed). Permite cambiar entre 4.19 MHz (normal) y 8.38 MHz (double-speed).</li>
+                    <li><strong>SVBK (0xFF70)</strong>: WRAM Bank Select. Valor inicial: 0x01 (banco 1 por defecto). CGB tiene 8 bancos de WRAM (4KB cada uno), banco 0 siempre mapeado en 0xC000-0xCFFF.</li>
+                    <li><strong>BCPS/BCPD (0xFF68/0xFF69)</strong>: BG Palette Specification/Data. CGB tiene 8 paletas BG, cada una con 4 colores de 15 bits (BGR555 format). Valor inicial: 0x00 (índice 0, no auto-increment).</li>
+                    <li><strong>OCPS/OCPD (0xFF6A/0xFF6B)</strong>: OBJ Palette Specification/Data. Similar a paletas BG pero para sprites. Valor inicial: 0x00.</li>
+                    <li><strong>HDMA1-HDMA5 (0xFF51-0xFF55)</strong>: Horizontal/General DMA. Permite copiar datos de ROM/RAM a VRAM de forma eficiente. Valor inicial: 0xFF (inactivo).</li>
+                </ul>
+                
+                <h3>Detección de Modo CGB desde el Header de la ROM</h3>
+                <p>
+                    El byte <strong>0x0143</strong> del header del cartucho indica la compatibilidad CGB:
+                </p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Valor</th>
+                            <th>Significado</th>
+                            <th>Modo Emulador</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>0x80</td>
+                            <td>CGB funcionalidad (funciona en DMG también)</td>
+                            <td>CGB (preferido)</td>
+                        </tr>
+                        <tr>
+                            <td>0xC0</td>
+                            <td>CGB only (solo funciona en CGB)</td>
+                            <td>CGB (obligatorio)</td>
+                        </tr>
+                        <tr>
+                            <td>Otros</td>
+                            <td>DMG only (Game Boy clásico)</td>
+                            <td>DMG</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - Cartridge Header, 0143 - CGB Flag.
+                </p>
+                
+                <h3>Por qué esto es crítico para Zelda DX/Pokémon Red</h3>
+                <p>
+                    Los juegos CGB esperan que los registros específicos de Color estén inicializados correctamente. Sin una separación clara DMG/CGB, el emulador puede:
+                </p>
+                <ul>
+                    <li>Inicializar registros CGB con valores incorrectos (o no inicializarlos).</li>
+                    <li>Depender excesivamente de <code>BGP (0xFF47)</code> cuando juegos CGB usan paletas CGB (<code>BCPS/BCPD</code>).</li>
+                    <li>No configurar banking de VRAM/WRAM correctamente, causando corrupción de datos.</li>
+                    <li>No soportar características como double-speed mode o HDMA.</li>
+                </ul>
+                <p>
+                    La implementación de este paso asegura que, al cargar una ROM CGB, todos los registros CGB se inicializan a valores correctos según Pan Docs, eliminando una posible causa de bloqueo en inicialización.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>1. Enum de Modo de Hardware (MMU.hpp)</h3>
+                <pre><code>/**
+ * Step 0404: Hardware Mode - Modo de hardware (DMG vs CGB)
+ * Fuente: Pan Docs - Power Up Sequence, CGB Registers
+ */
+enum class HardwareMode {
+    DMG,  // Game Boy clásico (monocromo)
+    CGB   // Game Boy Color
+};</code></pre>
+                
+                <h3>2. Métodos de Gestión de Modo (MMU.hpp)</h3>
+                <pre><code>// Miembro privado
+HardwareMode hardware_mode_;  // Modo de hardware actual (DMG o CGB)
+
+// Métodos públicos
+void set_hardware_mode(HardwareMode mode);
+HardwareMode get_hardware_mode() const;
+void initialize_io_registers();</code></pre>
+                
+                <h3>3. Inicialización de Registros I/O (MMU.cpp)</h3>
+                <p>
+                    Función <code>initialize_io_registers()</code> que configura registros según el modo:
+                </p>
+                <pre><code>void MMU::initialize_io_registers() {
+    bool is_cgb = (hardware_mode_ == HardwareMode::CGB);
+    
+    // ===== PPU / Video =====
+    memory_[0xFF40] = 0x91; // LCDC
+    memory_[0xFF41] = 0x85; // STAT
+    memory_[0xFF42] = 0x00; // SCY
+    memory_[0xFF43] = 0x00; // SCX
+    memory_[0xFF45] = 0x00; // LYC
+    memory_[0xFF46] = 0xFF; // DMA
+    memory_[0xFF47] = 0xFC; // BGP
+    memory_[0xFF48] = 0xFF; // OBP0
+    memory_[0xFF49] = 0xFF; // OBP1
+    memory_[0xFF4A] = 0x00; // WY
+    memory_[0xFF4B] = 0x00; // WX
+    
+    // ===== CGB-Specific Registers =====
+    if (is_cgb) {
+        memory_[0xFF4F] = 0x00; // VBK
+        memory_[0xFF4D] = 0x00; // KEY1
+        memory_[0xFF70] = 0x01; // SVBK
+        memory_[0xFF68] = 0x00; // BCPS
+        memory_[0xFF69] = 0x00; // BCPD
+        memory_[0xFF6A] = 0x00; // OCPS
+        memory_[0xFF6B] = 0x00; // OCPD
+        memory_[0xFF51] = 0xFF; // HDMA1
+        memory_[0xFF52] = 0xFF; // HDMA2
+        memory_[0xFF53] = 0xFF; // HDMA3
+        memory_[0xFF54] = 0xFF; // HDMA4
+        memory_[0xFF55] = 0xFF; // HDMA5
+    }
+    
+    // ===== Sonido (APU) =====
+    // ... (registros NR10-NR52) ...
+    
+    // ===== Interrupciones =====
+    memory_[0xFF0F] = 0x01; // IF
+    memory_[0xFFFF] = 0x00; // IE
+}</code></pre>
+                
+                <h3>4. Detección Automática de Modo CGB (MMU.cpp - load_rom)</h3>
+                <pre><code>// Leer byte 0x0143 del header (CGB Flag)
+uint8_t cgb_flag = (size > 0x0143) ? data[0x0143] : 0x00;
+bool is_cgb_rom = (cgb_flag == 0x80 || cgb_flag == 0xC0);
+
+if (is_cgb_rom) {
+    set_hardware_mode(HardwareMode::CGB);
+    printf("[MMU] ROM CGB detectada (flag=0x%02X). Modo hardware: CGB\n", cgb_flag);
+} else {
+    set_hardware_mode(HardwareMode::DMG);
+    printf("[MMU] ROM DMG detectada (flag=0x%02X). Modo hardware: DMG\n", cgb_flag);
+}</code></pre>
+                
+                <h3>5. Wrappers Cython (mmu.pxd, mmu.pyx)</h3>
+                <p>
+                    Exposición de funciones a Python:
+                </p>
+                <pre><code># mmu.pxd
+cdef enum class HardwareMode:
+    DMG
+    CGB
+
+cdef cppclass MMU:
+    # ... métodos existentes ...
+    void set_hardware_mode(HardwareMode mode)
+    HardwareMode get_hardware_mode()
+    void initialize_io_registers()
+
+# mmu.pyx
+def set_hardware_mode(self, str mode):
+    """Configura el modo de hardware (DMG o CGB)"""
+    if mode.upper() == "DMG":
+        self._mmu.set_hardware_mode(mmu.HardwareMode.DMG)
+    elif mode.upper() == "CGB":
+        self._mmu.set_hardware_mode(mmu.HardwareMode.CGB)
+    else:
+        raise ValueError(f"Modo inválido: {mode}")
+
+def get_hardware_mode(self):
+    """Obtiene el modo de hardware actual"""
+    cdef mmu.HardwareMode mode = self._mmu.get_hardware_mode()
+    return "CGB" if mode == mmu.HardwareMode.CGB else "DMG"
+
+def initialize_io_registers(self):
+    """Inicializa registros I/O según el modo actual"""
+    self._mmu.initialize_io_registers()</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Enum <code>HardwareMode</code>, declaración de métodos, miembro <code>hardware_mode_</code>.</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Constructor inicializa modo DMG, implementación de <code>set_hardware_mode()</code>, <code>get_hardware_mode()</code>, <code>initialize_io_registers()</code>, detección automática en <code>load_rom()</code>.</li>
+                    <li><code>src/core/cython/mmu.pxd</code> - Declaración del enum y métodos para Cython.</li>
+                    <li><code>src/core/cython/mmu.pyx</code> - Wrappers Python para gestión de modo de hardware.</li>
+                    <li><code>docs/bitacora/entries/2026-01-01__0404__cgb-postboot-cleanroom-y-diagnostico.html</code> - Documentación creada (esta página).</li>
+                    <li><code>docs/bitacora/index.html</code> - Índice actualizado con nueva entrada.</li>
+                    <li><code>docs/informe_fase_2/parte_00_steps_0370_0402.md</code> - Informe actualizado con entrada del Step 0404.</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                
+                <h3>Compilación</h3>
+                <pre><code>$ python3 setup.py build_ext --inplace
+=== COMPILACIÓN EXITOSA ===
+copying build/lib.linux-x86_64-cpython-312/viboy_core.cpython-312-x86_64-linux-gnu.so -></code></pre>
+                <p><strong>Resultado</strong>: Compilación exitosa sin errores (solo warnings menores de formato printf).</p>
+                
+                <h3>Test de Detección Automática (Tetris DX - CGB)</h3>
+                <pre><code>$ timeout 5s python3 main.py roms/tetris_dx.gbc > logs/step0404_test_cgb_detection.log 2>&1
+$ head -n 50 logs/step0404_test_cgb_detection.log</code></pre>
+                <p><strong>Salida relevante</strong>:</p>
+                <pre><code>[MMU] Registros I/O inicializados para modo DMG  # Constructor inicial
+[MMU] Modo de hardware configurado: CGB          # Detección automática
+[MMU] Registros I/O inicializados para modo CGB  # Reinicialización para CGB
+[MMU] ROM CGB detectada (flag=0x80). Modo hardware: CGB
+[MBC] ROM loaded: 524288 bytes (32 banks) | Type: 0x03</code></pre>
+                <p><strong>Resultado</strong>: ✅ Detección automática correcta. Tetris DX (flag=0x80) detectado como CGB, registros inicializados para modo CGB.</p>
+                
+                <h3>Validación de Módulo Compilado C++</h3>
+                <p>
+                    Confirmado que las funciones C++ (<code>set_hardware_mode</code>, <code>get_hardware_mode</code>, <code>initialize_io_registers</code>) son llamadas correctamente desde Python a través de wrappers Cython. Sin errores de segmentación, sin crashes.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs</strong>: <a href="https://gbdev.io/pandocs/Power_Up_Sequence.html" target="_blank">Power Up Sequence</a> - Valores de registros post-boot para DMG y CGB.</li>
+                    <li><strong>Pan Docs</strong>: <a href="https://gbdev.io/pandocs/CGB_Registers.html" target="_blank">CGB Registers</a> - Documentación completa de registros específicos de Game Boy Color.</li>
+                    <li><strong>Pan Docs</strong>: <a href="https://gbdev.io/pandocs/The_Cartridge_Header.html#0143--cgb-flag" target="_blank">Cartridge Header - 0143 CGB Flag</a> - Detección de compatibilidad CGB.</li>
+                    <li><strong>Pan Docs</strong>: <a href="https://gbdev.io/pandocs/Palettes.html#lcd-color-palettes-cgb-only" target="_blank">LCD Color Palettes (CGB only)</a> - BCPS/BCPD, OCPS/OCPD.</li>
+                    <li><strong>Pan Docs</strong>: <a href="https://gbdev.io/pandocs/VRAM_Bank_Select.html" target="_blank">VRAM Bank Select (VBK)</a> - Banking de VRAM en CGB.</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Separación DMG/CGB es fundamental</strong>: No basta con "soportar CGB". El sistema debe comportarse diferente según el modo.</li>
+                        <li><strong>Power Up Sequence varía</strong>: CGB tiene registros adicionales (VBK, KEY1, SVBK, paletas, HDMA) que deben inicializarse correctamente.</li>
+                        <li><strong>Byte 0x0143 es confiable</strong>: El header de la ROM indica claramente si es DMG (otros valores), CGB compatible (0x80), o CGB only (0xC0).</li>
+                        <li><strong>Paletas CGB vs BGP</strong>: Juegos CGB usan paletas de 15 bits (BGR555) vía BCPS/BCPD, no el registro DMG BGP (0xFF47).</li>
+                        <li><strong>Detección automática funciona</strong>: Tetris DX (0x80) detectado como CGB, registros inicializados correctamente según Pan Docs.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Instrumentación diagnóstica</strong>: Añadir monitors de registros críticos (VBK, KEY1, SVBK, BCPS, HDMA5) para detectar qué condición bloquea Zelda DX/Pokémon (Tarea 0404-2 del plan).</li>
+                        <li><strong>Renderizado con paletas CGB</strong>: Confirmar que el PPU usa paletas CGB (BCPS/BCPD) en vez de BGP cuando está en modo CGB (Tarea 0404-3 del plan).</li>
+                        <li><strong>Tests extensivos</strong>: Verificar que Zelda DX/Pokémon Red mejoran objetivamente con esta separación (métricas: unique_tile_ids, tiledata_nonzero, gameplay_state) (Tarea 0404-4 del plan).</li>
+                        <li><strong>Double-speed mode</strong>: Confirmar comportamiento de KEY1 cuando juegos CGB cambian a modo 8.38 MHz (no crítico para inicialización, pero importante para compatibilidad).</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <ul>
+                        <li><strong>Hipótesis principal</strong>: La separación DMG/CGB eliminará algunos bloqueos de inicialización en Zelda DX/Pokémon, pero aún puede haber problemas con renderizado de paletas CGB (a validar en Tareas 0404-2, 0404-3, 0404-4).</li>
+                        <li><strong>Suposición</strong>: Los valores de Pan Docs para Power Up Sequence son suficientemente precisos. Si persisten problemas, puede ser necesario ajustar valores específicos según comportamiento de hardware real (requeriría Boot ROM real o tests en hardware físico).</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[x] <strong>Tarea 0404-1</strong>: Separar claramente "DMG post-boot" vs "CGB post-boot" (completado en este step).</li>
+                    <li>[ ] <strong>Tarea 0404-2</strong>: Instrumentación para detectar "qué condición espera" Zelda DX/Pokémon (monitors de registros críticos VBK/KEY1/SVBK/BCPS/HDMA5/LYC/IE/IF).</li>
+                    <li>[ ] <strong>Tarea 0404-3</strong>: Ajuste de renderizado para CGB (confirmar que PPU usa paletas CGB en vez de BGP).</li>
+                    <li>[ ] <strong>Tarea 0404-4</strong>: Tests controlados con Tetris DX (baseline), Zelda DX, Pokémon Red (análisis de métricas con límites de contexto).</li>
+                    <li>[ ] <strong>Tarea 0404-5</strong>: Documentación completa del Step 0404 con hallazgos de todas las tareas.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

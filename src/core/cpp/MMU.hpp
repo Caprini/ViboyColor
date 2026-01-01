@@ -10,6 +10,20 @@ class Timer;
 class Joypad;
 
 /**
+ * Step 0404: Hardware Mode - Modo de hardware (DMG vs CGB)
+ * 
+ * Permite diferenciar claramente entre modos DMG (Game Boy clásico)
+ * y CGB (Game Boy Color) para inicializar registros correctamente
+ * según el modelo de hardware.
+ * 
+ * Fuente: Pan Docs - Power Up Sequence, CGB Registers
+ */
+enum class HardwareMode {
+    DMG,  // Game Boy clásico (monocromo)
+    CGB   // Game Boy Color
+};
+
+/**
  * MMU (Memory Management Unit) - Unidad de Gestión de Memoria
  * 
  * Gestiona el espacio de direcciones de 16 bits (0x0000 a 0xFFFF = 65536 bytes)
@@ -253,6 +267,41 @@ public:
      * inicialización y el control de PC no dependen de hacks del PPU.
      */
     void enable_bootrom_stub(bool enable, bool cgb_mode);
+    
+    /**
+     * Step 0404: Configura el modo de hardware (DMG o CGB)
+     * 
+     * Establece si el emulador debe comportarse como Game Boy clásico (DMG)
+     * o Game Boy Color (CGB). Esto afecta la inicialización de registros I/O
+     * y el comportamiento de componentes específicos (paletas, banking, etc.).
+     * 
+     * @param mode Modo de hardware (HardwareMode::DMG o HardwareMode::CGB)
+     * 
+     * Fuente: Pan Docs - Power Up Sequence, CGB Registers
+     */
+    void set_hardware_mode(HardwareMode mode);
+    
+    /**
+     * Step 0404: Obtiene el modo de hardware actual
+     * 
+     * @return Modo de hardware actual (HardwareMode::DMG o HardwareMode::CGB)
+     */
+    HardwareMode get_hardware_mode() const;
+    
+    /**
+     * Step 0404: Inicializa registros I/O según el modo de hardware
+     * 
+     * Configura los registros I/O (LCDC, BGP, CGB-specific, etc.) según el modo
+     * de hardware actual (DMG o CGB) siguiendo la Power Up Sequence de Pan Docs.
+     * 
+     * Llamado por:
+     * - Constructor MMU() para valores iniciales
+     * - set_hardware_mode() cuando se cambia el modo
+     * - enable_bootrom_stub() para aplicar estado post-boot
+     * 
+     * Fuente: Pan Docs - Power Up Sequence
+     */
+    void initialize_io_registers();
 
 private:
     /**
@@ -395,6 +444,9 @@ private:
     // --- Step 0401: Boot ROM opcional ---
     std::vector<uint8_t> boot_rom_;     // Datos de la Boot ROM (256 bytes DMG o 2304 bytes CGB)
     bool boot_rom_enabled_;             // ¿Boot ROM habilitada? (se deshabilita al escribir FF50)
+    
+    // --- Step 0404: Modo de hardware (DMG vs CGB) ---
+    HardwareMode hardware_mode_;        // Modo de hardware actual (DMG o CGB)
     
 public:
     /**

@@ -23,6 +23,11 @@ cdef extern from "Joypad.hpp":
         pass
 
 cdef extern from "MMU.hpp":
+    # Step 0404: Hardware Mode enum
+    cdef enum class HardwareMode:
+        DMG
+        CGB
+    
     cdef cppclass MMU:
         MMU() except +
         uint8_t read(uint16_t addr)
@@ -36,4 +41,7 @@ cdef extern from "MMU.hpp":
         void set_boot_rom(const uint8_t* data, size_t size)  # Step 0401
         int is_boot_rom_enabled()  # Step 0401 (devuelve int para evitar problemas de conversión)
         void enable_bootrom_stub(bool enable, bool cgb_mode)  # Step 0402
+        void set_hardware_mode(HardwareMode mode)  # Step 0404
+        HardwareMode get_hardware_mode()  # Step 0404
+        void initialize_io_registers()  # Step 0404
 

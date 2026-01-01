@@ -330,6 +330,75 @@ cdef class PyMMU:
         self._mmu.enable_bootrom_stub(enable, cgb_mode)
     # --- Fin Step 0402 ---
     
+    # --- Step 0404: Hardware Mode Management ---
+    def set_hardware_mode(self, str mode):
+        """
+        Configura el modo de hardware (DMG o CGB).
+        
+        Establece si el emulador debe comportarse como Game Boy clásico (DMG)
+        o Game Boy Color (CGB). Esto afecta la inicialización de registros I/O
+        y el comportamiento de componentes específicos (paletas, banking, etc.).
+        
+        Args:
+            mode: String "DMG" o "CGB"
+        
+        Raises:
+            ValueError: Si el modo no es "DMG" o "CGB"
+            MemoryError: Si la instancia de MMU en C++ no existe
+        
+        Fuente: Pan Docs - Power Up Sequence, CGB Registers
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        if mode.upper() == "DMG":
+            self._mmu.set_hardware_mode(mmu.HardwareMode.DMG)
+        elif mode.upper() == "CGB":
+            self._mmu.set_hardware_mode(mmu.HardwareMode.CGB)
+        else:
+            raise ValueError(f"Modo de hardware inválido: {mode}. Debe ser 'DMG' o 'CGB'")
+    
+    def get_hardware_mode(self):
+        """
+        Obtiene el modo de hardware actual.
+        
+        Returns:
+            String "DMG" o "CGB" según el modo actual
+        
+        Raises:
+            MemoryError: Si la instancia de MMU en C++ no existe
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        cdef mmu.HardwareMode mode = self._mmu.get_hardware_mode()
+        return "CGB" if mode == mmu.HardwareMode.CGB else "DMG"
+    
+    def initialize_io_registers(self):
+        """
+        Inicializa registros I/O según el modo de hardware actual.
+        
+        Configura los registros I/O (LCDC, BGP, CGB-specific, etc.) según el modo
+        de hardware actual (DMG o CGB) siguiendo la Power Up Sequence de Pan Docs.
+        
+        Llamado automáticamente por:
+        - Constructor MMU() para valores iniciales
+        - set_hardware_mode() cuando se cambia el modo
+        - enable_bootrom_stub() para aplicar estado post-boot
+        
+        También puede llamarse manualmente para reinicializar registros.
+        
+        Raises:
+            MemoryError: Si la instancia de MMU en C++ no existe
+        
+        Fuente: Pan Docs - Power Up Sequence
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        self._mmu.initialize_io_registers()
+    # --- Fin Step 0404 ---
+    
     # Método para obtener el puntero C++ directamente (forma segura)
     cdef mmu.MMU* get_cpp_ptr(self):
         """
