@@ -44,4 +44,5 @@ cdef extern from "MMU.hpp":
         void set_hardware_mode(HardwareMode mode)  # Step 0404
         HardwareMode get_hardware_mode()  # Step 0404
         void initialize_io_registers()  # Step 0404
+        void log_dma_vram_summary()  # Step 0410
 

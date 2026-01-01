@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0410 - Diagnóstico DMA/HDMA y Causa de TileData=0 -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-01__0410__diagnostico-dma-hdma-tiledata-cero.html" class="entry-link">
+                                    Diagnóstico DMA/HDMA y Causa de TileData=0
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-01 | 
+                            <strong>Step ID:</strong> 0410 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Instrumentación completa de DMA/HDMA y escrituras CPU a TileData para diagnosticar por qué pkmn.gb y Oro.gbc tienen 0% de TileData efectivo. El diagnóstico reveló el problema raíz: los juegos Pokémon limpian VRAM escribiendo 6,144 bytes de ceros (100% del TileData), pero quedan bloqueados en un wait-loop esperando interrupciones (IF=0x00, IE=0x0D) que nunca llegan. Comparación con Tetris DX (funcional, 35.81% no-cero) confirmó que el problema NO es de DMA/HDMA, sino de interrupciones/timing que bloquean la carga de tiles.
+                        </p>
+                    </li>
                     <!-- Entrada 0409 - RTC MBC3 + Wait-Loop Diagnóstico + Header Verification -->
                     <li>
                         <div class="entry-header">

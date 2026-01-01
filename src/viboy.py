@@ -1695,6 +1695,14 @@ class Viboy:
             logger.error(f"Error inesperado: {e}", exc_info=True)
             raise
         finally:
+            # --- Step 0410: Resumen de DMA/VRAM al finalizar ---
+            if self._use_cpp and self._mmu is not None:
+                try:
+                    self._mmu.log_dma_vram_summary()
+                except Exception as e:
+                    logger.warning(f"[Step 0410] Error al generar resumen DMA/VRAM: {e}")
+            # -------------------------------------------
+            
             # Cerrar renderer si está activo
             if self._renderer is not None:
                 self._renderer.quit()

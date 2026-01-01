@@ -233,6 +233,12 @@ public:
     void log_init_sequence_summary();
     
     /**
+     * Step 0410: Genera resumen completo de actividad DMA/HDMA y escrituras VRAM.
+     * Incluye contadores de OAM DMA, HDMA, y escrituras CPU a TileData.
+     */
+    void log_dma_vram_summary();
+    
+    /**
      * Step 0401: Boot ROM opcional (provista por el usuario)
      * 
      * Permite cargar una Boot ROM real (DMG o CGB) que se mapea en el rango
@@ -413,6 +419,14 @@ private:
     mutable int vram_tiledata_nonzero_writes_;  // 0x8000-0x97FF (tile patterns)
     mutable int vram_tilemap_nonzero_writes_;   // 0x9800-0x9FFF (tile maps)
     mutable int vram_region_summary_count_;     // Contador para resúmenes periódicos
+    
+    // --- Step 0410: Contadores de DMA/HDMA ---
+    mutable int oam_dma_count_;                 // Contador de OAM DMA (0xFF46)
+    mutable int hdma_start_count_;              // Contador de HDMA starts (0xFF55)
+    mutable int hdma_bytes_transferred_;        // Total de bytes transferidos por HDMA
+    mutable int vram_tiledata_cpu_writes_;      // Escrituras CPU a 0x8000-0x97FF
+    mutable int vram_tiledata_cpu_nonzero_;     // Escrituras CPU no-cero a TileData
+    mutable int vram_tiledata_cpu_log_count_;   // Contador de logs de TileData (primeras N)
     
     // --- Step 0385: Flags de trazado de wait-loop y VBlank ISR ---
     mutable bool waitloop_trace_active_;

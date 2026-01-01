@@ -399,6 +399,25 @@ cdef class PyMMU:
         self._mmu.initialize_io_registers()
     # --- Fin Step 0404 ---
     
+    # --- Step 0410: Resumen de DMA/VRAM ---
+    def log_dma_vram_summary(self):
+        """
+        Genera resumen completo de actividad DMA/HDMA y escrituras VRAM.
+        
+        Muestra contadores de:
+        - OAM DMA (0xFF46)
+        - HDMA (0xFF51-0xFF55)
+        - Escrituras CPU a TileData (0x8000-0x97FF)
+        
+        Raises:
+            MemoryError: Si la instancia de MMU en C++ no existe
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        self._mmu.log_dma_vram_summary()
+    # --- Fin Step 0410 ---
+    
     # Método para obtener el puntero C++ directamente (forma segura)
     cdef mmu.MMU* get_cpp_ptr(self):
         """

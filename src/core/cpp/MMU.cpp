@@ -79,6 +79,12 @@ MMU::MMU()
     , vram_tiledata_nonzero_writes_(0)  // Step 0391
     , vram_tilemap_nonzero_writes_(0)   // Step 0391
     , vram_region_summary_count_(0)     // Step 0391
+    , oam_dma_count_(0)                 // Step 0410
+    , hdma_start_count_(0)              // Step 0410
+    , hdma_bytes_transferred_(0)        // Step 0410
+    , vram_tiledata_cpu_writes_(0)      // Step 0410
+    , vram_tiledata_cpu_nonzero_(0)     // Step 0410
+    , vram_tiledata_cpu_log_count_(0)   // Step 0410
     , waitloop_trace_active_(false)
     , vblank_isr_trace_active_(false)
     , waitloop_mmio_count_(0)
@@ -791,14 +797,30 @@ void MMU::write(uint16_t addr, uint8_t value) {
 
     // --- Step 0251: IMPLEMENTACIÓN DMA (OAM TRANSFER) ---
     if (addr == 0xFF46) {
-        // --- Step 0286: Monitor de Disparo de OAM DMA ([DMA-TRIGGER]) ---
+        // --- Step 0410: Instrumentación mejorada de OAM DMA ---
         // Detecta cuando se activa el DMA para transferir datos a OAM (0xFE00-0xFE9F)
         // El DMA copia 160 bytes desde la dirección (value << 8) a OAM
         // Fuente: Pan Docs - "DMA Transfer": Escritura en 0xFF46 inicia transferencia
-        printf("[DMA-TRIGGER] DMA activado: Source=0x%02X00 (0x%04X-0x%04X) -> OAM (0xFE00-0xFE9F) | PC:0x%04X\n",
-               value, static_cast<uint16_t>(value) << 8, (static_cast<uint16_t>(value) << 8) + 159, debug_current_pc);
+        oam_dma_count_++;
         
         uint16_t source_base = static_cast<uint16_t>(value) << 8;
+        uint16_t source_end = source_base + 159;
+        
+        // Determinar región de origen
+        const char* source_region = "Unknown";
+        if (source_base >= 0x0000 && source_base < 0x4000) source_region = "ROM Bank 0";
+        else if (source_base >= 0x4000 && source_base < 0x8000) source_region = "ROM Bank N";
+        else if (source_base >= 0x8000 && source_base < 0xA000) source_region = "VRAM";
+        else if (source_base >= 0xA000 && source_base < 0xC000) source_region = "ExtRAM";
+        else if (source_base >= 0xC000 && source_base < 0xE000) source_region = "WRAM";
+        
+        if (oam_dma_count_ <= 50) {
+            printf("[DMA] #%d | PC:0x%04X Bank:%d | Src:0x%04X-0x%04X (%s) -> OAM(0xFE00-0xFE9F)\n",
+                   oam_dma_count_, debug_current_pc, current_rom_bank_, 
+                   source_base, source_end, source_region);
+        }
+        
+        // Ejecutar transferencia
         for (int i = 0; i < 160; i++) {
             uint16_t source_addr = source_base + i;
             uint8_t data = read(source_addr);
@@ -806,6 +828,7 @@ void MMU::write(uint16_t addr, uint8_t value) {
                 memory_[0xFE00 + i] = data;
             }
         }
+        
         // Escribir también el valor en el registro DMA
         memory_[addr] = value;
         return;
@@ -2062,7 +2085,7 @@ void MMU::write(uint16_t addr, uint8_t value) {
     }
     // -------------------------------------------
     
-    // --- Step 0390: Escritura de Registros HDMA (0xFF51-0xFF55) ---
+    // --- Step 0410: Instrumentación mejorada de HDMA (0xFF51-0xFF55) ---
     // Fuente: Pan Docs - CGB Registers, HDMA
     if (addr >= 0xFF51 && addr <= 0xFF54) {
         // HDMA1-4: Configurar source y destination
@@ -2080,43 +2103,65 @@ void MMU::write(uint16_t addr, uint8_t value) {
         
         bool is_hblank_dma = (value & 0x80) != 0;
         
-        static int hdma_start_count = 0;
-        if (hdma_start_count < 20) {
-            printf("[HDMA-START] PC:0x%04X | Source:0x%04X Dest:0x%04X Len:%d Mode:%s\n",
-                   debug_current_pc, source, dest, length,
-                   is_hblank_dma ? "HBlank" : "General");
-            hdma_start_count++;
+        hdma_start_count_++;
+        
+        // Determinar destino en VRAM
+        const char* dest_region = "Unknown";
+        if (dest >= 0x8000 && dest < 0x9800) dest_region = "TileData";
+        else if (dest >= 0x9800 && dest < 0xA000) dest_region = "TileMap";
+        
+        // Determinar origen
+        const char* source_region = "Unknown";
+        if (source >= 0x0000 && source < 0x4000) source_region = "ROM0";
+        else if (source >= 0x4000 && source < 0x8000) source_region = "ROMN";
+        else if (source >= 0xA000 && source < 0xC000) source_region = "ExtRAM";
+        else if (source >= 0xC000 && source < 0xE000) source_region = "WRAM";
+        
+        if (hdma_start_count_ <= 50) {
+            printf("[HDMA] #%d | PC:0x%04X Bank:%d | Mode:%s | Src:0x%04X(%s) -> Dst:0x%04X(%s) | Len:%d bytes\n",
+                   hdma_start_count_, debug_current_pc, current_rom_bank_,
+                   is_hblank_dma ? "HBlank" : "General",
+                   source, source_region, dest, dest_region, length);
         }
         
         // Step 0390: Implementación mínima - ejecutar como General DMA inmediato
         // TODO: Implementar HBlank DMA real en step futuro
-        if (is_hblank_dma && hdma_start_count < 20) {
+        if (is_hblank_dma && hdma_start_count_ <= 10) {
             printf("[HDMA-MODE] HBlank DMA solicitado, ejecutando como General DMA (compatibilidad)\n");
         }
         
         // Copiar datos inmediatamente
-        static int hdma_copy_log = 0;
+        int bytes_copied = 0;
+        int nonzero_bytes = 0;
         for (uint16_t i = 0; i < length; i++) {
             uint8_t byte = read(source + i);
+            if (byte != 0) nonzero_bytes++;
+            
             // Escribir a VRAM usando el sistema de banking
             uint16_t vram_addr = dest + i;
             if (vram_addr >= 0x8000 && vram_addr <= 0x9FFF) {
                 uint16_t offset = vram_addr - 0x8000;
-                // HDMA siempre escribe a VRAM bank 0 según Pan Docs (CGB mode)
-                vram_bank0_[offset] = byte;
+                // HDMA siempre escribe a VRAM bank seleccionado
+                if (vram_bank_ == 0) {
+                    vram_bank0_[offset] = byte;
+                } else {
+                    vram_bank1_[offset] = byte;
+                }
+                bytes_copied++;
                 
-                // Loggear primeras 5 copias
-                if (hdma_copy_log < 5) {
-                    printf("[HDMA-COPY] [%d/%d] 0x%04X -> 0x%04X = 0x%02X\n",
-                           i+1, length, source+i, vram_addr, byte);
-                    hdma_copy_log++;
+                // Loggear primeras 10 copias de las primeras 3 transferencias
+                if (hdma_start_count_ <= 3 && i < 10) {
+                    printf("[HDMA-COPY] [%d/%d] 0x%04X -> VRAM[%d]:0x%04X = 0x%02X\n",
+                           i+1, length, source+i, vram_bank_, vram_addr, byte);
                 }
             }
         }
         
-        if (hdma_start_count < 20) {
-            printf("[HDMA-DONE] Transferidos %d bytes (Source:0x%04X->0x%04X Dest:0x%04X->0x%04X)\n",
-                   length, source, source+length-1, dest, dest+length-1);
+        hdma_bytes_transferred_ += bytes_copied;
+        
+        if (hdma_start_count_ <= 50) {
+            printf("[HDMA-DONE] Transferidos %d bytes (nonzero:%d) | Total acumulado: %d bytes\n",
+                   bytes_copied, nonzero_bytes, hdma_bytes_transferred_);
         }
         
         hdma5_ = 0xFF;  // Marcar como completo
@@ -2207,6 +2252,31 @@ void MMU::write(uint16_t addr, uint8_t value) {
     // Redirigir escrituras a VRAM (0x8000-0x9FFF) al banco seleccionado
     // Fuente: Pan Docs - CGB Registers, VRAM Banks
     if (addr >= 0x8000 && addr <= 0x9FFF) {
+        // --- Step 0410: Instrumentación de escrituras CPU a TileData ---
+        // Contar escrituras por CPU (no por DMA/HDMA) al área de TileData
+        if (addr >= 0x8000 && addr <= 0x97FF) {
+            vram_tiledata_cpu_writes_++;
+            if (value != 0x00) {
+                vram_tiledata_cpu_nonzero_++;
+            }
+            
+            // Loggear primeras 50 escrituras con detalles completos
+            if (vram_tiledata_cpu_log_count_ < 50) {
+                printf("[TILEDATA-CPU] Write #%d | PC:0x%04X Bank:%d VRAMBank:%d | Addr:0x%04X <- 0x%02X\n",
+                       vram_tiledata_cpu_writes_, debug_current_pc, current_rom_bank_,
+                       vram_bank_, addr, value);
+                vram_tiledata_cpu_log_count_++;
+            }
+            
+            // Resumen periódico cada 1000 escrituras
+            if (vram_tiledata_cpu_writes_ % 1000 == 0 && vram_tiledata_cpu_writes_ > 0) {
+                printf("[TILEDATA-CPU-SUMMARY] Total:%d Nonzero:%d (%.1f%%)\n",
+                       vram_tiledata_cpu_writes_, vram_tiledata_cpu_nonzero_,
+                       (vram_tiledata_cpu_nonzero_ * 100.0) / vram_tiledata_cpu_writes_);
+            }
+        }
+        // -----------------------------------------
+        
         uint16_t offset = addr - 0x8000;
         if (vram_bank_ == 0) {
             vram_bank0_[offset] = value;
@@ -3035,6 +3105,52 @@ void MMU::log_init_sequence_summary() {
     printf("[INIT-SEQUENCE] ========================================\n");
 }
 // --- Fin Step 0400 ---
+
+// --- Step 0410: Resumen de Actividad DMA/HDMA y VRAM ---
+void MMU::log_dma_vram_summary() {
+    printf("\n");
+    printf("========================================\n");
+    printf("[DMA/VRAM SUMMARY] Step 0410 - Diagnóstico DMA/HDMA\n");
+    printf("========================================\n");
+    
+    // OAM DMA
+    printf("[DMA/VRAM] OAM DMA (0xFF46):\n");
+    printf("[DMA/VRAM]   Total de transferencias: %d\n", oam_dma_count_);
+    printf("[DMA/VRAM]   Bytes transferidos: %d (160 bytes × %d)\n", oam_dma_count_ * 160, oam_dma_count_);
+    
+    // HDMA
+    printf("[DMA/VRAM] CGB HDMA (0xFF51-0xFF55):\n");
+    printf("[DMA/VRAM]   Total de starts: %d\n", hdma_start_count_);
+    printf("[DMA/VRAM]   Bytes transferidos: %d\n", hdma_bytes_transferred_);
+    
+    // Escrituras CPU a TileData
+    printf("[DMA/VRAM] Escrituras CPU a TileData (0x8000-0x97FF):\n");
+    printf("[DMA/VRAM]   Total escrituras: %d\n", vram_tiledata_cpu_writes_);
+    printf("[DMA/VRAM]   Escrituras no-cero: %d\n", vram_tiledata_cpu_nonzero_);
+    if (vram_tiledata_cpu_writes_ > 0) {
+        printf("[DMA/VRAM]   Porcentaje no-cero: %.2f%%\n",
+               (vram_tiledata_cpu_nonzero_ * 100.0) / vram_tiledata_cpu_writes_);
+    }
+    
+    // Análisis
+    printf("[DMA/VRAM] Análisis:\n");
+    if (oam_dma_count_ == 0 && hdma_start_count_ == 0 && vram_tiledata_cpu_writes_ == 0) {
+        printf("[DMA/VRAM]   ⚠️  NO HAY ACTIVIDAD DE CARGA DE GRÁFICOS\n");
+        printf("[DMA/VRAM]   El juego no ha intentado cargar tiles por ningún método.\n");
+    } else if (hdma_start_count_ > 0 && hdma_bytes_transferred_ == 0) {
+        printf("[DMA/VRAM]   ⚠️  HDMA START SIN TRANSFERENCIA\n");
+        printf("[DMA/VRAM]   Se intentó HDMA pero no se transfirieron bytes.\n");
+    } else if (vram_tiledata_cpu_writes_ > 0 && vram_tiledata_cpu_nonzero_ == 0) {
+        printf("[DMA/VRAM]   ⚠️  ESCRITURAS CPU PERO TODOS CEROS\n");
+        printf("[DMA/VRAM]   Se escribió a TileData pero todos los valores son 0x00.\n");
+    } else if (hdma_bytes_transferred_ > 0 || vram_tiledata_cpu_nonzero_ > 0) {
+        printf("[DMA/VRAM]   ✓ HAY ACTIVIDAD DE CARGA DE GRÁFICOS\n");
+        printf("[DMA/VRAM]   El juego ha cargado datos no-cero en VRAM.\n");
+    }
+    
+    printf("========================================\n\n");
+}
+// --- Fin Step 0410 ---
 
 // --- Step 0401: Boot ROM opcional ---
 void MMU::set_boot_rom(const uint8_t* data, size_t size) {

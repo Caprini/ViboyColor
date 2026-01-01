@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0410 - Diagnóstico DMA/HDMA y Causa de TileData=0 - Viboy Color</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <h1>Step 0410 - Diagnóstico DMA/HDMA y Causa de TileData=0</h1>
+            <p class="entry-date">
+                <strong>Fecha:</strong> 2026-01-01 |
+                <strong>Step ID:</strong> 0410 |
+                <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+            </p>
+        </header>
+
+        <!-- Navegación -->
+        <nav>
+            <a href="../index.html" class="btn-nav">← Volver al Índice</a>
+        </nav>
+
+        <!-- Contenido Principal -->
+        <main>
+            <!-- Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de instrumentación completa de DMA/HDMA y escrituras CPU a TileData para diagnosticar
+                    por qué <code>pkmn.gb</code> y <code>Oro.gbc</code> tienen 0% de TileData efectivo. El diagnóstico
+                    reveló el problema raíz: <strong>los juegos Pokémon limpian VRAM escribiendo 6,144 bytes de ceros (100% del TileData),
+                    pero quedan bloqueados en un wait-loop antes de poder cargar los tiles reales</strong>. El wait-loop
+                    espera interrupciones (IF=0x00 mientras IE=0x0D) que nunca llegan o se procesan incorrectamente.
+                </p>
+                <p>
+                    La comparación con Tetris DX (funcional) confirmó el patrón: Tetris escribe 30,720 bytes a TileData
+                    con 35.81% no-cero, mientras que Pokémon solo escribe ceros. No hay uso de HDMA en ninguno de los
+                    juegos analizados. El problema NO es de DMA/HDMA, sino de interrupciones/timing que bloquean la carga de tiles.
+                </p>
+            </section>
+
+            <!-- Concepto de Hardware -->
+            <section id="concepto">
+                <h2>Concepto de Hardware</h2>
+                <h3>DMA (Direct Memory Access) en Game Boy</h3>
+                <p>
+                    <strong>OAM DMA (0xFF46)</strong>: Transferencia rápida de 160 bytes desde ROM/RAM a OAM (Object Attribute Memory,
+                    0xFE00-0xFE9F). Se activa escribiendo el byte alto de la dirección fuente en 0xFF46. Durante la transferencia,
+                    la CPU solo puede acceder a HRAM (0xFF80-0xFFFE). Duración: 160 × 4 ciclos = 640 T-Cycles.
+                </p>
+                <p>
+                    <strong>CGB HDMA (0xFF51-0xFF55)</strong>: DMA mejorado del Game Boy Color que permite transferencias
+                    más largas a VRAM (0x8000-0x9FFF). Dos modos:
+                </p>
+                <ul>
+                    <li><strong>General DMA</strong>: Transferencia inmediata y bloqueante.</li>
+                    <li><strong>HBlank DMA</strong>: Transferencia incremental de 16 bytes por HBlank, no bloqueante.</li>
+                </ul>
+                <p>
+                    <strong>Registros HDMA</strong>:
+                </p>
+                <ul>
+                    <li><strong>FF51 (HDMA1)</strong>: Source High (bits 12-15 de dirección fuente)</li>
+                    <li><strong>FF52 (HDMA2)</strong>: Source Low (bits 4-11, bits 0-3 forzados a 0)</li>
+                    <li><strong>FF53 (HDMA3)</strong>: Destination High (bits 12-15, rango 0x8000-0x9FF0)</li>
+                    <li><strong>FF54 (HDMA4)</strong>: Destination Low (bits 4-11, bits 0-3 forzados a 0)</li>
+                    <li><strong>FF55 (HDMA5)</strong>: Length/Mode/Start (bits 0-6: longitud en bloques de 16 bytes - 1, bit 7: 0=General, 1=HBlank)</li>
+                </ul>
+                <p>
+                    <strong>Fuentes</strong>: Pan Docs - "OAM DMA Transfer" (FF46), "CGB Registers" (FF51-FF55), "VRAM DMA Transfers"
+                </p>
+            </section>
+
+            <!-- Archivos Afectados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Añadidos contadores de DMA/HDMA y TileData CPU (6 nuevos miembros)</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Instrumentación completa de OAM DMA, HDMA, escrituras CPU a TileData, y resumen final</li>
+                    <li><code>src/core/cython/mmu.pxd</code> - Declaración de <code>log_dma_vram_summary()</code></li>
+                    <li><code>src/core/cython/mmu.pyx</code> - Wrapper Python para el método de resumen</li>
+                    <li><code>src/viboy.py</code> - Llamada al resumen DMA/VRAM en bloque <code>finally</code></li>
+                    <li><code>logs/step0410_*.log</code> - Logs de diagnóstico de pkmn.gb, Oro.gbc, y tetris_dx.gbc</li>
+                </ul>
+            </section>
+
+            <!-- Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>1. Contadores de Diagnóstico (MMU.hpp)</h3>
+                <pre><code>// --- Step 0410: Contadores de DMA/HDMA ---
+mutable int oam_dma_count_;                 // Contador de OAM DMA (0xFF46)
+mutable int hdma_start_count_;              // Contador de HDMA starts (0xFF55)
+mutable int hdma_bytes_transferred_;        // Total de bytes transferidos por HDMA
+mutable int vram_tiledata_cpu_writes_;      // Escrituras CPU a 0x8000-0x97FF
+mutable int vram_tiledata_cpu_nonzero_;     // Escrituras CPU no-cero a TileData
+mutable int vram_tiledata_cpu_log_count_;   // Contador de logs de TileData (primeras N)</code></pre>
+
+                <h3>2. Instrumentación de OAM DMA (MMU.cpp)</h3>
+                <pre><code>if (addr == 0xFF46) {
+    oam_dma_count_++;
+    
+    uint16_t source_base = static_cast&lt;uint16_t&gt;(value) << 8;
+    uint16_t source_end = source_base + 159;
+    
+    // Determinar región de origen
+    const char* source_region = "Unknown";
+    if (source_base >= 0x0000 && source_base < 0x4000) source_region = "ROM Bank 0";
+    else if (source_base >= 0x4000 && source_base < 0x8000) source_region = "ROM Bank N";
+    else if (source_base >= 0x8000 && source_base < 0xA000) source_region = "VRAM";
+    else if (source_base >= 0xA000 && source_base < 0xC000) source_region = "ExtRAM";
+    else if (source_base >= 0xC000 && source_base < 0xE000) source_region = "WRAM";
+    
+    if (oam_dma_count_ <= 50) {
+        printf("[DMA] #%d | PC:0x%04X Bank:%d | Src:0x%04X-0x%04X (%s) -> OAM(0xFE00-0xFE9F)\n",
+               oam_dma_count_, debug_current_pc, current_rom_bank_, 
+               source_base, source_end, source_region);
+    }
+    
+    // Ejecutar transferencia (160 bytes)
+    for (int i = 0; i < 160; i++) {
+        uint16_t source_addr = source_base + i;
+        uint8_t data = read(source_addr);
+        if ((0xFE00 + i) < MEMORY_SIZE) {
+            memory_[0xFE00 + i] = data;
+        }
+    }
+    
+    memory_[addr] = value;
+    return;
+}</code></pre>
+
+                <h3>3. Instrumentación de HDMA (MMU.cpp)</h3>
+                <pre><code>if (addr == 0xFF55) {
+    uint16_t source = ((hdma1_ << 8) | (hdma2_ & 0xF0));
+    uint16_t dest = 0x8000 | (((hdma3_ & 0x1F) << 8) | (hdma4_ & 0xF0));
+    uint16_t length = ((value & 0x7F) + 1) * 0x10;
+    
+    bool is_hblank_dma = (value & 0x80) != 0;
+    
+    hdma_start_count_++;
+    
+    // Determinar destino y origen
+    const char* dest_region = (dest >= 0x8000 && dest < 0x9800) ? "TileData" : "TileMap";
+    const char* source_region = /* ... detectar región ... */;
+    
+    if (hdma_start_count_ <= 50) {
+        printf("[HDMA] #%d | PC:0x%04X Bank:%d | Mode:%s | Src:0x%04X(%s) -> Dst:0x%04X(%s) | Len:%d bytes\n",
+               hdma_start_count_, debug_current_pc, current_rom_bank_,
+               is_hblank_dma ? "HBlank" : "General",
+               source, source_region, dest, dest_region, length);
+    }
+    
+    // Copiar datos y contar bytes no-cero
+    int bytes_copied = 0;
+    int nonzero_bytes = 0;
+    for (uint16_t i = 0; i < length; i++) {
+        uint8_t byte = read(source + i);
+        if (byte != 0) nonzero_bytes++;
+        
+        // Escribir a VRAM bank seleccionado
+        uint16_t vram_addr = dest + i;
+        if (vram_addr >= 0x8000 && vram_addr <= 0x9FFF) {
+            uint16_t offset = vram_addr - 0x8000;
+            if (vram_bank_ == 0) {
+                vram_bank0_[offset] = byte;
+            } else {
+                vram_bank1_[offset] = byte;
+            }
+            bytes_copied++;
+        }
+    }
+    
+    hdma_bytes_transferred_ += bytes_copied;
+    
+    if (hdma_start_count_ <= 50) {
+        printf("[HDMA-DONE] Transferidos %d bytes (nonzero:%d) | Total acumulado: %d bytes\n",
+               bytes_copied, nonzero_bytes, hdma_bytes_transferred_);
+    }
+    
+    hdma5_ = 0xFF;
+    hdma_active_ = false;
+    hdma_length_remaining_ = 0;
+    return;
+}</code></pre>
+
+                <h3>4. Instrumentación de Escrituras CPU a TileData (MMU.cpp)</h3>
+                <pre><code>if (addr >= 0x8000 && addr <= 0x9FFF) {
+    // Contar escrituras por CPU al área de TileData
+    if (addr >= 0x8000 && addr <= 0x97FF) {
+        vram_tiledata_cpu_writes_++;
+        if (value != 0x00) {
+            vram_tiledata_cpu_nonzero_++;
+        }
+        
+        // Loggear primeras 50 escrituras
+        if (vram_tiledata_cpu_log_count_ < 50) {
+            printf("[TILEDATA-CPU] Write #%d | PC:0x%04X Bank:%d VRAMBank:%d | Addr:0x%04X <- 0x%02X\n",
+                   vram_tiledata_cpu_writes_, debug_current_pc, current_rom_bank_,
+                   vram_bank_, addr, value);
+            vram_tiledata_cpu_log_count_++;
+        }
+        
+        // Resumen periódico cada 1000 escrituras
+        if (vram_tiledata_cpu_writes_ % 1000 == 0 && vram_tiledata_cpu_writes_ > 0) {
+            printf("[TILEDATA-CPU-SUMMARY] Total:%d Nonzero:%d (%.1f%%)\n",
+                   vram_tiledata_cpu_writes_, vram_tiledata_cpu_nonzero_,
+                   (vram_tiledata_cpu_nonzero_ * 100.0) / vram_tiledata_cpu_writes_);
+        }
+    }
+    
+    // Escribir a banco VRAM seleccionado
+    uint16_t offset = addr - 0x8000;
+    if (vram_bank_ == 0) {
+        vram_bank0_[offset] = value;
+    } else {
+        vram_bank1_[offset] = value;
+    }
+    return;
+}</code></pre>
+
+                <h3>5. Resumen Final (MMU.cpp)</h3>
+                <pre><code>void MMU::log_dma_vram_summary() {
+    printf("\n");
+    printf("========================================\n");
+    printf("[DMA/VRAM SUMMARY] Step 0410 - Diagnóstico DMA/HDMA\n");
+    printf("========================================\n");
+    
+    // OAM DMA
+    printf("[DMA/VRAM] OAM DMA (0xFF46):\n");
+    printf("[DMA/VRAM]   Total de transferencias: %d\n", oam_dma_count_);
+    printf("[DMA/VRAM]   Bytes transferidos: %d (160 bytes × %d)\n", oam_dma_count_ * 160, oam_dma_count_);
+    
+    // HDMA
+    printf("[DMA/VRAM] CGB HDMA (0xFF51-0xFF55):\n");
+    printf("[DMA/VRAM]   Total de starts: %d\n", hdma_start_count_);
+    printf("[DMA/VRAM]   Bytes transferidos: %d\n", hdma_bytes_transferred_);
+    
+    // Escrituras CPU a TileData
+    printf("[DMA/VRAM] Escrituras CPU a TileData (0x8000-0x97FF):\n");
+    printf("[DMA/VRAM]   Total escrituras: %d\n", vram_tiledata_cpu_writes_);
+    printf("[DMA/VRAM]   Escrituras no-cero: %d\n", vram_tiledata_cpu_nonzero_);
+    if (vram_tiledata_cpu_writes_ > 0) {
+        printf("[DMA/VRAM]   Porcentaje no-cero: %.2f%%\n",
+               (vram_tiledata_cpu_nonzero_ * 100.0) / vram_tiledata_cpu_writes_);
+    }
+    
+    // Análisis automático
+    printf("[DMA/VRAM] Análisis:\n");
+    if (oam_dma_count_ == 0 && hdma_start_count_ == 0 && vram_tiledata_cpu_writes_ == 0) {
+        printf("[DMA/VRAM]   ⚠️  NO HAY ACTIVIDAD DE CARGA DE GRÁFICOS\n");
+    } else if (hdma_start_count_ > 0 && hdma_bytes_transferred_ == 0) {
+        printf("[DMA/VRAM]   ⚠️  HDMA START SIN TRANSFERENCIA\n");
+    } else if (vram_tiledata_cpu_writes_ > 0 && vram_tiledata_cpu_nonzero_ == 0) {
+        printf("[DMA/VRAM]   ⚠️  ESCRITURAS CPU PERO TODOS CEROS\n");
+    } else if (hdma_bytes_transferred_ > 0 || vram_tiledata_cpu_nonzero_ > 0) {
+        printf("[DMA/VRAM]   ✓ HAY ACTIVIDAD DE CARGA DE GRÁFICOS\n");
+    }
+    
+    printf("========================================\n\n");
+}</code></pre>
+            </section>
+
+            <!-- Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                
+                <h3>Comandos de Ejecución</h3>
+                <pre><code>python3 setup.py build_ext --inplace
+
+timeout 45s python3 main.py roms/pkmn.gb > logs/step0410_pkmn_dma_vram.log 2>&1
+
+timeout 45s python3 main.py roms/Oro.gbc > logs/step0410_oro_dma_vram.log 2>&1
+
+timeout 30s python3 main.py roms/tetris_dx.gbc > logs/step0410_tetris_dx_dma_vram.log 2>&1</code></pre>
+
+                <h3>Resultados - pkmn.gb (Pokémon Rojo)</h3>
+                <pre><code>[DMA/VRAM SUMMARY] Step 0410 - Diagnóstico DMA/HDMA
+========================================
+[DMA/VRAM] OAM DMA (0xFF46):
+[DMA/VRAM]   Total de transferencias: 609
+[DMA/VRAM]   Bytes transferidos: 97440 (160 bytes × 609)
+[DMA/VRAM] CGB HDMA (0xFF51-0xFF55):
+[DMA/VRAM]   Total de starts: 0
+[DMA/VRAM]   Bytes transferidos: 0
+[DMA/VRAM] Escrituras CPU a TileData (0x8000-0x97FF):
+[DMA/VRAM]   Total escrituras: 6144
+[DMA/VRAM]   Escrituras no-cero: 0
+[DMA/VRAM]   Porcentaje no-cero: 0.00%
+[DMA/VRAM] Análisis:
+[DMA/VRAM]   ⚠️  ESCRITURAS CPU PERO TODOS CEROS
+[DMA/VRAM]   Se escribió a TileData pero todos los valores son 0x00.
+========================================</code></pre>
+
+                <h3>Resultados - Oro.gbc (Pokémon Oro)</h3>
+                <pre><code>[DMA/VRAM SUMMARY] Step 0410 - Diagnóstico DMA/HDMA
+========================================
+[DMA/VRAM] OAM DMA (0xFF46):
+[DMA/VRAM]   Total de transferencias: 2
+[DMA/VRAM]   Bytes transferidos: 320 (160 bytes × 2)
+[DMA/VRAM] CGB HDMA (0xFF51-0xFF55):
+[DMA/VRAM]   Total de starts: 0
+[DMA/VRAM]   Bytes transferidos: 0
+[DMA/VRAM] Escrituras CPU a TileData (0x8000-0x97FF):
+[DMA/VRAM]   Total escrituras: 6144
+[DMA/VRAM]   Escrituras no-cero: 0
+[DMA/VRAM]   Porcentaje no-cero: 0.00%
+[DMA/VRAM] Análisis:
+[DMA/VRAM]   ⚠️  ESCRITURAS CPU PERO TODOS CEROS
+[DMA/VRAM]   Se escribió a TileData pero todos los valores son 0x00.
+========================================</code></pre>
+
+                <h3>Resultados - tetris_dx.gbc (Baseline Funcional)</h3>
+                <pre><code>[DMA/VRAM SUMMARY] Step 0410 - Diagnóstico DMA/HDMA
+========================================
+[DMA/VRAM] OAM DMA (0xFF46):
+[DMA/VRAM]   Total de transferencias: 0
+[DMA/VRAM]   Bytes transferidos: 0 (160 bytes × 0)
+[DMA/VRAM] CGB HDMA (0xFF51-0xFF55):
+[DMA/VRAM]   Total de starts: 0
+[DMA/VRAM]   Bytes transferidos: 0
+[DMA/VRAM] Escrituras CPU a TileData (0x8000-0x97FF):
+[DMA/VRAM]   Total escrituras: 30720
+[DMA/VRAM]   Escrituras no-cero: 11000
+[DMA/VRAM]   Porcentaje no-cero: 35.81%
+[DMA/VRAM] Análisis:
+[DMA/VRAM]   ✓ HAY ACTIVIDAD DE CARGA DE GRÁFICOS
+[DMA/VRAM]   El juego ha cargado datos no-cero en VRAM.
+========================================</code></pre>
+
+                <h3>Wait-Loop Detectado (pkmn.gb)</h3>
+                <pre><code>[WAIT-LOOP] ===== BUCLE DE ESPERA DETECTADO EN BANK 28, PC 0x614D =====
+[WAIT-LOOP] Iter:0 PC:0x614D | IME:1 IE:0x0D IF:0x00
+[WAIT-MMIO-READ] PC:0x614D -> IE(0xFFFF) = 0x0D (VBlank+LCD+Joypad habilitadas)
+[WAIT-MMIO-READ] PC:0x614D -> IF(0xFF0F) = 0x00 (ninguna interrupción pendiente)
+[WAIT-MMIO-READ] PC:0x614D -> LCDC(0xFF40) = 0xE3 (LCD ON)
+[WAIT-MMIO-READ] PC:0x614D -> LY(0xFF44) = 0x20 (línea 32)
+
+// El juego está bloqueado esperando una interrupción que nunca llega</code></pre>
+
+                <h3>Análisis Comparativo</h3>
+                <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
+                    <thead>
+                        <tr style="background-color: var(--color-primary); color: white;">
+                            <th style="padding: 0.5rem; border: 1px solid var(--color-border);">Juego</th>
+                            <th style="padding: 0.5rem; border: 1px solid var(--color-border);">OAM DMA</th>
+                            <th style="padding: 0.5rem; border: 1px solid var(--color-border);">HDMA</th>
+                            <th style="padding: 0.5rem; border: 1px solid var(--color-border);">Escrituras TileData</th>
+                            <th style="padding: 0.5rem; border: 1px solid var(--color-border);">% No-Cero</th>
+                            <th style="padding: 0.5rem; border: 1px solid var(--color-border);">Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border);"><strong>pkmn.gb</strong></td>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border);">609</td>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border);">0</td>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border);">6,144</td>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border); color: red;"><strong>0.00%</strong></td>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border);">❌ Solo ceros</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border);"><strong>Oro.gbc</strong></td>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border);">2</td>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border);">0</td>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border);">6,144</td>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border); color: red;"><strong>0.00%</strong></td>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border);">❌ Solo ceros</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border);"><strong>tetris_dx.gbc</strong></td>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border);">0</td>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border);">0</td>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border);">30,720</td>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border); color: green;"><strong>35.81%</strong></td>
+                            <td style="padding: 0.5rem; border: 1px solid var(--color-border);">✅ Funcional</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3>Conclusión del Diagnóstico</h3>
+                <p><strong>✅ PROBLEMA RAÍZ IDENTIFICADO</strong>:</p>
+                <ul>
+                    <li>Los juegos Pokémon <strong>limpian VRAM correctamente</strong> (6,144 bytes = 384 tiles × 16 bytes)</li>
+                    <li>Después de limpiar, quedan <strong>bloqueados en un wait-loop</strong> esperando interrupciones (IF=0x00, IE=0x0D)</li>
+                    <li><strong>Las interrupciones no llegan o se procesan incorrectamente</strong>, impidiendo que el juego progrese</li>
+                    <li>Sin progreso, <strong>nunca se cargan los tiles reales</strong> (todos los valores quedan en 0x00)</li>
+                    <li>El problema NO es de DMA/HDMA (ningún juego usa HDMA en esta fase)</li>
+                </ul>
+            </section>
+
+            <!-- Conclusión -->
+            <section id="conclusion">
+                <h2>Conclusión</h2>
+                <p>
+                    El Step 0410 ha sido un <strong>éxito diagnóstico total</strong>. La instrumentación completa de DMA/HDMA y escrituras CPU
+                    a TileData reveló el problema raíz de por qué los juegos Pokémon no cargan gráficos:
+                </p>
+                <ol>
+                    <li><strong>Los juegos limpian VRAM correctamente</strong>: 6,144 bytes de ceros (100% del TileData)</li>
+                    <li><strong>Después de limpiar, quedan bloqueados en un wait-loop</strong> en Bank 28, PC 0x614D</li>
+                    <li><strong>El wait-loop espera interrupciones que nunca llegan</strong>: IF=0x00 mientras IE=0x0D (VBlank+LCD+Joypad habilitadas)</li>
+                    <li><strong>Sin salir del wait-loop, nunca cargan los tiles reales</strong> (por eso TileData queda en 0%)</li>
+                </ol>
+                <p>
+                    El problema NO es de DMA/HDMA (ningún juego usa HDMA en esta fase inicial), sino de <strong>emulación incorrecta
+                    de interrupciones o timing</strong>. El siguiente paso (Step 0411) debe investigar:
+                </p>
+                <ul>
+                    <li>¿Por qué las interrupciones VBlank/LCD STAT no se disparan o no se entregan?</li>
+                    <li>¿Se está limpiando IF prematuramente?</li>
+                    <li>¿El timing de interrupciones es incorrecto?</li>
+                    <li>¿El ISR VBlank se ejecuta pero retorna inmediatamente sin permitir progreso?</li>
+                </ul>
+            </section>
+
+            <!-- Siguiente Paso -->
+            <section id="siguiente">
+                <h2>Siguiente Paso</h2>
+                <p>
+                    <strong>Step 0411</strong>: Investigar el mecanismo de interrupciones (VBlank, LCD STAT) y su timing. Instrumentar:
+                </p>
+                <ul>
+                    <li>Disparos de interrupciones (cuando se activa cada bit de IF)</li>
+                    <li>Clears de interrupciones (cuando se limpia IF)</li>
+                    <li>Ejecución de ISRs (entrada/salida de cada handler)</li>
+                    <li>Timing de VBlank y Mode changes de PPU</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>&copy; 2026 - Viboy Color - Proyecto Educativo Open Source</p>
+            <p>
+                <a href="../index.html">Índice de Bitácora</a> |
+                <a href="https://github.com/fabini/viboy-color" target="_blank">GitHub</a>
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+
