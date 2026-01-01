@@ -45,9 +45,22 @@ public:
     uint16_t sp;  // Stack Pointer
     
     /**
-     * Constructor: Inicializa todos los registros a cero.
+     * Constructor: Inicializa todos los registros con valores Post-Boot DMG por defecto.
      */
     CoreRegisters();
+    
+    /**
+     * Step 0411: Aplica estado Post-Boot según el modo de hardware.
+     * 
+     * Configura los registros según el estado que la Boot ROM deja después de ejecutarse:
+     * - DMG: A=0x01, BC=0x0013, DE=0x00D8, HL=0x014D, SP=0xFFFE, PC=0x0100, F=0xB0
+     * - CGB: A=0x11, BC=0x0000, DE=0xFF56, HL=0x000D, SP=0xFFFE, PC=0x0100, F=0x80
+     * 
+     * @param is_cgb_mode true para modo CGB, false para modo DMG
+     * 
+     * Fuente: Pan Docs - Power Up Sequence, Boot ROM Post-Boot State
+     */
+    void apply_post_boot_state(bool is_cgb_mode);
     
     // ========== Pares virtuales de 16 bits (inline para rendimiento) ==========
     

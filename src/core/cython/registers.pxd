@@ -48,4 +48,7 @@ cdef extern from "Registers.hpp":
         void set_flag_h(bool value)
         bool get_flag_c()
         void set_flag_c(bool value)
+        
+        # Step 0411: Aplicar estado Post-Boot según modo de hardware
+        void apply_post_boot_state(bool is_cgb_mode)
 

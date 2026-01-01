@@ -239,6 +239,15 @@ public:
     void log_dma_vram_summary();
     
     /**
+     * Step 0411: Genera resumen periódico de IRQ requests reales.
+     * Muestra contadores de requests por tipo (VBlank, STAT, Timer, etc.)
+     * y el estado actual de IF, IE, IME, LCDC, LY, TAC.
+     * 
+     * @param frame_count Número de frame actual para referencia
+     */
+    void log_irq_requests_summary(uint64_t frame_count);
+    
+    /**
      * Step 0401: Boot ROM opcional (provista por el usuario)
      * 
      * Permite cargar una Boot ROM real (DMG o CGB) que se mapea en el rango
@@ -427,6 +436,14 @@ private:
     mutable int vram_tiledata_cpu_writes_;      // Escrituras CPU a 0x8000-0x97FF
     mutable int vram_tiledata_cpu_nonzero_;     // Escrituras CPU no-cero a TileData
     mutable int vram_tiledata_cpu_log_count_;   // Contador de logs de TileData (primeras N)
+    
+    // --- Step 0411: Contadores de IRQ requests reales (independientes de cambios en IF) ---
+    mutable int irq_req_vblank_count_;          // Total de requests VBlank (bit 0)
+    mutable int irq_req_stat_count_;            // Total de requests STAT (bit 1)
+    mutable int irq_req_timer_count_;           // Total de requests Timer (bit 2)
+    mutable int irq_req_serial_count_;          // Total de requests Serial (bit 3)
+    mutable int irq_req_joypad_count_;          // Total de requests Joypad (bit 4)
+    mutable int irq_req_summary_count_;         // Contador de resúmenes periódicos (cada N frames)
     
     // --- Step 0385: Flags de trazado de wait-loop y VBlank ISR ---
     mutable bool waitloop_trace_active_;

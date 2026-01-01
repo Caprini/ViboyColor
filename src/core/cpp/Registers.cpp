@@ -46,3 +46,34 @@ CoreRegisters::CoreRegisters() :
     // Fuente: Pan Docs - "Boot ROM", "Power Up Sequence"
 }
 
+// --- Step 0411: Aplicar estado Post-Boot según modo de hardware ---
+void CoreRegisters::apply_post_boot_state(bool is_cgb_mode) {
+    if (is_cgb_mode) {
+        // CGB Post-Boot State (Pan Docs - Power Up Sequence, CGB)
+        // A=0x11 identifica el hardware como CGB a los juegos dual-mode
+        a = 0x11;
+        b = 0x00;
+        c = 0x00;
+        d = 0xFF;
+        e = 0x56;
+        h = 0x00;
+        l = 0x0D;
+        f = 0x80;  // Flags: Z=1, N=0, H=0, C=0 (0x80 = 10000000)
+        sp = 0xFFFE;
+        pc = 0x0100;
+    } else {
+        // DMG Post-Boot State (Pan Docs - Power Up Sequence, DMG)
+        // A=0x01 identifica el hardware como DMG original
+        a = 0x01;
+        b = 0x00;
+        c = 0x13;
+        d = 0x00;
+        e = 0xD8;
+        h = 0x01;
+        l = 0x4D;
+        f = 0xB0;  // Flags: Z=1, N=0, H=1, C=1 (0xB0 = 10110000)
+        sp = 0xFFFE;
+        pc = 0x0100;
+    }
+}
+

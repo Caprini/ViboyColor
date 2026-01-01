@@ -395,55 +395,26 @@ class Viboy:
             return
         
         if self._use_cpp:
-            # Step 0196: Los registros ya están inicializados con valores Post-BIOS
-            # en el constructor de CoreRegisters (C++). El constructor establece automáticamente:
-            # - AF = 0x01B0 (A=0x01 indica DMG, F=0xB0: Z=1, N=0, H=1, C=1)
-            # - BC = 0x0013
-            # - DE = 0x00D8
-            # - HL = 0x014D
-            # - SP = 0xFFFE
-            # - PC = 0x0100
-            #
-            # Esto simula el estado exacto que la Boot ROM oficial deja en la CPU
-            # antes de transferir el control al código del cartucho.
-            #
-            # CRÍTICO: No modificamos los registros aquí. El constructor de CoreRegisters
-            # ya los inicializó correctamente. Solo verificamos que todo esté bien.
+            # --- Step 0411: Aplicar estado Post-Boot según modo de hardware ---
+            # Detectar modo de hardware desde MMU (que lo leyó del header ROM)
+            hardware_mode_str = self._mmu.get_hardware_mode()
+            is_cgb_mode = (hardware_mode_str == "CGB")
             
-            # Verificación del estado Post-BIOS (sin modificar valores)
-            expected_af = 0x01B0
-            expected_bc = 0x0013
-            expected_de = 0x00D8
-            expected_hl = 0x014D
-            expected_sp = 0xFFFE
-            expected_pc = 0x0100
+            # Aplicar estado post-boot coherente con el modo HW
+            self._regs.apply_post_boot_state(is_cgb_mode)
             
-            if (self._regs.af != expected_af or 
-                self._regs.bc != expected_bc or 
-                self._regs.de != expected_de or 
-                self._regs.hl != expected_hl or 
-                self._regs.sp != expected_sp or 
-                self._regs.pc != expected_pc):
-                logger.error(
-                    f"⚠️ ERROR: Estado Post-BIOS incorrecto. "
-                    f"AF=0x{self._regs.af:04X} (esperado 0x{expected_af:04X}), "
-                    f"BC=0x{self._regs.bc:04X} (esperado 0x{expected_bc:04X}), "
-                    f"DE=0x{self._regs.de:04X} (esperado 0x{expected_de:04X}), "
-                    f"HL=0x{self._regs.hl:04X} (esperado 0x{expected_hl:04X}), "
-                    f"SP=0x{self._regs.sp:04X} (esperado 0x{expected_sp:04X}), "
-                    f"PC=0x{self._regs.pc:04X} (esperado 0x{expected_pc:04X})"
-                )
-            else:
-                logger.info(
-                    f"✅ Post-Boot State (DMG): PC=0x{self._regs.pc:04X}, "
-                    f"SP=0x{self._regs.sp:04X}, "
-                    f"A=0x{self._regs.a:02X} (DMG mode), "
-                    f"F=0x{self._regs.f:02X} (Z={self._regs.flag_z}, N={self._regs.flag_n}, H={self._regs.flag_h}, C={self._regs.flag_c}), "
-                    f"BC=0x{self._regs.bc:04X}, "
-                    f"DE=0x{self._regs.de:04X}, "
-                    f"HL=0x{self._regs.hl:04X}"
-                )
-                logger.info("🔧 Core C++: Estado Post-BIOS inicializado automáticamente en constructor (Step 0196)")
+            # Log de estado aplicado
+            mode_str = "CGB" if is_cgb_mode else "DMG"
+            logger.info(
+                f"✅ Post-Boot State ({mode_str}): PC=0x{self._regs.pc:04X}, "
+                f"SP=0x{self._regs.sp:04X}, "
+                f"A=0x{self._regs.a:02X} ({mode_str} mode), "
+                f"F=0x{self._regs.f:02X} (Z={self._regs.flag_z}, N={self._regs.flag_n}, H={self._regs.flag_h}, C={self._regs.flag_c}), "
+                f"BC=0x{self._regs.bc:04X}, "
+                f"DE=0x{self._regs.de:04X}, "
+                f"HL=0x{self._regs.hl:04X}"
+            )
+            logger.info(f"🔧 Registros CPU alineados con Hardware Mode detectado desde header ROM (Step 0411)")
         else:
             # Usar componentes Python (fallback)
             # PC inicializado a 0x0100 (inicio del código del cartucho)

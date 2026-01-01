@@ -85,6 +85,12 @@ MMU::MMU()
     , vram_tiledata_cpu_writes_(0)      // Step 0410
     , vram_tiledata_cpu_nonzero_(0)     // Step 0410
     , vram_tiledata_cpu_log_count_(0)   // Step 0410
+    , irq_req_vblank_count_(0)          // Step 0411
+    , irq_req_stat_count_(0)            // Step 0411
+    , irq_req_timer_count_(0)           // Step 0411
+    , irq_req_serial_count_(0)          // Step 0411
+    , irq_req_joypad_count_(0)          // Step 0411
+    , irq_req_summary_count_(0)         // Step 0411
     , waitloop_trace_active_(false)
     , vblank_isr_trace_active_(false)
     , waitloop_mmio_count_(0)
@@ -2524,6 +2530,17 @@ void MMU::request_interrupt(uint8_t bit) {
         return;  // Bit inválido, ignorar
     }
     
+    // --- Step 0411: Contadores de IRQ requests reales (independientes de cambios en IF) ---
+    // Incrementar contador según el bit (siempre, sin importar si IF cambia o no)
+    switch (bit) {
+        case 0: irq_req_vblank_count_++; break;
+        case 1: irq_req_stat_count_++; break;
+        case 2: irq_req_timer_count_++; break;
+        case 3: irq_req_serial_count_++; break;
+        case 4: irq_req_joypad_count_++; break;
+    }
+    // -------------------------------------------
+    
     // --- Step 0384: Instrumentación de request_interrupt ---
     // Leer el valor actual del registro IF (0xFF0F)
     uint8_t if_before = read(0xFF0F);
@@ -3151,6 +3168,97 @@ void MMU::log_dma_vram_summary() {
     printf("========================================\n\n");
 }
 // --- Fin Step 0410 ---
+
+// --- Step 0411: Resumen periódico de IRQ requests ---
+void MMU::log_irq_requests_summary(uint64_t frame_count) {
+    // Limitar número de resúmenes (máximo 10)
+    if (irq_req_summary_count_ >= 10) {
+        return;
+    }
+    irq_req_summary_count_++;
+    
+    // Leer estado actual de registros relevantes
+    uint8_t ie = read(0xFFFF);
+    uint8_t if_reg = read(0xFF0F);
+    uint8_t lcdc = read(0xFF40);
+    uint8_t ly = read(0xFF44);
+    uint8_t tac = read(0xFF07);
+    
+    printf("\n");
+    printf("========================================\n");
+    printf("[IRQ-SUMMARY] Step 0411 - Frame %llu\n", static_cast<unsigned long long>(frame_count));
+    printf("========================================\n");
+    
+    // Contadores de requests reales (independientes de cambios en IF)
+    printf("[IRQ-SUMMARY] Requests generados (totales):\n");
+    printf("[IRQ-SUMMARY]   VBlank (bit 0): %d\n", irq_req_vblank_count_);
+    printf("[IRQ-SUMMARY]   STAT   (bit 1): %d\n", irq_req_stat_count_);
+    printf("[IRQ-SUMMARY]   Timer  (bit 2): %d\n", irq_req_timer_count_);
+    printf("[IRQ-SUMMARY]   Serial (bit 3): %d\n", irq_req_serial_count_);
+    printf("[IRQ-SUMMARY]   Joypad (bit 4): %d\n", irq_req_joypad_count_);
+    
+    // Estado actual de registros
+    printf("[IRQ-SUMMARY] Estado actual:\n");
+    printf("[IRQ-SUMMARY]   IE (0xFFFF): 0x%02X ", ie);
+    if (ie) {
+        printf("(");
+        if (ie & 0x01) printf("VBlank ");
+        if (ie & 0x02) printf("STAT ");
+        if (ie & 0x04) printf("Timer ");
+        if (ie & 0x08) printf("Serial ");
+        if (ie & 0x10) printf("Joypad");
+        printf(")");
+    }
+    printf("\n");
+    
+    printf("[IRQ-SUMMARY]   IF (0xFF0F): 0x%02X ", if_reg);
+    if (if_reg) {
+        printf("(");
+        if (if_reg & 0x01) printf("VBlank ");
+        if (if_reg & 0x02) printf("STAT ");
+        if (if_reg & 0x04) printf("Timer ");
+        if (if_reg & 0x08) printf("Serial ");
+        if (if_reg & 0x10) printf("Joypad");
+        printf(")");
+    }
+    printf("\n");
+    
+    printf("[IRQ-SUMMARY]   LCDC (0xFF40): 0x%02X (LCD %s)\n", 
+           lcdc, (lcdc & 0x80) ? "ON" : "OFF");
+    printf("[IRQ-SUMMARY]   LY (0xFF44): %d\n", ly);
+    printf("[IRQ-SUMMARY]   TAC (0xFF07): 0x%02X (Timer %s)\n",
+           tac, (tac & 0x04) ? "ON" : "OFF");
+    
+    // Análisis
+    printf("[IRQ-SUMMARY] Análisis:\n");
+    if (irq_req_vblank_count_ == 0 && irq_req_timer_count_ == 0) {
+        printf("[IRQ-SUMMARY]   ⚠️  NO HAY REQUESTS DE IRQS PRINCIPALES\n");
+        printf("[IRQ-SUMMARY]   VBlank y Timer no han generado requests.\n");
+        
+        if (!(lcdc & 0x80)) {
+            printf("[IRQ-SUMMARY]   Causa probable: LCD APAGADO (LCDC bit7=0)\n");
+            printf("[IRQ-SUMMARY]   Sin LCD, no hay VBlank. LY permanece en 0.\n");
+        }
+        
+        if (!(tac & 0x04)) {
+            printf("[IRQ-SUMMARY]   Causa probable: TIMER APAGADO (TAC bit2=0)\n");
+            printf("[IRQ-SUMMARY]   Sin Timer, no hay Timer IRQ.\n");
+        }
+    } else if (irq_req_vblank_count_ > 0 && if_reg == 0x00) {
+        printf("[IRQ-SUMMARY]   ⚠️  REQUESTS GENERADOS PERO IF=0x00\n");
+        printf("[IRQ-SUMMARY]   Las IRQs se generan pero IF se limpia inmediatamente.\n");
+        printf("[IRQ-SUMMARY]   Posible causa: El juego limpia IF en loop sin procesar.\n");
+    } else if (irq_req_vblank_count_ > 0 && (ie & if_reg) == 0) {
+        printf("[IRQ-SUMMARY]   ⚠️  REQUESTS GENERADOS PERO IE NO COINCIDE CON IF\n");
+        printf("[IRQ-SUMMARY]   IF tiene bits activos pero IE no los habilita.\n");
+    } else if (irq_req_vblank_count_ > 0 && (ie & if_reg) != 0) {
+        printf("[IRQ-SUMMARY]   ✓ HAY INTERRUPCIONES PENDIENTES\n");
+        printf("[IRQ-SUMMARY]   IE & IF = 0x%02X (IME debe estar activo para servir)\n", ie & if_reg);
+    }
+    
+    printf("========================================\n\n");
+}
+// --- Fin Step 0411 ---
 
 // --- Step 0401: Boot ROM opcional ---
 void MMU::set_boot_rom(const uint8_t* data, size_t size) {

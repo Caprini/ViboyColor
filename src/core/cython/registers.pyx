@@ -221,6 +221,24 @@ cdef class PyRegisters:
         """Establece el flag Carry (C)."""
         self._regs.set_flag_c(value)
     
+    # --- Step 0411: Aplicar estado Post-Boot según modo de hardware ---
+    def apply_post_boot_state(self, bool is_cgb_mode):
+        """
+        Aplica estado Post-Boot según el modo de hardware.
+        
+        Configura los registros según el estado que la Boot ROM deja después de ejecutarse:
+        - DMG: A=0x01, BC=0x0013, DE=0x00D8, HL=0x014D, SP=0xFFFE, PC=0x0100, F=0xB0
+        - CGB: A=0x11, BC=0x0000, DE=0xFF56, HL=0x000D, SP=0xFFFE, PC=0x0100, F=0x80
+        
+        Args:
+            is_cgb_mode: True para modo CGB, False para modo DMG
+        
+        Fuente: Pan Docs - Power Up Sequence, Boot ROM Post-Boot State
+        """
+        if self._regs == NULL:
+            raise MemoryError("La instancia de CoreRegisters en C++ no existe.")
+        self._regs.apply_post_boot_state(is_cgb_mode)
+    
     # NOTA: El miembro _regs es accesible desde otros módulos Cython
     # que incluyan este archivo (como cpu.pyx)
 

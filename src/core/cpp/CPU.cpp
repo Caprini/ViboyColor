@@ -533,7 +533,7 @@ int CPU::step() {
             printf("[WAITLOOP] ⚠️ Bucle detectado! PC:0x%04X Bank:%d repetido %d veces\n",
                    original_pc, bank, same_pc_streak);
             
-            // --- Step 0409: Análisis de Wait-Loop (qué condición falta) ---
+            // --- Step 0409/0411: Análisis de Wait-Loop (qué condición falta) ---
             printf("[WAITLOOP] === Análisis de Condiciones ===\n");
             printf("[WAITLOOP] Estado: AF:0x%04X HL:0x%04X IME:%d\n", af, hl, ime);
             
@@ -547,17 +547,39 @@ int CPU::step() {
                 if (ie & if_reg & 0x04) printf("[WAITLOOP]   - Timer pending\n");
                 if (ie & if_reg & 0x08) printf("[WAITLOOP]   - Serial pending\n");
                 if (ie & if_reg & 0x10) printf("[WAITLOOP]   - Joypad pending\n");
+            } else if (!ime) {
+                printf("[WAITLOOP]   ⚠️ IME=0: Interrupciones globalmente deshabilitadas\n");
+            } else if ((ie & if_reg) == 0) {
+                printf("[WAITLOOP]   ⚠️ IE & IF = 0: No hay IRQs habilitadas Y pendientes\n");
             }
             
             // Análisis de LCD (probable polling de LY/STAT)
             printf("[WAITLOOP] LCD: LCDC=0x%02X, STAT=0x%02X, LY=%d\n", lcdc, stat, ly);
             bool lcd_on = (lcdc & 0x80);
             printf("[WAITLOOP]   - LCD %s\n", lcd_on ? "ON" : "OFF");
+            if (!lcd_on) {
+                printf("[WAITLOOP]   ⚠️ LCD APAGADO: Sin LCD no hay VBlank, LY permanece en 0\n");
+            }
             printf("[WAITLOOP]   - STAT Mode=%d\n", stat & 0x03);
             
+            // --- Step 0411: Información del Timer ---
+            uint8_t tac = mmu_->read(0xFF07);
+            uint8_t div = mmu_->read(0xFF04);
+            uint8_t tima = mmu_->read(0xFF05);
+            printf("[WAITLOOP] Timer: TAC=0x%02X, DIV=0x%02X, TIMA=0x%02X\n", tac, div, tima);
+            bool timer_on = (tac & 0x04);
+            printf("[WAITLOOP]   - Timer %s\n", timer_on ? "ON" : "OFF");
+            if (!timer_on) {
+                printf("[WAITLOOP]   ⚠️ TIMER APAGADO: No habrá Timer IRQ\n");
+            }
+            
+            // --- Step 0411: Información CGB (si aplica) ---
+            uint8_t key1 = mmu_->read(0xFF4D);
+            uint8_t vbk = mmu_->read(0xFF4F);
+            uint8_t svbk = mmu_->read(0xFF70);
+            printf("[WAITLOOP] CGB: KEY1=0x%02X, VBK=0x%02X, SVBK=0x%02X\n", key1, vbk, svbk);
+            
             // Detección de posible polling de RTC (MBC3)
-            // Nota: No podemos saber si se está leyendo RTC sin instrumentar,
-            // pero lo reportamos como posibilidad si hay reads a 0xA000-0xBFFF
             printf("[WAITLOOP] ⚠️ Si este juego usa MBC3+RTC, podría estar esperando RTC\n");
             printf("[WAITLOOP] (El trazado siguiente mostrará reads a 0xA000+ si los hay)\n");
             

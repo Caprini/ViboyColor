@@ -573,6 +573,13 @@ void PPU::step(int cpu_cycles) {
                            if_before, if_after);
                     vblank_irq_log++;
                 }
+                
+                // --- Step 0411: Resumen periódico de IRQ requests (cada 120 frames) ---
+                if (frame_counter_ % 120 == 0) {
+                    // Llamar a MMU para generar resumen de IRQ requests
+                    mmu_->log_irq_requests_summary(frame_counter_);
+                }
+                // -------------------------------------------
             }
             // -------------------------------------------
             
