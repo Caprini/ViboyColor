@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0402 - Integración Frontend Boot ROM + Modo Stub Sin Archivo</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Step 0402 - Integración Frontend Boot ROM + Modo Stub Sin Archivo</h1>
+            <div class="metadata">
+                <span class="date">📅 Fecha: 2026-01-01</span>
+                <span class="step-id">🔢 Step ID: 0402</span>
+                <span class="status tag tag-verified">✅ VERIFIED</span>
+            </div>
+        </header>
+
+        <main>
+            <section id="concepto">
+                <h2>1. Concepto de Hardware</h2>
+                
+                <h3>Boot ROM y el Pipeline de Inicialización</h3>
+                
+                <p>
+                    La <strong>Boot ROM</strong> de la Game Boy es una ROM interna pequeña (256 bytes para DMG, 2304 bytes para CGB) 
+                    que se ejecuta antes del código del cartucho. Su propósito es:
+                </p>
+                
+                <ol>
+                    <li><strong>Mostrar el logo de Nintendo</strong>: Animación scroll del logo (requisito de licencia)</li>
+                    <li><strong>Validar el cartucho</strong>: Verificar checksum del logo en el header de la ROM</li>
+                    <li><strong>Inicializar hardware</strong>: Configurar registros I/O (LCDC, BGP, paletas CGB, etc.)</li>
+                    <li><strong>Transferir control</strong>: Escribir 0xFF50=1 para deshabilitar Boot ROM y saltar a 0x0100</li>
+                </ol>
+                
+                <p>
+                    Después de la Boot ROM, el estado del hardware es consistente y predecible. Los juegos dependen de este estado 
+                    para su inicialización. Sin Boot ROM, los registros I/O quedan en valores indefinidos o incorrectos, causando 
+                    problemas como BGP=0x00 (paleta inválida, pantalla blanca).
+                </p>
+                
+                <h3>Soporte Opcional de Boot ROM en el Emulador</h3>
+                
+                <p>
+                    Para cumplir con <strong>Clean Room compliance</strong>, la Boot ROM NO se incluye en el repositorio. 
+                    Sin embargo, el emulador ahora soporta:
+                </p>
+                
+                <ul>
+                    <li><strong>Boot ROM real</strong>: El usuario puede proveer su propia Boot ROM (extraída legalmente de hardware real)</li>
+                    <li><strong>Modo stub</strong>: Configuración mínima post-boot sin ejecutar binario propietario (para validación)</li>
+                    <li><strong>Modo skip-boot</strong>: Estado post-boot estándar (PC=0x0100, registros predefinidos)</li>
+                </ul>
+                
+                <p>
+                    <strong>Fuentes</strong>: 
+                    <a href="https://gbdev.io/pandocs/Power_Up_Sequence.html" target="_blank">Pan Docs - Power Up Sequence</a>, 
+                    <a href="https://gbdev.io/pandocs/Rendering.html#ff50--boot--disable-boot-rom" target="_blank">Pan Docs - FF50 Register</a>
+                </p>
+            </section>
+
+            <section id="implementacion">
+                <h2>2. Implementación</h2>
+                
+                <h3>A. Frontend: CLI y Variables de Entorno</h3>
+                
+                <h4>Modificaciones en <code>main.py</code></h4>
+                
+                <p>Se añadieron dos flags CLI:</p>
+                
+                <pre><code class="language-python">
+parser.add_argument(
+    "--bootrom",
+    type=str,
+    default=None,
+    help="Ruta al archivo Boot ROM (DMG: 256 bytes, CGB: 2304 bytes)",
+)
+parser.add_argument(
+    "--bootrom-stub",
+    action="store_true",
+    help="Activar modo stub de Boot ROM (sin binario, solo estado post-boot)",
+)
+                </code></pre>
+                
+                <p>Lógica de prioridad:</p>
+                
+                <ol>
+                    <li>Si <code>--bootrom PATH</code> se especifica, cargar Boot ROM desde archivo</li>
+                    <li>Si no, consultar variable de entorno <code>VIBOY_BOOTROM</code></li>
+                    <li>Si <code>--bootrom-stub</code> se especifica, activar modo stub</li>
+                    <li>Si nada se especifica, usar modo skip-boot (comportamiento por defecto)</li>
+                </ol>
+                
+                <h4>Modificaciones en <code>src/viboy.py</code></h4>
+                
+                <p>El constructor de <code>Viboy</code> ahora acepta parámetros opcionales:</p>
+                
+                <pre><code class="language-python">
+def __init__(
+    self, 
+    rom_path: str | Path | None = None, 
+    use_cpp_core: bool = True,
+    bootrom_bytes: bytes | None = None,
+    bootrom_stub: bool = False
+) -> None:
+    # ...
+    self._bootrom_bytes = bootrom_bytes
+    self._bootrom_stub = bootrom_stub
+                </code></pre>
+                
+                <p>En <code>load_cartridge()</code>, se aplica la Boot ROM o el stub:</p>
+                
+                <pre><code class="language-python">
+if self._bootrom_bytes:
+    # Cargar Boot ROM real (provista por el usuario)
+    self._mmu.set_boot_rom(self._bootrom_bytes)
+    if self._mmu.is_boot_rom_enabled():
+        self._regs.pc = 0x0000  # Boot ROM activa: PC inicia en 0x0000
+    else:
+        self._initialize_post_boot_state()
+elif self._bootrom_stub:
+    # Modo stub: activar stub sin binario propietario
+    self._mmu.enable_bootrom_stub(True, cgb_mode=False)
+    self._initialize_post_boot_state()
+else:
+    # Modo skip-boot (por defecto)
+    self._initialize_post_boot_state()
+                </code></pre>
+                
+                <h3>B. Backend: Modo Stub en C++</h3>
+                
+                <h4>Implementación en <code>MMU.cpp</code></h4>
+                
+                <p>El método <code>enable_bootrom_stub()</code> aplica un estado post-boot mínimo:</p>
+                
+                <pre><code class="language-cpp">
+void MMU::enable_bootrom_stub(bool enable, bool cgb_mode) {
+    if (!enable) {
+        boot_rom_enabled_ = false;
+        boot_rom_.clear();
+        return;
+    }
+    
+    // Configurar registros I/O al estado post-boot (según Pan Docs)
+    memory_[0xFF40] = 0x91;  // LCDC: LCD ON, BG ON, Tilemap 0x9800
+    memory_[0xFF47] = 0xFC;  // BGP: Paleta estándar (00=blanco, 11=negro)
+    memory_[0xFF42] = 0x00;  // SCY: Scroll Y = 0
+    memory_[0xFF43] = 0x00;  // SCX: Scroll X = 0
+    memory_[0xFF48] = 0xFF;  // OBP0: Paleta sprite 0
+    memory_[0xFF49] = 0xFF;  // OBP1: Paleta sprite 1
+    memory_[0xFFFF] = 0x01;  // IE: VBlank interrupt habilitado
+    
+    // Escribir 0xFF50 = 1 para simular que la Boot ROM terminó
+    memory_[0xFF50] = 0x01;
+    boot_rom_enabled_ = false;
+    boot_rom_.clear();
+}
+                </code></pre>
+                
+                <h4>Wrapper Cython (<code>mmu.pyx</code>)</h4>
+                
+                <pre><code class="language-python">
+def enable_bootrom_stub(self, bool enable, bool cgb_mode=False):
+    """
+    Habilita el modo stub de Boot ROM (sin binario propietario).
+    
+    El stub NO emula instrucciones reales del boot. Solo fuerza un conjunto mínimo
+    de estado post-boot documentado (Pan Docs) y marca boot_rom_enabled_=false
+    inmediatamente.
+    """
+    if self._mmu == NULL:
+        raise MemoryError("La instancia de MMU en C++ no existe.")
+    
+    self._mmu.enable_bootrom_stub(enable, cgb_mode)
+                </code></pre>
+            </section>
+
+            <section id="tests">
+                <h2>3. Tests y Verificación</h2>
+                
+                <h3>Comando de Compilación</h3>
+                
+                <pre><code class="language-bash">
+python3 setup.py build_ext --inplace
+                </code></pre>
+                
+                <p><strong>Resultado</strong>: ✅ Compilación exitosa (sin errores)</p>
+                
+                <h3>Tests Controlados (30 segundos cada uno)</h3>
+                
+                <h4>Test 1: Tetris DX (skip-boot, baseline)</h4>
+                
+                <pre><code class="language-bash">
+timeout 30s python3 main.py roms/tetris_dx.gbc > logs/step0402_skip_tetris_dx.log 2>&1
+                </code></pre>
+                
+                <p><strong>Resultados</strong>:</p>
+                
+                <ul>
+                    <li>✅ Sin regresiones</li>
+                    <li>Frame 720: <code>gameplay_state=YES</code></li>
+                    <li>TileData: 23.0% (1416/6144 bytes)</li>
+                    <li>UniqueTiles: 256/256</li>
+                    <li>LCDC: cambió a 0x81 en frame 677</li>
+                    <li>BGP: cambió a 0xE4 en frame 711</li>
+                </ul>
+                
+                <h4>Test 2: Zelda DX (skip-boot, baseline)</h4>
+                
+                <pre><code class="language-bash">
+timeout 30s python3 main.py roms/Oro.gbc > logs/step0402_skip_zelda_dx.log 2>&1
+                </code></pre>
+                
+                <p><strong>Resultados</strong>:</p>
+                
+                <ul>
+                    <li>LCDC: 0xE3 desde frame 0 (cambió inmediatamente)</li>
+                    <li>BGP: 0x00 desde frame 0 (problema conocido: paleta inválida)</li>
+                    <li>TileData: 0% (nunca carga tiles)</li>
+                    <li>TileMap: 100% (2048/2048 bytes, pero todos 0x00)</li>
+                    <li>UniqueTiles: 1/256 (solo un tile ID)</li>
+                    <li><code>gameplay_state=NO</code></li>
+                </ul>
+                
+                <h4>Test 3: Zelda DX (stub)</h4>
+                
+                <pre><code class="language-bash">
+timeout 30s python3 main.py --bootrom-stub roms/Oro.gbc > logs/step0402_stub_zelda_dx.log 2>&1
+                </code></pre>
+                
+                <p><strong>Resultados</strong>:</p>
+                
+                <ul>
+                    <li>✅ Stub activado correctamente: <code>[BOOTROM-STUB] Activando modo stub (DMG)</code></li>
+                    <li>Stub configuró: LCDC=0x91, BGP=0xFC, SCY=0, SCX=0, OBP0=0xFF, OBP1=0xFF, IE=0x01, FF50=0x01</li>
+                    <li><strong>Pero</strong>: El juego sobrescribe BGP a 0x00 inmediatamente (frame 0)</li>
+                    <li>LCDC: cambiado a 0xE3 por el juego (frame 0)</li>
+                    <li>Resultados idénticos al skip-boot: TileData 0%, gameplay_state=NO</li>
+                </ul>
+                
+                <h3>Análisis de Resultados</h3>
+                
+                <p>
+                    <strong>Tetris DX</strong>: Sin regresiones. El modo skip-boot (por defecto) sigue funcionando perfectamente.
+                </p>
+                
+                <p>
+                    <strong>Zelda DX</strong>: El stub se activó correctamente y configuró los registros I/O, pero el juego 
+                    <strong>sobrescribe BGP a 0x00 inmediatamente</strong>. Esto confirma la hipótesis del Step 0400:
+                </p>
+                
+                <blockquote>
+                    <p>
+                        Zelda DX/Pokemon Red <strong>esperan que la Boot ROM real configure paletas CGB específicas</strong>, 
+                        no solo los registros I/O básicos. El stub configura valores DMG básicos (BGP=0xFC), pero el código 
+                        del juego asume que la Boot ROM ya configuró paletas CGB y las sobrescribe con valores específicos 
+                        (que son 0x00 cuando no hay datos válidos).
+                    </p>
+                </blockquote>
+                
+                <p>
+                    Esto significa que el stub <strong>técnicamente funciona</strong> (aplica estado post-boot), pero no es 
+                    suficiente para juegos que dependen de configuración CGB avanzada de la Boot ROM.
+                </p>
+            </section>
+
+            <section id="conclusiones">
+                <h2>4. Conclusiones y Próximos Pasos</h2>
+                
+                <h3>Logros del Step 0402</h3>
+                
+                <ul>
+                    <li>✅ Integración oficial de Boot ROM opcional en el frontend (CLI + env var)</li>
+                    <li>✅ Modo stub implementado en C++ (sin binario propietario)</li>
+                    <li>✅ Sin regresiones en ROMs funcionantes (Tetris DX)</li>
+                    <li>✅ Wiring end-to-end validado (frontend → backend → MMU)</li>
+                    <li>✅ Preparado para Boot ROM real cuando el usuario la provea</li>
+                </ul>
+                
+                <h3>Limitaciones del Stub</h3>
+                
+                <p>
+                    El stub <strong>no emula la Boot ROM real</strong>. Solo configura un estado post-boot mínimo (DMG). 
+                    Juegos que dependen de configuración CGB avanzada (paletas CGB, HDMA, etc.) no funcionarán con el stub.
+                </p>
+                
+                <h3>Próximos Pasos</h3>
+                
+                <ol>
+                    <li><strong>Step 0403</strong>: Documentar cómo el usuario puede extraer Boot ROM legalmente desde hardware real</li>
+                    <li><strong>Step 0404</strong>: Implementar emulación parcial de Boot ROM (scroll de logo, sin código propietario)</li>
+                    <li><strong>Step 0405</strong>: Investigar configuración CGB específica que Zelda DX/Pokemon Red esperan</li>
+                </ol>
+                
+                <h3>Lecciones Aprendidas</h3>
+                
+                <ul>
+                    <li><strong>Clean Room y pragmatismo</strong>: Podemos soportar Boot ROM sin violar clean room (usuario la provee)</li>
+                    <li><strong>Stub vs Boot real</strong>: El stub es útil para validación, pero no reemplaza la Boot ROM real</li>
+                    <li><strong>Dependencias del juego</strong>: Algunos juegos dependen profundamente de la Boot ROM (más de lo esperado)</li>
+                </ul>
+            </section>
+
+            <section id="archivos">
+                <h2>5. Archivos Modificados</h2>
+                
+                <h3>Frontend</h3>
+                
+                <ul>
+                    <li><code>main.py</code>: Añadidos flags <code>--bootrom</code> y <code>--bootrom-stub</code>, lectura de env var <code>VIBOY_BOOTROM</code></li>
+                    <li><code>src/viboy.py</code>: Constructor actualizado para recibir <code>bootrom_bytes</code> y <code>bootrom_stub</code>, lógica de aplicación en <code>load_cartridge()</code></li>
+                </ul>
+                
+                <h3>Backend (C++)</h3>
+                
+                <ul>
+                    <li><code>src/core/cpp/MMU.hpp</code>: Declaración de <code>enable_bootrom_stub()</code></li>
+                    <li><code>src/core/cpp/MMU.cpp</code>: Implementación de <code>enable_bootrom_stub()</code></li>
+                </ul>
+                
+                <h3>Wrapper Cython</h3>
+                
+                <ul>
+                    <li><code>src/core/cython/mmu.pxd</code>: Declaración de <code>enable_bootrom_stub()</code></li>
+                    <li><code>src/core/cython/mmu.pyx</code>: Wrapper Python de <code>enable_bootrom_stub()</code></li>
+                </ul>
+                
+                <h3>Documentación</h3>
+                
+                <ul>
+                    <li><code>docs/bitacora/entries/2026-01-01__0402__bootrom-cli-env-y-stub.html</code>: Esta entrada</li>
+                    <li><code>docs/bitacora/index.html</code>: Actualizado con enlace a esta entrada</li>
+                    <li><code>docs/informe_fase_2/parte_00_steps_0370_0401.md</code>: Actualizado con Step 0402</li>
+                </ul>
+            </section>
+
+            <section id="referencias">
+                <h2>6. Referencias</h2>
+                
+                <ul>
+                    <li><a href="https://gbdev.io/pandocs/Power_Up_Sequence.html" target="_blank">Pan Docs - Power Up Sequence</a></li>
+                    <li><a href="https://gbdev.io/pandocs/Rendering.html#ff50--boot--disable-boot-rom" target="_blank">Pan Docs - FF50 Register</a></li>
+                    <li><a href="https://gbdev.io/pandocs/Boot_ROM.html" target="_blank">Pan Docs - Boot ROM</a></li>
+                    <li>Step 0400 - Análisis Comparativo: Tetris DX vs Zelda DX/Pokemon Red</li>
+                    <li>Step 0401 - Boot ROM opcional + Inicialización correcta I/O</li>
+                </ul>
+            </section>
+        </main>
+
+        <footer>
+            <p><a href="../index.html">← Volver al índice</a></p>
+            <p style="text-align: center; color: var(--color-text-secondary); font-size: 0.9em;">
+                Viboy Color - Proyecto Educativo | Clean-Room Implementation
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+

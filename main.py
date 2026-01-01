@@ -68,8 +68,45 @@ def main() -> None:
         action="store_true",
         help="Desactivar carga manual de tiles de prueba (por defecto están activados)",
     )
+    # Step 0402: Flags para Boot ROM opcional
+    parser.add_argument(
+        "--bootrom",
+        type=str,
+        default=None,
+        help="Ruta al archivo Boot ROM (DMG: 256 bytes, CGB: 2304 bytes)",
+    )
+    parser.add_argument(
+        "--bootrom-stub",
+        action="store_true",
+        help="Activar modo stub de Boot ROM (sin binario, solo estado post-boot)",
+    )
     
     args = parser.parse_args()
+    
+    # Step 0402: Leer Boot ROM desde env var si no se especificó en CLI
+    import os
+    bootrom_path = args.bootrom or os.getenv('VIBOY_BOOTROM')
+    bootrom_bytes = None
+    bootrom_stub = args.bootrom_stub
+    
+    if bootrom_path:
+        try:
+            with open(bootrom_path, 'rb') as f:
+                bootrom_bytes = f.read()
+            if has_console:
+                print(f"📚 Boot ROM cargada desde: {bootrom_path}")
+                print(f"   Tamaño: {len(bootrom_bytes)} bytes")
+        except FileNotFoundError:
+            if has_console:
+                print(f"⚠️  Boot ROM no encontrada: {bootrom_path}")
+            bootrom_bytes = None
+        except Exception as e:
+            if has_console:
+                print(f"⚠️  Error al leer Boot ROM: {e}")
+            bootrom_bytes = None
+    elif bootrom_stub:
+        if has_console:
+            print("🔧 Modo Boot ROM stub activado (sin binario propietario)")
     
     # Si se especifica --debug, cambiar nivel de logging
     if args.debug:
@@ -127,7 +164,8 @@ def main() -> None:
     
     # Inicializar sistema Viboy
     try:
-        viboy = Viboy()
+        # Step 0402: Pasar Boot ROM y modo stub al constructor
+        viboy = Viboy(bootrom_bytes=bootrom_bytes, bootrom_stub=bootrom_stub)
         # Step 0313: load_test_tiles=True por defecto (desarrollo)
         # Solo desactivar si se especifica --no-load-test-tiles
         load_tiles = not getattr(args, 'no_load_test_tiles', False)

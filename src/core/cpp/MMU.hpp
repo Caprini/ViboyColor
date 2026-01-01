@@ -238,6 +238,21 @@ public:
      * @return 1 si la Boot ROM está habilitada y mapeada, 0 en caso contrario
      */
     int is_boot_rom_enabled() const;
+    
+    /**
+     * Step 0402: Habilita el modo stub de Boot ROM (sin binario propietario)
+     * 
+     * Este modo permite validar el wiring end-to-end sin depender de un archivo Boot ROM.
+     * El stub NO emula instrucciones reales del boot, solo fuerza un conjunto mínimo
+     * de estado post-boot documentado (Pan Docs) y marca boot_rom_enabled_=false inmediatamente.
+     * 
+     * @param enable true para habilitar stub, false para desactivar
+     * @param cgb_mode true para modo CGB, false para modo DMG
+     * 
+     * Nota: Este stub es diferente de "boot real". Solo valida que el pipeline de
+     * inicialización y el control de PC no dependen de hacks del PPU.
+     */
+    void enable_bootrom_stub(bool enable, bool cgb_mode);
 
 private:
     /**

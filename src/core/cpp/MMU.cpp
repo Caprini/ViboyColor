@@ -2883,3 +2883,58 @@ int MMU::is_boot_rom_enabled() const {
 }
 // --- Fin Step 0401 ---
 
+// --- Step 0402: Modo stub de Boot ROM ---
+void MMU::enable_bootrom_stub(bool enable, bool cgb_mode) {
+    if (!enable) {
+        boot_rom_enabled_ = false;
+        boot_rom_.clear();
+        printf("[BOOTROM-STUB] Desactivado\n");
+        return;
+    }
+    
+    // El stub NO emula instrucciones reales del boot.
+    // Solo fuerza un estado post-boot mínimo y documentado (Pan Docs).
+    // Luego marca boot_rom_enabled_=false inmediatamente para que el CPU
+    // comience en 0x0100 (inicio del código del cartucho).
+    
+    printf("[BOOTROM-STUB] Activando modo stub (%s)\n", cgb_mode ? "CGB" : "DMG");
+    
+    // 1. Establecer registros I/O al estado post-boot
+    // Según Pan Docs, la Boot ROM configura estos registros antes de transferir control
+    
+    // LCDC (0xFF40): Boot ROM activa LCD con configuración estándar
+    // DMG: 0x91 (LCD ON, BG ON, Window OFF, BG Tilemap 0x9800)
+    // CGB: Similar, varía según modelo
+    memory_[0xFF40] = 0x91;
+    
+    // BGP (0xFF47): Paleta de fondo estándar
+    // DMG/CGB en modo DMG: 0xFC (00=blanco, 11=negro, estándar)
+    memory_[0xFF47] = 0xFC;
+    
+    // SCX/SCY (0xFF42/0xFF43): Scroll a (0,0)
+    memory_[0xFF42] = 0x00;  // SCY
+    memory_[0xFF43] = 0x00;  // SCX
+    
+    // OBP0/OBP1 (0xFF48/0xFF49): Paletas de sprites
+    memory_[0xFF48] = 0xFF;  // OBP0
+    memory_[0xFF49] = 0xFF;  // OBP1
+    
+    // IE (0xFFFF): Interrupciones habilitadas por defecto
+    // DMG: VBlank habilitado (0x01)
+    memory_[0xFFFF] = 0x01;
+    
+    // 2. Escribir 0xFF50 = 1 para simular que la Boot ROM terminó
+    // Esto deshabilita la Boot ROM sin que el CPU la ejecute
+    memory_[0xFF50] = 0x01;
+    boot_rom_enabled_ = false;
+    boot_rom_.clear();
+    
+    printf("[BOOTROM-STUB] Estado post-boot aplicado:\n");
+    printf("  LCDC=0x%02X | BGP=0x%02X | SCY=%d | SCX=%d\n", 
+           memory_[0xFF40], memory_[0xFF47], memory_[0xFF42], memory_[0xFF43]);
+    printf("  OBP0=0x%02X | OBP1=0x%02X | IE=0x%02X | FF50=0x%02X\n",
+           memory_[0xFF48], memory_[0xFF49], memory_[0xFFFF], memory_[0xFF50]);
+    printf("[BOOTROM-STUB] Boot ROM deshabilitada. CPU comenzará en 0x0100.\n");
+}
+// --- Fin Step 0402 ---
+

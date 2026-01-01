@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0402 - Integración Frontend Boot ROM + Modo Stub Sin Archivo -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-01__0402__bootrom-cli-env-y-stub.html" class="entry-link">
+                                    Integración Frontend Boot ROM + Modo Stub Sin Archivo
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-01 | 
+                            <strong>Step ID:</strong> 0402 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Integración oficial del soporte de Boot ROM opcional en el frontend (CLI + env var), sin versionar ningún binario. Añadidos flags --bootrom PATH y --bootrom-stub, con lectura de variable de entorno VIBOY_BOOTROM como fallback. Implementado modo stub opcional en C++ (enable_bootrom_stub) que configura estado post-boot mínimo (LCDC=0x91, BGP=0xFC, IE=0x01, FF50=0x01) sin ejecutar binario propietario. Wrapper Cython expone enable_bootrom_stub(enable, cgb_mode). Modificado src/viboy.py para aplicar Boot ROM o stub en load_cartridge(), ajustando PC a 0x0000 si Boot ROM está activa o usando Post-Boot State si no. Tests controlados: Tetris DX sin regresiones (skip-boot funciona idénticamente). Zelda DX con stub: stub activó correctamente pero el juego sobrescribe BGP a 0x00, confirmando hipótesis del Step 0400 (juegos CGB esperan configuración avanzada de Boot ROM real). Wiring end-to-end validado. Preparado para Boot ROM real cuando el usuario la provea.
+                        </p>
+                    </li>
                     <!-- Entrada 0401 - Boot ROM opcional + Inicialización correcta I/O -->
                     <li>
                         <div class="entry-header">

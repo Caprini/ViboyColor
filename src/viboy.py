@@ -103,7 +103,13 @@ class Viboy:
     # 4.194.304 / 59.7 ≈ 70.224 ciclos por frame
     CYCLES_PER_FRAME = 70_224
 
-    def __init__(self, rom_path: str | Path | None = None, use_cpp_core: bool = True) -> None:
+    def __init__(
+        self, 
+        rom_path: str | Path | None = None, 
+        use_cpp_core: bool = True,
+        bootrom_bytes: bytes | None = None,
+        bootrom_stub: bool = False
+    ) -> None:
         """
         Inicializa el sistema Viboy.
         
@@ -113,6 +119,8 @@ class Viboy:
         Args:
             rom_path: Ruta opcional al archivo ROM (.gb o .gbc)
             use_cpp_core: Si es True, usa componentes C++ (más rápido). Si False o no disponible, usa Python.
+            bootrom_bytes: Bytes opcionales de la Boot ROM (DMG: 256 bytes, CGB: 2304 bytes)
+            bootrom_stub: Si es True, activa modo stub sin binario propietario
             
         Raises:
             FileNotFoundError: Si el archivo ROM no existe
@@ -120,6 +128,10 @@ class Viboy:
         """
         # Determinar si usar core C++ o Python
         self._use_cpp = use_cpp_core and CPP_CORE_AVAILABLE
+        
+        # Step 0402: Guardar Boot ROM y modo stub para aplicar después de cargar ROM
+        self._bootrom_bytes = bootrom_bytes
+        self._bootrom_stub = bootrom_stub
         
         # Inicializar componentes
         self._cartridge: Cartridge | None = None
@@ -294,8 +306,34 @@ class Viboy:
         else:
             self._renderer = None
         
-        # Simular "Post-Boot State" (sin Boot ROM)
-        self._initialize_post_boot_state()
+        # Step 0402: Aplicar Boot ROM si se proveyó, o modo stub si está activado
+        if self._use_cpp and self._mmu is not None:
+            if self._bootrom_bytes:
+                # Cargar Boot ROM real (provista por el usuario)
+                self._mmu.set_boot_rom(self._bootrom_bytes)
+                logger.info(f"✅ Boot ROM cargada: {len(self._bootrom_bytes)} bytes")
+                
+                # Verificar si Boot ROM está habilitada
+                if self._mmu.is_boot_rom_enabled():
+                    # Boot ROM activa: PC debe iniciar en 0x0000
+                    if self._regs is not None:
+                        self._regs.pc = 0x0000
+                        logger.info("🔧 PC ajustado a 0x0000 (Boot ROM habilitada)")
+                else:
+                    # Boot ROM no activa (deshabilitada por FF50): usar Post-Boot State
+                    self._initialize_post_boot_state()
+            elif self._bootrom_stub:
+                # Modo stub: activar stub sin binario propietario
+                self._mmu.enable_bootrom_stub(True, cgb_mode=False)  # Por defecto DMG
+                logger.info("🔧 Modo Boot ROM stub activado")
+                # Boot ROM stub deja boot_rom_enabled_=False, usar Post-Boot State
+                self._initialize_post_boot_state()
+            else:
+                # Sin Boot ROM ni stub: usar Post-Boot State (skip-boot)
+                self._initialize_post_boot_state()
+        else:
+            # Fallback para modo Python o sin MMU
+            self._initialize_post_boot_state()
         
         # --- Step 0298/0311: Carga Manual de Tiles (Hack Temporal) ---
         # Step 0311: Activado por defecto (load_test_tiles=True) para desarrollo

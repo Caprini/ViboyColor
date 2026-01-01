@@ -308,6 +308,28 @@ cdef class PyMMU:
         return self._mmu.is_boot_rom_enabled()
     # --- Fin Step 0401 ---
     
+    # --- Step 0402: Modo stub de Boot ROM ---
+    def enable_bootrom_stub(self, bool enable, bool cgb_mode=False):
+        """
+        Habilita el modo stub de Boot ROM (sin binario propietario).
+        
+        El stub NO emula instrucciones reales del boot. Solo fuerza un conjunto mínimo
+        de estado post-boot documentado (Pan Docs) y marca boot_rom_enabled_=false
+        inmediatamente.
+        
+        Args:
+            enable: True para habilitar stub, False para desactivar
+            cgb_mode: True para modo CGB, False para modo DMG
+        
+        Nota: Este stub es diferente de "boot real". Solo valida que el pipeline de
+        inicialización y el control de PC no dependen de hacks del PPU.
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        self._mmu.enable_bootrom_stub(enable, cgb_mode)
+    # --- Fin Step 0402 ---
+    
     # Método para obtener el puntero C++ directamente (forma segura)
     cdef mmu.MMU* get_cpp_ptr(self):
         """
