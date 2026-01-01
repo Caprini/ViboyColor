@@ -290,6 +290,14 @@ private:
     bool vram_is_empty_;
     
     /**
+     * Step 0397: Estado unificado de detección de tiles en VRAM.
+     * Indica si VRAM tiene tiles completos no-vacíos.
+     * Se actualiza una vez por frame (en LY=0) usando helpers dual-bank.
+     * Reemplaza la variable estática vram_has_tiles en render_bg().
+     */
+    bool vram_has_tiles_;
+    
+    /**
      * Step 0394: Estado del checkerboard determinista.
      * Indica si el checkerboard está actualmente activo (renderizándose).
      * Se activa cuando vram_is_empty_ es true y tile es vacío.
@@ -415,6 +423,13 @@ private:
      */
     int count_vram_nonzero_bank0_tiledata() const;
     int count_vram_nonzero_bank0_tilemap() const;
+    
+    /**
+     * Step 0397: Helper para detección mejorada de tiles completos.
+     * Cuenta tiles completos (16 bytes) que tienen al menos 8 bytes no-cero.
+     * Esto identifica tiles reales, no solo bytes sueltos.
+     */
+    int count_complete_nonempty_tiles() const;
     
     /**
      * Step 0395: Diagnóstico Visual: Snapshot del Framebuffer.

@@ -17,6 +17,7 @@ PPU::PPU(MMU* mmu)
     , scanline_rendered_(false)
     , frame_counter_(0)  // Step 0291: Inicializar contador de frames
     , vram_is_empty_(true)  // Step 0330: Inicializar como vacía, se actualizará en el primer frame
+    , vram_has_tiles_(false)  // Step 0397: Inicializar sin tiles, se actualizará en el primer frame
     , framebuffer_front_(FRAMEBUFFER_SIZE, 0)  // Step 0364: Inicializar buffer front a 0 (blanco)
     , framebuffer_back_(FRAMEBUFFER_SIZE, 0)   // Step 0364: Inicializar buffer back a 0 (blanco)
     , framebuffer_swap_pending_(false)          // Step 0364: Inicializar flag de intercambio
@@ -1455,9 +1456,16 @@ void PPU::render_scanline() {
         int tilemap_nonzero = count_vram_nonzero_bank0_tilemap();
         int vram_total_nonzero = tiledata_nonzero + tilemap_nonzero;
         
+        // --- Step 0397: Detección mejorada de tiles completos ---
+        int complete_tiles = count_complete_nonempty_tiles();
+        
         // Actualizar estado de VRAM
         bool old_vram_is_empty = vram_is_empty_;
         vram_is_empty_ = (tiledata_nonzero < 200);
+        
+        // --- Step 0397: Actualizar vram_has_tiles_ unificado ---
+        // Usar doble criterio: bytes no-cero O tiles completos
+        vram_has_tiles_ = (tiledata_nonzero >= 200) || (complete_tiles >= 10);
         
         // --- Step 0394: Transición de Estado del Checkerboard ---
         // Detectar transiciones ON→OFF y OFF→ON
@@ -1482,18 +1490,21 @@ void PPU::render_scanline() {
         }
         // -------------------------------------------
         
-        // --- Step 0394: Métricas VRAM periódicas (cada 120 frames, máx 10 líneas) ---
+        // --- Step 0397: Métricas VRAM periódicas (cada 120 frames, máx 10 líneas) ---
         static int vram_metrics_count = 0;
         if ((frame_counter_ + 1) % 120 == 0 && vram_metrics_count < 10) {
             vram_metrics_count++;
             uint8_t vbk = mmu_->read(0xFF4F);
             printf("[VRAM-REGIONS] Frame %llu | tiledata_nonzero=%d/6144 (%.1f%%) | "
-                   "tilemap_nonzero=%d/2048 (%.1f%%) | vbk=%d | vram_is_empty=%s\n",
+                   "tilemap_nonzero=%d/2048 (%.1f%%) | complete_tiles=%d/384 (%.1f%%) | "
+                   "vbk=%d | vram_is_empty=%s | vram_has_tiles=%s\n",
                    static_cast<unsigned long long>(frame_counter_ + 1),
                    tiledata_nonzero, (tiledata_nonzero * 100.0 / 6144),
                    tilemap_nonzero, (tilemap_nonzero * 100.0 / 2048),
+                   complete_tiles, (complete_tiles * 100.0 / 384),
                    vbk & 1,
-                   vram_is_empty_ ? "YES" : "NO");
+                   vram_is_empty_ ? "YES" : "NO",
+                   vram_has_tiles_ ? "YES" : "NO");
         }
         // -------------------------------------------
         
@@ -1911,70 +1922,30 @@ void PPU::render_scanline() {
     bool signed_addressing = (lcdc & 0x10) == 0;
     uint16_t tile_data_base = signed_addressing ? 0x9000 : 0x8000;
 
-    // --- Step 0325: Verificación CORREGIDA de tiles reales en VRAM ---
-    // Revisar TODO VRAM (0x8000-0x97FF) en lugar de solo los primeros 2048 bytes
-    // Si VRAM está vacía, usar patrón de prueba. Si hay tiles, renderizar normalmente.
-    static bool vram_has_tiles = false;
-    static bool last_vram_has_tiles = false;  // Step 0327: Para detectar cambios
-
-    // --- Step 0327: Verificación Más Frecuente de VRAM ---
-    // Verificar cada 10 frames en lugar de cada 60 para capturar tiles antes de que se limpien
-    if (ly_ == 0 && (frame_counter_ % 10 == 0)) {  // Cada 10 frames (aprox. 6 veces por segundo)
-        uint32_t vram_checksum = 0;
-        int non_zero_bytes = 0;
-        
-        // Verificar TODO VRAM (0x8000-0x97FF = 6144 bytes = 384 tiles)
-        // Esto cubre tanto signed (0x8800-0x97FF) como unsigned (0x8000-0x8FFF) addressing
-        for (uint16_t i = 0; i < 6144; i++) {
-            uint8_t byte = mmu_->read(0x8000 + i);
-            vram_checksum += byte;
-            if (byte != 0x00) {
-                non_zero_bytes++;
-            }
-        }
-        
-        // --- Step 0326: Umbral CORREGIDO de detección de tiles reales ---
-        // Reducir umbral de 500 a 200 bytes (aprox. 12 tiles completos)
-        // 20 tiles = 320 bytes, que debería detectarse fácilmente
-        bool has_tiles_now = (non_zero_bytes > 200);
-        
-        // Loggear siempre el número de bytes no-cero para diagnóstico
-        static int vram_diag_count = 0;
-        if (vram_diag_count < 10) {
-            vram_diag_count++;
-            printf("[PPU-VRAM-DIAG] Frame %llu | Non-zero bytes: %d/6144 | Umbral: 200 | Detectado: %d\n",
-                   static_cast<unsigned long long>(frame_counter_ + 1),
-                   non_zero_bytes, has_tiles_now ? 1 : 0);
-        }
-        
-        // Solo loggear cuando cambia el estado o cuando hay tiles
-        if (has_tiles_now != vram_has_tiles || (has_tiles_now && non_zero_bytes > 0)) {
-            static int vram_frequent_check_count = 0;
-            if (vram_frequent_check_count < 20) {  // Limitar a 20 logs
-                vram_frequent_check_count++;
-                printf("[PPU-VRAM-FREQ] Frame %llu | Non-zero: %d/6144 | Has tiles: %d\n",
-                       static_cast<unsigned long long>(frame_counter_ + 1),
-                       non_zero_bytes, has_tiles_now ? 1 : 0);
-            }
-        }
-        
-        if (has_tiles_now != vram_has_tiles) {
-            vram_has_tiles = has_tiles_now;
-            if (vram_has_tiles) {
-                printf("[PPU-TILES-REAL] Tiles reales detectados en VRAM! (Frame %llu | Non-zero: %d/6144 bytes)\n",
-                       static_cast<unsigned long long>(frame_counter_ + 1), non_zero_bytes);
+    // --- Step 0397: Usar estado unificado vram_has_tiles_ ---
+    // Ya no se usa verificación estática local, se usa vram_has_tiles_ actualizado en render_scanline()
+    // La detección usa helpers dual-bank correctos (count_vram_nonzero_bank0_tiledata, count_complete_nonempty_tiles)
+    
+    // --- Step 0397: Log de detección de tiles cuando cambia el estado ---
+    static bool last_vram_has_tiles = false;
+    if (vram_has_tiles_ != last_vram_has_tiles && ly_ == 0) {
+        static int vram_state_change_count = 0;
+        if (vram_state_change_count < 20) {
+            vram_state_change_count++;
+            if (vram_has_tiles_) {
+                printf("[PPU-TILES-REAL] Tiles reales detectados en VRAM! (Frame %llu)\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1));
             } else {
-                printf("[PPU-TILES-REAL] VRAM vacía, usando patrón de prueba (Frame %llu | Non-zero: %d/6144 bytes)\n",
-                       static_cast<unsigned long long>(frame_counter_ + 1), non_zero_bytes);
+                printf("[PPU-TILES-REAL] VRAM vacía, checkerboard activo (Frame %llu)\n",
+                       static_cast<unsigned long long>(frame_counter_ + 1));
             }
         }
-        // -------------------------------------------
     }
     // -------------------------------------------
     
     // --- Step 0327: Verificación Inmediata del Tilemap Cuando Hay Tiles ---
     // Cuando se detecta que hay tiles, verificar inmediatamente si el tilemap apunta a ellos
-    if (vram_has_tiles && !last_vram_has_tiles && ly_ == 0) {
+    if (vram_has_tiles_ && !last_vram_has_tiles && ly_ == 0) {
         // Tiles recién detectados, verificar tilemap inmediatamente
         printf("[PPU-TILEMAP-IMMEDIATE] Tiles detectados! Verificando tilemap...\n");
         
@@ -2016,7 +1987,7 @@ void PPU::render_scanline() {
     // --- Step 0328: Verificación de Renderizado Cuando Hay Tiles ---
     // Verificar si el renderizado funciona correctamente cuando hay tiles en VRAM
     static bool last_vram_has_tiles_state = false;
-    if (vram_has_tiles && !last_vram_has_tiles_state && ly_ == 0) {
+    if (vram_has_tiles_ && !last_vram_has_tiles_state && ly_ == 0) {
         // Tiles recién detectados, verificar renderizado
         printf("[PPU-RENDER-WITH-TILES] Tiles detectados! Verificando renderizado...\n");
         
@@ -2025,7 +1996,7 @@ void PPU::render_scanline() {
     }
 
     // Verificar framebuffer cuando hay tiles
-    if (vram_has_tiles && ly_ == 72) {
+    if (vram_has_tiles_ && ly_ == 72) {
         static int render_with_tiles_check_count = 0;
         if (render_with_tiles_check_count < 5) {
             render_with_tiles_check_count++;
@@ -2048,14 +2019,14 @@ void PPU::render_scanline() {
         }
     }
 
-    last_vram_has_tiles_state = vram_has_tiles;
-    last_vram_has_tiles = vram_has_tiles;
+    last_vram_has_tiles_state = vram_has_tiles_;
+    last_vram_has_tiles = vram_has_tiles_;
     // -------------------------------------------
 
     // --- Step 0325: Análisis de Correspondencia Tilemap-Tiles ---
     // Verificar si el tilemap apunta a los tiles reales cuando se detectan
     static int tilemap_tiles_analysis_count = 0;
-    if (vram_has_tiles && ly_ == 0 && tilemap_tiles_analysis_count < 5 && (frame_counter_ % 60 == 0)) {
+    if (vram_has_tiles_ && ly_ == 0 && tilemap_tiles_analysis_count < 5 && (frame_counter_ % 60 == 0)) {
         tilemap_tiles_analysis_count++;
         
         // Verificar primeros 32 tile IDs del tilemap
@@ -2097,7 +2068,7 @@ void PPU::render_scanline() {
     
     // --- Step 0327: Análisis de Correspondencia en Tiempo Real ---
     // Cuando se detectan tiles, analizar qué tile IDs deberían apuntar a ellos
-    if (vram_has_tiles && ly_ == 0 && (frame_counter_ % 10 == 0)) {
+    if (vram_has_tiles_ && ly_ == 0 && (frame_counter_ % 10 == 0)) {
         static int correspondence_analysis_count = 0;
         if (correspondence_analysis_count < 5) {
             correspondence_analysis_count++;
@@ -2234,7 +2205,7 @@ void PPU::render_scanline() {
         printf("[FRAME676-DIAG] === DIAGNÓSTICO FRAME 676 ===\n");
         printf("[FRAME676-DIAG] BGP actual: 0x%02X\n", bgp);
         printf("[FRAME676-DIAG] vram_is_empty_: %d\n", vram_is_empty_ ? 1 : 0);
-        printf("[FRAME676-DIAG] vram_has_tiles: %d\n", vram_has_tiles ? 1 : 0);
+        printf("[FRAME676-DIAG] vram_has_tiles: %d\n", vram_has_tiles_ ? 1 : 0);
         printf("[FRAME676-DIAG] LCDC: 0x%02X (BG Enable: %d)\n", 
                lcdc, (lcdc & 0x01) ? 1 : 0);
         printf("[FRAME676-DIAG] Tilemap base: 0x%04X\n", tile_map_base);
@@ -2277,11 +2248,11 @@ void PPU::render_scanline() {
         
         printf("[PPU-TILEMAP-VERIFY] Frame %llu | Tilemap tiene %d/32 tile IDs no-cero | VRAM has tiles: %d\n",
                static_cast<unsigned long long>(frame_counter_ + 1),
-               valid_tile_ids, vram_has_tiles ? 1 : 0);
+               valid_tile_ids, vram_has_tiles_ ? 1 : 0);
         
         if (valid_tile_ids == 0) {
             printf("[PPU-TILEMAP-VERIFY] ⚠️ ADVERTENCIA: Tilemap está vacío");
-            if (vram_has_tiles) {
+            if (vram_has_tiles_) {
                 printf(" aunque hay tiles en VRAM!");
             }
             printf("\n");
@@ -2735,7 +2706,7 @@ void PPU::render_scanline() {
         // --- Step 0325: Verificación de Cálculo de Dirección de Tile ---
         // Verificar que el cálculo de dirección sea correcto para signed/unsigned addressing
         static int tile_addr_verify_count = 0;
-        if (vram_has_tiles && ly_ == 0 && tile_addr_verify_count < 3 && x == 0) {
+        if (vram_has_tiles_ && ly_ == 0 && tile_addr_verify_count < 3 && x == 0) {
             tile_addr_verify_count++;
             
             uint8_t sample_tile_id = mmu_->read(tile_map_base);
@@ -2763,7 +2734,7 @@ void PPU::render_scanline() {
         // --- Step 0324: Verificación de renderizado con tiles reales ---
         // Solo verificar cuando hay tiles reales y en los primeros frames
         static int render_verify_count = 0;
-        if (vram_has_tiles && ly_ == 0 && render_verify_count < 5 && x == 0) {
+        if (vram_has_tiles_ && ly_ == 0 && render_verify_count < 5 && x == 0) {
             // Verificar que el tile ID del tilemap apunta a un tile con datos
             uint8_t sample_tile_id = mmu_->read(tile_map_base);
             uint16_t sample_tile_addr;
@@ -3436,13 +3407,13 @@ void PPU::render_scanline() {
     static bool last_vram_has_tiles_check = false;
 
     // Detectar cuando aparecen tiles reales por primera vez
-    if (vram_has_tiles && !last_vram_has_tiles_check && ly_ == 0) {
+    if (vram_has_tiles_ && !last_vram_has_tiles_check && ly_ == 0) {
         last_vram_has_tiles_check = true;
         framebuffer_content_check_count = 0;
     }
 
     // Verificar el framebuffer cuando hay tiles reales
-    if (vram_has_tiles && framebuffer_content_check_count < 20 && ly_ == 72) {
+    if (vram_has_tiles_ && framebuffer_content_check_count < 20 && ly_ == 72) {
         framebuffer_content_check_count++;
         
         // Contar índices en la línea 72 (línea central)
@@ -3473,7 +3444,7 @@ void PPU::render_scanline() {
     // Verificar si el tilemap apunta a tiles con datos en VRAM
     static int tilemap_tiles_correspondence_count = 0;
 
-    if (vram_has_tiles && tilemap_tiles_correspondence_count < 10 && ly_ == 72) {
+    if (vram_has_tiles_ && tilemap_tiles_correspondence_count < 10 && ly_ == 72) {
         tilemap_tiles_correspondence_count++;
         
         uint16_t tile_map_base = (lcdc & 0x08) ? 0x9C00 : 0x9800;
@@ -3550,7 +3521,7 @@ void PPU::render_scanline() {
     // Verificar si los tiles se renderizan completamente (todas las líneas)
     static int tile_render_complete_check_count = 0;
 
-    if (vram_has_tiles && tile_render_complete_check_count < 10 && ly_ == 72) {
+    if (vram_has_tiles_ && tile_render_complete_check_count < 10 && ly_ == 72) {
         tile_render_complete_check_count++;
         
         // Verificar un tile específico (tile en posición (0, 0) del tilemap)
@@ -3621,7 +3592,7 @@ void PPU::render_scanline() {
     // Verificar que el scroll y el offset se calculan correctamente
     static int scroll_offset_check_count = 0;
 
-    if (vram_has_tiles && scroll_offset_check_count < 10 && ly_ == 72) {
+    if (vram_has_tiles_ && scroll_offset_check_count < 10 && ly_ == 72) {
         scroll_offset_check_count++;
         
         uint8_t scy = mmu_->read(IO_SCY);
@@ -4301,6 +4272,37 @@ int PPU::count_vram_nonzero_bank0_tilemap() const {
     }
     
     return count;
+}
+
+int PPU::count_complete_nonempty_tiles() const {
+    // --- Step 0397: Detección mejorada de tiles completos no-vacíos ---
+    // Itera sobre tiles completos (cada 16 bytes = 1 tile) y verifica que cada tile
+    // tenga al menos 8 bytes no-cero (umbral para considerar un tile "completo").
+    // Esto identifica tiles reales, no solo bytes sueltos en VRAM.
+    //
+    // Fuente: Pan Docs - Tile Data (cada tile = 16 bytes, 2 bytes por línea de 8 píxeles)
+    if (mmu_ == nullptr) {
+        return 0;
+    }
+    
+    int complete_tiles = 0;
+    // Iterar sobre tiles completos en Tile Data (0x8000-0x97FF = 6144 bytes = 384 tiles)
+    for (uint16_t tile_offset = 0; tile_offset < 0x1800; tile_offset += 16) {
+        int tile_nonzero = 0;
+        // Verificar los 16 bytes del tile
+        for (uint8_t i = 0; i < 16; i++) {
+            uint8_t byte = mmu_->read_vram_bank(0, tile_offset + i);
+            if (byte != 0x00) {
+                tile_nonzero++;
+            }
+        }
+        // Considerar tile completo si tiene al menos 8 bytes no-cero (50% del tile)
+        if (tile_nonzero >= 8) {
+            complete_tiles++;
+        }
+    }
+    
+    return complete_tiles;
 }
 
 // --- Step 0395: Diagnóstico Visual: Snapshot del Framebuffer ---

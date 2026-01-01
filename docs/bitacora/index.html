@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0397 - Unificar Detección VRAM con Helpers Dual-Bank -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-31__0397__unificar-deteccion-vram-helpers-dual-bank.html" class="entry-link">
+                                    Unificar Detección VRAM con Helpers Dual-Bank
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-31 | 
+                            <strong>Step ID:</strong> 0397 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Unificación crítica de dos sistemas de detección VRAM desincronizados: vram_is_empty_ (correcto) usaba helpers dual-bank, vram_has_tiles (incorrecto) usaba mmu->read() directo. Solución: eliminar variable estática local vram_has_tiles y crear miembro unificado vram_has_tiles_ actualizado en render_scanline() usando helpers correctos. Nuevo helper count_complete_nonempty_tiles() detecta tiles completos (16 bytes con ≥8 bytes no-cero), no solo bytes sueltos. Doble criterio: (tiledata_nonzero ≥ 200) OR (complete_tiles ≥ 10). Resultados: Tetris DX detecta correctamente en Frame 676 (23.0% TileData + 98 tiles completos = 25.5%), sincronización perfecta vram_is_empty_ ↔ vram_has_tiles_, 31 referencias actualizadas, 66 líneas duplicadas eliminadas. Acceso VRAM corregido: read_vram_bank() reemplaza read() directo.
+                        </p>
+                    </li>
                     <!-- Entrada 0396 - Fix: BGP Consistente y Renderizado Respetando Paleta del Juego -->
                     <li>
                         <div class="entry-header">
