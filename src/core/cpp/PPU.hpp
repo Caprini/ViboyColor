@@ -453,6 +453,13 @@ private:
     int count_vram_nonzero_bank0_tilemap() const;
     
     /**
+     * Step 0408: Helpers para conteo de TileData en VRAM bank 1 (CGB).
+     * Permiten detectar si un juego CGB carga tiles en bank 1.
+     */
+    int count_vram_nonzero_bank1_tiledata() const;
+    int count_complete_nonempty_tiles_bank(int bank) const;
+    
+    /**
      * Step 0397: Helper para detección mejorada de tiles completos.
      * Cuenta tiles completos (16 bytes) que tienen al menos 8 bytes no-cero.
      * Esto identifica tiles reales, no solo bytes sueltos.

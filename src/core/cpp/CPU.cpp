@@ -14,6 +14,7 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       hw_state_samples_(0), hw_state_sample_counter_(0),
       instruction_counter_step382_(0), last_pc_sample_(0xFFFF), pc_repeat_count_(0),
       wait_loop_trace_active_(false), wait_loop_trace_count_(0), wait_loop_detected_(false),
+      waitloop_pc_(0xFFFF), waitloop_iterations_(0),  // Step 0409: Wait-loop detector
       ring_idx_(0), crash_dumped_(false),
       irq_vblank_requests_(0), irq_vblank_services_(0),
       irq_stat_requests_(0), irq_stat_services_(0),
@@ -529,8 +530,37 @@ int CPU::step() {
             uint8_t stat = mmu_->read(0xFF41);
             uint8_t ly = mmu_->read(0xFF44);
             
-            printf("[ZELDA-WAIT] ⚠️ Bucle detectado! PC:0x%04X Bank:%d repetido %d veces\n",
+            printf("[WAITLOOP] ⚠️ Bucle detectado! PC:0x%04X Bank:%d repetido %d veces\n",
                    original_pc, bank, same_pc_streak);
+            
+            // --- Step 0409: Análisis de Wait-Loop (qué condición falta) ---
+            printf("[WAITLOOP] === Análisis de Condiciones ===\n");
+            printf("[WAITLOOP] Estado: AF:0x%04X HL:0x%04X IME:%d\n", af, hl, ime);
+            
+            // Análisis de interrupciones
+            bool interrupts_enabled = ime && (ie & if_reg);
+            printf("[WAITLOOP] Interrupts: %s (IME=%d, IE=0x%02X, IF=0x%02X)\n",
+                   interrupts_enabled ? "PENDING" : "NONE", ime, ie, if_reg);
+            if (interrupts_enabled) {
+                if (ie & if_reg & 0x01) printf("[WAITLOOP]   - VBlank pending\n");
+                if (ie & if_reg & 0x02) printf("[WAITLOOP]   - LCD STAT pending\n");
+                if (ie & if_reg & 0x04) printf("[WAITLOOP]   - Timer pending\n");
+                if (ie & if_reg & 0x08) printf("[WAITLOOP]   - Serial pending\n");
+                if (ie & if_reg & 0x10) printf("[WAITLOOP]   - Joypad pending\n");
+            }
+            
+            // Análisis de LCD (probable polling de LY/STAT)
+            printf("[WAITLOOP] LCD: LCDC=0x%02X, STAT=0x%02X, LY=%d\n", lcdc, stat, ly);
+            bool lcd_on = (lcdc & 0x80);
+            printf("[WAITLOOP]   - LCD %s\n", lcd_on ? "ON" : "OFF");
+            printf("[WAITLOOP]   - STAT Mode=%d\n", stat & 0x03);
+            
+            // Detección de posible polling de RTC (MBC3)
+            // Nota: No podemos saber si se está leyendo RTC sin instrumentar,
+            // pero lo reportamos como posibilidad si hay reads a 0xA000-0xBFFF
+            printf("[WAITLOOP] ⚠️ Si este juego usa MBC3+RTC, podría estar esperando RTC\n");
+            printf("[WAITLOOP] (El trazado siguiente mostrará reads a 0xA000+ si los hay)\n");
+            
             printf("[ZELDA-WAIT] Estado: AF:0x%04X HL:0x%04X IME:%d\n", af, hl, ime);
             printf("[ZELDA-WAIT] IE:0x%02X IF:0x%02X LCDC:0x%02X STAT:0x%02X LY:0x%02X\n",
                    ie, if_reg, lcdc, stat, ly);

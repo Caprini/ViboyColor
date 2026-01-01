@@ -63,6 +63,13 @@ MMU::MMU()
     , mbc1_mode_(0)
     , mbc3_rtc_reg_(0)
     , mbc3_latch_ready_(false)
+    , mbc3_latch_value_(0xFF)
+    , rtc_seconds_(0)
+    , rtc_minutes_(0)
+    , rtc_hours_(0)
+    , rtc_day_low_(0)
+    , rtc_day_high_(0)
+    , rtc_start_time_(std::chrono::steady_clock::now())  // Step 0409: RTC start
     , ram_bank_size_(0x2000)
     , ram_bank_count_(0)
     , ram_bank_(0)
@@ -527,8 +534,16 @@ uint8_t MMU::read(uint16_t addr) const {
                 break;
             case MBCType::MBC3:
                 if (mbc3_rtc_reg_ >= 0x08 && mbc3_rtc_reg_ <= 0x0C) {
-                    // RTC no implementado todavía
-                    return 0x00;
+                    // --- Step 0409: RTC Read ---
+                    rtc_update();  // Actualizar RTC antes de leer
+                    switch (mbc3_rtc_reg_) {
+                        case 0x08: return rtc_seconds_;
+                        case 0x09: return rtc_minutes_;
+                        case 0x0A: return rtc_hours_;
+                        case 0x0B: return rtc_day_low_;
+                        case 0x0C: return rtc_day_high_;
+                        default:   return 0xFF;
+                    }
                 }
                 bank_index = ram_bank_;
                 break;
@@ -948,16 +963,26 @@ void MMU::write(uint16_t addr, uint8_t value) {
                     update_bank_mapping();
                     return;
                 } else if (addr < 0x6000) {
+                    // 0x4000-0x5FFF: RAM Bank / RTC Register select
                     if (value <= 0x03) {
                         ram_bank_ = value & 0x03;
                         mbc3_rtc_reg_ = 0;
                     } else if (value >= 0x08 && value <= 0x0C) {
-                        // RTC registro seleccionado (stub)
+                        // RTC registro seleccionado
                         mbc3_rtc_reg_ = value;
                     }
                     return;
-                } else {  // 0x6000-0x7FFF latch clock (stub)
-                    mbc3_latch_ready_ = (value == 0x01);
+                } else {  
+                    // --- Step 0409: 0x6000-0x7FFF Latch Clock ---
+                    // Secuencia requerida: escribir 0x00, luego 0x01 → captura snapshot RTC
+                    // Fuente: Pan Docs - MBC3, Latch Clock Data
+                    if (mbc3_latch_value_ == 0x00 && value == 0x01) {
+                        rtc_latch();
+                        printf("[RTC] Latch triggered: %02d:%02d:%02d Day=%d\n",
+                               rtc_hours_, rtc_minutes_, rtc_seconds_,
+                               rtc_day_low_ | ((rtc_day_high_ & 0x01) << 8));
+                    }
+                    mbc3_latch_value_ = value;
                     return;
                 }
 
@@ -1001,7 +1026,20 @@ void MMU::write(uint16_t addr, uint8_t value) {
                 break;
             case MBCType::MBC3:
                 if (mbc3_rtc_reg_ >= 0x08 && mbc3_rtc_reg_ <= 0x0C) {
-                    // RTC no implementado
+                    // --- Step 0409: RTC Write ---
+                    switch (mbc3_rtc_reg_) {
+                        case 0x08: rtc_seconds_ = value; break;
+                        case 0x09: rtc_minutes_ = value; break;
+                        case 0x0A: rtc_hours_ = value; break;
+                        case 0x0B: rtc_day_low_ = value; break;
+                        case 0x0C: 
+                            rtc_day_high_ = value;
+                            // Si se setea HALT (bit 6), actualizar start_time para "congelar" el reloj
+                            if (value & 0x40) {
+                                rtc_start_time_ = std::chrono::steady_clock::now();
+                            }
+                            break;
+                    }
                     return;
                 }
                 bank_index = ram_bank_;
@@ -2285,34 +2323,55 @@ void MMU::load_rom(const uint8_t* data, size_t size) {
     size_t bank0_size = (size > 0x4000) ? 0x4000 : size;
     std::memcpy(memory_.data(), data, bank0_size);
 
+    // --- Step 0409: Header & MBC Detection Logging ---
     // Leer Header para detectar tipo de cartucho / tamaños
     uint8_t cart_type = (size > 0x0147) ? data[0x0147] : 0x00;
     uint8_t rom_size_code = (size > 0x0148) ? data[0x0148] : 0x00;
     uint8_t ram_size_code = (size > 0x0149) ? data[0x0149] : 0x00;
-    
-    // --- Step 0404: Detección automática de modo CGB ---
-    // Byte 0x0143 del header indica compatibilidad CGB
-    // - 0x80: CGB funcionalidad (funciona en DMG también)
-    // - 0xC0: CGB only (solo funciona en CGB)
-    // - Otros valores: DMG only
-    // Fuente: Pan Docs - "Cartridge Header", "0143 - CGB Flag"
     uint8_t cgb_flag = (size > 0x0143) ? data[0x0143] : 0x00;
+    
+    // Extraer título de la ROM (0x0134-0x0143, sanitizado)
+    char title[17] = {0};
+    for (int i = 0; i < 16 && (0x0134 + i) < size; ++i) {
+        uint8_t c = data[0x0134 + i];
+        // Sanitizar: solo ASCII imprimible o espacio
+        title[i] = (c >= 0x20 && c <= 0x7E) ? c : '.';
+        if (c == 0x00) break;  // Fin de título
+    }
+    
+    // Detectar modo CGB (0x80 o 0xC0 = CGB compatible/only)
     bool is_cgb_rom = (cgb_flag == 0x80 || cgb_flag == 0xC0);
+    
+    // Configurar MBC y hardware mode
+    configure_mbc_from_header(cart_type, rom_size_code, ram_size_code);
+    update_bank_mapping();
     
     if (is_cgb_rom) {
         set_hardware_mode(HardwareMode::CGB);
-        printf("[MMU] ROM CGB detectada (flag=0x%02X). Modo hardware: CGB\n", cgb_flag);
     } else {
         set_hardware_mode(HardwareMode::DMG);
-        printf("[MMU] ROM DMG detectada (flag=0x%02X). Modo hardware: DMG\n", cgb_flag);
     }
-    // -------------------------------------------
-
-    configure_mbc_from_header(cart_type, rom_size_code, ram_size_code);
-    update_bank_mapping();
-
-    printf("[MBC] ROM loaded: %zu bytes (%zu banks) | Type: 0x%02X\n",
-           size, rom_bank_count_, cart_type);
+    
+    // Mapear MBC type a string
+    const char* mbc_name = "UNKNOWN";
+    switch (mbc_type_) {
+        case MBCType::ROM_ONLY: mbc_name = "ROM_ONLY"; break;
+        case MBCType::MBC1:     mbc_name = "MBC1"; break;
+        case MBCType::MBC2:     mbc_name = "MBC2"; break;
+        case MBCType::MBC3:     mbc_name = "MBC3"; break;
+        case MBCType::MBC5:     mbc_name = "MBC5"; break;
+    }
+    
+    // Log completo del header y MBC detectado
+    printf("[MBC] ========== ROM HEADER INFO ==========\n");
+    printf("[MBC] Title:         \"%s\"\n", title);
+    printf("[MBC] Cart Type:     0x%02X\n", cart_type);
+    printf("[MBC] CGB Flag:      0x%02X (%s)\n", cgb_flag, is_cgb_rom ? "CGB" : "DMG");
+    printf("[MBC] ROM Size Code: 0x%02X\n", rom_size_code);
+    printf("[MBC] RAM Size Code: 0x%02X\n", ram_size_code);
+    printf("[MBC] Detected MBC:  %s\n", mbc_name);
+    printf("[MBC] ROM Banks:     %zu (%zu bytes total)\n", rom_bank_count_, size);
+    printf("[MBC] =====================================\n");
     
     // --- Step 0355: Verificación de Carga de Datos Iniciales desde la ROM ---
     // Verificar el estado de VRAM después de cargar la ROM
@@ -2446,6 +2505,7 @@ void MMU::configure_mbc_from_header(uint8_t cart_type, uint8_t rom_size_code, ui
     mbc1_mode_ = 0;
     mbc3_rtc_reg_ = 0;
     mbc3_latch_ready_ = false;
+    mbc3_latch_value_ = 0xFF;  // Step 0409: Ningún latch previo
     ram_bank_ = 0;
     ram_enabled_ = false;
 
@@ -2496,6 +2556,51 @@ void MMU::allocate_ram_from_header(uint8_t ram_size_code) {
     } else {
         ram_data_.assign(ram_bank_size_ * ram_bank_count_, 0);
     }
+}
+
+// --- Step 0409: Implementación RTC (MBC3) ---
+// Fuente: Pan Docs - MBC3, Real Time Clock
+
+void MMU::rtc_update() const {
+    // Si RTC está halted (bit 6 de rtc_day_high_), no actualizar
+    if (rtc_day_high_ & 0x40) {
+        return;
+    }
+    
+    // Calcular tiempo transcurrido desde rtc_start_time_
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - rtc_start_time_);
+    int64_t total_seconds = elapsed.count();
+    
+    // Convertir a segundos, minutos, horas, días
+    int seconds = (total_seconds % 60);
+    int minutes = ((total_seconds / 60) % 60);
+    int hours = ((total_seconds / 3600) % 24);
+    int days = (total_seconds / 86400);  // 86400 segundos por día
+    
+    rtc_seconds_ = static_cast<uint8_t>(seconds);
+    rtc_minutes_ = static_cast<uint8_t>(minutes);
+    rtc_hours_ = static_cast<uint8_t>(hours);
+    
+    // Days: máximo 9 bits (0-511), después se activa Carry
+    if (days > 511) {
+        days = 511;
+        rtc_day_high_ |= 0x80;  // Activar Day Carry (bit 7)
+    }
+    
+    rtc_day_low_ = static_cast<uint8_t>(days & 0xFF);
+    rtc_day_high_ = (rtc_day_high_ & 0xFE) | ((days >> 8) & 0x01);  // Bit 0 = day bit 8
+}
+
+void MMU::rtc_latch() {
+    // Capturar snapshot actual del RTC
+    // Los juegos leen el snapshot latched para obtener tiempo consistente
+    rtc_update();
+    
+    // NOTA: Los valores ya están en rtc_seconds_, rtc_minutes_, etc.
+    // El latch simplemente "congela" estos valores hasta el próximo latch.
+    // En nuestra implementación simplificada, los valores se actualizan
+    // en cada lectura, pero el latch se requiere para que el juego funcione.
 }
 
 uint16_t MMU::normalize_rom_bank(uint16_t bank) const {

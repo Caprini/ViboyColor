@@ -541,14 +541,15 @@ class Renderer:
         Fuente: Pan Docs - LCD Control Register, Background Tile Map, Window
         """
         
-        # --- Step 0406: CGB RGB Pipeline ---
+        # --- Step 0408: CGB RGB Pipeline (CORRECCIÓN) ---
         # Si rgb_view está disponible, renderizar directamente desde RGB (modo CGB)
         if rgb_view is not None:
             try:
                 import numpy as np
                 
                 # Convertir memoryview RGB888 (69120 bytes) a array numpy
-                # El framebuffer RGB está organizado como [R0,G0,B0, R1,G1,B1, ...]
+                # C++ genera el buffer como: fb_index = y * SCREEN_WIDTH + x
+                # Formato: [R0,G0,B0, R1,G1,B1, ...] row-major (fila por fila)
                 rgb_array = np.frombuffer(rgb_view, dtype=np.uint8)
                 
                 # Verificar tamaño
@@ -556,21 +557,53 @@ class Renderer:
                     logger.warning(f"[Renderer-RGB-CGB] RGB buffer tamaño incorrecto: {len(rgb_array)} (esperado 69120)")
                     return
                 
-                # Reshape a (23040, 3) = (pixels, channels)
-                rgb_pixels = rgb_array.reshape((GB_HEIGHT * GB_WIDTH, 3))
+                # CORRECCIÓN Step 0408: Reshape directamente a (144, 160, 3)
+                # El buffer C++ está en orden row-major: fila 0 completa, fila 1 completa, etc.
+                # Necesitamos (height=144, width=160, channels=3)
+                rgb_array = rgb_array.reshape((GB_HEIGHT, GB_WIDTH, 3))
                 
-                # Reshape a (144, 160, 3) = (height, width, channels)
-                rgb_reshaped = rgb_pixels.reshape((GB_HEIGHT, GB_WIDTH, 3))
+                # Asegurar contiguidad (puede mejorar rendimiento de blit)
+                if not rgb_array.flags['C_CONTIGUOUS']:
+                    rgb_array = np.ascontiguousarray(rgb_array)
                 
-                # Transponer para pygame (width, height, channels)
-                # pygame.surfarray espera (width, height, depth), no (height, width, depth)
-                rgb_transposed = np.transpose(rgb_reshaped, (1, 0, 2))
+                # pygame.surfarray.blit_array() espera (width, height, channels) = (160, 144, 3)
+                # Necesitamos swapaxes(0, 1) para intercambiar height↔width
+                rgb_array_swapped = np.swapaxes(rgb_array, 0, 1)  # (160, 144, 3)
                 
-                # Blit directo a superficie pygame
-                pygame.surfarray.blit_array(self.screen, rgb_transposed)
+                # Verificación acotada (máx 10 frames) de 3 píxeles para debug
+                if not hasattr(self, '_rgb_verify_count'):
+                    self._rgb_verify_count = 0
+                
+                self._rgb_verify_count += 1
+                if self._rgb_verify_count <= 10:
+                    # Verificar píxeles (0,0), (80,72), (159,143)
+                    p1 = rgb_array_swapped[0, 0]  # Top-left
+                    p2 = rgb_array_swapped[80, 72]  # Center
+                    p3 = rgb_array_swapped[159, 143]  # Bottom-right
+                    logger.info(f"[Renderer-RGB-CGB-Verify] Frame {self._rgb_verify_count} | "
+                               f"Pixel(0,0)={tuple(p1)} | Pixel(80,72)={tuple(p2)} | Pixel(159,143)={tuple(p3)}")
+                
+                # Crear superficie base si no existe (160x144)
+                if not hasattr(self, 'surface'):
+                    self.surface = pygame.Surface((GB_WIDTH, GB_HEIGHT))
+                
+                # Blit directo a superficie base (160x144) usando surfarray
+                pygame.surfarray.blit_array(self.surface, rgb_array_swapped)
+                
+                # Escalar la superficie base a la ventana
+                if self.scale != 1:
+                    scaled_surface = pygame.transform.scale(
+                        self.surface,
+                        (self.window_width, self.window_height)
+                    )
+                    self.screen.blit(scaled_surface, (0, 0))
+                else:
+                    self.screen.blit(self.surface, (0, 0))
+                
                 pygame.display.flip()
                 
-                logger.info("[Renderer-RGB-CGB] Frame renderizado correctamente desde RGB888")
+                if self._rgb_verify_count <= 5:
+                    logger.info("[Renderer-RGB-CGB] Frame renderizado correctamente desde RGB888")
                 return
             except Exception as e:
                 logger.error(f"[Renderer-RGB-CGB] Error en renderizado RGB: {e}")

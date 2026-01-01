@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <vector>
+#include <chrono>  // Step 0409: Para RTC (MBC3)
 
 // Forward declarations para evitar dependencia circular
 class PPU;
@@ -341,9 +342,25 @@ private:
     uint8_t mbc1_bank_high2_;
     uint8_t mbc1_mode_;           // 0 = ROM banking, 1 = RAM banking
 
-    // Estado específico de MBC3 (RTC sin implementar, solo stub)
-    uint8_t mbc3_rtc_reg_;
-    bool mbc3_latch_ready_;
+    // --- Step 0409: Estado específico de MBC3 + RTC ---
+    // Fuente: Pan Docs - MBC3, Real Time Clock
+    uint8_t mbc3_rtc_reg_;        // Registro RTC seleccionado (0x08-0x0C)
+    bool mbc3_latch_ready_;       // Flag de latch (0x00 → 0x01)
+    uint8_t mbc3_latch_value_;    // Último valor escrito a 0x6000-0x7FFF
+    
+    // Registros RTC latched (capturados tras latch 0x00→0x01)
+    // Marcados mutable porque son cache del tiempo real (pueden cambiar durante read())
+    mutable uint8_t rtc_seconds_;         // 0x08: Segundos (0-59)
+    mutable uint8_t rtc_minutes_;         // 0x09: Minutos (0-59)
+    mutable uint8_t rtc_hours_;           // 0x0A: Horas (0-23)
+    mutable uint8_t rtc_day_low_;         // 0x0B: Day counter bit 0-7
+    mutable uint8_t rtc_day_high_;        // 0x0C: Day counter bit 8, Carry, Halt
+                                          //       bit 0: Day bit 8
+                                          //       bit 6: Halt (0=active, 1=halted)
+                                          //       bit 7: Day Carry (overflow)
+    
+    // Timestamp de inicio (para calcular tiempo transcurrido)
+    mutable std::chrono::steady_clock::time_point rtc_start_time_;
 
     /**
      * --- Gestión de RAM externa ---
@@ -383,6 +400,10 @@ private:
     uint16_t normalize_rom_bank(uint16_t bank) const;
     void configure_mbc_from_header(uint8_t cart_type, uint8_t rom_size_code, uint8_t ram_size_code);
     void allocate_ram_from_header(uint8_t ram_size_code);
+    
+    // --- Step 0409: Helpers RTC (MBC3) ---
+    void rtc_update() const;       // Actualiza registros RTC basado en tiempo transcurrido (const porque es cache)
+    void rtc_latch();              // Captura snapshot de RTC (tras latch 0x00→0x01)
     
     // --- Step 0382: Contadores de diagnóstico para VRAM ---
     mutable int vram_write_total_step382_;

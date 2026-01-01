@@ -1522,16 +1522,25 @@ void PPU::render_scanline() {
         }
         // -------------------------------------------
         
-        // --- Step 0399: Métricas VRAM periódicas con diversidad y estado jugable ---
+        // --- Step 0408: Métricas VRAM periódicas con soporte dual-bank (CGB) ---
         static int vram_metrics_count = 0;
         if ((frame_counter_ + 1) % 120 == 0 && vram_metrics_count < 10) {
             vram_metrics_count++;
             uint8_t vbk = mmu_->read(0xFF4F);
-            printf("[VRAM-REGIONS] Frame %llu | tiledata_nonzero=%d/6144 (%.1f%%) | "
+            
+            // Step 0408: Contar tiledata en ambos bancos
+            int tiledata_bank1 = count_vram_nonzero_bank1_tiledata();
+            int tiledata_effective = (tiledata_nonzero > tiledata_bank1) ? tiledata_nonzero : tiledata_bank1;
+            
+            printf("[VRAM-REGIONS] Frame %llu | "
+                   "tiledata_bank0=%d/6144 (%.1f%%) | tiledata_bank1=%d/6144 (%.1f%%) | "
+                   "tiledata_effective=%d/6144 (%.1f%%) | "
                    "tilemap_nonzero=%d/2048 (%.1f%%) | unique_tile_ids=%d/256 | "
                    "complete_tiles=%d/384 (%.1f%%) | vbk=%d | gameplay_state=%s\n",
                    static_cast<unsigned long long>(frame_counter_ + 1),
                    tiledata_nonzero, (tiledata_nonzero * 100.0 / 6144),
+                   tiledata_bank1, (tiledata_bank1 * 100.0 / 6144),
+                   tiledata_effective, (tiledata_effective * 100.0 / 6144),
                    tilemap_nonzero, (tilemap_nonzero * 100.0 / 2048),
                    unique_tile_ids,
                    complete_tiles, (complete_tiles * 100.0 / 384),
@@ -4378,7 +4387,7 @@ int PPU::count_unique_tile_ids_in_tilemap() const {
     return unique_count;
 }
 
-// --- Step 0399: Helper para determinar estado jugable ---
+// --- Step 0408: Helper para determinar estado jugable (con soporte CGB dual-bank) ---
 bool PPU::is_gameplay_state() const {
     // Determina si el juego está en estado jugable basado en múltiples métricas.
     // Estado jugable requiere:
@@ -4389,10 +4398,13 @@ bool PPU::is_gameplay_state() const {
     // Si solo se cumplen 1-2 criterios, probablemente es estado de inicialización.
     // Fuente: Observación empírica (Step 0398: Zelda DX en estado de inicialización)
     
-    // Verificar TileData
-    int tiledata_nonzero = count_vram_nonzero_bank0_tiledata();
-    if (tiledata_nonzero < 200) {
-        return false;  // VRAM vacía o casi vacía
+    // Step 0408: Verificar TileData en ambos bancos (CGB puede usar bank 1)
+    int tiledata_bank0 = count_vram_nonzero_bank0_tiledata();
+    int tiledata_bank1 = count_vram_nonzero_bank1_tiledata();
+    int tiledata_effective = (tiledata_bank0 > tiledata_bank1) ? tiledata_bank0 : tiledata_bank1;
+    
+    if (tiledata_effective < 200) {
+        return false;  // VRAM vacía o casi vacía en ambos bancos
     }
     
     // Verificar diversidad de tilemap
@@ -4401,13 +4413,70 @@ bool PPU::is_gameplay_state() const {
         return false;  // Tilemap sin diversidad (estado de inicialización)
     }
     
-    // Verificar tiles completos
-    int complete_tiles = count_complete_nonempty_tiles();
-    if (complete_tiles < 10) {
+    // Verificar tiles completos (considerar bank más poblado)
+    int complete_tiles_bank0 = count_complete_nonempty_tiles();
+    int complete_tiles_bank1 = count_complete_nonempty_tiles_bank(1);
+    int complete_tiles_effective = (complete_tiles_bank0 > complete_tiles_bank1) ? 
+                                     complete_tiles_bank0 : complete_tiles_bank1;
+    
+    if (complete_tiles_effective < 10) {
         return false;  // Pocos tiles completos (datos incompletos)
     }
     
     return true;  // Todas las métricas cumplen → estado jugable
+}
+
+// --- Step 0408: Helpers para métricas TileData por bancos (CGB) ---
+int PPU::count_vram_nonzero_bank1_tiledata() const {
+    // Contar bytes no-cero en TileData de VRAM bank 1 (CGB).
+    // Algunos juegos CGB cargan tiles en bank 1 en lugar de/además de bank 0.
+    // Fuente: Pan Docs - VRAM Banks (CGB Only), VBK register (0xFF4F)
+    if (mmu_ == nullptr) {
+        return 0;
+    }
+    
+    int count = 0;
+    // TileData: 0x8000-0x97FF (offset 0x0000-0x17FF en VRAM) = 6144 bytes
+    for (uint16_t offset = 0x0000; offset < 0x1800; offset++) {
+        uint8_t byte = mmu_->read_vram_bank(1, offset);
+        if (byte != 0x00) {
+            count++;
+        }
+    }
+    
+    return count;
+}
+
+int PPU::count_complete_nonempty_tiles_bank(int bank) const {
+    // Contar tiles completos en un banco específico (0 o 1).
+    // Similar a count_complete_nonempty_tiles() pero para un banco específico.
+    // Un tile "completo" tiene al menos 8 bytes no-cero de sus 16 bytes (50% umbral).
+    // Fuente: Pan Docs - Tile Data (cada tile = 16 bytes, 2 bytes por línea de 8 píxeles)
+    if (mmu_ == nullptr || bank < 0 || bank > 1) {
+        return 0;
+    }
+    
+    int complete_count = 0;
+    
+    // Iterar sobre tiles (384 tiles en 0x8000-0x97FF = 6144 bytes)
+    for (uint16_t tile_offset = 0; tile_offset < 0x1800; tile_offset += 16) {
+        int nonzero_bytes = 0;
+        
+        // Contar bytes no-cero en este tile (16 bytes)
+        for (int byte_idx = 0; byte_idx < 16; byte_idx++) {
+            uint8_t byte = mmu_->read_vram_bank(bank, tile_offset + byte_idx);
+            if (byte != 0x00) {
+                nonzero_bytes++;
+            }
+        }
+        
+        // Considerar "completo" si tiene al menos 8 bytes no-cero (50% umbral)
+        if (nonzero_bytes >= 8) {
+            complete_count++;
+        }
+    }
+    
+    return complete_count;
 }
 
 // --- Step 0395: Diagnóstico Visual: Snapshot del Framebuffer ---

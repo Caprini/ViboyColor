@@ -32,6 +32,42 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0409 - RTC MBC3 + Wait-Loop Diagnóstico + Header Verification -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-01__0409__rtc-mbc3-waitloop-diagnostico-header.html" class="entry-link">
+                                    RTC MBC3 + Wait-Loop Diagnóstico + Header Verification
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-01 | 
+                            <strong>Step ID:</strong> 0409 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de RTC (Real Time Clock) mínimo funcional para MBC3 usando std::chrono, con mecanismo de latch (0x00→0x01) y registros 0x08-0x0C. Creación de detector genérico de wait-loop con análisis automático de MMIO (interrupciones, LCD, RTC) para identificar condiciones faltantes. Añadido logging explícito del header ROM (título, MBC type, CGB flag) para resolver discrepancias de identificación. Tests confirmaron: RTC funciona en Oro.gbc (3 latches), pkmn.gb es MBC3 (no MBC1), y Pokémon no carga tiles por razones NO relacionadas con RTC.
+                        </p>
+                    </li>
+                    <!-- Entrada 0408 - Fix Corrupción CGB RGB + Métricas TileData por Bancos -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-01__0408__fix-cgb-rgb-corrupcion-y-metricas-bank1.html" class="entry-link">
+                                    Fix Corrupción CGB RGB + Métricas TileData por Bancos
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-01 | 
+                            <strong>Step ID:</strong> 0408 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección de corrupción visual CGB (error "array must match surface dimensions") en el pipeline RGB: fix de surfarray.blit_array() usando self.surface (160×144) en lugar de self.screen (escalada), con escalado posterior vía pygame.transform.scale(). Implementación de métricas TileData por bancos: nuevos helpers count_vram_nonzero_bank1_tiledata() y count_complete_nonempty_tiles_bank(bank) para detectar tiles en VRAM bank 1 (CGB). Actualización de [VRAM-REGIONS] para reportar tiledata_bank0, tiledata_bank1 y tiledata_effective=max(bank0,bank1). Modificación de is_gameplay_state() para considerar banco con más datos. Tests: Tetris DX renderizado RGB correcto + sin regresión (gameplay_state=YES, bank0=56.6%, bank1=0%). Oro.gbc confirmado: NO carga tiles en ningún banco (bank0=0%, bank1=0%), problema NO es métricas sino condiciones de hardware no cumplidas.
+                        </p>
+                    </li>
                     <!-- Entrada 0407 - Diagnóstico + Fix: MBC/Banking y Carga de TileData -->
                     <li>
                         <div class="entry-header">

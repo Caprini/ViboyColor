@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix Corrupción CGB RGB + Métricas TileData por Bancos - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Fix Corrupción CGB RGB + Métricas TileData por Bancos</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-01
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0408
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-01__0407__diagnostico-fix-mbc-banking-y-carga-tiledata.html">Anterior (Step 0407)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Corrección de corrupción visual en CGB tras el pipeline RGB (error "array must match surface dimensions") 
+                    y mejora de métricas VRAM para considerar ambos bancos (bank 0 y bank 1) en Game Boy Color. 
+                    Se implementaron helpers duales para conteo de TileData por banco y se actualizó <code>is_gameplay_state()</code> 
+                    para considerar el banco con más datos. Tests con Tetris DX (baseline) y Oro.gbc confirmaron que el fix 
+                    RGB funciona correctamente y que Oro.gbc NO carga tiles en ninguno de los dos bancos.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>VRAM Dual-Bank (CGB)</h3>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - VRAM Banks (CGB Only), VBK Register
+                </p>
+                <p>
+                    Game Boy Color tiene 16KB de VRAM divididos en 2 bancos de 8KB cada uno:
+                </p>
+                <ul>
+                    <li><strong>Banco 0 (0x8000-0x9FFF)</strong>: 
+                        <ul>
+                            <li>TileData (0x8000-0x97FF): 384 tiles × 16 bytes = 6144 bytes</li>
+                            <li>TileMaps (0x9800-0x9FFF): 2 tilemaps de 32×32 = 2048 bytes</li>
+                        </ul>
+                    </li>
+                    <li><strong>Banco 1 (0x8000-0x9FFF)</strong>: 
+                        <ul>
+                            <li>TileData adicional (CGB)</li>
+                            <li>BG Map Attributes (atributos de tiles para el tilemap)</li>
+                        </ul>
+                    </li>
+                </ul>
+                <p>
+                    El registro <strong>VBK (0xFF4F, bit 0)</strong> selecciona el banco activo para lectura/escritura:
+                </p>
+                <ul>
+                    <li><code>VBK = 0</code>: Acceso al banco 0</li>
+                    <li><code>VBK = 1</code>: Acceso al banco 1</li>
+                </ul>
+                
+                <h3>BG Map Attributes (VRAM Bank 1)</h3>
+                <p>
+                    Para cada tile en el tilemap (0x9800-0x9FFF en bank 0), existe un byte de atributos en la misma posición en bank 1:
+                </p>
+                <ul>
+                    <li><strong>Bit 0-2</strong>: Palette number (0-7, selecciona una de las 8 paletas BG)</li>
+                    <li><strong>Bit 3</strong>: Tile VRAM bank (0=Bank 0, 1=Bank 1)</li>
+                    <li><strong>Bit 5</strong>: X-Flip</li>
+                    <li><strong>Bit 6</strong>: Y-Flip</li>
+                    <li><strong>Bit 7</strong>: BG-to-OAM Priority</li>
+                </ul>
+                
+                <h3>Conversión BGR555 → RGB888</h3>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - CGB Registers, Color Palettes
+                </p>
+                <p>
+                    Las paletas CGB usan formato BGR555 (5 bits por canal, 15 bits total, 1 bit sin usar):
+                </p>
+                <ul>
+                    <li><code>Color = GGGRRRRR XBBBBBGG</code> (Little Endian, X = bit sin usar)</li>
+                    <li>Conversión a RGB888:
+                        <ul>
+                            <li><code>R5 = (color >> 0) & 0x1F</code>, <code>R8 = (R5 * 255) / 31</code></li>
+                            <li><code>G5 = (color >> 5) & 0x1F</code>, <code>G8 = (G5 * 255) / 31</code></li>
+                            <li><code>B5 = (color >> 10) & 0x1F</code>, <code>B8 = (B5 * 255) / 31</code></li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Tarea 1: Corrección de render CGB (rgb_view) en Python</h3>
+                <p>
+                    <strong>Problema identificado:</strong> <code>pygame.surfarray.blit_array()</code> recibía un array 
+                    con dimensiones correctas (160, 144, 3) pero se intentaba blit a <code>self.screen</code> (ventana escalada) 
+                    en lugar de <code>self.surface</code> (superficie base 160×144), causando el error 
+                    "array must match surface dimensions".
+                </p>
+                <p>
+                    <strong>Archivo modificado:</strong> <code>src/gpu/renderer.py</code>, función <code>render_frame()</code>
+                </p>
+                <p>
+                    <strong>Solución aplicada:</strong>
+                </p>
+                <ul>
+                    <li>Reshape directo a <code>(144, 160, 3)</code> eliminando paso intermedio innecesario</li>
+                    <li>Swap axes (0, 1) para convertir a <code>(160, 144, 3)</code> que pygame espera</li>
+                    <li>Asegurar contiguidad del array con <code>np.ascontiguousarray()</code></li>
+                    <li>Blit a <code>self.surface</code> (160×144) en lugar de <code>self.screen</code></li>
+                    <li>Escalar <code>self.surface</code> a <code>self.screen</code> con <code>pygame.transform.scale()</code></li>
+                </ul>
+                
+                <h3>Tarea 2: Verificación de timing estable de conversión RGB</h3>
+                <p>
+                    Se verificó que <code>convert_framebuffer_to_rgb()</code> ya se ejecuta correctamente en 
+                    <code>swap_framebuffers()</code> (una vez por frame, después del swap de índices). 
+                    El <code>rgb_view</code> representa un frame completo estable, no una mezcla parcial.
+                    <strong>No se requirieron cambios.</strong>
+                </p>
+                
+                <h3>Tarea 3: Métricas TileData por bancos (CGB)</h3>
+                <p>
+                    <strong>Archivos modificados:</strong>
+                </p>
+                <ul>
+                    <li><code>src/core/cpp/PPU.hpp</code>: Declaraciones de nuevos helpers</li>
+                    <li><code>src/core/cpp/PPU.cpp</code>: Implementaciones de helpers y actualización de métricas</li>
+                </ul>
+                
+                <h4>Nuevos helpers implementados:</h4>
+                <ul>
+                    <li><code>int count_vram_nonzero_bank1_tiledata() const</code>: 
+                        Cuenta bytes no-cero en TileData de VRAM bank 1 (0x8000-0x97FF)</li>
+                    <li><code>int count_complete_nonempty_tiles_bank(int bank) const</code>: 
+                        Cuenta tiles completos (≥8 bytes no-cero) en un banco específico (0 o 1)</li>
+                </ul>
+                
+                <h4>Actualización de métricas [VRAM-REGIONS]:</h4>
+                <p>
+                    Ahora reporta:
+                </p>
+                <pre><code>[VRAM-REGIONS] Frame N | 
+  tiledata_bank0=X/6144 (%.1f%%) | 
+  tiledata_bank1=Y/6144 (%.1f%%) | 
+  tiledata_effective=max(X,Y)/6144 (%.1f%%) | 
+  tilemap_nonzero=Z/2048 (%.1f%%) | 
+  unique_tile_ids=W/256 | 
+  complete_tiles=C/384 (%.1f%%) | 
+  vbk=B | 
+  gameplay_state=YES/NO</code></pre>
+                
+                <h4>Actualización de is_gameplay_state():</h4>
+                <p>
+                    Modificado para considerar el banco con más datos:
+                </p>
+                <pre><code>int tiledata_bank0 = count_vram_nonzero_bank0_tiledata();
+int tiledata_bank1 = count_vram_nonzero_bank1_tiledata();
+int tiledata_effective = max(tiledata_bank0, tiledata_bank1);
+
+if (tiledata_effective < 200) {
+    return false;  // VRAM vacía en ambos bancos
+}</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Corrección pipeline RGB (surfarray dimensions, escalado)</li>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Declaraciones de helpers dual-bank</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementación de helpers + actualización métricas + is_gameplay_state()</li>
+                    <li><code>build_log_step0408.txt</code> - Log de compilación exitosa</li>
+                    <li><code>logs/step0408_tetris_dx_v2.log</code> - Test Tetris DX con métricas dual-bank</li>
+                    <li><code>logs/step0408_oro_v2.log</code> - Test Oro.gbc con métricas dual-bank</li>
+                    <li><code>docs/informe_fase_2/parte_00_steps_0370_0402.md</code> - Documentación del step</li>
+                    <li><code>docs/informe_fase_2/index.md</code> - Actualización de rango de Steps</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualización del índice</li>
+                    <li><code>docs/bitacora/entries/2026-01-01__0408__fix-cgb-rgb-corrupcion-y-metricas-bank1.html</code> - Esta entrada</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                
+                <h3>Compilación</h3>
+                <pre><code>cd /media/fabini/8CD1-4C30/ViboyColor
+python3 setup.py build_ext --inplace > build_log_step0408.txt 2>&1
+# ✅ BUILD SUCCESS</code></pre>
+                
+                <h3>Tests ejecutados</h3>
+                <pre><code>timeout 30s python3 main.py roms/tetris_dx.gbc > logs/step0408_tetris_dx_v2.log 2>&1
+timeout 30s python3 main.py roms/Oro.gbc > logs/step0408_oro_v2.log 2>&1</code></pre>
+                
+                <h3>Resultados - Tetris DX (baseline)</h3>
+                <ul>
+                    <li><strong>✅ Renderizado RGB:</strong> Sin errores, frames renderizados correctamente</li>
+                    <li><strong>✅ TileData:</strong> bank0=56.6% (frame 840+), bank1=0% (no usado)</li>
+                    <li><strong>✅ Gameplay state:</strong> YES detectado correctamente (frame 720+)</li>
+                    <li><strong>✅ Sin regresión:</strong> Funcionamiento perfecto</li>
+                </ul>
+                <pre><code>[Renderer-RGB-CGB] Frame renderizado correctamente desde RGB888
+[VRAM-REGIONS] Frame 840 | 
+  tiledata_bank0=3479/6144 (56.6%) | tiledata_bank1=0/6144 (0.0%) | 
+  tiledata_effective=3479/6144 (56.6%) | 
+  tilemap_nonzero=2012/2048 (98.2%) | unique_tile_ids=185/256 | 
+  complete_tiles=253/384 (65.9%) | vbk=0 | gameplay_state=YES</code></pre>
+                
+                <h3>Resultados - Oro.gbc (objetivo)</h3>
+                <ul>
+                    <li><strong>✅ Renderizado RGB:</strong> Sin errores, frames renderizados correctamente</li>
+                    <li><strong>❌ TileData:</strong> bank0=0%, bank1=0% (NO carga tiles en ningún banco)</li>
+                    <li><strong>⚠️ Tilemap:</strong> 100% lleno pero unique_tile_ids=1 (todos apuntan al mismo ID)</li>
+                    <li><strong>❌ Gameplay state:</strong> NO (condiciones de hardware no cumplidas)</li>
+                </ul>
+                <pre><code>[Renderer-RGB-CGB] Frame renderizado correctamente desde RGB888
+[VRAM-REGIONS] Frame 1200 | 
+  tiledata_bank0=0/6144 (0.0%) | tiledata_bank1=0/6144 (0.0%) | 
+  tiledata_effective=0/6144 (0.0%) | 
+  tilemap_nonzero=2048/2048 (100.0%) | unique_tile_ids=1/256 | 
+  complete_tiles=0/384 (0.0%) | vbk=0 | gameplay_state=NO</code></pre>
+                
+                <h3>Verificación de módulo compilado</h3>
+                <p>
+                    <strong>✅ Validación de módulo compilado C++:</strong> Los nuevos helpers 
+                    <code>count_vram_nonzero_bank1_tiledata()</code> y <code>count_complete_nonempty_tiles_bank()</code> 
+                    se ejecutan correctamente desde Python vía Cython. Las métricas se reportan en logs sin errores.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li><strong>Pan Docs - VRAM Banks (CGB Only)</strong>: 
+                        <a href="https://gbdev.io/pandocs/VRAM_Banks.html">https://gbdev.io/pandocs/VRAM_Banks.html</a></li>
+                    <li><strong>Pan Docs - VBK Register (0xFF4F)</strong>: 
+                        <a href="https://gbdev.io/pandocs/Video_Registers.html#ff4f--vbk-cgb-mode-only-vram-bank">https://gbdev.io/pandocs/Video_Registers.html</a></li>
+                    <li><strong>Pan Docs - CGB Registers, Color Palettes</strong>: 
+                        <a href="https://gbdev.io/pandocs/Palettes.html">https://gbdev.io/pandocs/Palettes.html</a></li>
+                    <li><strong>Pan Docs - BG Map Attributes</strong>: 
+                        <a href="https://gbdev.io/pandocs/Tile_Maps.html#bg-map-attributes-cgb-mode-only">https://gbdev.io/pandocs/Tile_Maps.html</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>VRAM Dual-Bank:</strong> CGB tiene 2 bancos de 8KB. Bank 0 contiene TileData y TileMaps, 
+                            Bank 1 contiene TileData adicional y BG attributes.</li>
+                        <li><strong>BG Map Attributes:</strong> Cada tile del tilemap tiene atributos en bank 1 que indican 
+                            paleta, banco VRAM, flips y prioridad.</li>
+                        <li><strong>Pipeline RGB en Pygame:</strong> <code>surfarray.blit_array()</code> requiere blit a 
+                            superficie base (160×144), no a ventana escalada.</li>
+                        <li><strong>Métricas efectivas:</strong> En CGB, se debe considerar el banco con más datos 
+                            (max(bank0, bank1)) para determinar si hay tiles válidos.</li>
+                    </ul>
+
+                    <h3>Lo que Confirmé</h3>
+                    <ul>
+                        <li><strong>Fix RGB exitoso:</strong> El error "array must match surface dimensions" se resolvió 
+                            usando <code>self.surface</code> + escalado posterior.</li>
+                        <li><strong>Oro.gbc confirmado:</strong> NO es un problema de banking ni de métricas. El juego 
+                            simplemente NO carga tiles en ningún banco (bank0=0%, bank1=0%).</li>
+                        <li><strong>Sin regresión:</strong> Tetris DX funciona perfectamente con el nuevo pipeline RGB.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Causa raíz de Oro.gbc:</strong> Por qué el juego no carga tiles. Posibles causas: 
+                            timing VBLANK/STAT incorrecto, stub de RTC incompleto, wait loops no cumplidos, rutinas 
+                            de descompresión fallidas.</li>
+                        <li><strong>Otros juegos CGB:</strong> Verificar con otros juegos CGB si las métricas dual-bank 
+                            detectan correctamente tiles en bank 1.</li>
+                    </ul>
+
+                    <h3>Hipótesis</h3>
+                    <ul>
+                        <li><strong>H1 (confirmada):</strong> La corrupción CGB no era por el formato del buffer RGB, 
+                            sino por blit a superficie incorrecta (screen vs surface).</li>
+                        <li><strong>H2 (confirmada):</strong> Oro.gbc NO carga tiles en bank 1. El problema persiste 
+                            del Step 0407.</li>
+                        <li><strong>H3 (pendiente):</strong> Oro.gbc requiere condiciones de hardware específicas no 
+                            cumplidas actualmente (timing, RTC, etc.).</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar condiciones de hardware específicas para Oro.gbc (timing, RTC, wait loops)</li>
+                    <li>[ ] Verificar métricas dual-bank con otros juegos CGB que usen bank 1</li>
+                    <li>[ ] Considerar implementación de RTC (Real-Time Clock) completo para MBC3</li>
+                    <li>[ ] Optimizar rendimiento del pipeline RGB (si es necesario)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

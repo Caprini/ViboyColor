@@ -534,6 +534,11 @@ private:
     uint16_t last_pc_sample_;          // Último PC muestreado
     int pc_repeat_count_;              // Contador de repeticiones del mismo PC
     
+    // --- Step 0409: Wait-Loop Detector Genérico ---
+    uint16_t waitloop_pc_;             // PC del loop detectado
+    int waitloop_iterations_;          // Iteraciones del mismo PC
+    static constexpr int WAITLOOP_THRESHOLD = 5000;  // Umbral de detección
+    
     // ========== Estado de Diagnóstico (Step 0383) ==========
     // Trazado de bucle de espera (Bank 28, PC 0x614D-0x6153)
     bool wait_loop_trace_active_;      // Flag para activar trazado del wait-loop
