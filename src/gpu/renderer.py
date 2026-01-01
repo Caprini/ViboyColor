@@ -509,7 +509,7 @@ class Renderer:
         # Actualizar la pantalla
         pygame.display.flip()
 
-    def render_frame(self, framebuffer_data: bytearray | None = None) -> None:
+    def render_frame(self, framebuffer_data: bytearray | None = None, rgb_view = None) -> None:
         """
         Renderiza un frame completo del Background (fondo) y Window (ventana) de la Game Boy.
         
@@ -518,8 +518,10 @@ class Renderer:
         
         Args:
             framebuffer_data: Opcional. Si se proporciona, usa este bytearray como fuente
-                             de datos en lugar de leer desde la PPU. Esto permite pasar
+                             de datos de índices de color (DMG mode). Esto permite pasar
                              un snapshot inmutable del framebuffer (Step 0219).
+            rgb_view: Opcional (Step 0406). Si se proporciona, usa este memoryview RGB888
+                     directamente (CGB mode). Tamaño esperado: 69120 bytes (160×144×3).
         
         Este método implementa el renderizado básico del Background y Window según la configuración
         del registro LCDC (LCD Control, 0xFF40):
@@ -538,6 +540,44 @@ class Renderer:
         
         Fuente: Pan Docs - LCD Control Register, Background Tile Map, Window
         """
+        
+        # --- Step 0406: CGB RGB Pipeline ---
+        # Si rgb_view está disponible, renderizar directamente desde RGB (modo CGB)
+        if rgb_view is not None:
+            try:
+                import numpy as np
+                
+                # Convertir memoryview RGB888 (69120 bytes) a array numpy
+                # El framebuffer RGB está organizado como [R0,G0,B0, R1,G1,B1, ...]
+                rgb_array = np.frombuffer(rgb_view, dtype=np.uint8)
+                
+                # Verificar tamaño
+                if len(rgb_array) != 69120:
+                    logger.warning(f"[Renderer-RGB-CGB] RGB buffer tamaño incorrecto: {len(rgb_array)} (esperado 69120)")
+                    return
+                
+                # Reshape a (23040, 3) = (pixels, channels)
+                rgb_pixels = rgb_array.reshape((GB_HEIGHT * GB_WIDTH, 3))
+                
+                # Reshape a (144, 160, 3) = (height, width, channels)
+                rgb_reshaped = rgb_pixels.reshape((GB_HEIGHT, GB_WIDTH, 3))
+                
+                # Transponer para pygame (width, height, channels)
+                # pygame.surfarray espera (width, height, depth), no (height, width, depth)
+                rgb_transposed = np.transpose(rgb_reshaped, (1, 0, 2))
+                
+                # Blit directo a superficie pygame
+                pygame.surfarray.blit_array(self.screen, rgb_transposed)
+                pygame.display.flip()
+                
+                logger.info("[Renderer-RGB-CGB] Frame renderizado correctamente desde RGB888")
+                return
+            except Exception as e:
+                logger.error(f"[Renderer-RGB-CGB] Error en renderizado RGB: {e}")
+                import traceback
+                traceback.print_exc()
+                # Fallback: continuar con renderizado normal
+        # -------------------------------------------
         # --- Step 0346: Logs de Diagnóstico al Inicio de render_frame() ---
         # Verificar que render_frame() se ejecuta usando tanto logger como print()
         if not hasattr(self, '_render_frame_entry_debug_count'):

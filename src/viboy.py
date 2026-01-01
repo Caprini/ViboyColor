@@ -1272,8 +1272,21 @@ class Viboy:
                                 print(log_msg, flush=True)
                         # -------------------------------------------
                         
-                        # Pasar la COPIA SEGURA al renderizador
-                        self._renderer.render_frame(framebuffer_data=framebuffer_to_render)
+                        # --- Step 0406: Renderizado CGB RGB vs DMG índices ---
+                        # Detectar modo hardware y decidir qué buffer pasar al renderer
+                        hardware_mode = None
+                        if self._use_cpp and self._mmu is not None:
+                            hardware_mode = self._mmu.get_hardware_mode()
+                        
+                        # Si el modo es CGB, usar el framebuffer RGB
+                        if hardware_mode == "CGB" and self._ppu is not None:
+                            # Obtener RGB view (zero-copy)
+                            rgb_view = self._ppu.get_framebuffer_rgb()
+                            self._renderer.render_frame(rgb_view=rgb_view)
+                        else:
+                            # Modo DMG: usar framebuffer de índices con paleta BGP
+                            self._renderer.render_frame(framebuffer_data=framebuffer_to_render)
+                        # -------------------------------------------
                         
                         # --- Step 0360: Confirmar Lectura del Framebuffer ---
                         # Confirmar que Python terminó de leer y renderizar el framebuffer
