@@ -468,6 +468,32 @@ public:
         }
         return 0xFF;  // Fuera de rango
     }
+    
+    /**
+     * Step 0404: Acceso directo a paletas CGB para el PPU (sin efectos colaterales)
+     * 
+     * El PPU necesita leer las paletas BG y OBJ para renderizar en modo CGB sin
+     * tocar los registros BCPS/OCPS (que tienen autoincremento). Esto permite
+     * renderizado correcto sin afectar el índice de paleta de la CPU.
+     * 
+     * @param index Índice en el array de paleta (0x00-0x3F)
+     * @return Byte de paleta (RGB555 low/high byte)
+     * 
+     * Fuente: Pan Docs - CGB Registers, Background Palettes (FF68-FF69), Object Palettes (FF6A-FF6B)
+     */
+    inline uint8_t read_bg_palette_data(uint8_t index) const {
+        if (index < 0x40) {
+            return bg_palette_data_[index];
+        }
+        return 0xFF;
+    }
+    
+    inline uint8_t read_obj_palette_data(uint8_t index) const {
+        if (index < 0x40) {
+            return obj_palette_data_[index];
+        }
+        return 0xFF;
+    }
 };
 
 #endif // MMU_HPP

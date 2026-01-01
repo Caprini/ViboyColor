@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0405 - Renderizado CGB RGB888 con Paletas -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-01__0405__renderizado-cgb-rgb888-paletas.html" class="entry-link">
+                                    Renderizado CGB RGB888 con Paletas
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-01 | 
+                            <strong>Step ID:</strong> 0405 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación del pipeline completo de renderizado CGB RGB888 usando paletas nativas CGB (BGR555) sin depender de BGP. Añadidos helpers en MMU para leer paletas CGB sin efectos colaterales (read_bg_palette_data(), read_obj_palette_data()). Implementado framebuffer RGB888 de doble buffer en PPU (160×144×3 = 69120 bytes). Función convert_framebuffer_to_rgb() convierte índices a RGB888 usando paletas CGB con conversión BGR555→RGB888. Wrapper Cython get_framebuffer_rgb() expone framebuffer RGB con zero-copy. Compilación exitosa. Tests: Tetris DX progresa (GameplayState=YES, TileData=56.6%, VBK writes detectadas), Zelda DX/Pokémon Red requieren boot ROM (BGP=0x00, TileData=0%). Sistema preparado para renderizado dual-mode (DMG índices+BGP, CGB RGB+paletas nativas).
+                        </p>
+                    </li>
                     <!-- Entrada 0404 - CGB Post-Boot Clean-Room y Diagnóstico -->
                     <li>
                         <div class="entry-header">

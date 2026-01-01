@@ -44,6 +44,8 @@ cdef extern from "PPU.hpp":
         void set_lyc(uint8_t value)
         bool get_frame_ready_and_reset()
         uint8_t* get_framebuffer_ptr()
+        uint8_t* get_framebuffer_rgb_ptr()  # Step 0404: Framebuffer RGB888 para CGB
         void clear_framebuffer()
         void confirm_framebuffer_read()
+        void convert_framebuffer_to_rgb()  # Step 0404: Conversión índices → RGB
 

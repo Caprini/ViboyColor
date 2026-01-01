@@ -21,6 +21,8 @@ PPU::PPU(MMU* mmu)
     , framebuffer_front_(FRAMEBUFFER_SIZE, 0)  // Step 0364: Inicializar buffer front a 0 (blanco)
     , framebuffer_back_(FRAMEBUFFER_SIZE, 0)   // Step 0364: Inicializar buffer back a 0 (blanco)
     , framebuffer_swap_pending_(false)          // Step 0364: Inicializar flag de intercambio
+    , framebuffer_rgb_front_(FRAMEBUFFER_SIZE * 3, 0)  // Step 0404: Buffer RGB front (69120 bytes)
+    , framebuffer_rgb_back_(FRAMEBUFFER_SIZE * 3, 0)   // Step 0404: Buffer RGB back (69120 bytes)
     , checkerboard_active_(false)               // Step 0394: Inicializar checkerboard como inactivo
     , vram_progression_last_frame_(0)           // Step 0400: Inicializar tracking de progresión
     , vram_progression_tiledata_threshold_(-1)  // Step 0400: Sin threshold detectado
@@ -1219,6 +1221,13 @@ uint8_t* PPU::get_framebuffer_ptr() {
     // --- Step 0364: Doble Buffering ---
     // Devolver el buffer front (estable, no se modifica durante la lectura)
     return framebuffer_front_.data();
+}
+
+uint8_t* PPU::get_framebuffer_rgb_ptr() {
+    // --- Step 0404: Framebuffer RGB888 para modo CGB ---
+    // Devolver el buffer RGB front (estable, no se modifica durante la lectura)
+    // Tamaño: 160 * 144 * 3 = 69120 bytes (R, G, B por píxel)
+    return framebuffer_rgb_front_.data();
 }
 
 void PPU::swap_framebuffers() {
@@ -5029,5 +5038,67 @@ void PPU::analyze_vram_progression() {
            gameplay ? "YES" : "NO");
     
     vram_progression_last_frame_ = current_frame;
+}
+
+void PPU::convert_framebuffer_to_rgb() {
+    // --- Step 0404: Convertir framebuffer de índices a RGB888 usando paletas CGB ---
+    // Fuente: Pan Docs - CGB Registers, Color Palettes
+    //
+    // Formato de paletas CGB:
+    // - 8 paletas BG × 4 colores × 2 bytes = 64 bytes
+    // - Cada color es BGR555: 15 bits (5 bits por canal)
+    // - Color = GGGRRRRR XBBBBBGG (Little Endian, X = unused bit)
+    //
+    // Conversión BGR555 → RGB888:
+    // - R5 = (color >> 0) & 0x1F
+    // - G5 = (color >> 5) & 0x1F
+    // - B5 = (color >> 10) & 0x1F
+    // - R8 = (R5 * 255) / 31
+    // - G8 = (G5 * 255) / 31
+    // - B8 = (B5 * 255) / 31
+    
+    if (mmu_ == nullptr) {
+        return;
+    }
+    
+    // Por ahora, usar paleta 0 de BG para todos los píxeles (simplificado)
+    // TODO (futuro): Leer tile attributes (VRAM bank 1) para determinar qué paleta usar
+    
+    // Leer paleta 0 de BG (4 colores × 2 bytes = 8 bytes)
+    uint16_t cgb_palette[4];
+    for (int i = 0; i < 4; i++) {
+        uint8_t lo = mmu_->read_bg_palette_data(i * 2);
+        uint8_t hi = mmu_->read_bg_palette_data(i * 2 + 1);
+        cgb_palette[i] = lo | (hi << 8);
+    }
+    
+    // Convertir cada píxel del framebuffer de índices a RGB
+    for (size_t i = 0; i < FRAMEBUFFER_SIZE; i++) {
+        // Leer índice de color (0-3) del framebuffer front de índices
+        uint8_t color_index = framebuffer_front_[i];
+        
+        // Clamp índice a rango válido (0-3)
+        if (color_index > 3) {
+            color_index = 0;
+        }
+        
+        // Obtener color CGB (BGR555)
+        uint16_t bgr555 = cgb_palette[color_index];
+        
+        // Extraer componentes BGR555
+        uint8_t r5 = (bgr555 >> 0) & 0x1F;
+        uint8_t g5 = (bgr555 >> 5) & 0x1F;
+        uint8_t b5 = (bgr555 >> 10) & 0x1F;
+        
+        // Convertir a RGB888 (0-255 por canal)
+        uint8_t r8 = (r5 * 255) / 31;
+        uint8_t g8 = (g5 * 255) / 31;
+        uint8_t b8 = (b5 * 255) / 31;
+        
+        // Escribir al framebuffer RGB front (R, G, B)
+        framebuffer_rgb_front_[i * 3 + 0] = r8;  // Red
+        framebuffer_rgb_front_[i * 3 + 1] = g8;  // Green
+        framebuffer_rgb_front_[i * 3 + 2] = b8;  // Blue
+    }
 }
 

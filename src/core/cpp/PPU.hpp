@@ -193,6 +193,19 @@ public:
     uint8_t* get_framebuffer_ptr();
     
     /**
+     * Step 0404: Obtiene un puntero al framebuffer RGB888 para acceso directo desde Cython.
+     * 
+     * El framebuffer RGB888 es un array de uint8_t con valores RGB (0-255 por canal).
+     * Tamaño: 160 * 144 * 3 = 69120 bytes (R, G, B por píxel).
+     * 
+     * Este framebuffer se usa en modo CGB para renderizar con paletas CGB reales (BGR555).
+     * En modo DMG, se puede ignorar y usar el framebuffer de índices con BGP.
+     * 
+     * @return Puntero al primer elemento del framebuffer RGB888
+     */
+    uint8_t* get_framebuffer_rgb_ptr();
+    
+    /**
      * Limpia el framebuffer, estableciendo todos los píxeles a índice 0 (blanco por defecto).
      * 
      * Este método debe llamarse al inicio de cada fotograma para asegurar que el
@@ -336,6 +349,21 @@ private:
     std::vector<uint8_t> framebuffer_front_;  // Buffer que Python lee (estable)
     std::vector<uint8_t> framebuffer_back_;   // Buffer donde C++ escribe (se modifica)
     bool framebuffer_swap_pending_;           // Flag para indicar intercambio pendiente
+    
+    /**
+     * Step 0404: Framebuffer RGB888 para modo CGB
+     * 
+     * framebuffer_rgb_front_: Buffer RGB que Python lee (160*144*3 bytes = 69120 bytes)
+     * framebuffer_rgb_back_: Buffer RGB donde C++ escribe durante renderizado
+     * 
+     * Formato: RGB888 (3 bytes por píxel: R, G, B). Cada canal es 0-255.
+     * Organización: [R0, G0, B0, R1, G1, B1, ..., R23039, G23039, B23039]
+     * 
+     * Se usa en modo CGB para renderizar con paletas CGB reales (BGR555 convertido a RGB888).
+     * En modo DMG, este buffer puede ignorarse (usar framebuffer de índices + BGP).
+     */
+    std::vector<uint8_t> framebuffer_rgb_front_;  // Buffer RGB que Python lee
+    std::vector<uint8_t> framebuffer_rgb_back_;   // Buffer RGB donde C++ escribe
     
     /**
      * Renderiza la línea de escaneo actual (scanline rendering).
@@ -502,6 +530,19 @@ private:
      * Registra evolución de tiledata, tilemap y unique_tile_ids cada 120 frames.
      */
     void analyze_vram_progression();
+    
+    /**
+     * Step 0404: Convierte el framebuffer de índices (0-3) a RGB888 usando paletas CGB.
+     * 
+     * Esta función toma el framebuffer front de índices y lo convierte a RGB888 usando las
+     * paletas CGB almacenadas en la MMU (bg_palette_data_[]). Por ahora, usa un enfoque
+     * simplificado que aplica la paleta 0 de BG a todos los píxeles.
+     * 
+     * TODO (futuro): Leer tile attributes (VRAM bank 1) para determinar qué paleta usar por tile.
+     * 
+     * Fuente: Pan Docs - CGB Registers, Background Palettes (FF68-FF69)
+     */
+    void convert_framebuffer_to_rgb();
     
     /**
      * Step 0400: Variables de tracking para progresión de VRAM.

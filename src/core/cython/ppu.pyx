@@ -198,6 +198,35 @@ cdef class PyPPU:
         
         return view
     
+    def get_framebuffer_rgb(self):
+        """
+        Step 0404: Obtiene el framebuffer RGB888 como un memoryview (Zero-Copy).
+        
+        El framebuffer RGB es un array de 160 * 144 * 3 = 69120 bytes (R, G, B por píxel).
+        Cada píxel tiene 3 bytes: Red (0-255), Green (0-255), Blue (0-255).
+        
+        Este framebuffer se usa en modo CGB para renderizar con paletas CGB reales (BGR555 → RGB888).
+        En modo DMG, se puede ignorar y usar el framebuffer de índices con BGP.
+        
+        El framebuffer está organizado en filas: píxel (y, x) está en índice [(y * 160 + x) * 3].
+        
+        Returns:
+            memoryview de uint8_t 1D con 69120 elementos - Zero-Copy directo a memoria C++.
+            Python puede leer RGB usando [idx*3+0] (R), [idx*3+1] (G), [idx*3+2] (B).
+        """
+        if self._ppu == NULL:
+            # Retornar None si el puntero es NULL
+            return None
+        
+        cdef uint8_t* ptr = self._ppu.get_framebuffer_rgb_ptr()
+        
+        if ptr == NULL:
+            return None
+        
+        cdef unsigned char[:] view = <unsigned char[:144*160*3]>ptr
+        
+        return view
+    
     @property
     def framebuffer(self):
         """
