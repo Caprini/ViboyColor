@@ -33,4 +33,6 @@ cdef extern from "MMU.hpp":
         void setJoypad(Joypad* joypad)
         void request_interrupt(uint8_t bit)
         void load_test_tiles()
+        void set_boot_rom(const uint8_t* data, size_t size)  # Step 0401
+        int is_boot_rom_enabled()  # Step 0401 (devuelve int para evitar problemas de conversión)
 

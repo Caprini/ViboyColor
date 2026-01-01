@@ -216,6 +216,28 @@ public:
      * Registra cambios de LCDC, BGP, IE/IME con frames.
      */
     void log_init_sequence_summary();
+    
+    /**
+     * Step 0401: Boot ROM opcional (provista por el usuario)
+     * 
+     * Permite cargar una Boot ROM real (DMG o CGB) que se mapea en el rango
+     * 0x0000-0x00FF (DMG: 256 bytes) o 0x0000-0x00FF + 0x0200-0x08FF (CGB: 2304 bytes).
+     * 
+     * La Boot ROM se deshabilita al escribir cualquier valor != 0 al registro 0xFF50.
+     * 
+     * @param data Puntero a los datos de la Boot ROM
+     * @param size Tamaño en bytes (256 para DMG, 2304 para CGB)
+     * 
+     * Fuente: Pan Docs - "Boot ROM", "FF50 - BOOT - Boot ROM disable"
+     */
+    void set_boot_rom(const uint8_t* data, size_t size);
+    
+    /**
+     * Step 0401: Verifica si la Boot ROM está activa
+     * 
+     * @return 1 si la Boot ROM está habilitada y mapeada, 0 en caso contrario
+     */
+    int is_boot_rom_enabled() const;
 
 private:
     /**
@@ -354,6 +376,10 @@ private:
     mutable int bgp_change_frame_;      // Frame donde cambió BGP
     mutable int ie_change_frame_;       // Frame donde cambió IE
     mutable bool init_sequence_logged_; // Flag para evitar logs repetidos
+    
+    // --- Step 0401: Boot ROM opcional ---
+    std::vector<uint8_t> boot_rom_;     // Datos de la Boot ROM (256 bytes DMG o 2304 bytes CGB)
+    bool boot_rom_enabled_;             // ¿Boot ROM habilitada? (se deshabilita al escribir FF50)
     
 public:
     /**

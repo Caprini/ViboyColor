@@ -267,6 +267,47 @@ cdef class PyMMU:
         self._mmu.load_test_tiles()
     # --- Fin Step 0298 ---
     
+    # --- Step 0401: Boot ROM opcional ---
+    def set_boot_rom(self, bytes boot_rom_data):
+        """
+        Carga una Boot ROM opcional (provista por el usuario, no incluida en el repo).
+        
+        La Boot ROM se mapea sobre el rango de la ROM del cartucho:
+        - DMG (256 bytes): 0x0000-0x00FF
+        - CGB (2304 bytes): 0x0000-0x00FF + 0x0200-0x08FF
+        
+        La Boot ROM se deshabilita al escribir cualquier valor != 0 al registro 0xFF50.
+        
+        Args:
+            boot_rom_data: Bytes de Python con los datos de la Boot ROM
+                          (256 bytes para DMG, 2304 bytes para CGB)
+        
+        Fuente: Pan Docs - "Boot ROM", "FF50 - BOOT - Boot ROM disable"
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        # Obtener puntero y longitud de los bytes de Python
+        cdef const uint8_t* data_ptr = <const uint8_t*>boot_rom_data
+        cdef size_t data_size = len(boot_rom_data)
+        
+        # Llamar al método C++
+        self._mmu.set_boot_rom(data_ptr, data_size)
+    
+    def is_boot_rom_enabled(self):
+        """
+        Verifica si la Boot ROM está habilitada y mapeada.
+        
+        Returns:
+            1 si la Boot ROM está habilitada, 0 en caso contrario (compatible con bool de Python)
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        # El método C++ ahora devuelve int directamente para evitar problemas de conversión
+        return self._mmu.is_boot_rom_enabled()
+    # --- Fin Step 0401 ---
+    
     # Método para obtener el puntero C++ directamente (forma segura)
     cdef mmu.MMU* get_cpp_ptr(self):
         """

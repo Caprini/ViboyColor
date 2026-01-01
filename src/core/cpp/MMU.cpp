@@ -95,6 +95,7 @@ MMU::MMU()
     , bgp_change_frame_(-1)   // Step 0400: Sin cambio detectado
     , ie_change_frame_(-1)    // Step 0400: Sin cambio detectado
     , init_sequence_logged_(false)  // Step 0400: Sin log inicial
+    , boot_rom_enabled_(false)  // Step 0401: Boot ROM deshabilitada por defecto
 {
     // Step 0390: Inicializar arrays de paletas CGB a 0xFF (valor inicial)
     std::memset(bg_palette_data_, 0xFF, sizeof(bg_palette_data_));
@@ -232,6 +233,26 @@ MMU::~MMU() {
 uint8_t MMU::read(uint16_t addr) const {
     // Asegurar que la dirección esté en el rango válido (0x0000-0xFFFF)
     addr &= 0xFFFF;
+    
+    // --- Step 0401: Boot ROM Mapping ---
+    // Si la Boot ROM está habilitada, mapearla sobre el rango de la ROM del cartucho
+    if (boot_rom_enabled_ && !boot_rom_.empty()) {
+        // DMG Boot ROM: 256 bytes (0x0000-0x00FF)
+        if (boot_rom_.size() == 256 && addr < 0x0100) {
+            return boot_rom_[addr];
+        }
+        // CGB Boot ROM: 2304 bytes (0x0000-0x00FF + 0x0200-0x08FF)
+        else if (boot_rom_.size() == 2304) {
+            if (addr < 0x0100) {
+                return boot_rom_[addr];
+            } else if (addr >= 0x0200 && addr < 0x0900) {
+                // Offset en Boot ROM: primeros 256 bytes están en 0x0000-0x00FF
+                // siguientes 2048 bytes están en 0x0200-0x08FF
+                return boot_rom_[256 + (addr - 0x0200)];
+            }
+        }
+    }
+    // -----------------------------------------
     
     // --- Step 0239: IMPLEMENTACIÓN DE ECHO RAM ---
     // Echo RAM (0xE000-0xFDFF) es un espejo de WRAM (0xC000-0xDDFF)
@@ -764,6 +785,22 @@ void MMU::write(uint16_t addr, uint8_t value) {
             printf("[WAIT-MMIO-WRITE] PC:0x%04X -> Addr(0x%04X) = 0x%02X\n", debug_current_pc, addr, value);
             mmio_write_count_step383++;
         }
+    }
+    // -----------------------------------------
+    
+    // --- Step 0401: Boot ROM Disable (0xFF50) ---
+    // Escribir cualquier valor != 0 al registro 0xFF50 deshabilita la Boot ROM permanentemente
+    // (hasta el próximo reset). Este registro es write-only y se lee como 0xFF.
+    // Fuente: Pan Docs - "FF50 - BOOT - Disable boot ROM"
+    if (addr == 0xFF50) {
+        if (value != 0 && boot_rom_enabled_) {
+            boot_rom_enabled_ = false;
+            printf("[BOOTROM] Boot ROM deshabilitada por escritura a 0xFF50 = 0x%02X | PC:0x%04X\n",
+                   value, debug_current_pc);
+        }
+        // El registro 0xFF50 es write-only y se lee como 0xFF
+        // No lo escribimos en memoria para evitar confusión
+        return;
     }
     // -----------------------------------------
 
@@ -2815,4 +2852,34 @@ void MMU::log_init_sequence_summary() {
     printf("[INIT-SEQUENCE] ========================================\n");
 }
 // --- Fin Step 0400 ---
+
+// --- Step 0401: Boot ROM opcional ---
+void MMU::set_boot_rom(const uint8_t* data, size_t size) {
+    if (data == nullptr || size == 0) {
+        printf("[BOOTROM] Error: datos inválidos (data=%p, size=%zu)\n", 
+               static_cast<const void*>(data), size);
+        return;
+    }
+    
+    // Validar tamaño (256 bytes para DMG, 2304 bytes para CGB)
+    if (size != 256 && size != 2304) {
+        printf("[BOOTROM] Advertencia: tamaño no estándar (%zu bytes). ", size);
+        printf("Esperado: 256 (DMG) o 2304 (CGB)\n");
+        // Aceptar de todos modos para flexibilidad
+    }
+    
+    // Copiar datos de Boot ROM
+    boot_rom_.assign(data, data + size);
+    boot_rom_enabled_ = true;
+    
+    printf("[BOOTROM] Boot ROM cargada: %zu bytes (tipo: %s)\n", 
+           size, 
+           size == 256 ? "DMG" : (size == 2304 ? "CGB" : "Custom"));
+    printf("[BOOTROM] Boot ROM habilitada. Se deshabilitará al escribir 0xFF50.\n");
+}
+
+int MMU::is_boot_rom_enabled() const {
+    return boot_rom_enabled_ ? 1 : 0;
+}
+// --- Fin Step 0401 ---
 

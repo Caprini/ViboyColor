@@ -30,11 +30,19 @@ CoreRegisters::CoreRegisters() :
     h(0x01),
     l(0x4D),
     f(0xB0),  // Flags: Z=1, N=0, H=1, C=1 (0xB0 = 10110000)
-    pc(0x0100),
+    pc(0x0100),  // Step 0401: PC inicia en 0x0100 (skip-boot). Ver nota abajo.
     sp(0xFFFE)
 {
     // Inicialización Post-BIOS completada en la lista de inicialización
     // Estos valores simulan el estado exacto que la Boot ROM deja en la CPU
     // antes de transferir el control al código del cartucho en 0x0100
+    //
+    // --- Step 0401: Boot ROM opcional ---
+    // Si se carga una Boot ROM real, el PC debe ajustarse a 0x0000 DESPUÉS
+    // de crear el core y cargar la Boot ROM. Esto se hace desde el frontend
+    // (Python) o desde el wrapper de Cython antes de iniciar la emulación.
+    // Por defecto (sin Boot ROM), PC = 0x0100 (skip-boot).
+    //
+    // Fuente: Pan Docs - "Boot ROM", "Power Up Sequence"
 }
 

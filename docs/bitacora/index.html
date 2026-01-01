@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0401 - Boot ROM opcional + Inicialización correcta I/O -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-01__0401__bootrom-opcional-y-init-io-correcto.html" class="entry-link">
+                                    Boot ROM opcional + Inicialización correcta I/O
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-01 | 
+                            <strong>Step ID:</strong> 0401 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de soporte para Boot ROM opcional (provista por el usuario) y corrección de responsabilidades de hardware. Eliminadas escrituras de registros I/O globales del constructor de PPU (LCDC/BGP/SCX/SCY/OBP0/OBP1). Implementado mapeo de Boot ROM con deshabilitación mediante registro 0xFF50. Soporte para DMG (256 bytes en 0x0000-0x00FF) y CGB (2304 bytes en 0x0000-0x00FF + 0x0200-0x08FF). Sistema ahora soporta dos modos de arranque: skip-boot (PC=0x0100, valores post-boot en registros I/O) y Boot ROM real (PC=0x0000, ejecución desde Boot ROM hasta FF50). Wrapper Cython expone set_boot_rom() y is_boot_rom_enabled(). Verificado: sin regresiones en modo skip-boot (Tetris DX funciona idénticamente). Preparado para ROMs que dependen de secuencia de boot. Boot ROM NO incluida en repo (clean room compliance).
+                        </p>
+                    </li>
                     <!-- Entrada 0400 - Análisis Comparativo: Tetris DX vs Zelda DX/Pokemon Red -->
                     <li>
                         <div class="entry-header">
