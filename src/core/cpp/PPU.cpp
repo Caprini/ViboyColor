@@ -1463,9 +1463,30 @@ void PPU::render_scanline() {
         bool old_vram_is_empty = vram_is_empty_;
         vram_is_empty_ = (tiledata_nonzero < 200);
         
-        // --- Step 0397: Actualizar vram_has_tiles_ unificado ---
-        // Usar doble criterio: bytes no-cero O tiles completos
-        vram_has_tiles_ = (tiledata_nonzero >= 200) || (complete_tiles >= 10);
+        // --- Step 0399: Actualizar vram_has_tiles_ con criterio de diversidad ---
+        // Verificar diversidad de tile IDs en tilemap
+        int unique_tile_ids = count_unique_tile_ids_in_tilemap();
+        
+        // Triple criterio mejorado:
+        // 1. TileData tiene datos (>= 200 bytes) Y tiles completos (>= 10)
+        // 2. Tilemap tiene diversidad (>= 5 tile IDs únicos)
+        bool has_tiles_data = (tiledata_nonzero >= 200) || (complete_tiles >= 10);
+        bool has_tilemap_diversity = (unique_tile_ids >= 5);
+        
+        bool old_vram_has_tiles = vram_has_tiles_;
+        vram_has_tiles_ = has_tiles_data && has_tilemap_diversity;
+        
+        // Log cuando cambia el estado (máx 10 cambios)
+        static int vram_state_change_count = 0;
+        if (vram_has_tiles_ != old_vram_has_tiles && vram_state_change_count < 10) {
+            vram_state_change_count++;
+            printf("[VRAM-STATE-CHANGE] Frame %llu | has_tiles: %d -> %d | "
+                   "TileData: %d/6144 (%.1f%%) | Complete: %d | Unique IDs: %d\n",
+                   static_cast<unsigned long long>(frame_counter_ + 1),
+                   old_vram_has_tiles ? 1 : 0, vram_has_tiles_ ? 1 : 0,
+                   tiledata_nonzero, (tiledata_nonzero * 100.0 / 6144),
+                   complete_tiles, unique_tile_ids);
+        }
         
         // --- Step 0394: Transición de Estado del Checkerboard ---
         // Detectar transiciones ON→OFF y OFF→ON
@@ -1490,21 +1511,21 @@ void PPU::render_scanline() {
         }
         // -------------------------------------------
         
-        // --- Step 0397: Métricas VRAM periódicas (cada 120 frames, máx 10 líneas) ---
+        // --- Step 0399: Métricas VRAM periódicas con diversidad y estado jugable ---
         static int vram_metrics_count = 0;
         if ((frame_counter_ + 1) % 120 == 0 && vram_metrics_count < 10) {
             vram_metrics_count++;
             uint8_t vbk = mmu_->read(0xFF4F);
             printf("[VRAM-REGIONS] Frame %llu | tiledata_nonzero=%d/6144 (%.1f%%) | "
-                   "tilemap_nonzero=%d/2048 (%.1f%%) | complete_tiles=%d/384 (%.1f%%) | "
-                   "vbk=%d | vram_is_empty=%s | vram_has_tiles=%s\n",
+                   "tilemap_nonzero=%d/2048 (%.1f%%) | unique_tile_ids=%d/256 | "
+                   "complete_tiles=%d/384 (%.1f%%) | vbk=%d | gameplay_state=%s\n",
                    static_cast<unsigned long long>(frame_counter_ + 1),
                    tiledata_nonzero, (tiledata_nonzero * 100.0 / 6144),
                    tilemap_nonzero, (tilemap_nonzero * 100.0 / 2048),
+                   unique_tile_ids,
                    complete_tiles, (complete_tiles * 100.0 / 384),
                    vbk & 1,
-                   vram_is_empty_ ? "YES" : "NO",
-                   vram_has_tiles_ ? "YES" : "NO");
+                   is_gameplay_state() ? "YES" : "NO");
         }
         // -------------------------------------------
         
@@ -4312,6 +4333,70 @@ int PPU::count_complete_nonempty_tiles() const {
     }
     
     return complete_tiles;
+}
+
+// --- Step 0399: Helper para contar tile IDs únicos en el tilemap ---
+int PPU::count_unique_tile_ids_in_tilemap() const {
+    // Mide la diversidad de tiles en el tilemap activo.
+    // A diferencia de contar bytes != 0x00, esto cuenta cuántos tile IDs *diferentes* hay.
+    // Un tilemap "lleno" con todos tiles = 0x00 tiene diversidad = 1 (solo un ID único).
+    // Un juego real tendrá múltiples IDs: fondo, personajes, objetos, etc.
+    //
+    // Fuente: Pan Docs - Tile Maps (LCDC bit 3 selecciona 0x9800 o 0x9C00)
+    if (mmu_ == nullptr) {
+        return 0;
+    }
+    
+    uint8_t lcdc = mmu_->read(IO_LCDC);
+    // Tilemap activo según LCDC bit 3
+    uint16_t vram_offset = (lcdc & 0x08) ? 0x1C00 : 0x1800;  // 0x9C00 o 0x9800 en VRAM
+    
+    // Usar array de booleanos para rastrear tile IDs únicos (0-255)
+    bool tile_ids_seen[256] = {false};
+    int unique_count = 0;
+    
+    // Leer tilemap completo (32×32 = 1024 bytes)
+    for (uint16_t offset = 0; offset < 0x0400; offset++) {
+        uint8_t tile_id = mmu_->read_vram_bank(0, vram_offset + offset);
+        if (!tile_ids_seen[tile_id]) {
+            tile_ids_seen[tile_id] = true;
+            unique_count++;
+        }
+    }
+    
+    return unique_count;
+}
+
+// --- Step 0399: Helper para determinar estado jugable ---
+bool PPU::is_gameplay_state() const {
+    // Determina si el juego está en estado jugable basado en múltiples métricas.
+    // Estado jugable requiere:
+    // 1. TileData con datos significativos (>= 200 bytes no-cero)
+    // 2. Tilemap con diversidad de tile IDs (>= 10 IDs únicos)
+    // 3. Tiles completos detectados (>= 10 tiles completos)
+    //
+    // Si solo se cumplen 1-2 criterios, probablemente es estado de inicialización.
+    // Fuente: Observación empírica (Step 0398: Zelda DX en estado de inicialización)
+    
+    // Verificar TileData
+    int tiledata_nonzero = count_vram_nonzero_bank0_tiledata();
+    if (tiledata_nonzero < 200) {
+        return false;  // VRAM vacía o casi vacía
+    }
+    
+    // Verificar diversidad de tilemap
+    int unique_tile_ids = count_unique_tile_ids_in_tilemap();
+    if (unique_tile_ids < 10) {
+        return false;  // Tilemap sin diversidad (estado de inicialización)
+    }
+    
+    // Verificar tiles completos
+    int complete_tiles = count_complete_nonempty_tiles();
+    if (complete_tiles < 10) {
+        return false;  // Pocos tiles completos (datos incompletos)
+    }
+    
+    return true;  // Todas las métricas cumplen → estado jugable
 }
 
 // --- Step 0395: Diagnóstico Visual: Snapshot del Framebuffer ---

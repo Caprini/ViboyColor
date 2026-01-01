@@ -432,6 +432,21 @@ private:
     int count_complete_nonempty_tiles() const;
     
     /**
+     * Step 0399: Helper para contar tile IDs únicos en el tilemap.
+     * Mide la diversidad de tiles en el tilemap activo (no solo conteo de bytes).
+     * Retorna: número de tile IDs únicos (0-256).
+     * Fuente: Pan Docs - Tile Maps (0x9800-0x9BFF, 0x9C00-0x9FFF).
+     */
+    int count_unique_tile_ids_in_tilemap() const;
+    
+    /**
+     * Step 0399: Helper para determinar si el juego está en estado jugable.
+     * Combina múltiples métricas: TileData con datos + diversidad de tilemap + tiles completos.
+     * Retorna: true si el juego está en estado jugable, false si está en inicialización.
+     */
+    bool is_gameplay_state() const;
+    
+    /**
      * Step 0395: Diagnóstico Visual: Snapshot del Framebuffer.
      * Captura distribución de valores del framebuffer en frames clave.
      */

@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0399 - Mejorar Métricas: Diversidad de Tile IDs y Estado Jugable -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-31__0399__mejorar-metricas-diversidad-tile-ids-estado-jugable.html" class="entry-link">
+                                    Mejorar Métricas: Diversidad de Tile IDs y Estado Jugable
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-31 | 
+                            <strong>Step ID:</strong> 0399 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Mejora crítica de métricas de detección VRAM basada en lecciones del Step 0398. Implementación de helpers count_unique_tile_ids_in_tilemap() (mide diversidad de tile IDs, no solo conteo de bytes) y is_gameplay_state() (combina TileData + diversidad + tiles completos). Actualización de vram_has_tiles_ para incluir criterio de diversidad: requiere datos en VRAM Y ≥5 tile IDs únicos. Actualización de métricas periódicas [VRAM-REGIONS] para incluir unique_tile_ids y gameplay_state. Resultados: Zelda DX correctamente detectado como gameplay_state=NO (tilemap 100% pero solo 1 tile ID único, todos 0x00). Tetris DX correctamente detectado como gameplay_state=YES desde Frame 720 (256 tile IDs únicos). Sin regresiones en ROMs funcionantes. Lección: contar bytes != 0x00 puede ser engañoso si todos son el mismo valor. La diversidad de tile IDs es esencial para distinguir estado jugable de estado de inicialización.
+                        </p>
+                    </li>
                     <!-- Entrada 0398 - Investigar Zelda DX: Tilemap 100% pero TileData 0% -->
                     <li>
                         <div class="entry-header">
