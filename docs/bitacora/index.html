@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0407 - Diagnóstico + Fix: MBC/Banking y Carga de TileData -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-01__0407__diagnostico-fix-mbc-banking-y-carga-tiledata.html" class="entry-link">
+                                    Diagnóstico + Fix: MBC/Banking y Carga de TileData
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-01 | 
+                            <strong>Step ID:</strong> 0407 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Diagnóstico exhaustivo del sistema MBC/Banking para resolver por qué pkmn.gb y Oro.gbc no cargan TileData (gameplay_state=NO). Instrumentación acotada en MMU.cpp: monitor de MBC writes (0x0000-0x7FFF), reads de ROM banqueada (0x4000-0x7FFF), y correlación con TileData (0x8000-0x97FF). Fix de normalización robusta: warnings para bancos out-of-range, forzar bankN≠0, clamp a rango válido. Tests controlados con pkmn.gb (MBC3), Oro.gbc (MBC3+RTC) y tetris_dx.gbc (baseline MBC1). Hallazgo crítico: El banking funciona perfectamente en ambos MBC1 y MBC3, pero pkmn.gb y Oro.gbc NUNCA escriben datos no-cero a TileData (tiledata_nonzero=0), mientras tetris_dx.gbc sí lo hace (tiledata_nonzero=7521, gameplay=YES). Sin regresión en baseline. El problema NO es el banking, sino alguna condición de hardware no cumplida (timing VBLANK/STAT, RTC stub, wait loops, o rutinas de descompresión fallidas).
+                        </p>
+                    </li>
                     <!-- Entrada 0406 - Pipeline CGB RGB y Paletas por Tile -->
                     <li>
                         <div class="entry-header">

@@ -417,17 +417,26 @@ uint8_t MMU::read(uint16_t addr) const {
             if (rom_addr < rom_data_.size()) {
                 uint8_t val = rom_data_[rom_addr];
                 
-                // --- Step 0282: Monitor de lecturas en bancos superiores ---
-                // COMENTADO EN STEP 0283: Optimización de rendimiento para alcanzar 60 FPS
-                // Este log generaba demasiadas líneas y afectaba el rendimiento.
-                /*
+                // --- Step 0407: Monitor acotado de reads de ROM banqueada ---
+                // Reactivado pero con límite estricto para diagnóstico de banking
+                // Solo logueamos cuando hay cambios de banco o en muestra inicial
+                // Fuente: Pan Docs - "ROM Banking"
                 static int bank_read_count = 0;
-                if (bank_read_count < 20) {
-                    printf("[BANK-READ] Read %04X (Bank:%d Offset:%04X) -> %02X en PC:0x%04X\n",
-                           addr, bankN_rom_, (uint16_t)(addr - 0x4000), val, debug_current_pc);
-                    bank_read_count++;
+                static uint16_t last_logged_bank = 0xFFFF;
+                const int BANK_READ_LIMIT = 150;  // Límite para evitar saturación
+                
+                if (bank_read_count < BANK_READ_LIMIT) {
+                    // Loguear: (1) primeras 30 lecturas, (2) cuando bank cambia (primeras 5 de cada bank)
+                    bool should_log = (bank_read_count < 30) || 
+                                     (bankN_rom_ != last_logged_bank && bank_read_count < 100);
+                    
+                    if (should_log) {
+                        printf("[BANK-READ-0407] addr:0x%04X bank:%d offset:0x%04X -> val:0x%02X | PC:0x%04X\n",
+                               addr, bankN_rom_, (uint16_t)(addr - 0x4000), val, debug_current_pc);
+                        bank_read_count++;
+                        last_logged_bank = bankN_rom_;
+                    }
                 }
-                */
                 
                 return val;
             }
@@ -855,11 +864,31 @@ void MMU::write(uint16_t addr, uint8_t value) {
     }
 
     // --- Step 0275: Monitor de Salto de Banco (Bank Watcher) ---
-    // Es posible que el juego cambie de banco y el PC se pierda.
-    // Vamos a loguear cualquier escritura en el área de control del MBC (0x2000-0x3FFF).
-    if (addr >= 0x2000 && addr <= 0x3FFF) {
-        printf("[MBC-WRITE] Cambio de Banco solicitado: 0x%02X en PC:0x%04X (Banco actual: %d)\n", 
-               value, debug_current_pc, get_current_rom_bank());
+    // --- Step 0407: Monitor completo de MBC writes (0x0000-0x7FFF) ---
+    // Instrumentación acotada para diagnosticar problemas de banking en pkmn.gb y Oro.gbc
+    // Fuente: Pan Docs - "Memory Bank Controllers (MBC1/MBC3/MBC5)"
+    if (addr < 0x8000) {
+        static int mbc_write_count = 0;
+        const int MBC_WRITE_LIMIT = 200;  // Límite para evitar saturación
+
+        if (mbc_write_count < MBC_WRITE_LIMIT) {
+            const char* range_name = nullptr;
+            if (addr < 0x2000) {
+                range_name = "RAM-ENABLE";
+            } else if (addr < 0x4000) {
+                range_name = "BANK-LOW";
+            } else if (addr < 0x6000) {
+                range_name = "BANK-HIGH/RAM";
+            } else {
+                range_name = "MODE/LATCH";
+            }
+
+            printf("[MBC-WRITE-0407] %s | addr:0x%04X val:0x%02X | PC:0x%04X | "
+                   "MBC:%d | bank0:%d bankN:%d | mode:%d\n",
+                   range_name, addr, value, debug_current_pc,
+                   static_cast<int>(mbc_type_), bank0_rom_, bankN_rom_, mbc1_mode_);
+            mbc_write_count++;
+        }
     }
     // -----------------------------------------
 
@@ -1930,6 +1959,20 @@ void MMU::write(uint16_t addr, uint8_t value) {
         if (value != 0x00) {
             if (addr >= 0x8000 && addr <= 0x97FF) {
                 vram_tiledata_nonzero_writes_++;
+                
+                // --- Step 0407: Correlación TileData con ROM banking ---
+                // Loguear las primeras escrituras no-cero a TileData para ver
+                // si correlacionan con cambios de banco ROM
+                static int tiledata_correlation_count = 0;
+                const int TILEDATA_CORRELATION_LIMIT = 50;
+                if (tiledata_correlation_count < TILEDATA_CORRELATION_LIMIT) {
+                    printf("[TILEDATA-0407] addr:0x%04X val:0x%02X | PC:0x%04X | "
+                           "bank0:%d bankN:%d | MBC:%d | count:%d\n",
+                           addr, value, debug_current_pc, bank0_rom_, bankN_rom_,
+                           static_cast<int>(mbc_type_), vram_tiledata_nonzero_writes_);
+                    tiledata_correlation_count++;
+                }
+                // -------------------------------------------
             } else if (addr >= 0x9800 && addr <= 0x9FFF) {
                 vram_tilemap_nonzero_writes_++;
             }
@@ -2459,7 +2502,24 @@ uint16_t MMU::normalize_rom_bank(uint16_t bank) const {
     if (rom_bank_count_ == 0) {
         return bank;
     }
+    
+    // --- Step 0407: Normalización robusta con warning para out-of-range ---
+    // Fuente: Pan Docs - "MBC1": Banking modulo rom_bank_count_
+    if (bank >= rom_bank_count_) {
+        static int normalize_warn_count = 0;
+        if (normalize_warn_count < 10) {
+            printf("[MBC-WARN-0407] Banco solicitado %d >= rom_bank_count_ %zu (normalizado a %d)\n",
+                   bank, rom_bank_count_, bank % rom_bank_count_);
+            normalize_warn_count++;
+        }
+    }
+    
     uint16_t normalized = static_cast<uint16_t>(bank % static_cast<uint16_t>(rom_bank_count_));
+    
+    // CRÍTICO: Si el banco normalizado es 0, NO debe usarse en 0x4000-0x7FFF
+    // Esto se maneja en update_bank_mapping(), pero aquí validamos
+    // (update_bank_mapping ya convierte 0 -> 1 para los bits bajos de MBC1)
+    
     return normalized;
 }
 
@@ -2484,6 +2544,19 @@ void MMU::update_bank_mapping() {
                 bank0_rom_ = normalize_rom_bank(static_cast<uint16_t>(high << 5));
                 bankN_rom_ = normalize_rom_bank(static_cast<uint16_t>(low));
             }
+            
+            // --- Step 0407: CRÍTICO - bankN nunca debe ser 0 ---
+            // Si por alguna razón bankN_rom_ resulta 0 después de normalize, forzar a 1
+            // Fuente: Pan Docs - "MBC1": El área 0x4000-0x7FFF nunca debe mapear banco 0
+            if (bankN_rom_ == 0) {
+                bankN_rom_ = 1;
+                static int bankN_zero_fix_count = 0;
+                if (bankN_zero_fix_count < 5) {
+                    printf("[MBC-FIX-0407] bankN_rom_ era 0, forzado a 1 (mode:%d low:%d high:%d)\n",
+                           mbc1_mode_, low, high);
+                    bankN_zero_fix_count++;
+                }
+            }
             break;
         }
 
@@ -2492,12 +2565,22 @@ void MMU::update_bank_mapping() {
             if (bank == 0) bank = 1;
             bank0_rom_ = 0;
             bankN_rom_ = normalize_rom_bank(bank);
+            
+            // --- Step 0407: Asegurar bankN != 0 ---
+            if (bankN_rom_ == 0) {
+                bankN_rom_ = 1;
+            }
             break;
         }
 
         case MBCType::MBC5: {
             bank0_rom_ = 0;
             bankN_rom_ = normalize_rom_bank(current_rom_bank_);
+            
+            // --- Step 0407: MBC5 permite banco 0 en 0x4000-0x7FFF, pero si rom_bank_count==1, forzar ---
+            if (bankN_rom_ == 0 && rom_bank_count_ > 1) {
+                bankN_rom_ = 1;
+            }
             break;
         }
 
@@ -2507,6 +2590,22 @@ void MMU::update_bank_mapping() {
             bank0_rom_ = 0;
             bankN_rom_ = 1;
             break;
+    }
+    
+    // --- Step 0407: Validación post-normalización ---
+    // Asegurar que los bancos estén en el rango válido
+    if (rom_bank_count_ > 0) {
+        if (bank0_rom_ >= rom_bank_count_) {
+            bank0_rom_ = 0;  // Fallback seguro
+        }
+        if (bankN_rom_ >= rom_bank_count_) {
+            bankN_rom_ = 1;  // Fallback seguro
+            static int bankN_clamp_count = 0;
+            if (bankN_clamp_count < 5) {
+                printf("[MBC-CLAMP-0407] bankN_rom_ >= rom_bank_count_, clamped a 1\n");
+                bankN_clamp_count++;
+            }
+        }
     }
 
     // --- Step 0282: Auditoría de índices de bancos ---
