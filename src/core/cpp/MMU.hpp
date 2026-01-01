@@ -445,6 +445,9 @@ private:
     mutable int irq_req_joypad_count_;          // Total de requests Joypad (bit 4)
     mutable int irq_req_summary_count_;         // Contador de resúmenes periódicos (cada N frames)
     
+    // --- Step 0412: Contadores de writes a paletas CGB ---
+    mutable int palette_write_log_count_;       // Contador de logs de writes a paletas (primeras N)
+    
     // --- Step 0385: Flags de trazado de wait-loop y VBlank ISR ---
     mutable bool waitloop_trace_active_;
     mutable bool vblank_isr_trace_active_;

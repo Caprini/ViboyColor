@@ -815,17 +815,35 @@ class Viboy:
         # Step 0381: Acciones más tempranas para verificar progreso del juego
         simulated_actions: list[tuple[int, str, str]] = []
         if simulate_input:
+            # Step 0412: Simulación de input más agresiva y con repeticiones
             simulated_actions = [
-                (60, "start", "press"),     # 1 segundo: Presionar START
-                (90, "start", "release"),   # 1.5 segundos: Soltar START
-                (120, "a", "press"),        # 2 segundos: Presionar A
-                (150, "a", "release"),      # 2.5 segundos: Soltar A
+                # Primera secuencia: START + A (frames 60-150)
+                (60, "start", "press"),     # 1.0s: Presionar START
+                (90, "start", "release"),   # 1.5s: Soltar START
+                (120, "a", "press"),        # 2.0s: Presionar A
+                (150, "a", "release"),      # 2.5s: Soltar A
+                # Segunda secuencia: START + A (frames 360-450, ~6s)
+                (360, "start", "press"),    # 6.0s: Presionar START (repetir)
+                (390, "start", "release"),  # 6.5s: Soltar START
+                (420, "a", "press"),        # 7.0s: Presionar A (repetir)
+                (450, "a", "release"),      # 7.5s: Soltar A
+                # Tercera secuencia: START + A (frames 660-750, ~11s)
+                (660, "start", "press"),    # 11.0s: Presionar START (repetir)
+                (690, "start", "release"),  # 11.5s: Soltar START
+                (720, "a", "press"),        # 12.0s: Presionar A (repetir)
+                (750, "a", "release"),      # 12.5s: Soltar A
+                # Cuarta secuencia: START + A (frames 960-1050, ~16s)
+                (960, "start", "press"),    # 16.0s: Presionar START (repetir)
+                (990, "start", "release"),  # 16.5s: Soltar START
+                (1020, "a", "press"),       # 17.0s: Presionar A (repetir)
+                (1050, "a", "release"),     # 17.5s: Soltar A
             ]
-            print("🎮 [Step 0381] Modo de simulación de entrada activado (acciones tempranas)")
-            print("   Acciones programadas:")
-            for frames, button, action in simulated_actions:
-                seconds = frames / 60.0
-                print(f"   - {seconds:.1f}s: {action.upper()} {button.upper()}")
+            print("🎮 [Step 0412] Modo de simulación de entrada activado (agresivo + repeticiones)")
+            print("   Secuencias programadas:")
+            print("   - Secuencia 1 (1.0s-2.5s): START + A")
+            print("   - Secuencia 2 (6.0s-7.5s): START + A")
+            print("   - Secuencia 3 (11.0s-12.5s): START + A")
+            print("   - Secuencia 4 (16.0s-17.5s): START + A")
         # --- Fin Step 0381 / Step 0298 ---
         
         print("🚀 Ejecutando el núcleo C++ con bucle de emulación nativo...")

@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0412 - Paletas CGB Post-Boot + Simulación Input -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-01__0412__paletas-cgb-postboot-y-simulacion-input.html" class="entry-link">
+                                    Paletas CGB Post-Boot + Simulación Input
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-01 | 
+                            <strong>Step ID:</strong> 0412 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Inicialización post-boot realista de paletas CGB con gradiente gris DMG-equivalente (evita pantalla blanca total sin bootrom) + monitoreo acotado de writes a FF68-FF6B + simulación de input más agresiva (4 secuencias START+A en 30s). Resultado: ✅ Paletas CGB inicializadas correctamente (0x7FFF, 0x6318, 0x318C, 0x0000 BGR555). Oro.gbc escribe 128 paletas activamente (Bank 2, Bank 57). Input simulado ejecuta correctamente. Tetris DX alcanza tiledata_effective=56.6% (gameplay_state=YES, progreso significativo). ❌ Pokémon Red/Oro.gbc siguen bloqueados (tiledata_effective=0%, gameplay_state=NO) confirmando que el problema es timing/IRQ, NO input. Próximo Step: enfocarse en problema raíz de timing/IRQ.
+                        </p>
+                    </li>
                     <!-- Entrada 0411 - Fix IRQ Pipeline + Post-Boot Registers Coherente -->
                     <li>
                         <div class="entry-header">

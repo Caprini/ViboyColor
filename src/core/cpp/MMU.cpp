@@ -91,6 +91,7 @@ MMU::MMU()
     , irq_req_serial_count_(0)          // Step 0411
     , irq_req_joypad_count_(0)          // Step 0411
     , irq_req_summary_count_(0)         // Step 0411
+    , palette_write_log_count_(0)       // Step 0412
     , waitloop_trace_active_(false)
     , vblank_isr_trace_active_(false)
     , waitloop_mmio_count_(0)
@@ -2176,17 +2177,17 @@ void MMU::write(uint16_t addr, uint8_t value) {
         return;
     }
     
-    // --- Step 0390: Escritura de Paletas CGB (0xFF68-0xFF6B) ---
+    // --- Step 0390/0412: Escritura de Paletas CGB (0xFF68-0xFF6B) ---
     // Fuente: Pan Docs - CGB Registers, Palettes
     if (addr == 0xFF68) {
         // BCPS (BG Color Palette Specification)
         // Bits 0-5: índice (0-0x3F), Bit 7: auto-increment
         bg_palette_index_ = value;
-        static int bcps_write_count = 0;
-        if (bcps_write_count < 30) {
-            printf("[BCPS-WRITE] PC:0x%04X | BCPS <- 0x%02X | Index:%d AutoInc:%d\n",
-                   debug_current_pc, value, value & 0x3F, (value & 0x80) >> 7);
-            bcps_write_count++;
+        // Step 0412: Log limitado de writes a paletas (primeras 200)
+        if (palette_write_log_count_ < 200) {
+            printf("[PALETTE-WRITE] PC:0x%04X Bank:%d | FF68(BCPS) <- 0x%02X | Index:%d AutoInc:%d\n",
+                   debug_current_pc, bankN_rom_, value, value & 0x3F, (value & 0x80) >> 7);
+            palette_write_log_count_++;
         }
         return;
     }
@@ -2195,11 +2196,11 @@ void MMU::write(uint16_t addr, uint8_t value) {
         uint8_t index = bg_palette_index_ & 0x3F;
         bg_palette_data_[index] = value;
         
-        static int bcpd_write_count = 0;
-        if (bcpd_write_count < 80) {
-            printf("[BCPD-WRITE] PC:0x%04X | BCPD[0x%02X] <- 0x%02X\n",
-                   debug_current_pc, index, value);
-            bcpd_write_count++;
+        // Step 0412: Log limitado de writes a paletas (primeras 200)
+        if (palette_write_log_count_ < 200) {
+            printf("[PALETTE-WRITE] PC:0x%04X Bank:%d | FF69(BCPD)[0x%02X] <- 0x%02X | Pal:%d Color:%d\n",
+                   debug_current_pc, bankN_rom_, index, value, index / 8, (index % 8) / 2);
+            palette_write_log_count_++;
         }
         
         // Auto-increment si bit 7 de BCPS está activo
@@ -2211,11 +2212,11 @@ void MMU::write(uint16_t addr, uint8_t value) {
     if (addr == 0xFF6A) {
         // OCPS (OBJ Color Palette Specification)
         obj_palette_index_ = value;
-        static int ocps_write_count = 0;
-        if (ocps_write_count < 30) {
-            printf("[OCPS-WRITE] PC:0x%04X | OCPS <- 0x%02X | Index:%d AutoInc:%d\n",
-                   debug_current_pc, value, value & 0x3F, (value & 0x80) >> 7);
-            ocps_write_count++;
+        // Step 0412: Log limitado de writes a paletas (primeras 200)
+        if (palette_write_log_count_ < 200) {
+            printf("[PALETTE-WRITE] PC:0x%04X Bank:%d | FF6A(OCPS) <- 0x%02X | Index:%d AutoInc:%d\n",
+                   debug_current_pc, bankN_rom_, value, value & 0x3F, (value & 0x80) >> 7);
+            palette_write_log_count_++;
         }
         return;
     }
@@ -2224,11 +2225,11 @@ void MMU::write(uint16_t addr, uint8_t value) {
         uint8_t index = obj_palette_index_ & 0x3F;
         obj_palette_data_[index] = value;
         
-        static int ocpd_write_count = 0;
-        if (ocpd_write_count < 80) {
-            printf("[OCPD-WRITE] PC:0x%04X | OCPD[0x%02X] <- 0x%02X\n",
-                   debug_current_pc, index, value);
-            ocpd_write_count++;
+        // Step 0412: Log limitado de writes a paletas (primeras 200)
+        if (palette_write_log_count_ < 200) {
+            printf("[PALETTE-WRITE] PC:0x%04X Bank:%d | FF6B(OCPD)[0x%02X] <- 0x%02X | Pal:%d Color:%d\n",
+                   debug_current_pc, bankN_rom_, index, value, index / 8, (index % 8) / 2);
+            palette_write_log_count_++;
         }
         
         // Auto-increment si bit 7 de OCPS está activo
@@ -3357,6 +3358,43 @@ void MMU::initialize_io_registers() {
         memory_[0xFF53] = 0xFF; // HDMA3: Destination High (inactivo)
         memory_[0xFF54] = 0xFF; // HDMA4: Destination Low (inactivo)
         memory_[0xFF55] = 0xFF; // HDMA5: Length/Mode/Start (inactivo)
+        
+        // --- Step 0412: Inicialización post-boot realista de paletas CGB ---
+        // Sin bootrom real, inicializamos las paletas a un gradiente gris determinista
+        // (equivalente a DMG) para evitar pantalla blanca total.
+        // Clean-room: NO pretende copiar la bootrom, solo evita estado basura.
+        // Fuente: Pan Docs - CGB Registers, Background Palettes (FF68-FF69), Object Palettes (FF6A-FF6B)
+        
+        // Gradiente gris DMG-equivalente en BGR555:
+        // Color 0 (Blanco): RGB(255,255,255) → BGR555 = 0x7FFF
+        // Color 1 (Gris claro): RGB(192,192,192) → BGR555 = 0x6318
+        // Color 2 (Gris oscuro): RGB(96,96,96) → BGR555 = 0x318C
+        // Color 3 (Negro): RGB(0,0,0) → BGR555 = 0x0000
+        
+        // Paleta 0 (más usada): Gradiente gris completo
+        const uint16_t dmg_gray[4] = {0x7FFF, 0x6318, 0x318C, 0x0000};
+        
+        // Inicializar las 8 paletas BG con el gradiente gris
+        for (int pal = 0; pal < 8; pal++) {
+            for (int color = 0; color < 4; color++) {
+                int idx = pal * 8 + color * 2;
+                uint16_t bgr555 = dmg_gray[color];
+                bg_palette_data_[idx + 0] = bgr555 & 0xFF;        // Low byte
+                bg_palette_data_[idx + 1] = (bgr555 >> 8) & 0xFF; // High byte
+            }
+        }
+        
+        // Inicializar las 8 paletas OBJ con el gradiente gris
+        for (int pal = 0; pal < 8; pal++) {
+            for (int color = 0; color < 4; color++) {
+                int idx = pal * 8 + color * 2;
+                uint16_t bgr555 = dmg_gray[color];
+                obj_palette_data_[idx + 0] = bgr555 & 0xFF;        // Low byte
+                obj_palette_data_[idx + 1] = (bgr555 >> 8) & 0xFF; // High byte
+            }
+        }
+        
+        printf("[MMU-PALETTE-INIT] CGB paletas inicializadas con gradiente gris DMG-equivalente (post-boot stub)\n");
     }
 
     // ===== Sonido (APU) - Valores iniciales =====
