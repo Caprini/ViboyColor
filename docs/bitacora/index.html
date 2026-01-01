@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0398 - Investigar Zelda DX: Tilemap 100% pero TileData 0% -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2025-12-31__0398__investigar-zelda-dx-tilemap-sin-tiles.html" class="entry-link">
+                                    Investigar Zelda DX: Tilemap 100% pero TileData 0%
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2025-12-31 | 
+                            <strong>Step ID:</strong> 0398 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Investigación del comportamiento inusual de Zelda DX: tilemap 100% lleno pero TileData 0% vacío. Implementación de diagnósticos especializados: analyze_tilemap_tile_ids() (análisis de tile IDs únicos y verificación dual-bank), check_dma_hdma_activity() (detección DMA/HDMA), analyze_load_timing() (rastreo temporal de carga). Causa raíz identificada: tilemap "lleno" con 1024/1024 tiles no-cero pero 0 tile IDs únicos → todos son 0x00 (estado de inicialización). VRAM completamente vacía: 0.00% en Bank 0 y Bank 1, rangos 0x8000-0x8FFF y 0x8800-0x97FF. Timing: tilemap detectado en Frame 1, TileData nunca se carga (2000 frames). HDMA inactivo (registros 0xFF). Conclusión: Zelda DX en estado de inicialización, no jugable. Métrica "Tilemap 100%" del Step 0397 engañosa: contaba bytes ≠ 0x00 pero no verificaba diversidad de tile IDs. Lección: verificar diversidad, no solo existencia.
+                        </p>
+                    </li>
                     <!-- Entrada 0397 - Unificar Detección VRAM con Helpers Dual-Bank -->
                     <li>
                         <div class="entry-header">

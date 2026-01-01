@@ -1775,6 +1775,15 @@ void PPU::render_scanline() {
     }
     // -------------------------------------------
     
+    // --- Step 0398: Análisis de Zelda DX Tilemap sin TileData ---
+    // Ejecutar análisis en Frame 1080 (cuando se reporta tilemap 100% pero TileData 0%)
+    if (ly_ == 0) {
+        analyze_tilemap_tile_ids();  // Tarea 1 & 2: Análisis de tile IDs y verificación de bancos VRAM
+        check_dma_hdma_activity();   // Tarea 3: Verificación de DMA/HDMA
+        analyze_load_timing();        // Tarea 4: Análisis de timing de carga
+    }
+    // -------------------------------------------
+    
     // --- Step 0313: Logs de diagnóstico LCDC y BGP ---
     static int lcdc_log_count = 0;
     if (ly_ == 0 && lcdc_log_count < 3) {
@@ -4528,5 +4537,319 @@ void PPU::verify_palette_bgp(uint8_t tile_id, uint16_t tile_addr,
            ly_, tile_id, tile_addr,
            color_index, bgp, final_color_calculated,
            fb_index, fb_value, match ? "YES" : "NO");
+}
+
+// --- Step 0398: Análisis de Zelda DX Tilemap sin TileData ---
+
+// Tarea 1 & 2: Analizar tile IDs del tilemap y verificar existencia en ambos bancos VRAM
+void PPU::analyze_tilemap_tile_ids() {
+    if (mmu_ == nullptr) {
+        return;
+    }
+    
+    // Ejecutar solo en Frame 1080, LY=0 (cuando se reporta tilemap 100%)
+    static bool analysis_done = false;
+    if (analysis_done) {
+        return;
+    }
+    
+    uint64_t current_frame = frame_counter_ + 1;
+    if (current_frame != 1080 || ly_ != 0) {
+        return;
+    }
+    
+    analysis_done = true;
+    printf("[ZELDA-TILEMAP-ANALYSIS] ========================================\n");
+    printf("[ZELDA-TILEMAP-ANALYSIS] Frame 1080 - Análisis completo de Tilemap\n");
+    
+    // Leer LCDC para determinar tilemap base
+    uint8_t lcdc = mmu_->read(IO_LCDC);
+    uint16_t tilemap_base = (lcdc & 0x08) != 0 ? TILEMAP_1 : TILEMAP_0;
+    bool signed_mode = (lcdc & 0x10) == 0;  // Bit 4: 0=signed, 1=unsigned
+    
+    printf("[ZELDA-TILEMAP-ANALYSIS] LCDC: 0x%02X | Tilemap Base: 0x%04X | Mode: %s\n",
+           lcdc, tilemap_base, signed_mode ? "SIGNED" : "UNSIGNED");
+    
+    // Estructura para rastrear tile IDs únicos
+    struct TileInfo {
+        uint8_t id;
+        int count;
+        bool in_bank0;
+        bool in_bank1;
+    };
+    
+    std::vector<TileInfo> tile_stats;
+    uint8_t tile_id_seen[256] = {0};  // Contador por tile ID
+    
+    // Leer todo el tilemap (32x32 = 1024 tiles)
+    int total_tiles = 0;
+    int non_zero_tiles = 0;
+    
+    for (uint16_t i = 0; i < 1024; i++) {
+        uint8_t tile_id = mmu_->read(tilemap_base + i);
+        total_tiles++;
+        
+        if (tile_id != 0x00) {
+            non_zero_tiles++;
+        }
+        
+        tile_id_seen[tile_id]++;
+    }
+    
+    // Calcular tile IDs únicos
+    int unique_tiles = 0;
+    for (int i = 0; i < 256; i++) {
+        if (tile_id_seen[i] > 0) {
+            unique_tiles++;
+        }
+    }
+    
+    printf("[ZELDA-TILEMAP-ANALYSIS] Total tiles en tilemap: %d/1024\n", total_tiles);
+    printf("[ZELDA-TILEMAP-ANALYSIS] Tiles no-cero: %d/1024 (%.1f%%)\n", 
+           non_zero_tiles, (non_zero_tiles * 100.0) / 1024);
+    printf("[ZELDA-TILEMAP-ANALYSIS] Tile IDs únicos: %d/256\n", unique_tiles);
+    
+    // Top 20 tile IDs más comunes
+    printf("[ZELDA-TILEMAP-ANALYSIS] Top 20 Tile IDs más comunes:\n");
+    int top_count = 0;
+    for (int freq = 1024; freq > 0 && top_count < 20; freq--) {
+        for (int id = 0; id < 256 && top_count < 20; id++) {
+            if (tile_id_seen[id] == freq) {
+                // Calcular dirección según modo signed/unsigned
+                uint16_t tile_addr_unsigned = TILE_DATA_0 + (id * 16);
+                int8_t signed_id = static_cast<int8_t>(id);
+                uint16_t tile_addr_signed = TILE_DATA_1 + 0x800 + (signed_id * 16);  // 0x9000 base + offset
+                
+                uint16_t tile_addr = signed_mode ? tile_addr_signed : tile_addr_unsigned;
+                
+                // Verificar existencia en ambos bancos VRAM
+                bool has_data_bank0 = false;
+                bool has_data_bank1 = false;
+                
+                uint16_t tile_offset = tile_addr - VRAM_START;
+                if (tile_offset < 0x2000) {
+                    int non_zero_bank0 = 0;
+                    int non_zero_bank1 = 0;
+                    
+                    for (uint16_t j = 0; j < 16; j++) {
+                        uint8_t byte_bank0 = mmu_->read_vram_bank(0, tile_offset + j);
+                        uint8_t byte_bank1 = mmu_->read_vram_bank(1, tile_offset + j);
+                        
+                        if (byte_bank0 != 0x00) non_zero_bank0++;
+                        if (byte_bank1 != 0x00) non_zero_bank1++;
+                    }
+                    
+                    has_data_bank0 = (non_zero_bank0 >= 2);  // Al menos 2 bytes no-cero
+                    has_data_bank1 = (non_zero_bank1 >= 2);
+                }
+                
+                printf("[ZELDA-TILEMAP-ANALYSIS]   ID:0x%02X | Count:%d | "
+                       "Addr(mode): 0x%04X | Addr(unsigned): 0x%04X | Addr(signed): 0x%04X | "
+                       "Bank0:%s Bank1:%s\n",
+                       id, freq, tile_addr, tile_addr_unsigned, tile_addr_signed,
+                       has_data_bank0 ? "YES" : "NO", has_data_bank1 ? "YES" : "NO");
+                
+                top_count++;
+            }
+        }
+    }
+    
+    // Verificar todos los tiles únicos y contar cuántos tienen datos en cada banco
+    int tiles_with_data_bank0 = 0;
+    int tiles_with_data_bank1 = 0;
+    int tiles_completely_empty = 0;
+    
+    for (int id = 0; id < 256; id++) {
+        if (tile_id_seen[id] == 0) {
+            continue;  // No usado en tilemap
+        }
+        
+        // Calcular dirección según modo signed/unsigned
+        uint16_t tile_addr_unsigned = TILE_DATA_0 + (id * 16);
+        int8_t signed_id = static_cast<int8_t>(id);
+        uint16_t tile_addr_signed = TILE_DATA_1 + 0x800 + (signed_id * 16);
+        
+        uint16_t tile_addr = signed_mode ? tile_addr_signed : tile_addr_unsigned;
+        uint16_t tile_offset = tile_addr - VRAM_START;
+        
+        if (tile_offset >= 0x2000) {
+            continue;  // Fuera de rango
+        }
+        
+        int non_zero_bank0 = 0;
+        int non_zero_bank1 = 0;
+        
+        for (uint16_t j = 0; j < 16; j++) {
+            uint8_t byte_bank0 = mmu_->read_vram_bank(0, tile_offset + j);
+            uint8_t byte_bank1 = mmu_->read_vram_bank(1, tile_offset + j);
+            
+            if (byte_bank0 != 0x00) non_zero_bank0++;
+            if (byte_bank1 != 0x00) non_zero_bank1++;
+        }
+        
+        bool has_data_bank0 = (non_zero_bank0 >= 2);
+        bool has_data_bank1 = (non_zero_bank1 >= 2);
+        
+        if (has_data_bank0) tiles_with_data_bank0++;
+        if (has_data_bank1) tiles_with_data_bank1++;
+        if (!has_data_bank0 && !has_data_bank1) tiles_completely_empty++;
+    }
+    
+    printf("[ZELDA-TILEMAP-ANALYSIS] Resumen de existencia de tiles:\n");
+    printf("[ZELDA-TILEMAP-ANALYSIS]   Tiles con datos en Bank 0: %d/%d\n", 
+           tiles_with_data_bank0, unique_tiles);
+    printf("[ZELDA-TILEMAP-ANALYSIS]   Tiles con datos en Bank 1: %d/%d\n", 
+           tiles_with_data_bank1, unique_tiles);
+    printf("[ZELDA-TILEMAP-ANALYSIS]   Tiles completamente vacíos: %d/%d\n", 
+           tiles_completely_empty, unique_tiles);
+    
+    // Verificar rangos VRAM completos
+    printf("[ZELDA-VRAM-RANGE-CHECK] Verificación de rangos VRAM:\n");
+    
+    // Rango 0x8000-0x8FFF (unsigned base, 4KB)
+    int non_zero_8000_8FFF_bank0 = 0;
+    int non_zero_8000_8FFF_bank1 = 0;
+    for (uint16_t i = 0; i < 0x1000; i++) {
+        if (mmu_->read_vram_bank(0, i) != 0x00) non_zero_8000_8FFF_bank0++;
+        if (mmu_->read_vram_bank(1, i) != 0x00) non_zero_8000_8FFF_bank1++;
+    }
+    
+    // Rango 0x8800-0x97FF (signed range, 4KB)
+    int non_zero_8800_97FF_bank0 = 0;
+    int non_zero_8800_97FF_bank1 = 0;
+    for (uint16_t i = 0x800; i < 0x1800; i++) {
+        if (mmu_->read_vram_bank(0, i) != 0x00) non_zero_8800_97FF_bank0++;
+        if (mmu_->read_vram_bank(1, i) != 0x00) non_zero_8800_97FF_bank1++;
+    }
+    
+    printf("[ZELDA-VRAM-RANGE-CHECK]   0x8000-0x8FFF (unsigned base) Bank0: %d/4096 (%.2f%%) Bank1: %d/4096 (%.2f%%)\n",
+           non_zero_8000_8FFF_bank0, (non_zero_8000_8FFF_bank0 * 100.0) / 4096,
+           non_zero_8000_8FFF_bank1, (non_zero_8000_8FFF_bank1 * 100.0) / 4096);
+    printf("[ZELDA-VRAM-RANGE-CHECK]   0x8800-0x97FF (signed range) Bank0: %d/4096 (%.2f%%) Bank1: %d/4096 (%.2f%%)\n",
+           non_zero_8800_97FF_bank0, (non_zero_8800_97FF_bank0 * 100.0) / 4096,
+           non_zero_8800_97FF_bank1, (non_zero_8800_97FF_bank1 * 100.0) / 4096);
+    
+    printf("[ZELDA-TILEMAP-ANALYSIS] ========================================\n");
+}
+
+// Tarea 3: Verificar DMA/HDMA activo
+void PPU::check_dma_hdma_activity() {
+    if (mmu_ == nullptr) {
+        return;
+    }
+    
+    // Ejecutar solo en Frame 1080, LY=0
+    static bool dma_check_done = false;
+    if (dma_check_done) {
+        return;
+    }
+    
+    uint64_t current_frame = frame_counter_ + 1;
+    if (current_frame != 1080 || ly_ != 0) {
+        return;
+    }
+    
+    dma_check_done = true;
+    printf("[ZELDA-DMA-CHECK] ========================================\n");
+    printf("[ZELDA-DMA-CHECK] Frame 1080 - Verificación de DMA/HDMA\n");
+    
+    // Verificar registro DMA (0xFF46)
+    uint8_t dma_reg = mmu_->read(0xFF46);
+    printf("[ZELDA-DMA-CHECK] Registro DMA (0xFF46): 0x%02X\n", dma_reg);
+    
+    // Verificar registros HDMA (0xFF51-0xFF55)
+    uint8_t hdma1 = mmu_->read(0xFF51);  // Source High
+    uint8_t hdma2 = mmu_->read(0xFF52);  // Source Low
+    uint8_t hdma3 = mmu_->read(0xFF53);  // Destination High
+    uint8_t hdma4 = mmu_->read(0xFF54);  // Destination Low
+    uint8_t hdma5 = mmu_->read(0xFF55);  // Length/Mode/Start
+    
+    printf("[ZELDA-DMA-CHECK] HDMA1 (Source High, 0xFF51): 0x%02X\n", hdma1);
+    printf("[ZELDA-DMA-CHECK] HDMA2 (Source Low, 0xFF52): 0x%02X\n", hdma2);
+    printf("[ZELDA-DMA-CHECK] HDMA3 (Dest High, 0xFF53): 0x%02X\n", hdma3);
+    printf("[ZELDA-DMA-CHECK] HDMA4 (Dest Low, 0xFF54): 0x%02X\n", hdma4);
+    printf("[ZELDA-DMA-CHECK] HDMA5 (Length/Mode, 0xFF55): 0x%02X\n", hdma5);
+    
+    // Interpretar HDMA5
+    bool hdma_active = (hdma5 & 0x80) == 0;  // Bit 7: 0=active, 1=inactive
+    bool hdma_mode = (hdma5 & 0x80) != 0;    // 0=General Purpose, 1=H-Blank
+    uint8_t hdma_length = (hdma5 & 0x7F) + 1;  // Bloques de 16 bytes
+    
+    printf("[ZELDA-DMA-CHECK] HDMA Active: %s | Mode: %s | Length: %d blocks (x16 bytes = %d bytes)\n",
+           hdma_active ? "YES" : "NO",
+           hdma_mode ? "H-Blank" : "General Purpose",
+           hdma_length, hdma_length * 16);
+    
+    // Calcular dirección source y destination
+    uint16_t hdma_source = ((hdma1 << 8) | hdma2) & 0xFFF0;  // Alineado a 16 bytes
+    uint16_t hdma_dest = (((hdma3 & 0x1F) << 8) | hdma4) & 0xFFF0;  // VRAM 0x8000-0x9FFF
+    hdma_dest |= 0x8000;  // Forzar rango VRAM
+    
+    printf("[ZELDA-DMA-CHECK] HDMA Source: 0x%04X | Destination: 0x%04X\n",
+           hdma_source, hdma_dest);
+    
+    printf("[ZELDA-DMA-CHECK] ========================================\n");
+}
+
+// Tarea 4: Analizar timing de carga (tilemap vs tiles)
+void PPU::analyze_load_timing() {
+    if (mmu_ == nullptr) {
+        return;
+    }
+    
+    // Rastrear cuándo se carga tilemap y tiles
+    static bool timing_analysis_done = false;
+    static uint64_t tilemap_load_frame = 0;
+    static uint64_t tiledata_load_frame = 0;
+    static bool tilemap_loaded = false;
+    static bool tiledata_loaded = false;
+    
+    uint64_t current_frame = frame_counter_ + 1;
+    
+    // Solo verificar en los primeros 2000 frames
+    if (current_frame > 2000) {
+        if (!timing_analysis_done) {
+            timing_analysis_done = true;
+            printf("[ZELDA-LOAD-TIMING] ========================================\n");
+            printf("[ZELDA-LOAD-TIMING] Análisis de timing completado:\n");
+            printf("[ZELDA-LOAD-TIMING]   Tilemap cargado en Frame: %llu\n", 
+                   static_cast<unsigned long long>(tilemap_load_frame));
+            printf("[ZELDA-LOAD-TIMING]   TileData cargado en Frame: %llu\n", 
+                   static_cast<unsigned long long>(tiledata_load_frame));
+            printf("[ZELDA-LOAD-TIMING]   Diferencia: %lld frames\n", 
+                   static_cast<long long>(tiledata_load_frame - tilemap_load_frame));
+            printf("[ZELDA-LOAD-TIMING] ========================================\n");
+        }
+        return;
+    }
+    
+    // Verificar solo en LY=0 para evitar overhead
+    if (ly_ != 0) {
+        return;
+    }
+    
+    // Verificar si tilemap tiene datos (> 50% no-cero)
+    if (!tilemap_loaded) {
+        int tilemap_nonzero = count_vram_nonzero_bank0_tilemap();
+        if (tilemap_nonzero > 512) {  // > 50% de 1024 tiles
+            tilemap_loaded = true;
+            tilemap_load_frame = current_frame;
+            printf("[ZELDA-LOAD-TIMING] Tilemap detectado cargado en Frame %llu (%.1f%% no-cero)\n",
+                   static_cast<unsigned long long>(current_frame),
+                   (tilemap_nonzero * 100.0) / 1024);
+        }
+    }
+    
+    // Verificar si tiledata tiene datos (> 5% no-cero en 6KB de tile data)
+    if (!tiledata_loaded) {
+        int tiledata_nonzero = count_vram_nonzero_bank0_tiledata();
+        if (tiledata_nonzero > 300) {  // > 5% de 6144 bytes
+            tiledata_loaded = true;
+            tiledata_load_frame = current_frame;
+            printf("[ZELDA-LOAD-TIMING] TileData detectado cargado en Frame %llu (%.1f%% no-cero)\n",
+                   static_cast<unsigned long long>(current_frame),
+                   (tiledata_nonzero * 100.0) / 6144);
+        }
+    }
 }
 

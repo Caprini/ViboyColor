@@ -457,6 +457,24 @@ private:
      */
     void verify_palette_bgp(uint8_t tile_id, uint16_t tile_addr, 
                             uint8_t line_in_tile, uint8_t color_index);
+    
+    /**
+     * Step 0398: Analizar tile IDs del tilemap de Zelda DX.
+     * Identifica qué tiles están referenciados y dónde deberían estar en VRAM.
+     */
+    void analyze_tilemap_tile_ids();
+    
+    /**
+     * Step 0398: Verificar DMA/HDMA activo.
+     * Detecta si hay transferencias DMA/HDMA cargando tiles desde ROM.
+     */
+    void check_dma_hdma_activity();
+    
+    /**
+     * Step 0398: Analizar timing de carga (tilemap vs tiles).
+     * Detecta cuándo se carga el tilemap y cuándo se cargan los tiles.
+     */
+    void analyze_load_timing();
 };
 
 #endif // PPU_HPP
