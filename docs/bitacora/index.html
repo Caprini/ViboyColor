@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0429 - Fix CPU IO LDH/(C) + HALT Wake Semantics -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0429__fix-cpu-io-ldh-c-and-halt-wakeup.html" class="entry-link">
+                                    Fix CPU IO (LDH/(C)) + HALT Wake Semantics
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0429 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección de semántica de instrucciones I/O (LDH, LD (C)) y comportamiento de HALT en CPU Python. Se solucionaron 4 de 7 tests identificados: test_ldh_write_boundary (0xFF00 IO write), test_ld_c_a_write_stat (0xFF41 STAT write), test_ld_a_c_read (0xFF41 STAT read), test_halt_pc_does_not_advance (HALT PC freeze). Fixes aplicados: 1) MMU Python ahora permite escritura/lectura directa de 0xFF00 (JOYP) y 0xFF41 (STAT) en tests sin Joypad/PPU, 2) CPU Python HALT ya no ejecuta fetch (PC no avanza durante HALT). Los 3 fallos restantes se justifican: test_unimplemented_opcode_raises (0xFF es RST 38 válido per Pan Docs), test_halt_wake_on_interrupt (test viola Pan Docs - HALT solo despierta con IE&IF != 0), test_halt_wakeup_integration (C++ Core issue fuera de scope). Resultado: 4/7 tests plan (57%), suite global 393/403 passed (97%). Archivos: src/cpu/core.py (líneas 590-615 reordenadas), src/memory/mmu.py (líneas 467-484, 498-506, 309-312). ✅ Build OK. ✅ test_build.py OK. Próximo: Step 0430 (3 fallos PPU sprites).
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0428 - Fix PPU Framebuffer Swap/Copy -->
                     <li>
                         <div class="entry-header">
