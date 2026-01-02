@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0425 - Spec-Correct JOYP + Address Wrap (Remove Hacks) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0425__spec-correct-joyp-and-addr-wrap.html" class="entry-link">
+                                    Spec-Correct JOYP + Address Wrap (Remove Hacks)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0425 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección definitiva del comportamiento de JOYP (FF00) y address wrapping según Pan Docs, eliminando todos los hacks introducidos en Steps anteriores. Decisión crítica: cuando un test contradice Pan Docs, se corrige el test, no el hardware. Hacks eliminados: inversión artificial de bits 4-5 en Joypad.cpp (Step 0424), bypass test_mode_allow_rom_writes en 3 ubicaciones (MMU.cpp/hpp, mmu.pyx), fixture mmu_romw en conftest.py. Implementación spec-correct: bits 4-5 de JOYP se leen tal como fueron escritos (sin inversión), ROM es siempre read-only (escrituras se interpretan como comandos MBC), address wrap confirmado a 16-bit (addr &= 0xFFFF). Tests actualizados con justificación Pan Docs: 8 tests joypad con valores spec-correct (dirección bit4=0 → 0xEE, acción bit5=0 → 0xDE), 4 tests MMU usando load_rom_py() en lugar de test_mode, 1 test address wrap usando WRAM (0xC000) en lugar de ROM. ✅ 19/19 tests relacionados pasan (100%). ✅ 215/225 tests totales (10 fallos pre-existentes no relacionados). Código limpio, spec-correct, sin hacks.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0424 - Fix JOYP (FF00) + Joypad IRQ + IO Mapping -->
                     <li>
                         <div class="entry-header">

@@ -45,5 +45,5 @@ cdef extern from "MMU.hpp":
         HardwareMode get_hardware_mode()  # Step 0404
         void initialize_io_registers()  # Step 0404
         void log_dma_vram_summary()  # Step 0410
-        void set_test_mode_allow_rom_writes(bool allow)  # Step 0419
+        # Step 0425: Eliminado set_test_mode_allow_rom_writes() (hack no spec-correct)
 

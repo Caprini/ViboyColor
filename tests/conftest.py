@@ -70,29 +70,5 @@ def mmu():
         pytest.skip("Módulo viboy_core no compilado")
 
 
-@pytest.fixture
-def mmu_romw():
-    """
-    Fixture para MMU con ROM-writes habilitados (test mode).
-    
-    Uso: SOLO para tests que realmente necesitan escribir en ROM (0x0000-0x7FFF).
-    Ejemplos válidos:
-    - Tests que verifican comportamiento de reset vector (0x0000, 0x0100)
-    - Tests que validan wrap-around de direcciones ROM
-    - Tests legacy que aún no han migrado a WRAM
-    
-    ⚠️ ADVERTENCIA: Este fixture rompe el comportamiento real del MMU (MBC).
-    Preferir ejecutar tests desde WRAM cuando sea posible.
-    
-    Ejemplo:
-        def test_reset_vector(mmu_romw):
-            cpu = PyCPU(mmu_romw)
-            # escribir en 0x0000...
-    """
-    try:
-        from viboy_core import PyMMU
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)
-        return mmu
-    except ImportError:
-        pytest.skip("Módulo viboy_core no compilado")
+# Step 0425: Eliminado fixture mmu_romw (usaba test_mode_allow_rom_writes no spec-correct)
+# Los tests que necesiten ROM personalizada deben usar mmu.load_rom() con bytearray preparado

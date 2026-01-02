@@ -2,14 +2,15 @@
 #include "MMU.hpp"  // Step 0379: Necesario para solicitar interrupciones
 #include <cstdio>   // Step 0379: Para logs de diagnóstico
 
-Joypad::Joypad() : direction_keys_(0x0F), action_keys_(0x0F), p1_register_(0xFF), mmu_(nullptr) {
+Joypad::Joypad() : direction_keys_(0x0F), action_keys_(0x0F), p1_register_(0xCF), mmu_(nullptr) {
+    // --- Step 0425: Inicialización spec-correct según Pan Docs ---
     // Inicializar todos los botones como "suelto" (bits a 1)
     // direction_keys_ = 0x0F (todos los bits 0-3 a 1 = todos sueltos)
     // action_keys_ = 0x0F (todos los bits 0-3 a 1 = todos sueltos)
-    // p1_register_ = 0xFF (bits 6-7 a 1, bits 4-5 a 1 = ninguna fila seleccionada INVERTIDO)
-    // NOTA: Inicializamos con 0xFF (bits 4-5=11) para que al leer (con inversión) devuelva 0xCF (bits 4-5=00)
-    // Esto es necesario porque los tests esperan que los bits 4-5 se lean invertidos
+    // p1_register_ = 0xCF (bits 6-7 a 1, bits 4-5 a 0 = ninguna fila seleccionada)
+    // Pan Docs: bits 4-5 = 0 cuando no hay selección (valor típico inicial)
     // mmu_ = nullptr (se establecerá mediante setMMU())
+    // -------------------------------------------
     
     // --- Step 0381: Log de creación de instancia ---
     printf("[JOYPAD-CONSTRUCTOR] Nueva instancia de Joypad creada en %p\n", (void*)this);
@@ -21,13 +22,18 @@ Joypad::~Joypad() {
 }
 
 uint8_t Joypad::read_p1() const {
-    // --- Step 0380: Corrección de Lectura de P1 para Selección Simultánea de Filas ---
+    // --- Step 0425: Lectura spec-correct de P1 (FF00) según Pan Docs ---
     // Pan Docs: "Both lines may be selected at the same time, in that case the button
     // state is a logic AND of both line states."
     // 
-    // El registro P1 tiene bits 6-7 siempre a 1 (no se usan)
-    // Los bits 4-5 vienen de p1_register_ (selección de fila)
-    // Los bits 0-3 dependen de qué fila(s) esté(n) seleccionada(s)
+    // Estructura del registro P1:
+    // - Bits 7-6: siempre 1 (no usados)
+    // - Bit 5 (P15): 0 = selecciona botones de acción (A, B, Select, Start)
+    // - Bit 4 (P14): 0 = selecciona botones de dirección (Right, Left, Up, Down)
+    // - Bits 3-0: estado de botones (0 = presionado, 1 = suelto) [read-only]
+    //
+    // Los bits 4-5 se leen TAL COMO fueron escritos (NO se invierten).
+    // -------------------------------------------
     
     // Empezar con bits 0-3 a 1 (todos sueltos por defecto)
     uint8_t nibble = 0x0F; // 0000 1111
@@ -47,15 +53,17 @@ uint8_t Joypad::read_p1() const {
         nibble &= action_keys_;
     }
     
-    // NOTA CRÍTICA: Según tests, los bits 4-5 se INVIERTEN al leerlos
-    // (escribo bit4=0, leo bit4=1)
-    uint8_t bits_45_inverted = (~p1_register_) & 0x30;
+    // Caso especial: si ninguna fila está seleccionada (bits 4-5 = 11),
+    // el nibble bajo debe ser 0xF (todos los bits a 1)
+    if (!direction_row_selected && !action_row_selected) {
+        nibble = 0x0F;
+    }
     
-    // Construir resultado final:
-    // - Bits 6-7: siempre 1 (0xC0)
-    // - Bits 4-5: reflejar estado INVERTIDO desde p1_register_
-    // - Bits 0-3: nibble calculado
-    uint8_t result = 0xC0 | bits_45_inverted | (nibble & 0x0F);
+    // Construir resultado final spec-correct:
+    // - Bits 7-6: siempre 1 (0xC0)
+    // - Bits 5-4: reflejar estado de p1_register_ SIN inversión
+    // - Bits 3-0: nibble calculado
+    uint8_t result = 0xC0 | (p1_register_ & 0x30) | (nibble & 0x0F);
     
     // --- Step 0381: Instrumentación de Lectura de P1 con Estado de Botones ---
     static int read_p1_log_count = 0;

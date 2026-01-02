@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0425: Spec-Correct JOYP + Address Wrap (Remove Hacks) - Viboy Color</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Step 0425: Spec-Correct JOYP + Address Wrap (Remove Hacks)</h1>
+            <p><a href="../index.html" class="back-link">← Volver al índice</a></p>
+            
+            <div class="entry-meta">
+                <span><strong>Fecha:</strong> 2026-01-02</span>
+                <span><strong>Step ID:</strong> 0425</span>
+                <span><strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span></span>
+            </div>
+        </header>
+
+        <main>
+            <section class="summary">
+                <h2>Resumen Ejecutivo</h2>
+                <p>
+                    Corrección definitiva del comportamiento de JOYP (FF00) y address wrapping a 16-bit según <strong>Pan Docs</strong>, 
+                    eliminando todos los hacks introducidos en Steps anteriores (especialmente 0419 y 0424). El Step 0424 implementó 
+                    inversión artificial de bits 4-5 en JOYP basándose en observaciones empíricas de tests, pero esta implementación 
+                    <strong>contradice Pan Docs</strong> que especifica que los bits 4-5 se leen tal como fueron escritos.
+                </p>
+                <p>
+                    <strong>Decisión crítica:</strong> Cuando un test contradice Pan Docs, <strong>se corrige el test</strong>, no el hardware. 
+                    El objetivo de este Step es restablecer comportamiento spec-correct eliminando:
+                </p>
+                <ul>
+                    <li>❌ Inversión artificial de bits 4-5 en JOYP (<code>Joypad.cpp</code>)</li>
+                    <li>❌ Bypass <code>test_mode_allow_rom_writes</code> (3 ubicaciones: MMU.cpp, MMU.hpp, mmu.pyx)</li>
+                    <li>❌ Fixture <code>mmu_romw</code> que permitía escribir en ROM (conftest.py)</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> ✅ 8/8 tests de Joypad + 11/11 tests de MMU pasan con comportamiento spec-correct. 
+                    ✅ 215/225 tests totales (10 fallos pre-existentes no relacionados con este Step).
+                </p>
+            </section>
+
+            <section class="hardware-concept">
+                <h2>Concepto de Hardware (Pan Docs)</h2>
+                
+                <h3>JOYP (FF00) - Registro P1</h3>
+                <p><strong>Fuente:</strong> Pan Docs - "Joypad Input" / GBEDG</p>
+                
+                <h4>Estructura del Registro:</h4>
+                <pre><code>Bit 7-6: No usados (siempre 1)
+Bit 5 (P15): 0 = Selecciona botones de acción (A, B, Select, Start)
+Bit 4 (P14): 0 = Selecciona botones de dirección (Right, Left, Up, Down)
+Bit 3-0: Estado de botones (0 = presionado, 1 = suelto) [Read-Only]</code></pre>
+
+                <h4>Comportamiento Spec-Correct:</h4>
+                <ol>
+                    <li><strong>Escritura:</strong> Solo los bits 4-5 son escribibles. Los bits 0-3 son read-only.</li>
+                    <li><strong>Lectura:</strong> Los bits 4-5 se leen <strong>tal como fueron escritos</strong> (NO se invierten).</li>
+                    <li><strong>Selección:</strong> Un bit = 0 significa "seleccionado". Ambas filas pueden seleccionarse simultáneamente.</li>
+                    <li><strong>Nibble bajo (bits 0-3):</strong> 
+                        <ul>
+                            <li>Si ninguna fila seleccionada (bits 4-5 = 11): nibble = 0xF</li>
+                            <li>Si fila(s) seleccionada(s): nibble refleja estado de botones (AND de filas activas)</li>
+                        </ul>
+                    </li>
+                </ol>
+
+                <h4>Ejemplo Práctico:</h4>
+                <pre><code>// Seleccionar fila de dirección
+write(FF00, 0x20)  // bits 5-4 = 10 (bit 4 = 0 selecciona dirección)
+// Estado: Botón "Derecha" presionado (bit 0 = 0)
+read(FF00)  // Retorna 0xEE = 1110 1110
+            // bits 7-6 = 11 (siempre)
+            // bits 5-4 = 10 (tal como se escribió, SIN inversión)
+            // bits 3-0 = 1110 (bit 0 = 0 indica "Derecha" presionado)</code></pre>
+
+                <h3>Address Wrap a 16-bit</h3>
+                <p><strong>Fuente:</strong> Pan Docs - "Memory Map"</p>
+                <p>
+                    El Game Boy usa direcciones de 16 bits (0x0000-0xFFFF). Cualquier dirección fuera de este rango debe 
+                    hacer wrap automáticamente mediante <code>addr &= 0xFFFF</code> al inicio de <code>MMU::read()</code> 
+                    y <code>MMU::write()</code>.
+                </p>
+                <p>
+                    Ejemplo: <code>0x10000</code> → <code>0x0000</code>, <code>0x1C000</code> → <code>0xC000</code>
+                </p>
+
+                <h3>ROM Read-Only (Spec-Correct)</h3>
+                <p><strong>Fuente:</strong> Pan Docs - "Memory Bank Controllers"</p>
+                <p>
+                    En el Game Boy real, ROM (0x0000-0x7FFF) es <strong>siempre read-only</strong>. Las escrituras en este 
+                    rango se interpretan como comandos para el Memory Bank Controller (MBC), <strong>NO</strong> como escrituras 
+                    directas en memoria.
+                </p>
+                <p>
+                    <strong>Implicación para tests:</strong> Los tests que necesiten ROM personalizada deben usar 
+                    <code>load_rom_py()</code> con un bytearray preparado, no escribir directamente en ROM.
+                </p>
+            </section>
+
+            <section class="implementation">
+                <h2>Implementación</h2>
+                
+                <h3>Archivos Modificados</h3>
+                
+                <h4>1. Hardware Core (C++)</h4>
+                <ul>
+                    <li><code>src/core/cpp/Joypad.cpp</code>: 
+                        <ul>
+                            <li>Constructor: Inicialización a <code>0xCF</code> (bits 4-5 = 00, spec-correct)</li>
+                            <li><code>read_p1()</code>: Eliminada inversión de bits 4-5, retornar <code>(p1_register_ & 0x30)</code> directamente</li>
+                            <li>Caso especial: Si ninguna fila seleccionada, nibble = 0xF</li>
+                        </ul>
+                    </li>
+                    <li><code>src/core/cpp/Joypad.hpp</code>: Comentarios actualizados para reflejar comportamiento spec-correct</li>
+                    <li><code>src/core/cpp/MMU.cpp</code>: 
+                        <ul>
+                            <li>Línea 935: Eliminado bypass <code>test_mode_allow_rom_writes_</code></li>
+                            <li>Línea 1068: Eliminado bypass ROM_ONLY cuando <code>rom_data_.empty()</code></li>
+                            <li>Línea 3564: Eliminado método <code>set_test_mode_allow_rom_writes()</code></li>
+                        </ul>
+                    </li>
+                    <li><code>src/core/cpp/MMU.hpp</code>: 
+                        <ul>
+                            <li>Eliminado flag <code>test_mode_allow_rom_writes_</code></li>
+                            <li>Eliminada declaración de <code>set_test_mode_allow_rom_writes()</code></li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h4>2. Wrapper Cython</h4>
+                <ul>
+                    <li><code>src/core/cython/mmu.pyx</code>: Eliminado método <code>set_test_mode_allow_rom_writes()</code></li>
+                    <li><code>src/core/cython/mmu.pxd</code>: Eliminada declaración de <code>set_test_mode_allow_rom_writes()</code></li>
+                </ul>
+
+                <h4>3. Tests (Python)</h4>
+                <ul>
+                    <li><code>tests/conftest.py</code>: Eliminado fixture <code>mmu_romw</code></li>
+                    <li><code>tests/test_core_joypad.py</code>: 
+                        <ul>
+                            <li>8 tests actualizados con valores spec-correct</li>
+                            <li>Dirección con bit4=0: Esperado <code>0xEE</code> (antes <code>0xDE</code>)</li>
+                            <li>Acción con bit5=0: Esperado <code>0xDE</code> (antes <code>0xEE</code>)</li>
+                            <li>Justificación: Pan Docs especifica que bits 4-5 NO se invierten</li>
+                        </ul>
+                    </li>
+                    <li><code>tests/test_mmu_rom_is_readonly_by_default.py</code>: 
+                        <ul>
+                            <li>4 tests actualizados para usar <code>load_rom_py()</code></li>
+                            <li>Eliminado uso de fixture <code>mmu_romw</code></li>
+                            <li>Test de load_rom: Preparar ROM de 512 bytes, cargar con <code>load_rom_py(bytes(custom_rom))</code></li>
+                        </ul>
+                    </li>
+                    <li><code>tests/test_core_mmu.py</code>: 
+                        <ul>
+                            <li>1 test actualizado: <code>test_mmu_address_wrapping</code></li>
+                            <li>Cambio: Validar wrap con WRAM (0xC000) en lugar de ROM (0x0000)</li>
+                            <li>Justificación: ROM es read-only, no se puede validar wrap escribiendo en ROM</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Fragmentos de Código Clave</h3>
+                
+                <h4>JOYP read_p1() Spec-Correct (Joypad.cpp)</h4>
+                <pre><code>uint8_t Joypad::read_p1() const {
+    // Empezar con bits 0-3 a 1 (todos sueltos por defecto)
+    uint8_t nibble = 0x0F;
+    
+    // Selección de fila según Pan Docs: bit=0 selecciona
+    bool direction_row_selected = (p1_register_ & 0x10) == 0;
+    bool action_row_selected = (p1_register_ & 0x20) == 0;
+    
+    if (direction_row_selected) {
+        nibble &= direction_keys_;
+    }
+    
+    if (action_row_selected) {
+        nibble &= action_keys_;
+    }
+    
+    // Caso especial: si ninguna fila está seleccionada
+    if (!direction_row_selected && !action_row_selected) {
+        nibble = 0x0F;
+    }
+    
+    // Construir resultado spec-correct (SIN inversión bits 4-5)
+    uint8_t result = 0xC0 | (p1_register_ & 0x30) | (nibble & 0x0F);
+    
+    return result;
+}</code></pre>
+
+                <h4>ROM Read-Only Spec-Correct (MMU.cpp)</h4>
+                <pre><code>// En MMU::write() - Switch case para ROM (0x0000-0x7FFF)
+case MBCType::ROM_ONLY:
+default:
+    // Step 0425: ROM es SIEMPRE read-only (spec-correct según Pan Docs).
+    // Las escrituras en ROM se ignoran (o se interpretan como MBC).
+    // NO permitir escrituras incluso si rom_data_ está vacío.
+    return;</code></pre>
+            </section>
+
+            <section class="verification">
+                <h2>Tests y Verificación</h2>
+                
+                <h3>Comandos Ejecutados</h3>
+                <pre><code>$ python3 setup.py build_ext --inplace
+BUILD_EXIT=0 ✅
+
+$ python3 test_build.py
+TEST_BUILD_EXIT=0 ✅
+
+$ pytest -q tests/test_core_joypad.py
+8 passed in 0.37s ✅
+
+$ pytest -q tests/test_mmu_rom_is_readonly_by_default.py
+4 passed in 0.32s ✅
+
+$ pytest -q tests/test_core_mmu.py
+7 passed in 0.28s ✅
+
+$ pytest -q
+215 passed, 10 failed in 0.53s
+(10 fallos pre-existentes NO relacionados: PPU rendering, Registers init, CPU control)</code></pre>
+
+                <h3>Evidencia de Tests (Fragmentos Clave)</h3>
+                
+                <h4>Test JOYP Dirección (Spec-Correct)</h4>
+                <pre><code>def test_joypad_selection_direction(self):
+    """
+    Verifica que escribir en P1 selecciona la fila de dirección correctamente (spec-correct).
+    
+    Step 0425: Actualizado para reflejar comportamiento spec-correct según Pan Docs.
+    Los bits 4-5 se leen TAL COMO fueron escritos (NO se invierten).
+    """
+    joypad = PyJoypad()
+    
+    # Presionar Derecha (dirección, índice 0)
+    joypad.press_button(0)
+    
+    # Seleccionar fila de dirección (bit 4 = 0)
+    # Escribir 0x20 = 0b00100000 (bit 5=1, bit 4=0)
+    joypad.write_p1(0x20)
+    
+    # Leer P1. Debería mostrar Derecha presionada (bit 0 = 0)
+    # Resultado esperado spec-correct: 0xEE = 1110 1110
+    # (bits 7-6=1, bit 5=1, bit 4=0, bit 0=0 presionado, bits 3-1=1 sueltos)
+    result = joypad.read_p1()
+    assert result == 0xEE, f"Esperado 0xEE (spec-correct), obtenido 0x{result:02X}"</code></pre>
+
+                <h4>Test ROM Read-Only (Spec-Correct)</h4>
+                <pre><code>def test_rom_is_readonly_by_default(self, mmu):
+    """
+    Validar que ROM (0x0000-0x7FFF) es read-only (spec-correct).
+    
+    Concepto Hardware (Pan Docs):
+    ------------------------------
+    En Game Boy real, ROM (0x0000-0x7FFF) es memoria de solo lectura.
+    Las escrituras en este rango se interpretan como comandos para el
+    Memory Bank Controller (MBC), NO como escrituras directas.
+    
+    Step 0425: Eliminado uso de test_mode (hack no spec-correct).
+    """
+    # Intentar escribir en ROM (debe interpretarse como comando MBC, no escritura directa)
+    original_value = mmu.read(0x0000)
+    mmu.write(0x0000, 0x3E)  # Intentar escribir 0x3E
+    
+    # Verificar que NO se escribió (debe seguir siendo el valor original)
+    readback = mmu.read(0x0000)
+    assert readback == original_value, (
+        f"ROM debe ser read-only (spec-correct). "
+        f"Intentamos escribir 0x3E en 0x0000, pero se leyó 0x{readback:02X}"
+    )</code></pre>
+
+                <h3>Validación de Módulo Compilado C++</h3>
+                <p>✅ Todos los tests ejecutan contra el módulo nativo <code>viboy_core.cpython-312-x86_64-linux-gnu.so</code></p>
+                <p>✅ Validación de comportamiento hardware-accurate mediante tests unitarios directos</p>
+                <p>✅ Logs de depuración confirman comportamiento spec-correct (bits 4-5 sin inversión)</p>
+            </section>
+
+            <section class="results">
+                <h2>Resultados y Análisis</h2>
+                
+                <h3>Hacks Eliminados (100% Exitoso)</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Ubicación</th>
+                            <th>Hack Eliminado</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Joypad.cpp:52</td>
+                            <td>Inversión artificial bits 4-5</td>
+                            <td><span class="tag tag-verified">REMOVED</span></td>
+                        </tr>
+                        <tr>
+                            <td>MMU.cpp:935</td>
+                            <td>Bypass test_mode_allow_rom_writes</td>
+                            <td><span class="tag tag-verified">REMOVED</span></td>
+                        </tr>
+                        <tr>
+                            <td>MMU.cpp:1068</td>
+                            <td>Bypass ROM_ONLY empty check</td>
+                            <td><span class="tag tag-verified">REMOVED</span></td>
+                        </tr>
+                        <tr>
+                            <td>MMU.cpp:3564</td>
+                            <td>Método set_test_mode_allow_rom_writes()</td>
+                            <td><span class="tag tag-verified">REMOVED</span></td>
+                        </tr>
+                        <tr>
+                            <td>MMU.hpp:372</td>
+                            <td>Flag test_mode_allow_rom_writes_</td>
+                            <td><span class="tag tag-verified">REMOVED</span></td>
+                        </tr>
+                        <tr>
+                            <td>mmu.pyx:403</td>
+                            <td>Wrapper Python set_test_mode_allow_rom_writes</td>
+                            <td><span class="tag tag-verified">REMOVED</span></td>
+                        </tr>
+                        <tr>
+                            <td>conftest.py:74</td>
+                            <td>Fixture mmu_romw</td>
+                            <td><span class="tag tag-verified">REMOVED</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3>Tests Actualizados (13 tests, 100% pasan)</h3>
+                <ul>
+                    <li>✅ <code>test_core_joypad.py</code>: 8/8 tests con valores spec-correct</li>
+                    <li>✅ <code>test_mmu_rom_is_readonly_by_default.py</code>: 4/4 tests sin test_mode</li>
+                    <li>✅ <code>test_core_mmu.py</code>: 1/1 test actualizado (address wrap con WRAM)</li>
+                </ul>
+
+                <h3>Cobertura de Tests</h3>
+                <pre><code>Categoría                    Tests    Resultado
+──────────────────────────────────────────────
+Joypad (JOYP FF00)           8/8      ✅ PASS
+MMU (ROM read-only)          4/4      ✅ PASS
+MMU (Core functionality)     7/7      ✅ PASS
+──────────────────────────────────────────────
+TOTAL Step 0425             19/19     ✅ 100%
+
+Suite Completa              215/225   ✅ 95.6%
+(10 fallos pre-existentes en PPU/Registers/CPU, NO relacionados)</code></pre>
+
+                <h3>Impacto en el Código</h3>
+                <ul>
+                    <li><strong>Líneas eliminadas:</strong> ~150 líneas (código + comentarios de hacks)</li>
+                    <li><strong>Líneas actualizadas:</strong> ~80 líneas (tests)</li>
+                    <li><strong>Complejidad reducida:</strong> Eliminación de flags condicionales y bypasses</li>
+                    <li><strong>Integridad mejorada:</strong> Código 100% spec-correct según Pan Docs</li>
+                </ul>
+            </section>
+
+            <section class="lessons-learned">
+                <h2>Lecciones Aprendidas</h2>
+                
+                <h3>1. Primacía de Pan Docs sobre Tests Empíricos</h3>
+                <p>
+                    <strong>Problema:</strong> El Step 0424 implementó inversión de bits 4-5 basándose en observaciones de tests, 
+                    contradiciendo Pan Docs.
+                </p>
+                <p>
+                    <strong>Solución:</strong> Cuando un test contradice la documentación oficial, <strong>corregir el test</strong>, 
+                    no el hardware. Pan Docs es la fuente de verdad para comportamiento spec-correct.
+                </p>
+
+                <h3>2. Test Mode es Deuda Técnica</h3>
+                <p>
+                    <strong>Problema:</strong> El flag <code>test_mode_allow_rom_writes</code> permitía escribir en ROM, violando 
+                    comportamiento real del hardware.
+                </p>
+                <p>
+                    <strong>Solución:</strong> Los tests que necesiten ROM personalizada deben usar <code>load_rom_py()</code>, 
+                    que simula correctamente la carga de un cartucho. Esto mantiene la integridad del emulador.
+                </p>
+
+                <h3>3. Validación con WRAM para Address Wrap</h3>
+                <p>
+                    <strong>Problema:</strong> No se puede validar address wrap escribiendo en ROM (es read-only).
+                </p>
+                <p>
+                    <strong>Solución:</strong> Usar WRAM (0xC000) que es escribible. Ejemplo: <code>0x1C000 & 0xFFFF = 0xC000</code>.
+                </p>
+
+                <h3>4. Estrategia de Migración Incremental</h3>
+                <p>
+                    <strong>Éxito:</strong> Eliminar hacks de forma atómica (un Step) minimiza riesgo. Los tests actualizados 
+                    documentan explícitamente el cambio con referencias a Pan Docs.
+                </p>
+            </section>
+
+            <section class="next-steps">
+                <h2>Próximos Pasos</h2>
+                <ol>
+                    <li><strong>Step 0426:</strong> Auditoría completa de ROMs reales (Tetris DX, Zelda DX, Pokemon Red) con comportamiento JOYP spec-correct</li>
+                    <li><strong>Step 0427:</strong> Fix de 10 fallos restantes (PPU rendering, Registers initialization, CPU control IME)</li>
+                    <li><strong>Step 0428:</strong> Implementación de Audio (APU) - Fase 2 completa</li>
+                </ol>
+            </section>
+
+            <section class="references">
+                <h2>Referencias</h2>
+                <ul>
+                    <li><strong>Pan Docs:</strong> Joypad Input - <a href="https://gbdev.io/pandocs/Joypad_Input.html">https://gbdev.io/pandocs/Joypad_Input.html</a></li>
+                    <li><strong>Pan Docs:</strong> Memory Map - <a href="https://gbdev.io/pandocs/Memory_Map.html">https://gbdev.io/pandocs/Memory_Map.html</a></li>
+                    <li><strong>GBEDG:</strong> Game Boy Complete Technical Reference</li>
+                    <li><strong>Step 0424:</strong> Contexto de inversión bits 4-5 (hack a eliminar)</li>
+                    <li><strong>Step 0419:</strong> Introducción de test_mode_allow_rom_writes (hack a eliminar)</li>
+                </ul>
+            </section>
+
+            <footer>
+                <p><a href="../index.html">← Volver al índice</a></p>
+            </footer>
+        </main>
+    </div>
+</body>
+</html>
+

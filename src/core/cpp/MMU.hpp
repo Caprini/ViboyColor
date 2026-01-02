@@ -368,8 +368,7 @@ private:
     uint16_t bank0_rom_;          // Banco mapeado en 0x0000-0x3FFF
     uint16_t bankN_rom_;          // Banco mapeado en 0x4000-0x7FFF
     
-    // Step 0419: Flag para permitir escrituras en ROM (solo testing)
-    bool test_mode_allow_rom_writes_;
+    // Step 0425: Eliminado test_mode_allow_rom_writes_ (hack no spec-correct)
 
     // Estado específico de MBC1
     uint8_t mbc1_bank_low5_;

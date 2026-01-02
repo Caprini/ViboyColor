@@ -30,7 +30,12 @@ class TestJoypad:
         assert joypad.read_p1() == 0xCF
     
     def test_joypad_selection_direction(self):
-        """Verifica que escribir en P1 selecciona la fila de dirección correctamente."""
+        """
+        Verifica que escribir en P1 selecciona la fila de dirección correctamente (spec-correct).
+        
+        Step 0425: Actualizado para reflejar comportamiento spec-correct según Pan Docs.
+        Los bits 4-5 se leen TAL COMO fueron escritos (NO se invierten).
+        """
         joypad = PyJoypad()
         
         # Presionar Derecha (dirección, índice 0)
@@ -41,13 +46,19 @@ class TestJoypad:
         joypad.write_p1(0x20)
         
         # Leer P1. Debería mostrar Derecha presionada (bit 0 = 0)
-        # Resultado esperado: 0xDE = 1101 1110
-        # (bits 6-7=1, bit 5=1, bit 4=0 seleccionado, bit 0=0 presionado, bits 1-3=1 sueltos)
+        # Resultado esperado spec-correct: 0xEE = 1110 1110
+        # (bits 7-6=1, bit 5=1, bit 4=0, bit 0=0 presionado, bits 3-1=1 sueltos)
+        # Pan Docs: bits 4-5 se leen como fueron escritos
         result = joypad.read_p1()
-        assert result == 0xDE, f"Esperado 0xDE, obtenido 0x{result:02X}"
+        assert result == 0xEE, f"Esperado 0xEE (spec-correct), obtenido 0x{result:02X}"
     
     def test_joypad_selection_action(self):
-        """Verifica que escribir en P1 selecciona la fila de acción correctamente."""
+        """
+        Verifica que escribir en P1 selecciona la fila de acción correctamente (spec-correct).
+        
+        Step 0425: Actualizado para reflejar comportamiento spec-correct según Pan Docs.
+        Los bits 4-5 se leen TAL COMO fueron escritos (NO se invierten).
+        """
         joypad = PyJoypad()
         
         # Presionar A (acción, índice 4)
@@ -58,13 +69,18 @@ class TestJoypad:
         joypad.write_p1(0x10)
         
         # Leer P1. Debería mostrar A presionado (bit 0 = 0)
-        # Resultado esperado: 0xEE = 1110 1110
-        # (bits 6-7=1, bit 5=0 seleccionado, bit 4=1, bit 0=0 presionado, bits 1-3=1 sueltos)
+        # Resultado esperado spec-correct: 0xDE = 1101 1110
+        # (bits 7-6=1, bit 5=0, bit 4=1, bit 0=0 presionado, bits 3-1=1 sueltos)
+        # Pan Docs: bits 4-5 se leen como fueron escritos
         result = joypad.read_p1()
-        assert result == 0xEE, f"Esperado 0xEE, obtenido 0x{result:02X}"
+        assert result == 0xDE, f"Esperado 0xDE (spec-correct), obtenido 0x{result:02X}"
     
     def test_joypad_multiple_buttons(self):
-        """Verifica que múltiples botones se pueden presionar simultáneamente."""
+        """
+        Verifica que múltiples botones se pueden presionar simultáneamente (spec-correct).
+        
+        Step 0425: Actualizado para valores spec-correct (sin inversión bits 4-5).
+        """
         joypad = PyJoypad()
         
         # Presionar Derecha (dirección) y A (acción)
@@ -74,29 +90,37 @@ class TestJoypad:
         # Seleccionar fila de dirección (bit 4 = 0)
         joypad.write_p1(0x20)
         result_dir = joypad.read_p1()
-        # Debería mostrar Derecha presionada
-        assert result_dir == 0xDE, f"Esperado 0xDE, obtenido 0x{result_dir:02X}"
+        # Debería mostrar Derecha presionada (spec-correct: 0xEE)
+        assert result_dir == 0xEE, f"Esperado 0xEE (spec-correct), obtenido 0x{result_dir:02X}"
         
         # Seleccionar fila de acción (bit 5 = 0)
         joypad.write_p1(0x10)
         result_action = joypad.read_p1()
-        # Debería mostrar A presionado
-        assert result_action == 0xEE, f"Esperado 0xEE, obtenido 0x{result_action:02X}"
+        # Debería mostrar A presionado (spec-correct: 0xDE)
+        assert result_action == 0xDE, f"Esperado 0xDE (spec-correct), obtenido 0x{result_action:02X}"
     
     def test_joypad_release_button(self):
-        """Verifica que los botones se pueden soltar correctamente."""
+        """
+        Verifica que los botones se pueden soltar correctamente (spec-correct).
+        
+        Step 0425: Actualizado para valores spec-correct (sin inversión bits 4-5).
+        """
         joypad = PyJoypad()
         
         # Presionar y luego soltar Derecha
         joypad.press_button(0)
-        joypad.write_p1(0x20)  # Seleccionar dirección
-        assert joypad.read_p1() == 0xDE  # Derecha presionada
+        joypad.write_p1(0x20)  # Seleccionar dirección (bits 5-4 = 10)
+        assert joypad.read_p1() == 0xEE  # Derecha presionada (spec-correct: bits 5-4=10, bit0=0)
         
         joypad.release_button(0)
-        assert joypad.read_p1() == 0xDF  # Todos sueltos (0xDF = 1101 1111)
+        assert joypad.read_p1() == 0xEF  # Todos sueltos (spec-correct: 0xEF = 1110 1111)
     
     def test_joypad_mmu_integration(self):
-        """Verifica la integración del Joypad con la MMU."""
+        """
+        Verifica la integración del Joypad con la MMU (spec-correct).
+        
+        Step 0425: Actualizado para valores spec-correct (sin inversión bits 4-5).
+        """
         joypad = PyJoypad()
         mmu = PyMMU()
         
@@ -106,54 +130,66 @@ class TestJoypad:
         # Presionar Derecha
         joypad.press_button(0)
         
-        # Seleccionar fila de dirección en P1 (0xFF00)
+        # Seleccionar fila de dirección en P1 (0xFF00) - bits 5-4 = 10
         mmu.write(0xFF00, 0x20)
         
-        # Leer P1 desde MMU
+        # Leer P1 desde MMU (spec-correct: bits 5-4 se leen como fueron escritos)
         result = mmu.read(0xFF00)
-        assert result == 0xDE, f"Esperado 0xDE, obtenido 0x{result:02X}"
+        assert result == 0xEE, f"Esperado 0xEE (spec-correct), obtenido 0x{result:02X}"
     
     def test_joypad_all_direction_buttons(self):
-        """Verifica todos los botones de dirección."""
+        """
+        Verifica todos los botones de dirección (spec-correct).
+        
+        Step 0425: Actualizado para valores spec-correct (sin inversión bits 4-5).
+        Cuando se escribe 0x20 (bits 5-4 = 10), se lee con bits 5-4 = 10 (base 0xE0).
+        """
         joypad = PyJoypad()
         
         # Mapeo: 0=Derecha, 1=Izquierda, 2=Arriba, 3=Abajo
+        # Valores spec-correct: base 0xE0 (bits 7-6=11, bits 5-4=10) + nibble
         test_cases = [
-            (0, 0xDE),  # Derecha: bit 0 = 0
-            (1, 0xDD),  # Izquierda: bit 1 = 0
-            (2, 0xDB),  # Arriba: bit 2 = 0
-            (3, 0xD7),  # Abajo: bit 3 = 0
+            (0, 0xEE),  # Derecha: bit 0 = 0, resto = 1 → 1110 = 0xE
+            (1, 0xED),  # Izquierda: bit 1 = 0, resto = 1 → 1101 = 0xD
+            (2, 0xEB),  # Arriba: bit 2 = 0, resto = 1 → 1011 = 0xB
+            (3, 0xE7),  # Abajo: bit 3 = 0, resto = 1 → 0111 = 0x7
         ]
         
         for button_index, expected_value in test_cases:
             joypad = PyJoypad()  # Resetear para cada test
             joypad.press_button(button_index)
-            joypad.write_p1(0x20)  # Seleccionar dirección
+            joypad.write_p1(0x20)  # Seleccionar dirección (bits 5-4 = 10)
             result = joypad.read_p1()
             assert result == expected_value, (
-                f"Botón {button_index}: Esperado 0x{expected_value:02X}, "
+                f"Botón {button_index}: Esperado 0x{expected_value:02X} (spec-correct), "
                 f"obtenido 0x{result:02X}"
             )
     
     def test_joypad_all_action_buttons(self):
-        """Verifica todos los botones de acción."""
+        """
+        Verifica todos los botones de acción (spec-correct).
+        
+        Step 0425: Actualizado para valores spec-correct (sin inversión bits 4-5).
+        Cuando se escribe 0x10 (bits 5-4 = 01), se lee con bits 5-4 = 01 (base 0xD0).
+        """
         joypad = PyJoypad()
         
         # Mapeo: 4=A, 5=B, 6=Select, 7=Start
+        # Valores spec-correct: base 0xD0 (bits 7-6=11, bits 5-4=01) + nibble
         test_cases = [
-            (4, 0xEE),  # A: bit 0 = 0
-            (5, 0xED),  # B: bit 1 = 0
-            (6, 0xEB),  # Select: bit 2 = 0
-            (7, 0xE7),  # Start: bit 3 = 0
+            (4, 0xDE),  # A: bit 0 = 0, resto = 1 → 1110 = 0xE
+            (5, 0xDD),  # B: bit 1 = 0, resto = 1 → 1101 = 0xD
+            (6, 0xDB),  # Select: bit 2 = 0, resto = 1 → 1011 = 0xB
+            (7, 0xD7),  # Start: bit 3 = 0, resto = 1 → 0111 = 0x7
         ]
         
         for button_index, expected_value in test_cases:
             joypad = PyJoypad()  # Resetear para cada test
             joypad.press_button(button_index)
-            joypad.write_p1(0x10)  # Seleccionar acción
+            joypad.write_p1(0x10)  # Seleccionar acción (bits 5-4 = 01)
             result = joypad.read_p1()
             assert result == expected_value, (
-                f"Botón {button_index}: Esperado 0x{expected_value:02X}, "
+                f"Botón {button_index}: Esperado 0x{expected_value:02X} (spec-correct), "
                 f"obtenido 0x{result:02X}"
             )
 
