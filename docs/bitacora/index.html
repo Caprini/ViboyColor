@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0417 - Fix CPU Unit Tests (Ejecutar desde WRAM) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0417__fix-cpu-tests-exec-from-wram.html" class="entry-link">
+                                    Fix CPU Unit Tests (Ejecutar desde WRAM)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0417 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Refactorización completa del harness de tests unitarios de CPU para ejecutar programas de prueba desde WRAM (0xC000) en lugar de intentar escribir en ROM (0x0000-0x7FFF). El problema original era que PyMMU.write(0x0000) no escribe memoria (ROM es read-only), causando que la CPU leyera 0x00 (NOP) y los tests no validaran las instrucciones reales. Se creó tests/helpers_cpu.py con load_program() que carga programas en WRAM y configura el PC. Los 6 tests de test_core_cpu.py se refactorizaron para usar el helper. Bonus: se descubrió que 0xFF (RST 38h) está implementado, se cambió test de opcode desconocido a 0xD3 (ilegal en GB). ✅ 6/6 tests pasando (100%). ✅ Validación de módulo compilado C++. Los tests ahora ejecutan instrucciones reales en lugar de NOPs.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0415 - Fix test_build.py Runner (Root) -->
                     <li>
                         <div class="entry-header">
