@@ -33,6 +33,7 @@ cdef class PyCPU:
     y extrae los punteros C++ subyacentes.
     """
     cdef cpu.CPU* _cpu
+    cdef PyRegisters _registers_ref  # Referencia al objeto PyRegisters para acceso desde Python
     
     def __cinit__(self, PyMMU mmu, PyRegisters regs):
         """
@@ -46,6 +47,8 @@ cdef class PyCPU:
         # Como mmu.pyx y registers.pyx están incluidos en native_core.pyx,
         # podemos acceder a los miembros privados _mmu y _regs
         self._cpu = new cpu.CPU(mmu._mmu, regs._regs)
+        # STEP 0440: Guardar referencia a PyRegisters para exposición a Python
+        self._registers_ref = regs
     
     def __dealloc__(self):
         """Destructor: libera la memoria C++."""
@@ -97,6 +100,28 @@ cdef class PyCPU:
             return 0
     
     # Propiedades para acceso directo (compatibilidad con tests)
+    @property
+    def registers(self):
+        """
+        Propiedad para acceder al objeto Registers desde Python.
+        
+        STEP 0440: Expuesto para compatibilidad con tests de integración.
+        
+        Returns:
+            PyRegisters: Objeto de registros de la CPU
+        """
+        return self._registers_ref
+    
+    @property
+    def regs(self):
+        """
+        Alias de registers para compatibilidad.
+        
+        Returns:
+            PyRegisters: Objeto de registros de la CPU
+        """
+        return self._registers_ref
+    
     @property
     def ime(self):
         """

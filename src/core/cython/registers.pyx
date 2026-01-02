@@ -221,6 +221,21 @@ cdef class PyRegisters:
         """Establece el flag Carry (C)."""
         self._regs.set_flag_c(value)
     
+    # --- Step 0440: Alias de métodos para compatibilidad con tests ---
+    def get_pc(self) -> int:
+        """
+        Obtiene el Program Counter (16 bits).
+        Alias de la propiedad `pc` para compatibilidad con tests antiguos.
+        """
+        return self._regs.pc
+    
+    def get_sp(self) -> int:
+        """
+        Obtiene el Stack Pointer (16 bits).
+        Alias de la propiedad `sp` para compatibilidad con tests antiguos.
+        """
+        return self._regs.sp
+    
     # --- Step 0411: Aplicar estado Post-Boot según modo de hardware ---
     def apply_post_boot_state(self, bool is_cgb_mode):
         """

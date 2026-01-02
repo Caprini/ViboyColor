@@ -59,6 +59,15 @@ cdef class PyTimer:
         """
         self._timer.step(t_cycles)
     
+    def tick(self, int t_cycles):
+        """
+        Alias de step() para compatibilidad con SystemClock (Step 0440).
+        
+        Args:
+            t_cycles: Número de T-Cycles a agregar al contador interno
+        """
+        self._timer.step(t_cycles)
+    
     def read_div(self) -> int:
         """
         Lee el valor del registro DIV (Divider).

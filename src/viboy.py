@@ -71,6 +71,7 @@ from .io.joypad import Joypad
 from .io.timer import Timer
 from .memory.cartridge import Cartridge
 from .memory.mmu import MMU
+from .system_clock import SystemClock
 
 # Importar Renderer condicionalmente (requiere pygame)
 try:
@@ -142,6 +143,7 @@ class Viboy:
         self._renderer: Renderer | None = None
         self._joypad: Joypad | None = None
         self._timer: Timer | None = None
+        self._system_clock: SystemClock | None = None
         
         # Contador de ciclos totales ejecutados
         self._total_cycles: int = 0
@@ -185,6 +187,8 @@ class Viboy:
                 self._mmu.set_ppu(self._ppu)
                 # CRÍTICO: Conectar PPU a CPU para sincronización ciclo a ciclo
                 self._cpu.set_ppu(self._ppu)
+                # Crear SystemClock para centralizar conversión M→T
+                self._system_clock = SystemClock(self._cpu, self._ppu, None)
             else:
                 # Usar componentes Python (fallback)
                 self._mmu = MMU(None)
@@ -202,6 +206,8 @@ class Viboy:
                 self._ppu = PPU(self._mmu)
                 # Conectar PPU a MMU para que pueda leer LY
                 self._mmu.set_ppu(self._ppu)
+                # Crear SystemClock para centralizar conversión M→T
+                self._system_clock = SystemClock(self._cpu, self._ppu, self._timer)
             
             # Inicializar Renderer si está disponible
             if Renderer is not None:
@@ -261,6 +267,8 @@ class Viboy:
             self._mmu.set_timer(self._timer)
             # CRÍTICO: Conectar Joypad a MMU para lectura/escritura del registro P1 (0xFF00)
             self._mmu.set_joypad(self._joypad)
+            # Crear SystemClock para centralizar conversión M→T
+            self._system_clock = SystemClock(self._cpu, self._ppu, self._timer)
             print("⏰ Timer C++ conectado al sistema.")
             print("🎮 Joypad C++ conectado al sistema.")
         else:
@@ -288,6 +296,8 @@ class Viboy:
             
             # Conectar PPU a MMU para que pueda leer LY (evitar dependencia circular)
             self._mmu.set_ppu(self._ppu)
+            # Crear SystemClock para centralizar conversión M→T
+            self._system_clock = SystemClock(self._cpu, self._ppu, self._timer)
         
         # Inicializar Renderer si está disponible
         if Renderer is not None:
@@ -521,80 +531,39 @@ class Viboy:
         - CPU y Timer se ejecutan cada instrucción (para precisión del RNG)
         - PPU se actualiza una vez por scanline (456 ciclos) para rendimiento
         
+        STEP 0440: SystemClock ya sincroniza Timer (si está configurado).
+        Sin embargo, este método tiene lógica especial para NO avanzar PPU.
+        
         Returns:
             Número de T-Cycles consumidos por la instrucción ejecutada
             
         Raises:
             RuntimeError: Si el sistema no está inicializado correctamente
-            NotImplementedError: Si se encuentra un opcode no implementado
         """
         if self._cpu is None:
             raise RuntimeError("Sistema no inicializado. Llama a load_cartridge() primero.")
         
-        if self._use_cpp:
-            # CPU C++: verificar HALT y ejecutar
-            if self._cpu.get_halted():
-                cycles = self._cpu.step()
-                if cycles == 0:
-                    cycles = 4  # Protección contra bucle infinito
-                self._total_cycles += cycles
-            else:
-                # Ejecutar una instrucción normal
-                cycles = self._cpu.step()
-                
-                # CRÍTICO: Protección contra bucle infinito
-                if cycles == 0:
-                    cycles = 4  # Forzar avance para no colgar
-                
-                # Acumular ciclos totales
-                self._total_cycles += cycles
-            
-            # NOTA: Timer aún no está en C++, así que no lo actualizamos
-            # TODO: Implementar Timer C++ o mantener compatibilidad con Python
-            # Por ahora, solo devolvemos los T-Cycles
-            t_cycles = cycles * 4
-            
-            # CRÍTICO: Garantizar que siempre devolvemos al menos algunos ciclos
-            # Si por alguna razón t_cycles es 0, forzar avance mínimo
-            if t_cycles <= 0:
-                logger.warning(f"⚠️ ADVERTENCIA: _execute_cpu_timer_only() devolvió {t_cycles} T-Cycles. Forzando avance mínimo.")
-                t_cycles = 16  # 4 M-Cycles * 4 = 16 T-Cycles (mínimo seguro)
-            
-            return t_cycles
-        else:
-            # CPU Python: comportamiento original
-            # Si la CPU está en HALT, ejecutar un paso normal
-            if self._cpu.halted:
-                cycles = self._cpu.step()
-                if cycles == 0:
-                    cycles = 4  # Protección contra bucle infinito
-                self._total_cycles += cycles
-            else:
-                # Ejecutar una instrucción normal
-                cycles = self._cpu.step()
-                
-                # CRÍTICO: Protección contra bucle infinito
-                if cycles == 0:
-                    cycles = 4  # Forzar avance para no colgar
-                
-                # Acumular ciclos totales
-                self._total_cycles += cycles
-            
-            # Convertir M-Cycles a T-Cycles y actualizar Timer
-            # CRÍTICO: El Timer debe actualizarse cada instrucción para mantener
-            # la precisión del RNG (usado por juegos como Tetris)
-            t_cycles = cycles * 4
-            
-            # CRÍTICO: Garantizar que siempre devolvemos al menos algunos ciclos
-            # Si por alguna razón t_cycles es 0, forzar avance mínimo
-            if t_cycles <= 0:
-                logger.warning(f"⚠️ ADVERTENCIA: _execute_cpu_timer_only() (Python) devolvió {t_cycles} T-Cycles. Forzando avance mínimo.")
-                t_cycles = 16  # 4 M-Cycles * 4 = 16 T-Cycles (mínimo seguro)
-            
-            if self._timer is not None:
-                self._timer.tick(t_cycles)
-            
-            return t_cycles
+        # Ejecutar CPU directamente (sin SystemClock para evitar avanzar PPU)
+        m_cycles = self._cpu.step()
+        
+        # STEP 0440 Fase C: Validación explícita en lugar de hack silencioso
+        if m_cycles <= 0:
+            raise RuntimeError(
+                f"CPU.step() devolvió {m_cycles} M-cycles (esperado >0). "
+                f"Bug en CPU o opcode no manejado."
+            )
+        
+        # Convertir a T-cycles (único punto manual por limitación de arquitectura legacy)
+        t_cycles = m_cycles * 4
+        
+        # Actualizar Timer si está disponible
+        if self._timer is not None:
+            self._timer.tick(t_cycles)
+        
+        # Acumular ciclos totales
+        self._total_cycles += m_cycles
+        
+        return t_cycles
     
     def tick(self) -> int:
         """
@@ -603,130 +572,28 @@ class Viboy:
         Este método es el "latido" del sistema. Cada llamada ejecuta una instrucción
         y devuelve los ciclos consumidos.
         
-        CRÍTICO: Si la CPU está en HALT, el reloj del sistema sigue funcionando.
-        La PPU y el Timer deben seguir avanzando normalmente. Para evitar que el
-        emulador se quede congelado esperando interrupciones, cuando la CPU está
-        en HALT avanzamos múltiples ciclos hasta que ocurra algo (interrupción
-        o cambio de estado).
+        STEP 0440: Delegado a SystemClock para centralizar conversión M→T.
+        SystemClock.tick_instruction() maneja:
+        - Ejecución de CPU.step()
+        - Conversión M→T (único punto con factor 4)
+        - Sincronización PPU/Timer
+        - Protección contra m_cycles == 0
         
         Returns:
             Número de M-Cycles consumidos por la instrucción ejecutada
             
         Raises:
             RuntimeError: Si el sistema no está inicializado correctamente
-            NotImplementedError: Si se encuentra un opcode no implementado
             
-        Fuente: Pan Docs - HALT behavior, System Clock
+        Fuente: Pan Docs - System Clock
         """
-        if self._cpu is None:
+        if self._system_clock is None:
             raise RuntimeError("Sistema no inicializado. Llama a load_cartridge() primero.")
         
-        if self._use_cpp:
-            # CPU C++: verificar HALT y ejecutar
-            if self._cpu.get_halted():
-                # Avanzar ciclos hasta que ocurra algo (interrupción o cambio de estado)
-                # Usamos un límite de seguridad para evitar bucles infinitos
-                max_halt_cycles = 114  # 114 M-Cycles = 456 T-Cycles = 1 línea de PPU
-                total_cycles = 0
-                
-                for _ in range(max_halt_cycles):
-                    # Ejecutar un tick de HALT (consume 1 M-Cycle)
-                    cycles = self._cpu.step()
-                    
-                    # CRÍTICO: Protección contra bucle infinito también en HALT
-                    if cycles == 0:
-                        cycles = 4  # Forzar avance para no colgar
-                    
-                    total_cycles += cycles
-                    
-                    # Convertir a T-Cycles y avanzar subsistemas
-                    t_cycles = cycles * 4
-                    if self._ppu is not None:
-                        self._ppu.step(t_cycles)
-                    # Timer aún no está en C++, omitir por ahora
-                    
-                    # Si la CPU se despertó (ya no está en HALT), salir
-                    if not self._cpu.get_halted():
-                        break
-                
-                self._total_cycles += total_cycles
-                return total_cycles
-            
-            # Ejecutar una instrucción normal
-            cycles = self._cpu.step()
-            
-            # CRÍTICO: Protección contra bucle infinito
-            if cycles == 0:
-                cycles = 4  # Forzar avance para no colgar
-            
-            # Acumular ciclos totales
-            self._total_cycles += cycles
-            
-            # Avanzar la PPU (motor de timing)
-            # La CPU devuelve M-Cycles, pero la PPU necesita T-Cycles
-            # Conversión: 1 M-Cycle = 4 T-Cycles
-            t_cycles = cycles * 4
-            if self._ppu is not None:
-                self._ppu.step(t_cycles)
-            
-            # Timer aún no está en C++, omitir por ahora
-            
-            return cycles
-        else:
-            # CPU Python: comportamiento original
-            # Si la CPU está en HALT, simular el paso del tiempo de forma más agresiva
-            # para que la PPU y el Timer puedan avanzar y generar interrupciones.
-            # En hardware real, el reloj sigue funcionando durante HALT.
-            if self._cpu.halted:
-                # Avanzar ciclos hasta que ocurra algo (interrupción o cambio de estado)
-                # Usamos un límite de seguridad para evitar bucles infinitos
-                max_halt_cycles = 114  # 114 M-Cycles = 456 T-Cycles = 1 línea de PPU
-                total_cycles = 0
-                
-                for _ in range(max_halt_cycles):
-                    # Ejecutar un tick de HALT (consume 1 M-Cycle)
-                    cycles = self._cpu.step()
-                    
-                    # CRÍTICO: Protección contra bucle infinito también en HALT
-                    if cycles == 0:
-                        cycles = 4  # Forzar avance para no colgar
-                    
-                    total_cycles += cycles
-                    
-                    # Convertir a T-Cycles y avanzar subsistemas
-                    t_cycles = cycles * 4
-                    if self._ppu is not None:
-                        self._ppu.step(t_cycles)
-                    if self._timer is not None:
-                        self._timer.tick(t_cycles)
-                    
-                    # Si la CPU se despertó (ya no está en HALT), salir
-                    if not self._cpu.halted:
-                        break
-                
-                self._total_cycles += total_cycles
-                return total_cycles
-            
-            # Ejecutar una instrucción normal
-            cycles = self._cpu.step()
-            
-            # CRÍTICO: Protección contra bucle infinito
-            if cycles == 0:
-                cycles = 4  # Forzar avance para no colgar
-            
-            # Acumular ciclos totales
-            self._total_cycles += cycles
-            
-            # Avanzar la PPU (motor de timing)
-            t_cycles = cycles * 4
-            if self._ppu is not None:
-                self._ppu.step(t_cycles)
-            
-            # Avanzar el Timer
-            if self._timer is not None:
-                self._timer.tick(t_cycles)
-            
-            return cycles
+        # Delegar a SystemClock (único punto de conversión M→T)
+        m_cycles = self._system_clock.tick_instruction()
+        self._total_cycles += m_cycles
+        return m_cycles
 
     def run(self, debug: bool = False, simulate_input: bool = False) -> None:
         """

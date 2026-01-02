@@ -74,9 +74,14 @@ class SystemClock:
         # 1. Ejecutar una instrucción de CPU (retorna M-cycles)
         m_cycles = self._cpu.step()
         
-        # 2. Protección contra bucle infinito (CPU retorna 0 ciclos)
-        if m_cycles == 0:
-            m_cycles = 1  # Forzar avance mínimo (4 T-cycles)
+        # 2. Validación explícita: CPU NUNCA debe devolver 0 ciclos
+        # STEP 0440: Eliminado hack silencioso. Si ocurre, es un bug que debe diagnosticarse.
+        if m_cycles <= 0:
+            raise RuntimeError(
+                f"CPU.step() devolvió {m_cycles} M-cycles (esperado >0). "
+                f"Esto indica un bug en la implementación de CPU o un opcode no manejado. "
+                f"Verifica el último opcode ejecutado y los registros."
+            )
         
         # 3. Convertir M-cycles a T-cycles (ÚNICO PUNTO DE CONVERSIÓN)
         t_cycles = m_cycles * self.M_TO_T_FACTOR
@@ -115,8 +120,12 @@ class SystemClock:
             # Ejecutar un tick de HALT (consume 1 M-cycle mínimo)
             m_cycles = self._cpu.step()
             
-            if m_cycles == 0:
-                m_cycles = 1  # Protección
+            # Validación: HALT debe consumir al menos 1 M-cycle
+            if m_cycles <= 0:
+                raise RuntimeError(
+                    f"CPU.step() durante HALT devolvió {m_cycles} M-cycles (esperado >0). "
+                    f"Esto indica un bug en la implementación de HALT."
+                )
             
             # Convertir a T-cycles
             t_cycles = m_cycles * self.M_TO_T_FACTOR
