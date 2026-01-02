@@ -39,6 +39,7 @@ class TestCoreCPUALU:
         - C: 0 (no hay carry)
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -74,6 +75,7 @@ class TestCoreCPUALU:
         - C: 0 (no hay borrow)
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -108,6 +110,7 @@ class TestCoreCPUALU:
         - C: 0
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -142,6 +145,7 @@ class TestCoreCPUALU:
         - C: 0
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -171,6 +175,7 @@ class TestCoreCPUALU:
         - Flags: Z, N, H se actualizan; C no se afecta
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -199,6 +204,7 @@ class TestCoreCPUALU:
         - Flags: Z, N, H se actualizan; C no se afecta
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -231,6 +237,7 @@ class TestCoreCPUALU:
         - C: 1 (carry completo) <- CRÍTICO
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -265,6 +272,7 @@ class TestCoreCPUALU:
         - C: 0 (no hay borrow)
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -303,6 +311,7 @@ class TestCoreCPUALU:
         - C: 0 (no hay borrow completo)
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -343,6 +352,7 @@ class TestCoreCPUALU:
         - C: 1 (borrow completo) <- CRÍTICO
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         

@@ -318,6 +318,22 @@ public:
      * Fuente: Pan Docs - Power Up Sequence
      */
     void initialize_io_registers();
+    
+    /**
+     * Step 0419: Habilita/deshabilita escrituras directas en ROM para unit testing.
+     * 
+     * En modo normal, las escrituras a 0x0000-0x7FFF se interpretan como comandos
+     * MBC (Memory Bank Controller) y no modifican la ROM. Este modo permite a los
+     * tests unitarios escribir instrucciones directamente en la ROM para verificar
+     * la emulación de la CPU.
+     * 
+     * ⚠️ SOLO para propósitos de testing. NO usar en emulación normal.
+     * 
+     * @param allow true para permitir escrituras en ROM, false para modo normal
+     * 
+     * Fuente: Patrón estándar de testing en emuladores
+     */
+    void set_test_mode_allow_rom_writes(bool allow);
 
 private:
     /**
@@ -351,6 +367,9 @@ private:
     uint16_t current_rom_bank_;   // Hasta 9 bits (MBC5)
     uint16_t bank0_rom_;          // Banco mapeado en 0x0000-0x3FFF
     uint16_t bankN_rom_;          // Banco mapeado en 0x4000-0x7FFF
+    
+    // Step 0419: Flag para permitir escrituras en ROM (solo testing)
+    bool test_mode_allow_rom_writes_;
 
     // Estado específico de MBC1
     uint8_t mbc1_bank_low5_;

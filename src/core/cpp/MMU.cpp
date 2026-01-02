@@ -58,6 +58,7 @@ MMU::MMU()
     , current_rom_bank_(1)
     , bank0_rom_(0)
     , bankN_rom_(1)
+    , test_mode_allow_rom_writes_(false)  // Step 0419: Modo test desactivado por defecto
     , mbc1_bank_low5_(1)
     , mbc1_bank_high2_(0)
     , mbc1_mode_(0)
@@ -925,6 +926,36 @@ void MMU::write(uint16_t addr, uint8_t value) {
         memory_[addr] = value & 0xFF;
         return;
     }
+    
+    // --- Step 0419: Test Mode - Permitir escrituras directas en ROM ---
+    // Si el modo test está activo Y la dirección está en ROM (0x0000-0x7FFF),
+    // escribir directamente en rom_data_ en lugar de interpretar como MBC.
+    // Esto permite a los tests unitarios escribir instrucciones en ROM para
+    // verificar la emulación de la CPU sin cargar una ROM real.
+    if (test_mode_allow_rom_writes_ && addr < 0x8000) {
+        // Calcular offset en rom_data_ según el banco actual
+        size_t rom_offset;
+        if (addr < 0x4000) {
+            // Banco 0 (0x0000-0x3FFF)
+            rom_offset = static_cast<size_t>(bank0_rom_) * 0x4000 + addr;
+        } else {
+            // Banco N (0x4000-0x7FFF)
+            rom_offset = static_cast<size_t>(bankN_rom_) * 0x4000 + (addr - 0x4000);
+        }
+        
+        // Escribir en rom_data_ si el offset es válido
+        if (rom_offset < rom_data_.size()) {
+            rom_data_[rom_offset] = value;
+        } else {
+            // Si rom_data_ es demasiado pequeña, expandirla
+            if (rom_data_.size() < rom_offset + 1) {
+                rom_data_.resize(rom_offset + 1, 0x00);
+            }
+            rom_data_[rom_offset] = value;
+        }
+        return;  // Early return - NO procesar como MBC
+    }
+    // -----------------------------------------
 
     // --- Step 0275: Monitor de Salto de Banco (Bank Watcher) ---
     // --- Step 0407: Monitor completo de MBC writes (0x0000-0x7FFF) ---
@@ -3549,4 +3580,23 @@ void MMU::enable_bootrom_stub(bool enable, bool cgb_mode) {
     printf("[BOOTROM-STUB] Boot ROM deshabilitada. CPU comenzará en 0x0100.\n");
 }
 // --- Fin Step 0402 ---
+
+// --- Step 0419: Test Mode - Permitir escrituras en ROM ---
+/**
+ * Habilita/deshabilita escrituras directas en ROM para unit testing.
+ * 
+ * Este modo es EXCLUSIVO para tests unitarios que necesitan escribir
+ * instrucciones en la región 0x0000-0x7FFF (ROM) para verificar la
+ * emulación de la CPU sin necesidad de cargar una ROM real.
+ * 
+ * Patrón estándar: La mayoría de emuladores implementan un "test mode"
+ * para bypass del MBC en escenarios de testing.
+ * 
+ * @param allow true = permitir escrituras en ROM (test mode)
+ *              false = modo normal (escrituras interpretan MBC)
+ */
+void MMU::set_test_mode_allow_rom_writes(bool allow) {
+    test_mode_allow_rom_writes_ = allow;
+}
+// --- Fin Step 0419 ---
 

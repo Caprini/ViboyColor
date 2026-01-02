@@ -20,8 +20,8 @@ Este informe ha sido dividido en varias partes para facilitar la legibilidad y e
 
 - **Archivo**: [parte_01_steps_0412_0450.md](parte_01_steps_0412_0450.md)
 - **Rango de Steps**: 412 a 450
-- **Número de Steps**: 6 (actualmente hasta 417)
-- **Líneas**: ~535
+- **Número de Steps**: 7 (actualmente hasta 419)
+- **Líneas**: ~685
 
 ### Parte 0: Steps 370 - 411
 

@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0419: Fix MMU - Test Mode ROM Writes</title>
+    <link rel="stylesheet" href="../css/bitacora.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <a href="../index.html" class="back-link">← Volver al Índice</a>
+            <h1>Step 0419: Fix MMU - Test Mode ROM Writes</h1>
+            <div class="entry-meta">
+                <strong>Fecha:</strong> 2026-01-02 |
+                <strong>Step ID:</strong> 0419 |
+                <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+            </div>
+        </header>
+
+        <section>
+            <h2>Resumen</h2>
+            <p>
+                Se implementó un <strong>modo de test</strong> en la MMU para permitir escrituras directas en ROM
+                (0x0000-0x7FFF) durante unit testing, resolviendo el problema raíz que causaba que los 10 tests
+                ALU fallaran. Este cambio mínimo clean-room elimina el primer cluster de fallos ALU sin tocar la lógica
+                de la CPU.
+            </p>
+            <p><strong>Resultado</strong>: Los 10 tests ALU ahora pasan correctamente (52 tests totales pasan vs 17 previos).</p>
+        </section>
+
+        <section>
+            <h2>Concepto de Hardware</h2>
+            <h3>El Problema: MBC vs Testing</h3>
+            <p>
+                En la Game Boy real, las escrituras a la región 0x0000-0x7FFF (ROM) no modifican el contenido de la ROM.
+                En su lugar, se interpretan como comandos para el <strong>Memory Bank Controller (MBC)</strong>:
+            </p>
+            <ul>
+                <li><strong>0x0000-0x1FFF</strong>: RAM Enable/Disable (escribir 0x0A habilita RAM externa)</li>
+                <li><strong>0x2000-0x3FFF</strong>: Selección de banco ROM inferior</li>
+                <li><strong>0x4000-0x5FFF</strong>: Selección de banco ROM superior o RAM</li>
+                <li><strong>0x6000-0x7FFF</strong>: Modo MBC1 (ROM banking vs RAM banking)</li>
+            </ul>
+            <p>
+                <strong>Fuente</strong>: Pan Docs - "Memory Bank Controllers (MBC1/MBC3/MBC5)"
+            </p>
+
+            <h3>El Problema en Testing</h3>
+            <p>
+                Los tests unitarios ALU necesitan escribir instrucciones de prueba en memoria y ejecutarlas.
+                Por ejemplo, para testear <code>ADD A, d8</code>:
+            </p>
+            <pre><code>mmu.write(0x0100, 0x3E)  # LD A, d8
+mmu.write(0x0101, 0x0A)  # Operando: 10
+mmu.write(0x0102, 0xC6)  # ADD A, d8
+mmu.write(0x0103, 0x02)  # Operando: 2</code></pre>
+            
+            <p>
+                Pero la MMU interpreta estas escrituras como comandos MBC (ej: <code>write(0x0100, 0x3E)</code>
+                se interpretaba como "RAM-ENABLE"), y el contenido de ROM en 0x0100 permanecía sin cambios (típicamente 0x00/NOP).
+            </p>
+            <p>
+                Por eso la CPU ejecutaba NOPs en lugar de las instrucciones del test, y el registro A nunca cambiaba de su
+                valor inicial (1), causando que todos los tests ALU fallaran con <code>AssertionError: A debe ser 12, es 1</code>.
+            </p>
+
+            <h3>La Solución: Test Mode</h3>
+            <p>
+                La solución es un <strong>patrón estándar en emuladores</strong>: agregar un flag booleano
+                <code>test_mode_allow_rom_writes_</code> que, cuando está activo, permite escrituras directas en
+                <code>rom_data_</code> en lugar de interpretar como MBC.
+            </p>
+            <p>
+                Este modo es <strong>exclusivo para testing</strong> y no se usa en emulación normal.
+            </p>
+        </section>
+
+        <section>
+            <h2>Implementación</h2>
+            <h3>Cambios en C++ (MMU)</h3>
+            <ol>
+                <li>
+                    <strong>MMU.hpp</strong>: Declaración del método y campo privado
+                    <pre><code>void set_test_mode_allow_rom_writes(bool allow);  // Método público
+bool test_mode_allow_rom_writes_;                 // Campo privado</code></pre>
+                </li>
+                <li>
+                    <strong>MMU.cpp (constructor)</strong>: Inicialización a false (modo normal)
+                    <pre><code>, test_mode_allow_rom_writes_(false)  // Modo test desactivado por defecto</code></pre>
+                </li>
+                <li>
+                    <strong>MMU.cpp (write)</strong>: Early return antes del manejo de MBC
+                    <pre><code>// Step 0419: Test Mode - Permitir escrituras directas en ROM
+if (test_mode_allow_rom_writes_ && addr < 0x8000) {
+    // Calcular offset en rom_data_ según el banco actual
+    size_t rom_offset;
+    if (addr < 0x4000) {
+        rom_offset = static_cast<size_t>(bank0_rom_) * 0x4000 + addr;
+    } else {
+        rom_offset = static_cast<size_t>(bankN_rom_) * 0x4000 + (addr - 0x4000);
+    }
+    
+    // Escribir en rom_data_ (expandir si es necesario)
+    if (rom_offset >= rom_data_.size()) {
+        rom_data_.resize(rom_offset + 1, 0x00);
+    }
+    rom_data_[rom_offset] = value;
+    return;  // Early return - NO procesar como MBC
+}</code></pre>
+                </li>
+                <li>
+                    <strong>MMU.cpp (setter)</strong>: Implementación del método
+                    <pre><code>void MMU::set_test_mode_allow_rom_writes(bool allow) {
+    test_mode_allow_rom_writes_ = allow;
+}</code></pre>
+                </li>
+            </ol>
+
+            <h3>Cambios en Cython (Wrapper)</h3>
+            <ol>
+                <li>
+                    <strong>mmu.pxd</strong>: Declaración del método C++
+                    <pre><code>void set_test_mode_allow_rom_writes(bool allow)  # Step 0419</code></pre>
+                </li>
+                <li>
+                    <strong>mmu.pyx</strong>: Wrapper Python
+                    <pre><code>def set_test_mode_allow_rom_writes(self, bool allow):
+    """Habilita/deshabilita escrituras directas en ROM para unit testing."""
+    if self._mmu == NULL:
+        raise MemoryError("La instancia de MMU en C++ no existe.")
+    self._mmu.set_test_mode_allow_rom_writes(allow)</code></pre>
+                </li>
+            </ol>
+
+            <h3>Cambios en Tests (test_core_cpu_alu.py)</h3>
+            <p>Todos los 10 tests ALU ahora habilitan el modo test después de crear la MMU:</p>
+            <pre><code>mmu = PyMMU()
+mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM
+regs = PyRegisters()
+cpu = PyCPU(mmu, regs)</code></pre>
+        </section>
+
+        <section>
+            <h2>Tests y Verificación</h2>
+            <h3>Compilación</h3>
+            <pre><code>$ python3 setup.py build_ext --inplace > /tmp/viboy_step0419_build.log 2>&1
+BUILD_EXIT=0  ✅</code></pre>
+
+            <h3>Test Build</h3>
+            <pre><code>$ python3 test_build.py > /tmp/viboy_step0419_test_build.log 2>&1
+TEST_BUILD_EXIT=0  ✅
+[EXITO] El pipeline de compilacion funciona correctamente</code></pre>
+
+            <h3>Test Objetivo (test_add_immediate_basic)</h3>
+            <pre><code>$ pytest -q --maxfail=1 -x tests/test_core_cpu_alu.py::TestCoreCPUALU::test_add_immediate_basic
+============================== 1 passed in 0.36s ===============================
+
+[BG-ENABLE-SEQUENCE] PC:0x0100 OP:0x3E | HL:0x014D | A:0x01  ← ✅ LD A, d8
+[BG-ENABLE-SEQUENCE] PC:0x0102 OP:0xC6 | HL:0x014D | A:0x0A  ← ✅ ADD A, d8</code></pre>
+
+            <h3>Pytest Global</h3>
+            <pre><code>$ pytest -q > /tmp/viboy_step0419_pytest_after.log 2>&1
+
+ANTES:  10 failed (ALU), 17 passed
+DESPUÉS: 10 failed (otros archivos), 52 passed  ✅
+
+Los 10 tests ALU ahora PASAN correctamente.</code></pre>
+
+            <h4>Código del Test (test_add_immediate_basic)</h4>
+            <pre><code>def test_add_immediate_basic(self):
+    """Test 1: Verificar suma básica sin carry (10 + 2 = 12)"""
+    mmu = PyMMU()
+    mmu.set_test_mode_allow_rom_writes(True)  # Step 0419
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    
+    regs.pc = 0x0100
+    
+    # Cargar A = 10
+    mmu.write(0x0100, 0x3E)  # LD A, d8
+    mmu.write(0x0101, 0x0A)  # Operando: 10
+    cpu.step()
+    
+    # Sumar 2
+    mmu.write(0x0102, 0xC6)  # ADD A, d8
+    mmu.write(0x0103, 0x02)  # Operando: 2
+    cpu.step()
+    
+    # Verificar
+    assert regs.a == 12  # ✅ PASA AHORA</code></pre>
+
+            <p><strong>Validación Nativa</strong>: Módulo compilado C++ verificado con éxito.</p>
+        </section>
+
+        <section>
+            <h2>Archivos Afectados</h2>
+            <ul>
+                <li><code>src/core/cpp/MMU.hpp</code> - Declaración del método y campo</li>
+                <li><code>src/core/cpp/MMU.cpp</code> - Implementación del modo test</li>
+                <li><code>src/core/cython/mmu.pxd</code> - Declaración Cython</li>
+                <li><code>src/core/cython/mmu.pyx</code> - Wrapper Python</li>
+                <li><code>tests/test_core_cpu_alu.py</code> - Habilitación del modo test en 10 tests</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Impacto</h2>
+            <ul>
+                <li><strong>Positivo</strong>: Los 10 tests ALU ahora pasan (52 tests totales vs 17 previos, +206% pass rate)</li>
+                <li><strong>Scope</strong>: Cambio mínimo (solo MMU, sin tocar CPU/ALU)</li>
+                <li><strong>Clean Room</strong>: Patrón estándar de testing en emuladores, no copiado de otros proyectos</li>
+                <li><strong>Advertencias</strong>: 10 tests en otros archivos (compares, inc_dec, indirect, interrupts) también necesitan el modo test, pero quedan para Step 0420+</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Notas Técnicas</h2>
+            <ol>
+                <li>El modo test está <strong>desactivado por defecto</strong> (false en constructor)</li>
+                <li>Solo los tests deben activarlo explícitamente</li>
+                <li>La emulación normal (main.py con ROMs reales) NO debe usar este modo</li>
+                <li>El early return en <code>MMU::write()</code> evita que se generen logs de MBC durante tests</li>
+                <li>Si <code>rom_data_</code> es demasiado pequeña, se expande automáticamente</li>
+            </ol>
+        </section>
+
+        <footer>
+            <a href="../index.html" class="back-link">← Volver al Índice</a>
+        </footer>
+    </div>
+</body>
+</html>
+

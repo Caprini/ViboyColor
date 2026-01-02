@@ -399,6 +399,38 @@ cdef class PyMMU:
         self._mmu.initialize_io_registers()
     # --- Fin Step 0404 ---
     
+    # --- Step 0419: Test Mode - Permitir escrituras en ROM ---
+    def set_test_mode_allow_rom_writes(self, bool allow):
+        """
+        Habilita/deshabilita escrituras directas en ROM para unit testing.
+        
+        En modo normal, las escrituras a 0x0000-0x7FFF se interpretan como comandos
+        MBC (Memory Bank Controller) y no modifican la ROM. Este modo permite a los
+        tests unitarios escribir instrucciones directamente en la ROM para verificar
+        la emulación de la CPU sin cargar una ROM real.
+        
+        ⚠️ SOLO para propósitos de testing. NO usar en emulación normal.
+        
+        Args:
+            allow: True para permitir escrituras en ROM, False para modo normal
+        
+        Raises:
+            MemoryError: Si la instancia de MMU en C++ no existe
+        
+        Ejemplo:
+            >>> mmu = PyMMU()
+            >>> mmu.set_test_mode_allow_rom_writes(True)
+            >>> mmu.write(0x0100, 0x3E)  # LD A, d8 - escribe directamente en ROM
+            >>> mmu.set_test_mode_allow_rom_writes(False)  # Restaurar modo normal
+        
+        Fuente: Patrón estándar de testing en emuladores
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        self._mmu.set_test_mode_allow_rom_writes(allow)
+    # --- Fin Step 0419 ---
+    
     # --- Step 0410: Resumen de DMA/VRAM ---
     def log_dma_vram_summary(self):
         """

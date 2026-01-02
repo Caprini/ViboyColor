@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0419 - Fix MMU - Test Mode ROM Writes -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0419__fix-mmu-test-mode-rom-writes.html" class="entry-link">
+                                    Fix MMU - Test Mode ROM Writes
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0419 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de modo de test en MMU para resolver los 10 fallos ALU. Problema raíz: los tests escribían instrucciones en ROM (0x0000-0x7FFF), pero la MMU interpretaba estas escrituras como comandos MBC, dejando ROM sin modificar (0x00/NOPs). Solución mínima: agregar flag test_mode_allow_rom_writes_ que permite escrituras directas en rom_data_ cuando está activo (patrón estándar en emuladores). Cambios: MMU.hpp/.cpp (método setter + early return en write), mmu.pyx/.pxd (wrapper Cython), test_core_cpu_alu.py (10 tests habilitando modo). Resultado: 10/10 tests ALU pasan ahora. ✅ Build exitoso. ✅ test_build.py OK. ✅ 52 tests totales pasan (vs 17 previos, +206%). Scope mínimo: solo MMU, CPU/ALU sin tocar. Clean-room: no copiado de otros emuladores.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0418 - Repo Hygiene: Step Order + Informe Dividido -->
                     <li>
                         <div class="entry-header">
