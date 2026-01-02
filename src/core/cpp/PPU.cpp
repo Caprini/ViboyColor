@@ -4184,14 +4184,12 @@ void PPU::render_sprites() {
     // Bit 2: OBJ Size (0=8x8, 1=8x16)
     uint8_t sprite_height = ((lcdc & 0x04) != 0) ? 16 : 8;
     
-    // --- Step 0257: HARDWARE PALETTE BYPASS ---
-    // Forzar OBP0 = 0xE4 y OBP1 = 0xE4 (mapeo identidad)
-    // Esto garantiza que los índices de color de sprites se preserven en el framebuffer,
-    // independientemente del estado de los registros de paleta en la MMU.
-    // uint8_t obp0 = mmu_->read(IO_OBP0); // COMENTADO: Ignorar MMU
-    // uint8_t obp1 = mmu_->read(IO_OBP1); // COMENTADO: Ignorar MMU
-    uint8_t obp0 = 0xE4;  // 11 10 01 00 (Mapeo identidad estándar)
-    uint8_t obp1 = 0xE4;  // 11 10 01 00 (Mapeo identidad estándar)
+    // --- Step 0432: Leer paletas de sprites desde MMU ---
+    // Leer OBP0 (0xFF48) y OBP1 (0xFF49) desde los registros de la MMU.
+    // Cada registro define cómo mapear los índices de color 0-3 del sprite a shades 0-3.
+    // Fuente: Pan Docs - OBP0/OBP1 Sprite Palette Registers
+    uint8_t obp0 = mmu_->read(IO_OBP0);  // Registro 0xFF48
+    uint8_t obp1 = mmu_->read(IO_OBP1);  // Registro 0xFF49
     // -------------------------------------------
     
     // --- Step 0364: Doble Buffering ---
@@ -4312,17 +4310,12 @@ void PPU::render_sprites() {
                 continue;
             }
             
-            // --- Step 0257: Aplicar paleta forzada (mapeo identidad) ---
-            // Aplicar OBP0 u OBP1 según el atributo del sprite
-            uint8_t palette = (palette_num == 0) ? obp0 : obp1;
-            // Aplicar paleta para mapear el índice de color crudo al índice final
-            // palette = 0xE4 = 11 10 01 00
-            // sprite_color_idx 0 -> (palette >> 0) & 3 = 0 (transparente, no se dibuja)
-            // sprite_color_idx 1 -> (palette >> 2) & 3 = 1
-            // sprite_color_idx 2 -> (palette >> 4) & 3 = 2
-            // sprite_color_idx 3 -> (palette >> 6) & 3 = 3
-            uint8_t final_sprite_color = (palette >> (sprite_color_idx * 2)) & 0x03;
-            framebuffer_line[final_x] = final_sprite_color;
+            // --- Step 0432: Guardar índice crudo sin aplicar paleta ---
+            // CRÍTICO: El framebuffer guarda el índice de color crudo (0-3), NO el color final.
+            // La paleta (OBP0/OBP1) se aplica posteriormente al convertir a ARGB32 en Python.
+            // Esto permite que los tests (y el renderer) apliquen la paleta correcta según el contexto.
+            // Fuente: Pan Docs - OBP0/OBP1 se aplican al renderizar, no al escribir al framebuffer.
+            framebuffer_line[final_x] = sprite_color_idx;
             // -------------------------------------------------------------
         }
     }

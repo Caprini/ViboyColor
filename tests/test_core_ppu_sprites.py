@@ -116,15 +116,15 @@ class TestCorePPUSprites:
         
         # El sprite está en screen_y=4, screen_x=12 (sprite_y=20, sprite_x=20)
         # La línea 0 del sprite (línea sólida negra) debería estar en LY=4
-        # Avanzar hasta H-Blank de la línea 4: 4 líneas completas + entrar en H-Blank
-        # Cada línea son 456 ciclos, y el renderizado ocurre en H-Blank (después de 252 ciclos en la línea)
+        # Avanzar hasta completar línea 4: 4 líneas completas + línea 4 completa
+        # Cada línea son 456 ciclos, y render_scanline() se ejecuta al completar cada línea
         for _ in range(4):
             ppu.step(456)
-        # Ahora estamos en línea 4, avanzar hasta H-Blank (252 ciclos adicionales)
-        ppu.step(252)
+        # Completar línea 4 para que render_scanline() se ejecute
+        ppu.step(456)
         
-        # Verificar que estamos en línea 4
-        assert ppu.get_ly() == 4, f"Debe estar en línea 4, está en línea {ppu.get_ly()}"
+        # Verificar que completamos línea 4 (ahora en línea 5)
+        assert ppu.get_ly() == 5, f"Debe estar en línea 5 (después de completar línea 4), está en línea {ppu.get_ly()}"
         
         # Obtener framebuffer
         framebuffer = ppu.framebuffer
@@ -264,7 +264,7 @@ class TestCorePPUSprites:
         ppu = PyPPU(mmu)
         for _ in range(4):
             ppu.step(456)
-        ppu.step(252)
+        ppu.step(456)  # Completar línea 4 para renderizar
         
         framebuffer_line_4_flipped = ppu.framebuffer[4 * 160:(4 * 160) + 160]
         
@@ -325,7 +325,7 @@ class TestCorePPUSprites:
         ppu = PyPPU(mmu)
         for _ in range(4):
             ppu.step(456)
-        ppu.step(252)
+        ppu.step(456)  # Completar línea 4 para renderizar
         
         framebuffer_line_4_pal1 = ppu.framebuffer[4 * 160:(4 * 160) + 160]
         color_index_pal1 = framebuffer_line_4_pal1[12]

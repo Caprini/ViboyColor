@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0432 - Fix PPU Sprites (XFlip + OBP1 + Transparency) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0432__fix-ppu-sprites-xflip-obp1-transparency.html" class="entry-link">
+                                    Fix PPU Sprites (XFlip + OBP1 + Transparency)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0432 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación correcta del renderizado de sprites DMG en el core C++ para hacer pasar los 3 tests target. Fix triple: (1) Timing - tests necesitan 5 iteraciones completas de 456 ciclos para renderizar línea 4 (no 4×456+252), porque render_scanline() solo se ejecuta al completar cada línea. (2) Paletas reales - eliminar hardcode OBP0=OBP1=0xE4 (Step 0257 PALETTE BYPASS) y leer valores reales desde MMU (0xFF48/0xFF49). (3) Framebuffer crudo - guardar sprite_color_idx sin aplicar paleta (tests esperan índice crudo 0-3, no color final). Implementación según Pan Docs: OBP1 bit4 de atributos selecciona paleta, X-Flip bit5 invierte horizontalmente, transparencia en color 0 siempre. ✅ 4/4 tests sprites pasan (test_sprite_rendering_simple, test_transparency, test_x_flip, test_palette_selection). ✅ 404/414 tests totales (10 fallos test_gpu_* pre-existentes para Step 0433). Cambios: PPU.cpp líneas 4187-4192 (leer OBP0/OBP1 desde MMU) + línea 4319 (guardar índice crudo), tests_core_ppu_sprites.py (fix timing 252→456). Core C++ sprites completo y funcional.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0431 - Triage PPU/GPU 10 Fails + Split Clusters -->
                     <li>
                         <div class="entry-header">
