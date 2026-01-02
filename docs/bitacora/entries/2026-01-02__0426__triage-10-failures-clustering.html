@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0426: Triage 10 Fallos + Clustering</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Bitácora del Proyecto Viboy Color</h1>
+            <p><a href="../index.html" style="color: var(--color-accent);">← Volver al índice</a></p>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <article class="entry">
+                <!-- Entry Header -->
+                <div class="entry-header">
+                    <h2>Step 0426: Triage 10 Fallos + Clustering</h2>
+                    <div class="entry-meta">
+                        <span><strong>Fecha:</strong> 2026-01-02</span>
+                        <span><strong>Step ID:</strong> 0426</span>
+                        <span><strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span></span>
+                    </div>
+                </div>
+
+                <!-- Resumen Ejecutivo -->
+                <section>
+                    <h3>📋 Resumen Ejecutivo</h3>
+                    <p>
+                        Triage completo y sistemático de los 10 tests fallidos restantes tras Step 0425. Captura exacta de fallos, análisis de causa raíz por cluster y selección de estrategia de fix atómico. Decisión crítica: <strong>NO tocar código en este Step</strong>, solo diagnóstico riguroso.
+                    </p>
+                    
+                    <div style="background: #1a1a1a; padding: 1rem; border-radius: 4px; margin-top: 1rem;">
+                        <strong>Resultado del Clustering:</strong>
+                        <ul style="margin: 0.5rem 0 0 1.5rem;">
+                            <li><strong>Cluster A</strong>: 6 fallos PPU (framebuffer swap bug) - 🔴 ALTA prioridad</li>
+                            <li><strong>Cluster B</strong>: 3 fallos Registers (Post-Boot vs Zero-Init) - 🟡 MEDIA prioridad</li>
+                            <li><strong>Cluster C</strong>: 1 fallo CPU Control (EI delay test mal) - 🟢 BAJA prioridad</li>
+                        </ul>
+                        <p style="margin-top: 0.5rem;"><strong>Cluster seleccionado para Step 0427:</strong> Cluster B (Foundation first, menor superficie)</p>
+                    </div>
+                </section>
+
+                <!-- Concepto de Hardware -->
+                <section>
+                    <h3>🔧 Concepto de Hardware</h3>
+                    
+                    <h4>1. Post-Boot State (Pan Docs - Power Up Sequence)</h4>
+                    <p>
+                        Cuando la Game Boy se enciende, la Boot ROM ejecuta una secuencia de inicialización y deja los registros en un <strong>estado específico</strong> antes de saltar al código del cartucho (0x0100):
+                    </p>
+                    <ul>
+                        <li><strong>DMG</strong>: A=0x01, BC=0x0013, DE=0x00D8, HL=0x014D, SP=0xFFFE, PC=0x0100, F=0xB0</li>
+                        <li><strong>CGB</strong>: A=0x11, BC=0x0000, DE=0xFF56, HL=0x000D, SP=0xFFFE, PC=0x0100, F=0x80</li>
+                    </ul>
+                    <p>
+                        El core de Viboy Color implementa <strong>Post-Boot State por defecto</strong> (skip-boot), lo que significa que <code>PyRegisters()</code> inicia con PC=0x0100, no PC=0x0000.
+                    </p>
+
+                    <h4>2. EI Delay (Pan Docs - CPU Instruction Set)</h4>
+                    <p>
+                        La instrucción <strong>EI (Enable Interrupts)</strong> tiene un comportamiento crítico: <strong>delay de 1 instrucción</strong>. Esto significa que IME no se activa inmediatamente, sino <strong>después de ejecutar la siguiente instrucción</strong>.
+                    </p>
+                    <pre><code>; Ejemplo hardware-accurate:
+EI          ; IME sigue False aquí
+NOP         ; Esta instrucción se ejecuta con IME=False
+; Aquí IME se activa automáticamente
+; Interrupciones pendientes se procesan</code></pre>
+                    <p>
+                        Esto es crítico para patrones como <code>EI + RETI</code> usados en handlers de interrupción.
+                    </p>
+
+                    <h4>3. PPU Framebuffer Double-Buffering</h4>
+                    <p>
+                        El emulador usa <strong>double-buffering</strong> para evitar tearing:
+                    </p>
+                    <ul>
+                        <li><strong>Back buffer</strong>: Donde la PPU escribe píxeles durante el rendering (línea por línea)</li>
+                        <li><strong>Front buffer</strong>: Buffer expuesto a Python/SDL para display</li>
+                        <li><strong>Swap</strong>: Al final del frame (LY=144), se debe copiar back → front</li>
+                    </ul>
+                    <p>
+                        El bug detectado: el back buffer tiene píxeles correctos, pero el front buffer queda en blanco (swap no funciona).
+                    </p>
+                </section>
+
+                <!-- Implementación Técnica -->
+                <section>
+                    <h3>⚙️ Implementación Técnica</h3>
+                    
+                    <h4>Tarea T1: Captura Exacta de Fallos</h4>
+                    <p><strong>Comandos ejecutados:</strong></p>
+                    <pre><code>pytest -q > /tmp/viboy_0426_pytest.log 2>&1
+tail -n 140 /tmp/viboy_0426_pytest.log
+grep -n "^FAILED " /tmp/viboy_0426_pytest.log
+
+# Fallos individuales por cluster:
+pytest -vv tests/test_core_ppu_rendering.py::TestCorePPURendering::test_bg_rendering_simple_tile --maxfail=1 -x > /tmp/viboy_0426_ppu_rendering_first.log 2>&1
+pytest -vv tests/test_core_registers.py::TestPyRegistersPCSP::test_program_counter --maxfail=1 -x > /tmp/viboy_0426_registers_first.log 2>&1
+pytest -vv tests/test_cpu_control.py::TestCPUControl::test_di_ei_sequence --maxfail=1 -x > /tmp/viboy_0426_cpu_control_first.log 2>&1</code></pre>
+
+                    <h4>Análisis de Causa Raíz</h4>
+                    <div style="background: #1a1a1a; padding: 1rem; border-radius: 4px; margin-top: 1rem;">
+                        <h5>Cluster A: PPU Framebuffer Swap (6 fallos)</h5>
+                        <p><strong>Tests afectados:</strong></p>
+                        <ul>
+                            <li><code>test_bg_rendering_simple_tile</code></li>
+                            <li><code>test_signed_addressing_fix</code></li>
+                            <li><code>test_sprite_rendering_simple</code></li>
+                            <li><code>test_sprite_transparency</code></li>
+                            <li><code>test_sprite_x_flip</code></li>
+                            <li><code>test_sprite_palette_selection</code></li>
+                        </ul>
+                        <p><strong>Assertion típica:</strong></p>
+                        <pre><code>AssertionError: Primer píxel debe ser negro (0xFF000000), es 0xFFFFFFFF (índice=0)
+assert 4294967295 == 4278190080</code></pre>
+                        <p><strong>Evidencia del log:</strong></p>
+                        <pre><code>[PPU-RENDER-WRITE] First 20 pixels: 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3
+[PPU-FRAMEBUFFER-LINE] Pixel (0, 0): index=0  # ❌ Debería ser 3</code></pre>
+                        <p><strong>Diagnóstico:</strong> ✅ Bug de core - El renderer escribe correctamente en el back buffer, pero el buffer final expuesto a Python queda en blanco. Problema en <code>renderer.py</code> (swap/copy de buffers).</p>
+                    </div>
+
+                    <div style="background: #1a1a1a; padding: 1rem; border-radius: 4px; margin-top: 1rem;">
+                        <h5>Cluster B: Registers Post-Boot vs Zero-Init (3 fallos)</h5>
+                        <p><strong>Tests afectados:</strong></p>
+                        <ul>
+                            <li><code>test_program_counter</code></li>
+                            <li><code>test_stack_pointer</code></li>
+                            <li><code>test_inicializacion_por_defecto</code></li>
+                        </ul>
+                        <p><strong>Assertion típica:</strong></p>
+                        <pre><code>def test_program_counter(self):
+    reg = PyRegisters()
+    assert reg.pc == 0  # ❌ Falla: pc=0x0100 (256)</code></pre>
+                        <p><strong>Código del core (Registers.cpp:33):</strong></p>
+                        <pre><code>CoreRegisters::CoreRegisters() :
+    a(0x01), b(0x00), c(0x13), d(0x00), e(0xD8),
+    h(0x01), l(0x4D), f(0xB0),
+    pc(0x0100),  // Post-Boot State (Pan Docs)
+    sp(0xFFFE)</code></pre>
+                        <p><strong>Diagnóstico:</strong> ❌ Tests mal diseñados - El core implementa correctamente el Post-Boot State (PC=0x0100 según Pan Docs). Los tests asumen inicialización a cero, lo cual contradice el diseño del hardware real.</p>
+                    </div>
+
+                    <div style="background: #1a1a1a; padding: 1rem; border-radius: 4px; margin-top: 1rem;">
+                        <h5>Cluster C: CPU Control EI Delay (1 fallo)</h5>
+                        <p><strong>Test afectado:</strong></p>
+                        <ul>
+                            <li><code>test_di_ei_sequence</code></li>
+                        </ul>
+                        <p><strong>Código del test:</strong></p>
+                        <pre><code>cpu._op_ei()
+assert cpu.ime is True  # ❌ Falla: ime=False</code></pre>
+                        <p><strong>Código del core (core.py:2405):</strong></p>
+                        <pre><code>def _op_ei(self) -> int:
+    """EI tiene un retraso de 1 instrucción (Pan Docs)"""
+    self.ime_scheduled = True  # No activar inmediatamente
+    return 1</code></pre>
+                        <p><strong>Diagnóstico:</strong> ❌ Test mal diseñado - El test llama a <code>_op_ei()</code> directamente y espera IME=True inmediato. El core implementa correctamente el delay de 1 instrucción (hardware-accurate según Pan Docs).</p>
+                    </div>
+                </section>
+
+                <!-- Decisión Estratégica -->
+                <section>
+                    <h3>🎯 Decisión Estratégica</h3>
+                    <h4>Cluster Seleccionado para Step 0427: Cluster B (Registers Post-Boot)</h4>
+                    
+                    <p><strong>Justificación:</strong></p>
+                    <ol>
+                        <li><strong>Foundation first</strong>: Resolver la discrepancia de inicialización de registros antes que PPU</li>
+                        <li><strong>Menor superficie de cambio</strong>: Solo tocar tests, no core (3 tests en 1 archivo)</li>
+                        <li><strong>Decisión de diseño clara</strong>: Documentar la política Post-Boot vs Zero-Init</li>
+                        <li><strong>No tocar PPU todavía</strong>: El Cluster A (PPU framebuffer) es más complejo y debe hacerse después de limpiar foundation</li>
+                    </ol>
+
+                    <p><strong>Estrategia propuesta:</strong></p>
+                    <ul>
+                        <li>Añadir método <code>reset_to_zero()</code> a <code>PyRegisters</code> para tests que necesiten estado crudo</li>
+                        <li>Actualizar los 3 tests para usar <code>reset_to_zero()</code> o aceptar valores Post-Boot</li>
+                        <li>Documentar la política en el test con comentarios Pan Docs</li>
+                        <li>Verificación: build + test_build + pytest target + pytest global (215 → 218 passing)</li>
+                    </ul>
+
+                    <p><strong>Orden de resolución de clusters:</strong></p>
+                    <ol>
+                        <li>Step 0427: Cluster B (Registers) - Foundation</li>
+                        <li>Step 0428: Cluster C (CPU Control) - Low-hanging fruit</li>
+                        <li>Step 0429+: Cluster A (PPU Framebuffer) - Requiere investigación profunda en renderer.py</li>
+                    </ol>
+                </section>
+
+                <!-- Tests y Verificación -->
+                <section>
+                    <h3>✅ Tests y Verificación</h3>
+                    
+                    <h4>Comando Ejecutado</h4>
+                    <pre><code>pytest -q</code></pre>
+
+                    <h4>Resultado</h4>
+                    <pre><code>======================== 10 failed, 215 passed in 0.88s ========================</code></pre>
+
+                    <h4>Validación</h4>
+                    <ul>
+                        <li>✅ Captura exacta de 10 fallos (no se introdujeron nuevos fallos)</li>
+                        <li>✅ Clustering por causa raíz completado</li>
+                        <li>✅ Primer fallo por cluster analizado en detalle</li>
+                        <li>✅ Estrategia de fix atómico definida</li>
+                        <li>✅ NO se modificó código (triage puro)</li>
+                    </ul>
+
+                    <h4>Desglose de Fallos por Cluster</h4>
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
+                        <thead>
+                            <tr style="background: #2a2a2a;">
+                                <th style="padding: 0.5rem; text-align: left; border: 1px solid #444;">Cluster</th>
+                                <th style="padding: 0.5rem; text-align: left; border: 1px solid #444;">Fallos</th>
+                                <th style="padding: 0.5rem; text-align: left; border: 1px solid #444;">Causa</th>
+                                <th style="padding: 0.5rem; text-align: left; border: 1px solid #444;">Tipo</th>
+                                <th style="padding: 0.5rem; text-align: left; border: 1px solid #444;">Prioridad</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style="padding: 0.5rem; border: 1px solid #444;">A (PPU)</td>
+                                <td style="padding: 0.5rem; border: 1px solid #444;">6</td>
+                                <td style="padding: 0.5rem; border: 1px solid #444;">Framebuffer swap bug</td>
+                                <td style="padding: 0.5rem; border: 1px solid #444;">Bug de core</td>
+                                <td style="padding: 0.5rem; border: 1px solid #444;">🔴 ALTA</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0.5rem; border: 1px solid #444;">B (Registers)</td>
+                                <td style="padding: 0.5rem; border: 1px solid #444;">3</td>
+                                <td style="padding: 0.5rem; border: 1px solid #444;">Post-Boot vs Zero-Init</td>
+                                <td style="padding: 0.5rem; border: 1px solid #444;">Tests mal</td>
+                                <td style="padding: 0.5rem; border: 1px solid #444;">🟡 MEDIA</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 0.5rem; border: 1px solid #444;">C (CPU Control)</td>
+                                <td style="padding: 0.5rem; border: 1px solid #444;">1</td>
+                                <td style="padding: 0.5rem; border: 1px solid #444;">EI delay test mal</td>
+                                <td style="padding: 0.5rem; border: 1px solid #444;">Test mal</td>
+                                <td style="padding: 0.5rem; border: 1px solid #444;">🟢 BAJA</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <!-- Archivos Afectados -->
+                <section>
+                    <h3>📁 Archivos Analizados</h3>
+                    <ul>
+                        <li><code>tests/test_core_ppu_rendering.py</code> - 2 fallos (Cluster A)</li>
+                        <li><code>tests/test_core_ppu_sprites.py</code> - 4 fallos (Cluster A)</li>
+                        <li><code>tests/test_core_registers.py</code> - 3 fallos (Cluster B)</li>
+                        <li><code>tests/test_cpu_control.py</code> - 1 fallo (Cluster C)</li>
+                        <li><code>src/core/cpp/Registers.cpp</code> - Verificado (Post-Boot correcto)</li>
+                        <li><code>src/cpu/core.py</code> - Verificado (EI delay correcto)</li>
+                    </ul>
+                </section>
+
+                <!-- Lecciones Aprendidas -->
+                <section>
+                    <h3>📚 Lecciones Aprendidas</h3>
+                    <ul>
+                        <li><strong>Triage disciplinado</strong>: NO modificar código en el Step de diagnóstico evita introducir nuevos fallos</li>
+                        <li><strong>Clustering por causa raíz</strong>: Agrupar fallos permite fixes atómicos y minimiza superficie de cambio</li>
+                        <li><strong>Foundation first</strong>: Resolver discrepancias de registros/CPU antes que PPU simplifica debugging posterior</li>
+                        <li><strong>Tests vs Spec</strong>: Cuando un test contradice Pan Docs, el test está mal (no el core)</li>
+                        <li><strong>Post-Boot State</strong>: El emulador debe decidir entre Zero-Init (para tests puros) o Post-Boot (para realismo)</li>
+                        <li><strong>Hardware-accurate delay</strong>: EI delay de 1 instrucción es crítico para juegos reales (no simplificar)</li>
+                    </ul>
+                </section>
+
+                <!-- Referencias -->
+                <section>
+                    <h3>🔗 Referencias</h3>
+                    <ul>
+                        <li><strong>Pan Docs - Power Up Sequence</strong>: Post-Boot State (DMG/CGB)</li>
+                        <li><strong>Pan Docs - CPU Instruction Set (EI)</strong>: Delay de 1 instrucción</li>
+                        <li><strong>Pan Docs - Video Display Controller</strong>: Double-buffering y swap de framebuffer</li>
+                    </ul>
+                </section>
+
+            </article>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><a href="../index.html">← Volver al índice</a></p>
+        </footer>
+    </div>
+</body>
+</html>
+

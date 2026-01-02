@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0426 - Triage 10 Fallos + Clustering -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0426__triage-10-failures-clustering.html" class="entry-link">
+                                    Triage 10 Fallos + Clustering
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0426 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Triage completo y sistemático de los 10 tests fallidos restantes tras Step 0425. Captura exacta de fallos, análisis de causa raíz por cluster y selección de estrategia de fix atómico. Decisión crítica: NO tocar código en este Step, solo diagnóstico riguroso. Clustering: Cluster A (6 fallos PPU - framebuffer swap bug, prioridad ALTA), Cluster B (3 fallos Registers - Post-Boot vs Zero-Init, prioridad MEDIA), Cluster C (1 fallo CPU Control - EI delay test mal, prioridad BAJA). Análisis detallado con logs: PPU escribe correctamente en back buffer pero front buffer queda blanco (problema en renderer.py swap), Registers inician con Post-Boot State (PC=0x0100 según Pan Docs) pero tests asumen zero-init, EI implementa correctamente delay de 1 instrucción pero test espera activación inmediata. Estrategia foundation-first: Step 0427 resolverá Cluster B (menor superficie, documentar política Post-Boot), luego Cluster C, finalmente Cluster A (más complejo). 215/225 tests passing, 0 fallos nuevos introducidos, base limpia para fixes atómicos.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0425 - Spec-Correct JOYP + Address Wrap (Remove Hacks) -->
                     <li>
                         <div class="entry-header">
