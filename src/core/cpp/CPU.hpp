@@ -580,12 +580,32 @@ private:
     uint64_t first_vblank_service_frame_;
     bool irq_summary_logged_;
     
+    // ========== Estado de Triage (Step 0434) ==========
+    // Instrumentación para entender por qué VRAM está vacía
+    bool triage_active_;               // Flag para activar triage (limitado por frames)
+    int triage_frame_limit_;           // Número máximo de frames para triage
+    uint16_t triage_last_pc_;          // Último PC sampled
+    int triage_pc_sample_count_;       // Contador de samples de PC
+    static constexpr int TRIAGE_PC_SAMPLE_INTERVAL = 1000;  // Sample cada N instrucciones
+    
 public:
     /**
      * Step 0400: Genera resumen de interrupciones para análisis comparativo.
      * Registra requests/services por tipo de interrupción.
      */
     void log_irq_summary();
+    
+    /**
+     * Step 0434: Activa/desactiva triage mode.
+     * @param active true para activar triage, false para desactivar
+     * @param frame_limit número máximo de frames para capturar (default 120)
+     */
+    void set_triage_mode(bool active, int frame_limit = 120);
+    
+    /**
+     * Step 0434: Genera resumen de triage (debe llamarse después de ejecutar).
+     */
+    void log_triage_summary();
 };
 
 #endif // CPU_HPP

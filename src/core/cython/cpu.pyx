@@ -179,4 +179,20 @@ cdef class PyCPU:
         CRÍTICO: La PPU debe estar conectada previamente mediante set_ppu().
         """
         self._cpu.run_scanline()
+    
+    def set_triage_mode(self, bool active, int frame_limit=120):
+        """
+        Step 0434: Activa/desactiva triage mode para diagnóstico.
+        
+        Args:
+            active: True para activar, False para desactivar
+            frame_limit: Número máximo de frames para capturar (default 120)
+        """
+        self._cpu.set_triage_mode(active, frame_limit)
+    
+    def log_triage_summary(self):
+        """
+        Step 0434: Genera resumen de triage (debe llamarse después de ejecutar).
+        """
+        self._cpu.log_triage_summary()
 

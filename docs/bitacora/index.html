@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0434 - Triage VRAM Vacía + Instrumentación de Diagnóstico -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0434__triage-vram-empty-instrumentation-analysis.html" class="entry-link">
+                                    Triage VRAM Vacía + Instrumentación de Diagnóstico
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0434 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de instrumentación de triage para determinar causa raíz de VRAM vacía en Pokémon Red. Añadida instrumentación no invasiva en CPU/MMU para capturar evidencia empírica: PC sampling (cada 1000 instrucciones), conteo de writes VRAM/OAM/IO/MBC, primeras 32 escrituras por región. Evidencia capturada (500K T-cycles, 7 frames): PC=0x36E3 (bucle limpieza VRAM), VRAM writes=1036 (TODOS 0x00 - inicialización), OAM writes=0, IO writes (LCDC=3, BGP=1, IF=9, IE=3), MBC writes=0. Conclusión crítica: Pokémon Red SÍ escribe a VRAM pero está en fase de limpieza/init (valores 0x00). NO es problema de CPU/ROM/MBC/PPU. ES problema de timing: juego necesita más frames para terminar init y poblar tiles reales (non-zero). Evaluadas Fases 2-3: DMG post-boot ya implementado (Step 0401), MBC1 funciona correctamente. Tests: 515/556 pasan (92.6%), 35 skipped (legacy GPU/PPU Python), sin regresiones. Instrumentación reutilizable para futuros diagnósticos. Metodología clean-room confirmada: evidencia empírica > suposiciones.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0433 - Present Core Framebuffer + Retire Legacy GPU Tests -->
                     <li>
                         <div class="entry-header">

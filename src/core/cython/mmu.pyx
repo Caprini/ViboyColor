@@ -422,6 +422,35 @@ cdef class PyMMU:
         self._mmu.log_dma_vram_summary()
     # --- Fin Step 0410 ---
     
+    # --- Step 0434: Triage Mode ---
+    def set_triage_mode(self, bool active):
+        """
+        Activa/desactiva triage mode para diagnóstico.
+        
+        Args:
+            active: True para activar, False para desactivar
+        
+        Raises:
+            MemoryError: Si la instancia de MMU en C++ no existe
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        self._mmu.set_triage_mode(active)
+    
+    def log_triage_summary(self):
+        """
+        Genera resumen de triage (debe llamarse después de ejecutar).
+        
+        Raises:
+            MemoryError: Si la instancia de MMU en C++ no existe
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        self._mmu.log_triage_summary()
+    # --- Fin Step 0434 ---
+    
     # Método para obtener el puntero C++ directamente (forma segura)
     cdef mmu.MMU* get_cpp_ptr(self):
         """

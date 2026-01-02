@@ -526,6 +526,47 @@ private:
     // --- Step 0404: Modo de hardware (DMG vs CGB) ---
     HardwareMode hardware_mode_;        // Modo de hardware actual (DMG o CGB)
     
+    // --- Step 0434: Triage instrumentado ---
+    // Contadores y tracking para entender por qué VRAM está vacía
+    struct TriageState {
+        bool active;                     // ¿Triage activo?
+        int vram_writes;                 // Writes a 0x8000-0x9FFF
+        int oam_writes;                  // Writes a 0xFE00-0xFE9F
+        int ff40_writes;                 // Writes a LCDC (0xFF40)
+        int ff47_writes;                 // Writes a BGP (0xFF47)
+        int ff50_writes;                 // Writes a BOOT (0xFF50)
+        int ff04_writes;                 // Writes a DIV (0xFF04)
+        int ff0f_writes;                 // Writes a IF (0xFF0F)
+        int ffff_writes;                 // Writes a IE (0xFFFF)
+        int mbc1_bank_writes;            // Writes a 0x2000-0x7FFF (banking MBC1)
+        
+        // Primeras 32 escrituras para análisis detallado
+        struct WriteEvent {
+            uint16_t pc;
+            uint16_t addr;
+            uint8_t val;
+        };
+        static constexpr int MAX_SAMPLES = 32;
+        WriteEvent vram_samples[MAX_SAMPLES];
+        WriteEvent io_samples[MAX_SAMPLES];
+        WriteEvent mbc_samples[MAX_SAMPLES];
+        int vram_sample_count;
+        int io_sample_count;
+        int mbc_sample_count;
+        
+        TriageState() : active(false), vram_writes(0), oam_writes(0),
+                        ff40_writes(0), ff47_writes(0), ff50_writes(0),
+                        ff04_writes(0), ff0f_writes(0), ffff_writes(0),
+                        mbc1_bank_writes(0),
+                        vram_sample_count(0), io_sample_count(0), mbc_sample_count(0) {
+            for (int i = 0; i < MAX_SAMPLES; i++) {
+                vram_samples[i] = {0, 0, 0};
+                io_samples[i] = {0, 0, 0};
+                mbc_samples[i] = {0, 0, 0};
+            }
+        }
+    } triage_;
+    
 public:
     /**
      * Step 0389: Acceso directo a bancos VRAM para el PPU
@@ -572,6 +613,23 @@ public:
         }
         return 0xFF;
     }
+    
+    /**
+     * Step 0434: Activa/desactiva triage mode.
+     * @param active true para activar triage, false para desactivar
+     */
+    void set_triage_mode(bool active);
+    
+    /**
+     * Step 0434: Registra PC actual para triage (llamado desde CPU).
+     * @param pc Program counter actual
+     */
+    void set_triage_pc(uint16_t pc);
+    
+    /**
+     * Step 0434: Genera resumen de triage (debe llamarse después de ejecutar).
+     */
+    void log_triage_summary();
 };
 
 #endif // MMU_HPP

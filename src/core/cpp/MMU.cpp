@@ -691,6 +691,41 @@ void MMU::write(uint16_t addr, uint8_t value) {
 
     value &= 0xFF;
     
+    // --- Step 0434: Instrumentación de Triage ---
+    if (triage_.active) {
+        // VRAM writes (0x8000-0x9FFF)
+        if (addr >= 0x8000 && addr <= 0x9FFF) {
+            triage_.vram_writes++;
+            if (triage_.vram_sample_count < triage_.MAX_SAMPLES) {
+                triage_.vram_samples[triage_.vram_sample_count++] = {debug_current_pc, addr, value};
+            }
+        }
+        // OAM writes (0xFE00-0xFE9F)
+        else if (addr >= 0xFE00 && addr <= 0xFE9F) {
+            triage_.oam_writes++;
+        }
+        // IO writes críticos
+        else if (addr >= 0xFF00 && addr <= 0xFFFF) {
+            if (addr == 0xFF40) triage_.ff40_writes++;       // LCDC
+            else if (addr == 0xFF47) triage_.ff47_writes++;  // BGP
+            else if (addr == 0xFF50) triage_.ff50_writes++;  // BOOT
+            else if (addr == 0xFF04) triage_.ff04_writes++;  // DIV
+            else if (addr == 0xFF0F) triage_.ff0f_writes++;  // IF
+            else if (addr == 0xFFFF) triage_.ffff_writes++;  // IE
+            
+            if (triage_.io_sample_count < triage_.MAX_SAMPLES) {
+                triage_.io_samples[triage_.io_sample_count++] = {debug_current_pc, addr, value};
+            }
+        }
+        // MBC1 banking writes (0x2000-0x7FFF)
+        else if (addr >= 0x2000 && addr <= 0x7FFF) {
+            triage_.mbc1_bank_writes++;
+            if (triage_.mbc_sample_count < triage_.MAX_SAMPLES) {
+                triage_.mbc_samples[triage_.mbc_sample_count++] = {debug_current_pc, addr, value};
+            }
+        }
+    }
+    
     // --- Step 0387: Trazado de Escrituras a FE00-FEFF (OAM/Unusable) ---
     // Detectar escrituras a la región OAM/no usable para diagnosticar corrupción
     static int fe_write_count = 0;
@@ -3562,4 +3597,83 @@ void MMU::enable_bootrom_stub(bool enable, bool cgb_mode) {
 // --- Step 0425: Eliminado set_test_mode_allow_rom_writes() (hack no spec-correct) ---
 // Los tests que necesiten ROM personalizada deben usar load_rom() con bytearray preparado.
 // -------------------------------------------
+
+// --- Step 0434: Triage Mode ---
+
+void MMU::set_triage_mode(bool active) {
+    triage_.active = active;
+    if (active) {
+        // Reset contadores
+        triage_.vram_writes = 0;
+        triage_.oam_writes = 0;
+        triage_.ff40_writes = 0;
+        triage_.ff47_writes = 0;
+        triage_.ff50_writes = 0;
+        triage_.ff04_writes = 0;
+        triage_.ff0f_writes = 0;
+        triage_.ffff_writes = 0;
+        triage_.mbc1_bank_writes = 0;
+        triage_.vram_sample_count = 0;
+        triage_.io_sample_count = 0;
+        triage_.mbc_sample_count = 0;
+        
+        printf("[TRIAGE-MMU] Triage mode ACTIVADO\n");
+    } else {
+        printf("[TRIAGE-MMU] Triage mode DESACTIVADO\n");
+    }
+}
+
+void MMU::set_triage_pc(uint16_t pc) {
+    debug_current_pc = pc;
+}
+
+void MMU::log_triage_summary() {
+    if (!triage_.active) {
+        return;
+    }
+    
+    printf("\n[TRIAGE-MMU] ========================================\n");
+    printf("[TRIAGE-MMU] Resumen de Triage - MMU\n");
+    printf("[TRIAGE-MMU] VRAM writes: %d\n", triage_.vram_writes);
+    printf("[TRIAGE-MMU] OAM writes: %d\n", triage_.oam_writes);
+    printf("[TRIAGE-MMU] IO writes:\n");
+    printf("[TRIAGE-MMU]   FF40 (LCDC): %d\n", triage_.ff40_writes);
+    printf("[TRIAGE-MMU]   FF47 (BGP): %d\n", triage_.ff47_writes);
+    printf("[TRIAGE-MMU]   FF50 (BOOT): %d\n", triage_.ff50_writes);
+    printf("[TRIAGE-MMU]   FF04 (DIV): %d\n", triage_.ff04_writes);
+    printf("[TRIAGE-MMU]   FF0F (IF): %d\n", triage_.ff0f_writes);
+    printf("[TRIAGE-MMU]   FFFF (IE): %d\n", triage_.ffff_writes);
+    printf("[TRIAGE-MMU] MBC1 banking writes: %d\n", triage_.mbc1_bank_writes);
+    
+    // Mostrar primeras 3 escrituras VRAM
+    printf("[TRIAGE-MMU] Primeras %d escrituras VRAM:\n", 
+           std::min(3, triage_.vram_sample_count));
+    for (int i = 0; i < std::min(3, triage_.vram_sample_count); i++) {
+        printf("[TRIAGE-MMU]   PC=0x%04X addr=0x%04X val=0x%02X\n",
+               triage_.vram_samples[i].pc, triage_.vram_samples[i].addr, 
+               triage_.vram_samples[i].val);
+    }
+    
+    // Mostrar primeras 3 escrituras IO
+    printf("[TRIAGE-MMU] Primeras %d escrituras IO:\n", 
+           std::min(3, triage_.io_sample_count));
+    for (int i = 0; i < std::min(3, triage_.io_sample_count); i++) {
+        printf("[TRIAGE-MMU]   PC=0x%04X addr=0x%04X val=0x%02X\n",
+               triage_.io_samples[i].pc, triage_.io_samples[i].addr, 
+               triage_.io_samples[i].val);
+    }
+    
+    // Mostrar primeras 3 escrituras MBC
+    printf("[TRIAGE-MMU] Primeras %d escrituras MBC:\n", 
+           std::min(3, triage_.mbc_sample_count));
+    for (int i = 0; i < std::min(3, triage_.mbc_sample_count); i++) {
+        printf("[TRIAGE-MMU]   PC=0x%04X addr=0x%04X val=0x%02X\n",
+               triage_.mbc_samples[i].pc, triage_.mbc_samples[i].addr, 
+               triage_.mbc_samples[i].val);
+    }
+    
+    printf("[TRIAGE-MMU] ========================================\n\n");
+}
+
+// --- Fin Step 0434 ---
 

@@ -22,7 +22,8 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       irq_serial_requests_(0), irq_serial_services_(0),
       irq_joypad_requests_(0), irq_joypad_services_(0),
       first_vblank_request_frame_(0), first_vblank_service_frame_(0),
-      irq_summary_logged_(false) {
+      irq_summary_logged_(false),
+      triage_active_(false), triage_frame_limit_(0), triage_last_pc_(0xFFFF), triage_pc_sample_count_(0) {  // Step 0434
     // Validación básica (en producción, podríamos usar assert)
     // Por ahora, confiamos en que Python pasa punteros válidos
     // IME inicia en false por seguridad (el juego lo activará si lo necesita)
@@ -460,6 +461,15 @@ int CPU::step() {
     // --- Step 0382: PC Sampler y Detección de Bucles (Diagnóstico H1) ---
     // Muestrea el PC cada N instrucciones para detectar si la CPU está atascada en un bucle
     instruction_counter_step382_++;
+    
+    // --- Step 0434: Triage PC Sampler ---
+    if (triage_active_ && instruction_counter_step382_ % TRIAGE_PC_SAMPLE_INTERVAL == 0) {
+        triage_last_pc_ = original_pc;
+        triage_pc_sample_count_++;
+        if (mmu_) {
+            mmu_->set_triage_pc(original_pc);
+        }
+    }
     
     // Muestrear cada 10,000 instrucciones (pero solo loggear las primeras 50 muestras)
     static int sample_log_count_step382 = 0;
@@ -3794,5 +3804,44 @@ void CPU::log_irq_summary() {
     printf("[IRQ-SUMMARY] Joypad: requests=%d services=%d\n",
            irq_joypad_requests_, irq_joypad_services_);
     printf("[IRQ-SUMMARY] ========================================\n");
+}
+
+// ========== Step 0434: Triage Mode ==========
+
+void CPU::set_triage_mode(bool active, int frame_limit) {
+    triage_active_ = active;
+    triage_frame_limit_ = frame_limit;
+    triage_last_pc_ = 0xFFFF;
+    triage_pc_sample_count_ = 0;
+    
+    if (active) {
+        printf("[TRIAGE] Triage mode ACTIVADO (frame_limit=%d)\n", frame_limit);
+        // También activar triage en MMU
+        if (mmu_) {
+            mmu_->set_triage_mode(true);
+        }
+    } else {
+        printf("[TRIAGE] Triage mode DESACTIVADO\n");
+        if (mmu_) {
+            mmu_->set_triage_mode(false);
+        }
+    }
+}
+
+void CPU::log_triage_summary() {
+    if (!triage_active_) {
+        return;
+    }
+    
+    printf("\n[TRIAGE] ========================================\n");
+    printf("[TRIAGE] Resumen de Triage - CPU\n");
+    printf("[TRIAGE] PC samples: count=%d, last_pc=0x%04X\n",
+           triage_pc_sample_count_, triage_last_pc_);
+    printf("[TRIAGE] ========================================\n\n");
+    
+    // Delegar a MMU para su propio resumen
+    if (mmu_) {
+        mmu_->log_triage_summary();
+    }
 }
 

@@ -46,4 +46,7 @@ cdef extern from "MMU.hpp":
         void initialize_io_registers()  # Step 0404
         void log_dma_vram_summary()  # Step 0410
         # Step 0425: Eliminado set_test_mode_allow_rom_writes() (hack no spec-correct)
+        void set_triage_mode(bool active)  # Step 0434
+        void set_triage_pc(uint16_t pc)  # Step 0434
+        void log_triage_summary()  # Step 0434
 

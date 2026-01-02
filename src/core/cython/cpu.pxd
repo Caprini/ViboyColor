@@ -55,4 +55,8 @@ cdef extern from "CPU.hpp":
         
         # Obtiene el estado de HALT
         bool get_halted()
+        
+        # Step 0434: Triage mode
+        void set_triage_mode(bool active, int frame_limit)
+        void log_triage_summary()
 
