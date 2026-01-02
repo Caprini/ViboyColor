@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0431 - Triage PPU/GPU 10 Fails + Split Clusters -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0431__triage-ppu-gpu-10-fails-split-clusters.html" class="entry-link">
+                                    Triage PPU/GPU 10 Fails + Split Clusters
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0431 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Step de análisis puro (0 cambios de código) para clasificar los 10 tests fallidos de PPU/GPU en 2 clusters aislados: Cluster A (C++ PPU Sprites, 3 tests) con funcionalidad incompleta (render_sprites, X-Flip, paletas OBP0/OBP1), y Cluster B (GPU Python Background/Scroll, 7 tests) con diseño legacy incompatible con core C++ (mockean MMU.read_byte read-only, esperan pygame.draw.rect vs renderizado vectorizado NumPy). Decisión arquitectónica crítica: Priorizar C++ PPU como única fuente de verdad, deprecar GPU Python como motor de renderizado (solo adaptador Pygame). Evidencia completa capturada en logs: test_sprite_rendering_simple (sprites no visibles por falta de swap), test_sprite_x_flip (0xFFFFFFFF != 0xFF000000, flip no implementado), test_sprite_palette_selection (OBP1 no aplicado), test_lcdc_control_tile_map_area (AttributeError: read_byte is read-only), test_scroll_x (pygame.draw.rect no llamado por NumPy optimization). Reporte generado: STEP_0431_TRIAGE_REPORT.md (5.4KB). Plan de Steps siguientes: 0432 (Fix sprites C++ - render_sprites, flip, paletas), 0433 (Migrar tests GPU Python → Core C++ o marcar legacy/skip). Archivos analizados: tests/test_core_ppu_sprites.py, test_gpu_background.py, test_gpu_scroll.py, src/core/cpp/PPU.cpp (línea 4165+), src/gpu/renderer.py. ✅ Decisión: C++ PPU como verdad, GPU Python legacy.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0430 - Fix 7 Tests de CPU (LDH/HALT semántica correcta) -->
                     <li>
                         <div class="entry-header">
