@@ -2,12 +2,12 @@
 Tests para verificar que el registro IF se actualiza correctamente en V-Blank
 incluso cuando IME (Interrupt Master Enable) está deshabilitado.
 
-CRÍTICO: El registro IF (Interrupt Flag) es hardware puro. Cuando ocurre V-Blank,
-el hardware activa el bit 0 de IF (0xFF0F) INDEPENDIENTEMENTE del estado de IME.
-Esto permite que los juegos hagan "polling" manual de IF para detectar V-Blank
-sin usar interrupciones automáticas.
+NOTA STEP 0433: Estos tests legacy están deprecados porque:
+1. Usan la clase PPU Python legacy (src.gpu.ppu.PPU) que no es la fuente de verdad
+2. El core C++ PPU (PyPPU) es la implementación real y authoritative
+3. Los tests equivalentes están en tests/test_core_ppu_interrupts.py (que usa PyPPU)
 
-Fuente: Pan Docs - Interrupts, V-Blank Interrupt Flag
+Estos tests se mantienen marcados como skip para referencia histórica.
 """
 
 import pytest
@@ -17,6 +17,7 @@ from src.gpu.ppu import PPU
 from src.memory.mmu import MMU, IO_IF, IO_IE
 
 
+@pytest.mark.skip(reason="Legacy PPU Python tests - replaced by core PPU tests (Step 0433)")
 class TestPPUVBlankPolling:
     """Tests para verificar V-Blank polling (lectura manual de IF)"""
 

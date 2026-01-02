@@ -1,11 +1,12 @@
 """
 Tests para el motor de timing de la PPU (Pixel Processing Unit).
 
-Estos tests validan:
-- Incremento correcto de LY (Línea actual)
-- Activación de interrupción V-Blank cuando LY llega a 144
-- Wrap-around de frame (LY vuelve a 0 después de 153)
-- Lectura de LY desde la MMU (registro 0xFF44)
+NOTA STEP 0433: Estos tests legacy están deprecados porque:
+1. Usan la clase PPU Python legacy (src.gpu.ppu.PPU) que no es la fuente de verdad
+2. El core C++ PPU (PyPPU) es la implementación real y authoritative
+3. Los tests equivalentes están en tests/test_core_ppu_timing.py (que usa PyPPU)
+
+Estos tests se mantienen marcados como skip para referencia histórica.
 """
 
 import pytest
@@ -14,6 +15,7 @@ from src.gpu.ppu import PPU
 from src.memory.mmu import MMU
 
 
+@pytest.mark.skip(reason="Legacy PPU Python tests - replaced by core PPU tests (Step 0433)")
 class TestPPUTiming:
     """Tests para el motor de timing de la PPU."""
 

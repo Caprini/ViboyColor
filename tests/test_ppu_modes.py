@@ -1,11 +1,12 @@
 """
 Tests para los Modos PPU y el Registro STAT.
 
-Estos tests validan:
-- Transiciones de modo durante una línea visible (Mode 2 -> 3 -> 0)
-- Modo V-Blank (Mode 1) en líneas 144-153
-- Lectura del registro STAT (0xFF41) con modo correcto en bits 0-1
-- Escritura en STAT preserva bits configurables (2-6) pero ignora bits 0-1
+NOTA STEP 0433: Estos tests legacy están deprecados porque:
+1. Usan la clase PPU Python legacy (src.gpu.ppu.PPU) que no es la fuente de verdad
+2. El core C++ PPU (PyPPU) es la implementación real y autoritative
+3. Los tests equivalentes están en tests/test_core_ppu_modes.py (que usa PyPPU)
+
+Estos tests se mantienen marcados como skip para referencia histórica.
 """
 
 import pytest
@@ -14,6 +15,7 @@ from src.gpu.ppu import PPU, PPU_MODE_0_HBLANK, PPU_MODE_1_VBLANK, PPU_MODE_2_OA
 from src.memory.mmu import MMU, IO_STAT
 
 
+@pytest.mark.skip(reason="Legacy PPU Python tests - replaced by core PPU tests (Step 0433)")
 class TestPPUModes:
     """Tests para los modos PPU y el registro STAT."""
 

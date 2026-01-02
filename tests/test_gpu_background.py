@@ -1,10 +1,16 @@
 """
 Tests unitarios para el renderizado del Background (fondo)
 
-Verifica:
-- Control del registro LCDC (selección de direcciones base)
-- Modo signed/unsigned de direccionamiento de tiles
-- Renderizado básico del tilemap
+NOTA STEP 0433: Estos tests legacy están deprecados porque:
+1. Mockean atributos Cython (read-only) → AttributeError
+2. Esperan pygame.draw.rect (pero core C++ usa NumPy vectorizado)
+3. Validan implementación Python legacy (no el core C++ que es la verdad)
+
+Los tests equivalentes están en:
+- tests/test_core_ppu_rendering.py (BG rendering con core C++)
+- tests/test_core_ppu_sprites.py (Sprite rendering con core C++)
+
+Estos tests se mantienen marcados como skip para referencia histórica.
 """
 
 import pytest
@@ -21,6 +27,7 @@ from src.gpu.renderer import Renderer
 from src.memory.mmu import MMU, IO_LCDC, IO_BGP
 
 
+@pytest.mark.skip(reason="Legacy GPU tests - replaced by core PPU tests (Step 0433)")
 @pytest.mark.skipif(not PYGAME_AVAILABLE, reason="Pygame no está instalado")
 class TestBackgroundRendering:
     """Suite de tests para el renderizado del Background"""

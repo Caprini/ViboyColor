@@ -1,11 +1,15 @@
 """
 Tests unitarios para el scroll (SCX/SCY) del Background
 
-Verifica:
-- Scroll horizontal (SCX)
-- Scroll vertical (SCY)
-- Wrap-around del scroll (módulo 256)
-- Renderizado forzado con LCDC=0x80 (hack educativo)
+NOTA STEP 0433: Estos tests legacy están deprecados porque:
+1. Esperan pygame.draw.rect (pero core C++ usa NumPy vectorizado)
+2. Mockean implementación Python legacy (no el core C++ que es la verdad)
+3. No validan el framebuffer real generado por el core C++
+
+Los tests equivalentes están en:
+- tests/test_core_ppu_rendering.py (incluye scroll tests con SCX/SCY)
+
+Estos tests se mantienen marcados como skip para referencia histórica.
 """
 
 import pytest
@@ -22,6 +26,7 @@ from src.gpu.renderer import Renderer
 from src.memory.mmu import MMU, IO_LCDC, IO_BGP, IO_SCX, IO_SCY
 
 
+@pytest.mark.skip(reason="Legacy GPU tests - replaced by core PPU tests (Step 0433)")
 @pytest.mark.skipif(not PYGAME_AVAILABLE, reason="Pygame no está instalado")
 class TestScroll:
     """Suite de tests para el scroll (SCX/SCY)"""

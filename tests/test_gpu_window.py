@@ -1,10 +1,15 @@
 """
 Tests unitarios para el renderizado de la Window (Ventana)
 
-Verifica:
-- Control del registro LCDC (bit 5: Window Enable, bit 6: Window Tile Map Area)
-- Posicionamiento de Window (WX, WY)
-- Prioridad de Window sobre Background
+NOTA STEP 0433: Estos tests legacy están deprecados porque:
+1. Mockean implementación Python legacy (no el core C++ que es la verdad)
+2. No validan el framebuffer real generado por el core C++
+3. Esperan comportamiento del renderer Python legacy
+
+Los tests equivalentes de Window están en:
+- tests/test_core_ppu_rendering.py (incluye window rendering con core C++)
+
+Estos tests se mantienen marcados como skip para referencia histórica.
 """
 
 import pytest
@@ -21,6 +26,7 @@ from src.gpu.renderer import Renderer
 from src.memory.mmu import MMU, IO_LCDC, IO_BGP, IO_WX, IO_WY
 
 
+@pytest.mark.skip(reason="Legacy GPU tests - replaced by core PPU tests (Step 0433)")
 @pytest.mark.skipif(not PYGAME_AVAILABLE, reason="Pygame no está instalado")
 class TestWindowRendering:
     """Suite de tests para el renderizado de la Window"""
