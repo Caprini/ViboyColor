@@ -16,51 +16,58 @@ Este informe ha sido dividido en varias partes para facilitar la legibilidad y e
 
 ## Partes del Informe
 
-### Parte 0: Steps 370 - 417
+### Parte 1: Steps 412 - 450
 
-- **Archivo**: [parte_00_steps_0370_0412.md](parte_00_steps_0370_0412.md)
-- **Rango de Steps**: 370 a 417
-- **Número de Steps**: 48
-- **Líneas**: ~5500
+- **Archivo**: [parte_01_steps_0412_0450.md](parte_01_steps_0412_0450.md)
+- **Rango de Steps**: 412 a 450
+- **Número de Steps**: 6 (actualmente hasta 417)
+- **Líneas**: ~535
 
-### Parte 1: Steps 308 - 369
+### Parte 0: Steps 370 - 411
 
-- **Archivo**: [parte_01_steps_0308_0334.md](parte_01_steps_0308_0334.md)
+- **Archivo**: [parte_00_steps_0370_0411.md](parte_00_steps_0370_0411.md)
+- **Rango de Steps**: 370 a 411
+- **Número de Steps**: 42
+- **Líneas**: ~4863
+
+### Parte 2: Steps 308 - 369
+
+- **Archivo**: [parte_02_steps_0308_0369.md](parte_02_steps_0308_0369.md)
 - **Rango de Steps**: 308 a 369
 - **Número de Steps**: 62
 - **Líneas**: ~4000
 
-### Parte 2: Steps 267 - 307
+### Parte 3: Steps 267 - 307
 
-- **Archivo**: [parte_02_steps_0267_0307.md](parte_02_steps_0267_0307.md)
+- **Archivo**: [parte_03_steps_0267_0307.md](parte_03_steps_0267_0307.md)
 - **Rango de Steps**: 267 a 307
 - **Número de Steps**: 40
 - **Líneas**: ~1760
 
-### Parte 3: Steps 219 - 266
+### Parte 4: Steps 219 - 266
 
-- **Archivo**: [parte_03_steps_0219_0266.md](parte_03_steps_0219_0266.md)
+- **Archivo**: [parte_04_steps_0219_0266.md](parte_04_steps_0219_0266.md)
 - **Rango de Steps**: 219 a 266
 - **Número de Steps**: 46
 - **Líneas**: ~1788
 
-### Parte 4: Steps 194 - 218
+### Parte 5: Steps 194 - 218
 
-- **Archivo**: [parte_04_steps_0194_0218.md](parte_04_steps_0194_0218.md)
+- **Archivo**: [parte_05_steps_0194_0218.md](parte_05_steps_0194_0218.md)
 - **Rango de Steps**: 194 a 218
 - **Número de Steps**: 25
 - **Líneas**: ~1799
 
-### Parte 5: Steps 152 - 193
+### Parte 6: Steps 152 - 193
 
-- **Archivo**: [parte_05_steps_0152_0193.md](parte_05_steps_0152_0193.md)
+- **Archivo**: [parte_06_steps_0152_0193.md](parte_06_steps_0152_0193.md)
 - **Rango de Steps**: 152 a 193
 - **Número de Steps**: 41
 - **Líneas**: ~1780
 
-### Parte 6: Steps 101 - 151
+### Parte 7: Steps 101 - 151
 
-- **Archivo**: [parte_06_steps_0101_0151.md](parte_06_steps_0101_0151.md)
+- **Archivo**: [parte_07_steps_0101_0151.md](parte_07_steps_0101_0151.md)
 - **Rango de Steps**: 101 a 151
 - **Número de Steps**: ~35 (incluye algunos Steps duplicados del archivo original)
 - **Líneas**: ~1549

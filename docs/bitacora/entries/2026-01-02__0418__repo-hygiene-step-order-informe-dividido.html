@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Repo Hygiene: Step Order + Informe Dividido - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Repo Hygiene: Step Order + Informe Dividido</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-02
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0418
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-02__0417__fix-cpu-tests-exec-from-wram.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Tarea de mantenimiento del repositorio enfocada en restaurar la coherencia del sistema de documentación. Se reorganizó el informe dividido (`docs/informe_fase_2/`) para cumplir con los rangos declarados de Steps, se eliminaron archivos duplicados/obsoletos, y se resolvieron stashes pendientes que contenían código obsoleto. Este Step es exclusivamente de documentación (docs-only), sin cambios en código fuente.
+                </p>
+                <p>
+                    <strong>Problema identificado:</strong> El archivo `parte_00_steps_0370_0412.md` indicaba en su nombre un rango hasta Step 0412, pero contenía Steps hasta 0417. El índice (`index.md`) declaraba "370-416" pero el archivo real tenía hasta 0417. Además, existían 4 versiones duplicadas del mismo archivo (0378, 0379, 0401, 0412) sin limpiar.
+                </p>
+                <p>
+                    <strong>Solución aplicada:</strong> Creación de nueva parte (`parte_01_steps_0412_0450.md`) para Steps 0412+, corrección de la parte 00 para contener solo Steps 0370-0411, renumeración de todas las partes subsecuentes, eliminación de duplicados, y descarte de stashes con código obsoleto. ✅ Build exitoso. ✅ Tests CPU pasando (6/6). ⚠️ Tests ALU fallando (10/27 - pre-existentes).
+                </p>
+            </section>
+
+            <!-- 2. Concepto: Gestión de Documentación en Proyectos Grandes -->
+            <section id="concepto-documentacion">
+                <h2>Concepto: Gestión de Documentación en Proyectos Grandes</h2>
+                <p>
+                    En proyectos de larga duración con cientos de Steps de desarrollo, mantener la documentación organizada es crítico para la productividad del equipo y la claridad del historial del proyecto.
+                </p>
+                
+                <h3>Principios aplicados:</h3>
+                <ul>
+                    <li><strong>Informe Dividido</strong>: Archivos de documentación con límite de tamaño (~2000 líneas) para facilitar lectura por humanos y agentes de IA</li>
+                    <li><strong>Rangos Explícitos</strong>: Nombres de archivo indican claramente el rango de contenido (ej: `parte_01_steps_0412_0450.md`)</li>
+                    <li><strong>Índice Central</strong>: Archivo `index.md` que lista todas las partes con sus rangos actualizados</li>
+                    <li><strong>No Duplicación</strong>: Un Step debe aparecer en exactamente una parte del informe</li>
+                    <li><strong>Orden Cronológico</strong>: Steps más recientes primero dentro de cada parte</li>
+                </ul>
+
+                <h3>Gestión de Stashes:</h3>
+                <p>
+                    Los stashes de Git son útiles para trabajo temporal, pero pueden acumularse y crear confusión. En este Step se aplicó la siguiente estrategia:
+                </p>
+                <ul>
+                    <li><strong>Clasificación</strong>: Tipo A (docs-only) vs Tipo B (incluye código)</li>
+                    <li><strong>Análisis</strong>: Comparar contenido del stash con HEAD actual usando `git diff stash@{N}`</li>
+                    <li><strong>Decisión</strong>: Aplicar (si es docs-only relevante), Aparcar en rama WIP (si es código no mergeado), o Descartar (si es código obsoleto/revertido)</li>
+                    <li><strong>Documentación</strong>: Registrar la decisión tomada para cada stash</li>
+                </ul>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>T1: Auditoría</h3>
+                <p>Se verificó el estado actual del repositorio:</p>
+                <ul>
+                    <li>HEAD: `7da1360` en rama `develop-v0.0.2` (limpio, sincronizado)</li>
+                    <li>Working tree: Limpio (solo archivo de plan sin seguimiento)</li>
+                    <li>Stashes: 2 identificados (ambos Tipo B con código)</li>
+                    <li>Informe dividido: Archivo `parte_00_steps_0370_0412.md` con 5365 líneas conteniendo Steps hasta 0417</li>
+                    <li>Duplicados: 4 versiones obsoletas (0378, 0379, 0401, 0412)</li>
+                </ul>
+
+                <h3>T2: Reorganización del Informe Dividido</h3>
+                <p>Pasos ejecutados:</p>
+                <ol>
+                    <li>Extracción de Steps 0412-0417 del archivo original usando `git show` y comandos de línea</li>
+                    <li>Creación de `parte_01_steps_0412_0450.md` (535 líneas, 6 Steps: 0412-0417)</li>
+                    <li>Corrección de `parte_00_steps_0370_0411.md` (4863 líneas, 42 Steps: 0370-0411)</li>
+                    <li>Renumeración de partes subsecuentes: 01→02, 02→03, 03→04, 04→05, 05→06, 06→07</li>
+                    <li>Eliminación de archivos duplicados usando `rm -f`</li>
+                    <li>Actualización de `index.md` con rangos correctos</li>
+                </ol>
+
+                <h3>T3: Resolución de Stashes</h3>
+                <p>Ambos stashes fueron clasificados como Tipo B (código) y analizados:</p>
+                <ul>
+                    <li><strong>stash@{0}</strong>: "WIP before STEP0417A diag" - Contenía cambios de Step 0416 en `PPU.cpp` (código revertido) → <span class="tag tag-draft">DESCARTADO</span></li>
+                    <li><strong>stash@{1}</strong>: "WIP preflight baseline" - Contenía cambios de Step 0415 en `MMU.cpp`, `PPU.cpp`, `renderer.py` (código revertido) → <span class="tag tag-draft">DESCARTADO</span></li>
+                </ul>
+                <p>Decisión: Ambos stashes contenían código obsoleto de Steps que fueron marcados como [REVERTIDO] en el informe. Se descartaron usando `git stash drop`.</p>
+
+                <h3>T4: Verificación</h3>
+                <p>Comandos ejecutados con salida redirigida a `/tmp`:</p>
+                <pre><code>python3 setup.py build_ext --inplace > /tmp/viboy_step0418_build.log 2>&1
+python3 test_build.py > /tmp/viboy_step0418_test_build.log 2>&1
+pytest -q > /tmp/viboy_step0418_pytest.log 2>&1
+pytest -q tests/test_core_cpu.py > /tmp/viboy_step0418_pytest_cpu.log 2>&1</code></pre>
+                
+                <p>Resultados (exit codes):</p>
+                <ul>
+                    <li>BUILD: <span class="tag tag-verified">EXIT 0</span> (compilación exitosa)</li>
+                    <li>TEST_BUILD: <span class="tag tag-verified">EXIT 0</span> (checkpoint OK)</li>
+                    <li>PYTEST: <span class="tag tag-draft">EXIT 1</span> (10 failed, 17 passed - tests ALU pre-existentes)</li>
+                    <li>PYTEST_CPU: <span class="tag tag-verified">EXIT 0</span> (6/6 passed)</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <h3>Creados:</h3>
+                <ul>
+                    <li><code>docs/informe_fase_2/parte_01_steps_0412_0450.md</code> - Nueva parte para Steps 0412+</li>
+                    <li><code>docs/bitacora/entries/2026-01-02__0418__repo-hygiene-step-order-informe-dividido.html</code> - Esta entrada</li>
+                </ul>
+
+                <h3>Modificados:</h3>
+                <ul>
+                    <li><code>docs/informe_fase_2/parte_00_steps_0370_0411.md</code> - Corregido para contener solo Steps 0370-0411</li>
+                    <li><code>docs/informe_fase_2/index.md</code> - Actualizado con nueva estructura</li>
+                    <li><code>docs/bitacora/index.html</code> - Añadida entrada 0418</li>
+                </ul>
+
+                <h3>Renombrados:</h3>
+                <ul>
+                    <li><code>parte_01_steps_0308_0334.md → parte_02_steps_0308_0369.md</code></li>
+                    <li><code>parte_02_steps_0267_0307.md → parte_03_steps_0267_0307.md</code></li>
+                    <li><code>parte_03_steps_0219_0266.md → parte_04_steps_0219_0266.md</code></li>
+                    <li><code>parte_04_steps_0194_0218.md → parte_05_steps_0194_0218.md</code></li>
+                    <li><code>parte_05_steps_0152_0193.md → parte_06_steps_0152_0193.md</code></li>
+                    <li><code>parte_06_steps_0101_0151.md → parte_07_steps_0101_0151.md</code></li>
+                </ul>
+
+                <h3>Eliminados:</h3>
+                <ul>
+                    <li><code>docs/informe_fase_2/parte_00_steps_0370_0378.md</code> - Duplicado obsoleto</li>
+                    <li><code>docs/informe_fase_2/parte_00_steps_0370_0379.md</code> - Duplicado obsoleto</li>
+                    <li><code>docs/informe_fase_2/parte_00_steps_0370_0401.md</code> - Duplicado obsoleto</li>
+                    <li><code>docs/informe_fase_2/parte_00_steps_0370_0412.md</code> - Versión antigua</li>
+                </ul>
+            </section>
+
+            <!-- 5. Verificación -->
+            <section id="verificacion">
+                <h2>Verificación Post-Reorganización</h2>
+                
+                <h3>Comandos de verificación:</h3>
+                <pre><code># Verificar que parte_00 no contiene Steps 0413+
+grep "^### 2026.*- Step 041[3-9]" docs/informe_fase_2/parte_00_steps_0370_0411.md
+# Resultado: Sin coincidencias ✅
+
+# Verificar que parte_01 contiene Steps 0415-0417
+grep -n "^### 2026.*- Step 041[5-7]" docs/informe_fase_2/parte_01_steps_0412_0450.md
+# Resultado:
+# 35:### 2026-01-02 - Step 0417
+# 115:### 2026-01-02 - Step 0416
+# 158:### 2026-01-02 - Step 0415 ✅
+
+# Verificar estructura final
+ls -1 docs/informe_fase_2/*.md | sort
+# Resultado: index.md, parte_00 a parte_07 ✅</code></pre>
+
+                <h3>Tabla de verificación: Steps 0414-0418</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Step</th>
+                            <th>Archivo Informe</th>
+                            <th>Entry HTML</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>0414</td>
+                            <td>parte_01 (línea 202)</td>
+                            <td>✅ Existe</td>
+                            <td>✅ OK</td>
+                        </tr>
+                        <tr>
+                            <td>0415</td>
+                            <td>parte_01 (línea 158)</td>
+                            <td>✅ Existe</td>
+                            <td>✅ OK</td>
+                        </tr>
+                        <tr>
+                            <td>0416</td>
+                            <td>parte_01 (línea 115)</td>
+                            <td>✅ Existe</td>
+                            <td>✅ OK</td>
+                        </tr>
+                        <tr>
+                            <td>0417</td>
+                            <td>parte_01 (línea 35)</td>
+                            <td>✅ Existe</td>
+                            <td>✅ OK</td>
+                        </tr>
+                        <tr>
+                            <td>0418</td>
+                            <td>parte_01 (este Step)</td>
+                            <td>✅ Esta entrada</td>
+                            <td>✅ OK</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- 6. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>Step 0419: Continuar con investigación de PPU/Zelda-DX (problema de framebuffer blanco identificado en Step 0416)</li>
+                    <li>Mantener el sistema de informe dividido actualizado a medida que se añadan nuevos Steps</li>
+                    <li>Crear nueva parte cuando `parte_01_steps_0412_0450.md` exceda 2000 líneas</li>
+                    <li>Resolver tests ALU fallantes (10/27 - issue pre-existente, no causado por este Step)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                <a href="../index.html">← Volver al índice</a>
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+
