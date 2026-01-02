@@ -16,6 +16,7 @@ Tests críticos:
 """
 
 import pytest
+from tests.helpers_cpu import load_program, TEST_EXEC_BASE
 
 # Importar los módulos nativos compilados
 try:
@@ -335,7 +336,6 @@ class TestCoreCPUIncDec:
         cpu = PyCPU(mmu, regs)
         
         # Configurar B=1 y el flag Z=0
-        regs.pc = 0x0100
         regs.b = 1
         regs.flag_z = False  # Asegurar que Z está desactivado (usar propiedad, no método)
         
@@ -343,15 +343,21 @@ class TestCoreCPUIncDec:
         assert regs.b == 1, "B debe ser 1 inicialmente"
         assert regs.flag_z == False, "Flag Z debe estar desactivado inicialmente"
         
-        # Ejecutar DEC B (opcode 0x05)
-        mmu.write(0x0100, 0x05)  # Opcode DEC B
+        # Cargar programa en WRAM
+        program = [
+            0x05,  # DEC B
+        ]
+        load_program(mmu, regs, program)
+        
+        # Ejecutar DEC B
         cpu.step()
         
         # Verificar resultado: B debe ser 0 y Z debe estar activo
         assert regs.b == 0, f"B debe ser 0 después de DEC, es {regs.b}"
         assert regs.flag_z == True, "Flag Z debe estar activo cuando resultado es 0 (¡COMPROBACIÓN CLAVE!)"
         assert regs.flag_n == True, "Flag N debe estar activo (es decremento)"
-        assert regs.pc == 0x0101, "PC debe avanzar 1 byte después de DEC B"
+        expected_pc = TEST_EXEC_BASE + 1
+        assert regs.pc == expected_pc, f"PC debe avanzar 1 byte a 0x{expected_pc:04X}"
 
     def test_inc_hl_indirect(self):
         """

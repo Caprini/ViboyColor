@@ -16,6 +16,7 @@ Tests críticos:
 """
 
 import pytest
+from tests.helpers_cpu import load_program, TEST_EXEC_BASE
 
 # Importar los módulos nativos compilados
 try:
@@ -50,20 +51,24 @@ class TestDI_EI:
         # Nota: No podemos activar IME directamente desde Python,
         # pero podemos usar EI para activarlo y luego DI para desactivarlo
         
-        # Ejecutar EI (activará IME después de la siguiente instrucción)
-        regs.pc = 0x0100
-        mmu.write(0x0100, 0xFB)  # EI
+        # Cargar programa en WRAM
+        program = [
+            0xFB,  # EI
+            0x00,  # NOP (para que EI tome efecto)
+            0xF3,  # DI
+        ]
+        load_program(mmu, regs, program)
+        
+        # Ejecutar EI
         cpu.step()
         
         # Ejecutar NOP para que EI tome efecto
-        mmu.write(0x0101, 0x00)  # NOP
         cpu.step()
         
         # Verificar que IME está activo
         assert cpu.get_ime() == 1, "IME debe estar activo después de EI + NOP"
         
         # Ejecutar DI
-        mmu.write(0x0102, 0xF3)  # DI
         cycles = cpu.step()
         
         # Verificar que IME está desactivado
@@ -87,9 +92,14 @@ class TestDI_EI:
         # IME inicia en False
         assert cpu.ime == False
         
+        # Cargar programa en WRAM
+        program = [
+            0xFB,  # EI
+            0x00,  # NOP
+        ]
+        load_program(mmu, regs, program)
+        
         # Ejecutar EI
-        regs.pc = 0x0100
-        mmu.write(0x0100, 0xFB)  # EI
         cycles = cpu.step()
         
         # Verificar que IME sigue siendo False (retraso de 1 instrucción)
@@ -97,7 +107,6 @@ class TestDI_EI:
         assert cycles == 1, "EI debe consumir 1 M-Cycle"
         
         # Ejecutar siguiente instrucción (NOP)
-        mmu.write(0x0101, 0x00)  # NOP
         cpu.step()
         
         # Verificar que IME ahora está activo
@@ -122,11 +131,13 @@ class TestHALT:
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
-        # Inicializar PC
-        regs.pc = 0x0100
+        # Cargar programa en WRAM
+        program = [
+            0x76,  # HALT
+        ]
+        load_program(mmu, regs, program)
         
         # Ejecutar HALT
-        mmu.write(0x0100, 0x76)  # HALT
         cycles = cpu.step()
         
         # Verificar que halted es True
@@ -151,9 +162,11 @@ class TestHALT:
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
-        # Configurar
-        mmu.write(0x0100, 0x76)  # HALT
-        regs.pc = 0x0100
+        # Cargar programa en WRAM
+        program = [
+            0x76,  # HALT
+        ]
+        load_program(mmu, regs, program)
         
         assert cpu.get_halted() == 0, "CPU no debe estar en HALT inicialmente"
         
@@ -164,7 +177,8 @@ class TestHALT:
         assert cycles == -1, "step() debe devolver -1 para señalar HALT"
         assert cpu.get_halted() == 1, "El flag 'halted' debe activarse"
         # El PC avanza porque fetch_byte() se ejecuta antes del switch
-        assert regs.pc == 0x0101, "PC debe haber avanzado 1 byte"
+        expected_pc = TEST_EXEC_BASE + 1
+        assert regs.pc == expected_pc, f"PC debe haber avanzado 1 byte a 0x{expected_pc:04X}"
     
     def test_halt_wakeup_on_interrupt(self):
         """

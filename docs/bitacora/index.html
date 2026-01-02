@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0420 - CPU Tests WRAM Normalization -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0420__cpu-tests-exec-from-wram-normalization.html" class="entry-link">
+                                    CPU Tests WRAM Normalization
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0420 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Normalización completa de tests unitarios de CPU para ejecutar desde WRAM (0xC000) en lugar de ROM (0x0000-0x7FFF). Migración de 10 tests que aún dependían de ROM-writes al patrón estándar load_program() creado en Step 0417. Archivos modificados: test_core_cpu_compares.py (4 tests), test_core_cpu_inc_dec.py (1 test), test_core_cpu_indirect_writes.py (1 test wrap-around corregido), test_core_cpu_interrupts.py (4 tests DI/EI/HALT). ✅ Los 10 tests originales ahora pasan (100%). Tests totales: de 52 a 64 passed (+23%). ⚠️ 10 fallos nuevos identificados en otros archivos (test_core_cpu_io.py, test_core_cpu_jumps.py, test_core_cpu_interrupts.py avanzados) que también requieren migración, pendientes para Step 0421. Sin cambios en src/, solo tests/ y docs/ (guardrail cumplido).
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0419 - Fix MMU - Test Mode ROM Writes -->
                     <li>
                         <div class="entry-header">

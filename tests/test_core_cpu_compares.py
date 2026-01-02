@@ -20,6 +20,7 @@ Tests críticos:
 """
 
 import pytest
+from tests.helpers_cpu import load_program, TEST_EXEC_BASE
 
 # Importar los módulos nativos compilados
 try:
@@ -53,11 +54,13 @@ class TestCoreCPUCompares:
         """
         cpu, mmu, regs = setup
         regs.a = 0x42
-        regs.pc = 0x0100
         
-        # CP d8: Comparar A con 0x42
-        mmu.write(0x0100, 0xFE)  # Opcode CP d8
-        mmu.write(0x0101, 0x42)  # Valor inmediato: 0x42
+        # Cargar programa en WRAM
+        program = [
+            0xFE,  # CP d8
+            0x42,  # Valor inmediato: 0x42
+        ]
+        load_program(mmu, regs, program)
         
         cycles = cpu.step()
         
@@ -70,7 +73,8 @@ class TestCoreCPUCompares:
         assert regs.flag_c is False, "C debe estar apagado (A >= valor)"
         
         # Verificar PC avanzó
-        assert regs.pc == 0x0102, f"PC debe ser 0x0102, es 0x{regs.pc:04X}"
+        expected_pc = TEST_EXEC_BASE + 2
+        assert regs.pc == expected_pc, f"PC debe ser 0x{expected_pc:04X}, es 0x{regs.pc:04X}"
         
         # Verificar ciclos
         assert cycles == 2, f"CP d8 debe consumir 2 M-Cycles, consumió {cycles}"
@@ -88,11 +92,13 @@ class TestCoreCPUCompares:
         """
         cpu, mmu, regs = setup
         regs.a = 0x10
-        regs.pc = 0x0100
         
-        # CP d8: Comparar A con 0x20
-        mmu.write(0x0100, 0xFE)  # Opcode CP d8
-        mmu.write(0x0101, 0x20)  # Valor inmediato: 0x20
+        # Cargar programa en WRAM
+        program = [
+            0xFE,  # CP d8
+            0x20,  # Valor inmediato: 0x20
+        ]
+        load_program(mmu, regs, program)
         
         cycles = cpu.step()
         
@@ -105,7 +111,8 @@ class TestCoreCPUCompares:
         assert regs.flag_c is True, "C debe estar activo (A < valor, hay borrow)"
         
         # Verificar PC avanzó
-        assert regs.pc == 0x0102, f"PC debe ser 0x0102, es 0x{regs.pc:04X}"
+        expected_pc = TEST_EXEC_BASE + 2
+        assert regs.pc == expected_pc, f"PC debe ser 0x{expected_pc:04X}, es 0x{regs.pc:04X}"
         
         # Verificar ciclos
         assert cycles == 2, f"CP d8 debe consumir 2 M-Cycles, consumió {cycles}"
@@ -123,11 +130,13 @@ class TestCoreCPUCompares:
         """
         cpu, mmu, regs = setup
         regs.a = 0x30
-        regs.pc = 0x0100
         
-        # CP d8: Comparar A con 0x20
-        mmu.write(0x0100, 0xFE)  # Opcode CP d8
-        mmu.write(0x0101, 0x20)  # Valor inmediato: 0x20
+        # Cargar programa en WRAM
+        program = [
+            0xFE,  # CP d8
+            0x20,  # Valor inmediato: 0x20
+        ]
+        load_program(mmu, regs, program)
         
         cycles = cpu.step()
         
@@ -140,7 +149,8 @@ class TestCoreCPUCompares:
         assert regs.flag_c is False, "C debe estar apagado (A >= valor, no hay borrow)"
         
         # Verificar PC avanzó
-        assert regs.pc == 0x0102, f"PC debe ser 0x0102, es 0x{regs.pc:04X}"
+        expected_pc = TEST_EXEC_BASE + 2
+        assert regs.pc == expected_pc, f"PC debe ser 0x{expected_pc:04X}, es 0x{regs.pc:04X}"
         
         # Verificar ciclos
         assert cycles == 2, f"CP d8 debe consumir 2 M-Cycles, consumió {cycles}"
@@ -156,12 +166,13 @@ class TestCoreCPUCompares:
         """
         cpu, mmu, regs = setup
         regs.a = 0x10
-        regs.pc = 0x0100
         
-        # CP d8: Comparar A con 0x05
-        # En nibble bajo: 0x0 < 0x5, pero globalmente 0x10 > 0x05
-        mmu.write(0x0100, 0xFE)  # Opcode CP d8
-        mmu.write(0x0101, 0x05)  # Valor inmediato: 0x05
+        # Cargar programa en WRAM
+        program = [
+            0xFE,  # CP d8
+            0x05,  # Valor inmediato: 0x05
+        ]
+        load_program(mmu, regs, program)
         
         cycles = cpu.step()
         
@@ -177,7 +188,8 @@ class TestCoreCPUCompares:
         assert regs.flag_c is False, "C debe estar apagado (A >= valor globalmente)"
         
         # Verificar PC avanzó
-        assert regs.pc == 0x0102, f"PC debe ser 0x0102, es 0x{regs.pc:04X}"
+        expected_pc = TEST_EXEC_BASE + 2
+        assert regs.pc == expected_pc, f"PC debe ser 0x{expected_pc:04X}, es 0x{regs.pc:04X}"
         
         # Verificar ciclos
         assert cycles == 2, f"CP d8 debe consumir 2 M-Cycles, consumió {cycles}"
