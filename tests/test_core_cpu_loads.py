@@ -38,6 +38,7 @@ class TestLD_8bit_Register:
         - Verificar que B = 0x10
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -64,6 +65,7 @@ class TestLD_8bit_Register:
         - Verificar que C = 0x42
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -85,6 +87,7 @@ class TestLD_8bit_Register:
         - Verificar que memoria[0xC000] = 0x55
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -109,6 +112,7 @@ class TestLD_8bit_Register:
         - Verificar que A = 0xAA
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -139,6 +143,7 @@ class TestLD_8bit_Register:
         
         for opcode, dest_reg, src_reg in test_cases:
             mmu = PyMMU()
+            mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
             regs = PyRegisters()
             cpu = PyCPU(mmu, regs)
             
@@ -182,6 +187,7 @@ class TestLD_8bit_Immediate:
         - Avanza PC en 2 bytes
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -208,6 +214,7 @@ class TestLD_8bit_Immediate:
         - Verificar que B = 0x33
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -230,6 +237,7 @@ class TestLD_8bit_Immediate:
         - Verificar que memoria[0xC000] = 0xAA
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -256,6 +264,7 @@ class TestLD_16bit:
         - Verificar que BC = 0x1234 (B=0x12, C=0x34)
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -280,6 +289,7 @@ class TestLD_16bit:
         - Verificar que HL = 0xABCD
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -307,6 +317,7 @@ class TestINC_DEC_16bit:
         - Verificar que flags NO cambiaron
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -334,6 +345,7 @@ class TestINC_DEC_16bit:
         - Verificar que HL = 0x0000
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -355,6 +367,7 @@ class TestINC_DEC_16bit:
         - Verificar que SP = 0x0000
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -380,6 +393,7 @@ class TestADD_HL:
         - Verificar flags: N=0, H=0, C=0 (Z no afectado)
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -410,6 +424,7 @@ class TestADD_HL:
         - Verificar flags: H=1 (half-carry en bit 11), C=0
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -434,6 +449,7 @@ class TestADD_HL:
         - Verificar flags: H=0, C=1 (carry completo)
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -456,6 +472,7 @@ class TestADD_HL:
         - Verificar flags: H=1, C=1
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -493,6 +510,7 @@ class TestMemoryClearLoop:
         Este es el patrón que usa Tetris al arrancar para limpiar memoria.
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         

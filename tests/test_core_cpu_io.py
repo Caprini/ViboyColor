@@ -23,6 +23,7 @@ class TestCoreCPUIO:
     def test_ldh_write(self):
         """Test: LDH (n), A (0xE0) escribe A en 0xFF00 + n."""
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -45,6 +46,7 @@ class TestCoreCPUIO:
     def test_ldh_read(self):
         """Test: LDH A, (n) (0xF0) lee de 0xFF00 + n y lo carga en A."""
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -70,6 +72,7 @@ class TestCoreCPUIO:
     def test_ldh_write_lcdc(self):
         """Test: LDH (n), A puede escribir en LCDC (0xFF40)."""
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -91,6 +94,7 @@ class TestCoreCPUIO:
     def test_ldh_read_hram(self):
         """Test: LDH A, (n) puede leer de HRAM (0xFF80)."""
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -115,6 +119,7 @@ class TestCoreCPUIO:
     def test_ldh_offset_wraparound(self):
         """Test: LDH maneja correctamente offsets que causan wraparound."""
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         

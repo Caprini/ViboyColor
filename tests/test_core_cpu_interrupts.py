@@ -42,6 +42,7 @@ class TestDI_EI:
         - Verificar que IME es False
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -86,6 +87,7 @@ class TestDI_EI:
         - Verificar que IME ahora es True
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -128,6 +130,7 @@ class TestHALT:
         - Verificar que step() sigue devolviendo -1
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -159,6 +162,7 @@ class TestHALT:
         que step() devuelve -1 para señalarlo.
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -191,6 +195,7 @@ class TestHALT:
         - Verificar que la interrupción NO se procesa (IME está desactivado)
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -245,6 +250,7 @@ class TestInterruptDispatch:
         - Verificar que IME se desactivó
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -307,6 +313,7 @@ class TestInterruptDispatch:
         - Verificar que se procesa la de mayor prioridad (V-Blank)
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -357,6 +364,7 @@ class TestInterruptDispatch:
         
         for bit_mask, expected_vector, name in interrupt_configs:
             mmu = PyMMU()
+            mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
             regs = PyRegisters()
             cpu = PyCPU(mmu, regs)
             

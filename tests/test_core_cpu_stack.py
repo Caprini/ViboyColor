@@ -40,6 +40,7 @@ class TestPushPop:
         - Verificar que SP volvió a 0xFFFE
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -99,6 +100,7 @@ class TestPushPop:
         - Verificar que SP < valor inicial
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -137,6 +139,7 @@ class TestCallRet:
         - Verificar que SP vuelve a 0xFFFE
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -204,6 +207,7 @@ class TestCallRet:
         - RET (debe volver a 0x0103)
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         

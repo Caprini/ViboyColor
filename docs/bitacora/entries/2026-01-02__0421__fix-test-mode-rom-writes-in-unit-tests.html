@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0421: Fix Test Mode ROM Writes in Unit Tests | Viboy Color Devlog</title>
+    <link rel="stylesheet" href="../bitacora_styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Step 0421: Fix Test Mode ROM Writes in Unit Tests</h1>
+            <div class="meta">
+                <span class="tag tag-verified">VERIFIED</span>
+                <span class="tag tag-fix">FIX</span>
+                <span class="tag tag-tests">TESTS</span>
+            </div>
+            <div class="meta-info">
+                <strong>Fecha:</strong> 2026-01-02 | 
+                <strong>Step ID:</strong> 0421 | 
+                <strong>Archivos afectados:</strong> 5 archivos de tests
+            </div>
+        </header>
+
+        <nav class="breadcrumb">
+            <a href="../index.html">← Volver al índice</a>
+        </nav>
+
+        <section id="resumen">
+            <h2>📋 Resumen Ejecutivo</h2>
+            <p>
+                Corrección sistemática de <strong>10 fallos unitarios</strong> en tests de CPU causados por la ausencia de la activación del <code>test_mode_allow_rom_writes</code> implementado en Step 0419. Los tests estaban escribiendo instrucciones en ROM (0x0000-0x7FFF) sin activar el modo test, lo que causaba que el MMU interpretara las escrituras como comandos MBC en lugar de escribir directamente en memoria. Esto resultaba en que la CPU ejecutara valores incorrectos (0x00 o residuales) en lugar de las instrucciones del test.
+            </p>
+            <p>
+                <strong>Solución:</strong> Agregar <code>mmu.set_test_mode_allow_rom_writes(True)</code> sistemáticamente después de cada instancia de <code>PyMMU()</code> en los archivos de tests unitarios, incluyendo casos especiales dentro de loops.
+            </p>
+            <p>
+                <strong>Impacto:</strong> Eliminación completa de los 10 fallos originales y corrección preventiva en 55 tests CPU totales.
+            </p>
+        </section>
+
+        <section id="concepto-hardware">
+            <h2>🔧 Concepto Técnico: Test Mode y ROM Writes</h2>
+            
+            <h3>Contexto del Problema</h3>
+            <p>
+                En el hardware real de Game Boy, la memoria ROM (0x0000-0x7FFF) es de solo lectura. Los cartuchos usan Memory Bank Controllers (MBC) que interpretan escrituras a estas direcciones como comandos de control (cambio de banco ROM/RAM, habilitación de RAM, etc.) en lugar de modificar la memoria.
+            </p>
+            
+            <h3>Implementación en el Emulador</h3>
+            <p>
+                El MMU de Viboy Color replica fielmente este comportamiento:
+            </p>
+            <pre><code>// src/core/cpp/MMU.cpp (línea ~935)
+if (test_mode_allow_rom_writes_ && addr < 0x8000) {
+    // Escribir directamente en rom_data_
+    rom_data_[rom_offset] = value;
+    return;  // NO procesar como MBC
+}
+
+// ... código MBC normal ...</code></pre>
+            
+            <h3>Necesidad del Test Mode</h3>
+            <ul>
+                <li><strong>Sin test mode:</strong> <code>mmu.write(0x0100, 0xC3)</code> → Interpretado como comando MBC "RAM-ENABLE"</li>
+                <li><strong>Con test mode:</strong> <code>mmu.write(0x0100, 0xC3)</code> → Escribe opcode JP nn directamente en ROM</li>
+            </ul>
+            
+            <p>
+                Este mecanismo permite a los tests unitarios escribir programas sintéticos en ROM sin cargar un archivo .gb real, manteniendo la fidelidad del emulador al hardware original durante la ejecución normal.
+            </p>
+            
+            <p>
+                <strong>Fuente:</strong> Pan Docs - "Memory Bank Controllers", comportamiento estándar de escrituras en ROM.
+            </p>
+        </section>
+
+        <section id="diagnostico">
+            <h2>🔍 Diagnóstico (T1)</h2>
+            
+            <h3>Fallos Originales Detectados (10 total)</h3>
+            
+            <div class="code-block">
+                <strong>Comando:</strong>
+                <pre><code>pytest -q > /tmp/viboy_0421_before.log 2>&1
+tail -n 80 /tmp/viboy_0421_before.log</code></pre>
+            </div>
+            
+            <h4>tests/test_core_cpu_io.py (3 fallos):</h4>
+            <ol>
+                <li><code>test_ldh_write_lcdc</code>: esperaba 3 ciclos, obtuvo 1</li>
+                <li><code>test_ldh_read_hram</code>: assertion error en valor leído</li>
+                <li><code>test_ldh_offset_wraparound</code>: assertion error en escritura a 0xFFFF</li>
+            </ol>
+            
+            <h4>tests/test_core_cpu_jumps.py (3 fallos):</h4>
+            <ol>
+                <li><code>test_jp_absolute</code>: PC debería ser 0xC000, es 0x0101</li>
+                <li><code>test_jp_absolute_wraparound</code>: PC debería ser 0xFFFF, es 0x0101</li>
+                <li><code>test_jr_relative_positive</code>: PC debería ser 0x0107, es 0x0101</li>
+            </ol>
+            
+            <h4>tests/test_core_cpu_interrupts.py (4 fallos):</h4>
+            <ol>
+                <li><code>test_halt_wakeup_on_interrupt</code>: cpu.halted debería ser True, es False</li>
+                <li><code>test_interrupt_dispatch_vblank</code>: assertion error en PC vector</li>
+                <li><code>test_interrupt_priority</code>: assertion error en prioridad</li>
+                <li><code>test_all_interrupt_vectors</code>: IME debería ser 1, es 0</li>
+            </ol>
+            
+            <h3>Evidencia de Causa Raíz</h3>
+            <p>
+                Al inspeccionar <code>test_core_cpu_io.py:70-89</code>, se observó que el test escribe directamente en ROM sin activar test mode:
+            </p>
+            <pre><code>mmu = PyMMU()
+regs = PyRegisters()
+cpu = PyCPU(mmu, regs)
+regs.pc = 0x0100
+mmu.write(0x0100, 0xE0)  # ❌ Interpretado como MBC, no escribe
+mmu.write(0x0101, 0x40)  # ❌ Interpretado como MBC, no escribe</code></pre>
+            
+            <p>
+                Búsqueda confirmatoria mostró que <code>test_core_cpu_alu.py</code> (que pasa correctamente) SÍ usa <code>set_test_mode_allow_rom_writes(True)</code>.
+            </p>
+        </section>
+
+        <section id="implementacion">
+            <h2>🛠️ Implementación (T3)</h2>
+            
+            <h3>Fix Aplicado</h3>
+            <p>
+                Reemplazo sistemático del patrón de inicialización en todos los archivos de test:
+            </p>
+            
+            <div class="code-block">
+                <strong>Antes:</strong>
+                <pre><code>mmu = PyMMU()
+regs = PyRegisters()
+cpu = PyCPU(mmu, regs)</code></pre>
+                
+                <strong>Después:</strong>
+                <pre><code>mmu = PyMMU()
+mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
+regs = PyRegisters()
+cpu = PyCPU(mmu, regs)</code></pre>
+            </div>
+            
+            <h3>Archivos Modificados</h3>
+            <ol>
+                <li><strong>tests/test_core_cpu_io.py</strong> (5 tests):
+                    <ul>
+                        <li>test_ldh_write, test_ldh_read, test_ldh_write_lcdc</li>
+                        <li>test_ldh_read_hram, test_ldh_offset_wraparound</li>
+                    </ul>
+                </li>
+                
+                <li><strong>tests/test_core_cpu_jumps.py</strong> (14 tests):
+                    <ul>
+                        <li>Todos los tests de JP/JR (absolutos, relativos, condicionales)</li>
+                        <li>Aplicado con <code>replace_all=True</code></li>
+                    </ul>
+                </li>
+                
+                <li><strong>tests/test_core_cpu_interrupts.py</strong> (8 tests):
+                    <ul>
+                        <li>Tests de DI/EI, HALT, dispatch de interrupciones</li>
+                        <li><strong>Caso especial:</strong> test_all_interrupt_vectors con loop interno</li>
+                    </ul>
+                </li>
+                
+                <li><strong>tests/test_core_cpu_loads.py</strong> (24 tests):
+                    <ul>
+                        <li>Tests de LD 8-bit (registro, inmediato, memoria)</li>
+                        <li>Tests de LD 16-bit, ADD HL, stack pointers</li>
+                        <li><strong>Caso especial:</strong> test_ld_block_matrix con loop interno</li>
+                    </ul>
+                </li>
+                
+                <li><strong>tests/test_core_cpu_stack.py</strong> (4 tests):
+                    <ul>
+                        <li>Tests de PUSH/POP BC</li>
+                        <li>Tests de CALL/RET básico y anidado</li>
+                    </ul>
+                </li>
+            </ol>
+            
+            <h3>Casos Especiales en Loops</h3>
+            <p>
+                Dos tests requerían tratamiento especial por crear instancias de MMU dentro de loops:
+            </p>
+            <ul>
+                <li><code>test_core_cpu_interrupts.py:366</code> → Loop sobre interrupt_configs</li>
+                <li><code>test_core_cpu_loads.py:145</code> → Loop sobre test_cases</li>
+            </ul>
+            <p>
+                En ambos casos, se agregó <code>mmu.set_test_mode_allow_rom_writes(True)</code> inmediatamente después de <code>mmu = PyMMU()</code> dentro del loop.
+            </p>
+        </section>
+
+        <section id="tests">
+            <h2>✅ Tests y Verificación (T4)</h2>
+            
+            <h3>Compilación</h3>
+            <div class="code-block">
+                <pre><code>python3 setup.py build_ext --inplace
+BUILD_EXIT=0 ✅
+
+python3 test_build.py
+TEST_BUILD_EXIT=0 ✅</code></pre>
+            </div>
+            
+            <h3>Tests CPU Específicos</h3>
+            <div class="code-block">
+                <strong>test_core_cpu_io.py:</strong>
+                <pre><code>pytest -q tests/test_core_cpu_io.py
+IO_EXIT=0 ✅
+5 passed in 0.36s</code></pre>
+                
+                <strong>test_core_cpu_jumps.py:</strong>
+                <pre><code>pytest -q tests/test_core_cpu_jumps.py
+JUMPS_EXIT=0 ✅
+14 passed in 0.37s</code></pre>
+                
+                <strong>test_core_cpu_interrupts.py:</strong>
+                <pre><code>pytest -q tests/test_core_cpu_interrupts.py
+INTS_EXIT=0 ✅
+8 passed in 0.38s (después de corregir caso especial del loop)</code></pre>
+            </div>
+            
+            <h3>Tests CPU Completos</h3>
+            <div class="code-block">
+                <pre><code>pytest -q tests/test_core_cpu_io.py \
+            tests/test_core_cpu_jumps.py \
+            tests/test_core_cpu_interrupts.py \
+            tests/test_core_cpu_loads.py \
+            tests/test_core_cpu_stack.py
+
+CPU_TESTS_EXIT=0 ✅
+55 passed in 0.58s</code></pre>
+            </div>
+            
+            <h3>Resultado Final</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Archivo de Test</th>
+                        <th>Antes</th>
+                        <th>Después</th>
+                        <th>Tests Totales</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>test_core_cpu_io.py</td>
+                        <td>3 FAILED</td>
+                        <td>✅ 5 PASSED</td>
+                        <td>5</td>
+                    </tr>
+                    <tr>
+                        <td>test_core_cpu_jumps.py</td>
+                        <td>3 FAILED</td>
+                        <td>✅ 14 PASSED</td>
+                        <td>14</td>
+                    </tr>
+                    <tr>
+                        <td>test_core_cpu_interrupts.py</td>
+                        <td>4 FAILED</td>
+                        <td>✅ 8 PASSED</td>
+                        <td>8</td>
+                    </tr>
+                    <tr>
+                        <td>test_core_cpu_loads.py</td>
+                        <td>✅ (preventivo)</td>
+                        <td>✅ 24 PASSED</td>
+                        <td>24</td>
+                    </tr>
+                    <tr>
+                        <td>test_core_cpu_stack.py</td>
+                        <td>✅ (preventivo)</td>
+                        <td>✅ 4 PASSED</td>
+                        <td>4</td>
+                    </tr>
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <th>TOTAL</th>
+                        <th>10 FAILED</th>
+                        <th>✅ 55 PASSED</th>
+                        <th>55</th>
+                    </tr>
+                </tfoot>
+            </table>
+            
+            <h3>Validación de Módulo Compilado C++</h3>
+            <p>
+                ✅ Los tests ejecutan instrucciones reales compiladas en C++ (no código Python).
+            </p>
+            <p>
+                ✅ El test mode permite escribir programas sintéticos en ROM sin comprometer la fidelidad del emulador.
+            </p>
+        </section>
+
+        <section id="comandos-git">
+            <h2>📦 Comandos Git</h2>
+            <div class="code-block">
+                <pre><code>cd "$(git rev-parse --show-toplevel)"
+git add tests/test_core_cpu_io.py \
+        tests/test_core_cpu_jumps.py \
+        tests/test_core_cpu_interrupts.py \
+        tests/test_core_cpu_loads.py \
+        tests/test_core_cpu_stack.py \
+        docs/bitacora/entries/2026-01-02__0421__fix-test-mode-rom-writes-in-unit-tests.html \
+        docs/bitacora/index.html \
+        docs/informe_fase_2/parte_01_steps_0412_0450.md
+
+git commit -m "fix(tests): activate test_mode_allow_rom_writes in all CPU unit tests (Step 0421)"
+git push</code></pre>
+            </div>
+        </section>
+
+        <section id="lecciones">
+            <h2>📚 Lecciones Aprendidas</h2>
+            <ul>
+                <li><strong>Consistencia en tests:</strong> Cuando se introduce un mecanismo como test_mode, todos los tests existentes y futuros deben usarlo.</li>
+                <li><strong>Refactor sistemático:</strong> El patrón de búsqueda/reemplazo con <code>replace_all=True</code> es efectivo, pero requiere verificación manual de casos especiales (loops, indentaciones).</li>
+                <li><strong>Test de tests:</strong> Comparar archivos que pasan (test_core_cpu_alu.py) vs los que fallan (test_core_cpu_io.py) reveló rápidamente la causa raíz.</li>
+                <li><strong>Fidelidad al hardware:</strong> El test mode demuestra que es posible mantener fidelidad al hardware real (ROM read-only) mientras se permite testing sintético.</li>
+            </ul>
+        </section>
+
+        <section id="proximos-pasos">
+            <h2>🚀 Próximos Pasos</h2>
+            <ul>
+                <li>Step 0422+: Investigar los 5 fallos en <code>test_core_joypad.py</code> (problema diferente, no relacionado con ROM writes)</li>
+                <li>Agregar un linter o pre-commit hook que detecte <code>PyMMU()</code> sin <code>set_test_mode_allow_rom_writes(True)</code> en archivos de test</li>
+                <li>Documentar el patrón de test mode en <code>CONTRIBUTING.md</code> para futuros colaboradores</li>
+            </ul>
+        </section>
+
+        <footer>
+            <p>
+                <a href="../index.html">← Volver al índice de la bitácora</a>
+            </p>
+            <p class="timestamp">Generado: 2026-01-02 | Step 0421 | Estado: ✅ VERIFIED</p>
+        </footer>
+    </div>
+</body>
+</html>
+

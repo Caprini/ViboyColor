@@ -34,6 +34,7 @@ class TestJumpAbsolute:
         - Verifica que ciclos == 4
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -65,6 +66,7 @@ class TestJumpAbsolute:
         - Verifica que PC se establece correctamente sin overflow
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -95,6 +97,7 @@ class TestJumpRelative:
         Nota: El offset se suma al PC DESPUÉS de leer toda la instrucción.
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -124,6 +127,7 @@ class TestJumpRelative:
         para obtener el valor negativo.
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -151,6 +155,7 @@ class TestJumpRelative:
         - PC debe retroceder 3 posiciones desde después del offset
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -182,6 +187,7 @@ class TestJumpRelativeConditional:
         - Debe consumir 3 M-Cycles
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -211,6 +217,7 @@ class TestJumpRelativeConditional:
         - Debe consumir 2 M-Cycles (menos ciclos porque no hay salto)
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -240,6 +247,7 @@ class TestJumpRelativeConditional:
         - Debe saltar hacia atrás
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -273,6 +281,7 @@ class TestJumpRelativeConditionalZ:
         - Debe consumir 3 M-Cycles
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -302,6 +311,7 @@ class TestJumpRelativeConditionalZ:
         - Debe consumir 2 M-Cycles (menos ciclos porque no hay salto)
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -336,6 +346,7 @@ class TestJumpRelativeConditionalC:
         - Debe consumir 3 M-Cycles
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -365,6 +376,7 @@ class TestJumpRelativeConditionalC:
         - Debe consumir 2 M-Cycles
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -394,6 +406,7 @@ class TestJumpRelativeConditionalC:
         - Debe consumir 3 M-Cycles
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -423,6 +436,7 @@ class TestJumpRelativeConditionalC:
         - Debe consumir 2 M-Cycles
         """
         mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
