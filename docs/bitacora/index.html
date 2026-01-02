@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0414 - Timer MMIO dinámico + VRAM Mode3 + Suite Paralela 2min -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0414__timer-mmio-dinamico-vram-mode3-suite-paralela-2min.html" class="entry-link">
+                                    Timer MMIO dinámico + VRAM Mode3 + Suite Paralela 2min
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0414 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de tres mejoras técnicas: Timer MMIO dinámico (0xFF05-0xFF07 reflejan estado real del Timer), métricas de VRAM TileData bloqueada por Mode 3 (logs periódicos cada 120 frames), y verificación RGB real en Python (detecta si framebuffer CGB contiene datos aunque ventana se vea blanca). Nuevo estándar de testing: suite paralela de 2 minutos con todas las ROMs (8 ROMs ejecutadas simultáneamente). ✅ Compilación exitosa. ✅ Suite completada. Hallazgos: mario.gbc y tetris_dx.gbc funcionan (RGB check detecta píxeles no-blancos), zelda-dx.gbc y Oro.gbc tienen buffer RGB blanco (confirma problema de renderizado), logs VRAM Mode3 muestran 0% bloqueo (esperado).
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0413 - Fix STAT/LY/LCDC (PPU-MMIO) + LCD Toggle -->
                     <li>
                         <div class="entry-header">

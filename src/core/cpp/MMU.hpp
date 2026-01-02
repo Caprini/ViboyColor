@@ -437,6 +437,11 @@ private:
     mutable int vram_tiledata_cpu_nonzero_;     // Escrituras CPU no-cero a TileData
     mutable int vram_tiledata_cpu_log_count_;   // Contador de logs de TileData (primeras N)
     
+    // --- Step 0414: Métricas de VRAM bloqueada por Mode 3 ---
+    mutable int vram_tiledata_total_writes_;    // Total escrituras a TileData (0x8000-0x97FF)
+    mutable int vram_tiledata_blocked_mode3_;   // Escrituras bloqueadas por Mode 3
+    mutable int vram_tiledata_summary_frames_;  // Frames procesados para resumen periódico
+    
     // --- Step 0411: Contadores de IRQ requests reales (independientes de cambios en IF) ---
     mutable int irq_req_vblank_count_;          // Total de requests VBlank (bit 0)
     mutable int irq_req_stat_count_;            // Total de requests STAT (bit 1)

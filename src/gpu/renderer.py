@@ -562,6 +562,39 @@ class Renderer:
                 # Necesitamos (height=144, width=160, channels=3)
                 rgb_array = rgb_array.reshape((GB_HEIGHT, GB_WIDTH, 3))
                 
+                # --- Step 0414: Verificación RGB real (CGB) ---
+                # Chequear si el buffer contiene datos no-blancos
+                # Límite: máximo 10 logs para evitar saturación
+                if not hasattr(self, '_rgb_check_count'):
+                    self._rgb_check_count = 0
+                
+                if self._rgb_check_count < 10:
+                    # Muestra de píxeles: verificar algunos píxeles distribuidos
+                    sample_positions = [
+                        (72, 80),   # Centro
+                        (10, 10),   # Esquina superior izquierda
+                        (133, 149), # Esquina inferior derecha
+                        (50, 50),   # Centro-superior
+                        (100, 100)  # Centro-inferior
+                    ]
+                    
+                    non_white_found = False
+                    sample_info = []
+                    for y, x in sample_positions:
+                        if y < GB_HEIGHT and x < GB_WIDTH:
+                            r, g, b = rgb_array[y, x]
+                            # Considerar blanco si R,G,B están cerca de máximo (>240)
+                            is_white = (r > 240 and g > 240 and b > 240)
+                            if not is_white:
+                                non_white_found = True
+                            sample_info.append(f"({y},{x})=RGB({r},{g},{b})")
+                    
+                    print(f"[CGB-RGB-CHECK] Frame check #{self._rgb_check_count + 1} | "
+                          f"Non-white pixels: {'YES' if non_white_found else 'NO'} | "
+                          f"Samples: {' | '.join(sample_info[:3])}")  # Mostrar solo 3 primeros
+                    self._rgb_check_count += 1
+                # -------------------------------------------
+                
                 # Asegurar contiguidad (puede mejorar rendimiento de blit)
                 if not rgb_array.flags['C_CONTIGUOUS']:
                     rgb_array = np.ascontiguousarray(rgb_array)

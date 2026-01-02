@@ -85,6 +85,9 @@ MMU::MMU()
     , vram_tiledata_cpu_writes_(0)      // Step 0410
     , vram_tiledata_cpu_nonzero_(0)     // Step 0410
     , vram_tiledata_cpu_log_count_(0)   // Step 0410
+    , vram_tiledata_total_writes_(0)    // Step 0414
+    , vram_tiledata_blocked_mode3_(0)   // Step 0414
+    , vram_tiledata_summary_frames_(0)  // Step 0414
     , irq_req_vblank_count_(0)          // Step 0411
     , irq_req_stat_count_(0)            // Step 0411
     , irq_req_timer_count_(0)           // Step 0411
@@ -375,19 +378,22 @@ uint8_t MMU::read(uint16_t addr) const {
             printf("[WAIT-MMIO-READ] PC:0x%04X -> IE(0xFFFF) = 0x%02X\n", debug_current_pc, memory_[addr]);
             mmio_read_count_step383++;
         }
-        // Registros de Timer
+        // Registros de Timer (Step 0414: usar métodos del Timer para valores reales)
         else if (addr == 0xFF04 && should_log) {  // DIV
             uint8_t div_val = (timer_ != nullptr) ? timer_->read_div() : memory_[addr];
             printf("[WAIT-MMIO-READ] PC:0x%04X -> DIV(0xFF04) = 0x%02X (%d)\n", debug_current_pc, div_val, div_val);
             mmio_read_count_step383++;
         } else if (addr == 0xFF05 && should_log) {  // TIMA
-            printf("[WAIT-MMIO-READ] PC:0x%04X -> TIMA(0xFF05) = 0x%02X\n", debug_current_pc, memory_[addr]);
+            uint8_t tima_val = (timer_ != nullptr) ? timer_->read_tima() : memory_[addr];
+            printf("[WAIT-MMIO-READ] PC:0x%04X -> TIMA(0xFF05) = 0x%02X\n", debug_current_pc, tima_val);
             mmio_read_count_step383++;
         } else if (addr == 0xFF06 && should_log) {  // TMA
-            printf("[WAIT-MMIO-READ] PC:0x%04X -> TMA(0xFF06) = 0x%02X\n", debug_current_pc, memory_[addr]);
+            uint8_t tma_val = (timer_ != nullptr) ? timer_->read_tma() : memory_[addr];
+            printf("[WAIT-MMIO-READ] PC:0x%04X -> TMA(0xFF06) = 0x%02X\n", debug_current_pc, tma_val);
             mmio_read_count_step383++;
         } else if (addr == 0xFF07 && should_log) {  // TAC
-            printf("[WAIT-MMIO-READ] PC:0x%04X -> TAC(0xFF07) = 0x%02X\n", debug_current_pc, memory_[addr]);
+            uint8_t tac_val = (timer_ != nullptr) ? timer_->read_tac() : memory_[addr];
+            printf("[WAIT-MMIO-READ] PC:0x%04X -> TAC(0xFF07) = 0x%02X\n", debug_current_pc, tac_val);
             mmio_read_count_step383++;
         }
         // DMA y Serial
@@ -2042,6 +2048,19 @@ void MMU::write(uint16_t addr, uint8_t value) {
         // --- Step 0391: Conteo por regiones VRAM ---
         // Tiledata: 0x8000-0x97FF (tile patterns, 6KB)
         // Tilemap: 0x9800-0x9FFF (tile maps, 2KB)
+        
+        // --- Step 0414: Métricas de VRAM TileData bloqueada por Mode 3 ---
+        bool is_tiledata_write = (addr >= 0x8000 && addr <= 0x97FF);
+        if (is_tiledata_write) {
+            vram_tiledata_total_writes_++;
+            
+            // Verificar si estaría bloqueada por Mode 3
+            if (ppu_ != nullptr && ppu_->get_mode() == 3) {
+                vram_tiledata_blocked_mode3_++;
+            }
+        }
+        // -------------------------------------------
+        
         if (value != 0x00) {
             if (addr >= 0x8000 && addr <= 0x97FF) {
                 vram_tiledata_nonzero_writes_++;
@@ -2071,6 +2090,28 @@ void MMU::write(uint16_t addr, uint8_t value) {
                    vram_tiledata_nonzero_writes_, 
                    vram_tilemap_nonzero_writes_,
                    vram_write_total_step382_);
+        }
+        
+        // --- Step 0414: Resumen periódico cada 120 frames (máx 10 líneas) ---
+        if (ppu_ != nullptr) {
+            uint64_t current_frame = ppu_->get_frame_counter();
+            if (current_frame > 0 && current_frame != vram_tiledata_summary_frames_) {
+                if ((current_frame % 120) == 0 && (current_frame / 120) <= 10) {
+                    uint8_t vram_bank_actual = vram_bank_;
+                    float blocked_ratio = (vram_tiledata_total_writes_ > 0) 
+                        ? (vram_tiledata_blocked_mode3_ * 100.0f) / vram_tiledata_total_writes_ 
+                        : 0.0f;
+                    
+                    printf("[VRAM-MODE3-SUMMARY] Frame:%lu | TileData: total=%d nonzero=%d blocked_mode3=%d (%.2f%%) | Bank:%d\n",
+                           current_frame, 
+                           vram_tiledata_total_writes_, 
+                           vram_tiledata_nonzero_writes_,
+                           vram_tiledata_blocked_mode3_,
+                           blocked_ratio,
+                           vram_bank_actual);
+                }
+                vram_tiledata_summary_frames_ = current_frame;
+            }
         }
         // -------------------------------------------
         
