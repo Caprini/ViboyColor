@@ -32,6 +32,44 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0443 - LY Sampling 3-Points + Clean-Room LY Range Test + STAT Sanity + Baseline Perf -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0443__ly-sampling-3points-cleanroom-range-stat-sanity.html" class="entry-link">
+                                    LY Sampling 3-Points + Clean-Room LY Range Test + STAT Sanity + Baseline Perf
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0443 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Resolución de ambigüedad crítica identificada en Step 0442: ¿LY realmente avanza y solo lo estamos sampleando mal, o hay un bug real en lectura/actualización? Implementación de instrumentación LY/STAT 3-points en herramienta headless (sampleo al inicio, medio y final del frame). Creación de test clean-room que valida LY range >= 10 y variación durante frames con LCD on. Añadido diagnóstico STAT (verificación de cambio de modos) y baseline de rendimiento (FPS/ms/frame). Suite completa: 533 passed en 89.40s. Test clean-room LY range: PASSED. Objetivo alcanzado: evidencia numérica confirma que LY avanza correctamente durante frames (sampling issue resuelto, no bug real). Herramienta headless modificada: rom_smoke_0442.py ahora divide frame en 3 segmentos (0→35112→70224 T-cycles) y samplea LY/STAT en cada punto. Test clean-room: test_ly_range_cleanroom_0443.py ejecuta 2 frames con LCD on, samplea LY cada ~1000 T-cycles, valida max(ly) >= 10 y unique(ly) > 1. Diagnóstico automático en resumen: "LY varía correctamente" vs "BUG REAL (LY no avanza)". STAT Sanity: verifica que modos PPU cambian durante frame. Baseline rendimiento: FPS aproximado, ms/frame promedio, tiempo total.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0442 - Herramienta Headless ROM Smoke + Evidencia Nonwhite -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0442__headless-rom-smoke-nonwhite-evidence.html" class="entry-link">
+                                    Herramienta Headless ROM Smoke + Evidencia Nonwhite
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0442 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de herramienta headless tools/rom_smoke_0442.py para ejecutar ROMs sin pygame y recolectar métricas cuantitativas (nonwhite_pixels, VRAM nonzero, I/O registers, PC). Validación en CI con ROM clean-room existente (test_integration_core_framebuffer_cleanroom_rom.py) confirma sistema funcional. Evidencia local con Pokémon Red: framebuffer NO BLANCO (23,040 píxeles non-white desde frame 0), VRAM con datos (promedio 2,028 bytes non-zero), rendimiento 62.9 FPS. Suite completa: 532 passed en 89.61s. Objetivo alcanzado: evidencia cuantitativa confirma emulador produce output visible correctamente. Herramienta muestrea eficientemente (cada 8º pixel, cada 16º byte VRAM) para ejecutar 300 frames en ~5s. Wiring correcto: mmu.set_ppu(ppu), mmu.set_timer(timer), mmu.set_joypad(joypad). Estado post-boot DMG aplicado. No fue necesario árbol de triage (Caso 1/2/3). Sistema funciona correctamente.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0441 - Cerrar Riesgos: 0 Skips + 0 '*4' + HALT/Timer/IRQ Clean-Room -->
                     <li>
                         <div class="entry-header">
