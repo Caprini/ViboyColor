@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix test_build.py Runner (Root) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Fix test_build.py Runner (Root)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-02
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0415
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-02__0414__timer-mmio-dinamico-vram-mode3-suite-paralela-2min.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Corrección del checkpoint obligatorio <code>test_build.py</code> que verifica la compilación del módulo C++/Cython. 
+                    El script estaba ubicado en <code>tests/temp/test_build.py</code> y fallaba al ejecutarse desde subdirectorios por problemas de <code>sys.path</code>. 
+                    Se creó un runner robusto en la raíz del repositorio (<code>./test_build.py</code>) que maneja correctamente el <code>sys.path</code> y puede ejecutarse desde cualquier ubicación. 
+                    Se mantiene compatibilidad con el script original mediante un wrapper que redirige a la raíz.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto Técnico: sys.path y Resolución de Módulos en Python</h2>
+                <p>
+                    Cuando Python ejecuta un script, agrega el directorio donde está ubicado ese script al principio de <code>sys.path</code> 
+                    (la lista de rutas donde Python busca módulos). Si el script se ejecuta desde un subdirectorio, Python intentará importar 
+                    módulos relativos a ese subdirectorio, no a la raíz del proyecto.
+                </p>
+                <p>
+                    <strong>Problema identificado:</strong> Al ejecutar <code>tests/temp/test_build.py</code> directamente, Python establece 
+                    <code>sys.path[0] = tests/temp/</code>, lo que impide encontrar el módulo <code>viboy_core</code> que está compilado en la raíz del proyecto.
+                </p>
+                <p>
+                    <strong>Solución:</strong> Colocar el script principal en la raíz del repositorio y asegurar que el directorio raíz esté en <code>sys.path</code> 
+                    antes de cualquier importación. Esto garantiza que Python pueda encontrar el módulo compilado independientemente de desde dónde se ejecute el script.
+                </p>
+                <p>
+                    <strong>Por qué es crítico:</strong> <code>test_build.py</code> es un checkpoint obligatorio del flujo de trabajo que verifica que el pipeline 
+                    de compilación Cython→C++ funciona correctamente. Si este checkpoint falla, cualquier flujo automatizado se rompe y es imposible avanzar con confianza.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se creó un nuevo script <code>test_build.py</code> en la raíz del repositorio que:
+                </p>
+                <ul>
+                    <li>Calcula dinámicamente la raíz del proyecto usando <code>Path(__file__).resolve().parent</code></li>
+                    <li>Inserta la raíz en <code>sys.path</code> antes de cualquier importación</li>
+                    <li>Verifica la importación del módulo <code>viboy_core</code></li>
+                    <li>Ejecuta un smoke-test instanciando <code>PyNativeCore</code> y llamando a <code>core.add(2, 2)</code></li>
+                    <li>Devuelve códigos de salida correctos (0=OK, 1=FAIL) para integración en pipelines</li>
+                </ul>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>test_build.py</code> (nuevo, raíz): Runner principal con manejo robusto de sys.path</li>
+                    <li><code>tests/temp/test_build.py</code> (modificado): Wrapper de compatibilidad que redirige al runner de la raíz mediante <code>subprocess</code></li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <ul>
+                    <li><strong>Ubicación en raíz:</strong> El script debe estar en la raíz para que <code>sys.path</code> se configure correctamente de forma natural.</li>
+                    <li><strong>Wrapper en tests/temp/:</strong> Se mantiene compatibilidad con scripts que puedan llamar al test desde subdirectorios, redirigiendo mediante <code>subprocess</code> en lugar de manipular <code>sys.path</code> múltiples veces.</li>
+                    <li><strong>Salida estructurada:</strong> El script imprime información de diagnóstico (versión de Python, path) y mensajes claros de éxito/error para facilitar debugging.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>test_build.py</code> (nuevo) - Runner principal en raíz con manejo de sys.path</li>
+                    <li><code>tests/temp/test_build.py</code> (modificado) - Convertido en wrapper que redirige al runner de la raíz</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Validación del pipeline de compilación y verificación del checkpoint:
+                </p>
+                
+                <h3>Comando ejecutado:</h3>
+                <pre><code>python3 test_build.py</code></pre>
+
+                <h3>Resultado:</h3>
+                <pre><code>============================================================
+Test de Compilación - Viboy Color Core (C++/Cython)
+============================================================
+
+[1/3] Importando modulo 'viboy_core'...
+    [OK] Modulo importado correctamente
+[test_build] Python: 3.12.3
+[test_build] sys.path[0]: /media/fabini/8CD1-4C30/ViboyColor
+
+[2/3] Creando instancia de PyNativeCore...
+    [OK] Instancia creada correctamente
+
+[3/3] Ejecutando prueba: core.add(2, 2)...
+    [OK] Resultado: 4
+
+============================================================
+[EXITO] El pipeline de compilacion funciona correctamente
+============================================================
+
+El nucleo C++/Cython esta listo para la Fase 2.</code></pre>
+
+                <p><strong>Exit code:</strong> 0 (éxito)</p>
+
+                <h3>Validación de módulo compilado C++:</h3>
+                <p>
+                    El test verifica que el módulo <code>viboy_core</code> compilado desde C++/Cython puede:
+                </p>
+                <ul>
+                    <li>Importarse correctamente en Python</li>
+                    <li>Instanciarse (<code>PyNativeCore()</code>)</li>
+                    <li>Ejecutar código C++ a través del wrapper Cython (<code>core.add(2, 2) == 4</code>)</li>
+                </ul>
+
+                <h3>Exit codes:</h3>
+                <ul>
+                    <li><strong>Build:</strong> 0 (compilación exitosa)</li>
+                    <li><strong>test_build.py:</strong> 0 (checkpoint OK)</li>
+                    <li><strong>pytest:</strong> 1 (10 failed, 13 passed - tests pre-existentes, no relacionados con este step)</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Python Documentation: <a href="https://docs.python.org/3/library/sys.html#sys.path">sys.path</a> - Mecanismo de búsqueda de módulos</li>
+                    <li>Python Documentation: <a href="https://docs.python.org/3/library/pathlib.html">pathlib.Path</a> - Manipulación de rutas multiplataforma</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>sys.path y resolución de módulos:</strong> Python agrega el directorio del script ejecutado a sys.path[0], lo que puede causar problemas si el módulo está en otro directorio (como la raíz del proyecto).</li>
+                        <li><strong>Path absoluto vs relativo:</strong> Usar <code>Path(__file__).resolve().parent</code> calcula la ubicación absoluta del script independientemente del directorio de trabajo actual.</li>
+                        <li><strong>Pipeline plumbing:</strong> Scripts de infraestructura como test_build.py son críticos para mantener la salud del proyecto y deben ser robustos y predecibles.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li>N/A - Este step es de infraestructura, no de emulación.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Asumimos que el módulo <code>viboy_core</code> siempre se compila en la raíz del proyecto (lo cual es cierto según <code>setup.py</code> que usa <code>build_ext --inplace</code>).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar y corregir los 10 tests fallantes de pytest (principalmente relacionados con conteo de M-Cycles en CPU)</li>
+                    <li>[ ] Continuar con el flujo de desarrollo ahora que el checkpoint está operativo</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
