@@ -130,6 +130,20 @@ public:
     uint8_t get_ly() const;
     
     /**
+     * Obtiene el valor interno raw de ly_ sin máscara (para diagnóstico Step 0438).
+     * 
+     * @return Valor interno de ly_ (puede exceder 153 durante transiciones)
+     */
+    uint16_t get_ly_internal() const;
+    
+    /**
+     * Obtiene el clock interno de la PPU (para diagnóstico Step 0438).
+     * 
+     * @return Valor de clock_ (T-cycles acumulados en la PPU)
+     */
+    uint64_t get_ppu_clock() const;
+    
+    /**
      * Obtiene el modo PPU actual (0, 1, 2 o 3).
      * 
      * @return Modo PPU actual

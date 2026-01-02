@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <map>
 #include <string>
+#include <set>
 
 // --- Step 0327: Variable estática compartida para análisis de limpieza de VRAM ---
 static bool tiles_were_loaded_recently_global = false;
@@ -425,6 +426,77 @@ uint8_t MMU::read(uint16_t addr) const {
     if (addr == 0xFF44) {
         if (ppu_ != nullptr) {
             uint8_t val = ppu_->get_ly();
+            
+            // --- Step 0438 T2: Ring buffer de LY interno vs retornado ---
+            // Capturar cuando PC está en el loop de Pokémon (0x006B, 0x006D, 0x006F)
+            if (debug_current_pc == 0x006B || debug_current_pc == 0x006D || debug_current_pc == 0x006F) {
+                struct LYReadSample {
+                    uint16_t pc;
+                    uint64_t global_cycles;  // Ciclos globales (si disponible)
+                    uint64_t ppu_clock;      // Clock interno de PPU
+                    uint16_t ly_internal;    // ly_ raw
+                    uint8_t ly_returned;     // Valor retornado
+                };
+                
+                static LYReadSample ring_buffer[64];
+                static int ring_idx = 0;
+                static uint32_t sample_count = 0;
+                static bool summary_printed = false;
+                
+                // Capturar muestra
+                ring_buffer[ring_idx].pc = debug_current_pc;
+                ring_buffer[ring_idx].global_cycles = 0;  // No tenemos acceso directo a ciclos globales aquí
+                ring_buffer[ring_idx].ppu_clock = ppu_->get_ppu_clock();
+                ring_buffer[ring_idx].ly_internal = ppu_->get_ly_internal();
+                ring_buffer[ring_idx].ly_returned = val;
+                
+                ring_idx = (ring_idx + 1) % 64;
+                sample_count++;
+                
+                // Imprimir resumen cada 10000 lecturas
+                if (sample_count % 10000 == 0 && !summary_printed) {
+                    printf("\n[STEP0438-T2-LY-RING] ========== RING BUFFER SUMMARY (sample #%u) ==========\n", sample_count);
+                    
+                    // Calcular estadísticas
+                    std::set<uint8_t> unique_ly_returned;
+                    std::set<uint16_t> unique_ly_internal;
+                    uint8_t min_ly = 255, max_ly = 0;
+                    
+                    for (int i = 0; i < 64; i++) {
+                        unique_ly_returned.insert(ring_buffer[i].ly_returned);
+                        unique_ly_internal.insert(ring_buffer[i].ly_internal);
+                        if (ring_buffer[i].ly_returned < min_ly) min_ly = ring_buffer[i].ly_returned;
+                        if (ring_buffer[i].ly_returned > max_ly) max_ly = ring_buffer[i].ly_returned;
+                    }
+                    
+                    printf("[STEP0438-T2-LY-RING] Unique LY returned: %zu | Range: %u..%u\n",
+                           unique_ly_returned.size(), min_ly, max_ly);
+                    printf("[STEP0438-T2-LY-RING] Unique LY internal: %zu\n", unique_ly_internal.size());
+                    printf("[STEP0438-T2-LY-RING] Includes 0x91 (145)? %s\n",
+                           unique_ly_returned.count(0x91) > 0 ? "YES" : "NO");
+                    
+                    // Mostrar 5 muestras representativas
+                    printf("[STEP0438-T2-LY-RING] 5 samples from ring buffer:\n");
+                    printf("[STEP0438-T2-LY-RING] PC    PPU_CLK  LY_INT  LY_RET\n");
+                    for (int i = 0; i < 5; i++) {
+                        int idx = (ring_idx - 5 + i + 64) % 64;
+                        printf("[STEP0438-T2-LY-RING] %04X  %6llu   %3u     %3u (0x%02X)\n",
+                               ring_buffer[idx].pc,
+                               ring_buffer[idx].ppu_clock,
+                               ring_buffer[idx].ly_internal,
+                               ring_buffer[idx].ly_returned,
+                               ring_buffer[idx].ly_returned);
+                    }
+                    printf("[STEP0438-T2-LY-RING] =======================================================\n\n");
+                    
+                    // Solo imprimir hasta 3 veces
+                    if (sample_count >= 30000) {
+                        summary_printed = true;
+                    }
+                }
+            }
+            // -----------------------------------------
+            
             // DESCOMENTAR PARA ACTIVAR DEBUG:
             // printf("[MMU] Read LY: %d\n", val);
             return val;

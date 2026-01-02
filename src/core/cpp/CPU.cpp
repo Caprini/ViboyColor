@@ -4,6 +4,9 @@
 #include "PPU.hpp"
 #include "Timer.hpp"
 #include <map>
+#include <vector>
+#include <algorithm>
+#include <set>
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false),
@@ -2473,7 +2476,38 @@ int CPU::step() {
                 // Lee el siguiente byte de memoria y lo compara con A
                 // No modifica A, solo actualiza flags
                 uint8_t value = fetch_byte();
+                uint8_t a_before_cp = regs_->a;  // Guardar A antes de CP
                 alu_cp(value);
+                
+                // --- Step 0438: Monitoreo de CP $91 en el loop de Pokémon ---
+                // Capturar si Z se setea cuando se compara con 0x91
+                if (value == 0x91 && (original_pc == 0x006D || original_pc == 0x006F)) {
+                    static uint32_t step0438_cp_91_count = 0;
+                    static uint32_t step0438_count_z_after_cp = 0;
+                    
+                    step0438_cp_91_count++;
+                    bool z_flag = regs_->get_flag_z();
+                    
+                    if (z_flag) {
+                        step0438_count_z_after_cp++;
+                    }
+                    
+                    // Log primeras 10 comparaciones y cada 1000
+                    if (step0438_cp_91_count <= 10 || step0438_cp_91_count % 1000 == 0) {
+                        printf("[STEP0438-CP-0x91] #%u PC:0x%04X CP 0x91 (A=0x%02X) -> Z=%d %s\n",
+                               step0438_cp_91_count, original_pc, a_before_cp, z_flag ? 1 : 0,
+                               z_flag ? "*** Z==1 ***" : "");
+                    }
+                    
+                    // Imprimir resumen cada 10000 comparaciones
+                    if (step0438_cp_91_count % 10000 == 0) {
+                        printf("[STEP0438-SUMMARY] CP 0x91: %u | Z==1: %u (%.2f%%)\n",
+                               step0438_cp_91_count, step0438_count_z_after_cp,
+                               (step0438_count_z_after_cp * 100.0) / step0438_cp_91_count);
+                    }
+                }
+                // -----------------------------------------
+                
                 cycles_ += 2;  // 1 M-Cycle para opcode, 1 M-Cycle para leer d8
                 return 2;
             }
@@ -3107,6 +3141,113 @@ int CPU::step() {
                 uint8_t offset = fetch_byte();
                 uint16_t addr = 0xFF00 + static_cast<uint16_t>(offset);
                 regs_->a = mmu_->read(addr);
+                
+                // --- Step 0438: Monitoreo de LY reads en el loop de Pokémon ---
+                // Capturar cuándo A==0x91 después de leer LY (0xFF44)
+                if (addr == 0xFF44 && (original_pc == 0x006B || original_pc == 0x006D || original_pc == 0x006F)) {
+                    static uint32_t step0438_ly_reads = 0;
+                    static uint32_t step0438_count_a_eq_0x91 = 0;
+                    static std::map<uint8_t, uint32_t> step0438_a_histogram;
+                    
+                    step0438_ly_reads++;
+                    step0438_a_histogram[regs_->a]++;
+                    
+                    if (regs_->a == 0x91) {
+                        step0438_count_a_eq_0x91++;
+                    }
+                    
+                    // --- Step 0438 T2: Ring buffer de LY interno vs retornado ---
+                    struct LYReadSample {
+                        uint16_t pc;
+                        uint64_t ppu_clock;
+                        uint16_t ly_internal;
+                        uint8_t ly_returned;
+                    };
+                    
+                    static LYReadSample ring_buffer[64];
+                    static int ring_idx = 0;
+                    static bool summary_printed = false;
+                    
+                    // Capturar muestra
+                    ring_buffer[ring_idx].pc = original_pc;
+                    ring_buffer[ring_idx].ppu_clock = (ppu_ != nullptr) ? ppu_->get_ppu_clock() : 0;
+                    ring_buffer[ring_idx].ly_internal = (ppu_ != nullptr) ? ppu_->get_ly_internal() : 0;
+                    ring_buffer[ring_idx].ly_returned = regs_->a;
+                    
+                    ring_idx = (ring_idx + 1) % 64;
+                    
+                    // Imprimir resumen cada 10000 lecturas
+                    if (step0438_ly_reads % 10000 == 0 && !summary_printed) {
+                        printf("\n[STEP0438-T2-LY-RING] ========== RING BUFFER SUMMARY (sample #%u) ==========\n", step0438_ly_reads);
+                        
+                        // Calcular estadísticas
+                        std::set<uint8_t> unique_ly_returned;
+                        std::set<uint16_t> unique_ly_internal;
+                        uint8_t min_ly = 255, max_ly = 0;
+                        
+                        for (int i = 0; i < 64; i++) {
+                            unique_ly_returned.insert(ring_buffer[i].ly_returned);
+                            unique_ly_internal.insert(ring_buffer[i].ly_internal);
+                            if (ring_buffer[i].ly_returned < min_ly) min_ly = ring_buffer[i].ly_returned;
+                            if (ring_buffer[i].ly_returned > max_ly) max_ly = ring_buffer[i].ly_returned;
+                        }
+                        
+                        printf("[STEP0438-T2-LY-RING] Unique LY returned: %zu | Range: %u..%u\n",
+                               unique_ly_returned.size(), min_ly, max_ly);
+                        printf("[STEP0438-T2-LY-RING] Unique LY internal: %zu\n", unique_ly_internal.size());
+                        printf("[STEP0438-T2-LY-RING] Includes 0x91 (145)? %s\n",
+                               unique_ly_returned.count(0x91) > 0 ? "YES" : "NO");
+                        
+                        // Mostrar 5 muestras representativas
+                        printf("[STEP0438-T2-LY-RING] 5 samples from ring buffer:\n");
+                        printf("[STEP0438-T2-LY-RING] PC    PPU_CLK  LY_INT  LY_RET\n");
+                        for (int i = 0; i < 5; i++) {
+                            int idx = (ring_idx - 5 + i + 64) % 64;
+                            printf("[STEP0438-T2-LY-RING] %04X  %6llu   %3u     %3u (0x%02X)\n",
+                                   ring_buffer[idx].pc,
+                                   ring_buffer[idx].ppu_clock,
+                                   ring_buffer[idx].ly_internal,
+                                   ring_buffer[idx].ly_returned,
+                                   ring_buffer[idx].ly_returned);
+                        }
+                        printf("[STEP0438-T2-LY-RING] =======================================================\n\n");
+                        
+                        // Solo imprimir hasta 3 veces
+                        if (step0438_ly_reads >= 30000) {
+                            summary_printed = true;
+                        }
+                    }
+                    // -----------------------------------------
+                    
+                    // Log primeras 10 lecturas y cada 1000
+                    if (step0438_ly_reads <= 10 || step0438_ly_reads % 1000 == 0) {
+                        printf("[STEP0438-LY-READ] #%u PC:0x%04X LDH A,(0xFF44) -> A=0x%02X (%d) %s\n",
+                               step0438_ly_reads, original_pc, regs_->a, regs_->a,
+                               regs_->a == 0x91 ? "*** A==0x91 ***" : "");
+                    }
+                    
+                    // Imprimir resumen cada 10000 lecturas
+                    if (step0438_ly_reads % 10000 == 0) {
+                        printf("[STEP0438-SUMMARY] LY reads: %u | A==0x91: %u (%.2f%%) | Unique A values: %zu\n",
+                               step0438_ly_reads, step0438_count_a_eq_0x91,
+                               (step0438_count_a_eq_0x91 * 100.0) / step0438_ly_reads,
+                               step0438_a_histogram.size());
+                        
+                        // Top 10 valores de A
+                        std::vector<std::pair<uint8_t, uint32_t>> sorted_hist(step0438_a_histogram.begin(), step0438_a_histogram.end());
+                        std::sort(sorted_hist.begin(), sorted_hist.end(),
+                                  [](const auto& a, const auto& b) { return a.second > b.second; });
+                        
+                        printf("[STEP0438-HISTOGRAM] Top 10 A values:\n");
+                        for (size_t i = 0; i < std::min<size_t>(10, sorted_hist.size()); i++) {
+                            printf("  A=0x%02X (%3d): %u times (%.2f%%)\n",
+                                   sorted_hist[i].first, sorted_hist[i].first, sorted_hist[i].second,
+                                   (sorted_hist[i].second * 100.0) / step0438_ly_reads);
+                        }
+                    }
+                }
+                // -----------------------------------------
+                
                 cycles_ += 3;  // LDH A, (n) consume 3 M-Cycles
                 return 3;
             }

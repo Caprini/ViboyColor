@@ -363,6 +363,15 @@ void PPU::step(int cpu_cycles) {
     // is also reset. This is critical for proper synchronization when the game
     // turns the LCD back on, as it expects LY to be 0.
     if (!lcd_enabled) {
+        // --- Step 0438 T4: Debug de LCD apagado ---
+        static uint32_t step0438_lcd_off_count = 0;
+        if (step0438_lcd_off_count < 5) {
+            step0438_lcd_off_count++;
+            printf("[STEP0438-PPU-LCD-OFF] LCD is OFF! Resetting ly_=0, clock_=0. Count: %u\n",
+                   step0438_lcd_off_count);
+        }
+        // -----------------------------------------
+        
         // Resetear contadores y estado cuando el LCD está apagado
         ly_ = 0;
         clock_ = 0;
@@ -377,6 +386,15 @@ void PPU::step(int cpu_cycles) {
     // Acumular ciclos en el clock interno (solo si el LCD está encendido)
     clock_ += cpu_cycles;
     
+    // --- Step 0438 T4: Debug de clock_ ---
+    static uint32_t step0438_step_count = 0;
+    step0438_step_count++;
+    if (step0438_step_count <= 5) {
+        printf("[STEP0438-PPU-DEBUG] step() called #%u: cpu_cycles=%d, clock_=%u, ly_=%u\n",
+               step0438_step_count, cpu_cycles, clock_, ly_);
+    }
+    // -----------------------------------------
+    
     // Guardar LY y modo anteriores para detectar cambios
     // CRÍTICO: Guardar ANTES de actualizar el modo para detectar cambios correctamente
     uint16_t old_ly = ly_;
@@ -387,6 +405,14 @@ void PPU::step(int cpu_cycles) {
     update_mode();
     
     // Mientras tengamos suficientes ciclos para completar una línea (456 T-Cycles)
+    // --- Step 0438 T4: Debug de bucle ---
+    static uint32_t step0438_loop_count = 0;
+    if (clock_ >= CYCLES_PER_SCANLINE && step0438_loop_count < 5) {
+        step0438_loop_count++;
+        printf("[STEP0438-PPU-LOOP] Entering while loop #%u: clock_=%u >= %u\n",
+               step0438_loop_count, clock_, CYCLES_PER_SCANLINE);
+    }
+    // -----------------------------------------
     while (clock_ >= CYCLES_PER_SCANLINE) {
         
         // --- Step 0373: Corrección de Timing de render_scanline() ---
@@ -461,7 +487,17 @@ void PPU::step(int cpu_cycles) {
         // -------------------------------------------
         
         // Avanzar a la siguiente línea
+        uint16_t old_ly_for_debug = ly_;
         ly_ += 1;
+        
+        // --- Step 0438 T4: Debug de incremento de LY ---
+        static uint32_t step0438_ly_inc_count = 0;
+        if (step0438_ly_inc_count < 10) {
+            step0438_ly_inc_count++;
+            printf("[STEP0438-PPU-LY-INC] ly_ incremented #%u: %u -> %u\n",
+                   step0438_ly_inc_count, old_ly_for_debug, ly_);
+        }
+        // -----------------------------------------
         
         // --- Step 0340: Detección de Tiles Reales al Inicio del Frame ---
         // Detectar si hay tiles reales cuando LY se resetea a 0 (inicio del frame)
@@ -1112,7 +1148,26 @@ void PPU::check_stat_interrupt() {
 }
 
 uint8_t PPU::get_ly() const {
-    return static_cast<uint8_t>(ly_ & 0xFF);
+    uint8_t result = static_cast<uint8_t>(ly_ & 0xFF);
+    
+    // --- Step 0438 T4: Debug de get_ly() ---
+    static uint32_t step0438_get_ly_count = 0;
+    if (step0438_get_ly_count < 20) {
+        step0438_get_ly_count++;
+        printf("[STEP0438-GET-LY] get_ly() called #%u: ly_=%u, returning %u\n",
+               step0438_get_ly_count, ly_, result);
+    }
+    // -----------------------------------------
+    
+    return result;
+}
+
+uint16_t PPU::get_ly_internal() const {
+    return ly_;
+}
+
+uint64_t PPU::get_ppu_clock() const {
+    return static_cast<uint64_t>(clock_);
 }
 
 uint8_t PPU::get_mode() const {

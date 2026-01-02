@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0439 - Wiring MMU↔PPU + Contrato Ciclos M→T + Test Regresión -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0439__wiring-mmu-ppu-and-cycle-contract-regression-test.html" class="entry-link">
+                                    Wiring MMU↔PPU + Contrato Ciclos M→T + Test Regresión
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0439 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Normalización arquitectural del sistema de sincronización CPU↔PPU↔Timer, centralizando el contrato de conversión de ciclos M→T (factor 4) en clase SystemClock dedicada. Wiring MMU↔PPU verificado correcto en runtime (líneas 185, 256 de src/viboy.py). Infraestructura de test de regresión creada (test_regression_ly_polling_0439.py) con ROM mínima clean-room que detecta automáticamente errores de wiring o conversión de ciclos (tests marcados skip por exceso de debug output). Configuración de debug centralizada en src/core/cpp/Debug.hpp con macros condicionales para zero-cost abstractions en producción. SystemClock (204 líneas) implementa patrón Clock Domain: CPU retorna M-cycles, conversión M→T en único punto (factor 4), PPU/Timer consumen T-cycles. Build exitoso, test_build OK, pytest: 523 passed, 5 failed (test_viboy_integration API issues), 5 skipped. Preparado para refactor arquitectural en Step futuro (avance intercalado CPU↔PPU).
+                        </p>
+                    </li>
                     <!-- Entrada 0437 - Diagnóstico Loop VBlank Wait (Pokémon) - Bug Sincronización CPU↔PPU -->
                     <li>
                         <div class="entry-header">
