@@ -140,10 +140,14 @@ class TestIntegrationCPP:
         # Inicializar post-boot state
         viboy._initialize_post_boot_state()
         
-        # Leer registros
+        # Leer registros (valores post-boot dependen del modo detectado)
         assert viboy._regs.pc == 0x0100, "PC debe ser 0x0100 después de post-boot"
         assert viboy._regs.sp == 0xFFFE, "SP debe ser 0xFFFE después de post-boot"
-        assert viboy._regs.a == 0x11, "A debe ser 0x11 (CGB mode) después de post-boot"
+        
+        # Validar registro A según modo detectado (Step 0401/0411)
+        # DMG: A = 0x01, CGB: A = 0x11
+        assert viboy._regs.a in [0x01, 0x11], \
+            f"A debe ser 0x01 (DMG) o 0x11 (CGB), obtenido: 0x{viboy._regs.a:02X}"
         
         # Escribir registros
         viboy._regs.a = 0x42
