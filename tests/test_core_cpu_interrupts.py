@@ -30,9 +30,9 @@ IO_IE = 0xFFFF  # Interrupt Enable
 
 
 class TestDI_EI:
-    """Tests para DI (Disable Interrupts) y EI (Enable Interrupts)"""
+    """Tests para DI (Disable Interrupts) y EI (Enable Interrupts) - Step 0423: ejecuta desde WRAM"""
 
-    def test_di_disables_ime(self):
+    def test_di_disables_ime(self, mmu):
         """
         Test 1: Verificar que DI (0xF3) desactiva IME inmediatamente.
         
@@ -41,8 +41,6 @@ class TestDI_EI:
         - Ejecutar DI
         - Verificar que IME es False
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -76,7 +74,7 @@ class TestDI_EI:
         assert cpu.get_ime() == 0, "IME debe estar desactivado después de DI"
         assert cycles == 1, "DI debe consumir 1 M-Cycle"
     
-    def test_ei_delayed_activation(self):
+    def test_ei_delayed_activation(self, mmu):
         """
         Test 2: Verificar que EI (0xFB) activa IME después de la siguiente instrucción.
         
@@ -86,8 +84,6 @@ class TestDI_EI:
         - Ejecutar NOP
         - Verificar que IME ahora es True
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -118,7 +114,7 @@ class TestDI_EI:
 class TestHALT:
     """Tests para HALT (0x76)"""
 
-    def test_halt_stops_execution(self):
+    def test_halt_stops_execution(self, mmu):
         """
         Test 3: Verificar que HALT detiene la ejecución de instrucciones.
         
@@ -129,8 +125,6 @@ class TestHALT:
         - Verificar que PC no cambia (CPU dormida)
         - Verificar que step() sigue devolviendo -1
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -156,13 +150,11 @@ class TestHALT:
             assert regs.pc == initial_pc, "PC no debe cambiar cuando CPU está en HALT"
             assert cpu.get_halted() == 1, "CPU debe seguir en HALT"
     
-    def test_halt_instruction_signals_correctly(self):
+    def test_halt_instruction_signals_correctly(self, mmu):
         """
         Step 0172: Verifica que HALT (0x76) activa el flag 'halted' y
         que step() devuelve -1 para señalarlo.
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -184,7 +176,7 @@ class TestHALT:
         expected_pc = TEST_EXEC_BASE + 1
         assert regs.pc == expected_pc, f"PC debe haber avanzado 1 byte a 0x{expected_pc:04X}"
     
-    def test_halt_wakeup_on_interrupt(self):
+    def test_halt_wakeup_on_interrupt(self, mmu):
         """
         Test 4: Verificar que HALT se despierta cuando hay interrupción pendiente.
         
@@ -194,17 +186,16 @@ class TestHALT:
         - Verificar que halted es False (CPU despierta)
         - Verificar que la interrupción NO se procesa (IME está desactivado)
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
-        # Inicializar PC y SP
-        regs.pc = 0x0100
+        # Inicializar SP
         regs.sp = 0xFFFE
         
+        # Cargar programa: HALT seguido de NOP
+        load_program(mmu, regs, [0x76, 0x00])  # HALT, NOP
+        
         # Ejecutar HALT
-        mmu.write(0x0100, 0x76)  # HALT
         cpu.step()
         assert cpu.halted == True
         
@@ -212,12 +203,7 @@ class TestHALT:
         mmu.write(IO_IF, 0x01)  # V-Blank flag
         mmu.write(IO_IE, 0x01)  # Habilitar V-Blank en IE
         
-        # Poner un NOP en la dirección actual (después de HALT, PC está en 0x0101)
-        # Cuando la CPU despierta, ejecutará esta instrucción
-        mmu.write(regs.pc, 0x00)  # NOP
-        
-        # Ejecutar step() (debe despertar la CPU)
-        initial_pc = regs.pc
+        # Ejecutar step() (debe despertar la CPU y ejecutar NOP)
         cycles = cpu.step()
         
         # Verificar que CPU despertó
@@ -225,8 +211,8 @@ class TestHALT:
         
         # Verificar que la interrupción NO se procesó (IME está desactivado)
         # Cuando la CPU despierta del HALT sin procesar la interrupción, ejecuta la siguiente instrucción
-        # Por lo tanto, el PC debe avanzar (no saltó al vector, pero ejecutó la siguiente instrucción)
-        assert regs.pc == initial_pc + 1, "PC debe avanzar (ejecutó la siguiente instrucción después de despertar)"
+        # Por lo tanto, el PC debe avanzar a TEST_EXEC_BASE + 2 (después de HALT y NOP)
+        assert regs.pc == TEST_EXEC_BASE + 2, f"PC debe ser TEST_EXEC_BASE + 2, es 0x{regs.pc:04X}"
         assert cycles == 1, "Debe consumir 1 M-Cycle (NOP), no ciclos de interrupción"
         
         # Verificar que IF sigue activo (no se limpió)
@@ -234,9 +220,9 @@ class TestHALT:
 
 
 class TestInterruptDispatch:
-    """Tests para el dispatcher de interrupciones"""
+    """Tests para el dispatcher de interrupciones - Step 0423: ejecuta desde WRAM"""
 
-    def test_interrupt_dispatch_vblank(self):
+    def test_interrupt_dispatch_vblank(self, mmu):
         """
         Test 5: Verificar que una interrupción V-Blank se procesa correctamente.
         
@@ -249,20 +235,18 @@ class TestInterruptDispatch:
         - Verificar que IF se limpió
         - Verificar que IME se desactivó
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
-        # Inicializar PC y SP
-        regs.pc = 0x1234
+        # Inicializar SP
         regs.sp = 0xFFFE
         
+        # Cargar programa: EI, NOP, NOP
+        load_program(mmu, regs, [0xFB, 0x00, 0x00])  # EI, NOP, NOP
+        
         # Activar IME usando EI
-        mmu.write(0x1234, 0xFB)  # EI
-        cpu.step()
-        mmu.write(0x1235, 0x00)  # NOP (para que EI tome efecto)
-        cpu.step()
+        cpu.step()  # EI
+        cpu.step()  # NOP (para que EI tome efecto)
         assert cpu.get_ime() == 1
         
         # Habilitar V-Blank en IE y activar flag en IF
@@ -298,7 +282,7 @@ class TestInterruptDispatch:
         # Verificar ciclos consumidos
         assert cycles == 5, f"Procesar interrupción debe consumir 5 M-Cycles, consumió {cycles}"
     
-    def test_interrupt_priority(self):
+    def test_interrupt_priority(self, mmu):
         """
         Test 6: Verificar que las interrupciones se procesan según prioridad.
         
@@ -312,20 +296,18 @@ class TestInterruptDispatch:
         - Activar múltiples interrupciones simultáneamente
         - Verificar que se procesa la de mayor prioridad (V-Blank)
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
-        # Inicializar PC y SP
-        regs.pc = 0x0100
+        # Inicializar SP
         regs.sp = 0xFFFE
         
+        # Cargar programa: EI, NOP, NOP
+        load_program(mmu, regs, [0xFB, 0x00, 0x00])  # EI, NOP, NOP
+        
         # Activar IME
-        mmu.write(0x0100, 0xFB)  # EI
-        cpu.step()
-        mmu.write(0x0101, 0x00)  # NOP
-        cpu.step()
+        cpu.step()  # EI
+        cpu.step()  # NOP
         
         # Activar múltiples interrupciones: Timer (bit 2) y V-Blank (bit 0)
         # V-Blank tiene mayor prioridad
@@ -363,25 +345,25 @@ class TestInterruptDispatch:
         ]
         
         for bit_mask, expected_vector, name in interrupt_configs:
-            mmu = PyMMU()
-            mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
+            # Crear nueva instancia de MMU para cada iteración (sin ROM-writes)
+            test_mmu = PyMMU()
             regs = PyRegisters()
-            cpu = PyCPU(mmu, regs)
+            cpu = PyCPU(test_mmu, regs)
             
-            # Inicializar PC y SP
-            regs.pc = 0x0100
+            # Inicializar SP
             regs.sp = 0xFFFE
             
+            # Cargar programa: EI, NOP
+            load_program(test_mmu, regs, [0xFB, 0x00])  # EI, NOP
+            
             # Activar IME
-            mmu.write(0x0100, 0xFB)  # EI
-            cpu.step()
-            mmu.write(0x0101, 0x00)  # NOP
-            cpu.step()
+            cpu.step()  # EI
+            cpu.step()  # NOP
             assert cpu.get_ime() == 1
             
             # Habilitar interrupción en IE y activar flag en IF
-            mmu.write(IO_IE, bit_mask)
-            mmu.write(IO_IF, bit_mask)
+            test_mmu.write(IO_IE, bit_mask)
+            test_mmu.write(IO_IF, bit_mask)
             
             # Ejecutar step()
             cpu.step()

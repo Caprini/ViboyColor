@@ -12,9 +12,12 @@ Tests críticos:
 - Verificar orden correcto de bytes (Little-Endian) en PUSH/POP
 - Verificar que CALL guarda la dirección correcta de retorno
 - Verificar que RET restaura el PC correctamente
+
+Nota Step 0423: TODOS los tests migrados a WRAM usando load_program() y fixture mmu estándar.
 """
 
 import pytest
+from tests.helpers_cpu import load_program, TEST_EXEC_BASE
 
 # Importar los módulos nativos compilados
 try:
@@ -24,9 +27,9 @@ except ImportError:
 
 
 class TestPushPop:
-    """Tests para PUSH BC y POP BC"""
+    """Tests para PUSH BC y POP BC - Step 0423: ejecuta desde WRAM"""
 
-    def test_push_pop_bc(self):
+    def test_push_pop_bc(self, mmu):
         """
         Test 1: Verificar PUSH BC y POP BC básico.
         
@@ -39,8 +42,6 @@ class TestPushPop:
         - Verificar que BC es 0x1234
         - Verificar que SP volvió a 0xFFFE
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -51,9 +52,10 @@ class TestPushPop:
         regs.b = 0x12
         regs.c = 0x34
         
+        # Cargar programa con PUSH y POP consecutivos
+        load_program(mmu, regs, [0xC5, 0xC1])  # PUSH BC, POP BC
+        
         # Ejecutar PUSH BC
-        regs.pc = 0x0100
-        mmu.write(0x0100, 0xC5)  # Opcode PUSH BC
         cycles = cpu.step()
         
         # Verificar que SP decrementó (pila crece hacia abajo)
@@ -69,12 +71,11 @@ class TestPushPop:
         
         assert cycles == 4, f"PUSH BC debe consumir 4 M-Cycles, consumió {cycles}"
         
-        # Ahora ejecutar POP BC
-        regs.pc = 0x0101
-        mmu.write(0x0101, 0xC1)  # Opcode POP BC
         # Limpiar BC para verificar que POP lo restaura
         regs.b = 0x00
         regs.c = 0x00
+        
+        # Ejecutar POP BC (ya está en memoria después de PUSH)
         cycles = cpu.step()
         
         # Verificar que BC se restauró correctamente
@@ -88,7 +89,7 @@ class TestPushPop:
         
         assert cycles == 3, f"POP BC debe consumir 3 M-Cycles, consumió {cycles}"
 
-    def test_stack_grows_downwards(self):
+    def test_stack_grows_downwards(self, mmu):
         """
         Test 2: Verificar que la pila crece hacia abajo (SP decrece en PUSH).
         
@@ -99,8 +100,6 @@ class TestPushPop:
         - PUSH BC
         - Verificar que SP < valor inicial
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
@@ -109,8 +108,7 @@ class TestPushPop:
         regs.b = 0xAA
         regs.c = 0xBB
         
-        regs.pc = 0x0100
-        mmu.write(0x0100, 0xC5)  # PUSH BC
+        load_program(mmu, regs, [0xC5])  # PUSH BC
         cpu.step()
         
         # Verificar que SP decrementó
@@ -122,42 +120,44 @@ class TestPushPop:
 
 
 class TestCallRet:
-    """Tests para CALL nn y RET"""
+    """Tests para CALL nn y RET - Step 0423: ejecuta desde WRAM"""
 
-    def test_call_ret_basic(self):
+    def test_call_ret_basic(self, mmu):
         """
         Test 3: Verificar CALL nn y RET básico.
         
         - Establecer SP en 0xFFFE
-        - Establecer PC en 0x0100
-        - Ejecutar CALL 0x2000
-        - Verificar que PC = 0x2000
-        - Verificar que SP = 0xFFFC (decrementó 2 bytes)
-        - Verificar que la dirección de retorno (0x0103) está en la pila
+        - Ejecutar CALL (a dirección WRAM)
+        - Verificar que PC salta correctamente
+        - Verificar que SP decrementó 2 bytes
+        - Verificar que la dirección de retorno está en la pila
         - Ejecutar RET
-        - Verificar que PC vuelve a 0x0103
-        - Verificar que SP vuelve a 0xFFFE
+        - Verificar que PC vuelve correctamente
+        - Verificar que SP se restaura
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
-        # Inicializar SP y PC
+        # Inicializar SP
         regs.sp = 0xFFFE
-        regs.pc = 0x0100
         
-        # Escribir CALL 0x2000 (0xCD 0x00 0x20)
-        mmu.write(0x0100, 0xCD)  # Opcode CALL nn
-        mmu.write(0x0101, 0x00)  # LSB de dirección (Little-Endian)
-        mmu.write(0x0102, 0x20)  # MSB de dirección
+        # Dirección destino para el CALL (en WRAM alta para no pisar el programa)
+        call_target = 0xC100
+        
+        # Escribir RET en la dirección destino (antes de ejecutar CALL)
+        mmu.write(call_target, 0xC9)  # RET
+        
+        # Cargar CALL call_target (0xCD LSB MSB)
+        lsb = call_target & 0xFF
+        msb = (call_target >> 8) & 0xFF
+        load_program(mmu, regs, [0xCD, lsb, msb])  # CALL nn
         
         # Ejecutar CALL
         cycles = cpu.step()
         
         # Verificar que PC saltó a la dirección destino
-        assert regs.pc == 0x2000, (
-            f"PC debe ser 0x2000 después de CALL, es 0x{regs.pc:04X}"
+        assert regs.pc == call_target, (
+            f"PC debe ser 0x{call_target:04X} después de CALL, es 0x{regs.pc:04X}"
         )
         
         # Verificar que SP decrementó (pila crece hacia abajo)
@@ -167,27 +167,24 @@ class TestCallRet:
         )
         
         # Verificar que la dirección de retorno está en la pila
-        # La dirección de retorno es 0x0103 (PC después de leer toda la instrucción)
-        # PUSH escribe high byte en SP+1, low byte en SP
-        # POP lee low byte de SP, high byte de SP+1
+        # La dirección de retorno es TEST_EXEC_BASE + 3 (después de CALL nn)
         low_byte = mmu.read(0xFFFC)
         high_byte = mmu.read(0xFFFD)
         return_addr = (high_byte << 8) | low_byte
-        assert return_addr == 0x0103, (
-            f"Dirección de retorno debe ser 0x0103, es 0x{return_addr:04X}. "
+        expected_return = TEST_EXEC_BASE + 3
+        assert return_addr == expected_return, (
+            f"Dirección de retorno debe ser 0x{expected_return:04X}, es 0x{return_addr:04X}. "
             "Esta es la dirección de la siguiente instrucción tras el CALL."
         )
         
         assert cycles == 6, f"CALL nn debe consumir 6 M-Cycles, consumió {cycles}"
         
-        # Ahora ejecutar RET
-        regs.pc = 0x2000
-        mmu.write(0x2000, 0xC9)  # Opcode RET
+        # Ahora ejecutar RET (ya está en call_target)
         cycles = cpu.step()
         
         # Verificar que PC volvió a la dirección de retorno
-        assert regs.pc == 0x0103, (
-            f"PC debe ser 0x0103 después de RET, es 0x{regs.pc:04X}"
+        assert regs.pc == expected_return, (
+            f"PC debe ser 0x{expected_return:04X} después de RET, es 0x{regs.pc:04X}"
         )
         
         # Verificar que SP volvió a su valor original
@@ -197,51 +194,57 @@ class TestCallRet:
         
         assert cycles == 4, f"RET debe consumir 4 M-Cycles, consumió {cycles}"
 
-    def test_call_nested(self):
+    def test_call_nested(self, mmu):
         """
         Test 4: Verificar CALL anidado (subrutina que llama a otra subrutina).
         
-        - CALL 0x2000 desde 0x0100
-        - CALL 0x3000 desde 0x2000
-        - RET (debe volver a 0x2003)
-        - RET (debe volver a 0x0103)
+        - CALL target1 desde base
+        - CALL target2 desde target1
+        - RET (debe volver a target1 + 3)
+        - RET (debe volver a base + 3)
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0421: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
         regs.sp = 0xFFFE
-        regs.pc = 0x0100
         
-        # Primer CALL: 0x0100 -> 0x2000
-        mmu.write(0x0100, 0xCD)  # CALL nn
-        mmu.write(0x0101, 0x00)
-        mmu.write(0x0102, 0x20)
+        # Direcciones para los CALLs (en WRAM, separadas)
+        target1 = 0xC100
+        target2 = 0xC200
+        
+        # Preparar target2: solo RET
+        mmu.write(target2, 0xC9)  # RET
+        
+        # Preparar target1: CALL target2 seguido de RET
+        lsb2 = target2 & 0xFF
+        msb2 = (target2 >> 8) & 0xFF
+        mmu.write(target1 + 0, 0xCD)  # CALL nn
+        mmu.write(target1 + 1, lsb2)
+        mmu.write(target1 + 2, msb2)
+        mmu.write(target1 + 3, 0xC9)  # RET
+        
+        # Cargar primer CALL en base
+        lsb1 = target1 & 0xFF
+        msb1 = (target1 >> 8) & 0xFF
+        load_program(mmu, regs, [0xCD, lsb1, msb1])  # CALL target1
+        
+        # Primer CALL: base -> target1
         cpu.step()
-        assert regs.pc == 0x2000
+        assert regs.pc == target1, f"PC debe ser 0x{target1:04X}"
         assert regs.sp == 0xFFFC
         
-        # Segundo CALL: 0x2000 -> 0x3000
-        regs.pc = 0x2000
-        mmu.write(0x2000, 0xCD)  # CALL nn
-        mmu.write(0x2001, 0x00)
-        mmu.write(0x2002, 0x30)
+        # Segundo CALL: target1 -> target2
         cpu.step()
-        assert regs.pc == 0x3000
+        assert regs.pc == target2, f"PC debe ser 0x{target2:04X}"
         assert regs.sp == 0xFFFA  # Decrementó 2 bytes más
         
-        # Primer RET: 0x3000 -> 0x2003
-        regs.pc = 0x3000
-        mmu.write(0x3000, 0xC9)  # RET
+        # Primer RET: target2 -> target1 + 3
         cpu.step()
-        assert regs.pc == 0x2003
+        assert regs.pc == target1 + 3, f"PC debe ser 0x{target1 + 3:04X}"
         assert regs.sp == 0xFFFC
         
-        # Segundo RET: 0x2003 -> 0x0103
-        regs.pc = 0x2003
-        mmu.write(0x2003, 0xC9)  # RET
+        # Segundo RET: target1 + 3 -> base + 3
         cpu.step()
-        assert regs.pc == 0x0103
+        assert regs.pc == TEST_EXEC_BASE + 3, f"PC debe ser 0x{TEST_EXEC_BASE + 3:04X}"
         assert regs.sp == 0xFFFE
 

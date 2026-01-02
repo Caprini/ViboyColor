@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0423: Migración masiva CPU tests a WRAM - Viboy Color</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica.</p>
+        </div>
+
+        <header>
+            <h1>Step 0423: Migración masiva CPU tests a WRAM y minimización de ROM-writes</h1>
+            <p><a href="../index.html" class="back-link">← Volver al índice</a></p>
+        </header>
+
+        <main>
+            <!-- Metadata -->
+            <div class="entry-meta">
+                <span><strong>Fecha:</strong> 2026-01-02</span>
+                <span><strong>Step ID:</strong> 0423</span>
+                <span><strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span></span>
+                <span><strong>Tipo:</strong> <span class="tag">Test Harness</span></span>
+            </div>
+
+            <!-- Resumen Ejecutivo -->
+            <section>
+                <h2>Resumen Ejecutivo</h2>
+                <p>
+                    Migración masiva y exitosa de 49 tests de CPU de ROM (con <code>set_test_mode_allow_rom_writes</code>) 
+                    a WRAM usando <code>load_program()</code> y fixture <code>mmu</code> estándar. Reducción de deuda técnica 
+                    del 98%: de 50 hits de ROM-writes a solo 1 (fixture legítimo <code>mmu_romw</code> en conftest.py).
+                </p>
+                
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-value">49/49</div>
+                        <div class="metric-label">Tests migrados (100%)</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">98%</div>
+                        <div class="metric-label">Reducción ROM-writes</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">118</div>
+                        <div class="metric-label">Tests passing ✅</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">10</div>
+                        <div class="metric-label">Fallos conocidos (joypad/MMU)</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Objetivo -->
+            <section>
+                <h2>Objetivo</h2>
+                <p>
+                    Eliminar el uso innecesario de <code>mmu_romw</code> (ROM-writes) en tests CPU, ejecutando 
+                    código desde WRAM (0xC000) mediante <code>load_program()</code>. Dejar ROM-writes <strong>solo</strong> 
+                    donde sea imprescindible (vectores de interrupción 0x0040-0x0060, que en este caso tampoco se necesitó).
+                </p>
+            </section>
+
+            <!-- Estado Inicial -->
+            <section>
+                <h2>Estado Inicial</h2>
+                <p>Después del Step 0422:</p>
+                <ul>
+                    <li><strong>49 hits</strong> de <code>set_test_mode_allow_rom_writes(True)</code> en 5 archivos de tests CPU</li>
+                    <li>Tests ejecutando desde ROM (0x0100, 0x0200, etc.) con ROM-writes habilitados</li>
+                    <li>Fixture <code>mmu</code> estándar (sin ROM-writes) y <code>load_program()</code> disponibles</li>
+                    <li>Suite: <strong>118 passed, 10 failed</strong> (fallos conocidos de joypad/MMU)</li>
+                </ul>
+            </section>
+
+            <!-- Implementación -->
+            <section>
+                <h2>Implementación</h2>
+                
+                <h3>Archivos Migrados (49 tests total)</h3>
+                
+                <h4>1. test_core_cpu_loads.py (18 tests)</h4>
+                <p>Operaciones de carga (LD) y aritmética 16-bit. Todos los tests migrados a usar <code>load_program()</code> y fixture <code>mmu</code>.</p>
+                <pre><code># ANTES (con ROM-writes)
+mmu = PyMMU()
+mmu.set_test_mode_allow_rom_writes(True)
+regs = PyRegisters()
+cpu = PyCPU(mmu, regs)
+regs.pc = 0x0100
+mmu.write(0x0100, 0x47)  # LD B, A
+cycles = cpu.step()
+
+# DESPUÉS (desde WRAM, sin ROM-writes)
+def test_ld_b_a(self, mmu):  # Fixture mmu inyectado
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    regs.a = 0x10
+    load_program(mmu, regs, [0x47])  # Carga en WRAM (0xC000)
+    cycles = cpu.step()
+    assert regs.b == 0x10</code></pre>
+
+                <h4>2. test_core_cpu_jumps.py (14 tests)</h4>
+                <p>Instrucciones de salto (JP, JR, condicionales). Ajustes de direcciones esperadas a <code>TEST_EXEC_BASE + offset</code>.</p>
+                <pre><code># Ejemplo: JR relativo positivo
+def test_jr_relative_positive(self, mmu):
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    load_program(mmu, regs, [0x18, 0x05])  # JR +5
+    cycles = cpu.step()
+    expected_pc = TEST_EXEC_BASE + 7  # Base + 2 (instrucción) + 5 (offset)
+    assert regs.pc == expected_pc</code></pre>
+
+                <h4>3. test_core_cpu_io.py (5 tests)</h4>
+                <p>Instrucciones LDH (I/O de memoria alta). Migración directa sin cambios en direcciones I/O.</p>
+                <pre><code># Ejemplo: LDH (n), A
+def test_ldh_write(self, mmu):
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    regs.a = 0xAB
+    load_program(mmu, regs, [0xE0, 0x40])  # LDH (n), A con offset 0x40
+    cycles = cpu.step()
+    assert mmu.read(0xFF40) == 0xAB  # LCDC register</code></pre>
+
+                <h4>4. test_core_cpu_stack.py (4 tests)</h4>
+                <p>Operaciones de pila (PUSH/POP/CALL/RET). CALL usa direcciones WRAM (0xC100+) como targets.</p>
+                <pre><code># Ejemplo: CALL/RET
+def test_call_ret_basic(self, mmu):
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    regs.sp = 0xFFFE
+    call_target = 0xC100  # Target en WRAM alta
+    mmu.write(call_target, 0xC9)  # RET en destino
+    lsb, msb = call_target & 0xFF, (call_target >> 8) & 0xFF
+    load_program(mmu, regs, [0xCD, lsb, msb])  # CALL
+    cycles = cpu.step()  # CALL
+    assert regs.pc == call_target
+    cycles = cpu.step()  # RET
+    assert regs.pc == TEST_EXEC_BASE + 3  # Retorna después de CALL</code></pre>
+
+                <h4>5. test_core_cpu_interrupts.py (8 tests)</h4>
+                <p>DI/EI/HALT y dispatcher de interrupciones. Tests de dispatch NO escriben vectores ISR, solo verifican saltos.</p>
+                <pre><code># Ejemplo: EI con delayed activation
+def test_ei_delayed_activation(self, mmu):
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    load_program(mmu, regs, [0xFB, 0x00])  # EI, NOP
+    cpu.step()  # EI
+    assert cpu.get_ime() == 0  # Aún no activo (delayed)
+    cpu.step()  # NOP
+    assert cpu.get_ime() == 1  # Ahora sí activo
+
+# Ejemplo: Interrupt dispatch (sin escribir vectores)
+def test_interrupt_dispatch_vblank(self, mmu):
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    regs.sp = 0xFFFE
+    load_program(mmu, regs, [0xFB, 0x00, 0x00])  # EI, NOP, NOP
+    cpu.step(); cpu.step()  # Activar IME
+    mmu.write(0xFF0F, 0x01)  # Activar V-Blank en IF
+    mmu.write(0xFFFF, 0x01)  # Habilitar V-Blank en IE
+    cycles = cpu.step()  # Procesa interrupción
+    assert regs.pc == 0x0040  # Salta a vector V-Blank (ROM, pero no escribimos ahí)</code></pre>
+
+                <h3>Patrón de Migración</h3>
+                <ol>
+                    <li>Reemplazar <code>mmu = PyMMU()</code> por fixture <code>def test_xxx(self, mmu):</code></li>
+                    <li>Eliminar <code>mmu.set_test_mode_allow_rom_writes(True)</code></li>
+                    <li>Reemplazar escrituras directas en ROM por <code>load_program(mmu, regs, [opcodes])</code></li>
+                    <li>Ajustar expectativas de PC: <code>0x0100 → TEST_EXEC_BASE</code>, <code>0x0102 → TEST_EXEC_BASE + 2</code></li>
+                    <li>En writes indirectos (HL), usar direcciones WRAM/HRAM escribibles (ej: 0xC100 en lugar de 0x0000)</li>
+                </ol>
+            </section>
+
+            <!-- Tests y Verificación -->
+            <section>
+                <h2>Tests y Verificación</h2>
+                
+                <h3>Auditoría de ROM-writes</h3>
+                <pre><code>$ grep -rn "set_test_mode_allow_rom_writes(True)" tests/ | wc -l
+
+# ANTES (Step 0422):
+50  # 49 tests + 1 conftest (fixture legítimo)
+
+# DESPUÉS (Step 0423):
+1   # Solo conftest.py (fixture mmu_romw)
+
+# Reducción: 49 hits eliminados (98%)</code></pre>
+
+                <h3>Compilación y Tests</h3>
+                <pre><code>$ python3 setup.py build_ext --inplace
+✅ BUILD_EXIT=0
+
+$ python3 test_build.py
+✅ TEST_BUILD_EXIT=0
+
+$ pytest -q
+======================== 10 failed, 118 passed in 0.48s ========================
+✅ PYTEST_EXIT=1 (esperado por 10 fallos conocidos)
+
+# Fallos (SOLO los conocidos, NO nuevos):
+- 8 tests de joypad (test_core_joypad.py) ← Pendiente Step 0424
+- 2 tests de MMU (test_core_mmu.py) ← Pendiente Step 0424
+
+# Tests migrados exitosamente:
+- test_core_cpu_loads.py: 18/18 ✅
+- test_core_cpu_jumps.py: 14/14 ✅
+- test_core_cpu_io.py: 5/5 ✅
+- test_core_cpu_stack.py: 4/4 ✅
+- test_core_cpu_interrupts.py: 8/8 ✅
+
+Total: 49/49 tests migrados (100%)</code></pre>
+
+                <h3>Validación de Módulo Nativo</h3>
+                <p>✅ Todos los tests migrados ejecutan código compilado C++ desde WRAM mediante Cython.</p>
+                <p>✅ MMU en modo estándar (ROM read-only) funcionando correctamente.</p>
+                <p>✅ <code>load_program()</code> helper verificado en 49 tests.</p>
+            </section>
+
+            <!-- Concepto Técnico -->
+            <section>
+                <h2>Concepto Técnico: Ejecución desde WRAM vs ROM</h2>
+                
+                <h3>Mapa de Memoria Game Boy</h3>
+                <pre><code>0x0000-0x7FFF: ROM (Read Only) ← No se puede escribir en hardware real
+0x8000-0x9FFF: VRAM
+0xA000-0xBFFF: External RAM (Cartridge)
+0xC000-0xDFFF: WRAM (Work RAM) ← Sí se puede escribir
+0xE000-0xFDFF: Echo RAM (espejo de WRAM)
+0xFE00-0xFE9F: OAM
+0xFF00-0xFF7F: I/O Registers
+0xFF80-0xFFFE: HRAM
+0xFFFF:        IE Register</code></pre>
+
+                <h3>Por qué WRAM es el lugar correcto para tests</h3>
+                <ul>
+                    <li><strong>Realismo</strong>: En hardware real, no puedes escribir en ROM. Los tests deben reflejar esto.</li>
+                    <li><strong>Flexibilidad</strong>: WRAM (8KB, 0xC000-0xDFFF) es suficiente para cualquier programa de test.</li>
+                    <li><strong>Limpieza</strong>: Evita el hack de <code>test_mode_allow_rom_writes</code> que solo existe para tests.</li>
+                    <li><strong>Seguridad</strong>: El código de producción (src/) nunca debe asumir que ROM es escribible.</li>
+                </ul>
+
+                <h3>Casos donde ROM-writes SÍ serían necesarios</h3>
+                <p>En este Step 0423, ningún test los requirió. Pero casos legítimos incluirían:</p>
+                <ul>
+                    <li><strong>Vectores de interrupción</strong>: Escribir código ISR en 0x0040 (V-Blank), 0x0048 (LCD STAT), etc.</li>
+                    <li><strong>Tests de MBC</strong>: Validar que comandos MBC (0x0000-0x7FFF) NO modifican ROM.</li>
+                </ul>
+                <p>Para estos casos, existe el fixture <code>mmu_romw</code> en conftest.py (el único hit restante).</p>
+            </section>
+
+            <!-- Lecciones Aprendidas -->
+            <section>
+                <h2>Lecciones Aprendidas</h2>
+                <ol>
+                    <li>
+                        <strong>Migración incremental es clave</strong>: Validar cada archivo antes de pasar al siguiente 
+                        reduce riesgo de introducir fallos.
+                    </li>
+                    <li>
+                        <strong>Fixture <code>mmu</code> centraliza lógica</strong>: Cambios futuros (ej: agregar logging) 
+                        se aplican automáticamente a todos los tests.
+                    </li>
+                    <li>
+                        <strong>Helper <code>load_program()</code> es robusto</strong>: Usado en 49 tests sin fallos, 
+                        incluyendo edge cases (CALL anidado, JR negativo, interrupt dispatch).
+                    </li>
+                    <li>
+                        <strong>Tests de interrupción NO necesitan ROM-writes</strong>: Validar el salto a vectores 
+                        (0x0040-0x0060) no requiere escribir código en esos vectores, solo verificar que PC salta correctamente.
+                    </li>
+                    <li>
+                        <strong>Deuda técnica eliminada proactivamente</strong>: La migración masiva evita acumular más 
+                        tests con ROM-writes en el futuro.
+                    </li>
+                </ol>
+            </section>
+
+            <!-- Archivos Modificados -->
+            <section>
+                <h2>Archivos Modificados</h2>
+                <ul>
+                    <li><code>tests/test_core_cpu_loads.py</code> - 18 tests migrados</li>
+                    <li><code>tests/test_core_cpu_jumps.py</code> - 14 tests migrados</li>
+                    <li><code>tests/test_core_cpu_io.py</code> - 5 tests migrados</li>
+                    <li><code>tests/test_core_cpu_stack.py</code> - 4 tests migrados</li>
+                    <li><code>tests/test_core_cpu_interrupts.py</code> - 8 tests migrados</li>
+                    <li><code>docs/bitacora/entries/2026-01-02__0423__*.html</code> - Esta entrada (nuevo)</li>
+                    <li><code>docs/bitacora/index.html</code> - Actualizado con Step 0423</li>
+                    <li><code>docs/informe_fase_2/parte_01_steps_0412_0450.md</code> - Actualizado con Step 0423</li>
+                </ul>
+                <p><strong>Scope:</strong> Solo <code>tests/</code> y <code>docs/</code>. Sin cambios en <code>src/</code> (guardrail cumplido).</p>
+            </section>
+
+            <!-- Conclusión -->
+            <section>
+                <h2>Conclusión</h2>
+                <p>
+                    El Step 0423 completa exitosamente la migración masiva de tests CPU a WRAM, reduciendo la deuda técnica 
+                    de ROM-writes del 98%. Con 49 tests migrados y 0 fallos nuevos introducidos, el test harness está ahora 
+                    más limpio, realista y mantenible. Los 10 fallos restantes (joypad/MMU) son <strong>conocidos</strong> 
+                    y <strong>no relacionados</strong> con esta migración, pendientes para Step 0424.
+                </p>
+                <div class="success-banner">
+                    <strong>✅ Step 0423 completado exitosamente</strong>
+                    <ul>
+                        <li>49 tests migrados (100%)</li>
+                        <li>98% reducción de ROM-writes</li>
+                        <li>118 tests passing</li>
+                        <li>0 fallos nuevos introducidos</li>
+                        <li>Base sólida para Step 0424 (fix joypad/MMU)</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Próximos Pasos -->
+            <section>
+                <h2>Próximos Pasos</h2>
+                <p><strong>Step 0424</strong> (Propuesto): Fix 10 fallos restantes en joypad/MMU</p>
+                <ul>
+                    <li>Investigar y corregir 8 fallos en test_core_joypad.py</li>
+                    <li>Investigar y corregir 2 fallos en test_core_mmu.py</li>
+                    <li>Objetivo: Suite completa a 128/128 tests passing (100%)</li>
+                </ul>
+            </section>
+        </main>
+
+        <footer>
+            <p><a href="../index.html">← Volver al índice</a></p>
+        </footer>
+    </div>
+</body>
+</html>
+
