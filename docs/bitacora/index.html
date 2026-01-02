@@ -51,6 +51,25 @@
                         </p>
                     </li>
                     
+                    <!-- Entrada 0416 - Fix PPU: framebuffer blanco con TileData alta (render_bg/render_window/swap) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0416__fix-ppu-framebuffer-blanco-render-bg-window-swap.html" class="entry-link">
+                                    Fix PPU: framebuffer blanco con TileData alta (render_bg/render_window/swap)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0416 | 
+                            <strong>Estado:</strong> <span class="tag tag-draft">DRAFT/REVERTIDO</span>
+                        </div>
+                        <p class="entry-summary">
+                            Intento de corrección del criterio de gating vram_has_tiles_ que era demasiado estricto para juegos CGB con tiledata alta pero baja diversidad de tile IDs únicos. Se relajó el criterio para permitir render cuando tiledata_effective >= 200 aunque unique_tile_ids sea bajo (>= 1) en modo CGB. ✅ tetris_dx.gbc mejoró significativamente. ⚠️ zelda-dx.gbc: vram_has_tiles_ se activa pero framebuffer sigue blanco. ❌ CAMBIOS REVERTIDOS - El problema persiste (requiere investigación más profunda del pipeline de renderizado). Esta entrada documenta el intento para mantener trazabilidad del proceso de desarrollo.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0415 - Fix test_build.py Runner (Root) -->
                     <li>
                         <div class="entry-header">

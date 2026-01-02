@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix PPU: framebuffer blanco con TileData alta (render_bg/render_window/swap) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Fix PPU: framebuffer blanco con TileData alta (render_bg/render_window/swap)</h1>
+            <div class="metadata">
+                <span><strong>Fecha:</strong> 2026-01-02</span>
+                <span><strong>Step ID:</strong> 0416</span>
+                <span><strong>Estado:</strong> <span class="tag tag-draft">DRAFT/REVERTIDO</span></span>
+            </div>
+        </header>
+
+        <!-- Navegación -->
+        <nav>
+            <a href="../index.html">← Volver al Índice</a>
+        </nav>
+
+        <!-- Resumen Ejecutivo -->
+        <section>
+            <h2>📋 Resumen Ejecutivo</h2>
+            <div class="status-box status-warning">
+                <p><strong>⚠️ INTENTO REVERTIDO</strong></p>
+                <p>Este Step intentó corregir el criterio de gating <code>vram_has_tiles_</code> que era demasiado estricto para juegos CGB con tiledata alta pero baja diversidad de tile IDs únicos. Los cambios fueron revertidos porque no resolvieron completamente el problema del framebuffer blanco.</p>
+            </div>
+            
+            <h3>Problema Identificado:</h3>
+            <ul>
+                <li>Juegos como <code>tetris_dx.gbc</code> y <code>zelda-dx.gbc</code> reportaban <code>tiledata_effective</code> alta (56.6% y 79.0%) pero <code>fb_nonzero=0/23040</code> (framebuffer completamente blanco).</li>
+                <li>El criterio de <code>vram_has_tiles_</code> requería diversidad >= 5 tile IDs únicos, pero <code>zelda-dx.gbc</code> solo tenía 1 tile ID único.</li>
+            </ul>
+
+            <h3>Solución Intentada:</h3>
+            <ul>
+                <li>Relajar el criterio para permitir render cuando <code>tiledata_effective >= 200</code> aunque <code>unique_tile_ids</code> sea bajo (>= 1) en modo CGB.</li>
+                <li>Override condicional: <code>cgb_high_tiledata_override = (tiledata_effective >= 200) && (unique_tile_ids >= 1)</code>.</li>
+            </ul>
+
+            <h3>Resultado:</h3>
+            <ul>
+                <li>✅ <code>tetris_dx.gbc</code>: Mejora significativa - <code>vram_has_tiles_</code> se activa correctamente (Frame 676).</li>
+                <li>⚠️ <code>zelda-dx.gbc</code>: <code>vram_has_tiles_</code> se activa (Frame 13) pero framebuffer sigue blanco.</li>
+                <li>❌ Los cambios fueron revertidos porque el problema persiste (requiere investigación más profunda).</li>
+            </ul>
+        </section>
+
+        <!-- Concepto de Hardware -->
+        <section>
+            <h2>🔧 Concepto de Hardware</h2>
+            <h3>Criterio de Detección de Tiles en VRAM</h3>
+            <p><strong>Fuente:</strong> Pan Docs - "Video RAM", "Tile Data", "Background Tile Map"</p>
+            
+            <p>La PPU necesita determinar cuándo hay tiles válidos en VRAM para decidir si renderizar el fondo o mostrar un patrón de prueba (checkerboard). En juegos reales, especialmente durante inicialización o transiciones de pantalla, puede haber situaciones donde hay datos de tiles cargados pero con baja diversidad de tile IDs únicos en el tilemap.</p>
+
+            <h4>Problema Original:</h4>
+            <p>El criterio anterior requería tanto datos de tiles (<code>tiledata_nonzero >= 200</code> o <code>complete_tiles >= 10</code>) <strong>Y</strong> diversidad en el tilemap (<code>unique_tile_ids >= 5</code>). Esto causaba falsos negativos en juegos CGB como <code>zelda-dx.gbc</code> que tienen tiledata alta pero solo 1 tile ID único.</p>
+
+            <h4>Solución Intentada (Revertida):</h4>
+            <p>Relajar el criterio para modo CGB: si <code>tiledata_effective >= 200</code> y <code>unique_tile_ids >= 1</code>, permitir render aunque la diversidad sea baja.</p>
+
+            <div class="code-block">
+                <pre><code>// Criterio original (estricto)
+vram_has_tiles_ = has_tiles_data && has_tilemap_diversity;
+
+// Criterio intentado (relajado para CGB) - REVERTIDO
+bool cgb_high_tiledata_override = (tiledata_effective >= 200) && (unique_tile_ids >= 1);
+vram_has_tiles_ = has_tiles_data && (has_tilemap_diversity || cgb_high_tiledata_override);</code></pre>
+            </div>
+
+            <h4>Por qué fue Revertido:</h4>
+            <p>Aunque el cambio mejoró la activación de <code>vram_has_tiles_</code>, el framebuffer seguía quedando blanco en <code>zelda-dx.gbc</code>. Esto sugiere que el problema no es solo el gating sino que hay otro problema en el pipeline de renderizado (posiblemente en el direccionamiento de tiles, swap de framebuffers, o limpieza incorrecta).</p>
+        </section>
+
+        <!-- Implementación -->
+        <section>
+            <h2>💻 Implementación</h2>
+            <h3>Archivos Modificados (Cambios Revertidos):</h3>
+            <ul>
+                <li><code>src/core/cpp/PPU.cpp</code> - Líneas ~1559-1578 (función <code>render_scanline()</code>)</li>
+            </ul>
+
+            <h3>Cambio Intentado:</h3>
+            <div class="code-block">
+                <pre><code>// Cálculo de tiledata_effective para CGB
+int tiledata_bank1 = count_vram_nonzero_bank1_tiledata();
+int tiledata_effective = (tiledata_nonzero > tiledata_bank1) ? tiledata_nonzero : tiledata_bank1;
+
+// Override para CGB con tiledata alta
+bool cgb_high_tiledata_override = (tiledata_effective >= 200) && (unique_tile_ids >= 1);
+
+// Nuevo criterio
+vram_has_tiles_ = has_tiles_data && (has_tilemap_diversity || cgb_high_tiledata_override);</code></pre>
+            </div>
+        </section>
+
+        <!-- Tests y Verificación -->
+        <section>
+            <h2>🧪 Tests y Verificación</h2>
+            
+            <h3>Compilación:</h3>
+            <div class="code-block">
+                <pre><code>$ python3 setup.py build_ext --inplace
+✅ Compilación exitosa (exit code: 0)</code></pre>
+            </div>
+
+            <h3>Suite Paralela (2 minutos, todas las ROMs):</h3>
+            <div class="code-block">
+                <pre><code>$ export VBC_SUITE=1
+$ # Ejecución paralela de 8 ROMs
+✅ Suite completada (exit code: 0)</code></pre>
+            </div>
+
+            <h3>Evidencia de los Logs:</h3>
+            
+            <h4>tetris_dx.gbc:</h4>
+            <div class="code-block">
+                <pre><code>[VRAM-STATE-CHANGE] Frame 676 | has_tiles: 0 -> 1 | tiledata: 4032/4032 | tiles: 252/384 | unique_ids: 185
+[VIDEO-SUMMARY] Frame 700 | tiledata=56.6% | tiles: 252/384 | unique_ids: 185 | fb_nonzero: 15360/23040 (66.7%)
+[CGB-RGB-CHECK] Frame 700 | Non-white pixels: YES (66.7%)</code></pre>
+            </div>
+            <p>✅ <strong>Mejora significativa</strong>: <code>vram_has_tiles_</code> se activa correctamente, framebuffer tiene píxeles no-blancos.</p>
+
+            <h4>zelda-dx.gbc:</h4>
+            <div class="code-block">
+                <pre><code>[VRAM-STATE-CHANGE] Frame 13 | has_tiles: 0 -> 1 | tiledata: 5632/5632 | tiles: 352/384 | unique_ids: 1
+[VIDEO-SUMMARY] Frame 700 | tiledata=79.0% | tiles: 352/384 | unique_ids: 1 | fb_nonzero: 0/23040 (0.0%)
+[CGB-RGB-CHECK] Frame 700 | Non-white pixels: NO (all white or black)</code></pre>
+            </div>
+            <p>⚠️ <strong>Problema persiste</strong>: <code>vram_has_tiles_</code> se activa pero framebuffer sigue completamente blanco (0%).</p>
+        </section>
+
+        <!-- Análisis Post-Mortem -->
+        <section>
+            <h2>🔍 Análisis Post-Mortem</h2>
+            
+            <h3>Hallazgos Clave:</h3>
+            <ol>
+                <li><strong>El gating no es el único problema</strong>: Aunque <code>vram_has_tiles_</code> se activa correctamente en <code>zelda-dx.gbc</code>, el framebuffer sigue blanco.</li>
+                <li><strong>Diversidad baja puede ser válida</strong>: <code>zelda-dx.gbc</code> tiene 352 tiles completos pero solo 1 tile ID único (posiblemente carga el mismo tile en toda la pantalla durante inicialización).</li>
+                <li><strong>Problema más profundo</strong>: El renderizado inline no usa <code>vram_has_tiles_</code> como gating (el bucle for en <code>render_scanline()</code> no verifica este flag), por lo que debe haber otro problema:
+                    <ul>
+                        <li>Direccionamiento de tiles incorrecto</li>
+                        <li>Swap de framebuffers no funciona correctamente</li>
+                        <li>Limpieza incorrecta del framebuffer</li>
+                        <li>Problema en <code>get_tile_color_for_bg()</code></li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Por qué se Revirtió:</h3>
+            <ul>
+                <li>El cambio mejora el comportamiento de <code>tetris_dx.gbc</code> pero no resuelve <code>zelda-dx.gbc</code>.</li>
+                <li>El criterio relajado podría causar falsos positivos en otros juegos.</li>
+                <li>Se necesita una investigación más profunda del pipeline de renderizado antes de modificar el gating.</li>
+            </ul>
+
+            <h3>Próximos Pasos Sugeridos (para Steps futuros):</h3>
+            <ol>
+                <li>Instrumentar el bucle de renderizado inline en <code>render_scanline()</code> para verificar qué valores de color se escriben al framebuffer.</li>
+                <li>Verificar que <code>swap_framebuffers()</code> intercambia correctamente los punteros front/back.</li>
+                <li>Auditar <code>get_tile_color_for_bg()</code> con datos reales de <code>zelda-dx.gbc</code>.</li>
+                <li>Considerar si el problema es específico de CGB (bancos de VRAM, paletas CGB).</li>
+            </ol>
+        </section>
+
+        <!-- Conclusión -->
+        <section>
+            <h2>🎯 Conclusión</h2>
+            <p>Este Step documentó un intento de corrección del criterio de <code>vram_has_tiles_</code> que fue revertido porque no resolvió completamente el problema del framebuffer blanco. Los cambios fueron beneficiosos para <code>tetris_dx.gbc</code> pero insuficientes para <code>zelda-dx.gbc</code>.</p>
+            
+            <p>El análisis reveló que el problema del framebuffer blanco no es solo el gating de <code>vram_has_tiles_</code> sino que hay un problema más profundo en el pipeline de renderizado que requiere investigación adicional.</p>
+
+            <div class="status-box status-warning">
+                <p><strong>Estado Final:</strong> DRAFT/REVERTIDO - Los cambios de código fueron revertidos pero la documentación se mantiene para trazabilidad.</p>
+            </div>
+        </section>
+
+        <!-- Navegación -->
+        <nav>
+            <a href="../index.html">← Volver al Índice</a>
+        </nav>
+
+        <!-- Footer -->
+        <footer>
+            <p>&copy; 2024-2026 Viboy Color - Proyecto Educativo Open Source</p>
+            <p>Fase 2 (v0.0.2) - Núcleo Híbrido C++/Python</p>
+        </footer>
+    </div>
+</body>
+</html>
+
