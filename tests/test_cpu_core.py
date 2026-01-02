@@ -112,7 +112,7 @@ class TestCPUCycle:
         """
         Test 4: Verificar que un opcode no implementado lanza NotImplementedError.
         
-        - Escribe un opcode no implementado (0xFF) en memoria
+        - Escribe un opcode no implementado (0xD3, ilegal en GB) en memoria
         - Verifica que step() lanza NotImplementedError
         """
         mmu = MMU()
@@ -121,15 +121,15 @@ class TestCPUCycle:
         # Establecer PC inicial
         cpu.registers.set_pc(0x0100)
         
-        # Escribir opcode no implementado
-        mmu.write_byte(0x0100, 0xFF)
+        # Escribir opcode no implementado (0xD3 es ilegal en Game Boy)
+        mmu.write_byte(0x0100, 0xD3)
         
         # Verificar que lanza excepción
         with pytest.raises(NotImplementedError) as exc_info:
             cpu.step()
         
         # Verificar que el mensaje incluye el opcode
-        assert "0xFF" in str(exc_info.value), "Mensaje de error debe incluir el opcode no implementado"
+        assert "0xD3" in str(exc_info.value), "Mensaje de error debe incluir el opcode no implementado"
 
     def test_fetch_byte_helper(self):
         """

@@ -73,11 +73,11 @@ class TestLDH:
     
     def test_ldh_write_boundary(self):
         """
-        Test: LDH (n), A funciona en el límite del área I/O (0xFF00).
+        Test: LDH (n), A funciona correctamente escribiendo en HRAM (0xFF80).
         
         - A = 0x55
-        - Ejecuta 0xE0 0x00 (LDH (0x00), A)
-        - Verifica que Memoria[0xFF00] == 0x55
+        - Ejecuta 0xE0 0x80 (LDH (0x80), A)
+        - Verifica que Memoria[0xFF80] == 0x55
         """
         mmu = MMU()
         cpu = CPU(mmu)
@@ -86,11 +86,11 @@ class TestLDH:
         cpu.registers.set_pc(0x8000)
         
         mmu.write_byte(0x8000, 0xE0)  # LDH (n), A
-        mmu.write_byte(0x8001, 0x00)  # n = 0x00
+        mmu.write_byte(0x8001, 0x80)  # n = 0x80 (HRAM)
         
         cycles = cpu.step()
         
-        assert mmu.read_byte(0xFF00) == 0x55, "Memoria[0xFF00] debe ser 0x55"
+        assert mmu.read_byte(0xFF80) == 0x55, "Memoria[0xFF80] debe ser 0x55"
         assert cycles == 3
 
 

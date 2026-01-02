@@ -268,10 +268,10 @@ class TestHALT:
     
     def test_halt_wake_on_interrupt(self):
         """
-        Test 7: Verificar que HALT se despierta cuando IME está activado.
+        Test 7: Verificar que HALT se despierta cuando hay interrupción pendiente y habilitada.
         
-        - Ejecuta HALT
-        - Activa IME
+        - Ejecuta HALT sin IF/IE activos (entra en HALT)
+        - Activa IME y establece IF/IE para VBlank
         - Ejecuta step() (debe despertar)
         - Verifica que halted == False
         """
@@ -281,8 +281,14 @@ class TestHALT:
         # Establecer PC inicial
         cpu.registers.set_pc(0x0100)
         
-        # Escribir HALT en memoria
-        mmu.write_byte(0x0100, 0x76)
+        # Escribir HALT y NOPs en memoria
+        mmu.write_byte(0x0100, 0x76)  # HALT
+        mmu.write_byte(0x0101, 0x00)  # NOP
+        
+        # Inicialmente sin interrupciones
+        mmu.write_byte(0xFF0F, 0x00)  # IF = 0
+        mmu.write_byte(0xFFFF, 0x00)  # IE = 0
+        cpu.ime = False
         
         # Ejecutar HALT
         cpu.step()
@@ -290,14 +296,16 @@ class TestHALT:
         # Verificar que está en HALT
         assert cpu.halted, "CPU debe estar en HALT"
         
-        # Activar IME (simula interrupción pendiente)
+        # Activar IME y establecer interrupción VBlank (bit 0)
         cpu.ime = True
+        mmu.write_byte(0xFF0F, 0x01)  # IF: VBlank pendiente
+        mmu.write_byte(0xFFFF, 0x01)  # IE: VBlank habilitada
         
         # Ejecutar step() (debe despertar)
         cpu.step()
         
         # Verificar que se despertó
-        assert not cpu.halted, "CPU debe despertar cuando IME está activado"
+        assert not cpu.halted, "CPU debe despertar cuando hay interrupción pendiente y habilitada"
     
     def test_ld_hl_hl_is_halt(self):
         """

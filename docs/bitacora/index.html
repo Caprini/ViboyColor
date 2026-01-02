@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0430 - Fix 7 Tests de CPU (LDH/HALT semántica correcta) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0430__test-fix-7-cpu-tests-ldh-halt-semantics.html" class="entry-link">
+                                    Fix 7 Tests de CPU (LDH/HALT semántica correcta)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0430 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Cierre de 7 tests de CPU sin hacks en MMU. Tests de direccionamiento LDH/(C) ahora usan HRAM (0xFF80+) en vez de registros IO (FF00/FF41) para evitar side effects. Tests de HALT configuran IF/IE correctamente (después de HALT, no antes). Correcciones: 1) test_unimplemented_opcode_raises: 0xFF → 0xD3 (ilegal real), 2) test_ldh_write_boundary/test_ld_c_a_write_stat/test_ld_a_c_read: offset 0x80 → HRAM 0xFF80, 3) test_halt_wake_on_interrupt: IF/IE después de HALT, 4) test_halt_wakeup_integration: usa PyMMU/PyCPU directos + RAM 0xC000 (C++ no permite escribir ROM). Resultado: TARGET_EXIT=0 (6 passed, 1 skipped), PYTEST_EXIT: 398 passed, 10 failed (PPU pre-existentes). Archivos: tests/test_cpu_core.py, test_cpu_extended.py, test_cpu_io_c.py, test_cpu_load8.py, test_emulator_halt_wakeup.py. ✅ Semántica correcta: LDH/(C) valida direccionamiento en HRAM sin side effects de hardware.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0429 - Fix CPU IO LDH/(C) + HALT Wake Semantics -->
                     <li>
                         <div class="entry-header">

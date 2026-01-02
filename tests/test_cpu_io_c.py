@@ -50,17 +50,17 @@ class TestIOAccessViaC:
     
     def test_ld_c_a_write_stat(self):
         """
-        Test: LD (C), A con C apuntando a STAT (0xFF41).
+        Test: LD (C), A con C apuntando a HRAM (0xFF80).
         
-        - C = 0x41 (STAT)
+        - C = 0x80 (HRAM)
         - A = 0x85
         - Ejecuta 0xE2
-        - Verifica escritura en STAT
+        - Verifica escritura en HRAM
         """
         mmu = MMU()
         cpu = CPU(mmu)
         
-        cpu.registers.set_c(0x41)  # STAT
+        cpu.registers.set_c(0x80)  # HRAM
         cpu.registers.set_a(0x85)
         cpu.registers.set_pc(0x8000)
         
@@ -68,7 +68,7 @@ class TestIOAccessViaC:
         
         cycles = cpu.step()
         
-        assert mmu.read_byte(IO_STAT) == 0x85, "STAT debe ser 0x85"
+        assert mmu.read_byte(0xFF80) == 0x85, "HRAM[0xFF80] debe ser 0x85"
         assert cycles == 2
     
     def test_ld_c_a_write_bgp(self):
@@ -96,10 +96,10 @@ class TestIOAccessViaC:
     
     def test_ld_a_c_read(self):
         """
-        Test: LD A, (C) lee correctamente de 0xFF00 + C.
+        Test: LD A, (C) lee correctamente de 0xFF00 + C (HRAM).
         
-        - Escribir 0x55 en 0xFF41 (STAT)
-        - C = 0x41
+        - Escribir 0x55 en 0xFF80 (HRAM)
+        - C = 0x80
         - Ejecuta 0xF2 (LD A, (C))
         - Verifica que A == 0x55
         - Verifica que C no cambia
@@ -107,11 +107,11 @@ class TestIOAccessViaC:
         mmu = MMU()
         cpu = CPU(mmu)
         
-        # Pre-escribir valor en STAT
-        mmu.write_byte(IO_STAT, 0x55)
+        # Pre-escribir valor en HRAM
+        mmu.write_byte(0xFF80, 0x55)
         
         # Configurar estado inicial
-        cpu.registers.set_c(0x41)  # STAT
+        cpu.registers.set_c(0x80)  # HRAM
         cpu.registers.set_a(0x00)  # A inicialmente en 0
         cpu.registers.set_pc(0x8000)
         
@@ -123,7 +123,7 @@ class TestIOAccessViaC:
         
         # Verificar que se leyó correctamente
         assert cpu.registers.get_a() == 0x55, "A debe ser 0x55"
-        assert cpu.registers.get_c() == 0x41, "C no debe cambiar"
+        assert cpu.registers.get_c() == 0x80, "C no debe cambiar"
         assert cycles == 2, "Debe consumir 2 M-Cycles"
     
     def test_ld_a_c_read_lcdc(self):
