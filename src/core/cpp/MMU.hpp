@@ -567,6 +567,37 @@ private:
         }
     } triage_;
     
+    // --- Step 0436: Pokemon Loop Trace (Fase A) ---
+    // Ring buffer específico para writes VRAM cuando PC está en 0x36E2-0x36E7
+    // Objetivo: determinar si HL progresa o está atascado
+    struct PokemonLoopTrace {
+        bool active;                     // ¿Tracing activo?
+        static constexpr int RING_SIZE = 64;
+        struct VRAMWrite {
+            uint16_t pc;
+            uint16_t addr;
+            uint8_t val;
+            uint16_t hl;                 // Valor de HL al momento del write
+        };
+        VRAMWrite ring_buffer[RING_SIZE];
+        int ring_idx;                    // Índice circular
+        int total_writes;                // Total de writes capturados
+        uint16_t min_addr;               // Mínima dirección escrita
+        uint16_t max_addr;               // Máxima dirección escrita
+        int unique_addr_count;           // Número de direcciones únicas (bitset o estimación)
+        uint8_t addr_bitset[8192 / 8];  // Bitset de 8KB VRAM (1KB = 1024 bits)
+        
+        PokemonLoopTrace() : active(false), ring_idx(0), total_writes(0),
+                             min_addr(0xFFFF), max_addr(0x0000), unique_addr_count(0) {
+            for (int i = 0; i < RING_SIZE; i++) {
+                ring_buffer[i] = {0, 0, 0, 0};
+            }
+            for (int i = 0; i < (8192 / 8); i++) {
+                addr_bitset[i] = 0;
+            }
+        }
+    } pokemon_loop_trace_;
+    
 public:
     /**
      * Step 0389: Acceso directo a bancos VRAM para el PPU
@@ -630,6 +661,29 @@ public:
      * Step 0434: Genera resumen de triage (debe llamarse después de ejecutar).
      */
     void log_triage_summary();
+    
+    /**
+     * Step 0436: Activa/desactiva Pokemon loop trace (Fase A del Step 0436).
+     * Captura writes VRAM cuando PC está en 0x36E2-0x36E7 para determinar si HL progresa.
+     * @param active true para activar, false para desactivar
+     */
+    void set_pokemon_loop_trace(bool active);
+    
+    /**
+     * Step 0436: Genera resumen de Pokemon loop trace (Fase A).
+     * Muestra: unique_addr_count, min/max addr, 5 ejemplos (pc,addr,val,hl)
+     */
+    void log_pokemon_loop_trace_summary();
+    
+    /**
+     * Step 0436: Registra valor actual de HL (llamado desde CPU para captura completa).
+     * @param hl_value Valor actual del registro HL
+     */
+    void set_current_hl(uint16_t hl_value);
+    
+private:
+    // --- Step 0436: Valor temporal de HL para captura en writes VRAM ---
+    uint16_t current_hl_value_;
 };
 
 #endif // MMU_HPP

@@ -588,6 +588,31 @@ private:
     int triage_pc_sample_count_;       // Contador de samples de PC
     static constexpr int TRIAGE_PC_SAMPLE_INTERVAL = 1000;  // Sample cada N instrucciones
     
+    // ========== Estado de Pokemon Loop Trace (Step 0436 - Fase B) ==========
+    // Trace microscópico del loop stuck (PC=0x36E2-0x36E7)
+    struct PokemonLoopMicroTrace {
+        bool active;                     // ¿Tracing activo?
+        static constexpr int MAX_SAMPLES = 128;
+        struct InstrTrace {
+            uint16_t pc;
+            uint8_t opcode;
+            uint8_t a, f;                // A y flags
+            uint16_t hl;
+            uint16_t sp;
+            uint8_t ime;
+            uint8_t ie;
+            uint8_t if_flag;
+        };
+        InstrTrace samples[MAX_SAMPLES];
+        int sample_count;                // Número de samples capturados
+        
+        PokemonLoopMicroTrace() : active(false), sample_count(0) {
+            for (int i = 0; i < MAX_SAMPLES; i++) {
+                samples[i] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+            }
+        }
+    } pokemon_micro_trace_;
+    
 public:
     /**
      * Step 0400: Genera resumen de interrupciones para análisis comparativo.
@@ -606,6 +631,19 @@ public:
      * Step 0434: Genera resumen de triage (debe llamarse después de ejecutar).
      */
     void log_triage_summary();
+    
+    /**
+     * Step 0436: Activa/desactiva Pokemon micro trace (Fase B del Step 0436).
+     * Captura 128 iteraciones del loop con PC/opcode/regs/flags.
+     * @param active true para activar, false para desactivar
+     */
+    void set_pokemon_micro_trace(bool active);
+    
+    /**
+     * Step 0436: Genera resumen de Pokemon micro trace (Fase B).
+     * Muestra 10 líneas representativas del trace + conclusión.
+     */
+    void log_pokemon_micro_trace_summary();
 };
 
 #endif // CPU_HPP

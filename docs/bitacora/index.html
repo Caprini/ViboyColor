@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0436 - Pokémon Red stuck init - Diagnóstico HL Loop + Instrumentación Trace -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0436__pokemon-stuck-36e3-hl-loop-trace-fix.html" class="entry-link">
+                                    Pokémon Red "stuck init" en PC=0x36E3 - Diagnóstico HL Loop + Instrumentación Trace
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0436 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Instrumentación no invasiva de diagnóstico para Pokémon Red stuck init loop (PC=0x36E3). Implementadas Fase A (ring buffer VRAM writes: 64 samples con pc/addr/val/hl + métricas unique_addr_count/min/max), Fase B (trace microscópico CPU: 128 iteraciones con PC/opcode/A/F/HL/SP/IME/IE/IF + análisis automático de HL progression), Fase C (auditoría HL+/HL-: código actual correcto según Pan Docs), Fase E (verificación test clean-room: ya acumula ciclos correctamente). Wrappers Cython añadidos: PyMMU.set_pokemon_loop_trace/log_summary, PyCPU.set_pokemon_micro_trace/log_summary. Compilación exitosa, 523 tests passed sin regresiones. Test de instrumentación creado (test_pokemon_loop_trace_0436.py) y verificado funcionalmente. Instrumentación lista para capturar evidencia real en ejecuciones largas (60+ segundos, 3200+ frames). Metodología clean-room: implementación basada en Pan Docs (LDI/LDD semántica) sin mirar código de otros emuladores. Sistema de evidencia empírica preparado para determinar causa raíz (bug en HL+/HL- vs condición de salida rota vs reinicio por IRQ). Próximos steps: ejecutar captura real + análisis de unique_addr_count para acción correctiva específica.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0435 - Evidence exit criteria + clean-room ROM test + legacy closure -->
                     <li>
                         <div class="entry-header">

@@ -24,6 +24,7 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       first_vblank_request_frame_(0), first_vblank_service_frame_(0),
       irq_summary_logged_(false),
       triage_active_(false), triage_frame_limit_(0), triage_last_pc_(0xFFFF), triage_pc_sample_count_(0) {  // Step 0434
+    // Step 0436: Pokemon micro trace ya está inicializado por su constructor por defecto
     // Validación básica (en producción, podríamos usar assert)
     // Por ahora, confiamos en que Python pasa punteros válidos
     // IME inicia en false por seguridad (el juego lo activará si lo necesita)
@@ -469,6 +470,31 @@ int CPU::step() {
         if (mmu_) {
             mmu_->set_triage_pc(original_pc);
         }
+    }
+    
+    // --- Step 0436: Pokemon Micro Trace (Fase B) ---
+    // Captura trace microscópico cuando PC está en 0x36E2-0x36E7
+    if (pokemon_micro_trace_.active && original_pc >= 0x36E2 && original_pc <= 0x36E7) {
+        if (pokemon_micro_trace_.sample_count < pokemon_micro_trace_.MAX_SAMPLES) {
+            int idx = pokemon_micro_trace_.sample_count++;
+            uint8_t opcode = mmu_->read(original_pc);
+            pokemon_micro_trace_.samples[idx] = {
+                original_pc,
+                opcode,
+                regs_->a,
+                regs_->f,
+                regs_->get_hl(),
+                regs_->sp,
+                ime_ ? (uint8_t)1 : (uint8_t)0,
+                mmu_->read(0xFFFF),  // IE
+                mmu_->read(0xFF0F)   // IF
+            };
+        }
+    }
+    
+    // --- Step 0436: Pasar HL actual a MMU para captura VRAM writes ---
+    if (mmu_) {
+        mmu_->set_current_hl(regs_->get_hl());
     }
     
     // Muestrear cada 10,000 instrucciones (pero solo loggear las primeras 50 muestras)
@@ -3844,4 +3870,90 @@ void CPU::log_triage_summary() {
         mmu_->log_triage_summary();
     }
 }
+
+// ============================================================
+// Step 0436: Pokemon Micro Trace (Fase B) - Trace Microscópico
+// ============================================================
+
+void CPU::set_pokemon_micro_trace(bool active) {
+    pokemon_micro_trace_.active = active;
+    if (active) {
+        // Reset del trace
+        pokemon_micro_trace_.sample_count = 0;
+        printf("[POKEMON-MICRO-TRACE] Activado - Capturando 128 iteraciones en PC=0x36E2-0x36E7\n");
+    } else {
+        printf("[POKEMON-MICRO-TRACE] Desactivado\n");
+    }
+}
+
+void CPU::log_pokemon_micro_trace_summary() {
+    if (pokemon_micro_trace_.sample_count == 0) {
+        printf("[POKEMON-MICRO-TRACE] No hay datos capturados\n");
+        return;
+    }
+    
+    printf("\n[POKEMON-MICRO-TRACE] ========================================\n");
+    printf("[POKEMON-MICRO-TRACE] Trace Microscópico del Loop (PC=0x36E2-0x36E7)\n");
+    printf("[POKEMON-MICRO-TRACE] Total samples: %d\n", pokemon_micro_trace_.sample_count);
+    printf("[POKEMON-MICRO-TRACE] ========================================\n");
+    
+    // Mostrar 10 líneas representativas (primeras 10, o menos si no hay tantas)
+    int samples_to_show = std::min(10, pokemon_micro_trace_.sample_count);
+    printf("[POKEMON-MICRO-TRACE] Primeras %d iteraciones:\n", samples_to_show);
+    printf("[POKEMON-MICRO-TRACE] PC    OP A  F    HL    SP    IME IE IF\n");
+    
+    for (int i = 0; i < samples_to_show; i++) {
+        auto& s = pokemon_micro_trace_.samples[i];
+        printf("[POKEMON-MICRO-TRACE] %04X  %02X %02X %02X  %04X  %04X  %d   %02X %02X\n",
+               s.pc, s.opcode, s.a, s.f, s.hl, s.sp, s.ime, s.ie, s.if_flag);
+    }
+    
+    // Análisis: detectar si HL cambia
+    printf("[POKEMON-MICRO-TRACE] ========================================\n");
+    if (pokemon_micro_trace_.sample_count > 1) {
+        uint16_t first_hl = pokemon_micro_trace_.samples[0].hl;
+        uint16_t last_hl = pokemon_micro_trace_.samples[pokemon_micro_trace_.sample_count - 1].hl;
+        
+        bool hl_changes = false;
+        for (int i = 1; i < pokemon_micro_trace_.sample_count; i++) {
+            if (pokemon_micro_trace_.samples[i].hl != pokemon_micro_trace_.samples[i-1].hl) {
+                hl_changes = true;
+                break;
+            }
+        }
+        
+        if (!hl_changes) {
+            printf("[POKEMON-MICRO-TRACE] ⚠️ INFERENCIA: HL NO cambia (0x%04X constante)\n", first_hl);
+            printf("[POKEMON-MICRO-TRACE]    → Posible bug en 0x32 LD (HL-),A o 0x22 LD (HL+),A\n");
+            
+            // Verificar si hay instrucciones 0x32 o 0x22 en el trace
+            bool has_ld_hl_instr = false;
+            for (int i = 0; i < pokemon_micro_trace_.sample_count; i++) {
+                if (pokemon_micro_trace_.samples[i].opcode == 0x32 || 
+                    pokemon_micro_trace_.samples[i].opcode == 0x22) {
+                    has_ld_hl_instr = true;
+                    printf("[POKEMON-MICRO-TRACE]    → Detectado opcode 0x%02X en trace (debería modificar HL)\n",
+                           pokemon_micro_trace_.samples[i].opcode);
+                }
+            }
+            
+            if (!has_ld_hl_instr) {
+                printf("[POKEMON-MICRO-TRACE]    → No se detectaron instrucciones LD (HL+/-)  en trace\n");
+                printf("[POKEMON-MICRO-TRACE]    → Posible problema: INC HL / DEC HL no ejecutados\n");
+            }
+        } else {
+            printf("[POKEMON-MICRO-TRACE] ✅ INFERENCIA: HL cambia (0x%04X → 0x%04X)\n", first_hl, last_hl);
+            printf("[POKEMON-MICRO-TRACE]    → HL progresa correctamente\n");
+        }
+    }
+    
+    printf("[POKEMON-MICRO-TRACE] ========================================\n\n");
+    
+    // Delegar a MMU para su resumen de VRAM writes
+    if (mmu_) {
+        mmu_->log_pokemon_loop_trace_summary();
+    }
+}
+
+// --- Fin Step 0436 Fase B ---
 

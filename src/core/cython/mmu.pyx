@@ -451,6 +451,52 @@ cdef class PyMMU:
         self._mmu.log_triage_summary()
     # --- Fin Step 0434 ---
     
+    # --- Step 0436: Pokemon Loop Trace ---
+    def set_pokemon_loop_trace(self, bool active):
+        """
+        Activa/desactiva Pokemon loop trace (Fase A del Step 0436).
+        Captura writes VRAM cuando PC está en 0x36E2-0x36E7.
+        
+        Args:
+            active: True para activar, False para desactivar
+        
+        Raises:
+            MemoryError: Si la instancia de MMU en C++ no existe
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        self._mmu.set_pokemon_loop_trace(active)
+    
+    def log_pokemon_loop_trace_summary(self):
+        """
+        Genera resumen de Pokemon loop trace (Fase A).
+        Muestra unique_addr_count, min/max addr, 5 ejemplos (pc,addr,val,hl).
+        
+        Raises:
+            MemoryError: Si la instancia de MMU en C++ no existe
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        self._mmu.log_pokemon_loop_trace_summary()
+    
+    def set_current_hl(self, uint16_t hl_value):
+        """
+        Registra valor actual de HL (llamado desde CPU para captura completa).
+        
+        Args:
+            hl_value: Valor actual del registro HL
+        
+        Raises:
+            MemoryError: Si la instancia de MMU en C++ no existe
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        self._mmu.set_current_hl(hl_value)
+    # --- Fin Step 0436 ---
+    
     # Método para obtener el puntero C++ directamente (forma segura)
     cdef mmu.MMU* get_cpp_ptr(self):
         """

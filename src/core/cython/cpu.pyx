@@ -195,4 +195,23 @@ cdef class PyCPU:
         Step 0434: Genera resumen de triage (debe llamarse después de ejecutar).
         """
         self._cpu.log_triage_summary()
+    
+    # --- Step 0436: Pokemon Micro Trace ---
+    def set_pokemon_micro_trace(self, bool active):
+        """
+        Step 0436: Activa/desactiva Pokemon micro trace (Fase B del Step 0436).
+        Captura 128 iteraciones del loop con PC/opcode/regs/flags.
+        
+        Args:
+            active: True para activar, False para desactivar
+        """
+        self._cpu.set_pokemon_micro_trace(active)
+    
+    def log_pokemon_micro_trace_summary(self):
+        """
+        Step 0436: Genera resumen de Pokemon micro trace (Fase B).
+        Muestra 10 líneas representativas del trace + conclusión.
+        """
+        self._cpu.log_pokemon_micro_trace_summary()
+    # --- Fin Step 0436 ---
 

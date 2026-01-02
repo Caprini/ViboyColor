@@ -121,6 +121,7 @@ MMU::MMU()
     , init_sequence_logged_(false)  // Step 0400: Sin log inicial
     , boot_rom_enabled_(false)  // Step 0401: Boot ROM deshabilitada por defecto
     , hardware_mode_(HardwareMode::DMG)  // Step 0404: Modo DMG por defecto
+    , current_hl_value_(0)  // Step 0436: Valor temporal de HL para captura VRAM
 {
     // Step 0390: Inicializar arrays de paletas CGB a 0xFF (valor inicial)
     std::memset(bg_palette_data_, 0xFF, sizeof(bg_palette_data_));
@@ -690,6 +691,41 @@ void MMU::write(uint16_t addr, uint8_t value) {
     }
 
     value &= 0xFF;
+    
+    // --- Step 0436: Pokemon Loop Trace (Fase A) ---
+    // Captura writes VRAM cuando PC está en el rango del loop stuck (0x36E2-0x36E7)
+    if (pokemon_loop_trace_.active && addr >= 0x8000 && addr <= 0x9FFF) {
+        uint16_t pc = debug_current_pc;
+        if (pc >= 0x36E2 && pc <= 0x36E7) {
+            // Actualizar ring buffer
+            int idx = pokemon_loop_trace_.ring_idx;
+            pokemon_loop_trace_.ring_buffer[idx] = {pc, addr, value, current_hl_value_};
+            pokemon_loop_trace_.ring_idx = (idx + 1) % pokemon_loop_trace_.RING_SIZE;
+            pokemon_loop_trace_.total_writes++;
+            
+            // Actualizar métricas
+            if (addr < pokemon_loop_trace_.min_addr) {
+                pokemon_loop_trace_.min_addr = addr;
+            }
+            if (addr > pokemon_loop_trace_.max_addr) {
+                pokemon_loop_trace_.max_addr = addr;
+            }
+            
+            // Actualizar bitset para unique addresses
+            uint16_t offset = addr - 0x8000;  // 0x0000-0x1FFF
+            int byte_idx = offset / 8;
+            int bit_idx = offset % 8;
+            if (byte_idx < (8192 / 8)) {
+                uint8_t old_byte = pokemon_loop_trace_.addr_bitset[byte_idx];
+                uint8_t new_bit = (1 << bit_idx);
+                if ((old_byte & new_bit) == 0) {
+                    // Nuevo bit único
+                    pokemon_loop_trace_.unique_addr_count++;
+                    pokemon_loop_trace_.addr_bitset[byte_idx] = old_byte | new_bit;
+                }
+            }
+        }
+    }
     
     // --- Step 0434: Instrumentación de Triage ---
     if (triage_.active) {
@@ -3676,4 +3712,70 @@ void MMU::log_triage_summary() {
 }
 
 // --- Fin Step 0434 ---
+
+// ============================================================
+// Step 0436: Pokemon Loop Trace (Fase A) - Ring Buffer VRAM
+// ============================================================
+
+void MMU::set_pokemon_loop_trace(bool active) {
+    pokemon_loop_trace_.active = active;
+    if (active) {
+        // Reset del trace
+        pokemon_loop_trace_.ring_idx = 0;
+        pokemon_loop_trace_.total_writes = 0;
+        pokemon_loop_trace_.min_addr = 0xFFFF;
+        pokemon_loop_trace_.max_addr = 0x0000;
+        pokemon_loop_trace_.unique_addr_count = 0;
+        for (int i = 0; i < (8192 / 8); i++) {
+            pokemon_loop_trace_.addr_bitset[i] = 0;
+        }
+        printf("[POKEMON-LOOP-TRACE] Activado - Capturando writes VRAM cuando PC en 0x36E2-0x36E7\n");
+    } else {
+        printf("[POKEMON-LOOP-TRACE] Desactivado\n");
+    }
+}
+
+void MMU::set_current_hl(uint16_t hl_value) {
+    current_hl_value_ = hl_value;
+}
+
+void MMU::log_pokemon_loop_trace_summary() {
+    if (!pokemon_loop_trace_.active && pokemon_loop_trace_.total_writes == 0) {
+        printf("[POKEMON-LOOP-TRACE] No hay datos capturados\n");
+        return;
+    }
+    
+    printf("\n[POKEMON-LOOP-TRACE] ========================================\n");
+    printf("[POKEMON-LOOP-TRACE] Resumen de Writes VRAM en Loop (PC=0x36E2-0x36E7)\n");
+    printf("[POKEMON-LOOP-TRACE] Total writes: %d\n", pokemon_loop_trace_.total_writes);
+    printf("[POKEMON-LOOP-TRACE] Unique addresses: %d\n", pokemon_loop_trace_.unique_addr_count);
+    printf("[POKEMON-LOOP-TRACE] Address range: 0x%04X - 0x%04X\n", 
+           pokemon_loop_trace_.min_addr, pokemon_loop_trace_.max_addr);
+    
+    // Mostrar 5 ejemplos (primeros 5 del ring buffer, o menos si no hay tantos)
+    int samples_to_show = std::min(5, pokemon_loop_trace_.total_writes);
+    printf("[POKEMON-LOOP-TRACE] Primeros %d writes:\n", samples_to_show);
+    
+    for (int i = 0; i < samples_to_show; i++) {
+        auto& sample = pokemon_loop_trace_.ring_buffer[i];
+        printf("[POKEMON-LOOP-TRACE]   PC=0x%04X addr=0x%04X val=0x%02X HL=0x%04X\n",
+               sample.pc, sample.addr, sample.val, sample.hl);
+    }
+    
+    // Inferencia basada en unique_addr_count
+    printf("[POKEMON-LOOP-TRACE] ========================================\n");
+    if (pokemon_loop_trace_.unique_addr_count >= 1 && pokemon_loop_trace_.unique_addr_count <= 4) {
+        printf("[POKEMON-LOOP-TRACE] ⚠️ INFERENCIA: HL NO CAMBIA o addressing ROTO\n");
+        printf("[POKEMON-LOOP-TRACE]    → Posible bug en HL+/HL- (0x22/0x32) o INC/DEC HL\n");
+    } else if (pokemon_loop_trace_.unique_addr_count > 100) {
+        printf("[POKEMON-LOOP-TRACE] ✅ INFERENCIA: HL progresa correctamente\n");
+        printf("[POKEMON-LOOP-TRACE]    → El loop recorre VRAM, se reinicia o condición de salida rota\n");
+    } else {
+        printf("[POKEMON-LOOP-TRACE] ❓ INFERENCIA: Datos ambiguos (%d unique addresses)\n", 
+               pokemon_loop_trace_.unique_addr_count);
+    }
+    printf("[POKEMON-LOOP-TRACE] ========================================\n\n");
+}
+
+// --- Fin Step 0436 Fase A ---
 

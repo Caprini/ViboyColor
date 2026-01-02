@@ -49,4 +49,7 @@ cdef extern from "MMU.hpp":
         void set_triage_mode(bool active)  # Step 0434
         void set_triage_pc(uint16_t pc)  # Step 0434
         void log_triage_summary()  # Step 0434
+        void set_pokemon_loop_trace(bool active)  # Step 0436
+        void log_pokemon_loop_trace_summary()  # Step 0436
+        void set_current_hl(uint16_t hl_value)  # Step 0436
 

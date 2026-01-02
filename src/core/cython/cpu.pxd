@@ -59,4 +59,8 @@ cdef extern from "CPU.hpp":
         # Step 0434: Triage mode
         void set_triage_mode(bool active, int frame_limit)
         void log_triage_summary()
+        
+        # Step 0436: Pokemon micro trace
+        void set_pokemon_micro_trace(bool active)
+        void log_pokemon_micro_trace_summary()
 
