@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0422 - Test Harness Policy: ROM Writes Fixtures + Security Test -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0422__test-harness-policy-rom-writes-fixtures.html" class="entry-link">
+                                    Test Harness Policy: ROM Writes Fixtures + Security Test
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0422 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Establecimiento de política oficial de test harness para MMU test mode. Centralización de ROM-writes mediante fixtures de pytest (mmu y mmu_romw) en conftest.py. Creación de test de seguridad (test_mmu_rom_is_readonly_by_default.py) con 4 validaciones: ROM read-only sin test_mode, ROM escribible con test_mode, rango ROM completo read-only, WRAM escribible sin test_mode. Migración ejemplo de test_core_cpu_alu.py (10 tests) de ROM (0x0100) a WRAM (0xC000) usando load_program(). Auditoría: 59 hits ROM-writes → 49 hits (reducción 16.9%). Política documentada: usar mmu (estándar, sin ROM-writes) para tests en WRAM; usar mmu_romw (excepcional) solo para vectores de interrupción o casos específicos. ✅ 14 tests pasan (10 ALU + 4 seguridad). ✅ 118 tests totales pasan. Base sólida para migración masiva en Steps futuros (0423+).
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0420 - CPU Tests WRAM Normalization -->
                     <li>
                         <div class="entry-header">

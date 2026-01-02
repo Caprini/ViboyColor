@@ -43,3 +43,56 @@ except ImportError:
     # Pygame no está disponible, los tests que lo requieren se saltarán
     pass
 
+
+# ============================================================================
+# Fixtures para MMU (Step 0422)
+# ============================================================================
+
+import pytest
+
+@pytest.fixture
+def mmu():
+    """
+    Fixture estándar para MMU sin ROM-writes habilitados.
+    
+    Uso: Para tests que ejecutan código desde WRAM (0xC000+) o que no necesitan
+    escribir en ROM (0x0000-0x7FFF).
+    
+    Ejemplo:
+        def test_algo(mmu):
+            cpu = PyCPU(mmu)
+            # cargar programa en WRAM...
+    """
+    try:
+        from viboy_core import PyMMU
+        return PyMMU()
+    except ImportError:
+        pytest.skip("Módulo viboy_core no compilado")
+
+
+@pytest.fixture
+def mmu_romw():
+    """
+    Fixture para MMU con ROM-writes habilitados (test mode).
+    
+    Uso: SOLO para tests que realmente necesitan escribir en ROM (0x0000-0x7FFF).
+    Ejemplos válidos:
+    - Tests que verifican comportamiento de reset vector (0x0000, 0x0100)
+    - Tests que validan wrap-around de direcciones ROM
+    - Tests legacy que aún no han migrado a WRAM
+    
+    ⚠️ ADVERTENCIA: Este fixture rompe el comportamiento real del MMU (MBC).
+    Preferir ejecutar tests desde WRAM cuando sea posible.
+    
+    Ejemplo:
+        def test_reset_vector(mmu_romw):
+            cpu = PyCPU(mmu_romw)
+            # escribir en 0x0000...
+    """
+    try:
+        from viboy_core import PyMMU
+        mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)
+        return mmu
+    except ImportError:
+        pytest.skip("Módulo viboy_core no compilado")

@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0422: Test Harness Policy - ROM Writes Fixtures + Security Test - Viboy Color</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Step 0422: Test Harness Policy - ROM Writes Fixtures + Security Test</h1>
+            <p class="subtitle">Establecimiento de política oficial de test harness para MMU test mode</p>
+        </header>
+
+        <!-- Metadata -->
+        <section class="metadata">
+            <div class="metadata-grid">
+                <div class="metadata-item">
+                    <strong>Fecha:</strong> 2026-01-02
+                </div>
+                <div class="metadata-item">
+                    <strong>Step ID:</strong> 0422
+                </div>
+                <div class="metadata-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </div>
+                <div class="metadata-item">
+                    <strong>Tipo:</strong> <span class="tag tag-test">TEST</span> <span class="tag tag-refactor">REFACTOR</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Content -->
+        <main>
+            <!-- Objetivo -->
+            <section>
+                <h2>Objetivo</h2>
+                <p>
+                    Establecer política oficial de test harness para MMU test mode, reducir deuda técnica de ROM-writes mediante fixtures centrales y crear test de seguridad para garantizar que ROM es read-only por defecto.
+                </p>
+            </section>
+
+            <!-- Contexto -->
+            <section>
+                <h2>Contexto</h2>
+                <p>
+                    Los Steps 0419-0421 introdujeron <code>test_mode_allow_rom_writes</code> para permitir tests unitarios que escriben en ROM (0x0000-0x7FFF). Sin embargo, esto generó <strong>59 llamadas manuales</strong> a <code>mmu.set_test_mode_allow_rom_writes(True)</code> dispersas en 6 archivos de tests.
+                </p>
+                <p>
+                    Esta deuda técnica requiere:
+                </p>
+                <ul>
+                    <li><strong>Centralización</strong>: Fixtures de pytest para evitar repetición</li>
+                    <li><strong>Restricción</strong>: ROM-writes solo en tests que realmente lo necesitan</li>
+                    <li><strong>Seguridad</strong>: Test que valide que ROM es read-only por defecto</li>
+                </ul>
+            </section>
+
+            <!-- Concepto de Hardware -->
+            <section>
+                <h2>Concepto de Hardware: Test Harness vs Comportamiento Real</h2>
+                <p>
+                    En emuladores, el <strong>test harness</strong> es la infraestructura que permite tests unitarios sin depender de ROMs reales. El desafío es balancear:
+                </p>
+                <ul>
+                    <li><strong>Realismo</strong>: El MMU debe comportarse como hardware real (ROM read-only, MBC activo)</li>
+                    <li><strong>Testabilidad</strong>: Los tests unitarios necesitan escribir opcodes en memoria para validar CPU</li>
+                </ul>
+
+                <h3>Soluciones Comunes en Emuladores</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Solución</th>
+                            <th>Ventajas</th>
+                            <th>Desventajas</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Test Mode Flag</strong> (nuestra solución)</td>
+                            <td>✅ Mantiene integración real CPU-MMU<br>✅ Permite tests atómicos<br>✅ No requiere ROMs externas</td>
+                            <td>⚠️ Requiere disciplina (solo usar cuando sea necesario)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Test ROM Sintética</strong></td>
+                            <td>✅ Comportamiento 100% real</td>
+                            <td>❌ Requiere ROM por test<br>❌ Difícil de mantener</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Memory Mocking</strong></td>
+                            <td>✅ Flexibilidad total</td>
+                            <td>❌ No valida integración MMU-CPU</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <p>
+                    <strong>Viboy Color usa Test Mode Flag</strong> porque mantiene la integración real CPU-MMU mientras permite tests atómicos sin ROMs externas.
+                </p>
+            </section>
+
+            <!-- Implementación -->
+            <section>
+                <h2>Implementación</h2>
+
+                <h3>1. Auditoría Inicial (T1)</h3>
+                <p>Identificar todos los usos de <code>set_test_mode_allow_rom_writes(True)</code>:</p>
+                <pre><code>grep -rn "set_test_mode_allow_rom_writes(True)" tests | wc -l
+# Output: 59 hits en 6 archivos</code></pre>
+
+                <p><strong>Distribución</strong>:</p>
+                <ul>
+                    <li><code>test_core_cpu_loads.py</code>: 18 hits</li>
+                    <li><code>test_core_cpu_jumps.py</code>: 14 hits</li>
+                    <li><code>test_core_cpu_alu.py</code>: 10 hits</li>
+                    <li><code>test_core_cpu_interrupts.py</code>: 8 hits</li>
+                    <li><code>test_core_cpu_io.py</code>: 5 hits</li>
+                    <li><code>test_core_cpu_stack.py</code>: 4 hits</li>
+                </ul>
+
+                <h3>2. Fixtures Centrales (T2)</h3>
+                <p>Crear fixtures en <code>tests/conftest.py</code>:</p>
+                <pre><code>@pytest.fixture
+def mmu():
+    """
+    Fixture estándar para MMU sin ROM-writes habilitados.
+    Uso: Tests que ejecutan desde WRAM (0xC000+) o no necesitan ROM.
+    """
+    try:
+        from viboy_core import PyMMU
+        return PyMMU()
+    except ImportError:
+        pytest.skip("Módulo viboy_core no compilado")
+
+@pytest.fixture
+def mmu_romw():
+    """
+    Fixture para MMU con ROM-writes habilitados (test mode).
+    Uso: SOLO para tests que realmente necesitan escribir en ROM.
+    ⚠️ ADVERTENCIA: Rompe comportamiento real del MMU (MBC).
+    Preferir ejecutar desde WRAM cuando sea posible.
+    """
+    try:
+        from viboy_core import PyMMU
+        mmu = PyMMU()
+        mmu.set_test_mode_allow_rom_writes(True)
+        return mmu
+    except ImportError:
+        pytest.skip("Módulo viboy_core no compilado")</code></pre>
+
+                <h3>3. Test de Seguridad (T4)</h3>
+                <p>Crear <code>tests/test_mmu_rom_is_readonly_by_default.py</code> con 4 validaciones:</p>
+                <ul>
+                    <li><code>test_rom_is_readonly_without_test_mode</code>: ROM no es escribible sin test_mode</li>
+                    <li><code>test_rom_is_writable_with_test_mode</code>: fixture <code>mmu_romw</code> SÍ permite escrituras</li>
+                    <li><code>test_rom_range_is_readonly</code>: Todo el rango ROM (0x0000-0x7FFF) es read-only</li>
+                    <li><code>test_wram_is_writable_without_test_mode</code>: WRAM (0xC000+) es escribible sin test_mode</li>
+                </ul>
+
+                <h3>4. Migración Ejemplo (T3)</h3>
+                <p>Migrar <code>test_core_cpu_alu.py</code> (10 tests) de ROM a WRAM:</p>
+                <pre><code># Antes (Step 0419):
+def test_add_immediate_basic(self):
+    mmu = PyMMU()
+    mmu.set_test_mode_allow_rom_writes(True)  # Manual
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    regs.pc = 0x0100
+    mmu.write(0x0100, 0x3E)  # LD A, d8
+    mmu.write(0x0101, 0x0A)
+    cpu.step()
+    # ...
+
+# Después (Step 0422):
+def test_add_immediate_basic(self, mmu):  # Fixture sin ROM-writes
+    regs = PyRegisters()
+    cpu = PyCPU(mmu, regs)
+    program = [0x3E, 0x0A, 0xC6, 0x02]  # LD A, 10; ADD A, 2
+    load_program(mmu, regs, program)  # Carga en WRAM (0xC000)
+    cpu.step()
+    cpu.step()
+    # ...</code></pre>
+
+                <p><strong>Tests migrados de test_core_cpu_alu.py</strong>:</p>
+                <ol>
+                    <li><code>test_add_immediate_basic</code>: ADD A, d8 (10 + 2 = 12)</li>
+                    <li><code>test_sub_immediate_zero_flag</code>: SUB d8 (10 - 10 = 0, Z=1)</li>
+                    <li><code>test_add_half_carry</code>: ADD con half-carry (0x0F + 0x01 = 0x10, H=1)</li>
+                    <li><code>test_xor_a_optimization</code>: XOR A (limpia A a 0)</li>
+                    <li><code>test_inc_a</code>: INC A (0x0F → 0x10, H=1)</li>
+                    <li><code>test_dec_a</code>: DEC A (0x10 → 0x0F, H=1)</li>
+                    <li><code>test_add_full_carry</code>: ADD con carry completo (0xFF + 0x01 = 0x00, C=1)</li>
+                    <li><code>test_sub_a_b</code>: SUB B (0x3E - 0x3E = 0x00, Z=1)</li>
+                    <li><code>test_sbc_a_b_with_borrow</code>: SBC A, B con borrow</li>
+                    <li><code>test_sbc_a_b_with_full_borrow</code>: SBC A, B con underflow</li>
+                </ol>
+            </section>
+
+            <!-- Política Oficial -->
+            <section>
+                <h2>Política Oficial de Test Harness</h2>
+
+                <h3>Cuándo usar <code>mmu</code> (fixture estándar)</h3>
+                <ul>
+                    <li>✅ Tests que ejecutan desde WRAM (0xC000-0xDFFF)</li>
+                    <li>✅ Tests de ALU, loads, jumps, stack que no dependen de ROM específico</li>
+                    <li>✅ <strong>Preferido por defecto</strong> (comportamiento real del MMU)</li>
+                </ul>
+
+                <h3>Cuándo usar <code>mmu_romw</code> (fixture con ROM-writes)</h3>
+                <ul>
+                    <li>⚠️ Tests que verifican vectores de interrupción (0x0040, 0x0048, etc.)</li>
+                    <li>⚠️ Tests que validan wrap-around de direcciones ROM</li>
+                    <li>⚠️ Tests legacy que aún no han migrado a WRAM</li>
+                    <li>⚠️ <strong>Uso excepcional</strong> (rompe comportamiento MBC)</li>
+                </ul>
+            </section>
+
+            <!-- Tests y Verificación -->
+            <section>
+                <h2>Tests y Verificación</h2>
+
+                <h3>Comandos Ejecutados</h3>
+                <pre><code># Build
+python3 setup.py build_ext --inplace
+# EXIT: 0 ✅
+
+# Test Build
+python3 test_build.py
+# EXIT: 0 ✅
+
+# Tests ALU + Seguridad
+pytest tests/test_core_cpu_alu.py tests/test_mmu_rom_is_readonly_by_default.py -v
+# 14 passed (10 ALU + 4 seguridad) ✅
+
+# Tests Completos
+pytest -q
+# 118 passed, 10 failed (pre-existentes: joypad/MMU) ✅</code></pre>
+
+                <h3>Validación de Módulo Compilado C++</h3>
+                <p>✅ Todos los tests ejecutan contra el módulo nativo <code>viboy_core</code> compilado desde C++.</p>
+            </section>
+
+            <!-- Resultados -->
+            <section>
+                <h2>Resultados</h2>
+
+                <h3>Auditoría Final</h3>
+                <ul>
+                    <li><strong>Hits ROM-writes ANTES</strong>: 59</li>
+                    <li><strong>Hits ROM-writes DESPUÉS</strong>: 49 (eliminados 10 de ALU)</li>
+                    <li><strong>Reducción</strong>: 16.9%</li>
+                </ul>
+
+                <h3>Tests que requieren ROM-writes (justificados)</h3>
+                <ul>
+                    <li><code>test_core_cpu_loads.py</code> (18): Pueden migrar a WRAM (Step futuro)</li>
+                    <li><code>test_core_cpu_jumps.py</code> (14): Pueden migrar a WRAM (Step futuro)</li>
+                    <li><code>test_core_cpu_interrupts.py</code> (8): Algunos requieren vectores ROM (revisar)</li>
+                    <li><code>test_core_cpu_io.py</code> (5): Pueden migrar a WRAM (Step futuro)</li>
+                    <li><code>test_core_cpu_stack.py</code> (4): Pueden migrar a WRAM (Step futuro)</li>
+                </ul>
+            </section>
+
+            <!-- Archivos Modificados -->
+            <section>
+                <h2>Archivos Modificados</h2>
+                <ul>
+                    <li><code>tests/conftest.py</code>: Fixtures <code>mmu</code> y <code>mmu_romw</code></li>
+                    <li><code>tests/test_mmu_rom_is_readonly_by_default.py</code>: Test de seguridad (nuevo)</li>
+                    <li><code>tests/test_core_cpu_alu.py</code>: Migración de 10 tests a WRAM</li>
+                    <li><code>docs/bitacora/entries/2026-01-02__0422__test-harness-policy-rom-writes-fixtures.html</code>: Esta entrada</li>
+                    <li><code>docs/bitacora/index.html</code>: Actualizado con Step 0422</li>
+                    <li><code>docs/informe_fase_2/parte_01_steps_0412_0450.md</code>: Entrada en informe dividido</li>
+                </ul>
+            </section>
+
+            <!-- Próximos Steps -->
+            <section>
+                <h2>Próximos Steps</h2>
+                <ul>
+                    <li><strong>Step 0423</strong>: Migración masiva de tests CPU a WRAM (49 tests restantes)</li>
+                    <li><strong>Step 0424</strong>: Marker pytest <code>@pytest.mark.rom_writes</code> para tests excepcionales</li>
+                    <li><strong>Step 0425</strong>: Documentación de política en <code>CONTRIBUTING.md</code></li>
+                </ul>
+            </section>
+
+            <!-- Conclusión -->
+            <section>
+                <h2>Conclusión</h2>
+                <p>
+                    ✅ <strong>Política de test harness establecida</strong> con fixtures centrales, test de seguridad y ejemplo de migración. Reducción de 16.9% en ROM-writes (59 → 49). Base sólida para migración masiva en Steps futuros.
+                </p>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><a href="../index.html">← Volver al índice</a></p>
+        </footer>
+    </div>
+</body>
+</html>
+

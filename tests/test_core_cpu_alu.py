@@ -13,9 +13,12 @@ Tests críticos:
 - Flags: SUB d8 (10 - 10 = 0) -> Debe encender Flag Z
 - Half-Carry: ADD que cause desbordamiento de nibble bajo
 - Optimization: XOR A debe dejar A en 0 y Z en 1
+
+Nota (Step 0422): Tests migrados a WRAM usando load_program() y fixtures.
 """
 
 import pytest
+from tests.helpers_cpu import load_program
 
 # Importar los módulos nativos compilados
 try:
@@ -27,7 +30,7 @@ except ImportError:
 class TestCoreCPUALU:
     """Tests para ALU nativa (C++)"""
 
-    def test_add_immediate_basic(self):
+    def test_add_immediate_basic(self, mmu):
         """
         Test 1: Verificar suma básica sin carry.
         
@@ -38,22 +41,20 @@ class TestCoreCPUALU:
         - H: 0 (no hay half-carry)
         - C: 0 (no hay carry)
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
-        # Establecer PC inicial
-        regs.pc = 0x0100
+        # Cargar programa en WRAM (Step 0422: sin ROM-writes)
+        program = [
+            0x3E, 0x0A,  # LD A, 10
+            0xC6, 0x02,  # ADD A, 2
+        ]
+        load_program(mmu, regs, program)
         
-        # Cargar A = 10 (0x0A)
-        mmu.write(0x0100, 0x3E)  # LD A, d8
-        mmu.write(0x0101, 0x0A)  # Operando: 10
+        # Ejecutar LD A
         cpu.step()
         
-        # Sumar 2 (0x02) a A
-        mmu.write(0x0102, 0xC6)  # ADD A, d8
-        mmu.write(0x0103, 0x02)  # Operando: 2
+        # Ejecutar ADD A
         cpu.step()
         
         # Verificar resultado
@@ -63,7 +64,7 @@ class TestCoreCPUALU:
         assert not regs.flag_h, "H debe estar apagado (no hay half-carry)"
         assert not regs.flag_c, "C debe estar apagado (no hay carry)"
 
-    def test_sub_immediate_zero_flag(self):
+    def test_sub_immediate_zero_flag(self, mmu):
         """
         Test 2: Verificar que SUB activa Flag Z cuando resultado es 0.
         
@@ -74,22 +75,17 @@ class TestCoreCPUALU:
         - H: 0 (no hay half-borrow)
         - C: 0 (no hay borrow)
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
-        regs.pc = 0x0100
+        program = [
+            0x3E, 0x0A,  # LD A, 10
+            0xD6, 0x0A,  # SUB 10
+        ]
+        load_program(mmu, regs, program)
         
-        # Cargar A = 10 (0x0A)
-        mmu.write(0x0100, 0x3E)  # LD A, d8
-        mmu.write(0x0101, 0x0A)  # Operando: 10
-        cpu.step()
-        
-        # Restar 10 (0x0A) de A
-        mmu.write(0x0102, 0xD6)  # SUB d8
-        mmu.write(0x0103, 0x0A)  # Operando: 10
-        cpu.step()
+        cpu.step()  # LD A
+        cpu.step()  # SUB
         
         # Verificar resultado
         assert regs.a == 0, f"A debe ser 0, es {regs.a}"
@@ -98,7 +94,7 @@ class TestCoreCPUALU:
         assert not regs.flag_h, "H debe estar apagado (no hay half-borrow)"
         assert not regs.flag_c, "C debe estar apagado (no hay borrow)"
 
-    def test_add_half_carry(self):
+    def test_add_half_carry(self, mmu):
         """
         Test 3: Verificar detección de Half-Carry.
         
@@ -109,22 +105,17 @@ class TestCoreCPUALU:
         - H: 1 (half-carry: bit 3 -> 4) <- CRÍTICO
         - C: 0
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
-        regs.pc = 0x0100
+        program = [
+            0x3E, 0x0F,  # LD A, 0x0F
+            0xC6, 0x01,  # ADD A, 0x01
+        ]
+        load_program(mmu, regs, program)
         
-        # Cargar A = 0x0F (15)
-        mmu.write(0x0100, 0x3E)  # LD A, d8
-        mmu.write(0x0101, 0x0F)  # Operando: 0x0F
-        cpu.step()
-        
-        # Sumar 0x01 a A
-        mmu.write(0x0102, 0xC6)  # ADD A, d8
-        mmu.write(0x0103, 0x01)  # Operando: 0x01
-        cpu.step()
+        cpu.step()  # LD A
+        cpu.step()  # ADD A
         
         # Verificar resultado
         assert regs.a == 0x10, f"A debe ser 0x10, es 0x{regs.a:02X}"
@@ -133,7 +124,7 @@ class TestCoreCPUALU:
         assert regs.flag_h, "H debe estar ACTIVO (half-carry detectado)"
         assert not regs.flag_c, "C debe estar apagado"
 
-    def test_xor_a_optimization(self):
+    def test_xor_a_optimization(self, mmu):
         """
         Test 4: Verificar optimización XOR A (limpia A a 0).
         
@@ -144,21 +135,17 @@ class TestCoreCPUALU:
         - H: 0
         - C: 0
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
-        regs.pc = 0x0100
+        program = [
+            0x3E, 0x42,  # LD A, 0x42
+            0xAF,        # XOR A
+        ]
+        load_program(mmu, regs, program)
         
-        # Cargar A = 0x42 (valor arbitrario)
-        mmu.write(0x0100, 0x3E)  # LD A, d8
-        mmu.write(0x0101, 0x42)  # Operando: 0x42
-        cpu.step()
-        
-        # XOR A (0xAF) - debe limpiar A a 0
-        mmu.write(0x0102, 0xAF)  # XOR A
-        cpu.step()
+        cpu.step()  # LD A
+        cpu.step()  # XOR A
         
         # Verificar resultado
         assert regs.a == 0, f"A debe ser 0, es 0x{regs.a:02X}"
@@ -167,28 +154,24 @@ class TestCoreCPUALU:
         assert not regs.flag_h, "H debe estar apagado"
         assert not regs.flag_c, "C debe estar apagado"
 
-    def test_inc_a(self):
+    def test_inc_a(self, mmu):
         """
         Test 5: Verificar incremento de A (INC A).
         
         Incrementa A en 1.
         - Flags: Z, N, H se actualizan; C no se afecta
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
-        regs.pc = 0x0100
+        program = [
+            0x3E, 0x0F,  # LD A, 0x0F
+            0x3C,        # INC A
+        ]
+        load_program(mmu, regs, program)
         
-        # Cargar A = 0x0F
-        mmu.write(0x0100, 0x3E)  # LD A, d8
-        mmu.write(0x0101, 0x0F)  # Operando: 0x0F
-        cpu.step()
-        
-        # INC A (0x3C)
-        mmu.write(0x0102, 0x3C)  # INC A
-        cpu.step()
+        cpu.step()  # LD A
+        cpu.step()  # INC A
         
         # Verificar resultado
         assert regs.a == 0x10, f"A debe ser 0x10, es 0x{regs.a:02X}"
@@ -196,28 +179,24 @@ class TestCoreCPUALU:
         assert not regs.flag_n, "N debe estar apagado"
         assert regs.flag_h, "H debe estar activo (half-carry)"
 
-    def test_dec_a(self):
+    def test_dec_a(self, mmu):
         """
         Test 6: Verificar decremento de A (DEC A).
         
         Decrementa A en 1.
         - Flags: Z, N, H se actualizan; C no se afecta
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
-        regs.pc = 0x0100
+        program = [
+            0x3E, 0x10,  # LD A, 0x10
+            0x3D,        # DEC A
+        ]
+        load_program(mmu, regs, program)
         
-        # Cargar A = 0x10 (para probar half-borrow: nibble bajo = 0x0)
-        mmu.write(0x0100, 0x3E)  # LD A, d8
-        mmu.write(0x0101, 0x10)  # Operando: 0x10
-        cpu.step()
-        
-        # DEC A (0x3D)
-        mmu.write(0x0102, 0x3D)  # DEC A
-        cpu.step()
+        cpu.step()  # LD A
+        cpu.step()  # DEC A
         
         # Verificar resultado: 0x10 - 1 = 0x0F
         assert regs.a == 0x0F, f"A debe ser 0x0F, es 0x{regs.a:02X}"
@@ -225,7 +204,7 @@ class TestCoreCPUALU:
         assert regs.flag_n, "N debe estar activo (es resta)"
         assert regs.flag_h, "H debe estar activo (half-borrow: nibble bajo 0x0 -> 0xF)"
 
-    def test_add_full_carry(self):
+    def test_add_full_carry(self, mmu):
         """
         Test 7: Verificar detección de Carry completo (overflow 8 bits).
         
@@ -236,22 +215,17 @@ class TestCoreCPUALU:
         - H: 1 (half-carry también)
         - C: 1 (carry completo) <- CRÍTICO
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
-        regs.pc = 0x0100
+        program = [
+            0x3E, 0xFF,  # LD A, 0xFF
+            0xC6, 0x01,  # ADD A, 0x01
+        ]
+        load_program(mmu, regs, program)
         
-        # Cargar A = 0xFF (255)
-        mmu.write(0x0100, 0x3E)  # LD A, d8
-        mmu.write(0x0101, 0xFF)  # Operando: 0xFF
-        cpu.step()
-        
-        # Sumar 0x01 a A
-        mmu.write(0x0102, 0xC6)  # ADD A, d8
-        mmu.write(0x0103, 0x01)  # Operando: 0x01
-        cpu.step()
+        cpu.step()  # LD A
+        cpu.step()  # ADD A
         
         # Verificar resultado
         assert regs.a == 0x00, f"A debe ser 0x00, es 0x{regs.a:02X}"
@@ -260,7 +234,7 @@ class TestCoreCPUALU:
         assert regs.flag_h, "H debe estar activo (half-carry)"
         assert regs.flag_c, "C debe estar ACTIVO (carry completo)"
 
-    def test_sub_a_b(self):
+    def test_sub_a_b(self, mmu):
         """
         Test 8: Verificar SUB B (resta con registro).
         
@@ -271,26 +245,19 @@ class TestCoreCPUALU:
         - H: 0 (no hay half-borrow)
         - C: 0 (no hay borrow)
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
-        regs.pc = 0x0100
+        program = [
+            0x3E, 0x3E,  # LD A, 0x3E
+            0x06, 0x3E,  # LD B, 0x3E
+            0x90,        # SUB B
+        ]
+        load_program(mmu, regs, program)
         
-        # Cargar A = 0x3E
-        mmu.write(0x0100, 0x3E)  # LD A, d8
-        mmu.write(0x0101, 0x3E)  # Operando: 0x3E
-        cpu.step()
-        
-        # Cargar B = 0x3E
-        mmu.write(0x0102, 0x06)  # LD B, d8
-        mmu.write(0x0103, 0x3E)  # Operando: 0x3E
-        cpu.step()
-        
-        # SUB B (0x90)
-        mmu.write(0x0104, 0x90)  # SUB B
-        cpu.step()
+        cpu.step()  # LD A
+        cpu.step()  # LD B
+        cpu.step()  # SUB B
         
         # Verificar resultado
         assert regs.a == 0x00, f"A debe ser 0x00, es 0x{regs.a:02X}"
@@ -299,7 +266,7 @@ class TestCoreCPUALU:
         assert not regs.flag_h, "H debe estar apagado (no hay half-borrow)"
         assert not regs.flag_c, "C debe estar apagado (no hay borrow)"
 
-    def test_sbc_a_b_with_borrow(self):
+    def test_sbc_a_b_with_borrow(self, mmu):
         """
         Test 9: Verificar SBC A, B con el flag de carry (borrow) activado.
         
@@ -310,29 +277,23 @@ class TestCoreCPUALU:
         - H: 0 (no hay half-borrow en este caso)
         - C: 0 (no hay borrow completo)
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
-        regs.pc = 0x0100
+        program = [
+            0x3E, 0x3B,  # LD A, 0x3B
+            0x06, 0x2A,  # LD B, 0x2A
+            0x98,        # SBC A, B
+        ]
+        load_program(mmu, regs, program)
         
-        # Cargar A = 0x3B
-        mmu.write(0x0100, 0x3E)  # LD A, d8
-        mmu.write(0x0101, 0x3B)  # Operando: 0x3B
-        cpu.step()
-        
-        # Cargar B = 0x2A
-        mmu.write(0x0102, 0x06)  # LD B, d8
-        mmu.write(0x0103, 0x2A)  # Operando: 0x2A
-        cpu.step()
+        cpu.step()  # LD A
+        cpu.step()  # LD B
         
         # Activar flag C (borrow previo)
         regs.flag_c = True
         
-        # SBC A, B (0x98)
-        mmu.write(0x0104, 0x98)  # SBC A, B
-        cpu.step()
+        cpu.step()  # SBC A, B
         
         # Verificar resultado: 0x3B - 0x2A - 1 = 0x10
         assert regs.a == 0x10, f"A debe ser 0x10, es 0x{regs.a:02X}"
@@ -340,7 +301,7 @@ class TestCoreCPUALU:
         assert regs.flag_n, "N debe estar activo (es resta)"
         assert not regs.flag_c, "C debe estar apagado (no hay borrow completo)"
 
-    def test_sbc_a_b_with_full_borrow(self):
+    def test_sbc_a_b_with_full_borrow(self, mmu):
         """
         Test 10: Verificar SBC A, B con borrow completo (underflow).
         
@@ -351,29 +312,23 @@ class TestCoreCPUALU:
         - H: 1 (half-borrow: nibble bajo 0x0 < 0x0)
         - C: 1 (borrow completo) <- CRÍTICO
         """
-        mmu = PyMMU()
-        mmu.set_test_mode_allow_rom_writes(True)  # Step 0419: Permitir escrituras en ROM para testing
         regs = PyRegisters()
         cpu = PyCPU(mmu, regs)
         
-        regs.pc = 0x0100
+        program = [
+            0x3E, 0x10,  # LD A, 0x10
+            0x06, 0x20,  # LD B, 0x20
+            0x98,        # SBC A, B
+        ]
+        load_program(mmu, regs, program)
         
-        # Cargar A = 0x10
-        mmu.write(0x0100, 0x3E)  # LD A, d8
-        mmu.write(0x0101, 0x10)  # Operando: 0x10
-        cpu.step()
-        
-        # Cargar B = 0x20
-        mmu.write(0x0102, 0x06)  # LD B, d8
-        mmu.write(0x0103, 0x20)  # Operando: 0x20
-        cpu.step()
+        cpu.step()  # LD A
+        cpu.step()  # LD B
         
         # Desactivar flag C (sin borrow previo)
         regs.flag_c = False
         
-        # SBC A, B (0x98)
-        mmu.write(0x0104, 0x98)  # SBC A, B
-        cpu.step()
+        cpu.step()  # SBC A, B
         
         # Verificar resultado: 0x10 - 0x20 = 0xF0 (underflow)
         assert regs.a == 0xF0, f"A debe ser 0xF0, es 0x{regs.a:02X}"
