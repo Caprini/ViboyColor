@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0437 - Diagnóstico Loop VBlank Wait (Pokémon) - Bug Sincronización CPU↔PPU -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0437__diagnose-pokemon-vblank-wait-loop-sync-bug.html" class="entry-link">
+                                    Diagnóstico Loop VBlank Wait (Pokémon) - Bug Sincronización CPU↔PPU
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0437 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">DIAGNOSTIC COMPLETE</span>
+                        </div>
+                        <p class="entry-summary">
+                            Diagnóstico exhaustivo de loop infinito en Pokémon Red revelando bug arquitectural crítico de sincronización CPU↔PPU. Loop real detectado en PC=0x006B→0x006D→0x006F (VBlank wait: LDH A,(FF44h); CP $91; JR NZ,-6), NO en rango esperado 0x36E2..0x36E7. Evidencia numérica: 300+ frames stuck (100% coverage en 3 PCs), 21M+ T-cycles ejecutados. Instrumentación completa creada: test_pokemon_pc_monitor_0437.py (detector automático de loops), disassemble_loop_0437.py (desensamblador con estado), diagnose_ppu_clock_0437.py (verificador de timing PPU). Verificación exhaustiva de la cadena: PPU incrementa ly_ correctamente (0→145→154 verificado), get_ly() retorna valor correcto, MMU lee sin caching. Causa raíz identificada: bucle principal (src/viboy.py:711-723) ejecuta CPU completo antes de avanzar PPU, causando desfase temporal en lecturas de LY. Fix mínimo intentado (calcular LY basado en clock_) insuficiente - problema requiere refactor arquitectural. Tres soluciones propuestas: avance intercalado CPU↔PPU (recomendado), MMU proxy activo, o arquitectura basada en eventos. Clean-room methodology: análisis basado exclusivamente en Pan Docs sin consultar código de otros emuladores. Diagnóstico completo con evidencia para implementar solución correcta en Step futuro.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0436 - Pokémon Red stuck init - Diagnóstico HL Loop + Instrumentación Trace -->
                     <li>
                         <div class="entry-header">

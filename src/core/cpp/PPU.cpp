@@ -388,6 +388,7 @@ void PPU::step(int cpu_cycles) {
     
     // Mientras tengamos suficientes ciclos para completar una línea (456 T-Cycles)
     while (clock_ >= CYCLES_PER_SCANLINE) {
+        
         // --- Step 0373: Corrección de Timing de render_scanline() ---
         // CRÍTICO: Cuando clock_ >= CYCLES_PER_SCANLINE, acabamos de completar una línea.
         // En ese momento, estamos en H-Blank (MODE_0_HBLANK), no en OAM Search.
