@@ -424,6 +424,18 @@ uint8_t MMU::read(uint16_t addr) const {
         return 0;
     }
     
+    // --- Step 0413: STAT dinámico (Registro 0xFF41) ---
+    // STAT debe reflejar el modo actual de la PPU (bits 0-1) y la coincidencia LYC=LY (bit 2).
+    // Los bits 3-6 son máscaras de interrupción escritas por la CPU, y el bit 7 es siempre 1.
+    // Fuente: Pan Docs - "LCD Status Register (FF41 - STAT)"
+    if (addr == 0xFF41) {
+        if (ppu_ != nullptr) {
+            return ppu_->get_stat();
+        }
+        // Si no hay PPU, devolver valor por defecto (modo 0, sin coincidencia, bit 7 = 1)
+        return (memory_[addr] & 0xF8) | 0x80;
+    }
+    
     // --- ROM / Banking ---
     if (!rom_data_.empty()) {
         if (addr < 0x4000) {
@@ -1206,6 +1218,12 @@ void MMU::write(uint16_t addr, uint8_t value) {
             if (!bg_display_old && bg_display_new) {
                 printf("[LCDC-TRACE] ⚠️ BG DISPLAY HABILITADO en PC:0x%04X\n", debug_current_pc);
             }
+            
+            // --- Step 0413: Detectar toggle del LCD (bit 7) ---
+            if (lcd_on_old != lcd_on_new && ppu_ != nullptr) {
+                ppu_->handle_lcd_toggle(lcd_on_new);
+            }
+            // -------------------------------------------
             
             // --- Step 0400: Tracking de cambios para análisis comparativo ---
             if (last_lcdc_value_ != new_lcdc) {

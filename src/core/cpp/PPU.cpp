@@ -1118,6 +1118,23 @@ uint8_t PPU::get_mode() const {
     return mode_;
 }
 
+uint8_t PPU::get_stat() const {
+    // Step 0413: Construir STAT dinámicamente
+    // Bits 0-1: Modo PPU actual
+    uint8_t stat = mode_ & 0x03;
+    
+    // Bit 2: Coincidencia LYC=LY
+    if (ly_ == lyc_) {
+        stat |= 0x04;
+    }
+    
+    // Bits 3-6: Máscaras de interrupción (leídas de memoria)
+    // Bit 7: Siempre 1
+    uint8_t stat_mem = mmu_->read(IO_STAT);
+    stat |= (stat_mem & 0xF8);  // Preservar bits 3-7
+    
+    return stat;
+}
 
 uint8_t PPU::get_lyc() const {
     return lyc_;
@@ -1143,6 +1160,64 @@ void PPU::set_lyc(uint8_t value) {
     // (el bit 2 de STAT puede cambiar si LY == nuevo LYC)
     if (lyc_ != old_lyc) {
         check_stat_interrupt();
+    }
+}
+
+void PPU::handle_lcd_toggle(bool lcd_on) {
+    // Step 0413: Manejo correcto del LCD toggle
+    static int lcd_toggle_count = 0;
+    
+    if (lcd_on) {
+        // LCD se enciende: resetear estado a inicio de frame
+        ly_ = 0;
+        mode_ = MODE_2_OAM_SEARCH;
+        clock_ = 0;
+        scanline_rendered_ = false;
+        
+        // Actualizar STAT para reflejar el modo 2
+        uint8_t stat = mmu_->read(IO_STAT);
+        stat = (stat & 0xFC) | MODE_2_OAM_SEARCH;  // Bits 0-1 = modo 2
+        
+        // Verificar coincidencia LYC=LY (debe ser LY=0)
+        if (ly_ == lyc_) {
+            stat |= 0x04;
+        } else {
+            stat &= ~0x04;
+        }
+        
+        mmu_->write(IO_STAT, stat);
+        
+        if (lcd_toggle_count < 10) {
+            printf("[PPU-LCD-TOGGLE] LCD turned ON | LY=%d Mode=%d STAT=0x%02X\n",
+                   ly_, mode_, stat);
+            lcd_toggle_count++;
+        }
+    } else {
+        // LCD se apaga: forzar LY=0 y modo H-Blank
+        ly_ = 0;
+        mode_ = MODE_0_HBLANK;
+        clock_ = 0;
+        frame_ready_ = false;
+        scanline_rendered_ = false;
+        
+        // Actualizar STAT para reflejar modo 0
+        uint8_t stat = mmu_->read(IO_STAT);
+        stat = (stat & 0xFC) | MODE_0_HBLANK;  // Bits 0-1 = modo 0
+        
+        // Limpiar coincidencia LYC=LY
+        if (ly_ == lyc_) {
+            stat |= 0x04;
+        } else {
+            stat &= ~0x04;
+        }
+        
+        mmu_->write(IO_STAT, stat);
+        
+        if (lcd_toggle_count < 10) {
+            printf("[PPU-LCD-TOGGLE] LCD turned OFF | LY=%d Mode=%d STAT=0x%02X\n",
+                   ly_, mode_, stat);
+            lcd_toggle_count++;
+        }
     }
 }
 

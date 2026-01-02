@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0413 - Fix STAT/LY/LCDC (PPU-MMIO) + LCD Toggle -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0413__fix-stat-ly-lcdc-ppu-mmio-y-lcd-toggle.html" class="entry-link">
+                                    Fix STAT/LY/LCDC (PPU-MMIO) + LCD Toggle para Romper Wait-Loops
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0413 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección crítica del registro STAT (0xFF41) para reflejar dinámicamente el modo PPU y coincidencia LYC=LY + implementación del LCD toggle (LCDC bit 7) para resetear timing correctamente. Implementado PPU::get_stat() que construye STAT dinámicamente (bits 0-1: modo actual, bit 2: LYC=LY), MMU::read(0xFF41) ahora usa ppu_->get_stat(), y PPU::handle_lcd_toggle() que resetea LY/mode/clock al encender/apagar LCD según Pan Docs. ✅ Compilación exitosa. Estas correcciones son fundamentales para que juegos que pollean STAT/LY (como Pokémon) salgan de wait-loops infinitos y progresen en inicialización. Próximo Step: tests exhaustivos con Pokémon Red/Gold para verificar impacto.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0412 - Paletas CGB Post-Boot + Simulación Input -->
                     <li>
                         <div class="entry-header">

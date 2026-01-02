@@ -136,6 +136,21 @@ public:
      */
     uint8_t get_mode() const;
     
+    /**
+     * Step 0413: Obtiene el valor dinámico del registro STAT.
+     * 
+     * Construye STAT combinando:
+     * - Bits 0-1: Modo PPU actual (get_mode())
+     * - Bit 2: Coincidencia LYC=LY (1 si ly_ == lyc_)
+     * - Bits 3-6: Máscaras de interrupción (leídas de MMU memory_[0xFF41])
+     * - Bit 7: Siempre 1
+     * 
+     * Fuente: Pan Docs - LCD Status Register (FF41 - STAT)
+     * 
+     * @return Valor dinámico de STAT
+     */
+    uint8_t get_stat() const;
+    
     
     /**
      * Obtiene el valor actual del registro LYC (LY Compare).
@@ -170,6 +185,25 @@ public:
      * @param value Valor a escribir en LYC (se enmascara a 8 bits)
      */
     void set_lyc(uint8_t value);
+    
+    /**
+     * Step 0413: Maneja el toggle del LCD (LCDC bit 7).
+     * 
+     * Cuando el LCD se apaga (bit 7 = 0):
+     * - LY se fuerza a 0
+     * - El modo se establece en MODE_0_HBLANK
+     * - El reloj interno se resetea
+     * 
+     * Cuando el LCD se enciende (bit 7 = 1):
+     * - LY se establece en 0
+     * - El modo se establece en MODE_2_OAM_SEARCH
+     * - El reloj interno se resetea
+     * 
+     * Fuente: Pan Docs - LCD Control Register (FF40 - LCDC), LCD Power
+     * 
+     * @param lcd_on true si el LCD se está encendiendo, false si se está apagando
+     */
+    void handle_lcd_toggle(bool lcd_on);
     
     /**
      * Comprueba si hay un frame listo para renderizar y resetea el flag.
