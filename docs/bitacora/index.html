@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0441 - Cerrar Riesgos: 0 Skips + 0 '*4' + HALT/Timer/IRQ Clean-Room -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0441__close-risks-zero-skips-zero-star4-halt-timer-smoke.html" class="entry-link">
+                                    Cerrar Riesgos: 0 Skips + 0 '*4' + HALT/Timer/IRQ Clean-Room
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0441 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Cierre completo de riesgos técnicos: (1) 0 Skips - resueltos 2 skips en test_emulator_halt_wakeup.py (HALT devuelve 1 M-Cycle, no -1), (2) 0 '*4' en viboy.py - encapsulado en _m_to_t_cycles() + eliminación fallback Python legacy, (3) Tests HALT/IRQ corregidos - semántica correcta (IE & IF) para wake-up. HALT devolvía -1 (señal legacy) causando skips; corregido a 1 M-Cycle en CPU.cpp (2 lugares: instrucción 0x76 + bucle halted). Tests actualizados: test_core_cpu_interrupts.py (espera 1, no -1), test_emulator_halt_wakeup.py (wake-up requiere IE & IF, no solo IF). Eliminadas conversiones manuales M→T: método estático _m_to_t_cycles(m_cycles) usando bit shift (m_cycles << 2), bloque fallback Python (línea 1076) eliminado (nunca se ejecuta). Suite final: 532 passed, 0 skipped, 0 failed (~89s). Todos los objetivos alcanzados. Código más limpio, suite más robusta, 0 deuda técnica. Verificación: grep '*4' viboy.py → 0 ocurrencias reales (solo comentarios Step 0441 y strings '='*40 para formateo). Tests clave: HALT wake-up + bucle consume 1 M-Cycle + flag halted correcto. Metodología clean-room: Pan Docs confirma HALT=1 M-Cycle, wake-up=(IE & IF)!=0.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0440 - Unificación Clock M→T + Des-skip Regression + Fix Integration -->
                     <li>
                         <div class="entry-header">

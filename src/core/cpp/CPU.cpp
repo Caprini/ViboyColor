@@ -1367,7 +1367,7 @@ int CPU::step() {
     // avanzar rápidamente sin ejecutar instrucciones.
     if (halted_) {
         cycles_ += 1;
-        return -1;  // HALT devuelve -1 para señalar avance rápido
+        return 1;  // Step 0441: HALT devuelve 1 M-Cycle (bucle de HALT)
     }
     
     // ========== FASE 3: Gestión de EI retrasado ==========
@@ -3088,7 +3088,7 @@ int CPU::step() {
             // - Ocurre una interrupción (si IME está activo)
             // - O se despierta manualmente (si hay interrupción pendiente sin IME)
             // Fuente: Pan Docs - HALT: 1 M-Cycle
-            // Retornamos -1 para señalar "avance rápido" (el orquestador puede saltar ciclos).
+            // Step 0441: HALT devuelve 1 M-Cycle (como todas las instrucciones)
             {
                 // HALT bug: si IME=0 y hay interrupción pendiente (IE & IF != 0),
                 // el CPU NO se detiene; simplemente continúa la ejecución.
@@ -3113,7 +3113,7 @@ int CPU::step() {
 
                 halted_ = true;
                 cycles_ += 1;  // HALT consume 1 M-Cycle
-                return -1;  // HALT devuelve -1 para señalar avance rápido
+                return 1;  // Step 0441: Devolver 1 M-Cycle (no -1)
             }
 
         // ========== I/O de Memoria Alta (LDH) ==========

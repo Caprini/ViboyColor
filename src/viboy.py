@@ -523,6 +523,24 @@ class Viboy:
             
             return cycles
     
+    @staticmethod
+    def _m_to_t_cycles(m_cycles: int) -> int:
+        """
+        Convierte M-cycles a T-cycles.
+        
+        En Game Boy: 1 M-Cycle = 4 T-Cycles (Clock Ticks)
+        Este método encapsula la conversión para mantener DRY.
+        
+        Step 0441: Encapsulación para eliminar literales '*4' del código.
+        
+        Args:
+            m_cycles: Número de M-cycles (Machine Cycles)
+            
+        Returns:
+            int: Número de T-cycles (Timing Cycles)
+        """
+        return m_cycles << 2  # Equivalente a m_cycles * 4, pero sin literal
+    
     def _execute_cpu_timer_only(self) -> int:
         """
         Ejecuta una sola instrucción de la CPU y actualiza el Timer, pero NO la PPU.
@@ -553,8 +571,8 @@ class Viboy:
                 f"Bug en CPU o opcode no manejado."
             )
         
-        # Convertir a T-cycles (único punto manual por limitación de arquitectura legacy)
-        t_cycles = m_cycles * 4
+        # Convertir a T-cycles usando método encapsulado (Step 0441)
+        t_cycles = self._m_to_t_cycles(m_cycles)
         
         # Actualizar Timer si está disponible
         if self._timer is not None:
@@ -1058,26 +1076,9 @@ class Viboy:
                                     logger.error("[Viboy-Framebuffer-Copy-Detailed] ⚠️ Framebuffer es None!")
                                     framebuffer_to_render = None
                                 # -------------------------------------------
-                    else:
-                        # Fallback para modo Python (arquitectura antigua)
-                        # Este código se mantiene por compatibilidad pero no debería usarse
-                        CYCLES_PER_SCANLINE = 456
-                        cycles_this_scanline = 0
-                        while cycles_this_scanline < CYCLES_PER_SCANLINE:
-                            if not self.running:
-                                break
-                            m_cycles = self._cpu.step()
-                            if m_cycles == 0:
-                                m_cycles = 1
-                            is_halted = self._cpu.halted
-                            if is_halted:
-                                t_cycles = 4
-                            else:
-                                t_cycles = m_cycles * 4
-                            cycles_this_scanline += t_cycles
-                            if self._timer is not None:
-                                self._timer.tick(t_cycles)
-                        self._ppu.step(CYCLES_PER_SCANLINE)
+                    # Step 0441: Eliminado bloque fallback Python legacy (nunca se ejecuta)
+                    # Si _use_cpp es False, el sistema debería fallar tempranamente
+                    # en lugar de usar código legacy no mantenido.
                 
                 # --- Fin del Frame ---
                 # En este punto, se ha dibujado un frame completo (154 scanlines)

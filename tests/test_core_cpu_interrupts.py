@@ -139,14 +139,14 @@ class TestHALT:
         
         # Verificar que halted es True
         assert cpu.get_halted() == 1, "CPU debe estar en estado HALT (1)"
-        assert cycles == -1, "HALT debe devolver -1 para señalar avance rápido"
+        assert cycles == 1, "HALT debe devolver 1 M-Cycle (Step 0441)"
         
         # Ejecutar step() múltiples veces
         # La CPU debe seguir dormida (PC no cambia)
         initial_pc = regs.pc
         for _ in range(5):
             cycles = cpu.step()
-            assert cycles == -1, "HALT debe devolver -1 por ciclo (señal de avance rápido)"
+            assert cycles == 1, "HALT debe devolver 1 M-Cycle por ciclo (Step 0441)"
             assert regs.pc == initial_pc, "PC no debe cambiar cuando CPU está en HALT"
             assert cpu.get_halted() == 1, "CPU debe seguir en HALT"
     
@@ -170,7 +170,7 @@ class TestHALT:
         cycles = cpu.step()
         
         # Verificar
-        assert cycles == -1, "step() debe devolver -1 para señalar HALT"
+        assert cycles == 1, "step() debe devolver 1 M-Cycle (Step 0441)"
         assert cpu.get_halted() == 1, "El flag 'halted' debe activarse"
         # El PC avanza porque fetch_byte() se ejecuta antes del switch
         expected_pc = TEST_EXEC_BASE + 1

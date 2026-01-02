@@ -137,10 +137,13 @@ def test_halt_continues_calling_step():
         assert cycles == 1, f"En HALT, cada step() debe consumir 1 M-Cycle (iteración {i})"
         assert cpu.get_halted() == 1, f"CPU debe seguir en HALT hasta que haya interrupción (iteración {i})"
     
-    # Simular V-Blank: establecer bit 0 en IF
-    mmu.write(IO_IF, 0x01)
+    # Step 0441: Para despertar de HALT se necesita (IE & IF) != 0
+    # Simular V-Blank: habilitar en IE y establecer en IF
+    mmu.write(IO_IE, 0x01)  # Habilitar interrupción VBlank en IE
+    mmu.write(IO_IF, 0x01)  # Establecer interrupción VBlank pendiente en IF
     
     # La siguiente llamada a step() debe despertar la CPU
+    # (sin IME, no se ejecuta el handler, pero sí se despierta)
     cycles = cpu.step()
-    assert cpu.get_halted() == 0, "CPU debe despertarse cuando hay interrupción pendiente"
+    assert cpu.get_halted() == 0, "CPU debe despertarse cuando hay interrupción pendiente (IE & IF != 0)"
 
