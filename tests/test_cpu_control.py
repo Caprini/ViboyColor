@@ -58,7 +58,12 @@ class TestCPUControl:
         assert cpu.ime is True, "IME debe estar activado después de ejecutar una instrucción después de EI"
 
     def test_di_ei_sequence(self) -> None:
-        """Test: Secuencia DI seguida de EI"""
+        """Test: Secuencia DI seguida de EI
+        
+        COMPORTAMIENTO CRÍTICO: EI tiene un delay de 1 instrucción.
+        Tras ejecutar EI, IME no se activa inmediatamente, sino que se programa
+        (ime_scheduled=True) y se activa al inicio del siguiente step().
+        """
         mmu = MMU(None)
         cpu = CPU(mmu)
         
@@ -72,7 +77,18 @@ class TestCPUControl:
         
         # Ejecutar EI
         cpu._op_ei()
-        assert cpu.ime is True
+        # IME NO se activa inmediatamente, se programa para el siguiente step
+        assert cpu.ime is False, "IME no debe estar activado inmediatamente después de EI"
+        assert cpu.ime_scheduled is True, "ime_scheduled debe ser True después de EI"
+        
+        # Ejecutar una instrucción (NOP) para que EI tome efecto
+        mmu.write_byte(0x0100, 0x00)  # NOP
+        cpu.registers.set_pc(0x0100)
+        cpu.step()
+        
+        # Ahora IME debe estar activado
+        assert cpu.ime is True, "IME debe estar activado después de ejecutar una instrucción después de EI"
+        assert cpu.ime_scheduled is False, "ime_scheduled debe ser False después de activar IME"
 
     def test_xor_a_zeros_accumulator(self) -> None:
         """Test: XOR A pone el registro A a cero"""

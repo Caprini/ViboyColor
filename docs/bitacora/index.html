@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0427 - Tests Align Post-Boot Registers + EI Delay -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0427__tests-align-postboot-registers-and-ei-delay.html" class="entry-link">
+                                    Tests Align Post-Boot Registers + EI Delay
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0427 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Alineación de tests con el comportamiento real del core: Post-Boot State (DMG) y EI delayed IME. Corrección de 4 tests (3 Registers + 1 CPU Control) que asumían zero-init o activación inmediata de IME, cuando el core implementa correctamente el comportamiento hardware-accurate según Pan Docs. Sin tocar el core, solo actualización de tests para reflejar la política Post-Boot del proyecto. Tests arreglados: test_program_counter (PC=0x0100), test_stack_pointer (SP=0xFFFE), test_inicializacion_por_defecto (Post-Boot State completo con A=0x01, F=0xB0, BC=0x0013, DE=0x00D8, HL=0x014D), test_di_ei_sequence (validar ime_scheduled y delay de 1 instrucción). Decisión de diseño documentada: Post-Boot State como política oficial del proyecto (simplifica desarrollo, consistente con emuladores modernos, juegos no dependen de Boot ROM). ✅ 4 tests arreglados. ✅ 267 tests passing (vs 263 antes). ✅ 10 fallos restantes (6 PPU + 4 pre-existentes no relacionados). Base limpia para Step 0428 (fix PPU framebuffer swap).
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0426 - Triage 10 Fallos + Clustering -->
                     <li>
                         <div class="entry-header">

@@ -236,7 +236,9 @@ class TestPyRegistersPCSP:
         """Verificar Program Counter (16 bits)"""
         reg = PyRegisters()
 
-        assert reg.pc == 0
+        # Este proyecto usa post-boot defaults (skip boot ROM)
+        # PC inicia en 0x0100 según Pan Docs - Power Up Sequence
+        assert reg.pc == 0x0100
 
         reg.pc = 0x1234
         assert reg.pc == 0x1234
@@ -252,7 +254,9 @@ class TestPyRegistersPCSP:
         """Verificar Stack Pointer (16 bits)"""
         reg = PyRegisters()
 
-        assert reg.sp == 0
+        # Este proyecto usa post-boot defaults (skip boot ROM)
+        # SP inicia en 0xFFFE según Pan Docs - Power Up Sequence
+        assert reg.sp == 0xFFFE
 
         reg.sp = 0xABCD
         assert reg.sp == 0xABCD
@@ -266,27 +270,35 @@ class TestPyRegistersInicializacion:
     """Tests para verificar inicialización correcta"""
 
     def test_inicializacion_por_defecto(self):
-        """Verificar que todos los registros se inicializan a 0"""
+        """Verificar que todos los registros se inicializan con post-boot defaults (DMG mode)
+        
+        Este proyecto usa post-boot defaults (skip boot ROM).
+        Los valores iniciales simulan el estado que la Boot ROM oficial deja
+        después de ejecutarse, según Pan Docs - Power Up Sequence (DMG).
+        """
         reg = PyRegisters()
 
-        assert reg.a == 0
-        assert reg.b == 0
-        assert reg.c == 0
-        assert reg.d == 0
-        assert reg.e == 0
-        assert reg.h == 0
-        assert reg.l == 0
-        assert reg.f == 0
-        assert reg.pc == 0
-        assert reg.sp == 0
+        # Post-Boot State (DMG mode)
+        assert reg.a == 0x01  # Identifica hardware como DMG
+        assert reg.b == 0x00
+        assert reg.c == 0x13
+        assert reg.d == 0x00
+        assert reg.e == 0xD8
+        assert reg.h == 0x01
+        assert reg.l == 0x4D
+        assert reg.f == 0xB0  # Flags: Z=1, N=0, H=1, C=1
+        assert reg.pc == 0x0100  # Inicio del código del cartucho
+        assert reg.sp == 0xFFFE
 
-        assert reg.af == 0
-        assert reg.bc == 0
-        assert reg.de == 0
-        assert reg.hl == 0
+        # Pares de 16 bits
+        assert reg.af == 0x01B0
+        assert reg.bc == 0x0013
+        assert reg.de == 0x00D8
+        assert reg.hl == 0x014D
 
-        assert reg.flag_z is False
-        assert reg.flag_n is False
-        assert reg.flag_h is False
-        assert reg.flag_c is False
+        # Flags individuales (F=0xB0 = 10110000)
+        assert reg.flag_z is True   # Bit 7
+        assert reg.flag_n is False  # Bit 6
+        assert reg.flag_h is True   # Bit 5
+        assert reg.flag_c is True   # Bit 4
 

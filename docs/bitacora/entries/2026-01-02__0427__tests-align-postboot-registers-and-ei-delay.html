@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0427: Tests Align Post-Boot Registers + EI Delay</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Bitácora del Proyecto Viboy Color</h1>
+            <p><a href="../index.html" style="color: var(--color-accent);">← Volver al índice</a></p>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <article class="entry">
+                <!-- Entry Header -->
+                <div class="entry-header">
+                    <h2>Step 0427: Tests Align Post-Boot Registers + EI Delay</h2>
+                    <div class="entry-meta">
+                        <span><strong>Fecha:</strong> 2026-01-02</span>
+                        <span><strong>Step ID:</strong> 0427</span>
+                        <span><strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span></span>
+                    </div>
+                </div>
+
+                <!-- Resumen Ejecutivo -->
+                <section>
+                    <h3>📋 Resumen Ejecutivo</h3>
+                    <p>
+                        Alineación de tests con el comportamiento real del core: Post-Boot State (DMG) y EI delayed IME. Corrección de 4 tests (3 Registers + 1 CPU Control) que asumían zero-init o activación inmediata de IME, cuando el core implementa correctamente el comportamiento hardware-accurate según Pan Docs. <strong>Sin tocar el core</strong>, solo actualización de tests para reflejar la política Post-Boot del proyecto.
+                    </p>
+                    
+                    <div style="background: #1a1a1a; padding: 1rem; border-radius: 4px; margin-top: 1rem;">
+                        <strong>Resultado:</strong>
+                        <ul style="margin: 0.5rem 0 0 1.5rem;">
+                            <li>✅ 4 tests arreglados (test_program_counter, test_stack_pointer, test_inicializacion_por_defecto, test_di_ei_sequence)</li>
+                            <li>✅ 267 tests passing (vs 263 antes)</li>
+                            <li>✅ 10 fallos restantes (6 PPU + 4 pre-existentes no relacionados)</li>
+                            <li>✅ Base limpia para Step 0428 (fix PPU framebuffer swap)</li>
+                        </ul>
+                    </div>
+                </section>
+
+                <!-- Concepto de Hardware -->
+                <section>
+                    <h3>🔧 Concepto de Hardware</h3>
+                    
+                    <h4>1. Post-Boot State (Pan Docs - Power Up Sequence)</h4>
+                    <p>
+                        Cuando la Game Boy se enciende, la Boot ROM ejecuta una secuencia de inicialización y deja los registros en un <strong>estado específico</strong> antes de saltar al código del cartucho (0x0100). Este proyecto implementa <strong>Post-Boot State por defecto</strong> (skip-boot), simulando el estado que la Boot ROM oficial deja en la CPU.
+                    </p>
+                    
+                    <h5>Valores Post-Boot (DMG mode):</h5>
+                    <pre><code>A  = 0x01  (identifica hardware como DMG)
+F  = 0xB0  (flags: Z=1, N=0, H=1, C=1)
+B  = 0x00
+C  = 0x13
+D  = 0x00
+E  = 0xD8
+H  = 0x01
+L  = 0x4D
+PC = 0x0100  (inicio del código del cartucho)
+SP = 0xFFFE
+
+Pares de 16 bits:
+AF = 0x01B0
+BC = 0x0013
+DE = 0x00D8
+HL = 0x014D</code></pre>
+
+                    <p>
+                        <strong>Fuente</strong>: <code>src/core/cpp/Registers.cpp:24-47</code> - Constructor <code>CoreRegisters::CoreRegisters()</code> con comentarios detallados sobre el estado Post-BIOS.
+                    </p>
+
+                    <h4>2. EI Delay (Pan Docs - CPU Instruction Set)</h4>
+                    <p>
+                        La instrucción <strong>EI (Enable Interrupts)</strong> tiene un comportamiento crítico: <strong>delay de 1 instrucción</strong>. Esto significa que IME no se activa inmediatamente, sino <strong>después de ejecutar la siguiente instrucción</strong>.
+                    </p>
+                    
+                    <h5>Implementación en el core:</h5>
+                    <pre><code>def _op_ei(self) -> int:
+    """EI (Enable Interrupts) - Opcode 0xFB"""
+    # NO activar IME inmediatamente, programarlo
+    self.ime_scheduled = True
+    return 1
+
+# En step() (al inicio, antes de ejecutar la instrucción):
+if self.ime_scheduled:
+    self.ime = True
+    self.ime_scheduled = False</code></pre>
+
+                    <p>
+                        <strong>Comportamiento hardware-accurate</strong>: La instrucción que sigue a EI se ejecuta con IME aún False, y luego IME se activa automáticamente. Esto es crítico para patrones como <code>EI + RETI</code> usados en handlers de interrupción.
+                    </p>
+                    
+                    <p>
+                        <strong>Fuente</strong>: <code>src/cpu/core.py:2382-2408</code> (función <code>_op_ei</code>) y <code>src/cpu/core.py:585-588</code> (activación en <code>step()</code>).
+                    </p>
+                </section>
+
+                <!-- Implementación Técnica -->
+                <section>
+                    <h3>⚙️ Implementación Técnica</h3>
+                    
+                    <h4>Tarea T1: Evidencia de Defaults Reales (Solo Lectura)</h4>
+                    <p><strong>Comandos ejecutados:</strong></p>
+                    <pre><code>cd /media/fabini/8CD1-4C30/ViboyColor
+
+# Buscar defaults de Registers
+grep -n "CoreRegisters::CoreRegisters\|apply_post_boot_state\|pc(\|sp(\|a(\|f(" \
+  src/core/cpp/Registers.cpp src/core/cpp/Registers.hpp
+nl -ba src/core/cpp/Registers.cpp | sed -n '1,180p'
+
+# Buscar comportamiento de EI
+grep -n "\bEI\b\|ime_scheduled\|IME" src/cpu/core.py | head -n 30
+nl -ba src/cpu/core.py | sed -n '2360,2460p'</code></pre>
+
+                    <p><strong>Evidencia capturada:</strong></p>
+                    <ul>
+                        <li><strong>Registers</strong>: Constructor inicializa con Post-Boot State (PC=0x0100, SP=0xFFFE, A=0x01, F=0xB0, etc.)</li>
+                        <li><strong>EI</strong>: Establece <code>ime_scheduled = True</code>, IME se activa al inicio del siguiente <code>step()</code></li>
+                    </ul>
+
+                    <h4>Tarea T2: Fix Tests Registers Post-Boot</h4>
+                    <p><strong>Archivo modificado:</strong> <code>tests/test_core_registers.py</code></p>
+                    
+                    <p><strong>Cambios aplicados:</strong></p>
+                    <ol>
+                        <li><strong>test_program_counter</strong>: Actualizado <code>assert reg.pc == 0x0100</code> (era <code>== 0</code>)</li>
+                        <li><strong>test_stack_pointer</strong>: Actualizado <code>assert reg.sp == 0xFFFE</code> (era <code>== 0</code>)</li>
+                        <li><strong>test_inicializacion_por_defecto</strong>: Reescrito completamente para validar Post-Boot State:
+                            <ul>
+                                <li>A=0x01, F=0xB0, B=0x00, C=0x13, D=0x00, E=0xD8, H=0x01, L=0x4D</li>
+                                <li>PC=0x0100, SP=0xFFFE</li>
+                                <li>Pares: AF=0x01B0, BC=0x0013, DE=0x00D8, HL=0x014D</li>
+                                <li>Flags: Z=True, N=False, H=True, C=True</li>
+                            </ul>
+                        </li>
+                    </ol>
+                    
+                    <p><strong>Comentario añadido en los tests:</strong></p>
+                    <pre><code># Este proyecto usa post-boot defaults (skip boot ROM)
+# PC inicia en 0x0100 según Pan Docs - Power Up Sequence</code></pre>
+
+                    <h4>Tarea T3: Fix Test EI Delay (CPU Control)</h4>
+                    <p><strong>Archivo modificado:</strong> <code>tests/test_cpu_control.py</code></p>
+                    
+                    <p><strong>Cambios aplicados en test_di_ei_sequence:</strong></p>
+                    <ol>
+                        <li>Después de ejecutar <code>cpu._op_ei()</code>:
+                            <ul>
+                                <li>Validar <code>assert cpu.ime is False</code> (IME no se activa inmediatamente)</li>
+                                <li>Validar <code>assert cpu.ime_scheduled is True</code> (se programa para el siguiente step)</li>
+                            </ul>
+                        </li>
+                        <li>Ejecutar una instrucción (NOP) con <code>cpu.step()</code></li>
+                        <li>Validar <code>assert cpu.ime is True</code> (IME activado después de la instrucción)</li>
+                        <li>Validar <code>assert cpu.ime_scheduled is False</code> (flag de scheduling limpiado)</li>
+                    </ol>
+                    
+                    <p><strong>Comentario añadido en el test:</strong></p>
+                    <pre><code>"""
+COMPORTAMIENTO CRÍTICO: EI tiene un delay de 1 instrucción.
+Tras ejecutar EI, IME no se activa inmediatamente, sino que se programa
+(ime_scheduled=True) y se activa al inicio del siguiente step().
+"""</code></pre>
+
+                    <h4>Decisión de Diseño: Post-Boot Defaults</h4>
+                    <p>
+                        Este proyecto adopta <strong>Post-Boot State como política oficial</strong>:
+                    </p>
+                    <ul>
+                        <li>✅ <strong>Ventaja</strong>: Simplifica el desarrollo (no requiere implementar Boot ROM completa)</li>
+                        <li>✅ <strong>Ventaja</strong>: Comportamiento consistente con la mayoría de emuladores modernos</li>
+                        <li>✅ <strong>Ventaja</strong>: Los juegos comerciales asumen este estado inicial (no dependen de Boot ROM)</li>
+                        <li>⚠️ <strong>Limitación</strong>: No se puede emular la secuencia de boot oficial (logo de Nintendo, scroll, etc.)</li>
+                    </ul>
+                    
+                    <p>
+                        <strong>Futuro</strong>: Si se implementa soporte para Boot ROM opcional (Step 0401 lo menciona), el PC se ajustará a 0x0000 desde el frontend antes de iniciar la emulación.
+                    </p>
+                </section>
+
+                <!-- Tests y Verificación -->
+                <section>
+                    <h3>✅ Tests y Verificación</h3>
+                    
+                    <h4>Compilación y Build</h4>
+                    <pre><code>python3 setup.py build_ext --inplace > /tmp/viboy_0427_build.log 2>&1
+echo BUILD_EXIT=$?
+# BUILD_EXIT=0
+
+python3 test_build.py > /tmp/viboy_0427_test_build.log 2>&1
+echo TEST_BUILD_EXIT=$?
+# TEST_BUILD_EXIT=0</code></pre>
+
+                    <h4>Tests Específicos Arreglados</h4>
+                    <pre><code>pytest -q tests/test_core_registers.py
+# 14 passed in 0.41s
+# REGS_EXIT=0
+
+pytest -q tests/test_cpu_control.py
+# 13 passed in 0.37s
+# CPUCTRL_EXIT=0
+
+# Verificación individual de los 4 tests arreglados:
+pytest -vv \
+  tests/test_core_registers.py::TestPyRegistersPCSP::test_program_counter \
+  tests/test_core_registers.py::TestPyRegistersPCSP::test_stack_pointer \
+  tests/test_core_registers.py::TestPyRegistersInicializacion::test_inicializacion_por_defecto \
+  tests/test_cpu_control.py::TestCPUControl::test_di_ei_sequence
+# 4 passed in 0.15s ✅</code></pre>
+
+                    <h4>Suite Completa</h4>
+                    <pre><code>pytest -q > /tmp/viboy_0427_all.log 2>&1
+echo PYTEST_EXIT=$?
+# PYTEST_EXIT=1 (esperado, quedan fallos PPU)
+
+# Resumen:
+# 10 failed, 267 passed in 0.54s</code></pre>
+
+                    <h4>Análisis de Fallos Restantes</h4>
+                    <p><strong>10 fallos totales:</strong></p>
+                    <ol>
+                        <li><strong>6 fallos PPU</strong> (Cluster A del Step 0426):
+                            <ul>
+                                <li><code>test_bg_rendering_simple_tile</code></li>
+                                <li><code>test_signed_addressing_fix</code></li>
+                                <li><code>test_sprite_rendering_simple</code></li>
+                                <li><code>test_sprite_transparency</code></li>
+                                <li><code>test_sprite_x_flip</code></li>
+                                <li><code>test_sprite_palette_selection</code></li>
+                            </ul>
+                        </li>
+                        <li><strong>4 fallos pre-existentes</strong> (no relacionados, no incluidos en triage Step 0426):
+                            <ul>
+                                <li><code>test_unimplemented_opcode_raises</code></li>
+                                <li><code>test_ldh_write_boundary</code></li>
+                                <li><code>test_ld_c_a_write_stat</code></li>
+                                <li><code>test_ld_a_c_read</code></li>
+                            </ul>
+                        </li>
+                    </ol>
+
+                    <p>
+                        <strong>Criterio de éxito cumplido:</strong> Los 4 tests específicos del Cluster B (Registers) y Cluster C (CPU Control) del Step 0426 ahora pasan correctamente. Los 6 fallos PPU (Cluster A) quedan para el Step 0428.
+                    </p>
+
+                    <h4>Validación de Módulo Compilado C++</h4>
+                    <p>
+                        ✅ Los tests de <code>test_core_registers.py</code> validan directamente el módulo C++ compilado (<code>viboy_core.PyRegisters</code>), confirmando que el wrapper Cython expone correctamente el Post-Boot State del core nativo.
+                    </p>
+                </section>
+
+                <!-- Archivos Afectados -->
+                <section>
+                    <h3>📁 Archivos Afectados</h3>
+                    <ul>
+                        <li><code>tests/test_core_registers.py</code> - 3 tests actualizados (PC, SP, inicialización)</li>
+                        <li><code>tests/test_cpu_control.py</code> - 1 test actualizado (test_di_ei_sequence)</li>
+                        <li><code>docs/bitacora/entries/2026-01-02__0427__tests-align-postboot-registers-and-ei-delay.html</code> - Nueva entrada</li>
+                        <li><code>docs/bitacora/index.html</code> - Actualizado con nueva entrada</li>
+                        <li><code>docs/informe_fase_2/parte_01_steps_0412_0450.md</code> - Actualizado con Step 0427</li>
+                    </ul>
+                </section>
+
+                <!-- Próximos Pasos -->
+                <section>
+                    <h3>🔜 Próximos Pasos</h3>
+                    <p><strong>Step 0428: Fix PPU Framebuffer Swap (Cluster A)</strong></p>
+                    <ul>
+                        <li>Investigar el bug de swap en <code>renderer.py</code></li>
+                        <li>Verificar que el back buffer tiene píxeles correctos</li>
+                        <li>Corregir la copia back → front al final del frame (LY=144)</li>
+                        <li>Validar los 6 tests PPU (rendering BG + sprites)</li>
+                        <li>Objetivo: 0 fallos en la suite completa (salvo los 4 pre-existentes no relacionados)</li>
+                    </ul>
+                </section>
+
+                <!-- Lecciones Aprendidas -->
+                <section>
+                    <h3>💡 Lecciones Aprendidas</h3>
+                    <ol>
+                        <li><strong>Tests deben reflejar el comportamiento real del core</strong>: Si el core implementa Post-Boot State (hardware-accurate), los tests deben validar ese estado, no asumir zero-init.</li>
+                        <li><strong>Documentar políticas de diseño</strong>: La decisión de usar Post-Boot State por defecto debe estar explícita en tests y documentación.</li>
+                        <li><strong>EI delay es crítico</strong>: El test original asumía activación inmediata de IME, pero el hardware real tiene un delay de 1 instrucción. Validar <code>ime_scheduled</code> es esencial.</li>
+                        <li><strong>Evidencia antes de cambios</strong>: Leer el código del core (solo lectura) antes de modificar tests asegura que los cambios son correctos y no inventados.</li>
+                        <li><strong>Triage previo es valioso</strong>: El Step 0426 identificó correctamente los 3 clusters, permitiendo un fix atómico y ordenado (foundation-first).</li>
+                    </ol>
+                </section>
+
+                <!-- Referencias -->
+                <section>
+                    <h3>📚 Referencias</h3>
+                    <ul>
+                        <li><strong>Pan Docs</strong> - Power Up Sequence (Post-Boot State DMG/CGB)</li>
+                        <li><strong>Pan Docs</strong> - CPU Instruction Set (EI behavior, delay de 1 instrucción)</li>
+                        <li><code>src/core/cpp/Registers.cpp:24-47</code> - Constructor con Post-Boot State</li>
+                        <li><code>src/cpu/core.py:2382-2408</code> - Implementación de EI con delay</li>
+                        <li><code>src/cpu/core.py:585-588</code> - Activación de IME en step()</li>
+                        <li><strong>Step 0426</strong> - Triage y clustering de los 10 fallos</li>
+                    </ul>
+                </section>
+            </article>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>&copy; 2025 Viboy Color - Proyecto Educativo Open Source</p>
+        </footer>
+    </div>
+</body>
+</html>
+
