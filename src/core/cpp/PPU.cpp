@@ -1300,8 +1300,17 @@ bool PPU::get_frame_ready_and_reset() {
 }
 
 uint8_t* PPU::get_framebuffer_ptr() {
+    // --- Step 0428: Present automático si hay swap pendiente ---
+    // Si hay contenido renderizado en el back buffer que no se ha presentado,
+    // hacemos el swap automáticamente para que los tests (y el emulador) vean el contenido actualizado
+    if (framebuffer_swap_pending_) {
+        swap_framebuffers();
+        framebuffer_swap_pending_ = false;
+    }
+    // -------------------------------------------
+    
     // --- Step 0364: Doble Buffering ---
-    // Devolver el buffer front (estable, no se modifica durante la lectura)
+    // Devolver el buffer front (estable, actualizado con el contenido más reciente)
     return framebuffer_front_.data();
 }
 
@@ -3923,6 +3932,13 @@ void PPU::render_scanline() {
             printf("\n");
         }
     }
+    // -------------------------------------------
+    
+    // --- Step 0428: Marcar buffer pendiente de swap después de renderizar ---
+    // Cada línea renderizada marca el framebuffer_back_ como pendiente de presentación
+    // Esto asegura que los tests (y el emulador) puedan leer el contenido actualizado
+    // mediante get_framebuffer_ptr(), que hará el swap automáticamente si este flag está activo
+    framebuffer_swap_pending_ = true;
     // -------------------------------------------
     
     // --- Step 0363: Diagnóstico de Rendimiento (fin) ---
