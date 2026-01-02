@@ -587,20 +587,6 @@ class CPU:
             self.ime_scheduled = False
             logger.debug("IME activado después de EI (retraso de 1 instrucción)")
         
-        # Verificar estado HALT (antes de comprobar interrupciones)
-        # Si estamos en HALT, consumir 1 ciclo y comprobar interrupciones
-        if self.halted:
-            # CPU en HALT, esperando interrupciones
-            # Consumir 1 ciclo (espera activa) y comprobar interrupciones
-            # handle_interrupts() despertará la CPU si hay interrupciones pendientes
-            interrupt_cycles = self.handle_interrupts()
-            # Si se procesó una interrupción, sumar los ciclos adicionales y retornar
-            if interrupt_cycles > 0:
-                return 1 + interrupt_cycles
-            # Si no se procesó interrupción pero despertó (IME desactivado),
-            # continuar ejecutando la instrucción normalmente (comportamiento del hardware)
-            # NOTA: handle_interrupts() ya despertó la CPU si había interrupciones pendientes
-        
         # Manejar interrupciones AL PRINCIPIO (antes de ejecutar cualquier instrucción)
         # Esto simula el comportamiento correcto del hardware: la CPU comprueba interrupciones
         # entre cada instrucción, antes del fetch del siguiente opcode.
@@ -609,6 +595,15 @@ class CPU:
             # Si se procesó una interrupción, la CPU gastó 5 ciclos saltando al vector.
             # No ejecutamos la instrucción normal, retornamos inmediatamente.
             return interrupt_cycles
+        
+        # Verificar estado HALT (DESPUÉS de comprobar interrupciones)
+        # Si estamos en HALT y no se procesó interrupción, consumir 1 ciclo y retornar
+        # SIN avanzar PC (el PC NO debe avanzar durante HALT).
+        if self.halted:
+            # CPU en HALT, esperando interrupciones
+            # Consumir 1 ciclo (espera activa) y retornar SIN ejecutar fetch
+            # handle_interrupts() ya verificó si hay interrupciones y despertó si era necesario
+            return 1
         
         # Fetch: leer opcode
         opcode = self.fetch_byte()
