@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0462 - Hotfix os Shadowing + Test Anti-Regresión -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-03__0462__hotfix-os-shadowing-test-anti-regresion.html" class="entry-link">
+                                    Hotfix os Shadowing + Test Anti-Regresión
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-03 | 
+                            <strong>Step ID:</strong> 0462 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección crítica del bug UnboundLocalError: cannot access local variable 'os' que impedía que el emulador arrancara. El bug fue introducido en Step 0461 por un import os redundante dentro de run() que shadoweaba el os importado a nivel de módulo. Solución: Eliminación del import redundante. Test anti-regresión añadido (4 tests) para detectar este tipo de bugs antes del push. Resultado: ✅ El emulador arranca correctamente. Tests: 4/4 pasan.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0461 - Inventario Debug Injection y Kill-Switch -->
                     <li>
                         <div class="entry-header">

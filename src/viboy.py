@@ -774,7 +774,7 @@ class Viboy:
         
         # --- Step 0393: Toggle de trazas via variable de entorno ---
         # VBC_TRACE=1 activa trazas, por defecto desactivadas para rendimiento
-        import os
+        # Step 0462: Eliminado import os redundante (ya importado a nivel de módulo línea 28)
         ENABLE_DEBUG_LOGS = os.getenv('VBC_TRACE', '0') == '1'
         # ------------------------------------------------------------------------------------
         
