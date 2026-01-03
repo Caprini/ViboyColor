@@ -59,4 +59,10 @@ cdef extern from "PPU.hpp":
         const uint8_t* get_last_tile_bytes_read() const
         bool get_last_tile_bytes_valid() const
         uint16_t get_last_tile_addr_read() const
+        # Step 0459: Debug - Samples del pipeline idx→shade→rgb
+        const uint8_t* get_last_idx_samples() const
+        const uint8_t* get_last_shade_samples() const
+        const uint8_t* get_last_rgb_samples() const
+        int get_last_convert_sample_count() const
+        uint8_t get_last_bgp_used_debug() const
 

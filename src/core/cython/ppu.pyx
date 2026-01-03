@@ -314,6 +314,50 @@ cdef class PyPPU:
         except:
             return None
     
+    def get_last_dmg_convert_samples(self):
+        """
+        Step 0459: Debug API para tests - Obtiene samples del pipeline idx→shade→rgb.
+        
+        Devuelve samples del pipeline de conversión (solo debug, requiere VIBOY_DEBUG_PPU).
+        
+        Returns:
+            dict con 'idx', 'shade', 'rgb' (listas), 'count', 'bgp_used' o None si no disponible
+        """
+        if self._ppu == NULL:
+            return None
+        
+        cdef const uint8_t* idx_ptr
+        cdef const uint8_t* shade_ptr
+        cdef const uint8_t* rgb_ptr
+        cdef int count
+        cdef uint8_t bgp
+        
+        try:
+            idx_ptr = self._ppu.get_last_idx_samples()
+            shade_ptr = self._ppu.get_last_shade_samples()
+            rgb_ptr = self._ppu.get_last_rgb_samples()
+            count = self._ppu.get_last_convert_sample_count()
+            bgp = self._ppu.get_last_bgp_used_debug()
+            
+            if idx_ptr == NULL or shade_ptr == NULL or rgb_ptr == NULL:
+                return None
+            
+            idx_list = [idx_ptr[i] for i in range(count)]
+            shade_list = [shade_ptr[i] for i in range(count)]
+            rgb_list = []
+            for i in range(count):
+                rgb_list.append((rgb_ptr[i*3], rgb_ptr[i*3+1], rgb_ptr[i*3+2]))
+            
+            return {
+                'idx': idx_list,
+                'shade': shade_list,
+                'rgb': rgb_list,
+                'count': count,
+                'bgp_used': bgp
+            }
+        except:
+            return None
+    
     @property
     def framebuffer(self):
         """

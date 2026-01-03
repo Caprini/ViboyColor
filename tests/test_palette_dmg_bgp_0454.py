@@ -156,6 +156,44 @@ def test_dmg_bgp_palette_mapping():
     # Si esto pasa pero RGB sigue plano → bug de conversión o escritura RGB
     # -------------------------------------------
     
+    # --- Step 0459: Verificar pipeline idx→shade→rgb ---
+    samples = ppu.get_last_dmg_convert_samples()
+    if samples:
+        idx_samples = samples['idx'][:8]  # Primeros 8
+        shade_samples = samples['shade'][:8]
+        rgb_samples = samples['rgb'][:8]
+        bgp_used = samples['bgp_used']
+        
+        print(f"[TEST-PIPELINE] BGP usado: 0x{bgp_used:02X}")
+        print(f"[TEST-PIPELINE] Primeros 8 píxeles:")
+        print(f"  idx:   {idx_samples}")
+        print(f"  shade: {shade_samples}")
+        print(f"  rgb:   {rgb_samples}")
+        
+        # Assert: idx_samples contiene 0,1,2,3 en los primeros 8
+        unique_idx = set(idx_samples)
+        assert unique_idx == {0, 1, 2, 3}, \
+            f"Índices no contienen {{0,1,2,3}}: {unique_idx}"
+        
+        # Assert: con BGP=0xE4, shade_samples debe tener ≥3 valores distintos
+        # BGP=0xE4 = 0b11100100 → mapea idx 0→shade3, 1→shade2, 2→shade1, 3→shade0
+        # Esperamos shade variado (no necesariamente igual a idx, pero sí {0,1,2,3})
+        unique_shade = set(shade_samples)
+        assert len(unique_shade) >= 3, \
+            f"Shade colapsa: solo {unique_shade} únicos (esperado ≥3). " \
+            f"Si colapsa aquí → bug en dmg_apply_palette()."
+        
+        # Assert: rgb produce ≥3 valores distintos
+        unique_rgb = set(rgb_samples)
+        assert len(unique_rgb) >= 3, \
+            f"RGB colapsa: solo {len(unique_rgb)} colores únicos (esperado ≥3). " \
+            f"Si shade ok pero RGB colapsa → bug en shade_to_rgb() o escritura."
+        
+        print(f"✅ Pipeline OK: idx={len(unique_idx)} únicos, "
+              f"shade={len(unique_shade)} únicos, rgb={len(unique_rgb)} únicos")
+    else:
+        print("[TEST-PIPELINE] Samples no disponibles (VIBOY_DEBUG_PPU no activo)")
+    
     # --- Step 0457: Verificar paleta reg usado ---
     pal_regs = ppu.get_last_palette_regs_used()
     if pal_regs:

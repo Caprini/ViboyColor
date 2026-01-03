@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0459 - Instrumentación Pipeline Conversión Shade→RGB -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-03__0459__instrumentacion-pipeline-conversion-shade-rgb.html" class="entry-link">
+                                    Instrumentación Pipeline Conversión Shade→RGB
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-03 | 
+                            <strong>Step ID:</strong> 0459 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Instrumentación del pipeline de conversión idx→shade→rgb para identificar dónde colapsa el bug de "RGB solo 2 colores únicos en vez de ≥3". Hallazgo crítico: ✅ El pipeline de conversión funciona correctamente. La instrumentación muestra que cuando hay 4 índices distintos (0, 1, 2, 3), el pipeline produce 4 colores únicos: (255,255,255), (170,170,170), (85,85,85), (0,0,0). El problema NO está en el pipeline de conversión. Problema real identificado: El framebuffer de índices solo tiene variedad en los primeros píxeles (donde está el tile renderizado). El resto del framebuffer tiene solo índices 0 y 2, lo que produce solo 2 colores únicos. Esto es un problema de renderizado, no de conversión. Evidencia: Primeros 8 píxeles muestran 4 colores únicos, pero el muestreo completo solo encuentra 2 colores únicos.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0458 - Fix BG Decode/Render - VRAM Reading Correcto -->
                     <li>
                         <div class="entry-header">

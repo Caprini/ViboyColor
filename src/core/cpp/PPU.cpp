@@ -34,9 +34,19 @@ PPU::PPU(MMU* mmu)
     , first_nonzero_color_idx_value_(0)         // Step 0458: Inicializar valor de índice no-cero
     , last_tile_bytes_valid_(false)             // Step 0458: Inicializar flag de bytes válidos
     , last_tile_addr_read_(0)                    // Step 0458: Inicializar dirección leída
+    , last_convert_sample_count_(0)             // Step 0459: Inicializar contador de samples
+    , last_bgp_used_debug_(0)                   // Step 0459: Inicializar BGP usado en debug
 {
     last_tile_bytes_read_[0] = 0;
     last_tile_bytes_read_[1] = 0;
+    // Step 0459: Inicializar arrays de samples a 0
+    for (int i = 0; i < MAX_CONVERT_SAMPLES; i++) {
+        last_idx_samples_[i] = 0;
+        last_shade_samples_[i] = 0;
+        last_rgb_samples_[i][0] = 0;
+        last_rgb_samples_[i][1] = 0;
+        last_rgb_samples_[i][2] = 0;
+    }
 #else
 {
 #endif
@@ -5399,6 +5409,12 @@ void PPU::convert_framebuffer_to_rgb() {
         last_obp0_used_ = obp0;
         last_obp1_used_ = obp1;
         
+        // --- Step 0459: Inicializar samples del pipeline ---
+#ifdef VIBOY_DEBUG_PPU
+        last_bgp_used_debug_ = bgp;
+        last_convert_sample_count_ = 0;
+#endif
+        
         // --- Step 0455: Debug - Verificar contenido del framebuffer ---
         static int convert_debug_count = 0;
         if (convert_debug_count < 5) {
@@ -5433,6 +5449,18 @@ void PPU::convert_framebuffer_to_rgb() {
                 framebuffer_rgb_front_[rgb_idx] = r;
                 framebuffer_rgb_front_[rgb_idx + 1] = g;
                 framebuffer_rgb_front_[rgb_idx + 2] = b;
+                
+                // --- Step 0459: Capturar samples (solo primeros N píxeles) ---
+#ifdef VIBOY_DEBUG_PPU
+                if (last_convert_sample_count_ < MAX_CONVERT_SAMPLES) {
+                    last_idx_samples_[last_convert_sample_count_] = color_idx;
+                    last_shade_samples_[last_convert_sample_count_] = shade;
+                    last_rgb_samples_[last_convert_sample_count_][0] = r;
+                    last_rgb_samples_[last_convert_sample_count_][1] = g;
+                    last_rgb_samples_[last_convert_sample_count_][2] = b;
+                    last_convert_sample_count_++;
+                }
+#endif
             }
         }
         

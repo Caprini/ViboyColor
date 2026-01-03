@@ -283,6 +283,15 @@ public:
     const uint8_t* get_last_tile_bytes_read() const { return last_tile_bytes_read_; }
     bool get_last_tile_bytes_valid() const { return last_tile_bytes_valid_; }
     uint16_t get_last_tile_addr_read() const { return last_tile_addr_read_; }
+    
+    /**
+     * Step 0459: Debug - Getters para samples del pipeline idx→shade→rgb.
+     */
+    const uint8_t* get_last_idx_samples() const { return last_idx_samples_; }
+    const uint8_t* get_last_shade_samples() const { return last_shade_samples_; }
+    const uint8_t* get_last_rgb_samples() const { return reinterpret_cast<const uint8_t*>(last_rgb_samples_); }
+    int get_last_convert_sample_count() const { return last_convert_sample_count_; }
+    uint8_t get_last_bgp_used_debug() const { return last_bgp_used_debug_; }
 #endif
     
     /**
@@ -657,6 +666,17 @@ private:
     mutable uint8_t last_tile_bytes_read_[2];  // Últimos 2 bytes leídos del tile
     mutable bool last_tile_bytes_valid_;
     mutable uint16_t last_tile_addr_read_;
+    
+    /**
+     * Step 0459: Debug - Samples del pipeline idx→shade→rgb.
+     * Captura los primeros N píxeles del pipeline de conversión para diagnóstico.
+     */
+    static constexpr int MAX_CONVERT_SAMPLES = 32;
+    mutable uint8_t last_idx_samples_[MAX_CONVERT_SAMPLES];
+    mutable uint8_t last_shade_samples_[MAX_CONVERT_SAMPLES];
+    mutable uint8_t last_rgb_samples_[MAX_CONVERT_SAMPLES][3];  // R, G, B
+    mutable int last_convert_sample_count_;
+    mutable uint8_t last_bgp_used_debug_;  // BGP usado en última conversión (duplicado para debug)
 #endif
 };
 
