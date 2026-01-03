@@ -29,8 +29,21 @@ def test_dmg_bgp_palette_mapping():
     regs.pc = 0x0100
     regs.sp = 0xFFFE
     
-    # Encender LCD
-    mmu.write(0xFF40, 0x91)  # LCDC: LCD ON, BG ON, Tile Data 0x8000
+    # --- Step 0458: C - Configurar LCDC explícitamente ---
+    # LCDC bit 7 = LCD ON
+    # LCDC bit 0 = BG ON
+    # LCDC bit 4 = Tile Data Table (1 = 0x8000, 0 = 0x8800)
+    # LCDC bit 3 = BG Tile Map (1 = 0x9C00, 0 = 0x9800)
+    lcdc_value = 0x91  # 0b10010001 = LCD ON, BG ON, Tile Data 0x8000, Tile Map 0x9800
+    mmu.write(0xFF40, lcdc_value)
+    
+    # Verificar que LCDC se escribió correctamente
+    lcdc_read = mmu.read(0xFF40)
+    assert lcdc_read == lcdc_value, \
+        f"LCDC no se escribió correctamente: escrito 0x{lcdc_value:02X}, leído 0x{lcdc_read:02X}"
+    
+    print(f"[TEST-LCDC] LCDC configurado: 0x{lcdc_value:02X} "
+          f"(LCD ON, BG ON, Tile Data 0x8000, Tile Map 0x9800)")
     
     # --- Step 0456: FIX - Usar patrón que garantiza 0/1/2/3 ---
     # Patrón 0x55/0x33 genera índices: [0, 1, 2, 3, 0, 1, 2, 3]
@@ -52,6 +65,17 @@ def test_dmg_bgp_palette_mapping():
     for i, byte_val in enumerate(tile_data):
         mmu.write(0x8000 + i, byte_val)
     
+    # --- Step 0458: A2 - Roundtrip lectura VRAM ---
+    # Leer desde MMU en Python para asegurar que VRAM contiene 0x55/0x33
+    vram_bytes_read = []
+    for i in [0, 1]:  # Primeros 2 bytes (fila 0)
+        vram_bytes_read.append(mmu.read(0x8000 + i))
+    
+    print(f"[TEST-VRAM-ROUNDTRIP] Escrito: [0x55, 0x33], Leído desde MMU: {[hex(b) for b in vram_bytes_read]}")
+    
+    assert vram_bytes_read[0] == 0x55 and vram_bytes_read[1] == 0x33, \
+        f"VRAM roundtrip falló: escrito [0x55,0x33], leído {vram_bytes_read}"
+    
     # Colocar tile en BG tilemap (0x9800)
     mmu.write(0x9800, 0x00)  # Tile 0 en posición (0,0)
     
@@ -64,6 +88,49 @@ def test_dmg_bgp_palette_mapping():
     for _ in range(cycles_per_frame // 4):  # CPU steps en M-cycles
         m_cycles = cpu.step()
         ppu.step(m_cycles * 4)  # PPU en T-cycles
+    
+    # --- Step 0458: Forzar swap de framebuffers antes de leer ---
+    # El swap se hace en get_frame_ready_and_reset(), pero el test necesita leer el framebuffer
+    # después de que se complete el frame. Llamar a get_frame_ready_and_reset() para hacer el swap.
+    frame_ready = ppu.get_frame_ready_and_reset()
+    if not frame_ready:
+        # Si no hay frame listo, forzar un frame más para asegurar que se complete
+        for _ in range(cycles_per_frame // 4):
+            m_cycles = cpu.step()
+            ppu.step(m_cycles * 4)
+        frame_ready = ppu.get_frame_ready_and_reset()
+    
+    # --- Step 0458: A1 - Verificar que BG render corre ---
+    bg_stats = ppu.get_bg_render_stats()
+    if bg_stats:
+        pixels_written = bg_stats['pixels_written']
+        nonzero_seen = bg_stats['nonzero_seen']
+        nonzero_value = bg_stats['nonzero_value']
+        print(f"[TEST-BG-RENDER] bg_pixels_written={pixels_written}, "
+              f"nonzero_seen={nonzero_seen}, nonzero_value={nonzero_value}")
+        
+        assert pixels_written > 0, \
+            f"BG render no ejecuta: pixels_written=0. " \
+            f"Si es 0 → rutina no corre / BG disabled / early-return."
+    else:
+        print("[TEST-BG-RENDER] Stats no disponibles (VIBOY_DEBUG_PPU no activo)")
+    
+    # --- Step 0458: A2 - Verificar bytes VRAM leídos por PPU ---
+    tile_bytes_info = ppu.get_last_tile_bytes_read_info()
+    if tile_bytes_info:
+        bytes_read = tile_bytes_info['bytes']
+        addr_read = tile_bytes_info['addr']
+        print(f"[TEST-PPU-VRAM-READ] PPU leyó desde addr 0x{addr_read:04X}: "
+              f"[0x{bytes_read[0]:02X}, 0x{bytes_read[1]:02X}]")
+        
+        # Comparar con esperado
+        if bytes_read[0] != 0x55 or bytes_read[1] != 0x33:
+            print(f"⚠️ PPU lee bytes incorrectos: esperado [0x55,0x33], "
+                  f"obtenido [0x{bytes_read[0]:02X},0x{bytes_read[1]:02X}]")
+            print(f"   Si test escribió 0x55/0x33 pero PPU ve 0x00/0x00 → "
+                  f"PPU está leyendo del sitio incorrecto.")
+    else:
+        print("[TEST-PPU-VRAM-READ] Info no disponible (VIBOY_DEBUG_PPU no activo)")
     
     # --- Step 0457: Sanity assert - Verificar índices antes de mirar RGB ---
     indices_buffer = ppu.get_framebuffer_indices()

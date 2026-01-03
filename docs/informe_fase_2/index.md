@@ -16,11 +16,11 @@ Este informe ha sido dividido en varias partes para facilitar la legibilidad y e
 
 ## Partes del Informe
 
-### Parte 1: Steps 412 - 456
+### Parte 1: Steps 412 - 458
 
 - **Archivo**: [parte_01_steps_0412_0450.md](parte_01_steps_0412_0450.md)
-- **Rango de Steps**: 412 a 456
-- **Número de Steps**: 15 (actualmente hasta 456)
+- **Rango de Steps**: 412 a 458
+- **Número de Steps**: 17 (actualmente hasta 458)
 - **Líneas**: ~2000
 
 ### Parte 0: Steps 370 - 411

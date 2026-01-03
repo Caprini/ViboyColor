@@ -267,6 +267,53 @@ cdef class PyPPU:
         except:
             return None
     
+    def get_bg_render_stats(self):
+        """
+        Step 0458: Debug API para tests - Obtiene estadísticas de renderizado BG.
+        
+        Devuelve estadísticas de renderizado BG (solo debug, requiere VIBOY_DEBUG_PPU).
+        
+        Returns:
+            dict con 'pixels_written', 'nonzero_seen', 'nonzero_value' o None si no disponible
+        """
+        if self._ppu == NULL:
+            return None
+        
+        try:
+            return {
+                'pixels_written': self._ppu.get_bg_pixels_written_count(),
+                'nonzero_seen': self._ppu.get_first_nonzero_color_idx_seen(),
+                'nonzero_value': self._ppu.get_first_nonzero_color_idx_value()
+            }
+        except:
+            return None
+    
+    def get_last_tile_bytes_read_info(self):
+        """
+        Step 0458: Debug API para tests - Obtiene información de bytes VRAM leídos.
+        
+        Devuelve información de los últimos bytes VRAM leídos por el PPU.
+        
+        Returns:
+            dict con 'bytes' (array de 2 bytes), 'addr', 'valid' o None si no disponible
+        """
+        if self._ppu == NULL:
+            return None
+        
+        cdef const uint8_t* bytes_ptr
+        try:
+            bytes_ptr = self._ppu.get_last_tile_bytes_read()
+            if bytes_ptr == NULL:
+                return None
+            
+            return {
+                'bytes': [bytes_ptr[0], bytes_ptr[1]],
+                'addr': self._ppu.get_last_tile_addr_read(),
+                'valid': self._ppu.get_last_tile_bytes_valid()
+            }
+        except:
+            return None
+    
     @property
     def framebuffer(self):
         """

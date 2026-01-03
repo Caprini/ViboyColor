@@ -347,6 +347,43 @@ public:
     uint8_t read_raw(uint16_t addr) const;
     
     /**
+     * Step 0458: Método rápido para lectura VRAM desde PPU.
+     * 
+     * Lee desde los bancos VRAM (vram_bank0_/vram_bank1_) sin restricciones
+     * de modo PPU. El PPU necesita acceso directo a VRAM durante el renderizado.
+     * 
+     * @param addr Dirección VRAM (0x8000-0x9FFF)
+     * @return Byte leído del banco VRAM correspondiente
+     */
+    inline uint8_t read_vram(uint16_t addr) const {
+        // Valida 0x8000-0x9FFF
+        if (addr < 0x8000 || addr > 0x9FFF) {
+            return 0xFF;  // Fuera de rango
+        }
+        
+        // Calcular offset dentro del bank
+        uint16_t offset = addr - 0x8000;
+        
+        // Por defecto usar bank 0 (DMG siempre usa bank 0)
+        // TODO: En CGB, el PPU puede necesitar leer de ambos bancos simultáneamente
+        // (bank 0 para tile data, bank 1 para atributos)
+        uint8_t bank = 0;  // Por defecto bank 0 (DMG)
+        
+        // Leer desde vram_bank0_ o vram_bank1_
+        if (bank == 0) {
+            if (offset < vram_bank0_.size()) {
+                return vram_bank0_[offset];
+            }
+        } else if (bank == 1) {
+            if (offset < vram_bank1_.size()) {
+                return vram_bank1_[offset];
+            }
+        }
+        
+        return 0xFF;  // Fuera de rango del bank
+    }
+    
+    /**
      * Step 0450: Dump raw memory range for fast sampling.
      * 
      * WARNING: Only for diagnostics, bypasses restrictions.

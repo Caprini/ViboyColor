@@ -28,7 +28,18 @@ PPU::PPU(MMU* mmu)
     , vram_progression_tiledata_threshold_(-1)  // Step 0400: Sin threshold detectado
     , vram_progression_tilemap_threshold_(-1)   // Step 0400: Sin threshold detectado
     , vram_progression_unique_tiles_threshold_(-1)  // Step 0400: Sin threshold detectado
+#ifdef VIBOY_DEBUG_PPU
+    , bg_pixels_written_count_(0)              // Step 0458: Inicializar contador de píxeles BG
+    , first_nonzero_color_idx_seen_(false)      // Step 0458: Inicializar flag de índice no-cero
+    , first_nonzero_color_idx_value_(0)         // Step 0458: Inicializar valor de índice no-cero
+    , last_tile_bytes_valid_(false)             // Step 0458: Inicializar flag de bytes válidos
+    , last_tile_addr_read_(0)                    // Step 0458: Inicializar dirección leída
 {
+    last_tile_bytes_read_[0] = 0;
+    last_tile_bytes_read_[1] = 0;
+#else
+{
+#endif
     // --- Step 0364: Doble Buffering ---
     // Con doble buffering, los buffers ya están inicializados a 0 en la lista de inicializadores.
     // No necesitamos llamar a clear_framebuffer() aquí porque los buffers ya están limpios.
@@ -3301,6 +3312,16 @@ void PPU::render_scanline() {
             }
             // -------------------------------------------
             
+            // --- Step 0458: A2 - Capturar bytes leídos (solo en LY=0, X=0, primer frame) ---
+#ifdef VIBOY_DEBUG_PPU
+            if (frame_counter_ == 0 && ly_ == 0 && x == 0) {
+                last_tile_bytes_read_[0] = byte1;
+                last_tile_bytes_read_[1] = byte2;
+                last_tile_addr_read_ = tile_line_addr;
+                last_tile_bytes_valid_ = true;
+            }
+#endif
+            
             uint8_t bit_index = 7 - (map_x % 8);
             uint8_t bit_low = (byte1 >> bit_index) & 1;
             uint8_t bit_high = (byte2 >> bit_index) & 1;
@@ -3398,6 +3419,17 @@ void PPU::render_scanline() {
             // -------------------------------------------
             
             framebuffer_back_[line_start_index + x] = final_color;
+            
+            // --- Step 0458: A1 - Contadores de debug (solo en primer frame) ---
+#ifdef VIBOY_DEBUG_PPU
+            if (frame_counter_ == 0) {
+                bg_pixels_written_count_++;
+                if (final_color != 0 && !first_nonzero_color_idx_seen_) {
+                    first_nonzero_color_idx_seen_ = true;
+                    first_nonzero_color_idx_value_ = final_color;
+                }
+            }
+#endif
             
             // --- Step 0366: Verificación de Escritura Real al Framebuffer Back ---
             static int write_verify_count = 0;
@@ -4089,7 +4121,8 @@ void PPU::render_bg() {
         
         // Obtener tile ID del tilemap (32x32 tiles = 1024 bytes)
         uint16_t tilemap_addr = map_base + (tile_y * 32 + tile_x);
-        uint8_t tile_id = mmu_->read(tilemap_addr);
+        // --- Step 0458: Usar read_vram() para leer tilemap desde bancos VRAM correctos ---
+        uint8_t tile_id = mmu_->read_vram(tilemap_addr);
         
         // Decodificar el tile solo si cambió (optimización: cachear por tile)
         if (tile_id != cached_tile_id || pixel_in_tile == 0) {
@@ -4112,6 +4145,17 @@ void PPU::render_bg() {
         // Escribir el índice de color en el framebuffer (0-3)
         uint8_t color_idx = cached_tile_line[pixel_in_tile];
         framebuffer_line[screen_x] = color_idx;
+        
+        // --- Step 0458: A1 - Contadores de debug (solo en primer frame) ---
+#ifdef VIBOY_DEBUG_PPU
+        if (frame_counter_ == 0) {
+            bg_pixels_written_count_++;
+            if (color_idx != 0 && !first_nonzero_color_idx_seen_) {
+                first_nonzero_color_idx_seen_ = true;
+                first_nonzero_color_idx_value_ = color_idx;
+            }
+        }
+#endif
     }
 }
 
@@ -4181,7 +4225,8 @@ void PPU::render_window() {
         
         // Obtener tile ID del tilemap de la Window (32x32 tiles = 1024 bytes)
         uint16_t tilemap_addr = map_base + (tile_y * 32 + tile_x);
-        uint8_t tile_id = mmu_->read(tilemap_addr);
+        // --- Step 0458: Usar read_vram() para leer tilemap desde bancos VRAM correctos ---
+        uint8_t tile_id = mmu_->read_vram(tilemap_addr);
         
         // Calcular dirección del tile en VRAM
         uint16_t tile_addr;
@@ -4200,8 +4245,9 @@ void PPU::render_window() {
         // Verificar que la dirección esté en VRAM válida
         if (tile_line_addr >= 0x8000 && tile_line_addr <= 0x9FFE) {
             // Leer los 2 bytes que representan la línea del tile (formato 2bpp)
-            uint8_t byte1 = mmu_->read(tile_line_addr);
-            uint8_t byte2 = mmu_->read(tile_line_addr + 1);
+            // --- Step 0458: Usar read_vram() para leer desde bancos VRAM correctos ---
+            uint8_t byte1 = mmu_->read_vram(tile_line_addr);
+            uint8_t byte2 = mmu_->read_vram(tile_line_addr + 1);
             
             // Decodificar el píxel específico dentro del tile
             uint8_t bit_index = 7 - pixel_in_tile;
@@ -4236,8 +4282,9 @@ void PPU::decode_tile_line(uint16_t tile_addr, uint8_t line, uint8_t* output) {
     // Byte 1: Bits bajos de cada píxel (bit 7 = píxel 0, bit 6 = píxel 1, ...)
     // Byte 2: Bits altos de cada píxel (bit 7 = píxel 0, bit 6 = píxel 1, ...)
     uint16_t line_addr = tile_addr + (line * 2);
-    uint8_t byte_low = mmu_->read(line_addr);
-    uint8_t byte_high = mmu_->read(line_addr + 1);
+    // --- Step 0458: Usar read_vram() para leer desde bancos VRAM correctos ---
+            uint8_t byte_low = mmu_->read_vram(line_addr);
+            uint8_t byte_high = mmu_->read_vram(line_addr + 1);
     
     // Decodificar 8 píxeles: color = (bit_alto << 1) | bit_bajo
     for (uint8_t i = 0; i < 8; i++) {

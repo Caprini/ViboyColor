@@ -52,4 +52,11 @@ cdef extern from "PPU.hpp":
         uint8_t get_last_bgp_used() const  # Step 0457: Debug - Paleta reg usado
         uint8_t get_last_obp0_used() const  # Step 0457: Debug - Paleta reg usado
         uint8_t get_last_obp1_used() const  # Step 0457: Debug - Paleta reg usado
+        # Step 0458: Debug - Estadísticas de renderizado BG
+        int get_bg_pixels_written_count() const
+        bool get_first_nonzero_color_idx_seen() const
+        uint8_t get_first_nonzero_color_idx_value() const
+        const uint8_t* get_last_tile_bytes_read() const
+        bool get_last_tile_bytes_valid() const
+        uint16_t get_last_tile_addr_read() const
 

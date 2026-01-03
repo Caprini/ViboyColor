@@ -274,6 +274,18 @@ public:
     uint8_t get_last_obp1_used() const { return last_obp1_used_; }
     
     /**
+     * Step 0458: Debug - Getters para estadísticas de renderizado BG.
+     */
+#ifdef VIBOY_DEBUG_PPU
+    int get_bg_pixels_written_count() const { return bg_pixels_written_count_; }
+    bool get_first_nonzero_color_idx_seen() const { return first_nonzero_color_idx_seen_; }
+    uint8_t get_first_nonzero_color_idx_value() const { return first_nonzero_color_idx_value_; }
+    const uint8_t* get_last_tile_bytes_read() const { return last_tile_bytes_read_; }
+    bool get_last_tile_bytes_valid() const { return last_tile_bytes_valid_; }
+    uint16_t get_last_tile_addr_read() const { return last_tile_addr_read_; }
+#endif
+    
+    /**
      * Limpia el framebuffer, estableciendo todos los píxeles a índice 0 (blanco por defecto).
      * 
      * Este método debe llamarse al inicio de cada fotograma para asegurar que el
@@ -634,6 +646,18 @@ private:
     mutable uint8_t last_bgp_used_;   // BGP usado en última conversión
     mutable uint8_t last_obp0_used_;   // OBP0 usado en última conversión
     mutable uint8_t last_obp1_used_;  // OBP1 usado en última conversión
+    
+    /**
+     * Step 0458: Debug - Contadores para verificar que BG render ejecuta.
+     */
+#ifdef VIBOY_DEBUG_PPU
+    mutable int bg_pixels_written_count_;
+    mutable bool first_nonzero_color_idx_seen_;
+    mutable uint8_t first_nonzero_color_idx_value_;
+    mutable uint8_t last_tile_bytes_read_[2];  // Últimos 2 bytes leídos del tile
+    mutable bool last_tile_bytes_valid_;
+    mutable uint16_t last_tile_addr_read_;
+#endif
 };
 
 #endif // PPU_HPP

@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0458 - Fix BG Decode/Render - VRAM Reading Correcto -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-03__0458__fix-bg-decode-render-vram-reading.html" class="entry-link">
+                                    Fix BG Decode/Render - VRAM Reading Correcto
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-03 | 
+                            <strong>Step ID:</strong> 0458 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección de la lectura de VRAM en el PPU. El Step 0457 confirmó que el bug NO es la conversión de paleta, sino el decode/render. El problema era que el PPU estaba leyendo VRAM desde memory_[] en lugar de los bancos VRAM correctos (vram_bank0_/vram_bank1_). Implementación de MMU::read_vram() que lee directamente desde los bancos VRAM y modificación del PPU para usarlo. Resultado: El PPU ahora lee bytes VRAM correctos (0x55, 0x33) y los índices se escriben correctamente al framebuffer (0, 1, 2, 3). El bug de "índices todo 0" está resuelto. Evidencia: bg_pixels_written=23040, PPU leyó desde addr 0x8000: [0x55, 0x33], Índices únicos: {0, 1, 2, 3}.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0457 - Aislar si el Bug es "Índices Mal" vs "Paleta/Conversión RGB Mal" -->
                     <li>
                         <div class="entry-header">
