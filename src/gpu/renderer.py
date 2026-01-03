@@ -524,7 +524,7 @@ class Renderer:
         # Actualizar la pantalla
         pygame.display.flip()
 
-    def render_frame(self, framebuffer_data: bytearray | None = None, rgb_view = None) -> None:
+    def render_frame(self, framebuffer_data: bytearray | None = None, rgb_view = None, metrics: dict | None = None) -> None:
         """
         Renderiza un frame completo del Background (fondo) y Window (ventana) de la Game Boy.
         
@@ -537,6 +537,8 @@ class Renderer:
                              un snapshot inmutable del framebuffer (Step 0219).
             rgb_view: Opcional (Step 0406). Si se proporciona, usa este memoryview RGB888
                      directamente (CGB mode). Tamaño esperado: 69120 bytes (160×144×3).
+            metrics: Opcional (Step 0448). Diccionario con métricas del core:
+                    {'pc': int, 'vram_nonzero': int, 'lcdc': int, 'bgp': int, 'ly': int}
         
         Este método implementa el renderizado básico del Background y Window según la configuración
         del registro LCDC (LCD Control, 0xFF40):
@@ -576,22 +578,40 @@ class Renderer:
             nonwhite_sample = 0
             frame_hash_sample = "none"
             
+            # --- Step 0448: Obtener métricas del core (si están disponibles) ---
+            pc = metrics.get('pc', 0) if metrics else 0
+            vram_nonzero = metrics.get('vram_nonzero', 0) if metrics else 0
+            lcdc = metrics.get('lcdc', 0) if metrics else 0
+            bgp = metrics.get('bgp', 0) if metrics else 0
+            ly = metrics.get('ly', 0) if metrics else 0
+            
             if rgb_view is not None:
                 render_path = "cpp_rgb_view"
                 buffer_len = len(rgb_view)
                 buffer_shape = "rgb_view"
-                # Muestrear non-white (1/64 de píxeles)
+                # --- Step 0448: Muestreo serio grid 16×16 = 256 puntos ---
                 try:
                     import numpy as np
                     rgb_array = np.frombuffer(rgb_view, dtype=np.uint8)
                     if len(rgb_array) == 69120:
+                        rgb_array = rgb_array.reshape((GB_HEIGHT, GB_WIDTH, 3))
+                        
+                        # Grid 16×16 = 256 puntos (no 3 píxeles)
                         nonwhite_count = 0
-                        for i in range(0, len(rgb_array), 3 * 64):  # Cada 64º píxel
-                            if i + 2 < len(rgb_array):
-                                r, g, b = rgb_array[i], rgb_array[i+1], rgb_array[i+2]
-                                if r < 200 or g < 200 or b < 200:
-                                    nonwhite_count += 1
-                        nonwhite_sample = nonwhite_count * 64  # Estimación
+                        sample_count = 0
+                        for y in range(0, GB_HEIGHT, GB_HEIGHT // 16):  # 16 filas
+                            for x in range(0, GB_WIDTH, GB_WIDTH // 16):  # 16 columnas
+                                if y < GB_HEIGHT and x < GB_WIDTH:
+                                    r = rgb_array[y, x, 0]
+                                    g = rgb_array[y, x, 1]
+                                    b = rgb_array[y, x, 2]
+                                    if r < 200 or g < 200 or b < 200:
+                                        nonwhite_count += 1
+                                    sample_count += 1
+                        
+                        # Estimación: multiplicar por densidad (69120 / sample_count)
+                        nonwhite_sample = int((nonwhite_count / sample_count) * (GB_WIDTH * GB_HEIGHT)) if sample_count > 0 else 0
+                        
                         # Hash de muestra (primeros 1000 bytes)
                         frame_hash_sample = hashlib.md5(rgb_view[:min(1000, len(rgb_view))]).hexdigest()[:8]
                 except:
@@ -620,10 +640,11 @@ class Renderer:
             }
             self._path_log_frames.append(log_entry)
             
-            print(f"[UI-PATH] Frame {self._path_log_count} | "
-                  f"Path={render_path} | Len={buffer_len} | Shape={buffer_shape} | "
-                  f"NonWhite={nonwhite_sample} | Hash={frame_hash_sample} | "
-                  f"Time={frame_time_ms:.2f}ms | FPS={log_entry['fps']:.1f}")
+            # --- Step 0448: Log mejorado con métricas del core ---
+            print(f"[UI-PATH] F{self._path_log_count} | Path={render_path} | "
+                  f"PC={pc:04X} | LCDC={lcdc:02X} | BGP={bgp:02X} | LY={ly:02X} | "
+                  f"VRAMnz={vram_nonzero} | NonWhite={nonwhite_sample} | "
+                  f"Hash={frame_hash_sample} | wall={frame_time_ms:.1f}ms")
         
         self._path_log_count += 1
         # -------------------------------------------
@@ -641,13 +662,13 @@ class Renderer:
                 # --- Step 0446: Flag de debug (no asserts permanentes en hot path) ---
                 VIBOY_DEBUG_UI = os.environ.get('VIBOY_DEBUG_UI', '0') == '1'
                 
-                # --- Step 0446: Profiling por etapas (solo si FPS < 30 o en frames loggeados) ---
+                # --- Step 0448: Profiling por etapas (solo si FPS < 30 o en frames loggeados) ---
                 # Calcular si debemos hacer profiling (solo si FPS bajo o en frames loggeados)
                 should_profile = should_log or (hasattr(self, '_last_fps') and self._last_fps < 30)
-                stage_timings = {}
                 
+                # --- Step 0448: Tiempo de inicio del frame completo (wall-clock) ---
                 if should_profile:
-                    total_start = time.time() * 1000
+                    frame_wall_start = time.time() * 1000
                 
                 # Convertir memoryview RGB888 (69120 bytes) a array numpy
                 # C++ genera el buffer como: fb_index = y * SCREEN_WIDTH + x
@@ -730,20 +751,10 @@ class Renderer:
                         logger.warning(f"[UI-DEBUG] Shape después de swapaxes incorrecto: {rgb_array_swapped.shape}")
                 
                 if should_profile:
-                    stage_timings['frombuffer_reshape_swap'] = (time.time() * 1000) - stage_start
+                    frombuffer_ms = (time.time() * 1000) - stage_start
                 
-                # --- Step 0446: Verificación nonwhite antes del blit ---
-                nonwhite_before = 0
-                if should_log:
-                    # Muestrear nonwhite del array antes del blit
-                    for i in range(0, min(len(rgb_array_swapped.ravel()), 69120), 3 * 8):  # Muestra cada 8º píxel
-                        flat = rgb_array_swapped.ravel()
-                        if i + 2 < len(flat):
-                            r, g, b = flat[i], flat[i+1], flat[i+2]
-                            if r < 200 or g < 200 or b < 200:
-                                nonwhite_before += 1
-                    if nonwhite_before > 0:
-                        print(f"[UI-DEBUG] Nonwhite antes del blit: {nonwhite_before * 8} (estimado)")
+                # --- Step 0448: Verificación nonwhite antes del blit (ya calculado en logging) ---
+                # Nonwhite se calcula arriba con grid 16×16, reutilizamos nonwhite_sample
                 
                 # Verificación acotada (máx 10 frames) de 3 píxeles para debug
                 if not hasattr(self, '_rgb_verify_count'):
@@ -769,27 +780,38 @@ class Renderer:
                 pygame.surfarray.blit_array(self.surface, rgb_array_swapped)
                 
                 if should_profile:
-                    stage_timings['blit_array'] = (time.time() * 1000) - stage_start
+                    blit_ms = (time.time() * 1000) - stage_start
                 
-                # --- Step 0446: Verificación nonwhite después del blit ---
+                # --- Step 0448: Verificación nonwhite después del blit con muestreo decente (64 puntos) ---
                 if should_log:
                     try:
-                        # Samplear algunos píxeles de la surface después del blit
-                        sample_positions = [(72, 80), (10, 10), (133, 149)]
+                        # Muestreo decente: grid 8×8 = 64 puntos
                         nonwhite_after = 0
-                        for y, x in sample_positions:
-                            if y < GB_HEIGHT and x < GB_WIDTH:
-                                pixel = self.surface.get_at((x, y))
-                                r, g, b = pixel[0], pixel[1], pixel[2]
-                                if r < 200 or g < 200 or b < 200:
-                                    nonwhite_after += 1
-                        print(f"[UI-DEBUG] Nonwhite después del blit (sample): {nonwhite_after}/{len(sample_positions)}")
+                        sample_positions = []
                         
-                        # Si nonwhite_before > 0 pero nonwhite_after == 0, hay bug de presentación
-                        if nonwhite_before > 0 and nonwhite_after == 0:
-                            logger.error("[UI-DEBUG] ⚠️ Nonwhite se pierde durante blit! Bug de presentación.")
-                    except:
-                        pass
+                        for y_step in range(0, GB_HEIGHT, GB_HEIGHT // 8):  # 8 filas
+                            for x_step in range(0, GB_WIDTH, GB_WIDTH // 8):  # 8 columnas
+                                x = min(x_step, GB_WIDTH - 1)
+                                y = min(y_step, GB_HEIGHT - 1)
+                                sample_positions.append((x, y))
+                        
+                        for x, y in sample_positions:
+                            pixel = self.surface.get_at((x, y))
+                            r, g, b = pixel[0], pixel[1], pixel[2]
+                            if r < 200 or g < 200 or b < 200:
+                                nonwhite_after += 1
+                        
+                        # Estimación total (similar al cálculo de nonwhite_before)
+                        nonwhite_after_total = int((nonwhite_after / len(sample_positions)) * (GB_WIDTH * GB_HEIGHT))
+                        
+                        print(f"[UI-DEBUG] Nonwhite antes del blit: {nonwhite_sample} (grid 16×16) | "
+                              f"después del blit: {nonwhite_after_total} (grid 8×8, {nonwhite_after}/{len(sample_positions)} puntos)")
+                        
+                        # Detectar pérdida significativa
+                        if nonwhite_sample > 1000 and nonwhite_after_total < 100:
+                            logger.warning(f"[UI-DEBUG] ⚠️ Pérdida significativa de nonwhite: {nonwhite_sample} → {nonwhite_after_total}")
+                    except Exception as e:
+                        logger.error(f"[UI-DEBUG] Error en verificación post-blit: {e}")
                 
                 # Etapa 3: escalado y blit a pantalla
                 if should_profile:
@@ -812,7 +834,7 @@ class Renderer:
                         self.screen.blit(self.surface, (0, 0))
                 
                 if should_profile:
-                    stage_timings['scale_blit'] = (time.time() * 1000) - stage_start
+                    scale_blit_ms = (time.time() * 1000) - stage_start
                 
                 # Etapa 4: flip
                 if should_profile:
@@ -821,16 +843,24 @@ class Renderer:
                 pygame.display.flip()
                 
                 if should_profile:
-                    stage_timings['flip'] = (time.time() * 1000) - stage_start
-                    total_time = (time.time() * 1000) - total_start
+                    flip_ms = (time.time() * 1000) - stage_start
                     
-                    # Log profiling (limitado)
+                    # --- Step 0448: Profiling correcto: calcular stages, wall, pacing por separado ---
+                    # Tiempo total del frame (wall-clock)
+                    frame_wall_end = time.time() * 1000
+                    frame_wall_ms = frame_wall_end - frame_wall_start
+                    
+                    # Suma de etapas (solo trabajo de render)
+                    stage_sum_ms = frombuffer_ms + blit_ms + scale_blit_ms + flip_ms
+                    
+                    # Pacing (tiempo de espera/clocks/tick)
+                    pacing_ms = max(0, frame_wall_ms - stage_sum_ms)
+                    
+                    # Log profiling correcto
                     print(f"[UI-PROFILING] Frame {self._path_log_count} | "
-                          f"frombuffer/reshape: {stage_timings.get('frombuffer_reshape_swap', 0):.2f}ms | "
-                          f"blit_array: {stage_timings.get('blit_array', 0):.2f}ms | "
-                          f"scale/blit: {stage_timings.get('scale_blit', 0):.2f}ms | "
-                          f"flip: {stage_timings.get('flip', 0):.2f}ms | "
-                          f"TOTAL: {total_time:.2f}ms")
+                          f"stages={stage_sum_ms:.1f}ms (frombuf={frombuffer_ms:.2f} blit={blit_ms:.2f} "
+                          f"scale={scale_blit_ms:.2f} flip={flip_ms:.2f}) | "
+                          f"wall={frame_wall_ms:.1f}ms | pacing={pacing_ms:.1f}ms")
                 
                 # Guardar FPS para siguiente frame (para decidir si hacer profiling)
                 if should_log:

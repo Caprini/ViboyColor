@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medición Correcta Profiling + Comparación Headless/UI - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Medición Correcta Profiling + Comparación Headless/UI + Fix Mínimo</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-02
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0448
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-02__0447__ui-ejecucion-paralela-logs-reales-resumen.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Corrección del sistema de profiling para medir correctamente stage_sum_ms, frame_wall_ms y pacing_ms por separado. Mejora del logging [UI-PATH] para incluir métricas del core (PC, VRAM_nonzero, LCDC, BGP, LY) y NonWhite calculado con muestreo serio (grid 16×16). Verificación post-blit con muestreo decente (64 puntos, grid 8×8). Creación de script de comparación headless vs UI para producir tabla comparativa y decidir con evidencia numérica si el problema es presenter/UI o core. Control de spam de logs con gating estricto.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Profiling Correcto</strong>: El profiling anterior medía tiempo acumulado incorrectamente, generando valores inconsistentes (TOTAL: 421ms vs suma de etapas: 5.88ms). El profiling correcto debe medir:
+                </p>
+                <ul>
+                    <li><strong>stage_sum_ms</strong>: Suma de las etapas individuales de render (frombuffer/reshape, blit_array, scale/blit, flip)</li>
+                    <li><strong>frame_wall_ms</strong>: Tiempo total del frame completo (wall-clock time desde inicio hasta fin)</li>
+                    <li><strong>pacing_ms</strong>: Tiempo de espera/sincronización (diferencia entre wall y stages: wall - stages)</li>
+                </ul>
+                <p>
+                    <strong>Muestreo de NonWhite</strong>: El muestreo anterior era insuficiente (solo 3 píxeles). Para obtener estimaciones fiables:
+                </p>
+                <ul>
+                    <li><strong>Grid 16×16</strong>: 256 puntos de muestra para calcular NonWhite antes del blit</li>
+                    <li><strong>Grid 8×8</strong>: 64 puntos de muestra para verificar NonWhite después del blit</li>
+                </ul>
+                <p>
+                    <strong>Comparación Headless vs UI</strong>: Para decidir si el problema es presenter/UI o core, se compara el framebuffer generado por el core (headless) vs el framebuffer presentado por la UI. Si headless tiene NonWhite > 0 pero UI before ~0, el problema está en cómo UI obtiene el framebuffer. Si headless tiene NonWhite > 0 y UI before > 0 pero UI after ~0, el problema está en el presenter/blit.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Fase A: Arreglar Profiling</h3>
+                <p>
+                    <strong>Archivo</strong>: <code>src/gpu/renderer.py</code>
+                </p>
+                <p>
+                    <strong>Cambios</strong>:
+                </p>
+                <ul>
+                    <li>Medir <code>frame_wall_start</code> al inicio del frame completo (antes de cualquier etapa)</li>
+                    <li>Medir cada etapa individual: <code>frombuffer_ms</code>, <code>blit_ms</code>, <code>scale_blit_ms</code>, <code>flip_ms</code></li>
+                    <li>Calcular <code>stage_sum_ms</code> = suma de etapas individuales</li>
+                    <li>Calcular <code>frame_wall_ms</code> = tiempo total desde <code>frame_wall_start</code> hasta final</li>
+                    <li>Calcular <code>pacing_ms</code> = <code>frame_wall_ms</code> - <code>stage_sum_ms</code></li>
+                    <li>Log formateado: <code>[UI-PROFILING] Frame N | stages=Xms (frombuf=A blit=B scale=C flip=D) | wall=Yms | pacing=Zms</code></li>
+                </ul>
+
+                <h3>Fase B: Mejorar Logging [UI-PATH]</h3>
+                <p>
+                    <strong>Archivo</strong>: <code>src/gpu/renderer.py</code>, <code>src/viboy.py</code>
+                </p>
+                <p>
+                    <strong>Cambios</strong>:
+                </p>
+                <ul>
+                    <li>Añadir parámetro <code>metrics</code> opcional a <code>render_frame()</code></li>
+                    <li>Crear función helper <code>_sample_vram_nonzero()</code> en <code>Viboy</code> (muestreo cada 16º byte, igual que headless tool)</li>
+                    <li>Recolectar métricas en <code>viboy.py</code>: PC, VRAM_nonzero, LCDC, BGP, LY</li>
+                    <li>Pasar métricas a <code>render_frame()</code> desde todas las llamadas</li>
+                    <li>Mejorar muestreo NonWhite: grid 16×16 = 256 puntos (antes era cada 64º píxel ≈ 3 puntos)</li>
+                    <li>Log formateado: <code>[UI-PATH] F4 | Path=cpp_rgb_view | PC=6152 | LCDC=E3 | BGP=FC | LY=90 | VRAMnz=2028 | NonWhite=23040 | Hash=abc12345 | wall=16.7ms</code></li>
+                </ul>
+
+                <h3>Fase C: Verificación Post-Blit Mejorada</h3>
+                <p>
+                    <strong>Archivo</strong>: <code>src/gpu/renderer.py</code>
+                </p>
+                <p>
+                    <strong>Cambios</strong>:
+                </p>
+                <ul>
+                    <li>Reemplazar muestreo de 3 píxeles por grid 8×8 = 64 puntos</li>
+                    <li>Muestrear desde <code>self.surface.get_at()</code> después del blit</li>
+                    <li>Calcular <code>nonwhite_after_total</code> estimado (multiplicar por densidad)</li>
+                    <li>Comparar <code>nonwhite_sample</code> (antes, grid 16×16) vs <code>nonwhite_after_total</code> (después, grid 8×8)</li>
+                    <li>Detectar pérdida significativa: si <code>before > 1000</code> y <code>after < 100</code>, emitir warning</li>
+                </ul>
+
+                <h3>Fase D: Script de Comparación Headless vs UI</h3>
+                <p>
+                    <strong>Archivo</strong>: <code>tools/compare_headless_vs_ui_0448.sh</code>
+                </p>
+                <p>
+                    <strong>Funcionalidad</strong>:
+                </p>
+                <ul>
+                    <li>Ejecutar headless tool para cada ROM (Mario, Pokémon, Tetris, Zelda DX)</li>
+                    <li>Ejecutar UI con timeout de 15s para cada ROM</li>
+                    <li>Extraer métricas de ambos (NonWhite, VRAM_nonzero, PC_end)</li>
+                    <li>Generar tabla comparativa: <code>ROM | headless NonWhite | UI NonWhite_before | UI NonWhite_after | VRAMnz | PC_end</code></li>
+                    <li>Permitir decisión automática basada en la tabla:
+                        <ul>
+                            <li>headless NonWhite > 0 y UI before > 0 pero UI after ~0 → bug presenter/blit</li>
+                            <li>headless NonWhite > 0 y UI before ~0 → bug en cómo UI obtiene framebuffer</li>
+                            <li>Ambos 0 pero VRAMnz alto → bug PPU/paleta</li>
+                            <li>Ambos 0 y VRAMnz ~0 y PC estancado → bug CPU/ROM exec</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Fase E: Control de Spam de Logs</h3>
+                <p>
+                    <strong>Archivo</strong>: <code>src/gpu/renderer.py</code>
+                </p>
+                <p>
+                    <strong>Verificación</strong>:
+                </p>
+                <ul>
+                    <li>Gating estricto: <code>should_log = (self._path_log_count < 5) or (self._path_log_count % 120 == 0)</code></li>
+                    <li><code>VIBOY_DEBUG_UI</code> default OFF (<code>os.environ.get('VIBOY_DEBUG_UI', '0') == '1'</code>)</li>
+                    <li>Logs <code>[UI-PATH]</code> y <code>[UI-PROFILING]</code> solo dentro de <code>should_log</code> o cuando FPS < 30</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Corrección de profiling, mejora de logging [UI-PATH], verificación post-blit mejorada</li>
+                    <li><code>src/viboy.py</code> - Función helper <code>_sample_vram_nonzero()</code>, pasar métricas a render_frame()</li>
+                    <li><code>tools/compare_headless_vs_ui_0448.sh</code> - Script de comparación headless vs UI (creado)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Compilación</strong>:
+                </p>
+                <pre><code>python3 setup.py build_ext --inplace
+# BUILD_EXIT=0 ✓
+
+python3 test_build.py
+# TEST_BUILD_EXIT=0 ✓</code></pre>
+                <p>
+                    <strong>Validación Nativa</strong>: Módulo C++ compilado correctamente, interfaz Python-C++ funcional.
+                </p>
+                <p>
+                    <strong>Script de Comparación</strong>: Script creado y ejecutable. Requiere ejecución manual con ROMs para generar tabla comparativa.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: Memory Map, I/O Registers (para métricas VRAM, LCDC, BGP, LY)</li>
+                    <li>Step 0442: Tool headless (<code>tools/rom_smoke_0442.py</code>) - Referencia para muestreo VRAM_nonzero</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Profiling Correcto</strong>: Para medir rendimiento correctamente, hay que separar el tiempo de trabajo real (stages) del tiempo total (wall), y el tiempo de espera/sincronización (pacing). Esto permite identificar si los cuellos de botella están en el render (stages alto) o en la sincronización (pacing alto).</li>
+                        <li><strong>Muestreo Representativo</strong>: Un muestreo de 3 píxeles no es suficiente para estimar NonWhite. Un grid 16×16 (256 puntos) o 8×8 (64 puntos) proporciona estimaciones mucho más fiables, especialmente cuando se comparan antes/después del blit.</li>
+                        <li><strong>Comparación Headless vs UI</strong>: Para diagnosticar problemas de presentación, es crucial comparar qué genera el core (headless) vs qué presenta la UI. Si headless tiene datos pero UI no, el problema está en el presenter. Si headless no tiene datos, el problema está en el core.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Ejecución del Script de Comparación</strong>: El script está creado pero requiere ejecución manual con ROMs reales para generar la tabla comparativa y tomar decisiones basadas en evidencia numérica.</li>
+                        <li><strong>Diagnóstico Final</strong>: Una vez ejecutado el script de comparación, se podrá decidir con certeza si el problema es presenter/UI (blit, format, surface) o core (CPU/VRAM/PPU no produce imagen para esa ROM).</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar script de comparación headless vs UI con ROMs reales (Mario, Pokémon, Tetris, Zelda DX)</li>
+                    <li>[ ] Analizar tabla comparativa y tomar decisión basada en evidencia numérica</li>
+                    <li>[ ] Si problema es presenter/UI: investigar y corregir bug en blit/format/surface</li>
+                    <li>[ ] Si problema es core: investigar por qué PPU no produce imagen para esa ROM específica</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

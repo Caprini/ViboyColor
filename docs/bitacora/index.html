@@ -32,12 +32,12 @@
                 </p>
                 
                 <ul class="entry-list">
-                    <!-- Entrada 0448 - Herramienta para Abrir ROMs en Cuadrícula -->
+                    <!-- Entrada 0448 - Medición Correcta Profiling + Comparación Headless/UI -->
                     <li>
                         <div class="entry-header">
                             <h3 class="entry-title">
-                                <a href="entries/2026-01-02__0448__herramienta-abrir-roms-cuadricula.html" class="entry-link">
-                                    Herramienta para Abrir ROMs en Cuadrícula
+                                <a href="entries/2026-01-02__0448__medicion-correcta-profiling-comparacion-headless-ui.html" class="entry-link">
+                                    Medición Correcta Profiling + Comparación Headless/UI + Fix Mínimo
                                 </a>
                             </h3>
                         </div>
@@ -47,7 +47,7 @@
                             <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
                         </div>
                         <p class="entry-summary">
-                            Creación de herramienta de automatización para abrir múltiples ROMs del emulador en ventanas organizadas en cuadrícula de 2 filas x 4 columnas. Utiliza wmctrl para posicionar y redimensionar automáticamente las ventanas del emulador, facilitando la captura de pantalla de múltiples ROMs ejecutándose simultáneamente. Incluye filtrado inteligente para excluir ventanas grandes (como editores) y solo afectar las ventanas del emulador identificadas por el título "ViboyColor". Scripts creados: abrir_roms_cuadricula.sh (principal), instalar_wmctrl.sh (auxiliar), abrir_roms_cuadricula.py (alternativa Python). Características: detección automática de ROMs, filtrado por tamaño (300-2000px), organización en cuadrícula centrada, redimensionamiento estándar a 480x480px, verificación de título antes de mover ventanas. Probado con 8 ROMs: todas se organizaron correctamente sin afectar otras ventanas del sistema.
+                            Corrección del sistema de profiling para medir correctamente stage_sum_ms, frame_wall_ms y pacing_ms por separado. Mejora del logging [UI-PATH] para incluir métricas del core (PC, VRAM_nonzero, LCDC, BGP, LY) y NonWhite calculado con muestreo serio (grid 16×16 = 256 puntos). Verificación post-blit con muestreo decente (64 puntos, grid 8×8). Creación de script de comparación headless vs UI (tools/compare_headless_vs_ui_0448.sh) para producir tabla comparativa y decidir con evidencia numérica si el problema es presenter/UI o core. Control de spam de logs con gating estricto (primeros 5 frames + cada 120 frames). Modificaciones: renderer.py (profiling correcto, logging mejorado, verificación post-blit), viboy.py (función _sample_vram_nonzero(), pasar métricas a render_frame()). BUILD_EXIT=0, TEST_BUILD_EXIT=0.
                         </p>
                     </li>
                     

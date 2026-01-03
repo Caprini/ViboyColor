@@ -583,6 +583,28 @@ class Viboy:
         
         return t_cycles
     
+    def _sample_vram_nonzero(self) -> int:
+        """
+        Muestrea bytes non-zero en VRAM 0x8000-0x9FFF (muestreo por bloques).
+        
+        Step 0448: Métricas VRAM para logging en UI.
+        
+        Returns:
+            Número de bytes non-zero (estimado)
+        """
+        if self._mmu is None:
+            return 0
+        
+        count = 0
+        # Muestrear cada 16º byte (0x2000 bytes / 16 = 512 muestras)
+        for addr in range(0x8000, 0xA000, 16):
+            value = self._mmu.read(addr)
+            if value != 0:
+                count += 1
+        
+        # Estimar total (multiplicar por 16)
+        return count * 16
+    
     def tick(self) -> int:
         """
         Ejecuta una sola instrucción de la CPU.
@@ -1137,11 +1159,22 @@ class Viboy:
                         
                         # --- Step 0406: Renderizado CGB RGB vs DMG índices ---
                         # --- Step 0445: Forzar path C++ RGB si está disponible ---
+                        # --- Step 0448: Pasar métricas del core al renderer ---
+                        # Recolectar métricas del core
+                        metrics = {}
+                        if self._regs is not None:
+                            metrics['pc'] = self._regs.pc
+                        if self._mmu is not None:
+                            metrics['vram_nonzero'] = self._sample_vram_nonzero()
+                            metrics['lcdc'] = self._mmu.read(0xFF40)
+                            metrics['bgp'] = self._mmu.read(0xFF47)
+                            metrics['ly'] = self._mmu.read(0xFF44)
+                        
                         # Asegurar que SIEMPRE se usa rgb_view si PPU C++ está disponible
                         if self._ppu is not None and hasattr(self._ppu, 'get_framebuffer_rgb'):
                             rgb_view = self._ppu.get_framebuffer_rgb()
                             if rgb_view is not None:
-                                self._renderer.render_frame(rgb_view=rgb_view)
+                                self._renderer.render_frame(rgb_view=rgb_view, metrics=metrics)
                                 # No fallback a legacy
                                 # Confirmar lectura y continuar
                                 self._ppu.confirm_framebuffer_read()
@@ -1150,13 +1183,13 @@ class Viboy:
                             else:
                                 # RGB view no disponible, usar framebuffer_data si existe
                                 if framebuffer_to_render is not None:
-                                    self._renderer.render_frame(framebuffer_data=framebuffer_to_render)
+                                    self._renderer.render_frame(framebuffer_data=framebuffer_to_render, metrics=metrics)
                                     if self._ppu is not None:
                                         self._ppu.confirm_framebuffer_read()
                         else:
                             # Fallback: modo DMG con framebuffer_data
                             if framebuffer_to_render is not None:
-                                self._renderer.render_frame(framebuffer_data=framebuffer_to_render)
+                                self._renderer.render_frame(framebuffer_data=framebuffer_to_render, metrics=metrics)
                                 if self._ppu is not None:
                                     self._ppu.confirm_framebuffer_read()
                         # -------------------------------------------
@@ -1174,7 +1207,16 @@ class Viboy:
                             if self._ppu is not None and hasattr(self._ppu, 'get_framebuffer_rgb'):
                                 rgb_view = self._ppu.get_framebuffer_rgb()
                                 if rgb_view is not None:
-                                    self._renderer.render_frame(rgb_view=rgb_view)
+                                    # Recolectar métricas del core (Step 0448)
+                                    metrics_fallback = {}
+                                    if self._regs is not None:
+                                        metrics_fallback['pc'] = self._regs.pc
+                                    if self._mmu is not None:
+                                        metrics_fallback['vram_nonzero'] = self._sample_vram_nonzero()
+                                        metrics_fallback['lcdc'] = self._mmu.read(0xFF40)
+                                        metrics_fallback['bgp'] = self._mmu.read(0xFF47)
+                                        metrics_fallback['ly'] = self._mmu.read(0xFF44)
+                                    self._renderer.render_frame(rgb_view=rgb_view, metrics=metrics_fallback)
                                     self._ppu.confirm_framebuffer_read()
                                 else:
                                     logger.warning("[Viboy-Render] RGB view también es None, no renderizando")
