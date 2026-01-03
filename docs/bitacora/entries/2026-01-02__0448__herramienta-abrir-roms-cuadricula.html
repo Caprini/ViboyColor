@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Herramienta para Abrir ROMs en Cuadrícula - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Herramienta para Abrir ROMs en Cuadrícula</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-02
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0448
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-02__0447__ui-ejecucion-paralela-logs-reales-resumen.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Creación de una herramienta de automatización para abrir múltiples ROMs del emulador en ventanas organizadas en una cuadrícula de 2 filas x 4 columnas. La herramienta utiliza <code>wmctrl</code> para posicionar y redimensionar automáticamente las ventanas del emulador, facilitando la captura de pantalla de múltiples ROMs ejecutándose simultáneamente. Incluye filtrado inteligente para excluir ventanas grandes (como editores) y solo afectar las ventanas del emulador identificadas por el título "ViboyColor".
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Esta herramienta no implementa funcionalidad de hardware del Game Boy, sino que es una utilidad de desarrollo para facilitar la visualización y documentación del emulador. Permite ejecutar múltiples instancias del emulador simultáneamente, cada una con una ROM diferente, organizadas visualmente para comparación y captura de pantalla.
+                </p>
+                <p>
+                    El emulador utiliza Pygame para la ventana gráfica, con dimensiones estándar de 480x480 píxeles (escala 3x: 160x144 píxeles originales + barra de título). La herramienta aprovecha las capacidades del gestor de ventanas de Linux (X11) a través de <code>wmctrl</code> para manipular la posición y tamaño de las ventanas de forma programática.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se creó el script <code>tools/abrir_roms_cuadricula.sh</code> que automatiza el proceso de apertura y organización de ventanas del emulador. El script implementa las siguientes funcionalidades:
+                </p>
+                
+                <h3>Componentes creados/modificados</h3>
+                <ul>
+                    <li><code>tools/abrir_roms_cuadricula.sh</code>: Script principal que abre y organiza las ventanas</li>
+                    <li><code>tools/instalar_wmctrl.sh</code>: Script auxiliar para instalar la dependencia wmctrl</li>
+                    <li><code>tools/abrir_roms_cuadricula.py</code>: Versión alternativa en Python (requiere python3-xlib)</li>
+                </ul>
+
+                <h3>Características principales</h3>
+                <ul>
+                    <li><strong>Detección automática de ROMs</strong>: Busca todos los archivos .gb y .gbc en el directorio <code>roms/</code></li>
+                    <li><strong>Filtrado inteligente de ventanas</strong>: Solo afecta ventanas con "ViboyColor" en el título y tamaño razonable (300-2000 píxeles de ancho)</li>
+                    <li><strong>Organización en cuadrícula</strong>: Distribuye las ventanas en 2 filas x 4 columnas con espaciado de 10 píxeles</li>
+                    <li><strong>Redimensionamiento estándar</strong>: Todas las ventanas se redimensionan a 480x480 píxeles para consistencia visual</li>
+                    <li><strong>Centrado automático</strong>: Calcula la posición inicial para centrar la cuadrícula en la pantalla</li>
+                    <li><strong>Protección contra errores</strong>: Verifica que wmctrl esté instalado y maneja casos donde las ventanas no se inicializan a tiempo</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Filtrado por tamaño</strong>: Se implementó un filtro que excluye ventanas con ancho mayor a 2000 píxeles para evitar afectar ventanas grandes como editores de código o IDEs. Esto protege la ventana de Cursor y otras aplicaciones importantes.
+                </p>
+                <p>
+                    <strong>Verificación de título</strong>: Antes de mover cada ventana, se verifica que el título contenga "ViboyColor" para asegurar que solo se afecten las ventanas del emulador y no otras aplicaciones Python que puedan estar ejecutándose.
+                </p>
+                <p>
+                    <strong>Dimensiones estándar</strong>: Se usa un tamaño fijo de 480x480 píxeles en lugar de detectar el tamaño de cada ventana, ya que todas las instancias del emulador deberían tener el mismo tamaño cuando se inician.
+                </p>
+                <p>
+                    <strong>Espera progresiva</strong>: El script espera 5 segundos después de abrir todas las ventanas y luego 3 segundos adicionales antes de intentar posicionarlas, dando tiempo suficiente para que Pygame inicialice completamente cada ventana.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tools/abrir_roms_cuadricula.sh</code> - Script principal (215 líneas)</li>
+                    <li><code>tools/instalar_wmctrl.sh</code> - Script auxiliar para instalación de dependencia</li>
+                    <li><code>tools/abrir_roms_cuadricula.py</code> - Versión alternativa en Python (requiere python3-xlib)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    La herramienta fue probada manualmente con las 8 ROMs disponibles en el directorio <code>roms/</code>:
+                </p>
+                <ul>
+                    <li><strong>ROMs probadas</strong>: mario.gbc, MortalKombat.gb, Oro.gbc, pkmn-amarillo.gb, pkmn.gb, tetris_dx.gbc, tetris.gb, zelda-dx.gbc</li>
+                    <li><strong>Verificación de posicionamiento</strong>: Todas las ventanas se organizaron correctamente en cuadrícula de 2 filas x 4 columnas</li>
+                    <li><strong>Verificación de filtrado</strong>: La ventana de Cursor (3440x1342) fue correctamente excluida del posicionamiento</li>
+                    <li><strong>Verificación de redimensionamiento</strong>: Todas las ventanas del emulador se redimensionaron a 480x480 píxeles</li>
+                    <li><strong>Coordenadas correctas</strong>: Todas las coordenadas calculadas fueron positivas y bien distribuidas en la pantalla</li>
+                </ul>
+                <p>
+                    <strong>Comando de prueba</strong>:
+                </p>
+                <pre><code>bash tools/abrir_roms_cuadricula.sh</code></pre>
+                <p>
+                    <strong>Resultado esperado</strong>: 8 ventanas del emulador organizadas en cuadrícula, sin afectar otras ventanas del sistema.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Documentación de wmctrl: <a href="https://linux.die.net/man/1/wmctrl">https://linux.die.net/man/1/wmctrl</a></li>
+                    <li>Pygame Display Modes: Documentación oficial de Pygame sobre set_mode() y dimensiones de ventana</li>
+                </ul>
+                <p>
+                    <em>Nota: Esta es una herramienta de desarrollo, no implementa funcionalidad de hardware del Game Boy.</em>
+                </p>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Gestor de ventanas X11</strong>: wmctrl permite manipular ventanas de forma programática en entornos Linux con X11, permitiendo mover, redimensionar y obtener información de ventanas.</li>
+                        <li><strong>Filtrado de ventanas</strong>: Es importante filtrar ventanas por tamaño y título para evitar afectar aplicaciones no deseadas cuando se automatiza la manipulación de ventanas.</li>
+                        <li><strong>Timing de inicialización</strong>: Las ventanas de Pygame necesitan tiempo para inicializarse completamente antes de poder ser manipuladas por herramientas externas como wmctrl.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Compatibilidad con otros gestores de ventanas</strong>: El script está probado con el gestor de ventanas actual, pero podría necesitar ajustes para otros entornos (GNOME, KDE, etc.).</li>
+                        <li><strong>Manejo de múltiples monitores</strong>: El script actualmente calcula posiciones basándose en un solo monitor, podría necesitar mejoras para sistemas multi-monitor.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que todas las instancias del emulador tienen el mismo tamaño de ventana cuando se inician (480x480 píxeles). Si esto cambia en el futuro, el script necesitaría ajustes.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Considerar agregar opciones de línea de comandos para personalizar el layout (número de filas/columnas, tamaño de ventana, espaciado)</li>
+                    <li>[ ] Mejorar el manejo de múltiples monitores si es necesario</li>
+                    <li>[ ] Agregar soporte para cerrar todas las ventanas automáticamente después de un timeout opcional</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
