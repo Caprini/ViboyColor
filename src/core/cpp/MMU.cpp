@@ -3887,6 +3887,19 @@ uint8_t MMU::read_raw(uint16_t addr) const {
     // Direct access to memory_[] without any restrictions
     // WARNING: This bypasses PPU mode restrictions, banking, etc.
     // Use ONLY for diagnostics, not for emulation
+    
+    // Step 0452: VRAM está en bancos separados (vram_bank0_, vram_bank1_)
+    // Para diagnóstico confiable, read_raw() debe leer de los bancos VRAM
+    if (addr >= 0x8000 && addr <= 0x9FFF) {
+        uint16_t offset = addr - 0x8000;
+        if (vram_bank_ == 0 && offset < vram_bank0_.size()) {
+            return vram_bank0_[offset];
+        } else if (vram_bank_ == 1 && offset < vram_bank1_.size()) {
+            return vram_bank1_[offset];
+        }
+        return 0xFF;
+    }
+    
     if (addr >= MEMORY_SIZE) {
         return 0xFF;
     }

@@ -546,8 +546,12 @@ cdef class PyMMU:
         
         try:
             self._mmu.dump_raw_range(start, length, buffer)
-            # Convert to Python bytes
-            return buffer[:length]
+            # Convert to Python bytes by creating a list and converting to bytes
+            # This avoids issues with buffer lifetime
+            result_list = []
+            for i in range(length):
+                result_list.append(buffer[i])
+            return bytes(result_list)
         finally:
             free(buffer)
     

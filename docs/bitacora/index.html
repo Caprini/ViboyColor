@@ -32,6 +32,44 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0453 - Ejecutar Herramientas Trust/Probe/Rerun y Documentar con Evidencia -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-03__0453__ejecutar-herramientas-trust-probe-rerun-documentar-evidencia.html" class="entry-link">
+                                    Ejecutar Herramientas Trust/Probe/Rerun y Documentar con Evidencia
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-03 | 
+                            <strong>Step ID:</strong> 0453 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Ejecución de herramientas de diagnóstico creadas en Step 0452 con evidencia real: headless trust test (PASS: vram_raw_nz=2048, nonwhite=23040), MBC bank probe sobre 3 ROMs (MBC5/MBC3/MBC1 - todos PASS 10/10 banks), y rerun headless sobre 4 ROMs con métricas nuevas. Hallazgo clave: El mapping MBC funciona correctamente (todos los probes pasaron), VRAM tiene datos (vram_raw_nz > 0 en todas las ROMs), y el framebuffer está completamente lleno (nonwhite=23040 en todas las ROMs), sugiriendo que el problema NO es mapping MBC ni CPU/IRQ, sino posiblemente paletas o renderizado. Decisión automática: PPU/paletas/render path.
+                        </p>
+                    </li>
+                    
+                    <!-- Entrada 0452 - Validar Diagnóstico VRAM RAW + Headless + Mapping Bancos -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-03__0452__validar-diagnostico-vram-raw-headless-mapping-bancos.html" class="entry-link">
+                                    Validar Diagnóstico VRAM RAW + Headless + Mapping Bancos
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-03 | 
+                            <strong>Step ID:</strong> 0452 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Validación del diagnóstico de VRAM RAW, headless trust test y herramientas de prueba de mapping MBC. Confirmado que VRAM está almacenada en bancos separados (vram_bank0_, vram_bank1_) en MMU, corregido read_raw() para leer correctamente de los bancos VRAM, creado test de validación write→read_raw (3 tests pasan), creado herramienta de headless trust test y creado herramienta de MBC bank probe para validar mapping determinista. Hallazgo clave: VRAM storage confirmado en MMU (no en PPU), read_raw() funciona correctamente, y las herramientas de diagnóstico están listas para validar mapping MBC y confiabilidad de headless.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0451 - Ejecutar Clasificación MBC + Headless RAW con Evidencia -->
                     <li>
                         <div class="entry-header">
