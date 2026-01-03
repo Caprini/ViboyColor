@@ -371,6 +371,11 @@ class ROMSmokeRunner:
         ly = self.mmu.read(0xFF44)
         pc = self.regs.pc
         
+        # Step 0463: Derivar modo de tile data y tilemap base
+        bg_tile_data_mode = "8000(unsigned)" if (lcdc & 0x10) else "8800(signed)"
+        bg_tilemap_base = 0x9C00 if (lcdc & 0x08) else 0x9800
+        win_tilemap_base = 0x9C00 if (lcdc & 0x40) else 0x9800
+        
         metrics = {
             'frame': frame_idx,
             'pc': pc,
@@ -397,6 +402,10 @@ class ROMSmokeRunner:
             'dominant_ratio': robust_metrics['dominant_ratio'],
             'frame_hash_robust': robust_metrics['frame_hash'],
             'hash_changed': robust_metrics['hash_changed'],
+            # Step 0463: Modo tile data y tilemap base
+            'bg_tile_data_mode': bg_tile_data_mode,
+            'bg_tilemap_base': bg_tilemap_base,
+            'win_tilemap_base': win_tilemap_base,
         }
         
         # Detectar primer frame non-white
@@ -499,6 +508,12 @@ class ROMSmokeRunner:
                       f"vram_nz={metrics['vram_nonzero']:4d} "
                       f"oam_nz={metrics['oam_nonzero']:4d} "
                       f"LCDC={metrics['lcdc']:02X} LY={metrics['ly']:02X}")
+            
+            # Step 0463: Imprimir modo tile data en frames loggeados
+            if self.dump_every > 0 and (frame_idx % self.dump_every == 0 or frame_idx <= 3 or frame_idx >= self.max_frames - 1):
+                print(f"LCDC=0x{metrics['lcdc']:02X} | TileDataMode={metrics['bg_tile_data_mode']} | "
+                      f"BGTilemap=0x{metrics['bg_tilemap_base']:04X} | WinTilemap=0x{metrics['win_tilemap_base']:04X} | "
+                      f"SCX={metrics['scx']} SCY={metrics['scy']} LY={metrics['ly']}")
                 
                 # Dump PNG si está habilitado
                 if self.dump_png:

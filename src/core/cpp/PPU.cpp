@@ -1766,7 +1766,7 @@ void PPU::render_scanline() {
             uint8_t lcdc_temp = mmu_->read(IO_LCDC);
             uint16_t map_base = (lcdc_temp & 0x08) ? 0x9C00 : 0x9800;
             bool unsigned_addressing = (lcdc_temp & 0x10) != 0;
-            uint16_t data_base = unsigned_addressing ? 0x8000 : 0x8800;
+            uint16_t data_base = unsigned_addressing ? 0x8000 : 0x9000;  // Step 0463: Fix signed base (0x8800 → 0x9000)
             
             int tiles_with_data = 0;
             int tiles_empty = 0;
@@ -1781,7 +1781,7 @@ void PPU::render_scanline() {
                     tile_addr = data_base + (tile_id * 16);
                 } else {
                     int8_t signed_id = static_cast<int8_t>(tile_id);
-                    tile_addr = data_base + ((signed_id + 128) * 16);
+                    tile_addr = data_base + (static_cast<uint16_t>(signed_id) * 16);  // Step 0463: Fix signed calculation (eliminar suma incorrecta de 128)
                 }
                 
                 // Verificar si el tile tiene datos
@@ -2709,7 +2709,7 @@ void PPU::render_scanline() {
                     tile_addr = data_base + (tile_id * 16);
                 } else {
                     int8_t signed_id = static_cast<int8_t>(tile_id);
-                    tile_addr = data_base + ((signed_id + 128) * 16);
+                    tile_addr = data_base + (static_cast<uint16_t>(signed_id) * 16);  // Step 0463: Fix signed calculation (eliminar suma incorrecta de 128)
                 }
                 
                 // Verificar si el tile tiene datos
@@ -2864,7 +2864,7 @@ void PPU::render_scanline() {
                     tile_addr_check = data_base_check + (tile_id * 16);
                 } else {
                     int8_t signed_tile_id = static_cast<int8_t>(tile_id);
-                    tile_addr_check = data_base_check + ((signed_tile_id + 128) * 16);
+                    tile_addr_check = data_base_check + (static_cast<uint16_t>(signed_tile_id) * 16);  // Step 0463: Fix signed calculation (eliminar suma incorrecta de 128)
                 }
                 printf("[PPU-RENDER-LOOP] X=%d | Tile ID=0x%02X | Tile Addr=0x%04X\n",
                        x, tile_id, tile_addr_check);
