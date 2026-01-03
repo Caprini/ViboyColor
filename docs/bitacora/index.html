@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0445 - UI/Pygame Presenter Triage + Performance (Mario cuelga / Pokémon blanco) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0445__ui-presenter-triage-performance.html" class="entry-link">
+                                    UI/Pygame Presenter Triage + Performance (Mario cuelga / Pokémon blanco)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0445 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Triage del UI/Pygame presenter para identificar y corregir problemas de rendimiento y presentación. Implementación de logging limitado para identificar qué path de renderizado se usa (cpp_rgb_view vs legacy_fallback), forzar uso de framebuffer_rgb en modo C++, garantizar pygame.event.pump() cada frame para evitar cuelgues, y eliminar copias innecesarias de buffers. Objetivo: confirmar con evidencia si la UI está presentando framebuffer_rgb del core C++ (correcto) o algún legacy renderer/fallback (lento/blanco). Modificaciones: renderer.py (logging path identification, verificaciones formato, eliminación copias), viboy.py (event pump cada frame, forzar path C++ RGB, eliminar legacy fallback). Suite completa: 537 passed. BUILD_EXIT=0, TEST_BUILD_EXIT=0. Logging activo: primeros 5 frames y cada 120 frames muestran path usado, métricas (buffer_len, nonwhite_sample, frame_time_ms, FPS).
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0444 - DMA/OAM Correctness + Sprite Visible Test + Freeze Hardware Contracts -->
                     <li>
                         <div class="entry-header">

@@ -1085,6 +1085,12 @@ class Viboy:
                 
                 # Renderizado en Python (solo si hay un frame listo)
                 if self._renderer:
+                    # --- Step 0445: Garantizar event pump cada frame ---
+                    # Crítico para evitar "no responde" en el OS
+                    if pygame is not None:
+                        pygame.event.pump()
+                    # -------------------------------------------
+                    
                     should_continue = self._handle_pygame_events()
                     if not should_continue:
                         self.running = False
@@ -1130,34 +1136,55 @@ class Viboy:
                         # -------------------------------------------
                         
                         # --- Step 0406: Renderizado CGB RGB vs DMG índices ---
-                        # Detectar modo hardware y decidir qué buffer pasar al renderer
-                        hardware_mode = None
-                        if self._use_cpp and self._mmu is not None:
-                            hardware_mode = self._mmu.get_hardware_mode()
-                        
-                        # Si el modo es CGB, usar el framebuffer RGB
-                        if hardware_mode == "CGB" and self._ppu is not None:
-                            # Obtener RGB view (zero-copy)
+                        # --- Step 0445: Forzar path C++ RGB si está disponible ---
+                        # Asegurar que SIEMPRE se usa rgb_view si PPU C++ está disponible
+                        if self._ppu is not None and hasattr(self._ppu, 'get_framebuffer_rgb'):
                             rgb_view = self._ppu.get_framebuffer_rgb()
-                            self._renderer.render_frame(rgb_view=rgb_view)
+                            if rgb_view is not None:
+                                self._renderer.render_frame(rgb_view=rgb_view)
+                                # No fallback a legacy
+                                # Confirmar lectura y continuar
+                                self._ppu.confirm_framebuffer_read()
+                                # Saltar al pacing (no ejecutar fallback)
+                                # Continuar con el siguiente frame
+                            else:
+                                # RGB view no disponible, usar framebuffer_data si existe
+                                if framebuffer_to_render is not None:
+                                    self._renderer.render_frame(framebuffer_data=framebuffer_to_render)
+                                    if self._ppu is not None:
+                                        self._ppu.confirm_framebuffer_read()
                         else:
-                            # Modo DMG: usar framebuffer de índices con paleta BGP
-                            self._renderer.render_frame(framebuffer_data=framebuffer_to_render)
+                            # Fallback: modo DMG con framebuffer_data
+                            if framebuffer_to_render is not None:
+                                self._renderer.render_frame(framebuffer_data=framebuffer_to_render)
+                                if self._ppu is not None:
+                                    self._ppu.confirm_framebuffer_read()
                         # -------------------------------------------
                         
                         # --- Step 0360: Confirmar Lectura del Framebuffer ---
-                        # Confirmar que Python terminó de leer y renderizar el framebuffer
-                        # Esto permite que C++ limpie el framebuffer de forma segura
-                        if self._ppu is not None:
-                            self._ppu.confirm_framebuffer_read()
+                        # (Movido dentro del bloque anterior para evitar duplicación)
                         # -------------------------------------------
                     else:
-                        # Fallback: el renderer leerá el framebuffer directamente desde la PPU
-                        self._renderer.render_frame()
-                        
-                        # --- Step 0360: Confirmar Lectura del Framebuffer (Fallback) ---
-                        if self._ppu is not None:
-                            self._ppu.confirm_framebuffer_read()
+                        # --- Step 0445: Legacy fallback deshabilitado en modo C++ ---
+                        # Si use_cpp_ppu=True, no deberíamos llegar aquí
+                        if self._use_cpp:
+                            logger.error("[Viboy-Render] ⚠️ Legacy path deshabilitado en modo C++ | "
+                                       "framebuffer_to_render es None pero PPU C++ está activo")
+                            # Intentar obtener RGB view directamente
+                            if self._ppu is not None and hasattr(self._ppu, 'get_framebuffer_rgb'):
+                                rgb_view = self._ppu.get_framebuffer_rgb()
+                                if rgb_view is not None:
+                                    self._renderer.render_frame(rgb_view=rgb_view)
+                                    self._ppu.confirm_framebuffer_read()
+                                else:
+                                    logger.warning("[Viboy-Render] RGB view también es None, no renderizando")
+                            else:
+                                logger.warning("[Viboy-Render] PPU C++ no disponible, no renderizando")
+                        else:
+                            # Fallback legacy solo si NO estamos en modo C++
+                            self._renderer.render_frame()
+                            if self._ppu is not None:
+                                self._ppu.confirm_framebuffer_read()
                         # -------------------------------------------
                     
                     # --- Step 0309: Limitador de FPS y Reporte Correcto ---
@@ -1703,4 +1730,5 @@ class Viboy:
         except ImportError:
             # pygame no disponible, usar método del renderer como fallback
             return self._renderer.handle_events()
+
 

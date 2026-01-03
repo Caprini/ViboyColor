@@ -541,7 +541,80 @@ class Renderer:
         Fuente: Pan Docs - LCD Control Register, Background Tile Map, Window
         """
         
+        # --- Step 0445: Path Identification ---
+        if not hasattr(self, '_path_log_count'):
+            self._path_log_count = 0
+            self._path_log_frames = []
+        
+        # Log primeros 5 frames y luego cada 120 frames
+        should_log = (self._path_log_count < 5) or (self._path_log_count % 120 == 0)
+        
+        if should_log:
+            import time
+            import hashlib
+            frame_start_ms = time.time() * 1000
+            
+            # Identificar path
+            render_path = "unknown"
+            buffer_len = 0
+            buffer_shape = "unknown"
+            nonwhite_sample = 0
+            frame_hash_sample = "none"
+            
+            if rgb_view is not None:
+                render_path = "cpp_rgb_view"
+                buffer_len = len(rgb_view)
+                buffer_shape = "rgb_view"
+                # Muestrear non-white (1/64 de píxeles)
+                try:
+                    import numpy as np
+                    rgb_array = np.frombuffer(rgb_view, dtype=np.uint8)
+                    if len(rgb_array) == 69120:
+                        nonwhite_count = 0
+                        for i in range(0, len(rgb_array), 3 * 64):  # Cada 64º píxel
+                            if i + 2 < len(rgb_array):
+                                r, g, b = rgb_array[i], rgb_array[i+1], rgb_array[i+2]
+                                if r < 200 or g < 200 or b < 200:
+                                    nonwhite_count += 1
+                        nonwhite_sample = nonwhite_count * 64  # Estimación
+                        # Hash de muestra (primeros 1000 bytes)
+                        frame_hash_sample = hashlib.md5(rgb_view[:min(1000, len(rgb_view))]).hexdigest()[:8]
+                except:
+                    pass
+            elif framebuffer_data is not None:
+                render_path = "cpp_framebuffer_data"
+                buffer_len = len(framebuffer_data)
+                buffer_shape = f"framebuffer_{buffer_len}"
+            else:
+                render_path = "legacy_fallback"
+                buffer_len = 0
+                buffer_shape = "legacy"
+            
+            frame_end_ms = time.time() * 1000
+            frame_time_ms = frame_end_ms - frame_start_ms
+            
+            log_entry = {
+                'frame': self._path_log_count,
+                'path': render_path,
+                'buffer_len': buffer_len,
+                'buffer_shape': buffer_shape,
+                'nonwhite_sample': nonwhite_sample,
+                'frame_hash': frame_hash_sample,
+                'frame_time_ms': frame_time_ms,
+                'fps': 1000.0 / frame_time_ms if frame_time_ms > 0 else 0
+            }
+            self._path_log_frames.append(log_entry)
+            
+            print(f"[UI-PATH] Frame {self._path_log_count} | "
+                  f"Path={render_path} | Len={buffer_len} | Shape={buffer_shape} | "
+                  f"NonWhite={nonwhite_sample} | Hash={frame_hash_sample} | "
+                  f"Time={frame_time_ms:.2f}ms | FPS={log_entry['fps']:.1f}")
+        
+        self._path_log_count += 1
+        # -------------------------------------------
+        
         # --- Step 0408: CGB RGB Pipeline (CORRECCIÓN) ---
+        # --- Step 0445: Verificación de formato exacto y eliminación de copias ---
         # Si rgb_view está disponible, renderizar directamente desde RGB (modo CGB)
         if rgb_view is not None:
             try:
@@ -552,6 +625,9 @@ class Renderer:
                 # Formato: [R0,G0,B0, R1,G1,B1, ...] row-major (fila por fila)
                 rgb_array = np.frombuffer(rgb_view, dtype=np.uint8)
                 
+                # --- Step 0445: Verificar que np.frombuffer crea vista, no copia ---
+                assert rgb_array.flags['OWNDATA'] == False, "np.frombuffer creó copia (debería ser vista)"
+                
                 # Verificar tamaño
                 if len(rgb_array) != 69120:
                     logger.warning(f"[Renderer-RGB-CGB] RGB buffer tamaño incorrecto: {len(rgb_array)} (esperado 69120)")
@@ -561,6 +637,12 @@ class Renderer:
                 # El buffer C++ está en orden row-major: fila 0 completa, fila 1 completa, etc.
                 # Necesitamos (height=144, width=160, channels=3)
                 rgb_array = rgb_array.reshape((GB_HEIGHT, GB_WIDTH, 3))
+                
+                # --- Step 0445: Verificar que reshape también es vista ---
+                assert rgb_array.flags['OWNDATA'] == False, "reshape creó copia (debería ser vista)"
+                
+                # --- Step 0445: Verificar shape después de reshape ---
+                assert rgb_array.shape == (GB_HEIGHT, GB_WIDTH, 3), f"Shape incorrecto: {rgb_array.shape}"
                 
                 # --- Step 0414: Verificación RGB real (CGB) ---
                 # Chequear si el buffer contiene datos no-blancos
@@ -595,13 +677,18 @@ class Renderer:
                     self._rgb_check_count += 1
                 # -------------------------------------------
                 
-                # Asegurar contiguidad (puede mejorar rendimiento de blit)
+                # --- Step 0445: Verificar contiguidad ANTES de swapaxes ---
+                # swapaxes puede requerir contiguidad, pero solo copiar si es necesario
                 if not rgb_array.flags['C_CONTIGUOUS']:
-                    rgb_array = np.ascontiguousarray(rgb_array)
+                    rgb_array = np.ascontiguousarray(rgb_array)  # Esto SÍ copia si no es contiguo
+                    # Verificar si realmente necesitamos esto o podemos evitar swapaxes
                 
                 # pygame.surfarray.blit_array() espera (width, height, channels) = (160, 144, 3)
                 # Necesitamos swapaxes(0, 1) para intercambiar height↔width
                 rgb_array_swapped = np.swapaxes(rgb_array, 0, 1)  # (160, 144, 3)
+                
+                # --- Step 0445: Verificar shape después de swapaxes ---
+                assert rgb_array_swapped.shape == (GB_WIDTH, GB_HEIGHT, 3), f"Shape después de swapaxes incorrecto: {rgb_array_swapped.shape}"
                 
                 # Verificación acotada (máx 10 frames) de 3 píxeles para debug
                 if not hasattr(self, '_rgb_verify_count'):
@@ -620,8 +707,13 @@ class Renderer:
                 if not hasattr(self, 'surface'):
                     self.surface = pygame.Surface((GB_WIDTH, GB_HEIGHT))
                 
-                # Blit directo a superficie base (160x144) usando surfarray
+                # --- Step 0445: Verificar que blit_array no requiere copia adicional ---
+                # pygame.surfarray.blit_array debe aceptar el array directamente
+                # (no copia, solo referencia)
                 pygame.surfarray.blit_array(self.surface, rgb_array_swapped)
+                
+                # --- Step 0445: NO limpiar surface después del blit ---
+                # NO hacer: self.surface.fill((255, 255, 255))  # ❌ Esto causaría blanco
                 
                 # Escalar la superficie base a la ventana
                 if self.scale != 1:
