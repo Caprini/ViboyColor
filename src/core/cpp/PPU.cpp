@@ -2337,7 +2337,12 @@ void PPU::render_scanline() {
         int tiles_pointing_to_empty = 0;
         
         for (int i = 0; i < 32; i++) {
-            uint8_t tile_id = mmu_->read(tile_map_base + i);
+            // Step 0464: Usar read_vram() para leer tilemap (no read() directo)
+            uint16_t tile_map_offset = (tile_map_base - 0x8000) + i;
+            uint8_t tile_id = 0x00;
+            if (tile_map_offset < 0x2000) {
+                tile_id = mmu_->read_vram(tile_map_offset);
+            }
             
             // Calcular dirección del tile según el direccionamiento
             uint16_t tile_addr;
@@ -2393,7 +2398,13 @@ void PPU::render_scanline() {
                         // Verificar si el tilemap tiene este tile ID
                         bool found_in_tilemap = false;
                         for (int i = 0; i < 32; i++) {
-                            if (mmu_->read(tile_map_base + i) == tile_id_unsigned) {
+                            // Step 0464: Usar read_vram() para leer tilemap (no read() directo)
+                            uint16_t tile_map_offset = (tile_map_base - 0x8000) + i;
+                            uint8_t tile_id_check = 0x00;
+                            if (tile_map_offset < 0x2000) {
+                                tile_id_check = mmu_->read_vram(tile_map_offset);
+                            }
+                            if (tile_id_check == tile_id_unsigned) {
                                 found_in_tilemap = true;
                                 break;
                             }
@@ -2421,7 +2432,12 @@ void PPU::render_scanline() {
         // Verificar primeros 4 tiles del tilemap (primera fila, primeras 4 columnas)
         printf("[PPU-TILEMAP-CHECK] Primeros 4 tiles del tilemap: ");
         for (int i = 0; i < 4; i++) {
-            uint8_t tile_id = mmu_->read(tile_map_base + i);
+            // Step 0464: Usar read_vram() para leer tilemap (no read() directo)
+            uint16_t tile_map_offset = (tile_map_base - 0x8000) + i;
+            uint8_t tile_id = 0x00;
+            if (tile_map_offset < 0x2000) {
+                tile_id = mmu_->read_vram(tile_map_offset);
+            }
             printf("Tile[%d]=0x%02X ", i, tile_id);
             
             // Verificar si el tile tiene datos válidos
@@ -2459,7 +2475,13 @@ void PPU::render_scanline() {
             // Imprimir las primeras 32 bytes (primera fila completa del tilemap)
             printf("[TILEMAP-INSPECT] First 32 bytes (row 0) of Map at %04X:\n", tile_map_base);
             for(int i=0; i<32; i++) {
-                printf("%02X ", mmu_->read(tile_map_base + i));
+                // Step 0464: Usar read_vram() para leer tilemap (no read() directo)
+                uint16_t tile_map_offset = (tile_map_base - 0x8000) + i;
+                uint8_t tile_id = 0x00;
+                if (tile_map_offset < 0x2000) {
+                    tile_id = mmu_->read_vram(tile_map_offset);
+                }
+                printf("%02X ", tile_id);
                 if ((i + 1) % 16 == 0) printf("\n");
             }
             printf("\n");
@@ -2467,7 +2489,13 @@ void PPU::render_scanline() {
             // Calcular checksum del tilemap para detectar cambios
             uint16_t checksum = 0;
             for(int i=0; i<1024; i++) {  // 32x32 = 1024 tiles
-                checksum += mmu_->read(tile_map_base + i);
+                // Step 0464: Usar read_vram() para leer tilemap (no read() directo)
+                uint16_t tile_map_offset = (tile_map_base - 0x8000) + i;
+                uint8_t tile_id = 0x00;
+                if (tile_map_offset < 0x2000) {
+                    tile_id = mmu_->read_vram(tile_map_offset);
+                }
+                checksum += tile_id;
             }
             printf("[TILEMAP-INSPECT] Tilemap checksum (first 1024 bytes): 0x%04X\n", checksum);
         }
@@ -2517,7 +2545,12 @@ void PPU::render_scanline() {
         // Verificar primeros 10 tile IDs del tilemap
         printf("[FRAME676-DIAG] Primeros 10 tile IDs: ");
         for (int i = 0; i < 10; i++) {
-            uint8_t tile_id = mmu_->read(tile_map_base + i);
+            // Step 0464: Usar read_vram() para leer tilemap (no read() directo)
+            uint16_t tile_map_offset = (tile_map_base - 0x8000) + i;
+            uint8_t tile_id = 0x00;
+            if (tile_map_offset < 0x2000) {
+                tile_id = mmu_->read_vram(tile_map_offset);
+            }
             printf("0x%02X ", tile_id);
         }
         printf("\n");
@@ -2543,7 +2576,12 @@ void PPU::render_scanline() {
         // Verificar primeros 32 bytes del tilemap (primera fila)
         int valid_tile_ids = 0;
         for (int i = 0; i < 32; i++) {
-            uint8_t tile_id = mmu_->read(tile_map_base + i);
+            // Step 0464: Usar read_vram() para leer tilemap (no read() directo)
+            uint16_t tile_map_offset = (tile_map_base - 0x8000) + i;
+            uint8_t tile_id = 0x00;
+            if (tile_map_offset < 0x2000) {
+                tile_id = mmu_->read_vram(tile_map_offset);
+            }
             if (tile_id != 0x00) {
                 valid_tile_ids++;
             }
@@ -2575,7 +2613,12 @@ void PPU::render_scanline() {
             uint8_t map_x_dump = (x_dump + scx) & 0xFF;
             uint8_t map_y_dump = (ly_ + scy) & 0xFF;
             uint16_t tile_map_addr_dump = tile_map_base + (map_y_dump / 8) * 32 + (map_x_dump / 8);
-            uint8_t tile_id_dump = mmu_->read(tile_map_addr_dump);
+            // Step 0464: Usar read_vram() para leer tilemap (no read() directo)
+            uint16_t tile_map_offset_dump = tile_map_addr_dump - 0x8000;
+            uint8_t tile_id_dump = 0x00;
+            if (tile_map_offset_dump < 0x2000) {
+                tile_id_dump = mmu_->read_vram(tile_map_offset_dump);
+            }
             printf("%02X ", tile_id_dump);
             if ((x_dump + 1) % 16 == 0) printf("\n");
         }
@@ -3018,7 +3061,12 @@ void PPU::render_scanline() {
         if (vram_has_tiles_ && ly_ == 0 && tile_addr_verify_count < 3 && x == 0) {
             tile_addr_verify_count++;
             
-            uint8_t sample_tile_id = mmu_->read(tile_map_base);
+            // Step 0464: Usar read_vram() para leer tilemap (no read() directo)
+            uint16_t tile_map_offset = tile_map_base - 0x8000;
+            uint8_t sample_tile_id = 0x00;
+            if (tile_map_offset < 0x2000) {
+                sample_tile_id = mmu_->read_vram(tile_map_offset);
+            }
             uint16_t calculated_addr;
             
             if (signed_addressing) {
@@ -3045,7 +3093,12 @@ void PPU::render_scanline() {
         static int render_verify_count = 0;
         if (vram_has_tiles_ && ly_ == 0 && render_verify_count < 5 && x == 0) {
             // Verificar que el tile ID del tilemap apunta a un tile con datos
-            uint8_t sample_tile_id = mmu_->read(tile_map_base);
+            // Step 0464: Usar read_vram() para leer tilemap (no read() directo)
+            uint16_t tile_map_offset = tile_map_base - 0x8000;
+            uint8_t sample_tile_id = 0x00;
+            if (tile_map_offset < 0x2000) {
+                sample_tile_id = mmu_->read_vram(tile_map_offset);
+            }
             uint16_t sample_tile_addr;
             if (signed_addressing) {
                 sample_tile_addr = tile_data_base + ((int8_t)sample_tile_id * 16);

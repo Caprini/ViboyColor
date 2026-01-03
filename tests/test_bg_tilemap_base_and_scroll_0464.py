@@ -20,6 +20,11 @@ class TestBGTilemapBaseAndScroll:
         self.cpu = PyCPU(self.mmu, self.registers)
         self.ppu = PyPPU(self.mmu)
         
+        # Conectar componentes
+        self.mmu.set_ppu(self.ppu)
+        self.mmu.set_timer(self.timer)
+        self.mmu.set_joypad(self.joypad)
+        
         # Encender LCD y BG
         self.mmu.write(0xFF40, 0x91)  # LCD ON, BG ON, Window OFF, Tile Data 0x8000, BG Tilemap 0x9800
         self.mmu.write(0xFF47, 0xE4)  # BGP estándar
@@ -177,4 +182,3 @@ class TestBGTilemapBaseAndScroll:
         
         # Verificar que SCX se aplica
         assert True  # Placeholder: si hay acceso a framebuffer, verificar shift aquí
-
