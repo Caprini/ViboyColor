@@ -28,13 +28,44 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-# Importar core C++ (obligatorio para herramienta headless)
+# --- Step 0450: Preflight check - verificar que viboy_core está disponible y compilado ---
 try:
     from viboy_core import PyCPU, PyMMU, PyPPU, PyRegisters, PyTimer, PyJoypad
     NATIVE_AVAILABLE = True
-except ImportError:
-    print("ERROR: viboy_core no está disponible. Compilar primero con:")
-    print("  python setup.py build_ext --inplace")
+except ImportError as e:
+    print("=" * 80, file=sys.stderr)
+    print("ERROR CRÍTICO: viboy_core no está disponible", file=sys.stderr)
+    print("=" * 80, file=sys.stderr)
+    print(f"Detalles: {e}", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("SOLUCIÓN: Compilar el módulo C++ primero:", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("  cd $(git rev-parse --show-toplevel)", file=sys.stderr)
+    print("  python3 setup.py build_ext --inplace", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("O usar test_build.py:", file=sys.stderr)
+    print("  python3 test_build.py", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("Si el error persiste, verificar:", file=sys.stderr)
+    print("  - Cython instalado: pip install cython", file=sys.stderr)
+    print("  - Compilador C++ disponible: gcc/clang", file=sys.stderr)
+    print("=" * 80, file=sys.stderr)
+    sys.exit(1)
+
+# Verificación adicional: intentar crear instancia para detectar errores de linking
+try:
+    test_mmu = PyMMU()
+    del test_mmu
+except Exception as e:
+    print("=" * 80, file=sys.stderr)
+    print("ERROR: viboy_core importado pero falla al crear instancia", file=sys.stderr)
+    print("=" * 80, file=sys.stderr)
+    print(f"Detalles: {e}", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("Posible causa: módulo compilado pero linking fallido o incompleto", file=sys.stderr)
+    print("Recompilar:", file=sys.stderr)
+    print("  python3 setup.py build_ext --inplace --force", file=sys.stderr)
+    print("=" * 80, file=sys.stderr)
     sys.exit(1)
 
 
@@ -184,6 +215,25 @@ class ROMSmokeRunner:
         # Estimar total (multiplicar por 16)
         return count * 16
     
+    def _sample_vram_nonzero_raw(self) -> int:
+        """
+        Cuenta bytes non-zero en VRAM usando read_raw (sin restricciones).
+        
+        Step 0450: Usa read_raw() para diagnóstico confiable, bypassing PPU mode restrictions.
+        
+        Returns:
+            Número de bytes non-zero (estimado)
+        """
+        count = 0
+        # Muestrear cada 16º byte (0x2000 bytes / 16 = 128 muestras)
+        for addr in range(0x8000, 0xA000, 16):
+            value = self.mmu.read_raw(addr)  # ← RAW, no read()
+            if value != 0:
+                count += 1
+        
+        # Estimar total (multiplicar por 16)
+        return count * 16
+    
     def _sample_oam_nonzero(self) -> int:
         """
         Cuenta bytes non-zero en OAM 0xFE00-0xFE9F (muestreo).
@@ -231,6 +281,9 @@ class ROMSmokeRunner:
         # Muestrear VRAM
         vram_nonzero = self._sample_vram_nonzero()
         
+        # Step 0450: Muestrear VRAM usando read_raw (diagnóstico confiable)
+        vram_nonzero_raw = self._sample_vram_nonzero_raw()
+        
         # Step 0444: Muestrear OAM
         oam_nonzero = self._sample_oam_nonzero()
         
@@ -249,6 +302,7 @@ class ROMSmokeRunner:
             'nonwhite_pixels': nonwhite_pixels,
             'frame_hash': frame_hash,
             'vram_nonzero': vram_nonzero,
+            'vram_nonzero_raw': vram_nonzero_raw,  # Step 0450: VRAM raw (sin restricciones)
             'oam_nonzero': oam_nonzero,  # Step 0444: OAM metrics
             'lcdc': lcdc,
             'stat': stat,
@@ -421,6 +475,16 @@ class ROMSmokeRunner:
         print(f"  Mín: {min_vram:4d}  Máx: {max_vram:4d}  Prom: {avg_vram:4.0f}")
         print(f"")
         
+        # Step 0450: Estadísticas de VRAM nonzero RAW (sin restricciones)
+        vram_raw_values = [m['vram_nonzero_raw'] for m in self.metrics]
+        min_vram_raw = min(vram_raw_values)
+        max_vram_raw = max(vram_raw_values)
+        avg_vram_raw = sum(vram_raw_values) / len(vram_raw_values)
+        
+        print(f"VRAM NONZERO RAW (bytes, read_raw, sin restricciones) - Step 0450:")
+        print(f"  Mín: {min_vram_raw:4d}  Máx: {max_vram_raw:4d}  Prom: {avg_vram_raw:4.0f}")
+        print(f"")
+        
         # Step 0444: Estadísticas de OAM nonzero
         oam_values = [m['oam_nonzero'] for m in self.metrics]
         min_oam = min(oam_values)
@@ -482,18 +546,27 @@ class ROMSmokeRunner:
         
         print(f"")
         
+        # Step 0450: Log MBC writes summary si está disponible
+        if hasattr(self.mmu, 'log_mbc_writes_summary'):
+            self.mmu.log_mbc_writes_summary()
+            print(f"")
+        
         # Diagnóstico preliminar
         print(f"DIAGNÓSTICO PRELIMINAR:")
         if max_nw == 0:
             print(f"  ⚠️  Framebuffer BLANCO (0 píxeles non-white)")
             
-            if max_vram > 0:
-                print(f"  🔍 VRAM non-zero detectado (max={max_vram})")
+            # Step 0450: Comparar VRAM normal vs RAW
+            if max_vram_raw > 0 and max_vram == 0:
+                print(f"  🔍 VRAM RAW tiene datos (max={max_vram_raw}) pero read() devuelve 0")
+                print(f"     → Caso: Restricciones de acceso (modo PPU/banking) bloquean lectura")
+            elif max_vram_raw > 0:
+                print(f"  🔍 VRAM non-zero detectado (max={max_vram_raw} raw, {max_vram} normal)")
                 print(f"     → Caso 1: Probable bug en fetch BG/window/paleta")
             else:
                 print(f"  🔍 VRAM completamente vacío (0 bytes non-zero)")
                 print(f"     → Caso 2: CPU progresa pero writes no llegan a VRAM")
-                print(f"        o juego espera condición (joypad/interrupts/DMA)")
+                print(f"        o juego espera condición (joypad/interrupts/DMA/MBC)")
         else:
             print(f"  ✅ Framebuffer NO BLANCO (max={max_nw} píxeles non-white)")
             print(f"     → Sistema funciona correctamente")

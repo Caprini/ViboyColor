@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Triage Real "No Veo Gráficos" (MBC Requerido + VRAM Raw + Headless Funcional) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Triage Real "No Veo Gráficos" (MBC Requerido + VRAM Raw + Headless Funcional)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-02
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0450
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-02__0449__ejecutar-comparacion-headless-ui-logs-reales.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de herramientas de diagnóstico robustas para triage real del problema "no veo gráficos". 
+                    Añadido preflight check en headless para detectar módulo C++ no compilado, API de lectura RAW en MMU 
+                    para diagnóstico sin restricciones, herramienta de análisis de headers ROM para detectar soporte MBC, 
+                    y contadores de writes MBC para evidencia de banking. Modificado headless para usar read_raw() en VRAMnz 
+                    y generar resumen de MBC writes. Objetivo: determinar causa raíz (MBC/banking vs PPU/paletas vs CPU/IRQ) 
+                    con evidencia confiable.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Memory Bank Controllers (MBC)</strong>: Los cartuchos de Game Boy usan controladores de banco 
+                    de memoria para mapear ROMs grandes (>32KB) y RAM externa en el espacio de direcciones de 16 bits. 
+                    Los writes a rangos 0x0000-0x7FFF se interpretan como comandos MBC (no como escrituras a ROM). 
+                    Tipos comunes: MBC1 (0x01-0x03), MBC3 (0x0F-0x13), MBC5 (0x19-0x1E). Si el emulador no soporta 
+                    el MBC requerido por la ROM, los writes de banking no tienen efecto y el juego no puede acceder a 
+                    bancos ROM/RAM necesarios, resultando en ejecución incorrecta o bloqueo.
+                </p>
+                <p>
+                    <strong>Restricciones de Acceso a VRAM</strong>: En modo PPU Mode 3 (transferencia de datos a OAM), 
+                    la CPU no puede acceder a VRAM (0x8000-0x9FFF). Si se intenta leer, el hardware devuelve 0xFF. 
+                    Esto puede falsear diagnósticos que usan mmu.read() para medir VRAMnz. Para diagnóstico confiable, 
+                    se necesita acceso RAW que bypass estas restricciones.
+                </p>
+                <p>
+                    <strong>Header ROM (0x0100-0x014F)</strong>: Contiene metadatos del cartucho: título (0x0134-0x0143), 
+                    tipo de cartucho (0x0147), tamaño ROM (0x0148), tamaño RAM (0x0149), flag CGB (0x0143). 
+                    El tipo de cartucho determina qué MBC se requiere.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Implementación en 5 fases: preflight check, API RAW, ROM info, contadores MBC, y modificación headless.
+                </p>
+                
+                <h3>Fase A: Headless "A Prueba de Mentiras"</h3>
+                <p>
+                    Añadido preflight check en <code>tools/rom_smoke_0442.py</code> que verifica:
+                </p>
+                <ul>
+                    <li>Import de <code>viboy_core</code> exitoso</li>
+                    <li>Creación de instancia <code>PyMMU</code> exitosa (detecta errores de linking)</li>
+                </ul>
+                <p>
+                    Si falla, imprime error claro con instrucciones de compilación y exit code != 0. 
+                    Esto evita que headless genere tablas falsas cuando el módulo no está compilado.
+                </p>
+
+                <h3>Fase B: API de Lectura RAW en MMU</h3>
+                <p>
+                    Añadidos métodos en MMU C++ y wrapper Cython:
+                </p>
+                <ul>
+                    <li><code>read_raw(uint16_t addr)</code>: Lee <code>memory_[]</code> directo sin restricciones</li>
+                    <li><code>dump_raw_range(uint16_t start, uint16_t length, uint8_t* buffer)</code>: Dump rápido de rango de memoria</li>
+                </ul>
+                <p>
+                    <strong>WARNING</strong>: Solo para diagnóstico/tools, NO para emulación normal. Bypassa restricciones 
+                    de modo PPU, banking, etc.
+                </p>
+
+                <h3>Fase C: ROM Info Tool</h3>
+                <p>
+                    Creado <code>tools/rom_info_0450.py</code> que:
+                </p>
+                <ul>
+                    <li>Lee header ROM (0x0100-0x014F)</li>
+                    <li>Extrae: título, tipo cartucho, MBC name, CGB flag, tamaños ROM/RAM</li>
+                    <li>Detecta si el emulador soporta el MBC requerido (según <code>SUPPORTED_MBCS</code>)</li>
+                    <li>Imprime tabla: ROM | cart_type(hex) | MBC name | CGB flag | soportado</li>
+                </ul>
+
+                <h3>Fase D: Contadores de MBC Writes</h3>
+                <p>
+                    Añadidos contadores en MMU para writes a rangos MBC (0x0000-0x7FFF):
+                </p>
+                <ul>
+                    <li><code>mbc_write_count_</code>: Total de writes MBC</li>
+                    <li>Ring buffer de últimos 8 writes: addr, val, PC</li>
+                    <li>Log limitado (primeras 20) con rango identificado (RAM_EN, ROM_BANK, RAM_BANK, MODE)</li>
+                    <li>Método <code>log_mbc_writes_summary()</code> para resumen al final de ejecución</li>
+                </ul>
+
+                <h3>Fase E: Modificación Headless</h3>
+                <p>
+                    Modificado <code>tools/rom_smoke_0442.py</code>:
+                </p>
+                <ul>
+                    <li>Añadido método <code>_sample_vram_nonzero_raw()</code> que usa <code>read_raw()</code></li>
+                    <li>Métricas incluyen tanto <code>vram_nonzero</code> (normal) como <code>vram_nonzero_raw</code> (RAW)</li>
+                    <li>Resumen muestra ambas métricas para comparación</li>
+                    <li>Al final, llama a <code>log_mbc_writes_summary()</code> si está disponible</li>
+                    <li>Diagnóstico preliminar compara VRAM normal vs RAW para detectar restricciones de acceso</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tools/rom_smoke_0442.py</code> - Preflight check, método _sample_vram_nonzero_raw(), métricas RAW, log MBC writes</li>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Declaraciones read_raw(), dump_raw_range(), log_mbc_writes_summary(), contadores MBC</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Implementación read_raw(), dump_raw_range(), log_mbc_writes_summary(), lógica contadores MBC en write()</li>
+                    <li><code>src/core/cython/mmu.pxd</code> - Declaraciones Cython de nuevos métodos</li>
+                    <li><code>src/core/cython/mmu.pyx</code> - Wrappers Python de read_raw(), dump_raw_range(), log_mbc_writes_summary()</li>
+                    <li><code>tools/rom_info_0450.py</code> - Herramienta nueva para análisis de headers ROM</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Compilación:</strong> BUILD_EXIT=0, TEST_BUILD_EXIT=0
+                </p>
+                <p>
+                    <strong>Preflight Check:</strong> Verificado que headless falla correctamente si módulo no compilado:
+                </p>
+                <pre><code># Test: Intentar ejecutar sin compilar
+python3 tools/rom_smoke_0442.py roms/mario.gbc
+# Resultado: Error claro con instrucciones, exit code != 0</code></pre>
+                <p>
+                    <strong>ROM Info Tool:</strong> Verificado que detecta correctamente tipos MBC:
+                </p>
+                <pre><code># Test: Analizar ROMs
+python3 tools/rom_info_0450.py roms/mario.gbc roms/pkmn.gb
+# Resultado: Tabla con cart_type, MBC name, soporte</code></pre>
+                <p>
+                    <strong>Validación Nativa:</strong> Módulo C++ compilado correctamente, métodos RAW disponibles en Python.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Memory Bank Controllers (MBC1/MBC3/MBC5)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Cartridge Header (0x0100-0x014F)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">VRAM Access Restrictions (Mode 3)</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>MBC Writes</strong>: Los writes a 0x0000-0x7FFF son comandos MBC, no escrituras a ROM. Si el emulador no soporta el MBC, estos writes no tienen efecto y el juego no puede acceder a bancos necesarios.</li>
+                        <li><strong>VRAM Access Restrictions</strong>: En modo PPU Mode 3, la CPU no puede leer VRAM. Para diagnóstico confiable, se necesita acceso RAW que bypass estas restricciones.</li>
+                        <li><strong>ROM Header</strong>: El tipo de cartucho (0x0147) determina qué MBC se requiere. Es crítico verificar soporte antes de ejecutar.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>MBC Implementation</strong>: Verificar qué MBCs están realmente implementados en el emulador (MBC1, MBC3, MBC5 según código).</li>
+                        <li><strong>VRAM RAW vs Normal</strong>: Ejecutar comparación real para verificar si hay diferencia entre read() y read_raw() en VRAMnz.</li>
+                        <li><strong>MBC Write Patterns</strong>: Analizar patrones de writes MBC en ROMs reales para determinar si banking está funcionando.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal</strong>: Si una ROM requiere MBC no soportado, los writes de banking no tienen efecto, 
+                        el juego no puede acceder a bancos ROM/RAM necesarios, y el framebuffer queda blanco porque el código de inicialización 
+                        gráfica está en un banco no accesible.
+                    </p>
+                    <p>
+                        <strong>Suposición</strong>: <code>read_raw()</code> será más confiable que <code>read()</code> para diagnóstico VRAMnz 
+                        porque bypassa restricciones de modo PPU. Esto se validará en ejecución real.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar <code>tools/rom_info_0450.py</code> sobre todas las ROMs para clasificar por MBC</li>
+                    <li>[ ] Ejecutar headless con VRAM RAW y MBC writes para 4 ROMs (Mario, Pokémon, Tetris, Tetris DX)</li>
+                    <li>[ ] Analizar resultados: PC progresa + MBC writes existen + VRAM raw nonzero</li>
+                    <li>[ ] Determinar causa raíz: MBC/banking vs PPU/paletas vs CPU/IRQ</li>
+                    <li>[ ] Step 0451: Implementar MBC faltante o corregir bug identificado</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

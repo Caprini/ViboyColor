@@ -123,7 +123,15 @@ MMU::MMU()
     , boot_rom_enabled_(false)  // Step 0401: Boot ROM deshabilitada por defecto
     , hardware_mode_(HardwareMode::DMG)  // Step 0404: Modo DMG por defecto
     , current_hl_value_(0)  // Step 0436: Valor temporal de HL para captura VRAM
+    , mbc_write_count_(0)  // Step 0450: Contador de writes MBC
+    , mbc_write_ring_idx_(0)  // Step 0450: Índice del ring buffer
 {
+    // Step 0450: Inicializar ring buffer de MBC writes
+    for (int i = 0; i < 8; i++) {
+        mbc_write_addrs_[i] = 0;
+        mbc_write_vals_[i] = 0;
+        mbc_write_pcs_[i] = 0;
+    }
     // Step 0390: Inicializar arrays de paletas CGB a 0xFF (valor inicial)
     std::memset(bg_palette_data_, 0xFF, sizeof(bg_palette_data_));
     std::memset(obj_palette_data_, 0xFF, sizeof(obj_palette_data_));
@@ -1075,6 +1083,29 @@ void MMU::write(uint16_t addr, uint8_t value) {
     // Los tests que necesiten ROM personalizada deben usar load_rom() con bytearray preparado.
     // -------------------------------------------
 
+    // --- Step 0450: Count MBC writes (debug-gated) ---
+    // Detectar writes a rangos MBC (0x0000-0x7FFF) para diagnóstico
+    if (addr >= 0x0000 && addr <= 0x7FFF) {
+        mbc_write_count_++;
+        
+        // Ring buffer: guardar últimos 8 writes
+        mbc_write_ring_idx_ = (mbc_write_ring_idx_ + 1) % 8;
+        mbc_write_addrs_[mbc_write_ring_idx_] = addr;
+        mbc_write_vals_[mbc_write_ring_idx_] = value;
+        mbc_write_pcs_[mbc_write_ring_idx_] = debug_current_pc;
+        
+        // Log limitado (primeras 20)
+        static int mbc_log_count = 0;
+        if (mbc_log_count < 20) {
+            const char* range = (addr <= 0x1FFF) ? "RAM_EN" :
+                               (addr <= 0x3FFF) ? "ROM_BANK" :
+                               (addr <= 0x5FFF) ? "RAM_BANK" : "MODE";
+            printf("[MBC-WRITE] #%u | PC:0x%04X | Addr:0x%04X | Val:0x%02X | Range:%s\n",
+                   mbc_write_count_, debug_current_pc, addr, value, range);
+            mbc_log_count++;
+        }
+    }
+    
     // --- Step 0275: Monitor de Salto de Banco (Bank Watcher) ---
     // --- Step 0407: Monitor completo de MBC writes (0x0000-0x7FFF) ---
     // Instrumentación acotada para diagnosticar problemas de banking en pkmn.gb y Oro.gbc
@@ -3850,4 +3881,53 @@ void MMU::log_pokemon_loop_trace_summary() {
 }
 
 // --- Fin Step 0436 Fase A ---
+
+// --- Step 0450: Raw read for diagnostics ---
+uint8_t MMU::read_raw(uint16_t addr) const {
+    // Direct access to memory_[] without any restrictions
+    // WARNING: This bypasses PPU mode restrictions, banking, etc.
+    // Use ONLY for diagnostics, not for emulation
+    if (addr >= MEMORY_SIZE) {
+        return 0xFF;
+    }
+    return memory_[addr];
+}
+
+void MMU::dump_raw_range(uint16_t start, uint16_t length, uint8_t* buffer) const {
+    // Dump raw memory range to buffer (for fast sampling)
+    // WARNING: Only for diagnostics, bypasses restrictions
+    if (buffer == nullptr) {
+        return;
+    }
+    
+    uint16_t end = std::min(static_cast<uint16_t>(start + length), static_cast<uint16_t>(MEMORY_SIZE));
+    uint16_t actual_length = end - start;
+    
+    for (uint16_t i = 0; i < actual_length; i++) {
+        buffer[i] = memory_[start + i];
+    }
+    
+    // Fill rest with 0xFF if requested length exceeds memory
+    for (uint16_t i = actual_length; i < length; i++) {
+        buffer[i] = 0xFF;
+    }
+}
+
+void MMU::log_mbc_writes_summary() const {
+    printf("[MBC-SUMMARY] Total writes: %u\n", mbc_write_count_);
+    
+    if (mbc_write_count_ > 0) {
+        printf("[MBC-SUMMARY] Last 8 writes:\n");
+        for (int i = 0; i < 8; i++) {
+            int idx = (mbc_write_ring_idx_ - 7 + i + 8) % 8;
+            uint16_t addr = mbc_write_addrs_[idx];
+            const char* range = (addr <= 0x1FFF) ? "RAM_EN" :
+                               (addr <= 0x3FFF) ? "ROM_BANK" :
+                               (addr <= 0x5FFF) ? "RAM_BANK" : "MODE";
+            printf("[MBC-SUMMARY]   [%d] PC:0x%04X | Addr:0x%04X (%s) | Val:0x%02X\n",
+                   i, mbc_write_pcs_[idx], addr, range, mbc_write_vals_[idx]);
+        }
+    }
+}
+// --- Fin Step 0450 ---
 

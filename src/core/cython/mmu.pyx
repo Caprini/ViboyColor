@@ -8,6 +8,7 @@ acceso de alta velocidad a la memoria del Game Boy.
 """
 
 from libc.stdint cimport uint8_t, uint16_t
+from libc.stdlib cimport malloc, free
 from libcpp cimport bool
 
 # Importar la definición de la clase C++ desde el archivo .pxd
@@ -496,6 +497,74 @@ cdef class PyMMU:
         
         self._mmu.set_current_hl(hl_value)
     # --- Fin Step 0436 ---
+    
+    # --- Step 0450: Raw read for diagnostics ---
+    def read_raw(self, uint16_t addr):
+        """
+        Raw read for diagnostics (bypasses access restrictions).
+        
+        WARNING: Only for diagnostics/tools, NOT for emulation.
+        This directly reads memory_[] without PPU mode checks, banking, etc.
+        
+        Args:
+            addr: Memory address (0x0000-0xFFFF)
+        
+        Returns:
+            Raw byte value from memory_[]
+        
+        Raises:
+            MemoryError: Si la instancia de MMU en C++ no existe
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        return self._mmu.read_raw(addr)
+    
+    def dump_raw_range(self, uint16_t start, uint16_t length):
+        """
+        Dump raw memory range for fast sampling.
+        
+        WARNING: Only for diagnostics, bypasses restrictions.
+        
+        Args:
+            start: Start address
+            length: Number of bytes to dump
+        
+        Returns:
+            bytes object with raw memory dump
+        
+        Raises:
+            MemoryError: Si la instancia de MMU en C++ no existe o falla la asignación
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        # Allocate buffer in C
+        cdef uint8_t* buffer = <uint8_t*>malloc(length)
+        if buffer == NULL:
+            raise MemoryError("Failed to allocate buffer")
+        
+        try:
+            self._mmu.dump_raw_range(start, length, buffer)
+            # Convert to Python bytes
+            return buffer[:length]
+        finally:
+            free(buffer)
+    
+    def log_mbc_writes_summary(self):
+        """
+        Log summary of MBC writes (debug-gated).
+        
+        Muestra contadores y últimos 8 writes a rangos MBC (0x0000-0x7FFF).
+        
+        Raises:
+            MemoryError: Si la instancia de MMU en C++ no existe
+        """
+        if self._mmu == NULL:
+            raise MemoryError("La instancia de MMU en C++ no existe.")
+        
+        self._mmu.log_mbc_writes_summary()
+    # --- Fin Step 0450 ---
     
     # Método para obtener el puntero C++ directamente (forma segura)
     cdef mmu.MMU* get_cpp_ptr(self):

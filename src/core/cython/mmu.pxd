@@ -52,4 +52,7 @@ cdef extern from "MMU.hpp":
         void set_pokemon_loop_trace(bool active)  # Step 0436
         void log_pokemon_loop_trace_summary()  # Step 0436
         void set_current_hl(uint16_t hl_value)  # Step 0436
+        uint8_t read_raw(uint16_t addr)  # Step 0450
+        void dump_raw_range(uint16_t start, uint16_t length, uint8_t* buffer)  # Step 0450
+        void log_mbc_writes_summary()  # Step 0450
 

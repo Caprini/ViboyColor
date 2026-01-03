@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0450 - Triage Real "No Veo Gráficos" (MBC Requerido + VRAM Raw + Headless Funcional) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0450__triage-real-no-veo-graficos-mbc-vram-raw.html" class="entry-link">
+                                    Triage Real "No Veo Gráficos" (MBC Requerido + VRAM Raw + Headless Funcional)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0450 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de herramientas de diagnóstico robustas para triage real del problema "no veo gráficos". Añadido preflight check en headless para detectar módulo C++ no compilado, API de lectura RAW en MMU para diagnóstico sin restricciones (read_raw(), dump_raw_range()), herramienta de análisis de headers ROM (tools/rom_info_0450.py) para detectar soporte MBC, y contadores de writes MBC para evidencia de banking. Modificado headless para usar read_raw() en VRAMnz y generar resumen de MBC writes. Objetivo: determinar causa raíz (MBC/banking vs PPU/paletas vs CPU/IRQ) con evidencia confiable. BUILD_EXIT=0, TEST_BUILD_EXIT=0.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0449 - Ejecutar Comparación Headless vs UI Logs Reales + Cerrar Diagnóstico -->
                     <li>
                         <div class="entry-header">

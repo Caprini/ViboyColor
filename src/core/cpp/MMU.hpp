@@ -334,6 +334,28 @@ public:
      * Fuente: Patrón estándar de testing en emuladores
      */
     void set_test_mode_allow_rom_writes(bool allow);
+    
+    /**
+     * Step 0450: Raw read for diagnostics (bypasses access restrictions).
+     * 
+     * WARNING: Only for diagnostics/tools, NOT for emulation.
+     * This directly reads memory_[] without PPU mode checks, banking, etc.
+     * 
+     * @param addr Memory address (0x0000-0xFFFF)
+     * @return Raw byte value from memory_[]
+     */
+    uint8_t read_raw(uint16_t addr) const;
+    
+    /**
+     * Step 0450: Dump raw memory range for fast sampling.
+     * 
+     * WARNING: Only for diagnostics, bypasses restrictions.
+     * 
+     * @param start Start address
+     * @param length Number of bytes to dump
+     * @param buffer Output buffer (must be at least 'length' bytes)
+     */
+    void dump_raw_range(uint16_t start, uint16_t length, uint8_t* buffer) const;
 
 private:
     /**
@@ -684,6 +706,21 @@ public:
 private:
     // --- Step 0436: Valor temporal de HL para captura en writes VRAM ---
     uint16_t current_hl_value_;
+    
+    // --- Step 0450: MBC write counters for diagnostics ---
+    mutable uint32_t mbc_write_count_;
+    uint16_t mbc_write_addrs_[8];  // Ring buffer: últimos 8 addresses
+    uint8_t mbc_write_vals_[8];     // Ring buffer: últimos 8 values
+    uint16_t mbc_write_pcs_[8];     // Ring buffer: últimos 8 PCs
+    int mbc_write_ring_idx_;
+    
+public:
+    /**
+     * Step 0450: Log summary of MBC writes (debug-gated).
+     * 
+     * Muestra contadores y últimos 8 writes a rangos MBC (0x0000-0x7FFF).
+     */
+    void log_mbc_writes_summary() const;
 };
 
 #endif // MMU_HPP
