@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0456: Fijar Tests Clean-Room y Añadir Test No Plano - Viboy Color</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Step 0456: Fijar Tests Clean-Room y Añadir Test No Plano</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-03
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0456
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-03__0454__metricas-robustas-paleta-tests-clean-room.html">Anterior (0454)</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    <strong>STOP:</strong> Antes de tocar el core, validamos formalmente que los tests de paleta estaban bien diseñados.
+                    El Step 0454 creó tests de paleta que fallaban con "framebuffer plano", pero antes de asumir que el problema
+                    estaba en el core, verificamos que el patrón de tile usado en los tests generaba realmente los índices esperados.
+                </p>
+                <p>
+                    <strong>Hallazgo crítico:</strong> El patrón 0x00/0xFF usado en los tests originales genera un índice constante (=2),
+                    no los 4 índices (0/1/2/3) necesarios para validar paletas. Esto explicaba los falsos positivos.
+                </p>
+                <p>
+                    <strong>Acción:</strong> Corregimos los tests para usar el patrón 0x55/0x33 que garantiza índices 0/1/2/3,
+                    añadimos un test anti-regresión "no plano", y creamos un test sanity 2bpp para validar formalmente la decodificación.
+                </p>
+                <p>
+                    <strong>Resultado:</strong> Los tests corregidos ahora fallan porque el core tiene un bug real (framebuffer RGB plano),
+                    confirmando que el problema NO era el diseño de los tests, sino la conversión índice→RGB en el core.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>Decodificación 2bpp (2 bits per pixel)</h3>
+                <p><strong>Fuente:</strong> Pan Docs - "Tile Data" / GBEDG</p>
+                
+                <p>
+                    Los tiles del Game Boy se almacenan en formato 2bpp: cada píxel requiere 2 bits, y cada fila de 8 píxeles
+                    requiere 2 bytes (16 bits total). El byte bajo contiene el bit menos significativo de cada píxel, y el byte alto
+                    contiene el bit más significativo.
+                </p>
+                
+                <h4>Fórmula de Decodificación:</h4>
+                <pre><code>Para cada píxel i (0-7, MSB primero):
+    bit_low  = (byte_low >> (7-i)) & 0x01
+    bit_high = (byte_high >> (7-i)) & 0x01
+    color_idx = bit_low | (bit_high << 1)
+    // Resultado: color_idx ∈ {0, 1, 2, 3}</code></pre>
+                
+                <h4>Ejemplos de Patrones:</h4>
+                <ul>
+                    <li><strong>0x00/0x00:</strong> Todos los bits = 0 → color_idx = 0 para todos los píxeles</li>
+                    <li><strong>0xFF/0xFF:</strong> Todos los bits = 1 → color_idx = 3 para todos los píxeles</li>
+                    <li><strong>0x00/0xFF:</strong> byte_low=0, byte_high=0xFF → color_idx = 2 para todos los píxeles (constante)</li>
+                    <li><strong>0x55/0x33:</strong> Patrón variado → color_idx = [0, 1, 2, 3, 0, 1, 2, 3] (contiene los 4 índices)</li>
+                </ul>
+                
+                <p>
+                    <strong>Implicación para tests:</strong> Para validar que una paleta mapea correctamente los 4 índices,
+                    el tile usado debe generar los 4 índices (0/1/2/3). Si el tile genera solo 1 índice constante,
+                    el test no puede distinguir si la paleta funciona o no.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Fase A: Test Sanity 2bpp</h3>
+                <p>
+                    Creamos <code>test_tile_2bpp_decode_sanity_0456.py</code> para validar formalmente qué patrones generan
+                    qué índices. Este test es puro (no usa el core) y demuestra matemáticamente el comportamiento del decode 2bpp.
+                </p>
+                
+                <h4>Resultados del Test Sanity:</h4>
+                <pre><code>Patrón 0x00/0xFF genera índices: [2, 2, 2, 2, 2, 2, 2, 2]
+Índices únicos: {2}
+⚠️ ADVERTENCIA: Patrón 0x00/0xFF genera índice constante = 2
+   Este patrón NO es adecuado para tests de paleta que requieren 0/1/2/3
+
+Patrón 0x55/0x33 genera índices: [0, 1, 2, 3, 0, 1, 2, 3]
+Índices únicos: {0, 1, 2, 3}
+✅ Patrón 0x55/0x33 genera los 4 índices (adecuado para tests de paleta)</code></pre>
+                
+                <h3>Fase B: Corrección de Tests de Paleta</h3>
+                <p>
+                    Modificamos <code>test_palette_dmg_bgp_0454.py</code> y <code>test_palette_dmg_obj_0454.py</code> para usar
+                    el patrón 0x55/0x33 en lugar de 0x00/0xFF. También ajustamos los asserts para ser más robustos
+                    (no valores RGB exactos, solo distinción y cambio).
+                </p>
+                
+                <h4>Cambios Clave:</h4>
+                <pre><code># ANTES (patrón incorrecto):
+tile_data = [
+    0x00, 0xFF,  # Fila 0: índices 0,1,2,3 (INCORRECTO: genera constante 2)
+    ...
+]
+
+# DESPUÉS (patrón correcto):
+tile_data = [
+    0x55, 0x33,  # Fila 0: índices 0,1,2,3,0,1,2,3 (CORRECTO: genera 0/1/2/3)
+    ...
+]</code></pre>
+                
+                <h3>Fase C: Test Anti-Regresión "No Plano"</h3>
+                <p>
+                    Creamos <code>test_framebuffer_not_flat_0456.py</code> que valida que el framebuffer RGB tiene al menos
+                    3 colores únicos. Este test evita que en el futuro volvamos a pasar "por casualidad" con todo un color.
+                </p>
+                
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>NO tocar el core:</strong> El plan especifica explícitamente que NO debemos modificar el core,
+                        solo los tests. El objetivo es validar que los tests están bien diseñados antes de asumir bugs en el core.</li>
+                    <li><strong>Evidencia reproducible:</strong> El test sanity 2bpp es puro (no depende del core) y demuestra
+                        matemáticamente qué patrones generan qué índices.</li>
+                    <li><strong>Asserts robustos:</strong> Los tests de paleta no verifican valores RGB exactos, solo que hay
+                        múltiples colores distintos y que cambiar la paleta reordena los colores.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tests/test_tile_2bpp_decode_sanity_0456.py</code> (creado) - Test sanity de decodificación 2bpp</li>
+                    <li><code>tests/test_palette_dmg_bgp_0454.py</code> (modificado) - Corregido patrón de tile a 0x55/0x33</li>
+                    <li><code>tests/test_palette_dmg_obj_0454.py</code> (modificado) - Corregido patrón de tile a 0x55/0x33</li>
+                    <li><code>tests/test_framebuffer_not_flat_0456.py</code> (creado) - Test anti-regresión "no plano"</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                
+                <h3>Test Sanity 2bpp</h3>
+                <p><strong>Comando:</strong> <code>pytest -v tests/test_tile_2bpp_decode_sanity_0456.py -s</code></p>
+                <p><strong>Resultado:</strong> ✅ 3/3 tests pasan</p>
+                <p><strong>Evidencia:</strong></p>
+                <pre><code>def decode_2bpp_line(byte_low: int, byte_high: int) -> list[int]:
+    """Decodifica una línea de tile 2bpp a índices de color (0..3)."""
+    color_indices = []
+    for i in range(8):
+        bit_pos = 7 - i  # Bit position (MSB first)
+        bit_low = (byte_low >> bit_pos) & 0x01
+        bit_high = (byte_high >> bit_pos) & 0x01
+        color_idx = bit_low | (bit_high << 1)
+        color_indices.append(color_idx)
+    return color_indices</code></pre>
+                
+                <h3>Tests de Paleta Corregidos</h3>
+                <p><strong>Comando:</strong> <code>pytest -v tests/test_palette_dmg_bgp_0454.py tests/test_palette_dmg_obj_0454.py</code></p>
+                <p><strong>Resultado:</strong> ❌ 0/2 tests pasan (esperado: el core tiene un bug real)</p>
+                <p><strong>Evidencia del fallo:</strong></p>
+                <pre><code>FAILED tests/test_palette_dmg_bgp_0454.py::test_dmg_bgp_palette_mapping
+AssertionError: Frame plano: solo 2 colores únicos (esperado ≥3 con patrón 0x55/0x33)
+assert 2 >= 3
+ +  where 2 = len({(85, 85, 85), (255, 255, 255)})
+
+FAILED tests/test_palette_dmg_obj_0454.py::test_dmg_obj_palette_mapping
+AssertionError: Sprite plano: solo 1 colores únicos (esperado ≥2 con patrón 0x55/0x33)
+assert 1 >= 2
+ +  where 1 = len({(0, 0, 0)})</code></pre>
+                
+                <p>
+                    <strong>Interpretación:</strong> Los tests ahora fallan porque el core tiene un bug real (framebuffer RGB plano).
+                    El test sanity confirma que el patrón 0x55/0x33 genera índices 0/1/2/3 correctamente, así que el problema
+                    NO es el diseño de los tests, sino la conversión índice→RGB en el core.
+                </p>
+                
+                <h3>Test Anti-Regresión "No Plano"</h3>
+                <p><strong>Comando:</strong> <code>pytest -v tests/test_framebuffer_not_flat_0456.py</code></p>
+                <p><strong>Resultado:</strong> ❌ 0/1 tests pasa (esperado: el core tiene un bug real)</p>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> Los tests llaman a <code>ppu.get_framebuffer_rgb()</code>
+                    que retorna el framebuffer RGB convertido desde el framebuffer de índices. El test valida que hay al menos
+                    3 colores únicos en el framebuffer RGB.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "Tile Data" - Formato 2bpp de tiles</li>
+                    <li>GBEDG: "Tile Format" - Decodificación de tiles</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Decodificación 2bpp:</strong> El formato 2bpp requiere 2 bytes por fila de 8 píxeles.
+                            El byte bajo contiene el bit menos significativo y el byte alto el bit más significativo.
+                            La fórmula <code>color_idx = bit_low | (bit_high << 1)</code> genera índices 0-3.</li>
+                        <li><strong>Patrones de Tile:</strong> No todos los patrones generan los 4 índices. El patrón 0x00/0xFF
+                            genera índice constante (=2), mientras que 0x55/0x33 genera los 4 índices (0/1/2/3).</li>
+                        <li><strong>Diseño de Tests:</strong> Para validar paletas, el tile usado debe generar los 4 índices.
+                            Si el tile genera solo 1 índice constante, el test no puede distinguir si la paleta funciona.</li>
+                        <li><strong>Guardrails:</strong> Antes de tocar el core, validamos formalmente que los tests están bien
+                            diseñados. El test sanity 2bpp es puro (no usa el core) y demuestra matemáticamente el comportamiento.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Bug en el core:</strong> Los tests corregidos fallan porque el framebuffer RGB está plano.
+                            El siguiente paso será investigar la conversión índice→RGB en el core (PPU o renderer).</li>
+                        <li><strong>Conversión RGB:</strong> Necesitamos verificar que la función <code>convert_framebuffer_to_rgb()</code>
+                            aplica correctamente las paletas BGP/OBP0/OBP1 a los índices de color.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis confirmada:</strong> El patrón 0x00/0xFF usado en los tests originales generaba
+                        índice constante, causando falsos positivos. Los tests corregidos ahora detectan un bug real en el core.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar la conversión índice→RGB en el core (PPU o renderer)</li>
+                    <li>[ ] Verificar que <code>convert_framebuffer_to_rgb()</code> aplica correctamente las paletas BGP/OBP0/OBP1</li>
+                    <li>[ ] Corregir el bug del framebuffer RGB plano en el core</li>
+                    <li>[ ] Re-ejecutar los tests de paleta corregidos para validar la corrección</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

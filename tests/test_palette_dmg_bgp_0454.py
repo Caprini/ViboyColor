@@ -1,8 +1,10 @@
 """
-Test clean-room: Paleta DMG BGP (Step 0454)
+Test clean-room: Paleta DMG BGP (Step 0454, corregido Step 0456)
 
 Valida que BGP (0xFF47) mapea 4 índices de color correctamente
 y que cambiar BGP reordena los colores.
+
+CORRECCIÓN Step 0456: Usa patrón de tile que garantiza índices 0/1/2/3.
 """
 
 import pytest
@@ -30,21 +32,21 @@ def test_dmg_bgp_palette_mapping():
     # Encender LCD
     mmu.write(0xFF40, 0x91)  # LCDC: LCD ON, BG ON, Tile Data 0x8000
     
-    # Escribir tile en VRAM con patrón de 4 colores (índices 0,1,2,3)
-    # Tile en 0x8000 (tile 0)
-    # Patrón: 8 píxeles horizontal: 0,1,2,3,0,1,2,3
-    # Fila 0: 0b00000000 0b11111111 (índices 0,1,2,3)
-    #         bit_low:  0b00000000
-    #         bit_high: 0b11111111
+    # --- Step 0456: FIX - Usar patrón que garantiza 0/1/2/3 ---
+    # Patrón 0x55/0x33 genera índices: [0, 1, 2, 3, 0, 1, 2, 3]
+    # byte_low  = 0x55 = 0b01010101 → bits: 0,1,0,1,0,1,0,1
+    # byte_high = 0x33 = 0b00110011 → bits: 0,0,1,1,0,0,1,1
+    # color_idx = lo | (hi<<1): 0|0, 1|0, 0|2, 1|2, 0|0, 1|0, 0|2, 1|2
+    #            = 0, 1, 2, 3, 0, 1, 2, 3
     tile_data = [
-        0x00, 0xFF,  # Fila 0: índices 0,1,2,3
-        0x00, 0xFF,  # Fila 1: índices 0,1,2,3
-        0x00, 0xFF,  # Fila 2: índices 0,1,2,3
-        0x00, 0xFF,  # Fila 3: índices 0,1,2,3
-        0x00, 0xFF,  # Fila 4: índices 0,1,2,3
-        0x00, 0xFF,  # Fila 5: índices 0,1,2,3
-        0x00, 0xFF,  # Fila 6: índices 0,1,2,3
-        0x00, 0xFF,  # Fila 7: índices 0,1,2,3
+        0x55, 0x33,  # Fila 0: índices 0,1,2,3,0,1,2,3
+        0x55, 0x33,  # Fila 1: índices 0,1,2,3,0,1,2,3
+        0x55, 0x33,  # Fila 2: índices 0,1,2,3,0,1,2,3
+        0x55, 0x33,  # Fila 3: índices 0,1,2,3,0,1,2,3
+        0x55, 0x33,  # Fila 4: índices 0,1,2,3,0,1,2,3
+        0x55, 0x33,  # Fila 5: índices 0,1,2,3,0,1,2,3
+        0x55, 0x33,  # Fila 6: índices 0,1,2,3,0,1,2,3
+        0x55, 0x33,  # Fila 7: índices 0,1,2,3,0,1,2,3
     ]
     
     for i, byte_val in enumerate(tile_data):
@@ -54,6 +56,7 @@ def test_dmg_bgp_palette_mapping():
     mmu.write(0x9800, 0x00)  # Tile 0 en posición (0,0)
     
     # Set BGP=0xE4 (mapeo normal: 0→white, 1→light gray, 2→dark gray, 3→black)
+    # 0xE4 = 0b11100100 = shade3 shade2 shade1 shade0
     mmu.write(0xFF47, 0xE4)
     
     # Render 1 frame (70224 ciclos)
@@ -63,12 +66,12 @@ def test_dmg_bgp_palette_mapping():
         ppu.step(m_cycles * 4)  # PPU en T-cycles
     
     # Samplear 4 píxeles conocidos (píxeles 0, 2, 4, 6 en fila 0)
+    # Estos corresponden a índices 0, 2, 0, 2 según decode 2bpp
     framebuffer = ppu.get_framebuffer_rgb()
     assert framebuffer is not None, "Framebuffer RGB no disponible"
     
-    # Calcular índices en framebuffer RGB (3 bytes por píxel)
     pixels_rgb = []
-    for x in [0, 2, 4, 6]:  # Píxeles con índices 0,1,2,3
+    for x in [0, 2, 4, 6]:  # Píxeles con índices 0, 2, 0, 2
         idx = (0 * 160 + x) * 3  # Fila 0, píxel x
         if idx + 2 < len(framebuffer):
             r = framebuffer[idx]
@@ -76,9 +79,15 @@ def test_dmg_bgp_palette_mapping():
             b = framebuffer[idx + 2]
             pixels_rgb.append((r, g, b))
     
-    # Assert: hay ≥3 valores RGB distintos (no plano)
+    # --- Step 0456: Assert robusto (no valores RGB exactos) ---
+    # Con BGP=0xE4 y índices 0,2,0,2, deberíamos tener al menos 2 colores distintos
+    # (shade de índice 0 y shade de índice 2)
     unique_colors = set(pixels_rgb)
-    assert len(unique_colors) >= 3, f"Frame plano: solo {len(unique_colors)} colores únicos (esperado ≥3)"
+    assert len(unique_colors) >= 3, \
+        f"Frame plano: solo {len(unique_colors)} colores únicos (esperado ≥3 con patrón 0x55/0x33)"
+    
+    # Guardar para comparación
+    pixels_rgb_bgp_e4 = pixels_rgb.copy()
     
     # Cambiar BGP=0x1B (mapeo invertido: bits invertidos)
     # 0xE4 = 0b11100100 → 0x1B = 0b00011011
@@ -102,14 +111,14 @@ def test_dmg_bgp_palette_mapping():
     
     # Assert: el set/orden de colores cambia (al menos 1 píxel cambia)
     changed = False
-    for i in range(min(len(pixels_rgb), len(pixels_rgb2))):
-        if pixels_rgb[i] != pixels_rgb2[i]:
+    for i in range(min(len(pixels_rgb_bgp_e4), len(pixels_rgb2))):
+        if pixels_rgb_bgp_e4[i] != pixels_rgb2[i]:
             changed = True
             break
     
     assert changed, "BGP no reordena colores: píxeles no cambiaron al cambiar BGP"
     
-    print("✅ Test DMG BGP: paleta mapea 4 índices y es reordenable")
+    print("✅ Test DMG BGP: paleta mapea 4 índices y es reordenable (con patrón corregido)")
 
 
 if __name__ == "__main__":

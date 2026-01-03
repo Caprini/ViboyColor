@@ -1371,6 +1371,15 @@ uint8_t* PPU::get_framebuffer_ptr() {
 }
 
 uint8_t* PPU::get_framebuffer_rgb_ptr() {
+    // --- Step 0455: Present automático si hay swap pendiente ---
+    // Si hay contenido renderizado en el back buffer que no se ha presentado,
+    // hacemos el swap automáticamente para que los tests (y el emulador) vean el contenido actualizado
+    if (framebuffer_swap_pending_) {
+        swap_framebuffers();
+        framebuffer_swap_pending_ = false;
+    }
+    // -------------------------------------------
+    
     // --- Step 0404: Framebuffer RGB888 para modo CGB ---
     // Devolver el buffer RGB front (estable, no se modifica durante la lectura)
     // Tamaño: 160 * 144 * 3 = 69120 bytes (R, G, B por píxel)
@@ -1458,6 +1467,20 @@ void PPU::swap_framebuffers() {
     // --- Step 0406: Convertir framebuffer de índices a RGB888 ---
     // Llamar a convert_framebuffer_to_rgb() después del swap para que el RGB esté siempre sincronizado
     // con el framebuffer de índices front
+    // --- Step 0455: Debug - Verificar antes de convertir ---
+    static int swap_debug_count = 0;
+    if (swap_debug_count < 5) {
+        swap_debug_count++;
+        int front_non_zero = 0;
+        int back_non_zero = 0;
+        for (size_t i = 0; i < framebuffer_front_.size() && i < 100; i++) {
+            if (framebuffer_front_[i] != 0) front_non_zero++;
+            if (framebuffer_back_[i] != 0) back_non_zero++;
+        }
+        printf("[SWAP-DEBUG] Call #%d | Before convert: front_non_zero=%d/100, back_non_zero=%d/100\n",
+               swap_debug_count, front_non_zero, back_non_zero);
+    }
+    // -------------------------------------------
     convert_framebuffer_to_rgb();
     // -------------------------------------------
 }
@@ -3040,13 +3063,15 @@ void PPU::render_scanline() {
                 }
             }
             
-            // Aplicar paleta y escribir en framebuffer
+            // --- Step 0455: Escribir índice crudo (no aplicar BGP aquí) ---
+            // El framebuffer debe contener índices crudos (0-3), no shades
+            // La paleta BGP se aplicará en convert_framebuffer_to_rgb()
             uint8_t bit_index = 7 - (map_x % 8);
             uint8_t bit_low = (byte1 >> bit_index) & 1;
             uint8_t bit_high = (byte2 >> bit_index) & 1;
             uint8_t color_index = (bit_high << 1) | bit_low;
-            uint8_t final_color = (bgp >> (color_index * 2)) & 0x03;
-            framebuffer_back_[line_start_index + x] = final_color;
+            // Escribir índice crudo (0-3), no shade
+            framebuffer_back_[line_start_index + x] = color_index;
         } else {
             // Dirección válida, leer datos del tile
             // --- RESTAURADO: LÓGICA REAL DE VRAM ---
@@ -3276,12 +3301,9 @@ void PPU::render_scanline() {
 
             // --- Step 0257: Aplicar paleta forzada (mapeo identidad) ---
             // Aplicar BGP para mapear el índice de color crudo al índice final
-            // BGP = 0xE4 = 11 10 01 00
-            // color_index 0 -> (BGP >> 0) & 3 = 0
-            // color_index 1 -> (BGP >> 2) & 3 = 1
-            // color_index 2 -> (BGP >> 4) & 3 = 2
-            // color_index 3 -> (BGP >> 6) & 3 = 3
-            uint8_t final_color = (bgp >> (color_index * 2)) & 0x03;
+            // --- Step 0455: Escribir índice crudo (no aplicar BGP aquí) ---
+            // La paleta BGP se aplicará en convert_framebuffer_to_rgb()
+            uint8_t final_color = color_index;  // Índice crudo, no shade
             
             // --- Step 0336: Verificación de Aplicación de Paleta ---
             // Verificar que la paleta BGP se aplica correctamente
@@ -4180,9 +4202,9 @@ void PPU::render_window() {
             uint8_t bit_high = (byte2 >> bit_index) & 1;
             uint8_t color_index = (bit_high << 1) | bit_low;
             
-            // Aplicar paleta BGP para mapear el índice de color crudo al índice final
-            // BGP tiene 4 campos de 2 bits: [color3][color2][color1][color0]
-            uint8_t final_color = (bgp >> (color_index * 2)) & 0x03;
+            // --- Step 0455: Escribir índice crudo (no aplicar BGP aquí) ---
+            // La paleta BGP se aplicará en convert_framebuffer_to_rgb()
+            uint8_t final_color = color_index;  // Índice crudo, no shade
             
             // Escribir el píxel en el framebuffer (la Window sobrescribe el Background)
             framebuffer_back_[line_start_index + screen_x] = final_color;
@@ -5262,100 +5284,177 @@ void PPU::analyze_vram_progression() {
     vram_progression_last_frame_ = current_frame;
 }
 
+// --- Step 0455: Helper para aplicar paleta DMG ---
+// Aplica registro de paleta (BGP/OBP0/OBP1) a color_idx para obtener shade
+inline uint8_t dmg_apply_palette(uint8_t color_idx, uint8_t pal_reg) {
+    // color_idx: 0..3
+    // pal_reg: BGP/OBP0/OBP1 (0xFF47/0xFF48/0xFF49)
+    // Cada índice ocupa 2 bits en el registro:
+    //   bits 1-0: shade para color_idx 0
+    //   bits 3-2: shade para color_idx 1
+    //   bits 5-4: shade para color_idx 2
+    //   bits 7-6: shade para color_idx 3
+    return (pal_reg >> (color_idx * 2)) & 0x03; // shade 0..3
+}
+
+// Mapea shade DMG (0..3) a RGB888 (gris)
+// Fuente: Pan Docs - "Color Palettes"
+// Shade 0 = White (255, 255, 255)
+// Shade 1 = Light gray (170, 170, 170)
+// Shade 2 = Dark gray (85, 85, 85)
+// Shade 3 = Black (0, 0, 0)
+inline void dmg_shade_to_rgb(uint8_t shade, uint8_t& r, uint8_t& g, uint8_t& b) {
+    static const uint8_t shade_table[4] = {255, 170, 85, 0};
+    uint8_t gray = shade_table[shade];
+    r = gray;
+    g = gray;
+    b = gray;
+}
+
 void PPU::convert_framebuffer_to_rgb() {
-    // --- Step 0406: Convertir framebuffer de índices a RGB888 usando paletas CGB con BG attributes ---
-    // Fuente: Pan Docs - CGB Registers, Color Palettes, BG Map Attributes
-    //
-    // Formato de paletas CGB:
-    // - 8 paletas BG × 4 colores × 2 bytes = 64 bytes
-    // - Cada color es BGR555: 15 bits (5 bits por canal)
-    // - Color = GGGRRRRR XBBBBBGG (Little Endian, X = unused bit)
-    //
-    // BG Map Attributes (VRAM Bank 1):
-    // - Bit 0-2: Palette number (0-7)
-    // - Bit 3: Tile VRAM bank (0=Bank 0, 1=Bank 1)
-    // - Bit 5: X-Flip
-    // - Bit 6: Y-Flip
-    // - Bit 7: BG-to-OAM Priority
-    //
-    // Conversión BGR555 → RGB888:
-    // - R5 = (color >> 0) & 0x1F
-    // - G5 = (color >> 5) & 0x1F
-    // - B5 = (color >> 10) & 0x1F
-    // - R8 = (R5 * 255) / 31
-    // - G8 = (G5 * 255) / 31
-    // - B8 = (B5 * 255) / 31
+    // --- Step 0455: Fix - Aplicar paleta DMG correctamente ---
+    // Convierte framebuffer_front_ (índices 0..3) a RGB888 usando BGP/OBP
+    
+    // --- Step 0455: Debug - Verificar entrada ---
+    static int convert_entry_count = 0;
+    if (convert_entry_count < 5) {
+        convert_entry_count++;
+        printf("[CONVERT-ENTRY] convert_framebuffer_to_rgb() called #%d\n", convert_entry_count);
+    }
+    // -------------------------------------------
     
     if (mmu_ == nullptr) {
+        printf("[CONVERT-ERROR] mmu_ is nullptr!\n");
         return;
     }
     
-    // Leer LCDC para determinar tilemap activo
-    uint8_t lcdc = mmu_->read(IO_LCDC);
-    uint16_t tilemap_base = (lcdc & 0x08) ? TILEMAP_1 : TILEMAP_0;
+    // Por ahora, asumir modo DMG (CGB path se implementará cuando sea necesario)
+    // TODO: Detectar modo CGB cuando se implemente soporte completo de CGB
+    bool is_dmg = true;
     
-    // Leer SCX y SCY para calcular posiciones correctas con scroll
-    uint8_t scx = mmu_->read(IO_SCX);
-    uint8_t scy = mmu_->read(IO_SCY);
-    
-    // Precalcular todas las paletas CGB (8 paletas × 4 colores)
-    uint16_t cgb_palettes[8][4];
-    for (int palette_id = 0; palette_id < 8; palette_id++) {
-        for (int color_idx = 0; color_idx < 4; color_idx++) {
-            int base = palette_id * 8 + color_idx * 2;
-            uint8_t lo = mmu_->read_bg_palette_data(base);
-            uint8_t hi = mmu_->read_bg_palette_data(base + 1);
-            cgb_palettes[palette_id][color_idx] = lo | (hi << 8);
-        }
-    }
-    
-    // Convertir cada píxel del framebuffer de índices a RGB
-    for (uint16_t y = 0; y < SCREEN_HEIGHT; y++) {
-        for (uint16_t x = 0; x < SCREEN_WIDTH; x++) {
-            // Calcular posición en el framebuffer lineal
-            size_t fb_index = y * SCREEN_WIDTH + x;
-            
-            // Leer índice de color (0-3) del framebuffer front de índices
-            uint8_t color_index = framebuffer_front_[fb_index];
-            
-            // Clamp índice a rango válido (0-3)
-            if (color_index > 3) {
-                color_index = 0;
+    if (is_dmg) {
+        // --- Modo DMG: el framebuffer contiene índices crudos (0-3) ---
+        // Aplicar paleta BGP para obtener shade, luego mapear shade→RGB888
+        // Leer registros de paleta una vez
+        uint8_t bgp = mmu_->read(IO_BGP);   // 0xFF47
+        uint8_t obp0 = mmu_->read(IO_OBP0); // 0xFF48 (para sprites, TODO)
+        uint8_t obp1 = mmu_->read(IO_OBP1); // 0xFF49 (para sprites, TODO)
+        
+        // --- Step 0455: Debug - Verificar contenido del framebuffer ---
+        static int convert_debug_count = 0;
+        if (convert_debug_count < 5) {
+            convert_debug_count++;
+            int non_zero_count = 0;
+            int index_counts[4] = {0, 0, 0, 0};
+            for (size_t i = 0; i < framebuffer_front_.size() && i < 100; i++) {
+                uint8_t idx = framebuffer_front_[i] & 0x03;
+                index_counts[idx]++;
+                if (idx != 0) non_zero_count++;
             }
-            
-            // Calcular posición del tile en el tilemap (considerando scroll con wrap-around)
-            uint8_t world_x = (x + scx) & 0xFF;
-            uint8_t world_y = (y + scy) & 0xFF;
-            uint8_t tile_x = world_x / 8;
-            uint8_t tile_y = world_y / 8;
-            
-            // Calcular offset en el tilemap (32 tiles por fila)
-            uint16_t tilemap_offset = tile_y * 32 + tile_x;
-            uint16_t tilemap_addr = tilemap_base + tilemap_offset;
-            
-            // Leer tile attributes de VRAM bank 1
-            uint8_t attributes = mmu_->read_vram_bank(1, tilemap_addr);
-            
-            // Extraer palette_id (bits 0-2)
-            uint8_t palette_id = attributes & 0x07;
-            
-            // Obtener color CGB (BGR555) de la paleta correcta
-            uint16_t bgr555 = cgb_palettes[palette_id][color_index];
-            
-            // Extraer componentes BGR555
-            uint8_t r5 = (bgr555 >> 0) & 0x1F;
-            uint8_t g5 = (bgr555 >> 5) & 0x1F;
-            uint8_t b5 = (bgr555 >> 10) & 0x1F;
-            
-            // Convertir a RGB888 (0-255 por canal)
-            uint8_t r8 = (r5 * 255) / 31;
-            uint8_t g8 = (g5 * 255) / 31;
-            uint8_t b8 = (b5 * 255) / 31;
-            
-            // Escribir al framebuffer RGB front (R, G, B)
-            framebuffer_rgb_front_[fb_index * 3 + 0] = r8;  // Red
-            framebuffer_rgb_front_[fb_index * 3 + 1] = g8;  // Green
-            framebuffer_rgb_front_[fb_index * 3 + 2] = b8;  // Blue
+            printf("[CONVERT-DEBUG] Call #%d | First 100 pixels: non_zero=%d | Index distribution: 0=%d 1=%d 2=%d 3=%d | BGP=0x%02X\n",
+                   convert_debug_count, non_zero_count, index_counts[0], index_counts[1], index_counts[2], index_counts[3], bgp);
+        }
+        // -------------------------------------------
+        
+        for (uint16_t y = 0; y < SCREEN_HEIGHT; y++) {
+            for (uint16_t x = 0; x < SCREEN_WIDTH; x++) {
+                size_t fb_index = y * SCREEN_WIDTH + x;
+                // El framebuffer contiene índices crudos (0-3)
+                uint8_t color_idx = framebuffer_front_[fb_index] & 0x03;
+                
+                // Aplicar BGP para obtener shade
+                uint8_t shade = dmg_apply_palette(color_idx, bgp);
+                
+                // Convertir shade a RGB888 (gris DMG)
+                uint8_t r, g, b;
+                dmg_shade_to_rgb(shade, r, g, b);
+                
+                // Escribir RGB en framebuffer_rgb_front_
+                size_t rgb_idx = fb_index * 3;
+                framebuffer_rgb_front_[rgb_idx] = r;
+                framebuffer_rgb_front_[rgb_idx + 1] = g;
+                framebuffer_rgb_front_[rgb_idx + 2] = b;
+            }
+        }
+        
+        // --- Step 0455: Debug - Verificar RGB escrito ---
+        if (convert_debug_count <= 5) {
+            printf("[CONVERT-DEBUG] RGB[0:10]: ");
+            for (int i = 0; i < 10; i++) {
+                printf("%d ", framebuffer_rgb_front_[i]);
+            }
+            printf("\n");
+        }
+        // -------------------------------------------
+    } else {
+        // --- Modo CGB: usar paletas CGB (código original) ---
+        // Leer LCDC para determinar tilemap activo
+        uint8_t lcdc = mmu_->read(IO_LCDC);
+        uint16_t tilemap_base = (lcdc & 0x08) ? TILEMAP_1 : TILEMAP_0;
+        
+        // Leer SCX y SCY para calcular posiciones correctas con scroll
+        uint8_t scx = mmu_->read(IO_SCX);
+        uint8_t scy = mmu_->read(IO_SCY);
+        
+        // Precalcular todas las paletas CGB (8 paletas × 4 colores)
+        uint16_t cgb_palettes[8][4];
+        for (int palette_id = 0; palette_id < 8; palette_id++) {
+            for (int color_idx = 0; color_idx < 4; color_idx++) {
+                int base = palette_id * 8 + color_idx * 2;
+                uint8_t lo = mmu_->read_bg_palette_data(base);
+                uint8_t hi = mmu_->read_bg_palette_data(base + 1);
+                cgb_palettes[palette_id][color_idx] = lo | (hi << 8);
+            }
+        }
+        
+        // Convertir cada píxel del framebuffer de índices a RGB
+        for (uint16_t y = 0; y < SCREEN_HEIGHT; y++) {
+            for (uint16_t x = 0; x < SCREEN_WIDTH; x++) {
+                // Calcular posición en el framebuffer lineal
+                size_t fb_index = y * SCREEN_WIDTH + x;
+                
+                // Leer índice de color (0-3) del framebuffer front de índices
+                uint8_t color_index = framebuffer_front_[fb_index];
+                
+                // Clamp índice a rango válido (0-3)
+                if (color_index > 3) {
+                    color_index = 0;
+                }
+                
+                // Calcular posición del tile en el tilemap (considerando scroll con wrap-around)
+                uint8_t world_x = (x + scx) & 0xFF;
+                uint8_t world_y = (y + scy) & 0xFF;
+                uint8_t tile_x = world_x / 8;
+                uint8_t tile_y = world_y / 8;
+                
+                // Calcular offset en el tilemap (32 tiles por fila)
+                uint16_t tilemap_offset = tile_y * 32 + tile_x;
+                uint16_t tilemap_addr = tilemap_base + tilemap_offset;
+                
+                // Leer tile attributes de VRAM bank 1
+                uint8_t attributes = mmu_->read_vram_bank(1, tilemap_addr);
+                
+                // Extraer palette_id (bits 0-2)
+                uint8_t palette_id = attributes & 0x07;
+                
+                // Obtener color CGB (BGR555) de la paleta correcta
+                uint16_t bgr555 = cgb_palettes[palette_id][color_index];
+                
+                // Extraer componentes BGR555
+                uint8_t r5 = (bgr555 >> 0) & 0x1F;
+                uint8_t g5 = (bgr555 >> 5) & 0x1F;
+                uint8_t b5 = (bgr555 >> 10) & 0x1F;
+                
+                // Convertir a RGB888 (0-255 por canal)
+                uint8_t r8 = (r5 * 255) / 31;
+                uint8_t g8 = (g5 * 255) / 31;
+                uint8_t b8 = (b5 * 255) / 31;
+                
+                // Escribir al framebuffer RGB front (R, G, B)
+                framebuffer_rgb_front_[fb_index * 3 + 0] = r8;  // Red
+                framebuffer_rgb_front_[fb_index * 3 + 1] = g8;  // Green
+                framebuffer_rgb_front_[fb_index * 3 + 2] = b8;  // Blue
+            }
         }
     }
 }

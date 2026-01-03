@@ -1,7 +1,10 @@
 """
-Test clean-room: Paleta DMG OBP0/OBP1 para sprites (Step 0454)
+Test clean-room: Paleta DMG OBP0/OBP1 para sprites (Step 0454, corregido Step 0456)
 
 Valida que OBP0/OBP1 mapean colores en sprites correctamente.
+
+CORRECCIÓN Step 0456: Usa patrón de tile que garantiza índices 0/1/2/3,
+y muestrea píxeles que no sean índice 0 (transparente).
 """
 
 import pytest
@@ -28,16 +31,16 @@ def test_dmg_obj_palette_mapping():
     # Encender LCD y sprites
     mmu.write(0xFF40, 0x93)  # LCDC: LCD ON, BG ON, OBJ ON, Tile Data 0x8000
     
-    # Escribir tile en VRAM con patrón (índices 1,2,3, evitar 0 transparente)
+    # --- Step 0456: FIX - Usar patrón 0x55/0x33 que garantiza 0/1/2/3 ---
     tile_data = [
-        0x00, 0xFF,  # Fila 0: índices 0,1,2,3 (usaremos 1,2,3)
-        0x00, 0xFF,  # Fila 1
-        0x00, 0xFF,  # Fila 2
-        0x00, 0xFF,  # Fila 3
-        0x00, 0xFF,  # Fila 4
-        0x00, 0xFF,  # Fila 5
-        0x00, 0xFF,  # Fila 6
-        0x00, 0xFF,  # Fila 7
+        0x55, 0x33,  # Fila 0: índices 0,1,2,3,0,1,2,3
+        0x55, 0x33,  # Fila 1: índices 0,1,2,3,0,1,2,3
+        0x55, 0x33,  # Fila 2: índices 0,1,2,3,0,1,2,3
+        0x55, 0x33,  # Fila 3: índices 0,1,2,3,0,1,2,3
+        0x55, 0x33,  # Fila 4: índices 0,1,2,3,0,1,2,3
+        0x55, 0x33,  # Fila 5: índices 0,1,2,3,0,1,2,3
+        0x55, 0x33,  # Fila 6: índices 0,1,2,3,0,1,2,3
+        0x55, 0x33,  # Fila 7: índices 0,1,2,3,0,1,2,3
     ]
     
     for i, byte_val in enumerate(tile_data):
@@ -59,14 +62,16 @@ def test_dmg_obj_palette_mapping():
         m_cycles = cpu.step()
         ppu.step(m_cycles * 4)
     
-    # Samplear 2-3 píxeles del sprite (aproximado en posición conocida)
+    # Samplear píxeles del sprite (evitar índice 0 transparente)
+    # Píxeles 1, 3, 5, 7 en fila 0 del sprite corresponden a índices 1, 3, 1, 3
+    # Posición sprite: X=18, Y=26 (pantalla)
     framebuffer = ppu.get_framebuffer_rgb()
     assert framebuffer is not None
     
-    # Píxeles aproximados del sprite (fila 10, columnas 10-12)
+    # Píxeles aproximados del sprite (fila 26, columnas 19, 21, 23, 25)
     pixels_rgb = []
-    for x in [10, 11, 12]:
-        idx = (10 * 160 + x) * 3
+    for x in [19, 21, 23, 25]:  # Píxeles con índices 1, 3, 1, 3 (no transparentes)
+        idx = (26 * 160 + x) * 3
         if idx + 2 < len(framebuffer):
             r = framebuffer[idx]
             g = framebuffer[idx + 1]
@@ -75,7 +80,11 @@ def test_dmg_obj_palette_mapping():
     
     # Assert: hay ≥2 colores distintos (no todo transparente o plano)
     unique_colors = set(pixels_rgb)
-    assert len(unique_colors) >= 2, f"Sprite plano: solo {len(unique_colors)} colores únicos"
+    assert len(unique_colors) >= 2, \
+        f"Sprite plano: solo {len(unique_colors)} colores únicos (esperado ≥2 con patrón 0x55/0x33)"
+    
+    # Guardar para comparación
+    pixels_rgb_obp_e4 = pixels_rgb.copy()
     
     # Cambiar OBP0=0x1B (mapeo invertido)
     mmu.write(0xFF48, 0x1B)
@@ -88,8 +97,8 @@ def test_dmg_obj_palette_mapping():
     # Samplear mismos píxeles
     framebuffer2 = ppu.get_framebuffer_rgb()
     pixels_rgb2 = []
-    for x in [10, 11, 12]:
-        idx = (10 * 160 + x) * 3
+    for x in [19, 21, 23, 25]:
+        idx = (26 * 160 + x) * 3
         if idx + 2 < len(framebuffer2):
             r = framebuffer2[idx]
             g = framebuffer2[idx + 1]
@@ -98,14 +107,14 @@ def test_dmg_obj_palette_mapping():
     
     # Assert: al menos 1 píxel cambia
     changed = False
-    for i in range(min(len(pixels_rgb), len(pixels_rgb2))):
-        if pixels_rgb[i] != pixels_rgb2[i]:
+    for i in range(min(len(pixels_rgb_obp_e4), len(pixels_rgb2))):
+        if pixels_rgb_obp_e4[i] != pixels_rgb2[i]:
             changed = True
             break
     
     assert changed, "OBP0 no reordena colores en sprite"
     
-    print("✅ Test DMG OBP0: paleta mapea colores en sprites y es reordenable")
+    print("✅ Test DMG OBP0: paleta mapea colores en sprites y es reordenable (con patrón corregido)")
 
 
 if __name__ == "__main__":
