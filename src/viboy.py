@@ -25,6 +25,7 @@ Fuente: Pan Docs - System Clock, Timing
 from __future__ import annotations
 
 import logging
+import os  # Step 0461: Para env vars de kill-switch
 import sys
 import time
 from pathlib import Path
@@ -758,12 +759,17 @@ class Viboy:
         # --- Step 0317: Optimización - Verificar paleta solo una vez al inicio ---
         # Si BGP es 0x00, el juego no ha configurado la paleta y la pantalla será blanca.
         # Forzamos 0xE4 (paleta estándar) para que al menos veamos algo.
+        # --- Step 0461: Gate BGP forzado con kill-switch ---
         # OPTIMIZACIÓN: Verificar solo una vez al inicio, no en cada frame
         palette_checked = False
-        if self._use_cpp and self._mmu is not None:
+        VIBOY_FORCE_BGP = os.environ.get('VIBOY_FORCE_BGP', '0') == '1'
+        if self._use_cpp and self._mmu is not None and VIBOY_FORCE_BGP:
             if self._mmu.read(0xFF47) == 0:
                 self._mmu.write(0xFF47, 0xE4)
                 palette_checked = True
+                if not hasattr(self, '_force_bgp_logged'):
+                    print("[DEBUG-INJECTION] BGP forzado activo (VIBOY_FORCE_BGP=1)")
+                    self._force_bgp_logged = True
         # ------------------------------------------------------------------------------------
         
         # --- Step 0393: Toggle de trazas via variable de entorno ---
@@ -1443,7 +1449,13 @@ class Viboy:
                 # -------------------------------------------
                 
                 # --- Step 0298: Ejecutar acciones de simulación de entrada ---
-                if simulate_input and self._joypad is not None:
+                # --- Step 0461: Gate autopress con kill-switch ---
+                # Solo activar si VIBOY_AUTOPRESS=1 explícitamente
+                VIBOY_AUTOPRESS = os.environ.get('VIBOY_AUTOPRESS', '0') == '1'
+                if simulate_input and VIBOY_AUTOPRESS and self._joypad is not None:
+                    if not hasattr(self, '_autopress_logged'):
+                        print("[DEBUG-INJECTION] Autopress activo (VIBOY_AUTOPRESS=1)")
+                        self._autopress_logged = True
                     for frames, button, action in simulated_actions:
                         if self.frame_count == frames:
                             # Ejecutar la acción

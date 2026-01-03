@@ -1,5 +1,6 @@
 #include "PPU.hpp"
 #include "MMU.hpp"
+#include "common.hpp"  // Step 0461: Kill-switch para debug injections
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>  // Step 0321: Para abs()
@@ -1958,6 +1959,7 @@ void PPU::render_scanline() {
     // -------------------------------------------
     
     // --- Step 0330: Flag para controlar checkerboard temporal ---
+    // --- Step 0461: Gateado con kill-switch - OFF por defecto ---
     static bool enable_checkerboard_temporal = true;  // Flag para controlar
     // -------------------------------------------
     
@@ -3059,10 +3061,19 @@ void PPU::render_scanline() {
         
         if (!tile_addr_valid || !tile_line_addr_valid) {
             // Dirección inválida, activar checkerboard
+            // --- Step 0461: Gate checkerboard con kill-switch ---
+            if (!is_debug_injection_enabled()) {
+                // Checkerboard OFF por defecto en runtime normal
+                // Renderizar como tile vacío (blanco) en lugar de checkerboard
+                uint8_t color_index = 0;  // Blanco (índice 0)
+                framebuffer_back_[line_start_index + x] = color_index;
+                continue;  // Saltar al siguiente píxel
+            }
+            
             static int invalid_tile_addr_count = 0;
             if (invalid_tile_addr_count < 5 && ly_ == 0 && x == 0) {
                 invalid_tile_addr_count++;
-                printf("[PPU-INVALID-TILE-ADDR] TileID: 0x%02X | Addr: 0x%04X (fuera de rango) | Activando checkerboard\n",
+                printf("[PPU-INVALID-TILE-ADDR] TileID: 0x%02X | Addr: 0x%04X (fuera de rango) | Activando checkerboard (VIBOY_DEBUG_INJECTION=1)\n",
                        tile_id, tile_addr);
             }
             
@@ -3183,15 +3194,17 @@ void PPU::render_scanline() {
             // Activar checkerboard cuando:
             // 1. El tile está completamente vacío (todas las líneas = 0x00)
             // 2. VRAM está completamente vacía (< 200 bytes no-cero)
+            // 3. --- Step 0461: Kill-switch activado (VIBOY_DEBUG_INJECTION=1) ---
             // Esto previene pantallas blancas cuando el tilemap apunta a direcciones inválidas
-            if (tile_is_empty && enable_checkerboard_temporal && vram_is_empty_) {
+            if (tile_is_empty && enable_checkerboard_temporal && vram_is_empty_ && is_debug_injection_enabled()) {
                 // Detectar transición OFF→ON solo una vez
                 if (!checkerboard_active_) {
                     checkerboard_active_ = true;
                     int tiledata_nonzero = count_vram_nonzero_bank0_tiledata();
                     int tilemap_nonzero = count_vram_nonzero_bank0_tilemap();
                     printf("[CHECKERBOARD-STATE] ON | Frame %llu | LY: %d | X: %d | "
-                           "TileData: %d/6144 (%.1f%%) | TileMap: %d/2048 (%.1f%%)\n",
+                           "TileData: %d/6144 (%.1f%%) | TileMap: %d/2048 (%.1f%%) | "
+                           "[DEBUG-INJECTION] Checkerboard activo (VIBOY_DEBUG_INJECTION=1)\n",
                            static_cast<unsigned long long>(frame_counter_ + 1), ly_, x,
                            tiledata_nonzero, (tiledata_nonzero * 100.0 / 6144),
                            tilemap_nonzero, (tilemap_nonzero * 100.0 / 2048));

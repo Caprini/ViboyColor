@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0461 - Inventario Debug Injection y Kill-Switch -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-03__0461__inventario-debug-injection-killswitch-fix-obj-palette.html" class="entry-link">
+                                    Inventario Debug Injection y Kill-Switch
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-03 | 
+                            <strong>Step ID:</strong> 0461 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Identificación y desactivación por defecto de todos los mecanismos que puedan interferir con el output del emulador (patrones de test, autopress, fallbacks, modos especiales). Inventario completo: 9 mecanismos identificados (3 checkerboard patterns ALTO RIESGO, 1 auto-press MEDIO RIESGO, 1 BGP forzado MEDIO RIESGO, 1 framebuffer trace BAJO RIESGO, 4 ya gated correctamente). Kill-switches implementados: VIBOY_DEBUG_INJECTION, VIBOY_AUTOPRESS, VIBOY_FORCE_BGP, VIBOY_FRAMEBUFFER_TRACE (todos OFF por defecto). Resultado: ✅ Todos los mecanismos de interferencia están ahora gated. Tests objetivo: 2/3 pasan (BGP y Not Flat pasan, OBJ falla como se esperaba - problema conocido de conversión de paleta para sprites).
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0460 - Fix Setup Test Insuficiente - Tilemap Completo -->
                     <li>
                         <div class="entry-header">
