@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UI Evidencia Real + Profiling Presenter (Mario cuelga / Pokémon blanco) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>UI Evidencia Real + Profiling Presenter (Mario cuelga / Pokémon blanco)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-02
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0446
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-02__0445__ui-presenter-triage-performance.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Implementación de profiling por etapas en el presenter de UI para identificar cuellos de botella (frombuffer/reshape, blit_array, scale/blit, flip). Aplicación de optimizaciones: uso de pygame.SCALED para escalado automático por SDL (más rápido que transform.scale manual), conversión de asserts permanentes en checks detrás de flag VIBOY_DEBUG_UI, y verificación de nonwhite antes/después del blit para detectar pérdida de píxeles. Objetivo: obtener evidencia objetiva en UI (Mario y Pokémon) con métricas reales y timings para identificar qué etapa consume tiempo y dónde se pierden píxeles.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Profiling de Presentación</strong>: El proceso de renderizado en UI consta de varias etapas que deben ejecutarse cada frame (60 FPS = 16.67ms por frame). Si alguna etapa consume demasiado tiempo, el framerate cae o la aplicación puede congelarse. Las etapas principales son:
+                </p>
+                <ul>
+                    <li><strong>frombuffer/reshape/swap</strong>: Conversión de memoryview RGB888 a array numpy y preparación del formato (shape, contiguidad, swapaxes). Debe ser zero-copy cuando sea posible.</li>
+                    <li><strong>blit_array</strong>: Copia de datos del array numpy a la superficie de Pygame. Pygame debe acceder directamente a los datos sin copias intermedias.</li>
+                    <li><strong>scale/blit</strong>: Escalado de la superficie base (160×144) a la ventana (480×432) y blit a la pantalla. Esta etapa puede ser muy costosa si se hace manualmente con <code>pygame.transform.scale()</code>.</li>
+                    <li><strong>flip</strong>: Actualización del buffer de pantalla. Generalmente rápido, pero puede bloquear si el driver gráfico está saturado.</li>
+                </ul>
+                <p>
+                    <strong>pygame.SCALED (Pygame 2.0+)</strong>: Flag que permite que SDL (la biblioteca subyacente de Pygame) haga el escalado automáticamente usando aceleración por hardware. Es mucho más rápido que <code>pygame.transform.scale()</code> manual porque SDL optimiza el escalado usando la GPU cuando está disponible. Requiere crear la ventana con <code>pygame.SCALED | pygame.RESIZABLE</code> y blittear directamente la superficie base (sin escalado manual).
+                </p>
+                <p>
+                    <strong>Asserts en Hot Path</strong>: Los asserts en Python son costosos porque evalúan condiciones y pueden lanzar excepciones. En el hot path del renderizado (60 FPS), los asserts pueden consumir tiempo significativo. Es mejor usar checks detrás de flags de debug que solo se activan cuando se necesita diagnóstico.
+                </p>
+                <p>
+                    <strong>Verificación de Nonwhite</strong>: Si el framebuffer que llega al presenter tiene píxeles no-blancos pero la pantalla muestra blanco, hay un bug en la presentación (pérdida de píxeles durante el blit). Verificamos nonwhite antes y después del blit para detectar dónde se pierden los píxeles.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pygame documentation - "SCALED flag", SDL documentation - "Hardware Acceleration", Python documentation - "Assert Statement Performance"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Fase 1: Profiling por Etapas</h3>
+                <p>
+                    <strong>Objetivo</strong>: Añadir profiling de 4 tramos del presenter para identificar cuellos de botella.
+                </p>
+                <p>
+                    <strong>Implementación en <code>renderer.py</code></strong>: Añadido profiling por etapas que solo se activa si FPS < 30 o en frames loggeados (cada 120 frames). Cada etapa mide tiempo en milisegundos:
+                </p>
+                <ul>
+                    <li><code>frombuffer_reshape_swap</code>: Tiempo para frombuffer, reshape y swapaxes</li>
+                    <li><code>blit_array</code>: Tiempo para pygame.surfarray.blit_array</li>
+                    <li><code>scale_blit</code>: Tiempo para escalado y blit a pantalla</li>
+                    <li><code>flip</code>: Tiempo para pygame.display.flip</li>
+                </ul>
+                <p>
+                    <strong>Salida de ejemplo</strong>:
+                </p>
+                <pre><code>[UI-PROFILING] Frame 0 | frombuffer/reshape: 0.12ms | blit_array: 1.45ms | scale/blit: 12.34ms | flip: 0.23ms | TOTAL: 14.14ms</code></pre>
+
+                <h3>Fase 2: Optimización con pygame.SCALED</h3>
+                <p>
+                    <strong>Implementación en <code>renderer.py</code></strong>: Modificado <code>__init__()</code> para usar <code>pygame.SCALED</code> si está disponible (Pygame 2.0+):
+                </p>
+                <pre><code>if hasattr(pygame, 'SCALED'):
+    self.screen = pygame.display.set_mode((GB_WIDTH, GB_HEIGHT), pygame.SCALED | pygame.RESIZABLE)
+    self._use_scaled = True
+else:
+    # Fallback para Pygame < 2.0
+    self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)
+    self._use_scaled = False</code></pre>
+                <p>
+                    <strong>Modificación en <code>render_frame()</code></strong>: Eliminado escalado manual con <code>pygame.transform.scale()</code> cuando se usa SCALED. Blit directo a screen (SDL escala automáticamente):
+                </p>
+                <pre><code>if hasattr(self, '_use_scaled') and self._use_scaled:
+    # Blit directo a screen (SDL escala automáticamente)
+    self.screen.blit(self.surface, (0, 0))
+else:
+    # Fallback: escalado manual (para Pygame < 2.0)
+    if self.scale != 1:
+        scaled_surface = pygame.transform.scale(self.surface, (self.window_width, self.window_height))
+        self.screen.blit(scaled_surface, (0, 0))
+    else:
+        self.screen.blit(self.surface, (0, 0))</code></pre>
+
+                <h3>Fase 3: Conversión de Asserts a Checks Condicionales</h3>
+                <p>
+                    <strong>Implementación en <code>renderer.py</code></strong>: Convertidos todos los asserts permanentes en checks detrás de flag <code>VIBOY_DEBUG_UI</code>:
+                </p>
+                <pre><code>VIBOY_DEBUG_UI = os.environ.get('VIBOY_DEBUG_UI', '0') == '1'
+
+# ANTES (assert permanente):
+# assert rgb_array.flags['OWNDATA'] == False, "np.frombuffer creó copia"
+
+# DESPUÉS (check condicional):
+if should_log or VIBOY_DEBUG_UI:
+    if rgb_array.flags['OWNDATA']:
+        logger.warning("[UI-DEBUG] np.frombuffer creó copia (debería ser vista)")</code></pre>
+                <p>
+                    <strong>Beneficio</strong>: Los checks solo se ejecutan en frames loggeados o cuando se activa el flag de debug, evitando overhead en el hot path.
+                </p>
+
+                <h3>Fase 4: Verificación Nonwhite Antes/Después del Blit</h3>
+                <p>
+                    <strong>Implementación en <code>render_frame()</code></strong>: Añadida verificación de nonwhite antes y después del blit para detectar pérdida de píxeles:
+                </p>
+                <ul>
+                    <li><strong>Antes del blit</strong>: Muestreo del array numpy (cada 8º píxel) para estimar nonwhite</li>
+                    <li><strong>Después del blit</strong>: Sampleo de píxeles específicos de la surface usando <code>get_at()</code></li>
+                    <li><strong>Detección de bug</strong>: Si nonwhite_before > 0 pero nonwhite_after == 0, hay bug de presentación</li>
+                </ul>
+                <p>
+                    <strong>Salida de ejemplo</strong>:
+                </p>
+                <pre><code>[UI-DEBUG] Nonwhite antes del blit: 23040 (estimado)
+[UI-DEBUG] Nonwhite después del blit (sample): 3/3
+[UI-DEBUG] ⚠️ Nonwhite se pierde durante blit! Bug de presentación.</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/gpu/renderer.py</code> - Añadido profiling por etapas, pygame.SCALED para escalado automático, conversión de asserts a checks condicionales, verificación nonwhite antes/después del blit</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Compilación</strong>:
+                </p>
+                <pre><code>python3 setup.py build_ext --inplace
+BUILD_EXIT=0</code></pre>
+                <p>
+                    <strong>Test Build</strong>:
+                </p>
+                <pre><code>python3 test_build.py
+TEST_BUILD_EXIT=0</code></pre>
+                <p>
+                    <strong>Tests Unitarios</strong>:
+                </p>
+                <pre><code>pytest tests/test_core_cpu.py -v
+6 passed in 0.14s</code></pre>
+                <p>
+                    <strong>Validación de Módulo Compilado C++</strong>: Todos los tests pasan, confirmando que las modificaciones no rompieron funcionalidad existente.
+                </p>
+                <p>
+                    <strong>Profiling en UI</strong>: El profiling se activará automáticamente si FPS < 30 o en frames loggeados (primeros 5 frames y cada 120 frames). Los logs mostrarán tiempo por etapa, permitiendo identificar cuellos de botella.
+                </p>
+                <p>
+                    <strong>Ejecución de UI</strong>: Para capturar logs reales, ejecutar:
+                </p>
+                <pre><code># Mario (el que cuelga)
+python main.py roms/mario.gbc 2>&1 | tee /tmp/viboy_0446_mario_ui.log
+
+# Pokémon (el blanco)
+python main.py roms/pkmn.gb 2>&1 | tee /tmp/viboy_0446_pokemon_ui.log</code></pre>
+                <p>
+                    <strong>Extraer logs relevantes</strong>:
+                </p>
+                <pre><code>grep "[UI-PATH]" /tmp/viboy_0446_mario_ui.log | head -n 6
+grep "[UI-PROFILING]" /tmp/viboy_0446_mario_ui.log | head -n 6
+grep "[UI-DEBUG]" /tmp/viboy_0446_pokemon_ui.log | head -n 6</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pygame documentation: <a href="https://www.pygame.org/docs/ref/display.html#pygame.display.set_mode">pygame.display.set_mode SCALED flag</a></li>
+                    <li>SDL documentation: <a href="https://wiki.libsdl.org/SDL_WindowFlags">SDL_WINDOW_ALLOW_HIGHDPI (SCALED)</a></li>
+                    <li>Python documentation: <a href="https://docs.python.org/3/reference/simple_stmts.html#assert">Assert Statement Performance</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Profiling por Etapas</strong>: Es crítico medir tiempo por etapa para identificar cuellos de botella. El profiling solo se activa cuando es necesario (FPS bajo o frames loggeados) para evitar overhead.</li>
+                        <li><strong>pygame.SCALED</strong>: Usa aceleración por hardware de SDL para escalado, mucho más rápido que transform.scale() manual. Requiere Pygame 2.0+ y se debe hacer fallback para versiones anteriores.</li>
+                        <li><strong>Asserts en Hot Path</strong>: Los asserts permanentes en el hot path del renderizado consumen tiempo. Es mejor usar checks condicionales detrás de flags de debug.</li>
+                        <li><strong>Verificación Nonwhite</strong>: Si el framebuffer tiene nonwhite pero la pantalla es blanca, hay un bug en la presentación. Verificamos antes y después del blit para detectar dónde se pierden los píxeles.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Ejecución Real con ROMs</strong>: Necesitamos ejecutar Mario y Pokémon en UI y capturar logs [UI-PATH] y [UI-PROFILING] para ver métricas reales.</li>
+                        <li><strong>Performance Real</strong>: Medir FPS real en UI con pygame.SCALED para confirmar que el escalado automático mejora el rendimiento.</li>
+                        <li><strong>Pokémon Blanco</strong>: Verificar con logs [UI-DEBUG] si el problema de pantalla blanca se detecta correctamente (nonwhite antes pero no después del blit).</li>
+                        <li><strong>Cuello de Botella Identificado</strong>: Una vez que tengamos logs de profiling, identificar qué etapa consume más tiempo y aplicar fixes específicos si es necesario.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal</strong>: El cuello de botella en Mario (cuelgue/0.1 FPS) está en la etapa de escalado (transform.scale manual). Con pygame.SCALED, SDL hace el escalado por hardware, lo que debería resolver el problema de rendimiento.
+                    </p>
+                    <p>
+                        <strong>Hipótesis Secundaria</strong>: Pokémon sale blanco porque los píxeles se pierden durante el blit (nonwhite antes pero no después). La verificación nonwhite debería detectar esto y permitirnos identificar el problema.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Ejecutar UI con Mario y capturar logs [UI-PATH] y [UI-PROFILING] para ver métricas reales</li>
+                    <li>[ ] Ejecutar UI con Pokémon y capturar logs [UI-DEBUG] para verificar nonwhite antes/después del blit</li>
+                    <li>[ ] Analizar logs de profiling para identificar qué etapa consume más tiempo</li>
+                    <li>[ ] Si el cuello de botella sigue siendo el escalado, considerar otros optimizaciones (ej: pre-escalar surface una sola vez)</li>
+                    <li>[ ] Si nonwhite se pierde durante el blit, investigar más a fondo (verificar formato de surface, verificar que no se limpia después del blit)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

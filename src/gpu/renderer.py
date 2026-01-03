@@ -166,8 +166,23 @@ class Renderer:
         # Inicializar Pygame
         pygame.init()
         
-        # Crear ventana redimensionable
-        self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)
+        # --- Step 0446: Usar pygame.SCALED para escalado automático (más rápido que transform.scale) ---
+        # pygame.SCALED requiere Pygame 2.0+, hacer fallback si no está disponible
+        try:
+            # Verificar si SCALED está disponible (Pygame 2.0+)
+            if hasattr(pygame, 'SCALED'):
+                # Usar SCALED: SDL escala automáticamente (mucho más rápido que transform.scale manual)
+                self.screen = pygame.display.set_mode((GB_WIDTH, GB_HEIGHT), pygame.SCALED | pygame.RESIZABLE)
+                self._use_scaled = True
+            else:
+                # Fallback para Pygame < 2.0
+                self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)
+                self._use_scaled = False
+        except Exception as e:
+            # Si SCALED falla, usar método tradicional
+            logger.warning(f"[Renderer-Init] pygame.SCALED no disponible, usando escalado manual: {e}")
+            self.screen = pygame.display.set_mode((self.window_width, self.window_height), pygame.RESIZABLE)
+            self._use_scaled = False
         pygame.display.set_caption("ViboyColor")
         
         # OPTIMIZACIÓN: Tile Caching
@@ -615,18 +630,39 @@ class Renderer:
         
         # --- Step 0408: CGB RGB Pipeline (CORRECCIÓN) ---
         # --- Step 0445: Verificación de formato exacto y eliminación de copias ---
+        # --- Step 0446: Profiling por etapas + Fixes de rendimiento ---
         # Si rgb_view está disponible, renderizar directamente desde RGB (modo CGB)
         if rgb_view is not None:
             try:
                 import numpy as np
+                import time
+                import os
+                
+                # --- Step 0446: Flag de debug (no asserts permanentes en hot path) ---
+                VIBOY_DEBUG_UI = os.environ.get('VIBOY_DEBUG_UI', '0') == '1'
+                
+                # --- Step 0446: Profiling por etapas (solo si FPS < 30 o en frames loggeados) ---
+                # Calcular si debemos hacer profiling (solo si FPS bajo o en frames loggeados)
+                should_profile = should_log or (hasattr(self, '_last_fps') and self._last_fps < 30)
+                stage_timings = {}
+                
+                if should_profile:
+                    total_start = time.time() * 1000
                 
                 # Convertir memoryview RGB888 (69120 bytes) a array numpy
                 # C++ genera el buffer como: fb_index = y * SCREEN_WIDTH + x
                 # Formato: [R0,G0,B0, R1,G1,B1, ...] row-major (fila por fila)
+                
+                # Etapa 1: frombuffer/reshape/swap (preparación array)
+                if should_profile:
+                    stage_start = time.time() * 1000
+                
                 rgb_array = np.frombuffer(rgb_view, dtype=np.uint8)
                 
-                # --- Step 0445: Verificar que np.frombuffer crea vista, no copia ---
-                assert rgb_array.flags['OWNDATA'] == False, "np.frombuffer creó copia (debería ser vista)"
+                # --- Step 0446: Checks detrás de flag (no asserts permanentes) ---
+                if should_log or VIBOY_DEBUG_UI:
+                    if rgb_array.flags['OWNDATA']:
+                        logger.warning("[UI-DEBUG] np.frombuffer creó copia (debería ser vista)")
                 
                 # Verificar tamaño
                 if len(rgb_array) != 69120:
@@ -638,11 +674,12 @@ class Renderer:
                 # Necesitamos (height=144, width=160, channels=3)
                 rgb_array = rgb_array.reshape((GB_HEIGHT, GB_WIDTH, 3))
                 
-                # --- Step 0445: Verificar que reshape también es vista ---
-                assert rgb_array.flags['OWNDATA'] == False, "reshape creó copia (debería ser vista)"
-                
-                # --- Step 0445: Verificar shape después de reshape ---
-                assert rgb_array.shape == (GB_HEIGHT, GB_WIDTH, 3), f"Shape incorrecto: {rgb_array.shape}"
+                # --- Step 0446: Checks detrás de flag (no asserts permanentes) ---
+                if should_log or VIBOY_DEBUG_UI:
+                    if rgb_array.flags['OWNDATA']:
+                        logger.warning("[UI-DEBUG] reshape creó copia (debería ser vista)")
+                    if rgb_array.shape != (GB_HEIGHT, GB_WIDTH, 3):
+                        logger.warning(f"[UI-DEBUG] Shape incorrecto: {rgb_array.shape}")
                 
                 # --- Step 0414: Verificación RGB real (CGB) ---
                 # Chequear si el buffer contiene datos no-blancos
@@ -677,18 +714,36 @@ class Renderer:
                     self._rgb_check_count += 1
                 # -------------------------------------------
                 
-                # --- Step 0445: Verificar contiguidad ANTES de swapaxes ---
+                # --- Step 0446: Verificar contiguidad ANTES de swapaxes ---
                 # swapaxes puede requerir contiguidad, pero solo copiar si es necesario
                 if not rgb_array.flags['C_CONTIGUOUS']:
                     rgb_array = np.ascontiguousarray(rgb_array)  # Esto SÍ copia si no es contiguo
-                    # Verificar si realmente necesitamos esto o podemos evitar swapaxes
                 
+                # --- Step 0446: Intentar evitar swapaxes si es posible ---
                 # pygame.surfarray.blit_array() espera (width, height, channels) = (160, 144, 3)
                 # Necesitamos swapaxes(0, 1) para intercambiar height↔width
                 rgb_array_swapped = np.swapaxes(rgb_array, 0, 1)  # (160, 144, 3)
                 
-                # --- Step 0445: Verificar shape después de swapaxes ---
-                assert rgb_array_swapped.shape == (GB_WIDTH, GB_HEIGHT, 3), f"Shape después de swapaxes incorrecto: {rgb_array_swapped.shape}"
+                # --- Step 0446: Check detrás de flag (no assert permanente) ---
+                if should_log or VIBOY_DEBUG_UI:
+                    if rgb_array_swapped.shape != (GB_WIDTH, GB_HEIGHT, 3):
+                        logger.warning(f"[UI-DEBUG] Shape después de swapaxes incorrecto: {rgb_array_swapped.shape}")
+                
+                if should_profile:
+                    stage_timings['frombuffer_reshape_swap'] = (time.time() * 1000) - stage_start
+                
+                # --- Step 0446: Verificación nonwhite antes del blit ---
+                nonwhite_before = 0
+                if should_log:
+                    # Muestrear nonwhite del array antes del blit
+                    for i in range(0, min(len(rgb_array_swapped.ravel()), 69120), 3 * 8):  # Muestra cada 8º píxel
+                        flat = rgb_array_swapped.ravel()
+                        if i + 2 < len(flat):
+                            r, g, b = flat[i], flat[i+1], flat[i+2]
+                            if r < 200 or g < 200 or b < 200:
+                                nonwhite_before += 1
+                    if nonwhite_before > 0:
+                        print(f"[UI-DEBUG] Nonwhite antes del blit: {nonwhite_before * 8} (estimado)")
                 
                 # Verificación acotada (máx 10 frames) de 3 píxeles para debug
                 if not hasattr(self, '_rgb_verify_count'):
@@ -707,25 +762,81 @@ class Renderer:
                 if not hasattr(self, 'surface'):
                     self.surface = pygame.Surface((GB_WIDTH, GB_HEIGHT))
                 
-                # --- Step 0445: Verificar que blit_array no requiere copia adicional ---
-                # pygame.surfarray.blit_array debe aceptar el array directamente
-                # (no copia, solo referencia)
+                # Etapa 2: blit_array
+                if should_profile:
+                    stage_start = time.time() * 1000
+                
                 pygame.surfarray.blit_array(self.surface, rgb_array_swapped)
                 
-                # --- Step 0445: NO limpiar surface después del blit ---
-                # NO hacer: self.surface.fill((255, 255, 255))  # ❌ Esto causaría blanco
+                if should_profile:
+                    stage_timings['blit_array'] = (time.time() * 1000) - stage_start
                 
-                # Escalar la superficie base a la ventana
-                if self.scale != 1:
-                    scaled_surface = pygame.transform.scale(
-                        self.surface,
-                        (self.window_width, self.window_height)
-                    )
-                    self.screen.blit(scaled_surface, (0, 0))
-                else:
+                # --- Step 0446: Verificación nonwhite después del blit ---
+                if should_log:
+                    try:
+                        # Samplear algunos píxeles de la surface después del blit
+                        sample_positions = [(72, 80), (10, 10), (133, 149)]
+                        nonwhite_after = 0
+                        for y, x in sample_positions:
+                            if y < GB_HEIGHT and x < GB_WIDTH:
+                                pixel = self.surface.get_at((x, y))
+                                r, g, b = pixel[0], pixel[1], pixel[2]
+                                if r < 200 or g < 200 or b < 200:
+                                    nonwhite_after += 1
+                        print(f"[UI-DEBUG] Nonwhite después del blit (sample): {nonwhite_after}/{len(sample_positions)}")
+                        
+                        # Si nonwhite_before > 0 pero nonwhite_after == 0, hay bug de presentación
+                        if nonwhite_before > 0 and nonwhite_after == 0:
+                            logger.error("[UI-DEBUG] ⚠️ Nonwhite se pierde durante blit! Bug de presentación.")
+                    except:
+                        pass
+                
+                # Etapa 3: escalado y blit a pantalla
+                if should_profile:
+                    stage_start = time.time() * 1000
+                
+                # --- Step 0446: Usar pygame.SCALED (escalado automático por SDL) ---
+                # Si usamos SCALED, no necesitamos escalado manual
+                if hasattr(self, '_use_scaled') and self._use_scaled:
+                    # Blit directo a screen (SDL escala automáticamente)
                     self.screen.blit(self.surface, (0, 0))
+                else:
+                    # Fallback: escalado manual (para Pygame < 2.0)
+                    if self.scale != 1:
+                        scaled_surface = pygame.transform.scale(
+                            self.surface,
+                            (self.window_width, self.window_height)
+                        )
+                        self.screen.blit(scaled_surface, (0, 0))
+                    else:
+                        self.screen.blit(self.surface, (0, 0))
+                
+                if should_profile:
+                    stage_timings['scale_blit'] = (time.time() * 1000) - stage_start
+                
+                # Etapa 4: flip
+                if should_profile:
+                    stage_start = time.time() * 1000
                 
                 pygame.display.flip()
+                
+                if should_profile:
+                    stage_timings['flip'] = (time.time() * 1000) - stage_start
+                    total_time = (time.time() * 1000) - total_start
+                    
+                    # Log profiling (limitado)
+                    print(f"[UI-PROFILING] Frame {self._path_log_count} | "
+                          f"frombuffer/reshape: {stage_timings.get('frombuffer_reshape_swap', 0):.2f}ms | "
+                          f"blit_array: {stage_timings.get('blit_array', 0):.2f}ms | "
+                          f"scale/blit: {stage_timings.get('scale_blit', 0):.2f}ms | "
+                          f"flip: {stage_timings.get('flip', 0):.2f}ms | "
+                          f"TOTAL: {total_time:.2f}ms")
+                
+                # Guardar FPS para siguiente frame (para decidir si hacer profiling)
+                if should_log:
+                    self._last_fps = log_entry['fps']
+                elif hasattr(self, '_path_log_frames') and len(self._path_log_frames) > 0:
+                    self._last_fps = self._path_log_frames[-1]['fps']
                 
                 if self._rgb_verify_count <= 5:
                     logger.info("[Renderer-RGB-CGB] Frame renderizado correctamente desde RGB888")

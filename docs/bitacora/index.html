@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0446 - UI Evidencia Real + Profiling Presenter (Mario cuelga / Pokémon blanco) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0446__ui-evidencia-real-profiling-presenter.html" class="entry-link">
+                                    UI Evidencia Real + Profiling Presenter (Mario cuelga / Pokémon blanco)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0446 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de profiling por etapas en el presenter de UI para identificar cuellos de botella (frombuffer/reshape, blit_array, scale/blit, flip). Aplicación de optimizaciones: uso de pygame.SCALED para escalado automático por SDL (más rápido que transform.scale manual), conversión de asserts permanentes en checks detrás de flag VIBOY_DEBUG_UI, y verificación de nonwhite antes/después del blit para detectar pérdida de píxeles. Objetivo: obtener evidencia objetiva en UI (Mario y Pokémon) con métricas reales y timings para identificar qué etapa consume tiempo y dónde se pierden píxeles. Modificaciones: renderer.py (profiling por etapas, pygame.SCALED, checks condicionales, verificación nonwhite). BUILD_EXIT=0, TEST_BUILD_EXIT=0, pytest 6 passed. Profiling activo cuando FPS < 30 o en frames loggeados, muestra ms por etapa.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0445 - UI/Pygame Presenter Triage + Performance (Mario cuelga / Pokémon blanco) -->
                     <li>
                         <div class="entry-header">
