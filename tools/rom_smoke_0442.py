@@ -189,6 +189,78 @@ class ROMSmokeRunner:
         # Estimar total (multiplicar por 8 por el muestreo)
         return count * 8
     
+    def _calculate_robust_metrics(self, framebuffer: List[int]) -> Dict[str, any]:
+        """
+        Calcula métricas robustas del framebuffer (Step 0454).
+        
+        Args:
+            framebuffer: Lista RGB [R,G,B,R,G,B,...]
+        
+        Returns:
+            Dict con unique_rgb_count, dominant_ratio, frame_hash, hash_changed
+        """
+        if not framebuffer or len(framebuffer) != self.FRAMEBUFFER_SIZE:
+            return {
+                'unique_rgb_count': 0,
+                'dominant_ratio': 1.0,
+                'frame_hash': 'empty',
+                'hash_changed': False
+            }
+        
+        # Muestrear grid 16x16 (256 píxeles)
+        # Grid: 160/16 = 10 columnas, 144/16 = 9 filas (144/16 = 9)
+        # Muestrear centro de cada celda del grid
+        unique_colors = set()
+        color_freq = {}
+        samples = []
+        
+        grid_step_x = 160 // 16  # 10 píxeles
+        grid_step_y = 144 // 16  # 9 píxeles (aproximado)
+        
+        for grid_y in range(16):
+            for grid_x in range(16):
+                # Calcular posición real en framebuffer
+                y = (grid_y * grid_step_y) if grid_y < 16 else 143
+                x = (grid_x * grid_step_x) if grid_x < 16 else 159
+                
+                # Asegurar dentro de límites
+                y = min(y, 143)
+                x = min(x, 159)
+                
+                # Calcular índice en framebuffer (RGB)
+                idx = (y * 160 + x) * 3
+                if idx + 2 < len(framebuffer):
+                    r = framebuffer[idx]
+                    g = framebuffer[idx + 1]
+                    b = framebuffer[idx + 2]
+                    rgb_tuple = (r, g, b)
+                    
+                    unique_colors.add(rgb_tuple)
+                    color_freq[rgb_tuple] = color_freq.get(rgb_tuple, 0) + 1
+                    samples.append(rgb_tuple)
+        
+        # Calcular dominant_ratio
+        max_freq = max(color_freq.values()) if color_freq else 0
+        total_samples = len(samples)
+        dominant_ratio = max_freq / total_samples if total_samples > 0 else 1.0
+        
+        # Frame hash (MD5 de muestra)
+        sample_bytes = bytes([c for rgb in samples[:100] for c in rgb])  # Primeros 100 píxeles
+        frame_hash = hashlib.md5(sample_bytes).hexdigest()[:8]
+        
+        # Hash changed vs frame anterior
+        hash_changed = False
+        if hasattr(self, '_last_frame_hash'):
+            hash_changed = (frame_hash != self._last_frame_hash)
+        self._last_frame_hash = frame_hash
+        
+        return {
+            'unique_rgb_count': len(unique_colors),
+            'dominant_ratio': dominant_ratio,
+            'frame_hash': frame_hash,
+            'hash_changed': hash_changed
+        }
+    
     def _hash_framebuffer(self, framebuffer: List[int]) -> str:
         """Genera hash simple del framebuffer para detectar cambios."""
         if not framebuffer:
@@ -278,6 +350,9 @@ class ROMSmokeRunner:
         # Hash del framebuffer
         frame_hash = self._hash_framebuffer(framebuffer)
         
+        # Step 0454: Calcular métricas robustas
+        robust_metrics = self._calculate_robust_metrics(framebuffer)
+        
         # Muestrear VRAM
         vram_nonzero = self._sample_vram_nonzero()
         
@@ -317,6 +392,11 @@ class ROMSmokeRunner:
             'stat_first': stat_first,
             'stat_mid': stat_mid,
             'stat_last': stat_last,
+            # Step 0454: Métricas robustas
+            'unique_rgb_count': robust_metrics['unique_rgb_count'],
+            'dominant_ratio': robust_metrics['dominant_ratio'],
+            'frame_hash_robust': robust_metrics['frame_hash'],
+            'hash_changed': robust_metrics['hash_changed'],
         }
         
         # Detectar primer frame non-white
@@ -424,6 +504,14 @@ class ROMSmokeRunner:
                 if self.dump_png:
                     framebuffer = self.ppu.get_framebuffer_rgb()
                     self._dump_png(frame_idx, framebuffer)
+            
+            # Step 0454: Imprimir métricas robustas en frames loggeados
+            if self.dump_every > 0 and (frame_idx % self.dump_every == 0 or frame_idx <= 3 or frame_idx >= self.max_frames - 1):
+                print(f"[ROBUST-METRICS] Frame {frame_idx} | "
+                      f"unique_rgb={metrics['unique_rgb_count']} | "
+                      f"dominant_ratio={metrics['dominant_ratio']:.3f} | "
+                      f"hash={metrics['frame_hash_robust']} | "
+                      f"hash_changed={metrics['hash_changed']}")
         
         # Resumen final
         self._print_summary()
@@ -493,6 +581,21 @@ class ROMSmokeRunner:
         
         print(f"OAM NONZERO (bytes, estimado por muestreo) - Step 0444:")
         print(f"  Mín: {min_oam:4d}  Máx: {max_oam:4d}  Prom: {avg_oam:4.0f}")
+        print(f"")
+        
+        # Step 0454: Estadísticas de métricas robustas
+        unique_rgb_values = [m['unique_rgb_count'] for m in self.metrics]
+        dominant_ratio_values = [m['dominant_ratio'] for m in self.metrics]
+        min_unique = min(unique_rgb_values) if unique_rgb_values else 0
+        max_unique = max(unique_rgb_values) if unique_rgb_values else 0
+        avg_unique = sum(unique_rgb_values) / len(unique_rgb_values) if unique_rgb_values else 0
+        min_dominant = min(dominant_ratio_values) if dominant_ratio_values else 1.0
+        max_dominant = max(dominant_ratio_values) if dominant_ratio_values else 1.0
+        avg_dominant = sum(dominant_ratio_values) / len(dominant_ratio_values) if dominant_ratio_values else 1.0
+        
+        print(f"ROBUST METRICS (Step 0454):")
+        print(f"  unique_rgb_count: Mín={min_unique}  Máx={max_unique}  Prom={avg_unique:.1f}")
+        print(f"  dominant_ratio: Mín={min_dominant:.3f}  Máx={max_dominant:.3f}  Prom={avg_dominant:.3f}")
         print(f"")
         
         # Resumen I/O con LY/STAT 3-points (Step 0443)

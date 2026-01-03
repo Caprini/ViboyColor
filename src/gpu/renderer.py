@@ -312,6 +312,42 @@ class Renderer:
             print(f"[PALETTE-SELF-CHANGE] Stack trace:")
             traceback.print_stack(limit=5)
 
+    def _calculate_unique_rgb_count_surface(self, surface: pygame.Surface, grid_size: int = 16) -> dict:
+        """
+        Calcula unique_rgb_count muestreando surface con grid (Step 0454).
+        
+        Args:
+            surface: Surface de Pygame (160x144)
+            grid_size: Tamaño del grid (16x16 = 256 muestras)
+        
+        Returns:
+            Dict con unique_rgb_count, dominant_ratio
+        """
+        unique_colors = set()
+        color_freq = {}
+        
+        width, height = surface.get_size()
+        grid_step_x = max(1, width // grid_size)
+        grid_step_y = max(1, height // grid_size)
+        
+        for grid_y in range(grid_size):
+            for grid_x in range(grid_size):
+                x = min(grid_x * grid_step_x, width - 1)
+                y = min(grid_y * grid_step_y, height - 1)
+                
+                rgb = surface.get_at((x, y))[:3]  # (R, G, B)
+                unique_colors.add(rgb)
+                color_freq[rgb] = color_freq.get(rgb, 0) + 1
+        
+        max_freq = max(color_freq.values()) if color_freq else 0
+        total_samples = grid_size * grid_size
+        dominant_ratio = max_freq / total_samples if total_samples > 0 else 1.0
+        
+        return {
+            'unique_rgb_count': len(unique_colors),
+            'dominant_ratio': dominant_ratio
+        }
+    
     def _show_loading_screen(self, duration: float = 3.5) -> None:
         """
         Muestra una pantalla de carga con el icono de la aplicación y texto animado.
@@ -783,7 +819,8 @@ class Renderer:
                     blit_ms = (time.time() * 1000) - stage_start
                 
                 # --- Step 0448: Verificación nonwhite después del blit con muestreo decente (64 puntos) ---
-                if should_log:
+                # --- Step 0454: Métricas robustas después del blit ---
+                if should_log or (hasattr(self, '_last_fps') and self._last_fps < 30):
                     try:
                         # Muestreo decente: grid 8×8 = 64 puntos
                         nonwhite_after = 0
@@ -810,6 +847,13 @@ class Renderer:
                         # Detectar pérdida significativa
                         if nonwhite_sample > 1000 and nonwhite_after_total < 100:
                             logger.warning(f"[UI-DEBUG] ⚠️ Pérdida significativa de nonwhite: {nonwhite_sample} → {nonwhite_after_total}")
+                        
+                        # Step 0454: Calcular métricas robustas después del blit
+                        metrics_after = self._calculate_unique_rgb_count_surface(self.surface, grid_size=16)
+                        
+                        print(f"[UI-ROBUST-METRICS] Frame {self._path_log_count} | "
+                              f"unique_rgb_after_blit={metrics_after['unique_rgb_count']} | "
+                              f"dominant_ratio={metrics_after['dominant_ratio']:.3f}")
                     except Exception as e:
                         logger.error(f"[UI-DEBUG] Error en verificación post-blit: {e}")
                 

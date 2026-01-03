@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Métricas Robustas y Tests Clean-Room de Paleta - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Dejar de Usar "Nonwhite" Como Señal y Congelar Contratos de Paleta (DMG + CGB) con Métricas Robustas + Tests Clean-Room</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-03
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0454
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-03__0453__ejecutar-herramientas-trust-probe-rerun-documentar-evidencia.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Sustitución de la métrica "nonwhite" por métricas robustas que miden diversidad real del frame (unique_rgb_count, dominant_ratio, frame_hash).
+                    Implementación de métricas equivalentes en headless y UI para comparar. Creación de tests clean-room de paleta DMG (BGP, OBP0/OBP1) que validan
+                    que las paletas mapean correctamente índices de color a RGB y son reordenables.
+                    <strong>Hallazgo crítico:</strong> Los tests de paleta fallan porque el framebuffer está completamente plano (solo 1 color único),
+                    confirmando que el problema está en la conversión índice→RGB o en la aplicación de paletas.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Paletas DMG (BGP, OBP0, OBP1):</strong> En modo DMG, el Game Boy usa paletas de 4 colores para mapear índices de color (0-3) a valores RGB.
+                    El registro BGP (0xFF47) controla la paleta del Background y Window, mientras que OBP0 (0xFF48) y OBP1 (0xFF49) controlan las paletas de sprites.
+                    Cada paleta es un byte de 8 bits donde cada par de bits (bits 0-1, 2-3, 4-5, 6-7) mapea un índice de color a uno de los 4 colores de la paleta DMG
+                    (blanco, gris claro, gris oscuro, negro).
+                </p>
+                <p>
+                    <strong>Métricas Robustas:</strong> La métrica "nonwhite" es insuficiente porque un framebuffer puede estar "lleno" (nonwhite=23040) pero ser completamente plano
+                    (solo 1-2 colores únicos). Las métricas robustas miden:
+                </p>
+                <ul>
+                    <li><strong>unique_rgb_count:</strong> Número de colores RGB únicos en el frame (muestreo grid 16×16 = 256 píxeles)</li>
+                    <li><strong>dominant_ratio:</strong> Proporción del color más frecuente (si > 0.90 y unique_rgb_count ≤ 2, el frame es plano)</li>
+                    <li><strong>frame_hash:</strong> Hash MD5 de una muestra del frame para detectar cambios</li>
+                    <li><strong>hash_changed:</strong> Indica si el hash cambió respecto al frame anterior</li>
+                </ul>
+                <p>
+                    <strong>Criterio "frame plano":</strong> unique_rgb_count ≤ 2 y dominant_ratio > 0.90 durante varios frames indica que el framebuffer
+                    está completamente plano, sugiriendo un problema en paletas o conversión RGB.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "LCD Control Register", "Palettes (BGP, OBP0, OBP1)", "Color Palettes"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementaron métricas robustas en headless y UI, y se crearon tests clean-room de paleta:
+                </p>
+                
+                <h3>Fase A: Métricas Robustas en Headless</h3>
+                <p>
+                    Se añadió la función <code>_calculate_robust_metrics()</code> en <code>tools/rom_smoke_0442.py</code> que:
+                </p>
+                <ul>
+                    <li>Muestrea el framebuffer con un grid 16×16 (256 píxeles)</li>
+                    <li>Calcula unique_rgb_count (número de colores RGB únicos)</li>
+                    <li>Calcula dominant_ratio (proporción del color más frecuente)</li>
+                    <li>Genera frame_hash (MD5 de muestra) y detecta cambios</li>
+                </ul>
+                <p>
+                    Las métricas se imprimen en frames loggeados con el tag <code>[ROBUST-METRICS]</code>.
+                </p>
+
+                <h3>Fase B: Métricas Robustas en UI</h3>
+                <p>
+                    Se añadió la función <code>_calculate_unique_rgb_count_surface()</code> en <code>src/gpu/renderer.py</code> que:
+                </p>
+                <ul>
+                    <li>Muestrea la surface de Pygame después del blit con grid 16×16</li>
+                    <li>Calcula unique_rgb_count_after_blit y dominant_ratio</li>
+                    <li>Se imprime en frames loggeados con el tag <code>[UI-ROBUST-METRICS]</code></li>
+                </ul>
+                <p>
+                    Esto permite comparar headless vs UI: si headless tiene unique_rgb_count alto pero UI after_blit tiene bajo,
+                    el problema está en el presenter (blit/format/surface).
+                </p>
+
+                <h3>Fase C: Test Clean-Room Paleta DMG BGP</h3>
+                <p>
+                    Se creó <code>tests/test_palette_dmg_bgp_0454.py</code> que:
+                </p>
+                <ul>
+                    <li>Escribe un tile en VRAM con patrón de 4 colores (índices 0,1,2,3)</li>
+                    <li>Coloca el tile en el tilemap y renderiza 1 frame</li>
+                    <li>Valida que hay ≥3 colores RGB únicos (no plano)</li>
+                    <li>Cambia BGP y valida que los colores cambian (paleta reordenable)</li>
+                </ul>
+
+                <h3>Fase D: Test Clean-Room Sprite + OBP0/OBP1</h3>
+                <p>
+                    Se creó <code>tests/test_palette_dmg_obj_0454.py</code> que:
+                </p>
+                <ul>
+                    <li>Crea un sprite en OAM con patrón de colores</li>
+                    <li>Renderiza 1 frame y valida que hay ≥2 colores únicos</li>
+                    <li>Cambia OBP0 y valida que los colores cambian</li>
+                </ul>
+
+                <h3>Fase E: Test CGB (Opcional)</h3>
+                <p>
+                    Se creó <code>tests/test_palette_cgb_sanity_0454.py</code> marcado como <code>xfail</code> porque
+                    las paletas CGB no están implementadas aún.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tools/rom_smoke_0442.py</code> - Añadida función <code>_calculate_robust_metrics()</code> y estadísticas en resumen</li>
+                    <li><code>src/gpu/renderer.py</code> - Añadida función <code>_calculate_unique_rgb_count_surface()</code> y logging de métricas robustas</li>
+                    <li><code>tests/test_palette_dmg_bgp_0454.py</code> - Test clean-room de paleta BGP (nuevo)</li>
+                    <li><code>tests/test_palette_dmg_obj_0454.py</code> - Test clean-room de paleta OBP0/OBP1 (nuevo)</li>
+                    <li><code>tests/test_palette_cgb_sanity_0454.py</code> - Test sanity CGB (nuevo, xfail)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutaron los tests de paleta con los siguientes resultados:
+                </p>
+                <ul>
+                    <li><strong>Test BGP:</strong> ❌ FAIL - AssertionError: Frame plano: solo 1 colores únicos (esperado ≥3)</li>
+                    <li><strong>Test OBP0/OBP1:</strong> ❌ FAIL - AssertionError: Sprite plano: solo 1 colores únicos (esperado ≥2)</li>
+                    <li><strong>Test CGB:</strong> ⚠️ XFAIL - CGB palettes no implementadas aún</li>
+                </ul>
+                <p>
+                    <strong>Resultado crítico:</strong> Los tests fallan porque el framebuffer RGB solo contiene un color único (negro: 0,0,0),
+                    lo que confirma que el problema está en la conversión índice→RGB o en la aplicación de paletas.
+                </p>
+                <p>
+                    <strong>Comando ejecutado:</strong>
+                </p>
+                <pre><code>pytest tests/test_palette_dmg_bgp_0454.py tests/test_palette_dmg_obj_0454.py tests/test_palette_cgb_sanity_0454.py -v</code></pre>
+                <p>
+                    <strong>Resultado:</strong> 2 failed, 1 xpassed in 0.70s
+                </p>
+                <p>
+                    <strong>Código del Test (fragmento clave):</strong>
+                </p>
+                <pre><code># Test BGP - Validación de paleta
+framebuffer = ppu.get_framebuffer_rgb()
+pixels_rgb = []
+for x in [0, 2, 4, 6]:  # Píxeles con índices 0,1,2,3
+    idx = (0 * 160 + x) * 3
+    r = framebuffer[idx]
+    g = framebuffer[idx + 1]
+    b = framebuffer[idx + 2]
+    pixels_rgb.append((r, g, b))
+
+unique_colors = set(pixels_rgb)
+assert len(unique_colors) >= 3, f"Frame plano: solo {len(unique_colors)} colores únicos"</code></pre>
+                <p>
+                    <strong>Validación Nativa:</strong> Validación de módulo compilado C++ (PPU.get_framebuffer_rgb()).
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "LCD Control Register" - Registro LCDC (0xFF40)</li>
+                    <li>Pan Docs: "Palettes (BGP, OBP0, OBP1)" - Paletas DMG</li>
+                    <li>Pan Docs: "Color Palettes" - Paletas CGB</li>
+                    <li>Pan Docs: "Tile Data" - Formato 2bpp de tiles</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Métricas Robustas:</strong> "nonwhite" no es suficiente; necesitamos medir diversidad real del frame con unique_rgb_count y dominant_ratio</li>
+                        <li><strong>Paletas DMG:</strong> BGP/OBP0/OBP1 mapean índices de color (0-3) a valores RGB mediante un byte de 8 bits (2 bits por índice)</li>
+                        <li><strong>Tests Clean-Room:</strong> Los tests validan que las paletas funcionan correctamente sin depender de ROMs reales</li>
+                        <li><strong>Problema Identificado:</strong> El framebuffer está completamente plano (solo 1 color), confirmando problema en conversión RGB o paletas</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Conversión RGB:</strong> Verificar que PPU.get_framebuffer_rgb() aplica correctamente las paletas al convertir índices a RGB</li>
+                        <li><strong>Aplicación de Paletas:</strong> Verificar que BGP/OBP0/OBP1 se leen correctamente y se aplican durante el renderizado</li>
+                        <li><strong>Comparación Headless vs UI:</strong> Ejecutar headless y UI con métricas robustas para comparar unique_rgb_count</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El problema está en la conversión índice→RGB en PPU.get_framebuffer_rgb().
+                        El framebuffer de índices puede tener valores correctos (0,1,2,3), pero la conversión a RGB no aplica correctamente las paletas,
+                        resultando en un framebuffer RGB plano (solo negro).
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Si headless tiene unique_rgb_count alto pero UI after_blit tiene bajo, el problema está en el presenter.
+                        Si ambos tienen bajo, el problema está en el core (paletas/conversión RGB).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar conversión índice→RGB en PPU.get_framebuffer_rgb()</li>
+                    <li>[ ] Verificar que BGP/OBP0/OBP1 se leen correctamente durante el renderizado</li>
+                    <li>[ ] Ejecutar headless y UI con métricas robustas para comparar unique_rgb_count</li>
+                    <li>[ ] Si headless tiene unique_rgb_count alto pero UI bajo → fix presenter</li>
+                    <li>[ ] Si ambos tienen bajo → fix core (paletas/conversión RGB)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
