@@ -227,6 +227,46 @@ cdef class PyPPU:
         
         return view
     
+    def get_framebuffer_indices(self):
+        """
+        Step 0457: Debug API para tests - Obtiene el framebuffer de índices.
+        
+        Devuelve memoryview del framebuffer de índices (160×144, valores 0..3).
+        
+        Returns:
+            bytes de 23040 bytes (160*144), valores 0..3 del front buffer
+        """
+        if self._ppu == NULL:
+            return None
+        
+        cdef const uint8_t* indices_ptr = self._ppu.get_framebuffer_indices_ptr()
+        if indices_ptr == NULL:
+            return None
+        
+        # Crear bytes desde el puntero (23040 bytes = 160*144)
+        return <bytes>(<uint8_t[:23040]>indices_ptr)
+    
+    def get_last_palette_regs_used(self):
+        """
+        Step 0457: Debug API para tests - Obtiene paleta regs usados en última conversión.
+        
+        Devuelve paleta regs usados en última llamada a convert_framebuffer_to_rgb().
+        
+        Returns:
+            dict con 'bgp', 'obp0', 'obp1' (valores hex) o None si no disponible
+        """
+        if self._ppu == NULL:
+            return None
+        
+        try:
+            return {
+                'bgp': self._ppu.get_last_bgp_used(),
+                'obp0': self._ppu.get_last_obp0_used(),
+                'obp1': self._ppu.get_last_obp1_used()
+            }
+        except:
+            return None
+    
     @property
     def framebuffer(self):
         """

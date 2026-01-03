@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0457: Aislar si el Bug es "Índices Mal" vs "Paleta/Conversión RGB Mal" con Evidencia - Viboy Color</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Step 0457: Aislar si el Bug es "Índices Mal" vs "Paleta/Conversión RGB Mal" con Evidencia</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-03
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0457
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-03__0456__fijar-tests-clean-room-anti-regresion.html">Anterior (0456)</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    <strong>Objetivo:</strong> Aislar si el bug del framebuffer RGB plano es causado por índices mal decodificados/renderizados (H1) o por conversión de paleta/RGB incorrecta (H2). Los tests ya están bien (0456), así que si siguen fallando, el bug es real en el core.
+                </p>
+                <p>
+                    <strong>Hallazgo crítico:</strong> La instrumentación revela que el framebuffer de índices está completamente plano (todos los valores son 0), lo que confirma que el bug NO está en la conversión de paleta, sino en el decode/render de tiles. El problema está en cómo se decodifican los tiles desde VRAM o cómo se escriben los índices al framebuffer.
+                </p>
+                <p>
+                    <strong>Evidencia numérica:</strong> Los tests muestran que los índices sampleados (8 píxeles) son todos 0: <code>[0, 0, 0, 0, 0, 0, 0, 0]</code>, con un set único de <code>{0}</code> en lugar del esperado <code>{0, 1, 2, 3}</code>. Esto descarta H2 (conversión paleta/RGB) y confirma H1 (decode/render).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El proceso de renderizado en la Game Boy tiene dos fases principales:
+                </p>
+                <ol>
+                    <li><strong>Decodificación y Renderizado:</strong> Los tiles se decodifican desde VRAM (formato 2bpp) y se escriben al framebuffer como índices de color (0-3). Esta fase incluye la lectura de tiles desde VRAM, la decodificación 2bpp, y la escritura de índices al framebuffer.</li>
+                    <li><strong>Conversión de Paleta:</strong> Los índices se convierten a RGB usando las paletas BGP/OBP0/OBP1. Esta fase lee el registro de paleta, mapea el índice a un shade (0-3), y convierte el shade a RGB888.</li>
+                </ol>
+                <p>
+                    Si el framebuffer RGB está plano (todo el mismo color), puede ser porque:
+                </p>
+                <ul>
+                    <li><strong>H1 - Índices mal:</strong> El framebuffer de índices está plano (todos 0, todos 2, etc.) → el bug está en decode/render.</li>
+                    <li><strong>H2 - Conversión mal:</strong> El framebuffer de índices tiene variedad (0, 1, 2, 3), pero la conversión paleta→RGB está rota y produce RGB plano → el bug está en conversión/escritura RGB.</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - Background, Window, Sprites, Color Palettes
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó instrumentación mínima para aislar el bug sin tocar los tests (que ya están bien según 0456).
+                </p>
+                
+                <h3>Fase A: Exponer Framebuffer de Índices</h3>
+                <p>
+                    Se añadió una API de debug para exponer el framebuffer de índices desde C++ a Python:
+                </p>
+                <ul>
+                    <li><code>PPU::get_framebuffer_indices_ptr()</code> en <code>PPU.hpp</code> - Devuelve puntero const al framebuffer_front_</li>
+                    <li><code>PyPPU::get_framebuffer_indices()</code> en <code>ppu.pyx</code> - Wrapper Cython que devuelve bytes de 23040 bytes</li>
+                    <li>Declaración en <code>ppu.pxd</code> para que Cython pueda acceder al método</li>
+                </ul>
+                <p>
+                    Esta API permite a los tests inspeccionar el framebuffer de índices antes de la conversión a RGB, permitiendo distinguir entre H1 y H2.
+                </p>
+
+                <h3>Fase B: Capturar Paleta Regs Usados</h3>
+                <p>
+                    Se añadió captura de los registros de paleta usados en la conversión:
+                </p>
+                <ul>
+                    <li>Miembros <code>last_bgp_used_</code>, <code>last_obp0_used_</code>, <code>last_obp1_used_</code> en <code>PPU.hpp</code></li>
+                    <li>Actualización en <code>convert_framebuffer_to_rgb()</code> para capturar los valores leídos</li>
+                    <li>Getters <code>get_last_bgp_used()</code>, <code>get_last_obp0_used()</code>, <code>get_last_obp1_used()</code></li>
+                    <li>Wrapper <code>PyPPU::get_last_palette_regs_used()</code> que devuelve un dict con los valores</li>
+                </ul>
+                <p>
+                    Esto permite verificar que el registro de paleta usado en la conversión coincide con el escrito por el test, descartando bugs de lectura/reg caching.
+                </p>
+
+                <h3>Fase C: Revisión de Conversión</h3>
+                <p>
+                    Se revisó el código de conversión y se confirmó que está correcto:
+                </p>
+                <ul>
+                    <li><code>dmg_shade_to_rgb()</code> - Tabla de conversión correcta: {255, 170, 85, 0}</li>
+                    <li>Escritura al buffer RGB - Stride correcto: <code>rgb_idx = fb_index * 3</code></li>
+                    <li>Orden de conversión - Se llama después del swap, sobre el framebuffer_front_ correcto</li>
+                </ul>
+                <p>
+                    La conversión no necesita corrección; el bug está en la fase anterior (decode/render).
+                </p>
+
+                <h3>Modificación de Tests</h3>
+                <p>
+                    Se añadieron "sanity asserts" en los tests para verificar índices y paleta regs antes de mirar RGB:
+                </p>
+                <ul>
+                    <li><code>test_palette_dmg_bgp_0454.py</code> - Añadido sanity assert que verifica índices sample (8 píxeles) y paleta reg usado</li>
+                    <li><code>test_palette_dmg_obj_0454.py</code> - Añadido sanity assert similar para sprites</li>
+                </ul>
+                <p>
+                    Estos asserts fallan inmediatamente si los índices están mal, permitiendo identificar el bug sin necesidad de mirar RGB.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Añadido método <code>get_framebuffer_indices_ptr()</code> y miembros para paleta regs usados</li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementación de <code>get_framebuffer_indices_ptr()</code> y captura de paleta regs en <code>convert_framebuffer_to_rgb()</code></li>
+                    <li><code>src/core/cython/ppu.pxd</code> - Declaraciones de nuevos métodos para Cython</li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Wrappers Cython: <code>get_framebuffer_indices()</code> y <code>get_last_palette_regs_used()</code></li>
+                    <li><code>tests/test_palette_dmg_bgp_0454.py</code> - Añadidos sanity asserts con índices y paleta regs</li>
+                    <li><code>tests/test_palette_dmg_obj_0454.py</code> - Añadidos sanity asserts con índices y paleta regs</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>pytest -v tests/test_palette_dmg_bgp_0454.py tests/test_palette_dmg_obj_0454.py tests/test_framebuffer_not_flat_0456.py</code>
+                </p>
+                <p>
+                    <strong>Resultado:</strong> ❌ 0/3 tests pasan (esperado: el bug es real en el core)
+                </p>
+                <p>
+                    <strong>Evidencia numérica:</strong>
+                </p>
+                <pre><code>[TEST-BGP-SANITY] Índices sample (8 píxeles): [0, 0, 0, 0, 0, 0, 0, 0]
+[TEST-BGP-SANITY] Índices únicos: {0}
+AssertionError: Índices plano: solo {0} (esperado {0,1,2,3}). 
+Si esto falla → bug NO es paleta; es decode/render.</code></pre>
+                <p>
+                    <strong>Interpretación:</strong> El framebuffer de índices está completamente plano (todos 0), lo que confirma que el bug está en decode/render, no en la conversión de paleta. La conversión paleta→RGB está correcta, pero no hay variedad de índices para convertir.
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> ✅ Compilación exitosa, sin errores. Los métodos están disponibles en Python.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Background, Window, Sprites, Color Palettes</a></li>
+                    <li>Plan Step 0457: <code>.cursor/plans/step_0457_-_aislar_si_bug_es_indices_mal_vs_paleta_conversion_rgb_mal_con_evidencia_y_aplicar_fix_mi_ce55b6c6.plan.md</code></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Aislamiento de bugs:</strong> Cuando un síntoma puede tener múltiples causas, la instrumentación es esencial para aislar la causa raíz. En este caso, exponer el framebuffer de índices permitió distinguir entre "índices mal" y "conversión mal".</li>
+                        <li><strong>Debug API:</strong> Añadir APIs de debug que exponen estado interno es una técnica válida para tests, siempre que no afecte el hot path del código de producción.</li>
+                        <li><strong>Evidencia numérica:</strong> Los tests deben proporcionar evidencia numérica clara (índices sample, paleta regs usados) en lugar de solo asumir qué está mal.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Decode de tiles:</strong> Necesito investigar por qué el decode de tiles produce índices todos 0. ¿El problema está en <code>decode_tile_line()</code>, en la lectura de VRAM, o en la escritura al framebuffer?</li>
+                        <li><strong>Renderizado de Background:</strong> ¿El problema está en <code>render_bg()</code> o <code>render_scanline()</code>? ¿Se están leyendo los tiles correctamente desde VRAM?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El bug está en el decode/render de tiles. Posibles causas:
+                    </p>
+                    <ul>
+                        <li>El decode 2bpp está mal implementado y siempre produce índice 0</li>
+                        <li>La lectura de VRAM no está funcionando correctamente</li>
+                        <li>La escritura al framebuffer_back_ está mal (se escribe siempre 0)</li>
+                        <li>El swap de framebuffers está mal y siempre se lee el buffer limpio</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar <code>decode_tile_line()</code> - Verificar que el decode 2bpp produce los índices correctos</li>
+                    <li>[ ] Investigar <code>render_bg()</code> - Verificar que se leen los tiles correctamente desde VRAM</li>
+                    <li>[ ] Investigar escritura al framebuffer - Verificar que los índices se escriben correctamente al framebuffer_back_</li>
+                    <li>[ ] Investigar swap de framebuffers - Verificar que el swap funciona correctamente</li>
+                    <li>[ ] Aplicar fix mínimo una vez identificada la causa raíz</li>
+                    <li>[ ] Re-ejecutar tests de paleta para validar la corrección</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

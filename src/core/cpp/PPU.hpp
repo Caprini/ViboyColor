@@ -254,6 +254,26 @@ public:
     uint8_t* get_framebuffer_rgb_ptr();
     
     /**
+     * Step 0457: Debug API para tests - Obtiene un puntero al framebuffer de índices.
+     * 
+     * Devuelve puntero al framebuffer_front_ (índices 0..3).
+     * NO debe afectar hot path; es lectura directa de buffer.
+     * 
+     * @return Puntero al primer elemento del framebuffer de índices (23040 bytes)
+     */
+    const uint8_t* get_framebuffer_indices_ptr() const;
+    
+    /**
+     * Step 0457: Debug - Getters para paleta regs usados en última conversión.
+     * 
+     * Estos valores se actualizan en convert_framebuffer_to_rgb() y permiten
+     * verificar en tests que la paleta usada coincide con la escrita.
+     */
+    uint8_t get_last_bgp_used() const { return last_bgp_used_; }
+    uint8_t get_last_obp0_used() const { return last_obp0_used_; }
+    uint8_t get_last_obp1_used() const { return last_obp1_used_; }
+    
+    /**
      * Limpia el framebuffer, estableciendo todos los píxeles a índice 0 (blanco por defecto).
      * 
      * Este método debe llamarse al inicio de cada fotograma para asegurar que el
@@ -606,6 +626,14 @@ private:
     int vram_progression_tiledata_threshold_;  // Frame donde tiledata cambia >5%
     int vram_progression_tilemap_threshold_;   // Frame donde tilemap cambia >5%
     int vram_progression_unique_tiles_threshold_;  // Frame donde unique_tiles >10
+    
+    /**
+     * Step 0457: Debug - Paleta regs usados en última conversión.
+     * Se actualizan en convert_framebuffer_to_rgb() para verificación en tests.
+     */
+    mutable uint8_t last_bgp_used_;   // BGP usado en última conversión
+    mutable uint8_t last_obp0_used_;   // OBP0 usado en última conversión
+    mutable uint8_t last_obp1_used_;  // OBP1 usado en última conversión
 };
 
 #endif // PPU_HPP

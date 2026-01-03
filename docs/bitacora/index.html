@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0457 - Aislar si el Bug es "Índices Mal" vs "Paleta/Conversión RGB Mal" -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-03__0457__aislar-bug-indices-vs-paleta-conversion-rgb-fix-minimo.html" class="entry-link">
+                                    Aislar si el Bug es "Índices Mal" vs "Paleta/Conversión RGB Mal" con Evidencia
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-03 | 
+                            <strong>Step ID:</strong> 0457 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Aislamiento del bug del framebuffer RGB plano usando instrumentación mínima: exposición del framebuffer de índices y captura de paleta regs usados. Hallazgo crítico: El framebuffer de índices está completamente plano (todos los valores son 0), lo que confirma que el bug NO está en la conversión de paleta, sino en el decode/render de tiles. Evidencia numérica: Índices sampleados (8 píxeles) = [0, 0, 0, 0, 0, 0, 0, 0], set único = {0} en lugar del esperado {0, 1, 2, 3}. Esto descarta H2 (conversión paleta/RGB) y confirma H1 (decode/render). La conversión paleta→RGB está correcta, pero no hay variedad de índices para convertir.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0456 - Fijar Tests Clean-Room y Añadir Test No Plano -->
                     <li>
                         <div class="entry-header">

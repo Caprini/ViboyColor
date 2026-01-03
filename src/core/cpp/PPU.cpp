@@ -1386,6 +1386,13 @@ uint8_t* PPU::get_framebuffer_rgb_ptr() {
     return framebuffer_rgb_front_.data();
 }
 
+const uint8_t* PPU::get_framebuffer_indices_ptr() const {
+    // --- Step 0457: Debug API para tests - Exponer framebuffer de índices ---
+    // Devuelve puntero al framebuffer_front_ (índices 0..3)
+    // NO debe afectar hot path; es lectura directa de buffer
+    return framebuffer_front_.data();
+}
+
 void PPU::swap_framebuffers() {
     // --- Step 0365: Verificación Detallada del Intercambio ---
     // Contar píxeles no-blancos en ambos buffers antes del intercambio
@@ -5339,6 +5346,11 @@ void PPU::convert_framebuffer_to_rgb() {
         uint8_t bgp = mmu_->read(IO_BGP);   // 0xFF47
         uint8_t obp0 = mmu_->read(IO_OBP0); // 0xFF48 (para sprites, TODO)
         uint8_t obp1 = mmu_->read(IO_OBP1); // 0xFF49 (para sprites, TODO)
+        
+        // --- Step 0457: Capturar paleta regs usados para debug ---
+        last_bgp_used_ = bgp;
+        last_obp0_used_ = obp0;
+        last_obp1_used_ = obp1;
         
         // --- Step 0455: Debug - Verificar contenido del framebuffer ---
         static int convert_debug_count = 0;

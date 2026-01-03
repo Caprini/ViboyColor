@@ -45,7 +45,11 @@ cdef extern from "PPU.hpp":
         bool get_frame_ready_and_reset()
         uint8_t* get_framebuffer_ptr()
         uint8_t* get_framebuffer_rgb_ptr()  # Step 0404: Framebuffer RGB888 para CGB
+        const uint8_t* get_framebuffer_indices_ptr() const  # Step 0457: Debug API para tests
         void clear_framebuffer()
         void confirm_framebuffer_read()
         void convert_framebuffer_to_rgb()  # Step 0404: Conversión índices → RGB
+        uint8_t get_last_bgp_used() const  # Step 0457: Debug - Paleta reg usado
+        uint8_t get_last_obp0_used() const  # Step 0457: Debug - Paleta reg usado
+        uint8_t get_last_obp1_used() const  # Step 0457: Debug - Paleta reg usado
 

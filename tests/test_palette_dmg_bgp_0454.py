@@ -65,6 +65,39 @@ def test_dmg_bgp_palette_mapping():
         m_cycles = cpu.step()
         ppu.step(m_cycles * 4)  # PPU en T-cycles
     
+    # --- Step 0457: Sanity assert - Verificar índices antes de mirar RGB ---
+    indices_buffer = ppu.get_framebuffer_indices()
+    assert indices_buffer is not None, "Framebuffer de índices no disponible"
+    
+    # Muestrear 8 píxeles conocidos (píxeles 0, 1, 2, 3, 4, 5, 6, 7 en fila 0)
+    # Para tile 0x55/0x33: índices esperados [0, 1, 2, 3, 0, 1, 2, 3]
+    indices_sample = []
+    for x in [0, 1, 2, 3, 4, 5, 6, 7]:
+        idx = 0 * 160 + x  # Fila 0, píxel x
+        if idx < len(indices_buffer):
+            indices_sample.append(indices_buffer[idx])
+    
+    unique_indices = set(indices_sample)
+    print(f"[TEST-BGP-SANITY] Índices sample (8 píxeles): {indices_sample}")
+    print(f"[TEST-BGP-SANITY] Índices únicos: {unique_indices}")
+    
+    # Assert: debe contener {0, 1, 2, 3} (no plano)
+    assert unique_indices == {0, 1, 2, 3}, \
+        f"Índices plano: solo {unique_indices} (esperado {{0,1,2,3}}). " \
+        f"Si esto falla → bug NO es paleta; es decode/render."
+    
+    # Si esto pasa pero RGB sigue plano → bug de conversión o escritura RGB
+    # -------------------------------------------
+    
+    # --- Step 0457: Verificar paleta reg usado ---
+    pal_regs = ppu.get_last_palette_regs_used()
+    if pal_regs:
+        bgp_used = pal_regs['bgp']
+        print(f"[TEST-BGP-REGS] BGP escrito: 0xE4, BGP usado por convert: 0x{bgp_used:02X}")
+        assert bgp_used == 0xE4, \
+            f"Paleta reg incorrecto: escrito 0xE4, usado 0x{bgp_used:02X}. " \
+            f"Si usa 0x00 o 0xFF → bug en lectura/reg caching."
+    
     # Samplear 4 píxeles conocidos (píxeles 0, 2, 4, 6 en fila 0)
     # Estos corresponden a índices 0, 2, 0, 2 según decode 2bpp
     framebuffer = ppu.get_framebuffer_rgb()
