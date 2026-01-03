@@ -1,0 +1,51 @@
+#!/bin/bash
+# Ejecutar UI en paralelo y capturar logs (Step 0449)
+
+set -e
+
+LOG_DIR="/tmp/viboy_0449/ui"
+mkdir -p "$LOG_DIR"
+
+ROMS=(
+    "mario.gbc"
+    "pkmn.gb"
+    "tetris.gb"
+    "tetris_dx.gbc"
+)
+
+echo "=========================================="
+echo "Step 0449: UI Parallel Execution"
+echo "=========================================="
+echo "ROMs: ${ROMS[@]}"
+echo "Timeout: 15s por ROM"
+echo "Logs: $LOG_DIR/"
+echo ""
+
+# Función para ejecutar UI con timeout
+run_ui() {
+    local rom="$1"
+    local out="$LOG_DIR/${rom}.log"
+    echo "[RUN-UI] $rom -> $out"
+    
+    # Timeout 15s, line-buffering para captura en tiempo real
+    timeout 15s stdbuf -oL -eL python3 main.py "roms/${rom}" 2>&1 | tee "$out" &
+}
+
+# Lanzar todas las ROMs en paralelo
+for rom in "${ROMS[@]}"; do
+    if [ -f "roms/${rom}" ]; then
+        run_ui "$rom"
+        sleep 0.5  # Pequeño delay para evitar race conditions
+    else
+        echo "[SKIP] ROM no encontrada: roms/${rom}"
+    fi
+done
+
+echo ""
+echo "[WAIT] Esperando finalización de todas las instancias UI..."
+wait
+
+echo ""
+echo "[DONE-UI] Todas las instancias UI finalizadas. Logs en $LOG_DIR/"
+echo ""
+

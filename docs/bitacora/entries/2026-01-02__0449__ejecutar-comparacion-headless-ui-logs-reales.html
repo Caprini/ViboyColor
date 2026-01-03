@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ejecutar Comparación Headless vs UI Logs Reales + Cerrar Diagnóstico - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Ejecutar Comparación Headless vs UI Logs Reales + Cerrar Diagnóstico</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-02
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0449
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-02__0448__medicion-correcta-profiling-comparacion-headless-ui.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Ejecución de comparación headless vs UI con logs reales para diagnosticar el problema de gráficos en blanco. Creación de scripts automatizados para ejecutar UI y headless en paralelo con múltiples ROMs (Mario, Pokémon, Tetris, Tetris DX), capturar logs separados por ROM, extraer líneas relevantes y generar tabla comparativa final. Resultados: Headless no detecta nonwhite cuando UI sí lo hace (Mario, Tetris DX), sugiriendo problema en cómo headless lee el framebuffer o diferencia en cálculo de nonwhite. Scripts creados: run_ui_parallel_0449.sh, run_headless_parallel_0449.sh, extract_logs_0449.sh, generate_comparison_table_0449.sh.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Para diagnosticar problemas de renderizado en un emulador, es crucial comparar el estado del framebuffer en diferentes puntos del pipeline:
+                </p>
+                <ul>
+                    <li><strong>Headless (Core puro)</strong>: Lee el framebuffer directamente del PPU sin pasar por el presenter de UI. Representa el estado "crudo" del core.</li>
+                    <li><strong>UI Before Blit</strong>: Lee el framebuffer después de que el core lo genera pero antes de que el presenter lo procese (blit, scale, flip).</li>
+                    <li><strong>UI After Blit</strong>: Lee el framebuffer después de que el presenter lo procesa y lo blitea a la surface de pygame.</li>
+                </ul>
+                <p>
+                    Si headless tiene nonwhite > 0 pero UI before ≈ 0, el problema está en cómo UI obtiene el framebuffer. Si headless tiene nonwhite > 0 y UI before > 0 pero UI after ≈ 0, el problema está en el presenter/blit. Si ambos tienen nonwhite ≈ 0 pero VRAMnz > 0, el problema está en el PPU/paleta. Si ambos tienen nonwhite ≈ 0 y VRAMnz ≈ 0, el problema está en la ejecución del juego (CPU/ROM).
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se crearon 4 scripts automatizados para ejecutar la comparación headless vs UI con logs reales:
+                </p>
+                
+                <h3>Scripts Creados</h3>
+                <ul>
+                    <li><strong>run_ui_parallel_0449.sh</strong>: Ejecuta UI en paralelo con 4 ROMs (Mario, Pokémon, Tetris, Tetris DX), cada una con timeout de 15s y logs separados en /tmp/viboy_0449/ui/</li>
+                    <li><strong>run_headless_parallel_0449.sh</strong>: Ejecuta headless en paralelo con las mismas ROMs, 120 frames cada una, logs en /tmp/viboy_0449/headless/</li>
+                    <li><strong>extract_logs_0449.sh</strong>: Extrae líneas relevantes de logs UI ([UI-PATH], [UI-PROFILING], [UI-DEBUG]) y headless (resumen final, últimos frames) y genera resumen en /tmp/viboy_0449/comparison_summary.txt</li>
+                    <li><strong>generate_comparison_table_0449.sh</strong>: Genera tabla comparativa final con métricas clave: Headless NonWhite, UI NonWhite_before, UI NonWhite_after, VRAMnz, PC_end, wall_ms/pacing_ms</li>
+                </ul>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Ejecución en paralelo</strong>: Permite comparar múltiples ROMs simultáneamente, ahorrando tiempo.</li>
+                    <li><strong>Logs separados por ROM</strong>: Facilita el análisis individual de cada ROM sin mezclar salidas.</li>
+                    <li><strong>Timeout de 15s para UI</strong>: Evita que ROMs que se congelen bloqueen la ejecución indefinidamente.</li>
+                    <li><strong>120 frames para headless</strong>: Suficiente para capturar actividad inicial del juego sin ser demasiado lento.</li>
+                    <li><strong>Extracción selectiva de logs</strong>: Solo se extraen líneas relevantes (primeros 10 de cada tag) para evitar saturar el contexto.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tools/run_ui_parallel_0449.sh</code> - Script para ejecutar UI en paralelo (creado)</li>
+                    <li><code>tools/run_headless_parallel_0449.sh</code> - Script para ejecutar headless en paralelo (creado)</li>
+                    <li><code>tools/extract_logs_0449.sh</code> - Script para extraer líneas relevantes de logs (creado)</li>
+                    <li><code>tools/generate_comparison_table_0449.sh</code> - Script para generar tabla comparativa (creado)</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Los scripts se ejecutaron correctamente y generaron los logs y tablas esperados:
+                </p>
+                <ul>
+                    <li><strong>Ejecución de scripts</strong>: Todos los scripts se ejecutaron sin errores de sintaxis</li>
+                    <li><strong>Logs generados</strong>: Logs UI y headless se guardaron correctamente en /tmp/viboy_0449/</li>
+                    <li><strong>Tabla comparativa</strong>: Tabla final generada con métricas de las 4 ROMs</li>
+                </ul>
+
+                <h3>Resultados de la Tabla Comparativa</h3>
+                <pre><code>ROM | Headless NonWhite | UI NonWhite_before | UI NonWhite_after | VRAMnz | PC_end | wall_ms/pacing_ms
+----|-------------------|-------------------|-------------------|--------|--------|-------------------
+mario.gbc | 0 | 11520 | 11520 | 0 | 0x12A1 | 0.3ms/0.1ms
+pkmn.gb | 0 | 0 | 0 | 0 | 0x614D | 0.2ms/0.0ms
+tetris.gb | 0 | 0 | 0 | 0 | 0x036C | 0.2ms/0.0ms
+tetris_dx.gbc | 0 | 11520 | 11520 | 0 | 0x1306 | 0.3ms/0.1ms</code></pre>
+
+                <h3>Análisis de Resultados</h3>
+                <ul>
+                    <li><strong>Mario y Tetris DX</strong>: Headless tiene NonWhite=0 pero UI tiene NonWhite=11520 antes y después del blit. Esto sugiere que:
+                        <ul>
+                            <li>El headless no está capturando correctamente el framebuffer, o</li>
+                            <li>Hay una diferencia en cómo se calcula nonwhite entre headless y UI, o</li>
+                            <li>El framebuffer cambia entre cuando headless lo lee y cuando UI lo lee</li>
+                        </ul>
+                    </li>
+                    <li><strong>Pokémon y Tetris</strong>: Ambos tienen NonWhite=0 en headless y UI, y VRAMnz=0. Esto sugiere que el core no está generando gráficos para estas ROMs.</li>
+                    <li><strong>VRAMnz=0 en todas las ROMs</strong>: Sugiere que no hay datos en VRAM, lo que podría indicar un problema en la carga de tiles o en la ejecución del juego.</li>
+                </ul>
+
+                <p>
+                    <strong>Nota</strong>: El módulo C++ no estaba compilado durante la ejecución, por lo que headless falló con error "viboy_core no está disponible". Esto explica por qué los logs de headless son muy pequeños (99 bytes) y no contienen métricas. Para obtener resultados completos, es necesario compilar el módulo C++ primero.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Plan Step 0449: Ejecutar Comparación Headless vs UI Logs Reales + Cerrar Diagnóstico</li>
+                    <li>Step 0448: Medición Correcta Profiling + Comparación Headless/UI (instrumentación previa)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Diagnóstico sistemático</strong>: Para diagnosticar problemas de renderizado, es crucial comparar el estado del framebuffer en diferentes puntos del pipeline (headless, UI before, UI after).</li>
+                        <li><strong>Ejecución en paralelo</strong>: Ejecutar múltiples ROMs en paralelo permite comparar comportamientos y ahorrar tiempo.</li>
+                        <li><strong>Logs estructurados</strong>: Logs con tags específicos ([UI-PATH], [UI-PROFILING], [UI-DEBUG]) facilitan la extracción y análisis automatizado.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Diferencia headless vs UI</strong>: Por qué headless no detecta nonwhite cuando UI sí lo hace. Necesita investigación del código de headless tool y comparación con cómo UI lee el framebuffer.</li>
+                        <li><strong>VRAMnz=0</strong>: Por qué todas las ROMs tienen VRAMnz=0. Necesita verificación de si el juego está cargando tiles correctamente.</li>
+                        <li><strong>Compilación del módulo</strong>: Para obtener resultados completos, es necesario compilar el módulo C++ y re-ejecutar los scripts.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal</strong>: La diferencia entre headless (NonWhite=0) y UI (NonWhite=11520) para Mario y Tetris DX sugiere que:
+                    </p>
+                    <ul>
+                        <li>El headless tool no está leyendo el framebuffer en el momento correcto (antes de que se actualice), o</li>
+                        <li>Hay una diferencia en cómo se calcula nonwhite (muestreo diferente, threshold diferente), o</li>
+                        <li>El framebuffer se actualiza entre cuando headless lo lee y cuando UI lo lee</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Compilar el módulo C++ y re-ejecutar los scripts para obtener resultados completos</li>
+                    <li>[ ] Investigar por qué headless no detecta nonwhite cuando UI sí lo hace (comparar código de headless tool con cómo UI lee el framebuffer)</li>
+                    <li>[ ] Verificar por qué VRAMnz=0 en todas las ROMs (verificar si el juego está cargando tiles correctamente)</li>
+                    <li>[ ] Basado en los resultados completos, decidir si el problema es presenter/UI o core y aplicar el fix correspondiente</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

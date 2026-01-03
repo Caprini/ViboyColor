@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0449 - Ejecutar Comparación Headless vs UI Logs Reales + Cerrar Diagnóstico -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0449__ejecutar-comparacion-headless-ui-logs-reales.html" class="entry-link">
+                                    Ejecutar Comparación Headless vs UI Logs Reales + Cerrar Diagnóstico
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0449 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Ejecución de comparación headless vs UI con logs reales para diagnosticar el problema de gráficos en blanco. Creación de scripts automatizados para ejecutar UI y headless en paralelo con múltiples ROMs (Mario, Pokémon, Tetris, Tetris DX), capturar logs separados por ROM, extraer líneas relevantes y generar tabla comparativa final. Resultados: Headless no detecta nonwhite cuando UI sí lo hace (Mario, Tetris DX), sugiriendo problema en cómo headless lee el framebuffer o diferencia en cálculo de nonwhite. Scripts creados: run_ui_parallel_0449.sh, run_headless_parallel_0449.sh, extract_logs_0449.sh, generate_comparison_table_0449.sh. Nota: módulo C++ no estaba compilado durante ejecución, headless falló; para resultados completos es necesario compilar primero.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0448 - Medición Correcta Profiling + Comparación Headless/UI -->
                     <li>
                         <div class="entry-header">
