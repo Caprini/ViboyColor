@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DMA/OAM Correctness + Sprite Visible Test + Freeze Hardware Contracts - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>DMA/OAM Correctness + Sprite Visible Test + Freeze Hardware Contracts</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-02
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0444
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-02__0443__ly-sampling-3points-cleanroom-range-stat-sanity.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Validación end-to-end de OAM DMA (0xFF46): creación de tests clean-room que verifican que DMA copia correctamente 160 bytes desde source a OAM, y que el PPU consume OAM real (sprites aparecen cuando OAM tiene datos). Añadidos 2 tests principales que congelan el contrato hardware: (1) DMA copia correcta, (2) Sprites renderizan (al menos 1 sprite visible). Opcionalmente, añadidas métricas OAM a herramienta headless para diagnóstico futuro.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>DMA (Direct Memory Access) OAM Transfer (0xFF46)</strong>: La Game Boy incluye un mecanismo de DMA que permite copiar datos a la OAM (Object Attribute Memory) sin intervención directa de la CPU. Escribir un valor <code>XX</code> en <code>0xFF46</code> inicia una transferencia que copia 160 bytes desde la dirección <code>XX00</code> hasta <code>0xFE00-0xFE9F</code> (OAM).
+                </p>
+                <p>
+                    En hardware real, la transferencia tarda aproximadamente 160 microsegundos (640 T-cycles), y durante este tiempo la CPU solo puede acceder a HRAM (<code>0xFF80-0xFFFE</code>). Sin embargo, para este Step nos enfocamos en la <strong>correctness de datos</strong> (que la copia sea correcta) antes que el timing exacto.
+                </p>
+                <p>
+                    <strong>OAM (Object Attribute Memory)</strong>: La OAM contiene los datos de hasta 40 sprites. Cada sprite ocupa 4 bytes:
+                </p>
+                <ul>
+                    <li>Byte 0: Y position (0-255, offset 16 para pantalla)</li>
+                    <li>Byte 1: X position (0-255, offset 8 para pantalla)</li>
+                    <li>Byte 2: Tile ID (0-255, índice del tile en VRAM)</li>
+                    <li>Byte 3: Flags (palette, flip X/Y, priority, etc.)</li>
+                </ul>
+                <p>
+                    <strong>Sprite Rendering</strong>: El PPU lee OAM durante el modo OAM Search (Mode 2) para determinar qué sprites están visibles en el scanline actual. Si OAM tiene datos válidos (Y/X dentro de rango, tile data presente en VRAM), el sprite debe aparecer en el framebuffer.
+                </p>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - "DMA Transfer", "OAM (Object Attribute Memory)", "Sprite Rendering"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    <strong>Auditoría Previa</strong>: Se verificó que DMA OAM (0xFF46) ya existe en <code>src/core/cpp/MMU.cpp</code> líneas 967-1004. La implementación actual:
+                </p>
+                <ul>
+                    <li>Detecta escritura a <code>0xFF46</code></li>
+                    <li>Calcula <code>source_base = value << 8</code></li>
+                    <li>Ejecuta loop que copia 160 bytes desde <code>source_addr</code> a OAM (<code>0xFE00-0xFE9F</code>)</li>
+                    <li>Usa <code>read(source_addr)</code> para leer (correcto: puede ser ROM/VRAM/WRAM)</li>
+                    <li>Escribe directamente a <code>memory_[0xFE00 + i]</code> (correcto: bypass especial según Pan Docs)</li>
+                    <li><strong>Modelo</strong>: instantáneo (sin delay/timing)</li>
+                </ul>
+                <p>
+                    <strong>Conclusión</strong>: Implementación básica correcta. Necesitamos validarla con tests clean-room.
+                </p>
+                
+                <h3>Fase A - Test Clean-Room: "DMA Copies 160 Bytes"</h3>
+                <p>
+                    <strong>Archivo</strong>: <code>tests/test_dma_oam_copy_0444.py</code> (< 80 líneas)
+                </p>
+                <p>
+                    <strong>Test 1: <code>test_dma_oam_copies_160_bytes()</code></strong>:
+                </p>
+                <ul>
+                    <li>Prepara patrón incremental en WRAM (0xC000-0xC09F): 0x00, 0x01, 0x02, ..., 0x9F</li>
+                    <li>Verifica que OAM está limpio (0xFE00-0xFE9F = 0)</li>
+                    <li>Activa DMA: escribe source page (0xC0) a 0xFF46</li>
+                    <li>Verifica que DMA copió correctamente: <code>mem[0xFE00+i] == pattern[i]</code> para <code>i=0..0x9F</code></li>
+                    <li>Verifica que source no cambió (DMA es read-only en source)</li>
+                </ul>
+                <p>
+                    <strong>Test 2: <code>test_dma_oam_from_different_source()</code></strong>:
+                </p>
+                <ul>
+                    <li>Valida que DMA funciona desde diferentes sources (WRAM alternativo 0xD000)</li>
+                    <li>Patrón diferente: <code>0xAA + (i & 0x0F)</code></li>
+                    <li>Verifica copia correcta</li>
+                </ul>
+
+                <h3>Fase B - Test Clean-Room: "Single Sprite Visible"</h3>
+                <p>
+                    <strong>Archivo</strong>: <code>tests/test_sprite_visible_0444.py</code> (< 100 líneas)
+                </p>
+                <p>
+                    <strong>Test: <code>test_single_sprite_visible()</code></strong>:
+                </p>
+                <ul>
+                    <li>Carga tile data para sprite (Tile ID 0x00, dirección 0x8000): patrón checkerboard (0xAA/0x55 alternado)</li>
+                    <li>Configura OAM entry para sprite: y=36 (scanline 20), x=38 (columna 30), tile_id=0x00, flags=0x00</li>
+                    <li>Activa LCD y sprites: LCDC=0x83 (LCD on, sprites on, BG on)</li>
+                    <li>Ejecuta 3 frames completos (70224 T-cycles cada uno)</li>
+                    <li>Verifica framebuffer: busca píxeles non-white en bounding box del sprite (scanlines 20-27, columnas 30-37)</li>
+                    <li>Validación: debe haber al menos 10 píxeles non-white en el bounding box</li>
+                </ul>
+                <p>
+                    <strong>Métrica usada</strong>: "bounding box nonwhite" en lugar de "imagen exacta" (permite transparencias y variaciones de paleta)
+                </p>
+
+                <h3>Fase C - Métricas OAM en Herramienta Headless (Opcional)</h3>
+                <p>
+                    <strong>Archivo</strong>: <code>tools/rom_smoke_0442.py</code> (modificado)
+                </p>
+                <p>
+                    <strong>Método añadido: <code>_sample_oam_nonzero()</code></strong>:
+                </p>
+                <ul>
+                    <li>Muestrea cada 4º byte en OAM (0xFE00-0xFE9F): 40 muestras</li>
+                    <li>Cuenta bytes non-zero</li>
+                    <li>Estima total multiplicando por 4</li>
+                </ul>
+                <p>
+                    <strong>Actualizado <code>_collect_metrics()</code></strong>: Incluye campo <code>oam_nonzero</code> en diccionario de métricas
+                </p>
+                <p>
+                    <strong>Actualizado <code>_print_summary()</code></strong>: Muestra estadísticas de OAM nonzero (mín, máx, promedio)
+                </p>
+                <p>
+                    <strong>Actualizado dump periódico</strong>: Muestra <code>oam_nz</code> en output de frames
+                </p>
+
+                <h3>Decisiones de Diseño</h3>
+                <ul>
+                    <li><strong>Correctness > Timing</strong>: Enfoque en validar que DMA copia datos correctamente antes que timing exacto (640 T-cycles). Timing fino se puede añadir en step dedicado si es necesario.</li>
+                    <li><strong>Tests pequeños</strong>: Ambos tests son < 100 líneas, sin PNG, sin pygame. Ejecutan rápido y son fáciles de mantener.</li>
+                    <li><strong>Bounding box nonwhite</strong>: En lugar de validar imagen exacta del sprite, validamos que hay píxeles non-white en el bounding box esperado. Esto es más robusto y permite variaciones de paleta/transparencias.</li>
+                    <li><strong>Métricas OAM opcionales</strong>: Añadidas solo si cuesta poco (< 30 líneas), útil para diagnóstico futuro pero no crítico para este Step.</li>
+                </ul>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tests/test_dma_oam_copy_0444.py</code> (nuevo) - Test clean-room que valida DMA copia 160 bytes correctamente</li>
+                    <li><code>tests/test_sprite_visible_0444.py</code> (nuevo) - Test clean-room que valida sprite visible en framebuffer</li>
+                    <li><code>tools/rom_smoke_0442.py</code> (modificado) - Añadidas métricas OAM para diagnóstico futuro</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado</strong>: <code>pytest tests/test_dma_oam_copy_0444.py -v</code>
+                </p>
+                <p>
+                    <strong>Resultado</strong>: <code>2 passed in 0.24s</code>
+                </p>
+                <p>
+                    <strong>Comando ejecutado</strong>: <code>pytest tests/test_sprite_visible_0444.py -v</code>
+                </p>
+                <p>
+                    <strong>Resultado</strong>: <code>2 passed in 0.45s</code>
+                </p>
+                <p>
+                    <strong>Comando ejecutado</strong>: <code>pytest -q</code>
+                </p>
+                <p>
+                    <strong>Resultado</strong>: <code>537 passed</code> (suite completa)
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++</strong>: ✅ Compilación exitosa, test_build.py pasa
+                </p>
+                
+                <h3>Código del Test Clave</h3>
+                <pre><code>def test_dma_oam_copies_160_bytes():
+    """Valida que DMA copia 160 bytes correctamente desde WRAM a OAM."""
+    # Preparar patrón en WRAM (0xC000-0xC09F)
+    source_base = 0xC000
+    pattern = [i & 0xFF for i in range(160)]
+    
+    for i, byte_value in enumerate(pattern):
+        mmu.write(source_base + i, byte_value)
+    
+    # Activar DMA: escribir source page (0xC0) a 0xFF46
+    dma_source_page = 0xC0
+    mmu.write(0xFF46, dma_source_page)
+    
+    # Verificar que DMA copió correctamente
+    for i in range(160):
+        expected = pattern[i]
+        actual = mmu.read(0xFE00 + i)
+        assert actual == expected, f"DMA copy falló en byte {i}"</code></pre>
+
+                <pre><code>def test_single_sprite_visible():
+    """Valida que un sprite visible aparece en el framebuffer."""
+    # Configurar OAM entry para sprite
+    oam_addr = 0xFE00
+    mmu.write(oam_addr + 0, 16 + 20)  # y = 36
+    mmu.write(oam_addr + 1, 8 + 30)   # x = 38
+    mmu.write(oam_addr + 2, 0x00)     # tile_id = 0
+    mmu.write(oam_addr + 3, 0x00)     # flags = 0
+    
+    # Ejecutar 3 frames
+    for frame in range(3):
+        frame_cycles = 0
+        while frame_cycles < CYCLES_PER_FRAME:
+            cycles = cpu.step()
+            ppu.step(cycles)
+            timer.step(cycles)
+            frame_cycles += cycles
+    
+    # Verificar framebuffer: píxeles non-white en bounding box
+    framebuffer = ppu.get_framebuffer_rgb()
+    nonwhite_count = 0
+    for y in range(20, 28):
+        for x in range(30, 38):
+            idx = (y * 160 + x) * 3
+            r, g, b = framebuffer[idx], framebuffer[idx+1], framebuffer[idx+2]
+            if r < 200 or g < 200 or b < 200:
+                nonwhite_count += 1
+    
+    assert nonwhite_count >= 10, f"Sprite no visible: solo {nonwhite_count} píxeles non-white"</code></pre>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#dma-transfer">DMA Transfer</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#vram-tile-data">OAM (Object Attribute Memory)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/#lcd-ppu-sprites">Sprite Rendering</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>DMA OAM Correctness</strong>: DMA copia 160 bytes desde source (value << 8) a OAM (0xFE00-0xFE9F). La implementación actual es instantánea (sin timing), pero la correctness de datos es correcta. Tests clean-room confirman que la copia funciona correctamente.</li>
+                        <li><strong>Sprite Rendering</strong>: El PPU consume OAM real durante OAM Search (Mode 2). Si OAM tiene datos válidos (Y/X dentro de rango, tile data presente), el sprite aparece en el framebuffer. Test clean-room confirma que sprites aparecen cuando OAM tiene datos.</li>
+                        <li><strong>Hardware Contracts Frozen</strong>: Los tests congelan el contrato hardware: (1) DMA copia correcta, (2) Sprites renderizan. Esto permite detectar regresiones futuras.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Timing DMA</strong>: Timing exacto de DMA (640 T-cycles) y bloqueo de acceso a memoria durante DMA (excepto HRAM). Esto se puede añadir en step dedicado si es necesario para juegos específicos.</li>
+                        <li><strong>Sprite Priority</strong>: Prioridad de sprites (OBP flags) y orden de renderizado. Tests actuales usan flags=0x00 (prioridad normal).</li>
+                        <li><strong>Sprite Flip</strong>: Flip X/Y de sprites (flags bits). Tests actuales no validan flip.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Modelo DMA Instantáneo</strong>: Asumimos que DMA es instantánea (sin delay) para este Step. En hardware real, DMA tarda 640 T-cycles y bloquea acceso a memoria (excepto HRAM). Si juegos específicos (ej: Pokémon) requieren timing exacto, se puede añadir en step dedicado.
+                    </p>
+                    <p>
+                        <strong>Bounding Box Nonwhite</strong>: Asumimos que validar "al menos 10 píxeles non-white en bounding box" es suficiente para confirmar que sprite es visible. Esto permite variaciones de paleta/transparencias sin requerir imagen exacta.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Si Pokémon u otros juegos siguen raros después de este Step, atacar timing fino de DMA/locks en step dedicado</li>
+                    <li>[ ] Validar sprite priority y flip X/Y con tests adicionales si es necesario</li>
+                    <li>[ ] Usar métricas OAM de herramienta headless para diagnosticar problemas de sprites en ROMs reales</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

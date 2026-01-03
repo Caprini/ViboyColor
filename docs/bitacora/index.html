@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0444 - DMA/OAM Correctness + Sprite Visible Test + Freeze Hardware Contracts -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0444__dma-oam-correctness-sprite-visible-tests.html" class="entry-link">
+                                    DMA/OAM Correctness + Sprite Visible Test + Freeze Hardware Contracts
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0444 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Validación end-to-end de OAM DMA (0xFF46): creación de tests clean-room que verifican que DMA copia correctamente 160 bytes desde source a OAM, y que el PPU consume OAM real (sprites aparecen cuando OAM tiene datos). Añadidos 2 tests principales que congelan el contrato hardware: (1) DMA copia correcta (test_dma_oam_copy_0444.py), (2) Sprites renderizan (test_sprite_visible_0444.py). Opcionalmente, añadidas métricas OAM a herramienta headless (rom_smoke_0442.py) para diagnóstico futuro. Suite completa: 537 passed. Tests DMA: 2 passed (0.24s). Tests sprite visible: 2 passed (0.45s). Objetivo alcanzado: contratos hardware congelados (DMA correctness + PPU consume OAM). Auditoría previa confirmó que DMA OAM ya existe en MMU.cpp (líneas 967-1004) con modelo instantáneo. Tests validan correctness de datos (no timing exacto). Métrica sprite: bounding box nonwhite (al menos 10 píxeles) en lugar de imagen exacta (permite variaciones de paleta/transparencias).
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0443 - LY Sampling 3-Points + Clean-Room LY Range Test + STAT Sanity + Baseline Perf -->
                     <li>
                         <div class="entry-header">

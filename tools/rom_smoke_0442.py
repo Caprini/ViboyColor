@@ -184,6 +184,24 @@ class ROMSmokeRunner:
         # Estimar total (multiplicar por 16)
         return count * 16
     
+    def _sample_oam_nonzero(self) -> int:
+        """
+        Cuenta bytes non-zero en OAM 0xFE00-0xFE9F (muestreo).
+        
+        Step 0444: Métricas OAM para validar DMA correctness.
+        
+        Returns:
+            Número de bytes non-zero (estimado)
+        """
+        count = 0
+        # Muestrear cada 4º byte (40 sprites * 4 bytes = 160 bytes, 40 muestras)
+        for addr in range(0xFE00, 0xFEA0, 4):
+            value = self.mmu.read(addr)
+            if value != 0:
+                count += 1
+        # Estimar total (multiplicar por 4)
+        return count * 4
+    
     def _collect_metrics(self, frame_idx: int, ly_first: int, ly_mid: int, ly_last: int,
                         stat_first: int, stat_mid: int, stat_last: int) -> Dict:
         """
@@ -213,6 +231,9 @@ class ROMSmokeRunner:
         # Muestrear VRAM
         vram_nonzero = self._sample_vram_nonzero()
         
+        # Step 0444: Muestrear OAM
+        oam_nonzero = self._sample_oam_nonzero()
+        
         # Leer registros I/O clave
         lcdc = self.mmu.read(0xFF40)
         stat = self.mmu.read(0xFF41)
@@ -228,6 +249,7 @@ class ROMSmokeRunner:
             'nonwhite_pixels': nonwhite_pixels,
             'frame_hash': frame_hash,
             'vram_nonzero': vram_nonzero,
+            'oam_nonzero': oam_nonzero,  # Step 0444: OAM metrics
             'lcdc': lcdc,
             'stat': stat,
             'bgp': bgp,
@@ -341,6 +363,7 @@ class ROMSmokeRunner:
                 print(f"[Frame {frame_idx:04d}] PC={metrics['pc']:04X} "
                       f"nonwhite={metrics['nonwhite_pixels']:5d} "
                       f"vram_nz={metrics['vram_nonzero']:4d} "
+                      f"oam_nz={metrics['oam_nonzero']:4d} "
                       f"LCDC={metrics['lcdc']:02X} LY={metrics['ly']:02X}")
                 
                 # Dump PNG si está habilitado
@@ -396,6 +419,16 @@ class ROMSmokeRunner:
         
         print(f"VRAM NONZERO (bytes, estimado por muestreo):")
         print(f"  Mín: {min_vram:4d}  Máx: {max_vram:4d}  Prom: {avg_vram:4.0f}")
+        print(f"")
+        
+        # Step 0444: Estadísticas de OAM nonzero
+        oam_values = [m['oam_nonzero'] for m in self.metrics]
+        min_oam = min(oam_values)
+        max_oam = max(oam_values)
+        avg_oam = sum(oam_values) / len(oam_values)
+        
+        print(f"OAM NONZERO (bytes, estimado por muestreo) - Step 0444:")
+        print(f"  Mín: {min_oam:4d}  Máx: {max_oam:4d}  Prom: {avg_oam:4.0f}")
         print(f"")
         
         # Resumen I/O con LY/STAT 3-points (Step 0443)
