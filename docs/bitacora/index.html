@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0460 - Fix Setup Test Insuficiente - Tilemap Completo -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-03__0460__fix-setup-test-insuficiente-tilemap-completo.html" class="entry-link">
+                                    Fix Setup Test Insuficiente - Tilemap Completo
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-03 | 
+                            <strong>Step ID:</strong> 0460 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Diagnóstico y corrección del problema de "setup de test insuficiente" que causaba que los tests de paleta fallaran con solo 2 colores únicos en vez de ≥4. Los Steps 0458 y 0459 confirmaron que el PPU lee VRAM correctamente y que el pipeline de conversión funciona bien cuando recibe índices variados. El problema real era que el tilemap estaba casi vacío (solo 1 entrada escrita), lo que causaba que la mayoría del BG usara tiles por defecto que solo producían índices {0, 2}. Solución aplicada: Llenar completamente el tilemap (32×32 = 1024 bytes) con el tile 0 que tiene el patrón 0x55/0x33 que garantiza índices {0, 1, 2, 3}. Resultado: ✅ Tests BGP y Not Flat pasan (2 de 3 tests objetivo). El test OBJ tiene un problema conocido con la conversión de paleta para sprites que está fuera del alcance de este plan.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0459 - Instrumentación Pipeline Conversión Shade→RGB -->
                     <li>
                         <div class="entry-header">

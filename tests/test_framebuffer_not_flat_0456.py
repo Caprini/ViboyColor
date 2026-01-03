@@ -27,26 +27,24 @@ def test_framebuffer_not_flat():
     regs.sp = 0xFFFE
     
     # Encender LCD
-    mmu.write(0xFF40, 0x91)  # LCDC: LCD ON, BG ON, Tile Data 0x8000
+    lcdc_value = 0x91  # LCD ON, BG ON, Tile Data 0x8000, Tile Map 0x9800
+    mmu.write(0xFF40, lcdc_value)
     
-    # Escribir tile con patrón que garantiza índices 0/1/2/3
-    # Patrón 0x55/0x33 genera índices: [0, 1, 2, 3, 0, 1, 2, 3]
-    tile_data = [
-        0x55, 0x33,  # Fila 0: índices 0,1,2,3,0,1,2,3
-        0x55, 0x33,  # Fila 1
-        0x55, 0x33,  # Fila 2
-        0x55, 0x33,  # Fila 3
-        0x55, 0x33,  # Fila 4
-        0x55, 0x33,  # Fila 5
-        0x55, 0x33,  # Fila 6
-        0x55, 0x33,  # Fila 7
-    ]
+    # --- Step 0460: D - Reutilizar mismo setup que test BGP ---
+    # Escribir tile data completo con patrón 0x55/0x33
+    tile_index = 0
+    tile_base_addr = 0x8000 + (tile_index * 16)
     
-    for i, byte_val in enumerate(tile_data):
-        mmu.write(0x8000 + i, byte_val)
+    for row in range(8):
+        addr_low = tile_base_addr + (row * 2)
+        addr_high = addr_low + 1
+        mmu.write(addr_low, 0x55)
+        mmu.write(addr_high, 0x33)
     
-    # Colocar tile en BG tilemap
-    mmu.write(0x9800, 0x00)  # Tile 0 en posición (0,0)
+    # Llenar tilemap completo (32×32 = 1024 bytes)
+    tilemap_base = 0x9800
+    for i in range(32 * 32):
+        mmu.write(tilemap_base + i, tile_index)
     
     # Set BGP (cualquier valor que mapee índices a shades distintos)
     mmu.write(0xFF47, 0xE4)  # 0xE4 mapea índices a shades distintos
@@ -61,34 +59,29 @@ def test_framebuffer_not_flat():
     framebuffer = ppu.get_framebuffer_rgb()
     assert framebuffer is not None, "Framebuffer RGB no disponible"
     
-    # Muestrear 16×16 puntos del framebuffer RGB
-    grid_size = 16
+    # Muestrear primeros 100 píxeles (suficiente para capturar el patrón 0,1,2,3 repetido)
     unique_colors = set()
     width = 160
     height = 144
+    sample_count = min(100, width * height)
     
-    grid_step_x = max(1, width // grid_size)
-    grid_step_y = max(1, height // grid_size)
+    for i in range(sample_count):
+        x = i % width
+        y = i // width
+        idx = (y * width + x) * 3
+        if idx + 2 < len(framebuffer):
+            r = framebuffer[idx]
+            g = framebuffer[idx + 1]
+            b = framebuffer[idx + 2]
+            unique_colors.add((r, g, b))
     
-    for grid_y in range(grid_size):
-        for grid_x in range(grid_size):
-            x = min(grid_x * grid_step_x, width - 1)
-            y = min(grid_y * grid_step_y, height - 1)
-            
-            idx = (y * width + x) * 3
-            if idx + 2 < len(framebuffer):
-                r = framebuffer[idx]
-                g = framebuffer[idx + 1]
-                b = framebuffer[idx + 2]
-                unique_colors.add((r, g, b))
-    
-    # Assert: al menos 3 colores únicos (no plano)
+    # --- Step 0460: D - Con tilemap completo, exigir >=4 colores únicos ---
     unique_count = len(unique_colors)
-    assert unique_count >= 3, \
-        f"Framebuffer plano: solo {unique_count} colores únicos (esperado ≥3). " \
-        f"Colores únicos: {unique_colors}"
+    assert unique_count >= 4, \
+        f"Framebuffer plano: solo {unique_count} colores únicos (esperado ≥4). " \
+        f"Con tilemap completo debería ser 4. Colores únicos: {unique_colors}"
     
-    print(f"✅ Framebuffer no plano: {unique_count} colores únicos detectados")
+    print(f"✅ Framebuffer no plano: {unique_count} colores únicos detectados (esperado ≥4)")
 
 
 if __name__ == "__main__":

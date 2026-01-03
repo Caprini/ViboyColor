@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0460: Fix Setup Test Insuficiente - Tilemap Completo - Viboy Color</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Step 0460: Fix Setup Test Insuficiente - Tilemap Completo</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-03
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0460
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-03__0459__instrumentacion-pipeline-conversion-shade-rgb.html">Anterior (0459)</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    <strong>Objetivo:</strong> Diagnosticar y corregir el problema de "setup de test insuficiente" que causaba que los tests de paleta fallaran con solo 2 colores únicos en vez de ≥4. Los Steps 0458 y 0459 confirmaron que el PPU lee VRAM correctamente y que el pipeline de conversión funciona bien cuando recibe índices variados. El problema real era que el tilemap estaba casi vacío (solo 1 entrada escrita), lo que causaba que la mayoría del BG usara tiles por defecto que solo producían índices {0, 2}.
+                </p>
+                <p>
+                    <strong>Diagnóstico confirmado:</strong> El framebuffer de índices global mostraba solo {0, 2} en la mayoría de la pantalla porque el tilemap solo tenía 1 entrada escrita (tile 0 en posición 0,0). El resto del tilemap estaba sin inicializar, usando tiles por defecto que solo producían índices 0 y 2.
+                </p>
+                <p>
+                    <strong>Solución aplicada:</strong> Llenar completamente el tilemap (32×32 = 1024 bytes) con el tile 0 que tiene el patrón 0x55/0x33 que garantiza índices {0, 1, 2, 3}. Esto asegura que toda la pantalla visible use el tile con 4 índices distintos.
+                </p>
+                <p>
+                    <strong>Resultado:</strong> ✅ Tests BGP y Not Flat pasan (2 de 3 tests objetivo). El test OBJ tiene un problema conocido con la conversión de paleta para sprites que está fuera del alcance de este plan (índices correctos {1, 3}, pero RGB colapsa a (0,0,0)).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <h3>BG Tilemap en Game Boy</h3>
+                <p>
+                    El Background Tilemap es una tabla de 32×32 tiles (1024 bytes) que define qué tile se renderiza en cada posición del fondo. Cada byte del tilemap contiene el índice del tile (0-255) que se debe renderizar en esa posición.
+                </p>
+                <p>
+                    <strong>Direcciones del Tilemap:</strong>
+                </p>
+                <ul>
+                    <li><strong>0x9800-0x9BFF:</strong> Tilemap base (LCDC bit 3 = 0)</li>
+                    <li><strong>0x9C00-0x9FFF:</strong> Tilemap alternativo (LCDC bit 3 = 1)</li>
+                </ul>
+                <p>
+                    <strong>Problema de Setup Insuficiente:</strong> Si solo se escribe 1 entrada en el tilemap (ej: tile 0 en posición 0,0), el resto del tilemap queda sin inicializar. Cuando el PPU renderiza el BG, lee tiles por defecto (generalmente 0x00) que solo producen índices {0, 2}, causando que el framebuffer tenga solo 2 colores únicos en la mayoría de la pantalla.
+                </p>
+                <p>
+                    <strong>Solución:</strong> Llenar completamente el tilemap (32×32 = 1024 bytes) con el tile deseado para asegurar que toda la pantalla visible use el mismo tile con 4 índices distintos.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "LCD Control Register" (LCDC bit 3) y "Tile Maps"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <h3>Fase A: Confirmación Pre-Change</h3>
+                <p>
+                    Añadido diagnóstico al test BGP para verificar el conjunto de índices únicos global del framebuffer. Esto confirmó que el problema era setup insuficiente (tilemap casi vacío).
+                </p>
+                <pre><code># Calcular índices únicos en todo el framebuffer (no solo primeros píxeles)
+unique_idx_set = set()
+for i in range(min(23040, len(indices_buffer))):  # Toda la pantalla
+    unique_idx_set.add(indices_buffer[i] & 0x03)
+
+print(f"[TEST-PRE-CHANGE] Unique idx set global: {unique_idx_set}")
+
+# Si solo vemos {0, 2} o similar, confirma que el problema es tilemap casi vacío
+if len(unique_idx_set) < 3:
+    print(f"⚠️ CONFIRMADO: Tilemap casi vacío. Solo índices {unique_idx_set} en pantalla completa.")
+</code></pre>
+
+                <h3>Fase B: Fix del Setup BG (Paleta BGP)</h3>
+                <p>
+                    Modificado el test BGP para escribir tile data completo y llenar el tilemap completo (32×32 = 1024 bytes).
+                </p>
+                <pre><code># Escribir tile data completo con patrón 0x55/0x33
+tile_index = 0
+tile_base_addr = 0x8000 + (tile_index * 16)
+
+for row in range(8):
+    addr_low = tile_base_addr + (row * 2)
+    addr_high = addr_low + 1
+    mmu.write(addr_low, 0x55)
+    mmu.write(addr_high, 0x33)
+
+# Llenar tilemap completo (32×32 = 1024 bytes)
+tilemap_base = 0x9800
+for i in range(32 * 32):  # 1024 bytes (32×32 tiles)
+    mmu.write(tilemap_base + i, tile_index)
+</code></pre>
+
+                <h3>Fase C: Fix del Setup OBJ (Paleta OBP0/OBP1)</h3>
+                <p>
+                    Modificado el test OBJ para usar el mismo tile (tile 0) con patrón 0x55/0x33 que garantiza índices {0, 1, 2, 3}.
+                </p>
+
+                <h3>Fase D: Ajuste del Test "Not Flat"</h3>
+                <p>
+                    Modificado el test Not Flat para reutilizar el mismo setup de BG (tile data completo + tilemap completo) y exigir ≥4 colores únicos en vez de ≥3.
+                </p>
+
+                <h3>Cambios en Muestreo</h3>
+                <p>
+                    Cambiado el muestreo de grid 16×16 a muestreo de primeros 100 píxeles para capturar mejor el patrón repetido 0,1,2,3.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tests/test_palette_dmg_bgp_0454.py</code> - Fix del setup BG: tile data completo + tilemap completo (32×32)</li>
+                    <li><code>tests/test_palette_dmg_obj_0454.py</code> - Fix del setup OBJ: usar mismo tile con patrón 0x55/0x33</li>
+                    <li><code>tests/test_framebuffer_not_flat_0456.py</code> - Ajuste: reutilizar setup completo y exigir ≥4 colores únicos</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Tests objetivo ejecutados:</strong>
+                </p>
+                <ul>
+                    <li><code>test_palette_dmg_bgp_0454.py::test_dmg_bgp_palette_mapping</code> - ✅ PASSED</li>
+                    <li><code>test_framebuffer_not_flat_0456.py::test_framebuffer_not_flat</code> - ✅ PASSED</li>
+                    <li><code>test_palette_dmg_obj_0454.py::test_dmg_obj_palette_mapping</code> - ⚠️ FAILED (problema conocido con conversión de paleta para sprites, fuera del alcance de este plan)</li>
+                </ul>
+                <p>
+                    <strong>Evidencia pre-change:</strong>
+                </p>
+                <pre><code>[TEST-PRE-CHANGE] Unique idx set global: {0, 2}
+⚠️ CONFIRMADO: Tilemap casi vacío. Solo índices {0, 2} en pantalla completa.
+   Esto explica por qué unique_rgb_count < 3: la mayoría del BG usa tiles default.</code></pre>
+                <p>
+                    <strong>Evidencia post-change:</strong>
+                </p>
+                <pre><code>[TEST-BG-SETUP] Tile data escrito: tile 0 en 0x8000
+[TEST-BG-SETUP] Tilemap llenado: 32×32 = 1024 bytes con tile 0
+[TEST-BG-SETUP] Unique idx set global después de llenar tilemap: {0, 1, 2, 3}
+[TEST-BG-SETUP] Unique RGB colors (primeros 100 píxeles): 4
+[TEST-BG-SETUP] Colores únicos encontrados: {(170, 170, 170), (85, 85, 85), (255, 255, 255), (0, 0, 0)}</code></pre>
+                <p>
+                    <strong>Validación de módulo compilado C++:</strong> ✅ Compilación exitosa sin errores.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "LCD Control Register" (LCDC bit 3) - Tile Map selection</li>
+                    <li>Pan Docs: "Tile Maps" - Background tilemap addressing</li>
+                    <li>Pan Docs: "Color Palettes" (DMG) - BGP register mapping</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Setup de test insuficiente:</strong> Si el tilemap solo tiene 1 entrada escrita, el resto del tilemap queda sin inicializar y usa tiles por defecto que solo producen índices {0, 2}.</li>
+                        <li><strong>Llenado completo del tilemap:</strong> Para asegurar que toda la pantalla visible use el mismo tile, es necesario llenar completamente el tilemap (32×32 = 1024 bytes).</li>
+                        <li><strong>Muestreo robusto:</strong> El muestreo de grid 16×16 puede no capturar todos los colores si el patrón no está distribuido uniformemente. Muestrear los primeros 100 píxeles es más robusto para patrones repetidos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Conversión de paleta para sprites:</strong> El test OBJ muestra índices correctos {1, 3} pero RGB colapsa a (0,0,0). Esto sugiere un problema en la conversión de paleta para sprites, pero está fuera del alcance de este plan.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        Se asume que el problema del test OBJ (RGB colapsa a (0,0,0) aunque los índices son correctos) es un bug del PPU en la conversión de paleta para sprites, no un problema de setup del test. El setup del test está correcto (índices {1, 3} se detectan correctamente).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar y corregir el problema de conversión de paleta para sprites (test OBJ)</li>
+                    <li>[ ] Verificar que el tilemap se llena correctamente en otros tests que usen BG</li>
+                    <li>[ ] Considerar crear una función helper para llenar tilemap completo en tests</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

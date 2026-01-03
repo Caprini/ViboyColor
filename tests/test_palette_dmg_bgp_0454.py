@@ -45,25 +45,34 @@ def test_dmg_bgp_palette_mapping():
     print(f"[TEST-LCDC] LCDC configurado: 0x{lcdc_value:02X} "
           f"(LCD ON, BG ON, Tile Data 0x8000, Tile Map 0x9800)")
     
-    # --- Step 0456: FIX - Usar patrón que garantiza 0/1/2/3 ---
+    # --- Step 0460: B1 - Escribir tile data completo con patrón 0x55/0x33 ---
+    # Base tiledata: forzar LCDC bit4=1 (tiledata 0x8000)
+    # Elegir tile index fijo: tile 0
+    # En 0x8000 + tile_index*16 + row*2 escribir: lo=0x55, hi=0x33 para cada row 0..7
+    tile_index = 0
+    tile_base_addr = 0x8000 + (tile_index * 16)
+    
     # Patrón 0x55/0x33 genera índices: [0, 1, 2, 3, 0, 1, 2, 3]
     # byte_low  = 0x55 = 0b01010101 → bits: 0,1,0,1,0,1,0,1
     # byte_high = 0x33 = 0b00110011 → bits: 0,0,1,1,0,0,1,1
     # color_idx = lo | (hi<<1): 0|0, 1|0, 0|2, 1|2, 0|0, 1|0, 0|2, 1|2
     #            = 0, 1, 2, 3, 0, 1, 2, 3
-    tile_data = [
-        0x55, 0x33,  # Fila 0: índices 0,1,2,3,0,1,2,3
-        0x55, 0x33,  # Fila 1: índices 0,1,2,3,0,1,2,3
-        0x55, 0x33,  # Fila 2: índices 0,1,2,3,0,1,2,3
-        0x55, 0x33,  # Fila 3: índices 0,1,2,3,0,1,2,3
-        0x55, 0x33,  # Fila 4: índices 0,1,2,3,0,1,2,3
-        0x55, 0x33,  # Fila 5: índices 0,1,2,3,0,1,2,3
-        0x55, 0x33,  # Fila 6: índices 0,1,2,3,0,1,2,3
-        0x55, 0x33,  # Fila 7: índices 0,1,2,3,0,1,2,3
-    ]
+    for row in range(8):
+        addr_low = tile_base_addr + (row * 2)
+        addr_high = addr_low + 1
+        mmu.write(addr_low, 0x55)
+        mmu.write(addr_high, 0x33)
     
-    for i, byte_val in enumerate(tile_data):
-        mmu.write(0x8000 + i, byte_val)
+    # --- Step 0460: B2 - Llenar el BG tilemap visible (32×32 = 1024 bytes) ---
+    # Forzar tilemap base 0x9800 (LCDC bit3=0)
+    # Llenar toda la tabla 32×32 = 1024 bytes con tile_index (0)
+    # Esto garantiza que toda la pantalla visible usa el tile con 4 índices
+    tilemap_base = 0x9800
+    for i in range(32 * 32):  # 1024 bytes (32×32 tiles)
+        mmu.write(tilemap_base + i, tile_index)
+    
+    print(f"[TEST-BG-SETUP] Tile data escrito: tile {tile_index} en 0x{tile_base_addr:04X}")
+    print(f"[TEST-BG-SETUP] Tilemap llenado: 32×32 = 1024 bytes con tile {tile_index}")
     
     # --- Step 0458: A2 - Roundtrip lectura VRAM ---
     # Leer desde MMU en Python para asegurar que VRAM contiene 0x55/0x33
@@ -75,9 +84,6 @@ def test_dmg_bgp_palette_mapping():
     
     assert vram_bytes_read[0] == 0x55 and vram_bytes_read[1] == 0x33, \
         f"VRAM roundtrip falló: escrito [0x55,0x33], leído {vram_bytes_read}"
-    
-    # Colocar tile en BG tilemap (0x9800)
-    mmu.write(0x9800, 0x00)  # Tile 0 en posición (0,0)
     
     # Set BGP=0xE4 (mapeo normal: 0→white, 1→light gray, 2→dark gray, 3→black)
     # 0xE4 = 0b11100100 = shade3 shade2 shade1 shade0
@@ -132,9 +138,19 @@ def test_dmg_bgp_palette_mapping():
     else:
         print("[TEST-PPU-VRAM-READ] Info no disponible (VIBOY_DEBUG_PPU no activo)")
     
-    # --- Step 0457: Sanity assert - Verificar índices antes de mirar RGB ---
+    # --- Step 0460: B3 - Verificar variedad global después de llenar tilemap ---
     indices_buffer = ppu.get_framebuffer_indices()
     assert indices_buffer is not None, "Framebuffer de índices no disponible"
+    
+    # Calcular índices únicos en todo el framebuffer (no solo primeros píxeles)
+    unique_idx_set = set()
+    for i in range(min(23040, len(indices_buffer))):  # Toda la pantalla
+        unique_idx_set.add(indices_buffer[i] & 0x03)
+    
+    print(f"[TEST-BG-SETUP] Unique idx set global después de llenar tilemap: {unique_idx_set}")
+    assert unique_idx_set == {0, 1, 2, 3}, \
+        f"Índices globales no son {{0,1,2,3}}: {unique_idx_set}. " \
+        f"Si esto falla → bug real de tilemap fetch/addressing."
     
     # Muestrear 8 píxeles conocidos (píxeles 0, 1, 2, 3, 4, 5, 6, 7 en fila 0)
     # Para tile 0x55/0x33: índices esperados [0, 1, 2, 3, 0, 1, 2, 3]
@@ -203,51 +219,73 @@ def test_dmg_bgp_palette_mapping():
             f"Paleta reg incorrecto: escrito 0xE4, usado 0x{bgp_used:02X}. " \
             f"Si usa 0x00 o 0xFF → bug en lectura/reg caching."
     
-    # Samplear 4 píxeles conocidos (píxeles 0, 2, 4, 6 en fila 0)
-    # Estos corresponden a índices 0, 2, 0, 2 según decode 2bpp
+    # --- Step 0460: B3 - Samplear RGB (muestreo robusto: muestrear primeros 100 píxeles) ---
     framebuffer = ppu.get_framebuffer_rgb()
     assert framebuffer is not None, "Framebuffer RGB no disponible"
     
-    pixels_rgb = []
-    for x in [0, 2, 4, 6]:  # Píxeles con índices 0, 2, 0, 2
-        idx = (0 * 160 + x) * 3  # Fila 0, píxel x
+    # Muestrear primeros 100 píxeles (suficiente para capturar el patrón 0,1,2,3 repetido)
+    unique_colors = set()
+    width = 160
+    height = 144
+    sample_count = min(100, width * height)
+    
+    for i in range(sample_count):
+        x = i % width
+        y = i // width
+        idx = (y * width + x) * 3
         if idx + 2 < len(framebuffer):
             r = framebuffer[idx]
             g = framebuffer[idx + 1]
             b = framebuffer[idx + 2]
-            pixels_rgb.append((r, g, b))
+            unique_colors.add((r, g, b))
     
-    # --- Step 0456: Assert robusto (no valores RGB exactos) ---
-    # Con BGP=0xE4 y índices 0,2,0,2, deberíamos tener al menos 2 colores distintos
-    # (shade de índice 0 y shade de índice 2)
-    unique_colors = set(pixels_rgb)
-    assert len(unique_colors) >= 3, \
-        f"Frame plano: solo {len(unique_colors)} colores únicos (esperado ≥3 con patrón 0x55/0x33)"
+    # Assert: con tilemap lleno, deberíamos tener 4 colores únicos
+    unique_rgb_count = len(unique_colors)
+    print(f"[TEST-BG-SETUP] Unique RGB colors (primeros {sample_count} píxeles): {unique_rgb_count}")
+    print(f"[TEST-BG-SETUP] Colores únicos encontrados: {unique_colors}")
     
-    # Guardar para comparación
-    pixels_rgb_bgp_e4 = pixels_rgb.copy()
+    assert unique_rgb_count >= 4, \
+        f"RGB colapsa: solo {unique_rgb_count} colores únicos (esperado ≥4). " \
+        f"Con tilemap lleno debería ser 4."
     
-    # Cambiar BGP=0x1B (mapeo invertido: bits invertidos)
-    # 0xE4 = 0b11100100 → 0x1B = 0b00011011
+    # Guardar píxeles del primer frame para comparación
+    pixels_rgb_bgp_e4 = []
+    for i in range(sample_count):
+        x = i % width
+        y = i // width
+        idx = (y * width + x) * 3
+        if idx + 2 < len(framebuffer):
+            r = framebuffer[idx]
+            g = framebuffer[idx + 1]
+            b = framebuffer[idx + 2]
+            pixels_rgb_bgp_e4.append((r, g, b))
+    
+    # Cambiar BGP=0x1B (mapeo invertido)
     mmu.write(0xFF47, 0x1B)
     
-    # Render 1 frame más
+    # Forzar swap y render 1 frame más
+    ppu.get_frame_ready_and_reset()  # Forzar swap antes de renderizar nuevo frame
     for _ in range(cycles_per_frame // 4):
         m_cycles = cpu.step()
         ppu.step(m_cycles * 4)
     
+    # Forzar swap después de renderizar
+    ppu.get_frame_ready_and_reset()
+    
     # Samplear mismos píxeles
     framebuffer2 = ppu.get_framebuffer_rgb()
     pixels_rgb2 = []
-    for x in [0, 2, 4, 6]:
-        idx = (0 * 160 + x) * 3
+    for i in range(sample_count):
+        x = i % width
+        y = i // width
+        idx = (y * width + x) * 3
         if idx + 2 < len(framebuffer2):
             r = framebuffer2[idx]
             g = framebuffer2[idx + 1]
             b = framebuffer2[idx + 2]
             pixels_rgb2.append((r, g, b))
     
-    # Assert: el set/orden de colores cambia (al menos 1 píxel cambia)
+    # Assert: al menos 1 píxel cambia (no solo el conjunto, sino píxeles individuales)
     changed = False
     for i in range(min(len(pixels_rgb_bgp_e4), len(pixels_rgb2))):
         if pixels_rgb_bgp_e4[i] != pixels_rgb2[i]:
@@ -256,7 +294,7 @@ def test_dmg_bgp_palette_mapping():
     
     assert changed, "BGP no reordena colores: píxeles no cambiaron al cambiar BGP"
     
-    print("✅ Test DMG BGP: paleta mapea 4 índices y es reordenable (con patrón corregido)")
+    print("✅ Test DMG BGP: paleta mapea 4 índices y es reordenable (con tilemap completo)")
 
 
 if __name__ == "__main__":
