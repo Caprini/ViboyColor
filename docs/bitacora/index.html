@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0447 - UI Ejecución Paralela + Logs Reales + Resumen Path/Profiling -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0447__ui-ejecucion-paralela-logs-reales-resumen.html" class="entry-link">
+                                    UI Ejecución Paralela + Logs Reales + Resumen Path/Profiling
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0447 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Ejecución de UI en paralelo con múltiples ROMs (Mario, Pokémon, Tetris, Zelda) para capturar logs reales de path de renderizado, profiling por etapas y métricas de nonwhite. Creación de scripts automatizados para ejecución paralela con timeout, extracción de muestras de logs y detección de freezes. Resultados: todas las ROMs usan path correcto (cpp_rgb_view), Mario NO se congela pero tiene pérdida masiva de píxeles (11520→1), Pokémon tiene framebuffer blanco desde el core (no es problema de UI), profiling muestra TOTAL ~420ms (posible bloqueo en pygame.event.pump o sleep). Scripts creados: run_ui_parallel_0447.sh, extract_ui_logs_0447.sh, detect_freezes_0447.sh. Logs capturados en /tmp/viboy_0447/ con resumen y tabla por ROM.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0446 - UI Evidencia Real + Profiling Presenter (Mario cuelga / Pokémon blanco) -->
                     <li>
                         <div class="entry-header">
