@@ -2172,6 +2172,54 @@ void PPU::render_scanline() {
     bool signed_addressing = (lcdc & 0x10) == 0;
     uint16_t tile_data_base = signed_addressing ? 0x9000 : 0x8000;
 
+    // --- Step 0464: Diagnóstico de tilemap base y scroll (primeros 5 frames + cada 120) ---
+    static int tilemap_diag_count = 0;
+    if (ly_ == 0 && (tilemap_diag_count < 5 || (frame_counter_ % 120 == 0))) {
+        tilemap_diag_count++;
+        
+        // Contar nonzero bytes en ambos tilemaps
+        int tilemap_nz_9800 = 0;
+        for (uint16_t addr = 0x9800; addr < 0x9C00; addr++) {
+            if (mmu_->read_vram(addr - 0x8000) != 0x00) {
+                tilemap_nz_9800++;
+            }
+        }
+        
+        int tilemap_nz_9C00 = 0;
+        for (uint16_t addr = 0x9C00; addr < 0xA000; addr++) {
+            if (mmu_->read_vram(addr - 0x8000) != 0x00) {
+                tilemap_nz_9C00++;
+            }
+        }
+        
+        // Leer 16 tile IDs desde el base actual
+        uint8_t tile_ids_sample[16];
+        for (int i = 0; i < 16; i++) {
+            uint16_t tile_map_offset = (tile_map_base - 0x8000) + i;
+            if (tile_map_offset < 0x2000) {
+                tile_ids_sample[i] = mmu_->read_vram(tile_map_offset);
+            } else {
+                tile_ids_sample[i] = 0x00;
+            }
+        }
+        
+        printf("[PPU-TILEMAP-DIAG] Frame %llu | LCDC=0x%02X | BGMapBase=0x%04X | "
+               "TileDataMode=%s | SCX=%d SCY=%d | "
+               "TilemapNZ_9800=%d TilemapNZ_9C00=%d | "
+               "TileIDs[0:16]=",
+               static_cast<unsigned long long>(frame_counter_ + 1),
+               lcdc, tile_map_base,
+               signed_addressing ? "8800(signed)" : "8000(unsigned)",
+               scx, scy,
+               tilemap_nz_9800, tilemap_nz_9C00);
+        
+        for (int i = 0; i < 16; i++) {
+            printf("%02X", tile_ids_sample[i]);
+        }
+        printf("\n");
+    }
+    // -------------------------------------------
+
     // --- Step 0397: Usar estado unificado vram_has_tiles_ ---
     // Ya no se usa verificación estática local, se usa vram_has_tiles_ actualizado en render_scanline()
     // La detección usa helpers dual-bank correctos (count_vram_nonzero_bank0_tiledata, count_complete_nonempty_tiles)
@@ -2204,7 +2252,12 @@ void PPU::render_scanline() {
         int tiles_pointing_to_empty = 0;
         
         for (int i = 0; i < 32; i++) {
-            uint8_t tile_id = mmu_->read(tile_map_base + i);
+            // Step 0464: Usar read_vram() para leer tilemap (no read() directo)
+            uint16_t tile_map_offset = (tile_map_base - 0x8000) + i;
+            uint8_t tile_id = 0x00;
+            if (tile_map_offset < 0x2000) {
+                tile_id = mmu_->read_vram(tile_map_offset);
+            }
             
             // Calcular dirección del tile según el direccionamiento
             uint16_t tile_addr;
@@ -2745,7 +2798,13 @@ void PPU::render_scanline() {
         uint8_t map_y = (ly_ + scy) & 0xFF;
 
         uint16_t tile_map_addr = tile_map_base + (map_y / 8) * 32 + (map_x / 8);
-        uint8_t tile_id = mmu_->read(tile_map_addr);
+        
+        // Step 0464: Usar read_vram() para leer tilemap (no read() directo)
+        uint16_t tile_map_offset = tile_map_addr - 0x8000;
+        uint8_t tile_id = 0x00;
+        if (tile_map_offset < 0x2000) {  // Rango válido VRAM (0x9800-0x9FFF = offset 0x1800-0x1FFF)
+            tile_id = mmu_->read_vram(tile_map_offset);
+        }
         
         // --- Step 0392: Instrumentación Zelda DX - Muestra de Tiles ---
         // Log detallado para X específicos (0, 8, 16, 80) en líneas 0 y 72
@@ -2829,7 +2888,7 @@ void PPU::render_scanline() {
         // Bit 3 selecciona el banco VRAM del tile pattern (0 o 1).
         // Otros bits (paleta, flips, prioridad) se ignoran por ahora (implementación mínima).
         // Fuente: Pan Docs - CGB Registers, BG Map Attributes
-        uint16_t tile_map_offset = tile_map_addr - 0x8000;  // Offset relativo a VRAM
+        // tile_map_offset ya está declarado arriba (Step 0464), reutilizar
         uint8_t tile_attr = mmu_->read_vram_bank(1, tile_map_offset);  // Leer atributo desde bank 1
         uint8_t tile_bank = (tile_attr >> 3) & 0x01;  // Bit 3: banco del tile pattern
         

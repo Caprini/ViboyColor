@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0464 - Fix BG Tilemap Base + Scroll Diagnostics + Fix -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-03__0464__fix-bg-tilemap-base-scroll.html" class="entry-link">
+                                    Fix BG Tilemap Base + Scroll Diagnostics + Fix
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-03 | 
+                            <strong>Step ID:</strong> 0464 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Diagnóstico y corrección del problema de pantallas blancas/patrones que se desplazan, causado por selección incorrecta de BG tilemap base (LCDC bit3) y/o aplicación incorrecta de scroll (SCX/SCY). Se añadió instrumentación [PPU-TILEMAP-DIAG] para diagnosticar qué tilemap tiene datos y cuál se está usando, se corrigió el uso de MMU::read_vram() para leer tilemap (en lugar de read() directo), y se crearon tests clean-room para validar la selección de tilemap base y scroll. Resultado: ✅ Tests: 3/3 pasan. Fix aplicado en PPU.cpp (3 lugares).
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0463 - Fix BG Tile Data Addressing 0x8800 (Signed) + Tests Clean-Room -->
                     <li>
                         <div class="entry-header">

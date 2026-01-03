@@ -376,6 +376,22 @@ class ROMSmokeRunner:
         bg_tilemap_base = 0x9C00 if (lcdc & 0x08) else 0x9800
         win_tilemap_base = 0x9C00 if (lcdc & 0x40) else 0x9800
         
+        # Step 0464: Contar nonzero bytes en ambos tilemaps
+        tilemap_nz_9800 = 0
+        for addr in range(0x9800, 0x9C00):
+            if self.mmu.read(addr) != 0:
+                tilemap_nz_9800 += 1
+        
+        tilemap_nz_9C00 = 0
+        for addr in range(0x9C00, 0xA000):
+            if self.mmu.read(addr) != 0:
+                tilemap_nz_9C00 += 1
+        
+        # Leer 16 tile IDs desde el base actual
+        tile_ids_sample = []
+        for i in range(16):
+            tile_ids_sample.append(self.mmu.read(bg_tilemap_base + i))
+        
         metrics = {
             'frame': frame_idx,
             'pc': pc,
@@ -406,6 +422,10 @@ class ROMSmokeRunner:
             'bg_tile_data_mode': bg_tile_data_mode,
             'bg_tilemap_base': bg_tilemap_base,
             'win_tilemap_base': win_tilemap_base,
+            # Step 0464: Tilemap nonzero counts y sample
+            'tilemap_nz_9800': tilemap_nz_9800,
+            'tilemap_nz_9C00': tilemap_nz_9C00,
+            'tile_ids_sample': tile_ids_sample,
         }
         
         # Detectar primer frame non-white
@@ -509,7 +529,17 @@ class ROMSmokeRunner:
                       f"oam_nz={metrics['oam_nonzero']:4d} "
                       f"LCDC={metrics['lcdc']:02X} LY={metrics['ly']:02X}")
             
-            # Step 0463: Imprimir modo tile data en frames loggeados
+            # Step 0464: Imprimir diagnóstico de tilemap (primeros 5 frames + cada 120)
+            should_log_tilemap_diag = (frame_idx < 5) or (frame_idx % 120 == 0)
+            if should_log_tilemap_diag:
+                tile_ids_str = ''.join(f'{t:02X}' for t in metrics.get('tile_ids_sample', []))
+                print(f"LCDC=0x{metrics['lcdc']:02X} | BGMapBase=0x{metrics['bg_tilemap_base']:04X} | TileDataMode={metrics['bg_tile_data_mode']} | "
+                      f"BG={(metrics['lcdc'] & 0x01) != 0} Win={(metrics['lcdc'] & 0x20) != 0} | "
+                      f"SCX={metrics['scx']} SCY={metrics['scy']} WX={self.mmu.read(0xFF4B)} WY={self.mmu.read(0xFF4A)} LY={metrics['ly']} | "
+                      f"TilemapNZ_9800={metrics.get('tilemap_nz_9800', 0)} TilemapNZ_9C00={metrics.get('tilemap_nz_9C00', 0)} | "
+                      f"TileIDs[0:16]={tile_ids_str}")
+            
+            # Step 0463: Imprimir modo tile data en frames loggeados (mantener para compatibilidad)
             if self.dump_every > 0 and (frame_idx % self.dump_every == 0 or frame_idx <= 3 or frame_idx >= self.max_frames - 1):
                 print(f"LCDC=0x{metrics['lcdc']:02X} | TileDataMode={metrics['bg_tile_data_mode']} | "
                       f"BGTilemap=0x{metrics['bg_tilemap_base']:04X} | WinTilemap=0x{metrics['win_tilemap_base']:04X} | "

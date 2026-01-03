@@ -686,6 +686,24 @@ class Viboy:
         self.running = True
         self.verbose = True  # Para heartbeat
         
+        # --- Step 0464: Imprimir estado de env vars para evidencia de kill-switches ---
+        env_vars = [
+            'VIBOY_DEBUG_INJECTION',
+            'VIBOY_FORCE_BGP',
+            'VIBOY_AUTOPRESS',
+            'VIBOY_FRAMEBUFFER_TRACE',
+            'VIBOY_DEBUG_UI'
+        ]
+        
+        env_status = []
+        for var in env_vars:
+            value = os.environ.get(var, '0')
+            env_status.append(f"{var}={value}")
+        
+        print(f"[ENV] {' '.join(env_status)}")
+        logger.info(f"[ENV] {' '.join(env_status)}")
+        # -------------------------------------------
+        
         # --- Step 0346: Verificación de Redirección de Salida ---
         # Verificar que la redirección de salida funciona correctamente
         test_msg = "[Viboy-Output-Test] Verificando redirección de salida"
