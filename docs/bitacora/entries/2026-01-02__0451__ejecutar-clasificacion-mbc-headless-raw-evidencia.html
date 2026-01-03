@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ejecutar Clasificación MBC + Headless RAW con Evidencia - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Ejecutar Clasificación MBC + Headless RAW con Evidencia</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-02
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0451
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-02__0450__triage-real-no-veo-graficos-mbc-vram-raw.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Ejecución de clasificación completa de ROMs por tipo MBC y análisis headless con evidencia RAW.
+                    Se ejecutó <code>rom_info_0450.py</code> sobre todas las ROMs disponibles para clasificar MBCs,
+                    se ejecutó headless RAW con MBC writes para 4 ROMs clave (mario.gbc, pkmn.gb, tetris.gb, tetris_dx.gbc),
+                    y se generó una tabla final con métricas completas (cart_type, MBC, supported, mbc_writes, pc_end, vram_raw_nz, nonwhite).
+                    <strong>Hallazgo clave:</strong> Todos los MBCs están soportados (MBC1, MBC3, MBC5) y los writes MBC se detectan correctamente,
+                    pero el VRAM permanece vacío y el framebuffer blanco, sugiriendo un problema de mapping ROM o de otro componente (PPU/paletas).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    Los <strong>Memory Bank Controllers (MBC)</strong> son chips en los cartuchos de Game Boy que permiten
+                    acceder a ROMs mayores de 32KB mediante <em>bank switching</em>. El Game Boy tiene un espacio de direcciones
+                    de 16 bits (64KB), pero los juegos pueden ser de 128KB, 256KB, 512KB o más. Los MBCs mapean diferentes
+                    "bancos" de ROM en el rango 0x0000-0x7FFF según comandos escritos por el juego.
+                </p>
+                <p>
+                    <strong>Tipos de MBC comunes:</strong>
+                </p>
+                <ul>
+                    <li><strong>MBC1:</strong> Hasta 2MB ROM, 32KB RAM opcional. Banking mediante escrituras en 0x2000-0x7FFF.</li>
+                    <li><strong>MBC3:</strong> Similar a MBC1, pero con soporte para RTC (Real-Time Clock).</li>
+                    <li><strong>MBC5:</strong> Hasta 8MB ROM, 128KB RAM opcional. Banking más simple (9 bits para ROM bank).</li>
+                </ul>
+                <p>
+                    <strong>Diagnóstico de MBC:</strong> Si un juego escribe a rangos MBC (0x0000-0x7FFF) pero el contenido
+                    leído desde 0x4000-0x7FFF no cambia, hay un problema de mapping. Si el VRAM permanece vacío después
+                    de writes MBC, el código que carga tiles puede estar en un banco ROM que no se está mapeando correctamente.
+                </p>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - "Memory Bank Controllers (MBC1/MBC3/MBC5)"
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se ejecutaron tres fases del plan:
+                </p>
+                
+                <h3>Fase A: Clasificación de ROMs</h3>
+                <p>
+                    Se ejecutó <code>tools/rom_info_0450.py</code> sobre todas las ROMs disponibles para clasificar
+                    por tipo de cartucho (0x0147), nombre MBC, y flag CGB. Resultados:
+                </p>
+                <ul>
+                    <li><strong>Distribución de MBCs:</strong> 2 MBC1, 2 MBC3, 3 MBC5, 1 None</li>
+                    <li><strong>Soporte:</strong> Todas las ROMs tienen MBC soportado (8/8 sí)</li>
+                </ul>
+
+                <h3>Fase B: Headless RAW con MBC Writes</h3>
+                <p>
+                    Se creó y ejecutó <code>tools/run_headless_raw_0451.sh</code> para ejecutar headless sobre 4 ROMs clave
+                    (mario.gbc, pkmn.gb, tetris.gb, tetris_dx.gbc) durante 240 frames cada una, capturando:
+                </p>
+                <ul>
+                    <li><code>pc_end</code>: Último PC del resumen final</li>
+                    <li><code>vram_nonzero_raw</code>: Bytes non-zero en VRAM usando <code>read_raw()</code></li>
+                    <li><code>nonwhite_pixels</code>: Píxeles non-white en framebuffer</li>
+                    <li><code>mbc_write_count</code>: Total de writes MBC detectados</li>
+                    <li>Últimos 8 writes MBC (addr, val, pc)</li>
+                </ul>
+
+                <h3>Fase C: Tabla Final + Decisión Automática</h3>
+                <p>
+                    Se creó <code>tools/generate_mbc_table_0451.sh</code> para generar una tabla comparativa con todas las métricas
+                    y aplicar reglas de decisión automática. La tabla incluye:
+                </p>
+                <ul>
+                    <li>ROM | cart_type | MBC | supported | mbc_writes | pc_end | vram_raw_nz | nonwhite | conclusión</li>
+                </ul>
+
+                <h3>Resultados Clave</h3>
+                <table style="border-collapse: collapse; width: 100%; margin: 1em 0;">
+                    <thead>
+                        <tr style="background-color: #f0f0f0;">
+                            <th style="border: 1px solid #ccc; padding: 0.5em;">ROM</th>
+                            <th style="border: 1px solid #ccc; padding: 0.5em;">MBC</th>
+                            <th style="border: 1px solid #ccc; padding: 0.5em;">mbc_writes</th>
+                            <th style="border: 1px solid #ccc; padding: 0.5em;">pc_end</th>
+                            <th style="border: 1px solid #ccc; padding: 0.5em;">vram_raw_nz</th>
+                            <th style="border: 1px solid #ccc; padding: 0.5em;">nonwhite</th>
+                            <th style="border: 1px solid #ccc; padding: 0.5em;">Conclusión</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">mario.gbc</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">MBC5</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">238</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">0x12C1</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">0</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">0</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">MBC soportado pero mapping incorrecto</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">pkmn.gb</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">MBC3</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">1034</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">0x6151</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">0</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">0</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">MBC soportado pero mapping incorrecto</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">tetris.gb</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">None</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">1</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">0x036C</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">0</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">0</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">ROM_ONLY: no es MBC</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">tetris_dx.gbc</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">MBC1</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">17</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">0x0283</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">0</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">0</td>
+                            <td style="border: 1px solid #ccc; padding: 0.5em;">MBC soportado pero mapping incorrecto</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3>Decisión Automática</h3>
+                <p>
+                    La tabla muestra que <strong>todos los MBCs están soportados</strong> y los writes MBC se detectan correctamente,
+                    pero el VRAM permanece vacío y el framebuffer blanco. Esto sugiere que:
+                </p>
+                <ul>
+                    <li><strong>NO falta soporte MBC:</strong> MBC1, MBC3 y MBC5 están implementados y los writes se procesan.</li>
+                    <li><strong>Problema de mapping o componente secundario:</strong> El código que carga tiles puede estar en un banco ROM
+                        que no se está mapeando correctamente, o hay un problema en PPU/paletas que impide el renderizado.</li>
+                </ul>
+                <p>
+                    <strong>Conclusión:</strong> No se implementa nuevo MBC en este Step. El siguiente Step debe investigar
+                    el mapping ROM (verificar que los bancos se mapean correctamente después de writes MBC) o el componente PPU/paletas.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tools/run_headless_raw_0451.sh</code> - Script para ejecutar headless RAW sobre 4 ROMs clave</li>
+                    <li><code>tools/generate_mbc_table_0451.sh</code> - Script para generar tabla final con métricas y decisión automática</li>
+                    <li><code>/tmp/viboy_0451/rom_info_all.txt</code> - Salida de clasificación de ROMs</li>
+                    <li><code>/tmp/viboy_0451/headless/*.txt</code> - Logs de headless para cada ROM</li>
+                    <li><code>/tmp/viboy_0451/mbc_table_final.txt</code> - Tabla final con métricas y conclusiones</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Clasificación de ROMs:</strong>
+                </p>
+                <pre><code>$ python3 tools/rom_info_0450.py roms/*.gb roms/*.gbc
+ROM | cart_type(hex) | MBC name | CGB flag | soportado
+----|----------------|----------|----------|----------
+MortalKombat.gb | 0x01 | MBC1 | 0x00(DMG) | sí
+pkmn-amarillo.gb | 0x1B | MBC5 | 0x80(CGB) | sí
+pkmn.gb | 0x13 | MBC3 | 0x00(DMG) | sí
+tetris.gb | 0x00 | None | 0x00(DMG) | sí
+mario.gbc | 0x1B | MBC5 | 0xC0(CGB) | sí
+Oro.gbc | 0x10 | MBC3 | 0x80(CGB) | sí
+tetris_dx.gbc | 0x03 | MBC1 | 0x80(CGB) | sí
+zelda-dx.gbc | 0x1B | MBC5 | 0x80(CGB) | sí</code></pre>
+
+                <p>
+                    <strong>Headless RAW ejecutado:</strong>
+                </p>
+                <pre><code>$ bash tools/run_headless_raw_0451.sh
+[OK] mario.gbc completado
+[OK] pkmn.gb completado
+[OK] tetris.gb completado
+[OK] tetris_dx.gbc completado</code></pre>
+
+                <p>
+                    <strong>Tabla final generada:</strong>
+                </p>
+                <pre><code>$ bash tools/generate_mbc_table_0451.sh
+ROM | cart_type | MBC | supported | mbc_writes | pc_end | vram_raw_nz | nonwhite | conclusión
+----|-----------|-----|-----------|------------|--------|-------------|----------|-----------
+mario.gbc | 0x1B | MBC5 | sí | 238 | 0x12C1 | 0 | 0 | MBC soportado pero mapping incorrecto
+pkmn.gb | 0x13 | MBC3 | sí | 1034 | 0x6151 | 0 | 0 | MBC soportado pero mapping incorrecto
+tetris.gb | 0x00 | None | sí | 1 | 0x036C | 0 | 0 | ROM_ONLY: no es MBC
+tetris_dx.gbc | 0x03 | MBC1 | sí | 17 | 0x0283 | 0 | 0 | MBC soportado pero mapping incorrecto</code></pre>
+
+                <p>
+                    <strong>Validación:</strong> Todos los scripts se ejecutaron correctamente y generaron evidencia numérica
+                    para diagnóstico. Los resultados muestran que el problema NO es falta de soporte MBC, sino un problema
+                    de mapping o componente secundario (PPU/paletas).
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: "Memory Bank Controllers (MBC1/MBC3/MBC5)"</li>
+                    <li>Pan Docs: "Cartridge Header (0x0100-0x014F)"</li>
+                    <li>Step 0450: Triage Real "No Veo Gráficos" - MBC Requerido + VRAM Raw</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Clasificación MBC:</strong> Los tipos de cartucho (0x0147) determinan qué MBC usa cada ROM.
+                            La distribución en nuestro set es: 2 MBC1, 2 MBC3, 3 MBC5, 1 None.</li>
+                        <li><strong>Detección de Writes MBC:</strong> Los writes a rangos MBC (0x0000-0x7FFF) se detectan correctamente
+                            mediante contadores en MMU. Los juegos escriben frecuentemente (238 writes en mario.gbc, 1034 en pkmn.gb).</li>
+                        <li><strong>Problema de Mapping:</strong> Aunque los writes MBC se detectan, el VRAM permanece vacío,
+                            sugiriendo que el código que carga tiles está en un banco ROM que no se está mapeando correctamente,
+                            o hay un problema en PPU/paletas.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Mapping ROM después de writes MBC:</strong> Verificar que después de un write MBC,
+                            el contenido leído desde 0x4000-0x7FFF cambia correctamente según el banco seleccionado.</li>
+                        <li><strong>Banco ROM donde está el código de carga de tiles:</strong> Identificar en qué banco ROM
+                            está el código que carga tiles en VRAM y verificar que ese banco se mapea correctamente.</li>
+                        <li><strong>Componente PPU/paletas:</strong> Si el VRAM tiene datos pero el framebuffer está blanco,
+                            puede haber un problema en el renderizado o en las paletas.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> El problema NO es falta de soporte MBC, sino un bug en el mapping ROM
+                        o en el componente PPU/paletas. Los writes MBC se procesan, pero el contenido mapeado no cambia correctamente,
+                        o el código que carga tiles no se ejecuta porque está en un banco no mapeado.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> Los MBCs están implementados correctamente en MMU.cpp (MBC1, MBC3, MBC5),
+                        pero puede haber un bug en <code>update_bank_mapping()</code> o en cómo se lee desde los bancos mapeados.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] <strong>Step 0452:</strong> Investigar mapping ROM - Verificar que después de writes MBC, el contenido
+                        leído desde 0x4000-0x7FFF cambia correctamente. Añadir logs de lectura desde bancos mapeados.</li>
+                    <li>[ ] <strong>Step 0453:</strong> Identificar banco ROM del código de carga de tiles - Rastrear en qué banco
+                        ROM está el código que carga tiles en VRAM y verificar que ese banco se mapea correctamente.</li>
+                    <li>[ ] <strong>Step 0454:</strong> Si mapping está correcto, investigar componente PPU/paletas - Verificar
+                        que el renderizado y las paletas funcionan correctamente cuando VRAM tiene datos.</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

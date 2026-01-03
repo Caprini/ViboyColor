@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0451 - Ejecutar Clasificación MBC + Headless RAW con Evidencia -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-02__0451__ejecutar-clasificacion-mbc-headless-raw-evidencia.html" class="entry-link">
+                                    Ejecutar Clasificación MBC + Headless RAW con Evidencia
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-02 | 
+                            <strong>Step ID:</strong> 0451 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Ejecución de clasificación completa de ROMs por tipo MBC y análisis headless con evidencia RAW. Ejecutado rom_info_0450.py sobre todas las ROMs disponibles (distribución: 2 MBC1, 2 MBC3, 3 MBC5, 1 None), ejecutado headless RAW con MBC writes para 4 ROMs clave (mario.gbc, pkmn.gb, tetris.gb, tetris_dx.gbc), y generada tabla final con métricas completas (cart_type, MBC, supported, mbc_writes, pc_end, vram_raw_nz, nonwhite). Hallazgo clave: Todos los MBCs están soportados y los writes MBC se detectan correctamente, pero el VRAM permanece vacío y el framebuffer blanco, sugiriendo un problema de mapping ROM o de componente secundario (PPU/paletas). Conclusión: NO se implementa nuevo MBC; el siguiente Step debe investigar el mapping ROM o PPU/paletas.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0450 - Triage Real "No Veo Gráficos" (MBC Requerido + VRAM Raw + Headless Funcional) -->
                     <li>
                         <div class="entry-header">
