@@ -70,4 +70,14 @@ cdef extern from "MMU.hpp":
         uint32_t get_joyp_write_count() const  # Step 0472
         uint8_t get_last_joyp_write_value() const  # Step 0472
         uint16_t get_last_joyp_write_pc() const  # Step 0472
+        uint32_t get_if_read_count() const  # Step 0474
+        uint16_t get_last_if_write_pc() const  # Step 0474
+        uint8_t get_last_if_write_val() const  # Step 0474
+        uint8_t get_last_if_read_val() const  # Step 0474
+        uint32_t get_if_writes_0() const  # Step 0474
+        uint32_t get_if_writes_nonzero() const  # Step 0474
+        uint8_t get_ly_read_min() const  # Step 0474
+        uint8_t get_ly_read_max() const  # Step 0474
+        uint8_t get_last_ly_read() const  # Step 0474
+        uint8_t get_last_stat_read() const  # Step 0474
 

@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0474 - Identificar Bucle de Espera del Hotspot -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-04__0474__identificar-bucle-espera-hotspot.html" class="entry-link">
+                                    Identificar Bucle de Espera del Hotspot (Con Evidencia)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-04 | 
+                            <strong>Step ID:</strong> 0474 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Step 0473 cerró una rama: STOP/KEY1 no pinta nada porque las ROMs ni lo intentan. Las ROMs CGB están en hotspots de PC leyendo FF0F (IF) y FFFF (IE) de forma obsesiva. Step 0474 identifica con evidencia el bucle de espera: disasembly del hotspot + instrumentación quirúrgica de IF/LY/STAT. ✅ Disasembly del hotspot #1 obtenido para las 3 ROMs. ✅ Instrumentación IF/LY/STAT implementada y funcionando. ✅ Evidencia real obtenida: Todas las ROMs están en bucles leyendo IF obsesivamente (59K-98K reads), pero IF nunca se limpia (IF_Writes0=0). ❌ Problema identificado: IF no se limpia automáticamente cuando se procesa una interrupción.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0473 - Solo Evidencia — ¿Se Ejecuta STOP? ¿KEY1 se Arma? ¿Sale del Hotspot PC? -->
                     <li>
                         <div class="entry-header">

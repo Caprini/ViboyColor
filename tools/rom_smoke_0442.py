@@ -69,6 +69,175 @@ except Exception as e:
     sys.exit(1)
 
 
+# --- Step 0474: Funciones helper para disasembly ---
+def dump_rom_bytes(mmu: PyMMU, pc: int, count: int = 32) -> List[int]:
+    """
+    Dumpea bytes de ROM desde una dirección PC.
+    
+    Args:
+        mmu: Instancia de MMU
+        pc: Program Counter (dirección)
+        count: Número de bytes a leer
+    
+    Returns:
+        Lista de bytes leídos
+    """
+    bytes_list = []
+    for i in range(count):
+        addr = (pc + i) & 0xFFFF
+        # Usar read_raw para evitar restricciones de modo PPU
+        byte_val = mmu.read_raw(addr) if hasattr(mmu, 'read_raw') else mmu.read(addr)
+        bytes_list.append(byte_val)
+    return bytes_list
+
+
+def disasm_lr35902(bytes_list: List[int], start_pc: int, max_instructions: int = 20) -> List[Tuple[int, str, int]]:
+    """
+    Desensambla instrucciones LR35902 básicas (clean-room).
+    
+    Solo decodifica opcodes comunes necesarios para identificar bucles de espera.
+    Fuente: Pan Docs - CPU Instruction Set
+    
+    Args:
+        bytes_list: Lista de bytes de ROM
+        start_pc: PC inicial
+        max_instructions: Máximo de instrucciones a decodificar
+    
+    Returns:
+        Lista de tuplas (pc, mnemónico, bytes_leídos)
+    """
+    instructions = []
+    pc = start_pc
+    idx = 0
+    
+    while idx < len(bytes_list) and len(instructions) < max_instructions:
+        if idx >= len(bytes_list):
+            break
+        
+        opcode = bytes_list[idx]
+        mnemonic = ""
+        bytes_read = 1
+        
+        # Opcodes de 1 byte
+        if opcode == 0x00:
+            mnemonic = "NOP"
+        elif opcode == 0x76:
+            mnemonic = "HALT"
+        elif opcode == 0xF3:
+            mnemonic = "DI"
+        elif opcode == 0xFB:
+            mnemonic = "EI"
+        elif opcode == 0xC9:
+            mnemonic = "RET"
+        # LD A, n (0x3E)
+        elif opcode == 0x3E:
+            if idx + 1 < len(bytes_list):
+                n = bytes_list[idx + 1]
+                mnemonic = f"LD A, 0x{n:02X}"
+                bytes_read = 2
+            else:
+                mnemonic = "LD A, n"
+        # LD A, (n) (0xF0)
+        elif opcode == 0xF0:
+            if idx + 1 < len(bytes_list):
+                n = bytes_list[idx + 1]
+                io_name = f"0xFF{n:02X}" if n <= 0xFF else f"0x{n:04X}"
+                mnemonic = f"LD A, ({io_name})"
+                bytes_read = 2
+            else:
+                mnemonic = "LD A, (n)"
+        # AND n (0xE6)
+        elif opcode == 0xE6:
+            if idx + 1 < len(bytes_list):
+                n = bytes_list[idx + 1]
+                mnemonic = f"AND 0x{n:02X}"
+                bytes_read = 2
+            else:
+                mnemonic = "AND n"
+        # JR Z, e (0x28)
+        elif opcode == 0x28:
+            if idx + 1 < len(bytes_list):
+                e = bytes_list[idx + 1]
+                if e & 0x80:
+                    offset = -((~e + 1) & 0xFF)
+                else:
+                    offset = e
+                target = (pc + 2 + offset) & 0xFFFF
+                mnemonic = f"JR Z, 0x{target:04X} ({offset:+d})"
+                bytes_read = 2
+            else:
+                mnemonic = "JR Z, e"
+        # JR NZ, e (0x20)
+        elif opcode == 0x20:
+            if idx + 1 < len(bytes_list):
+                e = bytes_list[idx + 1]
+                if e & 0x80:
+                    offset = -((~e + 1) & 0xFF)
+                else:
+                    offset = e
+                target = (pc + 2 + offset) & 0xFFFF
+                mnemonic = f"JR NZ, 0x{target:04X} ({offset:+d})"
+                bytes_read = 2
+            else:
+                mnemonic = "JR NZ, e"
+        # JR e (0x18)
+        elif opcode == 0x18:
+            if idx + 1 < len(bytes_list):
+                e = bytes_list[idx + 1]
+                if e & 0x80:
+                    offset = -((~e + 1) & 0xFF)
+                else:
+                    offset = e
+                target = (pc + 2 + offset) & 0xFFFF
+                mnemonic = f"JR 0x{target:04X} ({offset:+d})"
+                bytes_read = 2
+            else:
+                mnemonic = "JR e"
+        # CALL nn (0xCD)
+        elif opcode == 0xCD:
+            if idx + 2 < len(bytes_list):
+                lo = bytes_list[idx + 1]
+                hi = bytes_list[idx + 2]
+                nn = (hi << 8) | lo
+                mnemonic = f"CALL 0x{nn:04X}"
+                bytes_read = 3
+            else:
+                mnemonic = "CALL nn"
+        # LD (HL), A (0x77)
+        elif opcode == 0x77:
+            mnemonic = "LD (HL), A"
+        # INC HL (0x23)
+        elif opcode == 0x23:
+            mnemonic = "INC HL"
+        # DEC HL (0x2B)
+        elif opcode == 0x2B:
+            mnemonic = "DEC HL"
+        # LD A, (HL) (0x7E)
+        elif opcode == 0x7E:
+            mnemonic = "LD A, (HL)"
+        # CP (HL) (0xBE)
+        elif opcode == 0xBE:
+            mnemonic = "CP (HL)"
+        # CP n (0xFE)
+        elif opcode == 0xFE:
+            if idx + 1 < len(bytes_list):
+                n = bytes_list[idx + 1]
+                mnemonic = f"CP 0x{n:02X}"
+                bytes_read = 2
+            else:
+                mnemonic = "CP n"
+        else:
+            # Opcode desconocido
+            mnemonic = f"DB 0x{opcode:02X}"
+        
+        instructions.append((pc, mnemonic, bytes_read))
+        pc = (pc + bytes_read) & 0xFFFF
+        idx += bytes_read
+    
+    return instructions
+# --- Fin Step 0474 ---
+
+
 class ROMSmokeRunner:
     """Runner headless para smoke test de ROMs."""
     
@@ -396,6 +565,21 @@ class ROMSmokeRunner:
         for i in range(16):
             tile_ids_sample.append(self.mmu.read_raw(bg_tilemap_base + i))  # Usar read_raw()
         
+        # Step 0474: Métricas IF/LY/STAT quirúrgicas
+        if_read_count = self.mmu.get_if_read_count()
+        if_write_count = self.mmu.get_if_write_count()
+        last_if_read_val = self.mmu.get_last_if_read_val()
+        last_if_write_val = self.mmu.get_last_if_write_val()
+        last_if_write_pc = self.mmu.get_last_if_write_pc()
+        if_writes_0 = self.mmu.get_if_writes_0()
+        if_writes_nonzero = self.mmu.get_if_writes_nonzero()
+        
+        ly_read_min = self.mmu.get_ly_read_min()
+        ly_read_max = self.mmu.get_ly_read_max()
+        last_ly_read = self.mmu.get_last_ly_read()
+        
+        last_stat_read = self.mmu.get_last_stat_read()
+        
         metrics = {
             'frame': frame_idx,
             'pc': pc,
@@ -430,6 +614,18 @@ class ROMSmokeRunner:
             'tilemap_nz_9800': tilemap_nz_9800,
             'tilemap_nz_9C00': tilemap_nz_9C00,
             'tile_ids_sample': tile_ids_sample,
+            # Step 0474: Métricas IF/LY/STAT quirúrgicas
+            'if_read_count': if_read_count,
+            'if_write_count': if_write_count,
+            'last_if_read_val': last_if_read_val,
+            'last_if_write_val': last_if_write_val,
+            'last_if_write_pc': last_if_write_pc,
+            'if_writes_0': if_writes_0,
+            'if_writes_nonzero': if_writes_nonzero,
+            'ly_read_min': ly_read_min,
+            'ly_read_max': ly_read_max,
+            'last_ly_read': last_ly_read,
+            'last_stat_read': last_stat_read,
         }
         
         # Detectar primer frame non-white
@@ -648,6 +844,54 @@ class ROMSmokeRunner:
                 except (AttributeError, TypeError, IndexError):
                     fb_nonzero = 0  # Fallback si no está disponible
                 
+                # Step 0474: Métricas IF/LY/STAT quirúrgicas
+                if_read_count = metrics.get('if_read_count', 0)
+                if_write_count = metrics.get('if_write_count', 0)
+                last_if_read_val = metrics.get('last_if_read_val', 0)
+                last_if_write_val = metrics.get('last_if_write_val', 0)
+                last_if_write_pc = metrics.get('last_if_write_pc', 0)
+                if_writes_0 = metrics.get('if_writes_0', 0)
+                if_writes_nonzero = metrics.get('if_writes_nonzero', 0)
+                ly_read_min = metrics.get('ly_read_min', 0)
+                ly_read_max = metrics.get('ly_read_max', 0)
+                last_ly_read = metrics.get('last_ly_read', 0)
+                last_stat_read = metrics.get('last_stat_read', 0)
+                
+                # Step 0474: Obtener PC hotspot #1 y disasembly
+                pc_hotspot_1 = None
+                disasm_snippet = ""
+                io_touched = []
+                
+                if pc_hotspots_top3:
+                    pc_hotspot_1 = pc_hotspots_top3[0][0]  # PC del hotspot más frecuente
+                    
+                    # Dumpear bytes de ROM en hotspot
+                    try:
+                        rom_bytes = dump_rom_bytes(self.mmu, pc_hotspot_1, 32)
+                        bytes_hex = ''.join(f'{b:02X}' for b in rom_bytes[:16])  # Primeros 16 bytes
+                        
+                        # Disasembly mínimo (16-20 instrucciones)
+                        disasm_instructions = disasm_lr35902(rom_bytes, pc_hotspot_1, 16)
+                        disasm_lines = []
+                        for inst_pc, mnemonic, _ in disasm_instructions:
+                            disasm_lines.append(f"0x{inst_pc:04X}: {mnemonic}")
+                        disasm_snippet = " | ".join(disasm_lines[:8])  # Primeras 8 instrucciones
+                        
+                        # Identificar IO tocado por el bucle (analizar disasm)
+                        for inst_pc, mnemonic, _ in disasm_instructions:
+                            if "0xFF" in mnemonic:
+                                # Extraer dirección IO del mnemónico
+                                import re
+                                matches = re.findall(r'0x([0-9A-F]{2,4})', mnemonic)
+                                for match in matches:
+                                    io_addr = int(match, 16)
+                                    if 0xFF00 <= io_addr <= 0xFFFF and io_addr not in io_touched:
+                                        io_touched.append(io_addr)
+                    except Exception as e:
+                        disasm_snippet = f"ERROR: {e}"
+                
+                io_touched_str = ' '.join([f"0x{addr:04X}" for addr in sorted(io_touched)]) if io_touched else "None"
+                
                 print(f"[SMOKE-SNAPSHOT] Frame={frame_idx} | "
                       f"PC=0x{pc:04X} IME={ime} HALTED={halted} | "
                       f"IE=0x{ie:02X} IF=0x{if_reg:02X} | "
@@ -662,8 +906,14 @@ class ROMSmokeRunner:
                       f"fb_nonzero={fb_nonzero} | "
                       f"IOReadsTop3={io_reads_str} | "
                       f"PCHotspotsTop3={pc_hotspots_str} | "
+                      f"PCHotspot1={'0x' + format(pc_hotspot_1, '04X') if pc_hotspot_1 is not None else 'None'} | "
+                      f"Disasm={disasm_snippet[:200]} | "  # Limitar a 200 chars
+                      f"IOTouched={io_touched_str} | "
                       f"TilemapNZ_9800_RAW={tilemap_nz_9800_raw} TilemapNZ_9C00_RAW={tilemap_nz_9C00_raw} | "
-                      f"LCDC=0x{lcdc:02X} STAT=0x{stat:02X} LY={ly}")
+                      f"LCDC=0x{lcdc:02X} STAT=0x{stat:02X} LY={ly} | "
+                      f"IF_ReadCount={if_read_count} IF_WriteCount={if_write_count} IF_ReadVal=0x{last_if_read_val:02X} IF_WriteVal=0x{last_if_write_val:02X} IF_WritePC=0x{last_if_write_pc:04X} IF_Writes0={if_writes_0} IF_WritesNonZero={if_writes_nonzero} | "
+                      f"LY_ReadMin={ly_read_min} LY_ReadMax={ly_read_max} LY_LastRead={last_ly_read} | "
+                      f"STAT_LastRead=0x{last_stat_read:02X}")
             
             # Dump periódico
             if self.dump_every > 0 and (frame_idx + 1) % self.dump_every == 0:

@@ -667,6 +667,118 @@ cdef class PyMMU:
             return 0
         return self._mmu.get_last_joyp_write_pc()
     
+    # --- Step 0474: Getters para instrumentación quirúrgica de IF/LY/STAT ---
+    def get_if_read_count(self):
+        """
+        Step 0474: Obtiene el contador de lecturas de IF (0xFF0F).
+        
+        Returns:
+            Número de veces que se ha leído IF
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_if_read_count()
+    
+    def get_last_if_write_pc(self):
+        """
+        Step 0474: Obtiene el PC del último write a IF (0xFF0F).
+        
+        Returns:
+            PC del último write a IF
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_if_write_pc()
+    
+    def get_last_if_write_val(self):
+        """
+        Step 0474: Obtiene el último valor escrito a IF (0xFF0F).
+        
+        Returns:
+            Último valor escrito a IF
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_if_write_val()
+    
+    def get_last_if_read_val(self):
+        """
+        Step 0474: Obtiene el último valor leído de IF (0xFF0F).
+        
+        Returns:
+            Último valor leído de IF
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_if_read_val()
+    
+    def get_if_writes_0(self):
+        """
+        Step 0474: Obtiene el contador de writes a IF con valor 0.
+        
+        Returns:
+            Número de writes a IF con valor 0
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_if_writes_0()
+    
+    def get_if_writes_nonzero(self):
+        """
+        Step 0474: Obtiene el contador de writes a IF con valor no-cero.
+        
+        Returns:
+            Número de writes a IF con valor no-cero
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_if_writes_nonzero()
+    
+    def get_ly_read_min(self):
+        """
+        Step 0474: Obtiene el valor mínimo de LY leído.
+        
+        Returns:
+            Valor mínimo de LY leído
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_ly_read_min()
+    
+    def get_ly_read_max(self):
+        """
+        Step 0474: Obtiene el valor máximo de LY leído.
+        
+        Returns:
+            Valor máximo de LY leído
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_ly_read_max()
+    
+    def get_last_ly_read(self):
+        """
+        Step 0474: Obtiene el último valor leído de LY (0xFF44).
+        
+        Returns:
+            Último valor leído de LY
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_ly_read()
+    
+    def get_last_stat_read(self):
+        """
+        Step 0474: Obtiene el último valor leído de STAT (0xFF41).
+        
+        Returns:
+            Último valor leído de STAT
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_stat_read()
+    # --- Fin Step 0474 ---
+    
     def read_raw(self, uint16_t addr):
         """
         Raw read for diagnostics (bypasses access restrictions).

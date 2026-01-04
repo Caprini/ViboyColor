@@ -751,6 +751,23 @@ private:
     uint16_t mbc_write_pcs_[8];     // Ring buffer: últimos 8 PCs
     int mbc_write_ring_idx_;
     
+    // --- Step 0474: Instrumentación quirúrgica de IF (0xFF0F) ---
+    mutable uint32_t if_write_count_;
+    mutable uint32_t if_read_count_;
+    mutable uint16_t last_if_write_pc_;
+    mutable uint8_t last_if_write_val_;
+    mutable uint8_t last_if_read_val_;
+    mutable uint32_t if_writes_0_;
+    mutable uint32_t if_writes_nonzero_;
+    
+    // --- Step 0474: Instrumentación quirúrgica de LY (0xFF44) ---
+    mutable uint8_t ly_read_min_;
+    mutable uint8_t ly_read_max_;
+    mutable uint8_t last_ly_read_;
+    
+    // --- Step 0474: Instrumentación quirúrgica de STAT (0xFF41) ---
+    mutable uint8_t last_stat_read_;
+    
 public:
     /**
      * Step 0450: Log summary of MBC writes (debug-gated).
@@ -864,6 +881,76 @@ public:
      * @return PC del último write a JOYP
      */
     uint16_t get_last_joyp_write_pc() const;
+    
+    /**
+     * Step 0474: Obtiene el contador de lecturas de IF (0xFF0F).
+     * 
+     * @return Número de veces que se ha leído IF
+     */
+    uint32_t get_if_read_count() const;
+    
+    /**
+     * Step 0474: Obtiene el PC del último write a IF (0xFF0F).
+     * 
+     * @return PC del último write a IF
+     */
+    uint16_t get_last_if_write_pc() const;
+    
+    /**
+     * Step 0474: Obtiene el último valor escrito a IF (0xFF0F).
+     * 
+     * @return Último valor escrito a IF
+     */
+    uint8_t get_last_if_write_val() const;
+    
+    /**
+     * Step 0474: Obtiene el último valor leído de IF (0xFF0F).
+     * 
+     * @return Último valor leído de IF
+     */
+    uint8_t get_last_if_read_val() const;
+    
+    /**
+     * Step 0474: Obtiene el contador de writes a IF con valor 0.
+     * 
+     * @return Número de writes a IF con valor 0
+     */
+    uint32_t get_if_writes_0() const;
+    
+    /**
+     * Step 0474: Obtiene el contador de writes a IF con valor no-cero.
+     * 
+     * @return Número de writes a IF con valor no-cero
+     */
+    uint32_t get_if_writes_nonzero() const;
+    
+    /**
+     * Step 0474: Obtiene el valor mínimo de LY leído.
+     * 
+     * @return Valor mínimo de LY leído
+     */
+    uint8_t get_ly_read_min() const;
+    
+    /**
+     * Step 0474: Obtiene el valor máximo de LY leído.
+     * 
+     * @return Valor máximo de LY leído
+     */
+    uint8_t get_ly_read_max() const;
+    
+    /**
+     * Step 0474: Obtiene el último valor leído de LY (0xFF44).
+     * 
+     * @return Último valor leído de LY
+     */
+    uint8_t get_last_ly_read() const;
+    
+    /**
+     * Step 0474: Obtiene el último valor leído de STAT (0xFF41).
+     * 
+     * @return Último valor leído de STAT
+     */
+    uint8_t get_last_stat_read() const;
 };
 
 #endif // MMU_HPP

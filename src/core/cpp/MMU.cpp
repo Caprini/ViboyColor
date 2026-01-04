@@ -151,6 +151,17 @@ MMU::MMU()
     , current_hl_value_(0)  // Step 0436: Valor temporal de HL para captura VRAM
     , mbc_write_count_(0)  // Step 0450: Contador de writes MBC
     , mbc_write_ring_idx_(0)  // Step 0450: Índice del ring buffer
+    , if_write_count_(0)  // Step 0474: Contador de writes a IF
+    , if_read_count_(0)  // Step 0474: Contador de reads de IF
+    , last_if_write_pc_(0x0000)  // Step 0474: PC del último write a IF
+    , last_if_write_val_(0x00)  // Step 0474: Último valor escrito a IF
+    , last_if_read_val_(0x00)  // Step 0474: Último valor leído de IF
+    , if_writes_0_(0)  // Step 0474: Contador de writes a IF con valor 0
+    , if_writes_nonzero_(0)  // Step 0474: Contador de writes a IF con valor no-cero
+    , ly_read_min_(0xFF)  // Step 0474: Valor mínimo de LY leído (inicializar alto)
+    , ly_read_max_(0x00)  // Step 0474: Valor máximo de LY leído
+    , last_ly_read_(0x00)  // Step 0474: Último valor leído de LY
+    , last_stat_read_(0x00)  // Step 0474: Último valor leído de STAT
 {
     // Step 0450: Inicializar ring buffer de MBC writes
     for (int i = 0; i < 8; i++) {
@@ -554,6 +565,28 @@ uint8_t MMU::read(uint16_t addr) const {
             
             // DESCOMENTAR PARA ACTIVAR DEBUG:
             // printf("[MMU] Read LY: %d\n", val);
+            
+            // --- Step 0474: Instrumentación quirúrgica de LY ---
+            last_ly_read_ = val;
+            if (val < ly_read_min_) {
+                ly_read_min_ = val;
+            }
+            if (val > ly_read_max_) {
+                ly_read_max_ = val;
+            }
+            
+            // Log gated (solo si VIBOY_DEBUG_IO=1)
+            bool debug_io = (std::getenv("VIBOY_DEBUG_IO") != nullptr && 
+                             std::string(std::getenv("VIBOY_DEBUG_IO")) == "1");
+            if (debug_io) {
+                static int ly_track_log_count = 0;
+                if (ly_track_log_count < 50) {
+                    ly_track_log_count++;
+                    printf("[LY-TRACK] min=%u max=%u last=%u\n", 
+                           ly_read_min_, ly_read_max_, last_ly_read_);
+                }
+            }
+            
             return val;
         }
         return 0;
@@ -564,11 +597,29 @@ uint8_t MMU::read(uint16_t addr) const {
     // Los bits 3-6 son máscaras de interrupción escritas por la CPU, y el bit 7 es siempre 1.
     // Fuente: Pan Docs - "LCD Status Register (FF41 - STAT)"
     if (addr == 0xFF41) {
+        uint8_t stat_value;
         if (ppu_ != nullptr) {
-            return ppu_->get_stat();
+            stat_value = ppu_->get_stat();
+        } else {
+            // Si no hay PPU, devolver valor por defecto (modo 0, sin coincidencia, bit 7 = 1)
+            stat_value = (memory_[addr] & 0xF8) | 0x80;
         }
-        // Si no hay PPU, devolver valor por defecto (modo 0, sin coincidencia, bit 7 = 1)
-        return (memory_[addr] & 0xF8) | 0x80;
+        
+        // --- Step 0474: Instrumentación quirúrgica de STAT ---
+        last_stat_read_ = stat_value;
+        
+        // Log gated (solo si VIBOY_DEBUG_IO=1)
+        bool debug_io = (std::getenv("VIBOY_DEBUG_IO") != nullptr && 
+                         std::string(std::getenv("VIBOY_DEBUG_IO")) == "1");
+        if (debug_io) {
+            static int stat_track_log_count = 0;
+            if (stat_track_log_count < 50) {
+                stat_track_log_count++;
+                printf("[STAT-TRACK] last=0x%02X\n", stat_value);
+            }
+        }
+        
+        return stat_value;
     }
     
     // --- ROM / Banking ---
@@ -811,18 +862,49 @@ uint8_t MMU::read(uint16_t addr) const {
         ie_read_count++;
         
         // Comprobación debug (solo si VIBOY_DEBUG_PPU=1): Si hay writes pero el valor leído es 0x00, loggear
-        bool debug_ppu = (std::getenv("VIBOY_DEBUG_PPU") != nullptr && 
-                           std::string(std::getenv("VIBOY_DEBUG_PPU")) == "1");
-        if (debug_ppu && ie_write_count > 0 && ie_value == 0x00) {
-            static int ie_drop_log_count = 0;
-            if (ie_drop_log_count < 20) {
-                ie_drop_log_count++;
-                printf("[IE-DROP] wrote=0x%02X readback=0x00 | PC_write=0x%04X PC_read=0x%04X\n",
-                       last_ie_written, last_ie_write_pc, debug_current_pc);
+        // Step 0474: Eliminado [IE-DROP] por falsos positivos (ver plan Step 0474)
+        
+        return ie_value;
+    }
+    // -----------------------------------------
+    
+    // --- Step 0474: Instrumentación quirúrgica de IF (0xFF0F) read ---
+    if (addr == 0xFF0F) {  // IF
+        uint8_t if_value = memory_[addr];
+        
+        // CRÍTICO: Verificar que bits 5-7 leen como 1 (según Pan Docs, upper bits siempre leen 1)
+        // Si memory_[0xFF0F] tiene bits 5-7 = 0, es un bug
+        uint8_t upper_bits = if_value & 0xE0;  // Bits 5-7
+        if (upper_bits != 0xE0) {
+            // Bug detectado: upper bits no son 1
+            static int if_upper_bits_bug_count = 0;
+            if (if_upper_bits_bug_count < 10) {
+                if_upper_bits_bug_count++;
+                printf("[IF-BUG] Upper bits (5-7) no son 1: 0x%02X (debería ser 0x%02X)\n",
+                       if_value, (if_value & 0x1F) | 0xE0);
+            }
+            // Corregir el valor leído (forzar bits 5-7 = 1)
+            if_value = (if_value & 0x1F) | 0xE0;
+        }
+        
+        if_read_count_++;
+        last_if_read_val_ = if_value;
+        
+        // Log gated (solo si VIBOY_DEBUG_IO=1 o VIBOY_DEBUG_IRQ=1)
+        bool debug_io = (std::getenv("VIBOY_DEBUG_IO") != nullptr && 
+                         std::string(std::getenv("VIBOY_DEBUG_IO")) == "1");
+        bool debug_irq = (std::getenv("VIBOY_DEBUG_IRQ") != nullptr && 
+                          std::string(std::getenv("VIBOY_DEBUG_IRQ")) == "1");
+        if (debug_io || debug_irq) {
+            static int if_track_log_count = 0;
+            if (if_track_log_count < 50) {
+                if_track_log_count++;
+                printf("[IF-TRACK] read: count=%u last=0x%02X | write: count=%u last=0x%02X PC=0x%04X\n",
+                       if_read_count_, if_value, if_write_count_, last_if_write_val_, last_if_write_pc_);
             }
         }
         
-        return ie_value;
+        return if_value;
     }
     // -----------------------------------------
     
@@ -1047,7 +1129,34 @@ void MMU::write(uint16_t addr, uint8_t value) {
         }
     }
     
+    // --- Step 0474: Instrumentación quirúrgica de IF (0xFF0F) ---
     if (addr == 0xFF0F) {  // IF
+        if_write_count_++;
+        last_if_write_pc_ = debug_current_pc;
+        last_if_write_val_ = value;
+        
+        // Histograma simple
+        if (value == 0) {
+            if_writes_0_++;
+        } else {
+            if_writes_nonzero_++;
+        }
+        
+        // Log gated (solo si VIBOY_DEBUG_IO=1 o VIBOY_DEBUG_IRQ=1)
+        bool debug_io = (std::getenv("VIBOY_DEBUG_IO") != nullptr && 
+                         std::string(std::getenv("VIBOY_DEBUG_IO")) == "1");
+        bool debug_irq = (std::getenv("VIBOY_DEBUG_IRQ") != nullptr && 
+                          std::string(std::getenv("VIBOY_DEBUG_IRQ")) == "1");
+        if (debug_io || debug_irq) {
+            static int if_track_log_count = 0;
+            if (if_track_log_count < 50) {
+                if_track_log_count++;
+                printf("[IF-TRACK] write: PC=0x%04X val=0x%02X | read: count=%u last=0x%02X\n",
+                       debug_current_pc, value, if_read_count_, last_if_read_val_);
+            }
+        }
+        
+        // Mantener compatibilidad con código antiguo (Step 0470)
         if_write_count++;
         last_if_written = value;
     }
@@ -1411,8 +1520,9 @@ void MMU::write(uint16_t addr, uint8_t value) {
     }
 
     // --- Step 0384: Monitor de Escrituras a IF (0xFF0F) ---
-    // Instrumentar escrituras a IF para detectar cuándo y quién limpia bits
-    // Fuente: Pan Docs - "Interrupt Flag Register (IF)"
+    // ELIMINADO en Step 0474: Reemplazado por instrumentación quirúrgica más completa
+    // El código antiguo está comentado para referencia histórica
+    /*
     if (addr == 0xFF0F) {
         uint8_t old_if = memory_[addr];
         uint8_t new_if = value;
@@ -1440,6 +1550,7 @@ void MMU::write(uint16_t addr, uint8_t value) {
             printf("\n");
         }
     }
+    */
     // -------------------------------------------
     
     // --- Step 0294: Monitor Detallado de IE ([IE-WRITE-TRACE]) ---
@@ -4094,7 +4205,8 @@ uint32_t MMU::get_ie_write_count() const {
 }
 
 uint32_t MMU::get_if_write_count() const {
-    return if_write_count;
+    // Step 0474: Usar nueva variable miembro (mantener compatibilidad con código antiguo)
+    return if_write_count_;
 }
 
 uint8_t MMU::get_last_ie_written() const {
@@ -4156,4 +4268,46 @@ uint16_t MMU::get_last_joyp_write_pc() const {
     return last_joyp_write_pc;
 }
 // --- Fin Step 0472 (JOYP) ---
+
+// --- Step 0474: Implementación de getters para instrumentación quirúrgica de IF/LY/STAT ---
+uint32_t MMU::get_if_read_count() const {
+    return if_read_count_;
+}
+
+uint16_t MMU::get_last_if_write_pc() const {
+    return last_if_write_pc_;
+}
+
+uint8_t MMU::get_last_if_write_val() const {
+    return last_if_write_val_;
+}
+
+uint8_t MMU::get_last_if_read_val() const {
+    return last_if_read_val_;
+}
+
+uint32_t MMU::get_if_writes_0() const {
+    return if_writes_0_;
+}
+
+uint32_t MMU::get_if_writes_nonzero() const {
+    return if_writes_nonzero_;
+}
+
+uint8_t MMU::get_ly_read_min() const {
+    return ly_read_min_;
+}
+
+uint8_t MMU::get_ly_read_max() const {
+    return ly_read_max_;
+}
+
+uint8_t MMU::get_last_ly_read() const {
+    return last_ly_read_;
+}
+
+uint8_t MMU::get_last_stat_read() const {
+    return last_stat_read_;
+}
+// --- Fin Step 0474 ---
 
