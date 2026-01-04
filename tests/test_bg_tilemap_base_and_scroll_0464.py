@@ -29,18 +29,29 @@ class TestBGTilemapBaseAndScroll:
         self.mmu.write(0xFF47, 0xE4)  # BGP estándar
     
     def run_one_frame(self):
-        """Helper: Ejecutar exactamente 70224 ciclos (no 70224 iteraciones).
+        """Helper: Ejecutar hasta que PPU declare frame listo.
         
-        Acumula ciclos hasta llegar a 70224, no itera fijo 70224 veces.
+        No usa 70224 como verdad universal. Step hasta que frame_ready == True.
+        Pone un cap (máximo 4 frames-worth) para evitar loops infinitos.
         """
-        cycles_per_frame = 70224
+        max_cycles = 70224 * 4  # Cap: máximo 4 frames-worth
         cycles_accumulated = 0
+        frame_ready = False
         
-        while cycles_accumulated < cycles_per_frame:
+        while not frame_ready and cycles_accumulated < max_cycles:
             cycles = self.cpu.step()
             cycles_accumulated += cycles
             self.timer.step(cycles)
             self.ppu.step(cycles)
+            
+            # Verificar si hay frame listo
+            frame_ready = self.ppu.get_frame_ready_and_reset()
+        
+        # Assert que se completó un frame
+        assert frame_ready, \
+            f"Frame no se completó después de {cycles_accumulated} ciclos (máximo {max_cycles})"
+        
+        return cycles_accumulated
     
     def test_tilemap_base_select_9800(self):
         """Test 1: tilemap base select (0x9800 vs 0x9C00) - Caso 0x9800.
@@ -89,13 +100,34 @@ class TestBGTilemapBaseAndScroll:
         self.mmu.write(0xFF43, 0x00)  # SCX=0
         self.mmu.write(0xFF42, 0x00)  # SCY=0
         
-        # Correr 1 frame (usar helper que acumula ciclos)
-        self.run_one_frame()
+        # Sanity check: Verificar que VRAM contiene lo escrito (usando read_raw)
+        assert self.mmu.read_raw(0x8000) == 0x55, \
+            f"Tile 0 byte1 en 0x8000 debe ser 0x55, es 0x{self.mmu.read_raw(0x8000):02X}"
+        assert self.mmu.read_raw(0x8001) == 0x33, \
+            f"Tile 0 byte2 en 0x8001 debe ser 0x33, es 0x{self.mmu.read_raw(0x8001):02X}"
+        
+        assert self.mmu.read_raw(0x9800) == 0x00, \
+            f"Tilemap 0x9800[0] debe ser 0x00, es 0x{self.mmu.read_raw(0x9800):02X}"
+        assert self.mmu.read_raw(0x9C00) == 0x01, \
+            f"Tilemap 0x9C00[0] debe ser 0x01, es 0x{self.mmu.read_raw(0x9C00):02X}"
+        
+        # Correr 1 frame (usar helper que espera frame_ready)
+        cycles = self.run_one_frame()
+        
+        # Assert frame_ready antes de leer framebuffer
+        # (Nota: get_frame_ready_and_reset() ya fue llamado en run_one_frame(), así que debe ser False)
+        assert self.ppu.get_frame_ready_and_reset() == False, \
+            "Frame ya fue consumido, pero debería haber estado listo"
         
         # Verificar framebuffer: fila0 px[0..7] == P0
         indices = self.ppu.get_framebuffer_indices()
         assert indices is not None, "Framebuffer indices no disponible"
         assert len(indices) == 23040, f"Framebuffer debe tener 23040 bytes, tiene {len(indices)}"
+        
+        # Verificar que no está todo en 0
+        non_zero_count = sum(1 for i in range(160 * 144) if (indices[i] & 0x03) != 0)
+        assert non_zero_count > 0, \
+            f"Framebuffer está todo en 0 ({non_zero_count} píxeles no-cero de {160*144})"
         
         row0_start = 0 * 160  # Primera fila
         
@@ -139,13 +171,24 @@ class TestBGTilemapBaseAndScroll:
         self.mmu.write(0xFF43, 0x00)  # SCX=0
         self.mmu.write(0xFF42, 0x00)  # SCY=0
         
+        # Sanity check: Verificar que VRAM contiene lo escrito
+        assert self.mmu.read_raw(0x9800) == 0x00, \
+            f"Tilemap 0x9800[0] debe ser 0x00, es 0x{self.mmu.read_raw(0x9800):02X}"
+        assert self.mmu.read_raw(0x9C00) == 0x01, \
+            f"Tilemap 0x9C00[0] debe ser 0x01, es 0x{self.mmu.read_raw(0x9C00):02X}"
+        
         # Correr 1 frame
-        self.run_one_frame()
+        cycles = self.run_one_frame()
         
         # Verificar framebuffer: fila0 px[0..7] == P1
         indices = self.ppu.get_framebuffer_indices()
         assert indices is not None, "Framebuffer indices no disponible"
         assert len(indices) == 23040, f"Framebuffer debe tener 23040 bytes, tiene {len(indices)}"
+        
+        # Verificar que no está todo en 0
+        non_zero_count = sum(1 for i in range(160 * 144) if (indices[i] & 0x03) != 0)
+        assert non_zero_count > 0, \
+            f"Framebuffer está todo en 0 ({non_zero_count} píxeles no-cero de {160*144})"
         
         row0_start = 0 * 160
         
@@ -185,12 +228,17 @@ class TestBGTilemapBaseAndScroll:
             self.mmu.write(0xFF43, scx)  # SCX
             
             # Correr 1 frame
-            self.run_one_frame()
+            cycles = self.run_one_frame()
             
             # Verificar framebuffer: fila0 px[0..7] == P0[(x+scx)&7]
             indices = self.ppu.get_framebuffer_indices()
             assert indices is not None, "Framebuffer indices no disponible"
             assert len(indices) == 23040, f"Framebuffer debe tener 23040 bytes, tiene {len(indices)}"
+            
+            # Verificar que no está todo en 0
+            non_zero_count = sum(1 for i in range(160 * 144) if (indices[i] & 0x03) != 0)
+            assert non_zero_count > 0, \
+                f"SCX={scx}: Framebuffer está todo en 0 ({non_zero_count} píxeles no-cero de {160*144})"
             
             row0_start = 0 * 160
             
