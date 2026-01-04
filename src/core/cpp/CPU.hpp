@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <iostream>
 #include <iomanip>  // Para std::hex, std::setw, std::setfill
+#include <map>  // Step 0482: Para branch_decisions_
 
 // Forward declarations (evitar includes circulares)
 class MMU;
@@ -657,6 +658,27 @@ private:
     uint32_t last_ime_set_timestamp_;       // Timestamp de la última activación de IME
     uint16_t last_ei_pc_;                   // PC de la última ejecución de EI
     uint16_t last_di_pc_;                   // PC de la última ejecución de DI
+    
+    // --- Step 0482: Contadores de EI/DI (convertidos de static a miembros de instancia) ---
+    uint32_t ei_count_;                     // Contador de ejecuciones de EI
+    uint32_t di_count_;                     // Contador de ejecuciones de DI
+    
+    // --- Step 0482: Branch Decision Counters (gated por VIBOY_DEBUG_BRANCH=1) ---
+    struct BranchDecision {
+        uint16_t pc;
+        uint32_t taken_count;
+        uint32_t not_taken_count;
+        uint16_t last_target;
+        bool last_taken;
+        uint8_t last_flags;  // Flags al momento del salto
+        
+        BranchDecision() : pc(0), taken_count(0), not_taken_count(0), last_target(0), last_taken(false), last_flags(0) {}
+    };
+    std::map<uint16_t, BranchDecision> branch_decisions_;  // PC -> BranchDecision
+    uint16_t last_cond_jump_pc_;  // PC del último salto condicional ejecutado
+    uint16_t last_target_;  // Target del último salto condicional
+    bool last_taken_;  // Si el último salto fue tomado
+    uint8_t last_flags_;  // Flags al momento del último salto
     
     // ========== Estado de Triage (Step 0434) ==========
     // Instrumentación para entender por qué VRAM está vacía

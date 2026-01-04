@@ -14,8 +14,8 @@ static bool tiles_were_loaded_recently_global = false;
 // -------------------------------------------
 
 // --- Step 0470: Contadores de writes a IE/IF ---
-static uint32_t ie_write_count = 0;
-static uint32_t if_write_count = 0;
+// Step 0482: ie_write_count convertido a miembro de instancia (ie_write_count_)
+// static uint32_t if_write_count = 0;  // Step 0482: Ya no se usa (se usa if_write_count_)
 static uint8_t last_ie_written = 0x00;
 static uint8_t last_if_written = 0x00;
 
@@ -174,6 +174,7 @@ MMU::MMU()
     , ie_reads_program_(0)  // Step 0475: Contador de lecturas IE desde programa
     , ie_reads_cpu_poll_(0)  // Step 0475: Contador de lecturas IE desde polling
     , ie_writes_program_(0)  // Step 0475: Contador de escrituras IE desde programa
+    , ie_write_count_(0)  // Step 0482: Contador de writes a IE (convertido de static a miembro)
     , boot_logo_prefill_enabled_(false)  // Step 0475: Prefill del logo deshabilitado por defecto
     , waits_on_addr_(0x0000)  // Step 0479: I/O esperado (0 = no configurado)
     , waits_on_reads_program_(0)  // Step 0479: Contador de reads desde programa
@@ -1233,7 +1234,7 @@ void MMU::write(uint16_t addr, uint8_t value) {
     // --- Step 0470: Contadores de writes a IE/IF ---
     // --- Step 0475: Source Tagging para IE write (siempre PROGRAM) ---
     if (addr == 0xFFFF) {  // IE
-        ie_write_count++;
+        ie_write_count_++;  // Step 0482: Usar miembro de instancia en lugar de static
         last_ie_written = value;
         ie_writes_program_++;  // Step 0475: Escrituras siempre son desde programa
         
@@ -1249,7 +1250,7 @@ void MMU::write(uint16_t addr, uint8_t value) {
             if (ie_write_log_count < 20) {
                 ie_write_log_count++;
                 printf("[MMU-IE-WRITE] PC:0x%04X | IE write #%u | Value: 0x%02X\n",
-                       debug_current_pc, ie_write_count, value);
+                       debug_current_pc, ie_write_count_, value);
             }
         }
     }
@@ -1284,9 +1285,8 @@ void MMU::write(uint16_t addr, uint8_t value) {
             }
         }
         
-        // Mantener compatibilidad con código antiguo (Step 0470)
-        if_write_count++;
-        last_if_written = value;
+        // Step 0482: if_write_count_ ya se incrementa arriba (línea ~1260), no necesitamos mantener esta línea redundante
+        // last_if_written es static pero solo guarda último valor (no acumula), no causa problemas entre tests
     }
     // -----------------------------------------
     
@@ -4383,7 +4383,7 @@ void MMU::log_mbc_writes_summary() const {
 
 // --- Step 0470: Implementación de getters para contadores IE/IF writes ---
 uint32_t MMU::get_ie_write_count() const {
-    return ie_write_count;
+    return ie_write_count_;  // Step 0482: Retornar miembro de instancia
 }
 
 uint32_t MMU::get_if_write_count() const {

@@ -7,10 +7,11 @@
 #include <vector>
 #include <algorithm>
 #include <set>
+#include <cstdlib>  // Step 0482: Para std::getenv
+#include <string>  // Step 0482: Para std::string
 
 // --- Step 0470: Contadores globales de EI/DI (accesibles desde getters) ---
-static uint32_t ei_count_global = 0;
-static uint32_t di_count_global = 0;
+// Step 0482: ei_count_global y di_count_global convertidos a miembros de instancia (ei_count_, di_count_)
 // -----------------------------------------
 
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
@@ -36,6 +37,8 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       last_if_before_service_(0), last_if_after_service_(0), last_if_clear_mask_(0),  // Step 0475
       ime_set_events_count_(0), last_ime_set_pc_(0xFFFF), last_ime_set_timestamp_(0),  // Step 0477
       last_ei_pc_(0xFFFF), last_di_pc_(0xFFFF),  // Step 0477
+      ei_count_(0), di_count_(0),  // Step 0482: Inicializar contadores EI/DI (convertidos de static a miembro)
+      last_cond_jump_pc_(0xFFFF), last_target_(0x0000), last_taken_(false), last_flags_(0x00),  // Step 0482: Branch tracking
       triage_active_(false), triage_frame_limit_(0), triage_last_pc_(0xFFFF), triage_pc_sample_count_(0) {  // Step 0434
     // Step 0436: Pokemon micro trace ya está inicializado por su constructor por defecto
     // Validación básica (en producción, podríamos usar assert)
@@ -3045,7 +3048,7 @@ int CPU::step() {
             // Fuente: Pan Docs - DI: 1 M-Cycle
             {
                 // --- Step 0470: Contador de DI ---
-                di_count_global++;
+                di_count_++;  // Step 0482: Usar miembro de instancia
                 // -------------------------------------------
                 
                 // --- Step 0477: Tracking de DI ---
@@ -3077,7 +3080,7 @@ int CPU::step() {
             // Fuente: Pan Docs - EI: 1 M-Cycle
             {
                 // --- Step 0470: Contador de EI ---
-                ei_count_global++;
+                ei_count_++;  // Step 0482: Usar miembro de instancia
                 // -------------------------------------------
                 
                 // --- Step 0477: Tracking de EI ---
@@ -4118,11 +4121,11 @@ void CPU::set_pokemon_micro_trace(bool active) {
 
 // --- Step 0470: Implementación de getters para contadores EI/DI ---
 uint32_t CPU::get_ei_count() const {
-    return ei_count_global;
+    return ei_count_;  // Step 0482: Retornar miembro de instancia
 }
 
 uint32_t CPU::get_di_count() const {
-    return di_count_global;
+    return di_count_;  // Step 0482: Retornar miembro de instancia
 }
 
 // --- Step 0477: Implementación de getters para tracking de IME/EI/DI ---

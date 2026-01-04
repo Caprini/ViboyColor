@@ -781,6 +781,9 @@ private:
     mutable uint32_t ie_reads_cpu_poll_;     // Lecturas de IE desde polling interno de CPU
     mutable uint32_t ie_writes_program_;     // Escrituras a IE desde código del programa
     
+    // --- Step 0482: Contador de writes a IE (convertido de static a miembro de instancia) ---
+    mutable uint32_t ie_write_count_;
+    
     // --- Step 0475: Boot Logo Prefill Gated ---
     bool boot_logo_prefill_enabled_;  // Flag para indicar si el prefill del logo está habilitado
     
