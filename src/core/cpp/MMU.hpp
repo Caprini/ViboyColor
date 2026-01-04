@@ -490,6 +490,9 @@ private:
     // Helpers internos de MBC
     void update_bank_mapping();
     uint16_t normalize_rom_bank(uint16_t bank) const;
+    
+    // --- Step 0475: Boot Logo Prefill (Gated) ---
+    void prefill_boot_logo_vram();
     void configure_mbc_from_header(uint8_t cart_type, uint8_t rom_size_code, uint8_t ram_size_code);
     void allocate_ram_from_header(uint8_t ram_size_code);
     
@@ -768,6 +771,18 @@ private:
     // --- Step 0474: Instrumentación quirúrgica de STAT (0xFF41) ---
     mutable uint8_t last_stat_read_;
     
+    // --- Step 0475: Source Tagging para IO Polling ---
+    mutable bool irq_poll_active_;  // Flag para distinguir polling interno vs lecturas del programa
+    mutable uint32_t if_reads_program_;      // Lecturas de IF desde código del programa
+    mutable uint32_t if_reads_cpu_poll_;     // Lecturas de IF desde polling interno de CPU
+    mutable uint32_t if_writes_program_;     // Escrituras a IF desde código del programa
+    mutable uint32_t ie_reads_program_;      // Lecturas de IE desde código del programa
+    mutable uint32_t ie_reads_cpu_poll_;     // Lecturas de IE desde polling interno de CPU
+    mutable uint32_t ie_writes_program_;     // Escrituras a IE desde código del programa
+    
+    // --- Step 0475: Boot Logo Prefill Gated ---
+    bool boot_logo_prefill_enabled_;  // Flag para indicar si el prefill del logo está habilitado
+    
 public:
     /**
      * Step 0450: Log summary of MBC writes (debug-gated).
@@ -951,6 +966,67 @@ public:
      * @return Último valor leído de STAT
      */
     uint8_t get_last_stat_read() const;
+    
+    /**
+     * Step 0475: Establece el flag de polling de IRQ activo.
+     * 
+     * Este método permite a la CPU marcar cuando está ejecutando
+     * polling interno de interrupciones, permitiendo distinguir
+     * lecturas de IO desde código del programa vs polling interno.
+     * 
+     * @param active true si estamos en polling interno, false si no
+     */
+    void set_irq_poll_active(bool active);
+    
+    /**
+     * Step 0475: Obtiene el contador de lecturas de IF desde código del programa.
+     * 
+     * @return Número de lecturas de IF desde código del programa
+     */
+    uint32_t get_if_reads_program() const;
+    
+    /**
+     * Step 0475: Obtiene el contador de lecturas de IF desde polling interno de CPU.
+     * 
+     * @return Número de lecturas de IF desde polling interno
+     */
+    uint32_t get_if_reads_cpu_poll() const;
+    
+    /**
+     * Step 0475: Obtiene el contador de escrituras a IF desde código del programa.
+     * 
+     * @return Número de escrituras a IF desde código del programa
+     */
+    uint32_t get_if_writes_program() const;
+    
+    /**
+     * Step 0475: Obtiene el contador de lecturas de IE desde código del programa.
+     * 
+     * @return Número de lecturas de IE desde código del programa
+     */
+    uint32_t get_ie_reads_program() const;
+    
+    /**
+     * Step 0475: Obtiene el contador de lecturas de IE desde polling interno de CPU.
+     * 
+     * @return Número de lecturas de IE desde polling interno
+     */
+    uint32_t get_ie_reads_cpu_poll() const;
+    
+    /**
+     * Step 0475: Obtiene el contador de escrituras a IE desde código del programa.
+     * 
+     * @return Número de escrituras a IE desde código del programa
+     */
+    uint32_t get_ie_writes_program() const;
+    
+    /**
+     * Step 0475: Obtiene el estado del prefill del logo de boot.
+     * 
+     * @return 1 si el prefill del logo está habilitado, 0 en caso contrario
+     *         (devuelve int para evitar problemas de conversión en Cython)
+     */
+    int get_boot_logo_prefill_enabled() const;
 };
 
 #endif // MMU_HPP

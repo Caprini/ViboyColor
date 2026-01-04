@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0475: Desambiguar IO Polling + IF Clear on Service + Logo Prefill Gated - Viboy Color</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Step 0475: Desambiguar IO Polling + IF Clear on Service + Logo Prefill Gated</h1>
+            <p><a href="../index.html" class="back-link">← Volver al índice</a></p>
+            
+            <div class="entry-meta">
+                <span><strong>Fecha:</strong> 2026-01-04</span>
+                <span><strong>Step ID:</strong> 0475</span>
+                <span><strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span></span>
+            </div>
+        </header>
+
+        <main>
+            <section class="summary">
+                <h2>Resumen Ejecutivo</h2>
+                <p>
+                    Step 0475 implementa tres mejoras críticas para el diagnóstico de interrupciones y estadísticas de VRAM:
+                </p>
+                <ol>
+                    <li><strong>Source Tagging para IO Polling:</strong> Distingue lecturas de IF/IE desde código del programa vs polling interno de la CPU durante el manejo de interrupciones.</li>
+                    <li><strong>IF Clear on Service Tracking:</strong> Instrumentación para validar que el bit IF se limpia correctamente cuando se sirve una IRQ.</li>
+                    <li><strong>Boot Logo Prefill Gated:</strong> El prefill del logo se gatea con una variable de entorno (<code>VIBOY_SIM_BOOT_LOGO</code>), eliminando falsos positivos en estadísticas de VRAM.</li>
+                </ol>
+                <p>
+                    <strong>Resultado:</strong> ✅ Todos los tests pasan (10/10). ✅ Source tagging funcional. ✅ IF clear on service verificado. ✅ Prefill del logo controlable y reportado en métricas.
+                </p>
+            </section>
+
+            <section class="hardware-concept">
+                <h2>Concepto de Hardware (Pan Docs)</h2>
+                
+                <h3>Source Tagging para IO Polling</h3>
+                <p><strong>Problema identificado:</strong> En Step 0474, observamos lecturas obsesivas de IF/IE (59K-98K reads), pero no podíamos distinguir si estas lecturas provenían del código del juego o del polling interno de la CPU durante <code>handle_interrupts()</code>.</p>
+                <p>
+                    <strong>Solución:</strong> Se implementa un sistema de "source tagging" que distingue:
+                </p>
+                <ul>
+                    <li><strong>PROGRAM:</strong> Lecturas/escrituras desde código ejecutado por la CPU (instrucciones del programa)</li>
+                    <li><strong>CPU_POLL:</strong> Lecturas durante el polling interno de interrupciones (dentro de <code>handle_interrupts()</code>)</li>
+                </ul>
+                <p>
+                    Esto permite análisis más precisos: si vemos muchas lecturas de IF pero todas son desde CPU_POLL, el juego no está haciendo polling manual; si hay lecturas desde PROGRAM, el juego sí está intentando leer IF.
+                </p>
+
+                <h3>IF Clear on Service</h3>
+                <p><strong>Fuente:</strong> Pan Docs - "Interrupts"</p>
+                <p>
+                    Cuando la CPU procesa una interrupción, debe limpiar el bit correspondiente en el registro IF (0xFF0F). 
+                    Esto es crítico para que el sistema de interrupciones funcione correctamente: si el bit no se limpia, 
+                    la misma interrupción se procesaría repetidamente.
+                </p>
+                <p>
+                    Step 0475 añade instrumentación para verificar que este comportamiento es correcto, rastreando:
+                </p>
+                <ul>
+                    <li>Valor de IF antes de servir la interrupción</li>
+                    <li>Valor de IF después de servir la interrupción</li>
+                    <li>Máscara del bit limpiado</li>
+                    <li>Vector de interrupción servida</li>
+                    <li>Timestamp de servicio</li>
+                </ul>
+
+                <h3>Boot Logo Prefill</h3>
+                <p>
+                    El prefill del logo "Viboy Color" en VRAM puede contaminar las estadísticas de VRAM, haciendo difícil 
+                    diagnosticar si el juego está realmente escribiendo tiles o si los tiles provienen del prefill.
+                </p>
+                <p>
+                    <strong>Solución:</strong> El prefill se gatea con la variable de entorno <code>VIBOY_SIM_BOOT_LOGO=1</code>. 
+                    Por defecto está deshabilitado, y su estado se reporta en las métricas para permitir análisis condicional.
+                </p>
+            </section>
+
+            <section class="implementation">
+                <h2>Implementación</h2>
+                
+                <h3>Archivos Modificados</h3>
+                
+                <h4>1. CPU (C++) - Source Tagging y IF Tracking</h4>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code>: 
+                        <ul>
+                            <li>Añadidos miembros para tracking de IRQ service: <code>last_irq_serviced_vector_</code>, <code>last_irq_serviced_timestamp_</code>, <code>last_if_before_service_</code>, <code>last_if_after_service_</code>, <code>last_if_clear_mask_</code></li>
+                            <li>Añadidos getters públicos correspondientes</li>
+                        </ul>
+                    </li>
+                    <li><code>src/core/cpp/CPU.cpp</code>: 
+                        <ul>
+                            <li>Implementada clase RAII <code>IrqPollScope</code> que marca <code>irq_poll_active_</code> en MMU durante <code>handle_interrupts()</code></li>
+                            <li>Actualizado <code>handle_interrupts()</code> para rastrear estado de IF antes/después de servir IRQ</li>
+                            <li>Inicialización de nuevos miembros en constructor</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h4>2. MMU (C++) - Source Tagging y Prefill Gating</h4>
+                <ul>
+                    <li><code>src/core/cpp/MMU.hpp</code>: 
+                        <ul>
+                            <li>Añadido flag <code>irq_poll_active_</code> para marcar polling interno</li>
+                            <li>Añadidos contadores separados: <code>if_reads_program_</code>, <code>if_reads_cpu_poll_</code>, <code>if_writes_program_</code>, <code>ie_reads_program_</code>, <code>ie_reads_cpu_poll_</code>, <code>ie_writes_program_</code></li>
+                            <li>Añadido método <code>set_irq_poll_active(bool)</code></li>
+                            <li>Añadido flag <code>boot_logo_prefill_enabled_</code> y método <code>get_boot_logo_prefill_enabled()</code></li>
+                            <li>Movida lógica de prefill a método <code>prefill_boot_logo_vram()</code></li>
+                        </ul>
+                    </li>
+                    <li><code>src/core/cpp/MMU.cpp</code>: 
+                        <ul>
+                            <li>Implementado <code>set_irq_poll_active()</code></li>
+                            <li>Modificados <code>read()</code> y <code>write()</code> para IF/IE para incrementar contadores apropiados según <code>irq_poll_active_</code></li>
+                            <li>Prefill gateado con <code>VIBOY_SIM_BOOT_LOGO</code> env var (deshabilitado por defecto)</li>
+                            <li>Añadido <code>#include &lt;cstdlib&gt;</code> para <code>std::getenv</code></li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h4>3. Wrappers Cython</h4>
+                <ul>
+                    <li><code>src/core/cython/cpu.pxd</code>: Añadidas declaraciones para nuevos getters de CPU</li>
+                    <li><code>src/core/cython/cpu.pyx</code>: Implementados wrappers Python para nuevos getters</li>
+                    <li><code>src/core/cython/mmu.pxd</code>: Añadidas declaraciones para nuevos getters de MMU</li>
+                    <li><code>src/core/cython/mmu.pyx</code>: Implementados wrappers Python (nota: <code>get_boot_logo_prefill_enabled()</code> retorna <code>int</code> para compatibilidad con Cython)</li>
+                </ul>
+
+                <h4>4. Tests Clean-Room</h4>
+                <ul>
+                    <li><code>tests/test_if_cleared_on_irq_service_0475.py</code>: 
+                        <ul>
+                            <li>3 tests para verificar que IF se limpia al servir IRQ</li>
+                            <li>Verifica tracking de before/after service, máscara, vector, y timestamp</li>
+                        </ul>
+                    </li>
+                    <li><code>tests/test_io_source_tagging_0475.py</code>: 
+                        <ul>
+                            <li>7 tests para verificar source tagging correcto</li>
+                            <li>Verifica que lecturas desde código se cuentan como PROGRAM</li>
+                            <li>Verifica que lecturas durante IRQ polling se cuentan como CPU_POLL</li>
+                            <li>Verifica que escrituras siempre se cuentan como PROGRAM</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h4>5. Herramienta rom_smoke</h4>
+                <ul>
+                    <li><code>tools/rom_smoke_0442.py</code>: 
+                        <ul>
+                            <li>Añadidas nuevas métricas al snapshot: source tagging (6 contadores), IF tracking (5 valores), prefill status (1 flag)</li>
+                            <li>Métricas añadidas al diccionario <code>metrics</code> en <code>_collect_metrics()</code></li>
+                            <li>Métricas añadidas al print de snapshot</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+
+            <section class="tests">
+                <h2>Tests y Verificación</h2>
+                
+                <h3>Tests de Source Tagging</h3>
+                <pre><code>$ pytest tests/test_io_source_tagging_0475.py -v
+============================= test session starts ==============================
+tests/test_io_source_tagging_0475.py::TestIOSourceTagging::test_if_reads_from_program_tagged_correctly PASSED
+tests/test_io_source_tagging_0475.py::TestIOSourceTagging::test_ie_reads_from_program_tagged_correctly PASSED
+tests/test_io_source_tagging_0475.py::TestIOSourceTagging::test_if_reads_from_irq_polling_tagged_correctly PASSED
+tests/test_io_source_tagging_0475.py::TestIOSourceTagging::test_ie_reads_from_irq_polling_tagged_correctly PASSED
+tests/test_io_source_tagging_0475.py::TestIOSourceTagging::test_if_writes_always_tagged_as_program PASSED
+tests/test_io_source_tagging_0475.py::TestIOSourceTagging::test_ie_writes_always_tagged_as_program PASSED
+tests/test_io_source_tagging_0475.py::TestIOSourceTagging::test_mixed_reads_program_and_polling PASSED
+============================= 7 passed in 0.47s ===============================</code></pre>
+
+                <h3>Tests de IF Clear on Service</h3>
+                <pre><code>$ pytest tests/test_if_cleared_on_irq_service_0475.py -v
+============================= test session starts ==============================
+tests/test_if_cleared_on_irq_service_0475.py::TestIFClearedOnIRQService::test_vblank_irq_clears_if_bit PASSED
+tests/test_if_cleared_on_irq_service_0475.py::TestIFClearedOnIRQService::test_timer_irq_clears_if_bit PASSED
+tests/test_if_cleared_on_irq_service_0475.py::TestIFClearedOnIRQService::test_multiple_irqs_update_tracking PASSED
+============================= 3 passed in 0.27s ===============================</code></pre>
+
+                <h3>Validación de Módulo Compilado C++</h3>
+                <p>
+                    Todos los tests usan el módulo compilado <code>viboy_core</code> y verifican el comportamiento 
+                    del código C++ directamente, confirmando que la implementación es correcta.
+                </p>
+            </section>
+
+            <section class="results">
+                <h2>Resultados y Conclusión</h2>
+                
+                <h3>✅ Implementación Exitosa</h3>
+                <ul>
+                    <li>Source tagging funcional: Las lecturas de IF/IE se distinguen correctamente entre PROGRAM y CPU_POLL</li>
+                    <li>IF clear on service verificado: Los tests confirman que el bit IF se limpia correctamente al servir una IRQ</li>
+                    <li>Prefill gated: El prefill del logo está controlado por variable de entorno y se reporta en métricas</li>
+                    <li>Todos los tests pasan: 10/10 tests nuevos pasan correctamente</li>
+                </ul>
+
+                <h3>Próximos Pasos</h3>
+                <p>
+                    Step 0475 proporciona las herramientas necesarias para diagnosticar con mayor precisión los problemas 
+                    de interrupciones. Las métricas de source tagging permitirán distinguir si los juegos están haciendo 
+                    polling manual de IF/IE o si solo hay polling interno. El tracking de IF clear on service confirma 
+                    que el comportamiento básico de interrupciones es correcto.
+                </p>
+                <p>
+                    El prefill gated elimina falsos positivos en estadísticas de VRAM, permitiendo análisis más limpios 
+                    de cuándo el juego realmente escribe tiles vs cuándo los tiles provienen del prefill.
+                </p>
+            </section>
+        </main>
+    </div>
+</body>
+</html>
+

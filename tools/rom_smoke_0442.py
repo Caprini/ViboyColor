@@ -580,6 +580,24 @@ class ROMSmokeRunner:
         
         last_stat_read = self.mmu.get_last_stat_read()
         
+        # Step 0475: Source tagging para IF/IE
+        if_reads_program = self.mmu.get_if_reads_program() if hasattr(self.mmu, 'get_if_reads_program') else 0
+        if_reads_cpu_poll = self.mmu.get_if_reads_cpu_poll() if hasattr(self.mmu, 'get_if_reads_cpu_poll') else 0
+        if_writes_program = self.mmu.get_if_writes_program() if hasattr(self.mmu, 'get_if_writes_program') else 0
+        ie_reads_program = self.mmu.get_ie_reads_program() if hasattr(self.mmu, 'get_ie_reads_program') else 0
+        ie_reads_cpu_poll = self.mmu.get_ie_reads_cpu_poll() if hasattr(self.mmu, 'get_ie_reads_cpu_poll') else 0
+        ie_writes_program = self.mmu.get_ie_writes_program() if hasattr(self.mmu, 'get_ie_writes_program') else 0
+        
+        # Step 0475: IF Clear on Service tracking
+        last_irq_serviced_vector = self.cpu.get_last_irq_serviced_vector() if hasattr(self.cpu, 'get_last_irq_serviced_vector') else 0
+        last_irq_serviced_timestamp = self.cpu.get_last_irq_serviced_timestamp() if hasattr(self.cpu, 'get_last_irq_serviced_timestamp') else 0
+        last_if_before_service = self.cpu.get_last_if_before_service() if hasattr(self.cpu, 'get_last_if_before_service') else 0
+        last_if_after_service = self.cpu.get_last_if_after_service() if hasattr(self.cpu, 'get_last_if_after_service') else 0
+        last_if_clear_mask = self.cpu.get_last_if_clear_mask() if hasattr(self.cpu, 'get_last_if_clear_mask') else 0
+        
+        # Step 0475: Boot logo prefill status
+        boot_logo_prefill_enabled = self.mmu.get_boot_logo_prefill_enabled() if hasattr(self.mmu, 'get_boot_logo_prefill_enabled') else 0
+        
         metrics = {
             'frame': frame_idx,
             'pc': pc,
@@ -626,6 +644,21 @@ class ROMSmokeRunner:
             'ly_read_max': ly_read_max,
             'last_ly_read': last_ly_read,
             'last_stat_read': last_stat_read,
+            # Step 0475: Source tagging para IF/IE
+            'if_reads_program': if_reads_program,
+            'if_reads_cpu_poll': if_reads_cpu_poll,
+            'if_writes_program': if_writes_program,
+            'ie_reads_program': ie_reads_program,
+            'ie_reads_cpu_poll': ie_reads_cpu_poll,
+            'ie_writes_program': ie_writes_program,
+            # Step 0475: IF Clear on Service tracking
+            'last_irq_serviced_vector': last_irq_serviced_vector,
+            'last_irq_serviced_timestamp': last_irq_serviced_timestamp,
+            'last_if_before_service': last_if_before_service,
+            'last_if_after_service': last_if_after_service,
+            'last_if_clear_mask': last_if_clear_mask,
+            # Step 0475: Boot logo prefill status
+            'boot_logo_prefill_enabled': boot_logo_prefill_enabled,
         }
         
         # Detectar primer frame non-white
@@ -857,6 +890,24 @@ class ROMSmokeRunner:
                 last_ly_read = metrics.get('last_ly_read', 0)
                 last_stat_read = metrics.get('last_stat_read', 0)
                 
+                # Step 0475: Source tagging para IF/IE
+                if_reads_program = metrics.get('if_reads_program', 0)
+                if_reads_cpu_poll = metrics.get('if_reads_cpu_poll', 0)
+                if_writes_program = metrics.get('if_writes_program', 0)
+                ie_reads_program = metrics.get('ie_reads_program', 0)
+                ie_reads_cpu_poll = metrics.get('ie_reads_cpu_poll', 0)
+                ie_writes_program = metrics.get('ie_writes_program', 0)
+                
+                # Step 0475: IF Clear on Service tracking
+                last_irq_serviced_vector = metrics.get('last_irq_serviced_vector', 0)
+                last_irq_serviced_timestamp = metrics.get('last_irq_serviced_timestamp', 0)
+                last_if_before_service = metrics.get('last_if_before_service', 0)
+                last_if_after_service = metrics.get('last_if_after_service', 0)
+                last_if_clear_mask = metrics.get('last_if_clear_mask', 0)
+                
+                # Step 0475: Boot logo prefill status
+                boot_logo_prefill_enabled = metrics.get('boot_logo_prefill_enabled', 0)
+                
                 # Step 0474: Obtener PC hotspot #1 y disasembly
                 pc_hotspot_1 = None
                 disasm_snippet = ""
@@ -913,7 +964,12 @@ class ROMSmokeRunner:
                       f"LCDC=0x{lcdc:02X} STAT=0x{stat:02X} LY={ly} | "
                       f"IF_ReadCount={if_read_count} IF_WriteCount={if_write_count} IF_ReadVal=0x{last_if_read_val:02X} IF_WriteVal=0x{last_if_write_val:02X} IF_WritePC=0x{last_if_write_pc:04X} IF_Writes0={if_writes_0} IF_WritesNonZero={if_writes_nonzero} | "
                       f"LY_ReadMin={ly_read_min} LY_ReadMax={ly_read_max} LY_LastRead={last_ly_read} | "
-                      f"STAT_LastRead=0x{last_stat_read:02X}")
+                      f"STAT_LastRead=0x{last_stat_read:02X} | "
+                      f"IF_ReadsProg={if_reads_program} IF_ReadsPoll={if_reads_cpu_poll} IF_WritesProg={if_writes_program} | "
+                      f"IE_ReadsProg={ie_reads_program} IE_ReadsPoll={ie_reads_cpu_poll} IE_WritesProg={ie_writes_program} | "
+                      f"LastIRQVec=0x{last_irq_serviced_vector:04X} LastIRQTS={last_irq_serviced_timestamp} | "
+                      f"IF_BeforeSvc=0x{last_if_before_service:02X} IF_AfterSvc=0x{last_if_after_service:02X} IF_ClearMask=0x{last_if_clear_mask:02X} | "
+                      f"BootLogoPrefill={boot_logo_prefill_enabled}")
             
             # Dump periódico
             if self.dump_every > 0 and (frame_idx + 1) % self.dump_every == 0:

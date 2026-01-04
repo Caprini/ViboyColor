@@ -162,6 +162,14 @@ MMU::MMU()
     , ly_read_max_(0x00)  // Step 0474: Valor máximo de LY leído
     , last_ly_read_(0x00)  // Step 0474: Último valor leído de LY
     , last_stat_read_(0x00)  // Step 0474: Último valor leído de STAT
+    , irq_poll_active_(false)  // Step 0475: Flag de polling IRQ (OFF por defecto)
+    , if_reads_program_(0)  // Step 0475: Contador de lecturas IF desde programa
+    , if_reads_cpu_poll_(0)  // Step 0475: Contador de lecturas IF desde polling
+    , if_writes_program_(0)  // Step 0475: Contador de escrituras IF desde programa
+    , ie_reads_program_(0)  // Step 0475: Contador de lecturas IE desde programa
+    , ie_reads_cpu_poll_(0)  // Step 0475: Contador de lecturas IE desde polling
+    , ie_writes_program_(0)  // Step 0475: Contador de escrituras IE desde programa
+    , boot_logo_prefill_enabled_(false)  // Step 0475: Prefill del logo deshabilitado por defecto
 {
     // Step 0450: Inicializar ring buffer de MBC writes
     for (int i = 0; i < 8; i++) {
@@ -856,10 +864,18 @@ uint8_t MMU::read(uint16_t addr) const {
     // -------------------------------------------
     
     // --- Step 0471: Instrumentación microscópica de IE read ---
+    // --- Step 0475: Source Tagging para IE read ---
     if (addr == 0xFFFF) {  // IE
         uint8_t ie_value = memory_[addr];
         last_ie_read_value = ie_value;
         ie_read_count++;
+        
+        // Step 0475: Separar contadores según source (program vs cpu_poll)
+        if (irq_poll_active_) {
+            ie_reads_cpu_poll_++;
+        } else {
+            ie_reads_program_++;
+        }
         
         // Comprobación debug (solo si VIBOY_DEBUG_PPU=1): Si hay writes pero el valor leído es 0x00, loggear
         // Step 0474: Eliminado [IE-DROP] por falsos positivos (ver plan Step 0474)
@@ -889,6 +905,13 @@ uint8_t MMU::read(uint16_t addr) const {
         
         if_read_count_++;
         last_if_read_val_ = if_value;
+        
+        // Step 0475: Separar contadores según source (program vs cpu_poll)
+        if (irq_poll_active_) {
+            if_reads_cpu_poll_++;
+        } else {
+            if_reads_program_++;
+        }
         
         // Log gated (solo si VIBOY_DEBUG_IO=1 o VIBOY_DEBUG_IRQ=1)
         bool debug_io = (std::getenv("VIBOY_DEBUG_IO") != nullptr && 
@@ -1108,9 +1131,11 @@ void MMU::write(uint16_t addr, uint8_t value) {
     // -----------------------------------------
     
     // --- Step 0470: Contadores de writes a IE/IF ---
+    // --- Step 0475: Source Tagging para IE write (siempre PROGRAM) ---
     if (addr == 0xFFFF) {  // IE
         ie_write_count++;
         last_ie_written = value;
+        ie_writes_program_++;  // Step 0475: Escrituras siempre son desde programa
         
         // --- Step 0471: Instrumentación microscópica de IE write ---
         last_ie_write_pc = debug_current_pc;
@@ -1130,10 +1155,12 @@ void MMU::write(uint16_t addr, uint8_t value) {
     }
     
     // --- Step 0474: Instrumentación quirúrgica de IF (0xFF0F) ---
+    // --- Step 0475: Source Tagging para IF write (siempre PROGRAM) ---
     if (addr == 0xFF0F) {  // IF
         if_write_count_++;
         last_if_write_pc_ = debug_current_pc;
         last_if_write_val_ = value;
+        if_writes_program_++;  // Step 0475: Escrituras siempre son desde programa
         
         // Histograma simple
         if (value == 0) {
@@ -4310,4 +4337,63 @@ uint8_t MMU::get_last_stat_read() const {
     return last_stat_read_;
 }
 // --- Fin Step 0474 ---
+
+// --- Step 0475: Source Tagging para IO Polling ---
+void MMU::set_irq_poll_active(bool active) {
+    irq_poll_active_ = active;
+}
+
+uint32_t MMU::get_if_reads_program() const {
+    return if_reads_program_;
+}
+
+uint32_t MMU::get_if_reads_cpu_poll() const {
+    return if_reads_cpu_poll_;
+}
+
+uint32_t MMU::get_if_writes_program() const {
+    return if_writes_program_;
+}
+
+uint32_t MMU::get_ie_reads_program() const {
+    return ie_reads_program_;
+}
+
+uint32_t MMU::get_ie_reads_cpu_poll() const {
+    return ie_reads_cpu_poll_;
+}
+
+uint32_t MMU::get_ie_writes_program() const {
+    return ie_writes_program_;
+}
+
+void MMU::prefill_boot_logo_vram() {
+    // Step 0475: Prefill del logo del boot en VRAM (gated por VIBOY_SIM_BOOT_LOGO)
+    // La Boot ROM real lee los datos del header (1bpp) y los descomprime a formato Tile (2bpp)
+    // antes de copiarlos a la VRAM. Nosotros simulamos este proceso generando los datos
+    // ya descomprimidos externamente.
+    //
+    // Fuente: Pan Docs - "Tile Data", "Tile Map", "Boot ROM Behavior"
+    
+    // 1. Cargar Tiles del Logo (96 bytes) en VRAM Tile Data (0x8010)
+    // Empezamos en 0x8010 (Tile ID 1) para dejar el Tile 0 como blanco puro.
+    // 6 tiles x 16 bytes = 96 bytes totales
+    for (size_t i = 0; i < sizeof(VIBOY_LOGO_TILES); ++i) {
+        memory_[0x8010 + i] = VIBOY_LOGO_TILES[i];
+    }
+    
+    // 2. Cargar Tilemap del Logo en VRAM Map (0x9904 - Fila 8, Columna 4, centrado)
+    // CORRECCIÓN Step 0207: Usar 0x9904 para centrar en Fila 8, Columna 4.
+    // Antes estaba en 0x9A00 (Fila 16), demasiado abajo y fuera del área visible.
+    // Cálculo: 0x9800 (base) + (8 * 32) = 0x9900 (Fila 8) + 4 = 0x9904 (centrado horizontal)
+    // 32 bytes = 1 fila completa del mapa de tiles (32 tiles horizontales)
+    for (size_t i = 0; i < sizeof(VIBOY_LOGO_MAP); ++i) {
+        memory_[0x9904 + i] = VIBOY_LOGO_MAP[i];
+    }
+}
+
+int MMU::get_boot_logo_prefill_enabled() const {
+    return boot_logo_prefill_enabled_ ? 1 : 0;
+}
+// --- Fin Step 0475 ---
 

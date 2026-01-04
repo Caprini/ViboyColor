@@ -32,6 +32,8 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       first_vblank_request_frame_(0), first_vblank_service_frame_(0),
       irq_summary_logged_(false),
       stop_executed_count_(0), last_stop_pc_(0xFFFF),  // Step 0472
+      last_irq_serviced_vector_(0), last_irq_serviced_timestamp_(0),  // Step 0475
+      last_if_before_service_(0), last_if_after_service_(0), last_if_clear_mask_(0),  // Step 0475
       triage_active_(false), triage_frame_limit_(0), triage_last_pc_(0xFFFF), triage_pc_sample_count_(0) {  // Step 0434
     // Step 0436: Pokemon micro trace ya está inicializado por su constructor por defecto
     // Validación básica (en producción, podríamos usar assert)
@@ -3605,6 +3607,18 @@ uint8_t CPU::handle_interrupts() {
     constexpr uint16_t ADDR_IF = 0xFF0F;  // Interrupt Flag
     constexpr uint16_t ADDR_IE = 0xFFFF;  // Interrupt Enable
     
+    // --- Step 0475: RAII Guard para Source Tagging ---
+    // Guard RAII para marcar scope de polling interno de IRQ
+    // Esto permite a MMU distinguir lecturas desde polling interno vs código del programa
+    class IrqPollScope {
+        MMU* mmu_;
+    public:
+        IrqPollScope(MMU* mmu) : mmu_(mmu) { mmu_->set_irq_poll_active(true); }
+        ~IrqPollScope() { mmu_->set_irq_poll_active(false); }
+    };
+    IrqPollScope scope(mmu_);
+    // -----------------------------------------
+    
     // Leer registros de interrupciones
     uint8_t if_reg = mmu_->read(ADDR_IF);
     uint8_t ie_reg = mmu_->read(ADDR_IE);
@@ -3689,12 +3703,21 @@ uint8_t CPU::handle_interrupts() {
         }
         
         // --- Step 0384: Instrumentar servicio de interrupción ---
+        // --- Step 0475: Tracking de IF Clear on Service ---
         uint16_t prev_pc = regs_->pc;
         uint8_t if_before_clear = if_reg;
         
         // Limpiar el bit en IF (acknowledgement)
         uint8_t new_if = if_reg & ~interrupt_bit;
         mmu_->write(ADDR_IF, new_if);
+        
+        // Step 0475: Guardar tracking de IF clear on service
+        last_irq_serviced_vector_ = vector;
+        last_irq_serviced_timestamp_++;
+        last_if_before_service_ = if_before_clear;
+        last_if_after_service_ = new_if;
+        last_if_clear_mask_ = interrupt_bit;
+        // -----------------------------------------
         
         // Loggear (límite: 50 líneas)
         static int irq_service_log = 0;
@@ -4096,6 +4119,28 @@ uint16_t CPU::get_last_stop_pc() const {
     return last_stop_pc_;
 }
 // --- Fin Step 0472 (STOP) ---
+
+// --- Step 0475: Getters para IF Clear on Service Tracking ---
+uint16_t CPU::get_last_irq_serviced_vector() const {
+    return last_irq_serviced_vector_;
+}
+
+uint32_t CPU::get_last_irq_serviced_timestamp() const {
+    return last_irq_serviced_timestamp_;
+}
+
+uint8_t CPU::get_last_if_before_service() const {
+    return last_if_before_service_;
+}
+
+uint8_t CPU::get_last_if_after_service() const {
+    return last_if_after_service_;
+}
+
+uint8_t CPU::get_last_if_clear_mask() const {
+    return last_if_clear_mask_;
+}
+// --- Fin Step 0475 ---
 
 void CPU::log_pokemon_micro_trace_summary() {
     if (pokemon_micro_trace_.sample_count == 0) {

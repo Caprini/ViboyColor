@@ -146,6 +146,41 @@ public:
      * @return PC de la última ejecución de STOP
      */
     uint16_t get_last_stop_pc() const;
+    
+    /**
+     * Step 0475: Obtiene el vector de la última IRQ servida.
+     * 
+     * @return Vector de la última IRQ servida (0x40, 0x48, 0x50, 0x58, 0x60)
+     */
+    uint16_t get_last_irq_serviced_vector() const;
+    
+    /**
+     * Step 0475: Obtiene el timestamp de la última IRQ servida.
+     * 
+     * @return Timestamp de la última IRQ servida (incrementa cada vez que se sirve una IRQ)
+     */
+    uint32_t get_last_irq_serviced_timestamp() const;
+    
+    /**
+     * Step 0475: Obtiene el valor de IF antes de servir la última IRQ.
+     * 
+     * @return Valor de IF antes de servir la última IRQ
+     */
+    uint8_t get_last_if_before_service() const;
+    
+    /**
+     * Step 0475: Obtiene el valor de IF después de servir la última IRQ.
+     * 
+     * @return Valor de IF después de servir la última IRQ
+     */
+    uint8_t get_last_if_after_service() const;
+    
+    /**
+     * Step 0475: Obtiene la máscara del bit limpiado en la última IRQ servida.
+     * 
+     * @return Máscara del bit limpiado (lowest_pending)
+     */
+    uint8_t get_last_if_clear_mask() const;
 
 private:
     /**
@@ -608,6 +643,13 @@ private:
     // --- Step 0472: Contadores de STOP ---
     uint32_t stop_executed_count_;       // Contador de ejecuciones de STOP
     uint16_t last_stop_pc_;              // PC de la última ejecución de STOP
+    
+    // --- Step 0475: Tracking de IF Clear on Service ---
+    uint16_t last_irq_serviced_vector_;      // Vector de la última IRQ servida (0x40, 0x48, etc.)
+    uint32_t last_irq_serviced_timestamp_;   // Timestamp de la última IRQ servida
+    uint8_t last_if_before_service_;         // IF antes de servir la IRQ
+    uint8_t last_if_after_service_;          // IF después de servir la IRQ
+    uint8_t last_if_clear_mask_;             // Máscara del bit limpiado (lowest_pending)
     
     // ========== Estado de Triage (Step 0434) ==========
     // Instrumentación para entender por qué VRAM está vacía

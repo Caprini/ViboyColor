@@ -74,4 +74,10 @@ cdef extern from "CPU.hpp":
         # Step 0472: Contadores de STOP
         uint32_t get_stop_executed_count() const
         uint16_t get_last_stop_pc() const
+        # Step 0475: IF Clear on Service Tracking
+        uint16_t get_last_irq_serviced_vector() const
+        uint32_t get_last_irq_serviced_timestamp() const
+        uint8_t get_last_if_before_service() const
+        uint8_t get_last_if_after_service() const
+        uint8_t get_last_if_clear_mask() const
 

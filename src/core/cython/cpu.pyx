@@ -148,6 +148,53 @@ cdef class PyCPU:
         """
         return self._cpu.get_last_stop_pc()
     
+    # --- Step 0475: IF Clear on Service Tracking ---
+    def get_last_irq_serviced_vector(self):
+        """
+        Step 0475: Obtiene el vector de la última IRQ servida.
+        
+        Returns:
+            Vector de la última IRQ servida (0x40, 0x48, 0x50, 0x58, 0x60)
+        """
+        return self._cpu.get_last_irq_serviced_vector()
+    
+    def get_last_irq_serviced_timestamp(self):
+        """
+        Step 0475: Obtiene el timestamp de la última IRQ servida.
+        
+        Returns:
+            Timestamp de la última IRQ servida (incrementa cada vez que se sirve una IRQ)
+        """
+        return self._cpu.get_last_irq_serviced_timestamp()
+    
+    def get_last_if_before_service(self):
+        """
+        Step 0475: Obtiene el valor de IF antes de servir la última IRQ.
+        
+        Returns:
+            Valor de IF antes de servir la última IRQ
+        """
+        return self._cpu.get_last_if_before_service()
+    
+    def get_last_if_after_service(self):
+        """
+        Step 0475: Obtiene el valor de IF después de servir la última IRQ.
+        
+        Returns:
+            Valor de IF después de servir la última IRQ
+        """
+        return self._cpu.get_last_if_after_service()
+    
+    def get_last_if_clear_mask(self):
+        """
+        Step 0475: Obtiene la máscara del bit limpiado en la última IRQ servida.
+        
+        Returns:
+            Máscara del bit limpiado (lowest_pending)
+        """
+        return self._cpu.get_last_if_clear_mask()
+    # --- Fin Step 0475 ---
+    
     # Propiedades para acceso directo (compatibilidad con tests)
     @property
     def registers(self):

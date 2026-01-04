@@ -80,4 +80,12 @@ cdef extern from "MMU.hpp":
         uint8_t get_ly_read_max() const  # Step 0474
         uint8_t get_last_ly_read() const  # Step 0474
         uint8_t get_last_stat_read() const  # Step 0474
+        void set_irq_poll_active(bool active)  # Step 0475
+        uint32_t get_if_reads_program() const  # Step 0475
+        uint32_t get_if_reads_cpu_poll() const  # Step 0475
+        uint32_t get_if_writes_program() const  # Step 0475
+        uint32_t get_ie_reads_program() const  # Step 0475
+        uint32_t get_ie_reads_cpu_poll() const  # Step 0475
+        uint32_t get_ie_writes_program() const  # Step 0475
+        int get_boot_logo_prefill_enabled() const  # Step 0475 (devuelve int para evitar problemas de conversión en Cython)
 

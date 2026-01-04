@@ -779,6 +779,101 @@ cdef class PyMMU:
         return self._mmu.get_last_stat_read()
     # --- Fin Step 0474 ---
     
+    # --- Step 0475: Source Tagging para IO Polling ---
+    def set_irq_poll_active(self, bool active):
+        """
+        Step 0475: Establece el flag de polling de IRQ activo.
+        
+        Este método permite a la CPU marcar cuando está ejecutando
+        polling interno de interrupciones, permitiendo distinguir
+        lecturas de IO desde código del programa vs polling interno.
+        
+        Args:
+            active: true si estamos en polling interno, false si no
+        """
+        if self._mmu == NULL:
+            return
+        self._mmu.set_irq_poll_active(active)
+    
+    def get_if_reads_program(self):
+        """
+        Step 0475: Obtiene el contador de lecturas de IF desde código del programa.
+        
+        Returns:
+            Número de lecturas de IF desde código del programa
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_if_reads_program()
+    
+    def get_if_reads_cpu_poll(self):
+        """
+        Step 0475: Obtiene el contador de lecturas de IF desde polling interno de CPU.
+        
+        Returns:
+            Número de lecturas de IF desde polling interno
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_if_reads_cpu_poll()
+    
+    def get_if_writes_program(self):
+        """
+        Step 0475: Obtiene el contador de escrituras a IF desde código del programa.
+        
+        Returns:
+            Número de escrituras a IF desde código del programa
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_if_writes_program()
+    
+    def get_ie_reads_program(self):
+        """
+        Step 0475: Obtiene el contador de lecturas de IE desde código del programa.
+        
+        Returns:
+            Número de lecturas de IE desde código del programa
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_ie_reads_program()
+    
+    def get_ie_reads_cpu_poll(self):
+        """
+        Step 0475: Obtiene el contador de lecturas de IE desde polling interno de CPU.
+        
+        Returns:
+            Número de lecturas de IE desde polling interno
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_ie_reads_cpu_poll()
+    
+    def get_ie_writes_program(self):
+        """
+        Step 0475: Obtiene el contador de escrituras a IE desde código del programa.
+        
+        Returns:
+            Número de escrituras a IE desde código del programa
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_ie_writes_program()
+    
+    def get_boot_logo_prefill_enabled(self):
+        """
+        Step 0475: Obtiene el estado del prefill del logo de boot.
+        
+        Returns:
+            1 si el prefill del logo está habilitado, 0 en caso contrario
+            (compatible con bool de Python)
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_boot_logo_prefill_enabled()
+    # --- Fin Step 0475 ---
+    
     def read_raw(self, uint16_t addr):
         """
         Raw read for diagnostics (bypasses access restrictions).
