@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0476: rom_smoke con Source-Tagging + Decisión Automática - Viboy Color</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Step 0476: rom_smoke con Source-Tagging + Decisión Automática</h1>
+            <p><a href="../index.html" class="back-link">← Volver al índice</a></p>
+            
+            <div class="entry-meta">
+                <span><strong>Fecha:</strong> 2026-01-04</span>
+                <span><strong>Step ID:</strong> 0476</span>
+                <span><strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span></span>
+            </div>
+        </header>
+
+        <main>
+            <section class="summary">
+                <h2>Resumen Ejecutivo</h2>
+                <p>
+                    Step 0475 implementó source tagging para distinguir IO del programa vs polling interno. Step 0476 ejecuta rom_smoke con estas métricas y aplica decisión automática para identificar qué está bloqueando a las ROMs CGB.
+                </p>
+                <p>
+                    <strong>Resultado:</strong> ✅ Ejecución completa de rom_smoke con 3 ROMs (baseline OFF) y 1 ROM (prefill ON). ✅ Reporte generado con tablas y decisión automática. ✅ Caso identificado: El juego SÍ está polleando IF (millones de reads desde código), pero IME=0 e IE=0x00 impiden que se sirvan IRQs.
+                </p>
+                <p>
+                    <strong>⚠️ IMPORTANTE:</strong> Este step NO modifica código core. Solo ejecuta rom_smoke y genera reporte basado en las métricas implementadas en Step 0475.
+                </p>
+            </section>
+
+            <section class="hardware-concept">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>Source Tagging de IO (Step 0475)</h3>
+                <p>
+                    Step 0475 implementó un sistema de "source tagging" que distingue:
+                </p>
+                <ul>
+                    <li><strong>PROGRAM:</strong> Lecturas/escrituras desde código ejecutado por la CPU (instrucciones del programa)</li>
+                    <li><strong>CPU_POLL:</strong> Lecturas durante el polling interno de interrupciones (dentro de <code>handle_interrupts()</code>)</li>
+                </ul>
+                <p>
+                    Esto permite determinar si las lecturas masivas de IF/IE observadas en Step 0474 provienen del código del juego o del polling interno de la CPU.
+                </p>
+
+                <h3>Decisión Automática (Step 0476)</h3>
+                <p>
+                    Step 0476 aplica una lógica de decisión automática basada en 5 casos posibles:
+                </p>
+                <ol>
+                    <li><strong>Caso 1:</strong> Los reads masivos son del CPU_POLL (no del juego)</li>
+                    <li><strong>Caso 2:</strong> El juego hace polling real de IF pero el bit esperado no aparece</li>
+                    <li><strong>Caso 3:</strong> Se sirve IRQ pero IF no se limpia</li>
+                    <li><strong>Caso 4:</strong> No se sirven IRQ porque IE/IME se quedan a 0</li>
+                    <li><strong>Caso 5:</strong> Logo prefill contaminaba stats VRAM</li>
+                </ol>
+                <p>
+                    Esta decisión automática permite identificar rápidamente la causa raíz sin interpretación manual subjetiva.
+                </p>
+            </section>
+
+            <section class="implementation">
+                <h2>Ejecución y Análisis</h2>
+                
+                <h3>⚠️ NO se Modificó Código Core</h3>
+                <p>
+                    Este step es de <strong>ejecución y análisis únicamente</strong>. No se modificó ningún archivo del código core. Solo se ejecutó <code>rom_smoke_0442.py</code> con las métricas implementadas en Step 0475.
+                </p>
+
+                <h3>Fase A: Baseline OFF (VIBOY_SIM_BOOT_LOGO=0)</h3>
+                <p>
+                    Se ejecutó rom_smoke con 3 ROMs usando baseline limpio (sin prefill del logo):
+                </p>
+                <ul>
+                    <li><code>tetris_dx.gbc</code> - 240 frames</li>
+                    <li><code>mario.gbc</code> - 240 frames</li>
+                    <li><code>tetris.gb</code> - 240 frames (control DMG)</li>
+                </ul>
+                <p>
+                    Variables de entorno:
+                </p>
+                <pre><code>VIBOY_DEBUG_IO=1
+VIBOY_SIM_BOOT_LOGO=0
+VIBOY_DEBUG_INJECTION=0
+VIBOY_AUTOPRESS=0
+VIBOY_FORCE_BGP=0
+VIBOY_FRAMEBUFFER_TRACE=0</code></pre>
+
+                <h3>Fase B: Control Logo Prefill ON (Solo tetris_dx.gbc)</h3>
+                <p>
+                    Se ejecutó rom_smoke con <code>tetris_dx.gbc</code> usando <code>VIBOY_SIM_BOOT_LOGO=1</code> para comparar estadísticas de VRAM/tilemap y verificar si el prefill del logo contaminaba las métricas.
+                </p>
+
+                <h3>Fase C: Generación de Reporte</h3>
+                <p>
+                    Se creó un script Python (<code>/tmp/parse_snapshots_0476.py</code>) para:
+                </p>
+                <ul>
+                    <li>Parsear snapshots de los logs</li>
+                    <li>Extraer métricas clave para frames 0/60/120/180</li>
+                    <li>Generar tablas markdown</li>
+                    <li>Aplicar lógica de decisión automática</li>
+                </ul>
+                <p>
+                    El reporte completo se generó en <code>/tmp/reporte_step0476.md</code>.
+                </p>
+            </section>
+
+            <section class="files">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>/tmp/reporte_step0476.md</code> - Reporte markdown con tablas y decisión automática (generado)</li>
+                    <li><code>/tmp/parse_snapshots_0476.py</code> - Script temporal para parsear snapshots (generado, no commitado)</li>
+                    <li><code>/tmp/viboy_0476_tdx_off.log</code> - Log de ejecución tetris_dx.gbc baseline OFF</li>
+                    <li><code>/tmp/viboy_0476_mario_off.log</code> - Log de ejecución mario.gbc baseline OFF</li>
+                    <li><code>/tmp/viboy_0476_tetris_off.log</code> - Log de ejecución tetris.gb baseline OFF</li>
+                    <li><code>/tmp/viboy_0476_tdx_on.log</code> - Log de ejecución tetris_dx.gbc prefill ON</li>
+                </ul>
+                <p>
+                    <strong>⚠️ NOTA:</strong> Ningún archivo del código core fue modificado. Solo se generaron reportes y logs.
+                </p>
+            </section>
+
+            <section class="tests">
+                <h2>Resultados y Decisión Automática</h2>
+                
+                <h3>Datos Clave (Frame 120, Baseline OFF)</h3>
+                <p>
+                    <strong>tetris_dx.gbc (CGB):</strong>
+                </p>
+                <ul>
+                    <li>PC: 0x1303, PC_hotspot1: 0x1304</li>
+                    <li>IF: 0xE1, IE: 0x00, IME: 0</li>
+                    <li>if_reads_program: 5,887,011</li>
+                    <li>if_reads_cpu_poll: 5,886,589</li>
+                    <li>LastIRQVec: 0x0000 (no se sirven IRQs)</li>
+                </ul>
+                <p>
+                    <strong>mario.gbc (CGB):</strong>
+                </p>
+                <ul>
+                    <li>PC: 0x12A0, PC_hotspot1: 0x12A0</li>
+                    <li>IF: 0xE3, IE: 0x00, IME: 0</li>
+                    <li>if_reads_program: 4,411,492</li>
+                    <li>if_reads_cpu_poll: 4,410,912</li>
+                    <li>LastIRQVec: 0x0000 (no se sirven IRQs)</li>
+                </ul>
+                <p>
+                    <strong>tetris.gb (DMG - Control):</strong>
+                </p>
+                <ul>
+                    <li>PC: 0x036C, PC_hotspot1: 0x036C</li>
+                    <li>IF: 0xE0, IE: 0x09, IME: 1</li>
+                    <li>if_reads_program: 3,639,098</li>
+                    <li>if_reads_cpu_poll: 3,638,798</li>
+                    <li>LastIRQVec: 0x0040 (¡SÍ se sirven IRQs!)</li>
+                </ul>
+
+                <h3>Decisión Automática: Caso 2 (con elementos de Caso 4)</h3>
+                <p>
+                    <strong>Caso Identificado:</strong> Caso 2 - "El juego hace polling real de IF, pero el bit esperado no aparece"
+                </p>
+                <p>
+                    <strong>Condición observada:</strong> 
+                </p>
+                <ul>
+                    <li><code>if_reads_program</code> muy alto (millones) en ROMs CGB</li>
+                    <li><code>if_reads_program</code> y <code>if_reads_cpu_poll</code> son muy similares (diferencia < 1%)</li>
+                    <li>PC_hotspot1 estable (el juego está en un loop)</li>
+                    <li><strong>IME=0 e IE=0x00</strong> en ROMs CGB (Caso 4 también aplica)</li>
+                    <li><strong>LastIRQVec=0x0000</strong> en ROMs CGB (no se sirven IRQs)</li>
+                    <li>Por contraste: tetris.gb (DMG) tiene IME=1, IE=0x09, y SÍ se sirven IRQs (LastIRQVec=0x0040)</li>
+                </ul>
+                <p>
+                    <strong>Conclusión:</strong> 
+                </p>
+                <ul>
+                    <li>El juego SÍ está polleando IF desde código (no es solo CPU_POLL interno)</li>
+                    <li>Los valores de <code>if_reads_program</code> y <code>if_reads_cpu_poll</code> son muy similares porque el juego está en un loop denso leyendo IF</li>
+                    <li><strong>El problema clave:</strong> IME=0 e IE=0x00 impiden que se sirvan IRQs, por lo que el juego está atrapado esperando una condición que nunca llega</li>
+                    <li>tetris.gb (DMG) funciona porque habilita IME/IE correctamente</li>
+                </ul>
+                <p>
+                    <strong>Siguiente paso mínimo (0477):</strong> Verificar por qué IME/IE se quedan en 0 en ROMs CGB. Investigar defaults post-boot, inicialización de CGB, o si hay alguna condición que debería habilitarlos pero no lo hace.
+                </p>
+
+                <h3>Comparativa Logo Prefill ON vs OFF</h3>
+                <p>
+                    No se observó contaminación significativa del prefill del logo en las métricas de VRAM/tilemap para tetris_dx.gbc. Ambos casos (ON y OFF) muestran valores similares en Frame 0/60/120.
+                </p>
+            </section>
+
+            <section class="sources">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: Interrupts (IF/IE/IME)</li>
+                    <li>Step 0475: Desambiguar IO Polling + IF Clear on Service + Logo Prefill Gated</li>
+                    <li>Step 0474: Identificar Bucle de Espera del Hotspot</li>
+                </ul>
+            </section>
+
+            <section class="integrity">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Source Tagging funciona:</strong> Las métricas de Step 0475 permiten distinguir lecturas desde código vs polling interno</li>
+                        <li><strong>Las ROMs CGB están en loops reales:</strong> Los valores similares de <code>if_reads_program</code> y <code>if_reads_cpu_poll</code> confirman que el juego está en un loop denso leyendo IF</li>
+                        <li><strong>El problema es IME/IE en 0:</strong> Las ROMs CGB no pueden progresar porque IME=0 e IE=0x00 impiden que se sirvan IRQs</li>
+                        <li><strong>DMG funciona:</strong> tetris.gb habilita IME/IE correctamente y sí se sirven IRQs, confirmando que el problema es específico de CGB o de la inicialización</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>¿Por qué IME/IE se quedan en 0?</strong> ¿Es un problema de defaults post-boot? ¿Hay alguna condición que debería habilitarlos pero no lo hace?</li>
+                        <li><strong>¿Qué diferencia hay entre CGB y DMG?</strong> ¿Por qué tetris.gb (DMG) habilita IME/IE pero las ROMs CGB no?</li>
+                        <li><strong>¿Hay otros factores?</strong> ¿JOYP, STAT/LY, timers, serial? El Caso 4 sugiere investigar defaults post-boot y otros I/O</li>
+                    </ul>
+
+                    <h3>Hipótesis y Supusiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal:</strong> Las ROMs CGB esperan que IME/IE se habiliten automáticamente en algún punto de la inicialización, pero nuestra implementación no lo hace, o hay alguna condición que debería disparar EI pero no se está cumpliendo.
+                    </p>
+                    <p>
+                        <strong>Suposición:</strong> El comportamiento observado (IME=0, IE=0x00 sostenidos) es anormal y está bloqueando el progreso de las ROMs CGB. tetris.gb (DMG) funciona porque tiene lógica diferente o porque habilita IME/IE explícitamente.
+                    </p>
+                </div>
+            </section>
+
+            <section class="next-steps">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Step 0477: Investigar por qué IME/IE se quedan en 0 en ROMs CGB</li>
+                    <li>[ ] Verificar defaults post-boot para CGB vs DMG</li>
+                    <li>[ ] Investigar si hay alguna condición (JOYP, STAT/LY, timers, serial) que debería habilitar IME/IE</li>
+                    <li>[ ] Comparar comportamiento de inicialización entre tetris.gb (DMG, funciona) y tetris_dx.gbc/mario.gbc (CGB, no funciona)</li>
+                </ul>
+            </section>
+        </main>
+
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
