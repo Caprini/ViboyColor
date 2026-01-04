@@ -822,6 +822,48 @@ public:
      * @return Número de veces que se ha leído IE
      */
     uint32_t get_ie_read_count() const;
+    
+    /**
+     * Step 0472: Obtiene el contador de writes a KEY1 (0xFF4D).
+     * 
+     * @return Número de veces que se ha escrito a KEY1
+     */
+    uint32_t get_key1_write_count() const;
+    
+    /**
+     * Step 0472: Obtiene el último valor escrito a KEY1 (0xFF4D).
+     * 
+     * @return Último valor escrito a KEY1
+     */
+    uint8_t get_last_key1_write_value() const;
+    
+    /**
+     * Step 0472: Obtiene el PC del último write a KEY1 (0xFF4D).
+     * 
+     * @return PC del último write a KEY1
+     */
+    uint16_t get_last_key1_write_pc() const;
+    
+    /**
+     * Step 0472: Obtiene el contador de writes a JOYP (0xFF00).
+     * 
+     * @return Número de veces que se ha escrito a JOYP
+     */
+    uint32_t get_joyp_write_count() const;
+    
+    /**
+     * Step 0472: Obtiene el último valor escrito a JOYP (0xFF00).
+     * 
+     * @return Último valor escrito a JOYP
+     */
+    uint8_t get_last_joyp_write_value() const;
+    
+    /**
+     * Step 0472: Obtiene el PC del último write a JOYP (0xFF00).
+     * 
+     * @return PC del último write a JOYP
+     */
+    uint16_t get_last_joyp_write_pc() const;
 };
 
 #endif // MMU_HPP

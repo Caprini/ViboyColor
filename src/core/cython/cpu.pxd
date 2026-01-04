@@ -70,4 +70,8 @@ cdef extern from "CPU.hpp":
         # Step 0470: Contadores de EI/DI
         uint32_t get_ei_count() const
         uint32_t get_di_count() const
+        
+        # Step 0472: Contadores de STOP
+        uint32_t get_stop_executed_count() const
+        uint16_t get_last_stop_pc() const
 

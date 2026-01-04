@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0472 - Boot State + STOP/KEY1 (CGB Speed Switch) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-04__0472__boot-state-stop-key1-speed-switch.html" class="entry-link">
+                                    Boot State + STOP/KEY1 (CGB Speed Switch)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-04 | 
+                            <strong>Step ID:</strong> 0472 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de instrumentación para diagnosticar problemas de boot state (valores post-boot incorrectos) y speed switch CGB (STOP/KEY1 no funcional). Se añadieron contadores para KEY1 writes, JOYP writes, y STOP execution, se verificaron los power-up defaults de registros I/O críticos (BGP, OBP0, OBP1, LCDC, SCY, SCX, IE), y se implementó la lógica mínima de STOP/KEY1 speed switch según Pan Docs. Se actualizó rom_smoke_0442.py con nuevas métricas y se crearon tests clean-room. ✅ Todos los tests pasan (5/5). ✅ Power-up defaults correctos. ✅ STOP/KEY1 speed switch funcionalmente implementado.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0471 - Fix Mínimo y Verificable para IE (0xFFFF) -->
                     <li>
                         <div class="entry-header">

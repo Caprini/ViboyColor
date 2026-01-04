@@ -613,6 +613,29 @@ class ROMSmokeRunner:
                 stat = self.mmu.read(0xFF41)
                 ly = self.mmu.read(0xFF44)
                 
+                # Step 0472: Power-up defaults (DMG)
+                bgp = self.mmu.read(0xFF47)
+                obp0 = self.mmu.read(0xFF48)
+                obp1 = self.mmu.read(0xFF49)
+                
+                # Step 0472: Speed switch (CGB)
+                key1 = self.mmu.read(0xFF4D)
+                joyp = self.mmu.read(0xFF00)
+                
+                # Step 0472: STOP execution
+                stop_executed_count = self.cpu.get_stop_executed_count() if hasattr(self.cpu, 'get_stop_executed_count') else 0
+                last_stop_pc = self.cpu.get_last_stop_pc() if hasattr(self.cpu, 'get_last_stop_pc') else 0xFFFF
+                
+                # Step 0472: KEY1 writes
+                key1_write_count = self.mmu.get_key1_write_count() if hasattr(self.mmu, 'get_key1_write_count') else 0
+                last_key1_write_value = self.mmu.get_last_key1_write_value() if hasattr(self.mmu, 'get_last_key1_write_value') else 0
+                last_key1_write_pc = self.mmu.get_last_key1_write_pc() if hasattr(self.mmu, 'get_last_key1_write_pc') else 0xFFFF
+                
+                # Step 0472: JOYP writes
+                joyp_write_count = self.mmu.get_joyp_write_count() if hasattr(self.mmu, 'get_joyp_write_count') else 0
+                last_joyp_write_value = self.mmu.get_last_joyp_write_value() if hasattr(self.mmu, 'get_last_joyp_write_value') else 0
+                last_joyp_write_pc = self.mmu.get_last_joyp_write_pc() if hasattr(self.mmu, 'get_last_joyp_write_pc') else 0xFFFF
+                
                 # Step 0471: fb_nonzero = count de índices != 0 en framebuffer (sobre 23040 píxeles)
                 fb_nonzero = 0
                 try:
@@ -628,6 +651,11 @@ class ROMSmokeRunner:
                 print(f"[SMOKE-SNAPSHOT] Frame={frame_idx} | "
                       f"PC=0x{pc:04X} IME={ime} HALTED={halted} | "
                       f"IE=0x{ie:02X} IF=0x{if_reg:02X} | "
+                      f"BGP=0x{bgp:02X} OBP0=0x{obp0:02X} OBP1=0x{obp1:02X} | "
+                      f"KEY1=0x{key1:02X} JOYP=0x{joyp:02X} | "
+                      f"STOP_count={stop_executed_count} STOP_PC=0x{last_stop_pc:04X} | "
+                      f"KEY1_write_count={key1_write_count} KEY1_write_val=0x{last_key1_write_value:02X} KEY1_write_PC=0x{last_key1_write_pc:04X} | "
+                      f"JOYP_write_count={joyp_write_count} JOYP_write_val=0x{last_joyp_write_value:02X} JOYP_write_PC=0x{last_joyp_write_pc:04X} | "
                       f"VBlankReq={vblank_req} VBlankServ={vblank_serv} | "
                       f"IEWrite={ie_write_count} IFWrite={if_write_count} EI={ei_count} DI={di_count} | "
                       f"IEWriteVal=0x{last_ie_write_value:02X} IEReadVal=0x{last_ie_read_value:02X} IEReadCount={ie_read_count} IEWritePC=0x{last_ie_write_pc:04X} | "

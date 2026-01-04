@@ -31,6 +31,7 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       irq_joypad_requests_(0), irq_joypad_services_(0),
       first_vblank_request_frame_(0), first_vblank_service_frame_(0),
       irq_summary_logged_(false),
+      stop_executed_count_(0), last_stop_pc_(0xFFFF),  // Step 0472
       triage_active_(false), triage_frame_limit_(0), triage_last_pc_(0xFFFF), triage_pc_sample_count_(0) {  // Step 0434
     // Step 0436: Pokemon micro trace ya está inicializado por su constructor por defecto
     // Validación básica (en producción, podríamos usar assert)
@@ -3500,6 +3501,37 @@ int CPU::step() {
                 cycles_ += cycles;
                 return cycles;
             }
+        
+        case 0x10:  // STOP
+            // Instrucción STOP: Detiene la CPU hasta que ocurra una interrupción o un botón del joypad
+            // En CGB, se usa para speed switch cuando KEY1 bit0 == 1
+            // Fuente: Pan Docs - STOP instruction, CGB Registers (KEY1)
+            {
+                // --- Step 0472: Contador de STOP ---
+                stop_executed_count_++;
+                last_stop_pc_ = (regs_->pc - 1) & 0xFFFF;  // PC antes del fetch
+                
+                // Verificar si estamos en modo CGB y si KEY1 bit0 está activado (speed switch preparado)
+                HardwareMode hw_mode = mmu_->get_hardware_mode();
+                if (hw_mode == HardwareMode::CGB) {
+                    uint8_t key1 = mmu_->read(0xFF4D);
+                    if ((key1 & 0x01) == 0x01) {
+                        // Speed switch: toggle bit 7 (current speed) y clear bit 0
+                        key1 ^= 0x80;  // Toggle bit 7
+                        key1 &= 0xFE;  // Clear bit 0
+                        mmu_->write(0xFF4D, key1);
+                        
+                        // En speed switch, continuamos la ejecución (no entramos en estado stopped)
+                        cycles_ += 1;  // STOP consume 1 M-Cycle
+                        return 1;
+                    }
+                }
+                
+                // STOP normal: entrar en estado stopped hasta interrupción
+                // (Por ahora, solo consumimos 1 ciclo y continuamos; implementación completa requiere manejo de joypad)
+                cycles_ += 1;  // STOP consume 1 M-Cycle
+                return 1;
+            }
 
         default:
             // --- Step 0169: Revertido a comportamiento silencioso ---
@@ -4054,6 +4086,16 @@ uint32_t CPU::get_di_count() const {
     return di_count_global;
 }
 // --- Fin Step 0470 ---
+
+// --- Step 0472: Implementación de getters para STOP ---
+uint32_t CPU::get_stop_executed_count() const {
+    return stop_executed_count_;
+}
+
+uint16_t CPU::get_last_stop_pc() const {
+    return last_stop_pc_;
+}
+// --- Fin Step 0472 (STOP) ---
 
 void CPU::log_pokemon_micro_trace_summary() {
     if (pokemon_micro_trace_.sample_count == 0) {

@@ -130,6 +130,24 @@ cdef class PyCPU:
         """
         return self._cpu.get_di_count()
     
+    def get_stop_executed_count(self):
+        """
+        Step 0472: Obtiene el contador de ejecuciones de STOP.
+        
+        Returns:
+            Número de veces que se ha ejecutado STOP
+        """
+        return self._cpu.get_stop_executed_count()
+    
+    def get_last_stop_pc(self):
+        """
+        Step 0472: Obtiene el PC de la última ejecución de STOP.
+        
+        Returns:
+            PC de la última ejecución de STOP
+        """
+        return self._cpu.get_last_stop_pc()
+    
     # Propiedades para acceso directo (compatibilidad con tests)
     @property
     def registers(self):

@@ -132,6 +132,20 @@ public:
      * @return Número de veces que se ha servido VBlank interrupt
      */
     uint32_t get_vblank_irq_serviced_count() const;
+    
+    /**
+     * Step 0472: Obtiene el contador de ejecuciones de STOP.
+     * 
+     * @return Número de veces que se ha ejecutado STOP
+     */
+    uint32_t get_stop_executed_count() const;
+    
+    /**
+     * Step 0472: Obtiene el PC de la última ejecución de STOP.
+     * 
+     * @return PC de la última ejecución de STOP
+     */
+    uint16_t get_last_stop_pc() const;
 
 private:
     /**
@@ -590,6 +604,10 @@ private:
     uint64_t first_vblank_request_frame_;
     uint64_t first_vblank_service_frame_;
     bool irq_summary_logged_;
+    
+    // --- Step 0472: Contadores de STOP ---
+    uint32_t stop_executed_count_;       // Contador de ejecuciones de STOP
+    uint16_t last_stop_pc_;              // PC de la última ejecución de STOP
     
     // ========== Estado de Triage (Step 0434) ==========
     // Instrumentación para entender por qué VRAM está vacía

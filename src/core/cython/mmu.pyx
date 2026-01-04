@@ -601,6 +601,72 @@ cdef class PyMMU:
             return 0
         return self._mmu.get_ie_read_count()
     
+    def get_key1_write_count(self):
+        """
+        Step 0472: Obtiene el contador de writes a KEY1 (0xFF4D).
+        
+        Returns:
+            Número de veces que se ha escrito a KEY1
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_key1_write_count()
+    
+    def get_last_key1_write_value(self):
+        """
+        Step 0472: Obtiene el último valor escrito a KEY1 (0xFF4D).
+        
+        Returns:
+            Último valor escrito a KEY1
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_key1_write_value()
+    
+    def get_last_key1_write_pc(self):
+        """
+        Step 0472: Obtiene el PC del último write a KEY1 (0xFF4D).
+        
+        Returns:
+            PC del último write a KEY1
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_key1_write_pc()
+    
+    def get_joyp_write_count(self):
+        """
+        Step 0472: Obtiene el contador de writes a JOYP (0xFF00).
+        
+        Returns:
+            Número de veces que se ha escrito a JOYP
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_write_count()
+    
+    def get_last_joyp_write_value(self):
+        """
+        Step 0472: Obtiene el último valor escrito a JOYP (0xFF00).
+        
+        Returns:
+            Último valor escrito a JOYP
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_joyp_write_value()
+    
+    def get_last_joyp_write_pc(self):
+        """
+        Step 0472: Obtiene el PC del último write a JOYP (0xFF00).
+        
+        Returns:
+            PC del último write a JOYP
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_joyp_write_pc()
+    
     def read_raw(self, uint16_t addr):
         """
         Raw read for diagnostics (bypasses access restrictions).

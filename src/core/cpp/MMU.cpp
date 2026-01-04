@@ -25,6 +25,16 @@ static uint32_t last_ie_write_timestamp = 0;
 static uint8_t last_ie_read_value = 0x00;
 static uint32_t ie_read_count = 0;
 
+// --- Step 0472: Instrumentación de KEY1 (0xFF4D) ---
+static uint32_t key1_write_count = 0;
+static uint8_t last_key1_write_value = 0x00;
+static uint16_t last_key1_write_pc = 0x0000;
+
+// --- Step 0472: Instrumentación de JOYP (0xFF00) ---
+static uint32_t joyp_write_count = 0;
+static uint8_t last_joyp_write_value = 0x00;
+static uint16_t last_joyp_write_pc = 0x0000;
+
 // --- Step 0470: Watch de lecturas de IO (solo contadores) ---
 static std::map<uint16_t, uint32_t> io_read_counts;
 // -------------------------------------------
@@ -1040,6 +1050,22 @@ void MMU::write(uint16_t addr, uint8_t value) {
     if (addr == 0xFF0F) {  // IF
         if_write_count++;
         last_if_written = value;
+    }
+    // -----------------------------------------
+    
+    // --- Step 0472: Contadores de writes a KEY1 (0xFF4D) ---
+    if (addr == 0xFF4D) {  // KEY1 (CGB Speed Switch)
+        key1_write_count++;
+        last_key1_write_value = value;
+        last_key1_write_pc = debug_current_pc;
+    }
+    // -----------------------------------------
+    
+    // --- Step 0472: Contadores de writes a JOYP (0xFF00) ---
+    if (addr == 0xFF00) {  // JOYP (Joypad)
+        joyp_write_count++;
+        last_joyp_write_value = value;
+        last_joyp_write_pc = debug_current_pc;
     }
     // -----------------------------------------
     
@@ -4102,4 +4128,32 @@ uint32_t MMU::get_ie_read_count() const {
     return ie_read_count;
 }
 // --- Fin Step 0471 ---
+
+// --- Step 0472: Implementación de getters para KEY1 ---
+uint32_t MMU::get_key1_write_count() const {
+    return key1_write_count;
+}
+
+uint8_t MMU::get_last_key1_write_value() const {
+    return last_key1_write_value;
+}
+
+uint16_t MMU::get_last_key1_write_pc() const {
+    return last_key1_write_pc;
+}
+// --- Fin Step 0472 (KEY1) ---
+
+// --- Step 0472: Implementación de getters para JOYP ---
+uint32_t MMU::get_joyp_write_count() const {
+    return joyp_write_count;
+}
+
+uint8_t MMU::get_last_joyp_write_value() const {
+    return last_joyp_write_value;
+}
+
+uint16_t MMU::get_last_joyp_write_pc() const {
+    return last_joyp_write_pc;
+}
+// --- Fin Step 0472 (JOYP) ---
 
