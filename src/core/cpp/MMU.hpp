@@ -795,6 +795,15 @@ private:
     mutable uint32_t stat_mode_changes_count_;    // Contador de cambios de modo STAT por frame
     mutable uint32_t if_bit0_set_count_this_frame_; // Contador de veces que IF bit0 se pone a 1 por frame
     
+    // --- Step 0480: Instrumentación HRAM[FF92] quirúrgica (gated por VIBOY_DEBUG_IO) ---
+    mutable uint32_t hram_ff92_write_count_;
+    mutable uint16_t last_hram_ff92_write_pc_;
+    mutable uint8_t last_hram_ff92_write_value_;
+    mutable uint32_t last_hram_ff92_write_timestamp_;
+    mutable uint32_t hram_ff92_read_count_program_;
+    mutable uint16_t last_hram_ff92_read_pc_;
+    mutable uint8_t last_hram_ff92_read_value_;
+    
 public:
     /**
      * Step 0450: Log summary of MBC writes (debug-gated).
@@ -1081,6 +1090,55 @@ public:
      * @return Número de veces que IF bit0 se activó en el frame actual
      */
     uint32_t get_if_bit0_set_count_this_frame() const;
+    
+    /**
+     * Step 0480: Obtiene el contador de writes a HRAM[FF92].
+     * 
+     * @return Número de veces que se ha escrito a HRAM[FF92]
+     */
+    uint32_t get_hram_ff92_write_count() const;
+    
+    /**
+     * Step 0480: Obtiene el PC del último write a HRAM[FF92].
+     * 
+     * @return PC del último write a HRAM[FF92]
+     */
+    uint16_t get_last_hram_ff92_write_pc() const;
+    
+    /**
+     * Step 0480: Obtiene el último valor escrito a HRAM[FF92].
+     * 
+     * @return Último valor escrito a HRAM[FF92]
+     */
+    uint8_t get_last_hram_ff92_write_value() const;
+    
+    /**
+     * Step 0480: Obtiene el timestamp del último write a HRAM[FF92].
+     * 
+     * @return Timestamp del último write a HRAM[FF92]
+     */
+    uint32_t get_last_hram_ff92_write_timestamp() const;
+    
+    /**
+     * Step 0480: Obtiene el contador de reads de HRAM[FF92] desde programa.
+     * 
+     * @return Número de lecturas de HRAM[FF92] desde código del programa
+     */
+    uint32_t get_hram_ff92_read_count_program() const;
+    
+    /**
+     * Step 0480: Obtiene el PC del último read de HRAM[FF92].
+     * 
+     * @return PC del último read de HRAM[FF92]
+     */
+    uint16_t get_last_hram_ff92_read_pc() const;
+    
+    /**
+     * Step 0480: Obtiene el último valor leído de HRAM[FF92].
+     * 
+     * @return Último valor leído de HRAM[FF92]
+     */
+    uint8_t get_last_hram_ff92_read_value() const;
 };
 
 #endif // MMU_HPP

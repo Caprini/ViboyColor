@@ -178,6 +178,13 @@ MMU::MMU()
     , ly_changes_this_frame_(0)  // Step 0479: Contador de cambios de LY por frame
     , stat_mode_changes_count_(0)  // Step 0479: Contador de cambios de modo STAT por frame
     , if_bit0_set_count_this_frame_(0)  // Step 0479: Contador de veces que IF bit0 se pone a 1 por frame
+    , hram_ff92_write_count_(0)  // Step 0480: Contador de writes a HRAM[FF92]
+    , last_hram_ff92_write_pc_(0x0000)  // Step 0480: PC del último write a HRAM[FF92]
+    , last_hram_ff92_write_value_(0x00)  // Step 0480: Último valor escrito a HRAM[FF92]
+    , last_hram_ff92_write_timestamp_(0)  // Step 0480: Timestamp del último write a HRAM[FF92]
+    , hram_ff92_read_count_program_(0)  // Step 0480: Contador de reads de HRAM[FF92] desde programa
+    , last_hram_ff92_read_pc_(0x0000)  // Step 0480: PC del último read de HRAM[FF92]
+    , last_hram_ff92_read_value_(0x00)  // Step 0480: Último valor leído de HRAM[FF92]
 {
     // Step 0450: Inicializar ring buffer de MBC writes
     for (int i = 0; i < 8; i++) {
@@ -413,14 +420,17 @@ uint8_t MMU::read(uint16_t addr) const {
     // La CPU escribe en P1 para seleccionar qué fila de botones leer, y lee
     // el estado de los botones de la fila seleccionada
     if (addr == 0xFF00) {
-        // --- Step 0380: Instrumentación de Lecturas de P1 (0xFF00) ---
-        static int p1_read_count = 0;
-        uint8_t p1_value = 0x00;  // Sin joypad conectado, devolver 0 (para tests)
+        // --- Step 0480: Fix mínimo JOYP - bits 6-7 siempre leen como 1 ---
+        uint8_t p1_value = 0xFF;  // Default: todos los bits en 1 (no presionados)
         
         if (joypad_ != nullptr) {
             p1_value = joypad_->read_p1();
+            // Asegurar bits 6-7 siempre en 1 (según Pan Docs)
+            p1_value |= 0xC0;
         }
         
+        // --- Step 0380: Instrumentación de Lecturas de P1 (0xFF00) ---
+        static int p1_read_count = 0;
         if (p1_read_count < 50) {
             p1_read_count++;
             printf("[MMU-JOYP-READ] PC:0x%04X | Read P1 = 0x%02X\n",
@@ -975,6 +985,18 @@ uint8_t MMU::read(uint16_t addr) const {
             waits_on_reads_program_++;
             last_waits_on_read_value_ = memory_[addr];
             last_waits_on_read_pc_ = debug_current_pc;
+        }
+    }
+    // -----------------------------------------
+    
+    // --- Step 0480: Instrumentación HRAM[FF92] quirúrgica (gated por VIBOY_DEBUG_IO) ---
+    if (addr == 0xFF92) {
+        bool debug_io = (std::getenv("VIBOY_DEBUG_IO") != nullptr && 
+                         std::string(std::getenv("VIBOY_DEBUG_IO")) == "1");
+        if (debug_io && !irq_poll_active_) {  // Solo reads desde programa
+            hram_ff92_read_count_program_++;
+            last_hram_ff92_read_pc_ = debug_current_pc;
+            last_hram_ff92_read_value_ = memory_[addr];
         }
     }
     // -----------------------------------------
@@ -2866,8 +2888,21 @@ void MMU::write(uint16_t addr, uint8_t value) {
         printf("[IO-LCDC-WRITE] addr=0x%04X LCDC old=0x%02X new=0x%02X\n",
                addr, old_val, new_val);
     }
-    // -------------------------------------------
-
+        // -------------------------------------------
+    
+    // --- Step 0480: Instrumentación HRAM[FF92] quirúrgica (gated por VIBOY_DEBUG_IO) ---
+    if (addr == 0xFF92) {
+        bool debug_io = (std::getenv("VIBOY_DEBUG_IO") != nullptr && 
+                         std::string(std::getenv("VIBOY_DEBUG_IO")) == "1");
+        if (debug_io) {
+            hram_ff92_write_count_++;
+            last_hram_ff92_write_pc_ = debug_current_pc;
+            last_hram_ff92_write_value_ = value;
+            last_hram_ff92_write_timestamp_++;
+        }
+    }
+    // -----------------------------------------
+    
     memory_[addr] = value;
     
     // --- Step 0323: Verificación de Tile Completo después de escribir ---
@@ -4482,5 +4517,35 @@ uint32_t MMU::get_if_bit0_set_count_this_frame() const {
     return if_bit0_set_count_this_frame_;
 }
 // --- Fin Step 0479 ---
+
+// --- Step 0480: Getters para instrumentación HRAM[FF92] ---
+uint32_t MMU::get_hram_ff92_write_count() const {
+    return hram_ff92_write_count_;
+}
+
+uint16_t MMU::get_last_hram_ff92_write_pc() const {
+    return last_hram_ff92_write_pc_;
+}
+
+uint8_t MMU::get_last_hram_ff92_write_value() const {
+    return last_hram_ff92_write_value_;
+}
+
+uint32_t MMU::get_last_hram_ff92_write_timestamp() const {
+    return last_hram_ff92_write_timestamp_;
+}
+
+uint32_t MMU::get_hram_ff92_read_count_program() const {
+    return hram_ff92_read_count_program_;
+}
+
+uint16_t MMU::get_last_hram_ff92_read_pc() const {
+    return last_hram_ff92_read_pc_;
+}
+
+uint8_t MMU::get_last_hram_ff92_read_value() const {
+    return last_hram_ff92_read_value_;
+}
+// --- Fin Step 0480 ---
 // --- Fin Step 0475 ---
 

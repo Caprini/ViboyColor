@@ -325,11 +325,11 @@ def disasm_window(mmu: PyMMU, pc: int, before: int = 16, after: int = 32) -> Lis
     """
     Desensambla ventana alrededor de PC para evitar empezar en mitad de instrucción.
     
-    Step 0477: Esta función lee bytes alrededor del PC y desensambla desde el inicio
-    de la ventana, marcando cuál instrucción corresponde al PC actual.
+    Step 0480: Corregido para marcar PC actual explícitamente y leer bytes usando MMU
+    (respeta banking) en lugar de raw file access.
     
     Args:
-        mmu: Instancia MMU
+        mmu: Instancia MMU (para respetar banking)
         pc: PC actual (centro de la ventana)
         before: Bytes antes de PC a leer
         after: Bytes después de PC a leer
@@ -340,7 +340,7 @@ def disasm_window(mmu: PyMMU, pc: int, before: int = 16, after: int = 32) -> Lis
     start_addr = (pc - before) & 0xFFFF
     end_addr = (pc + after) & 0xFFFF
     
-    # Leer bytes de ROM
+    # Leer bytes de ROM usando MMU (respeta banking)
     bytes_data = []
     for addr in range(start_addr, end_addr + 1):
         addr_wrapped = addr & 0xFFFF
@@ -354,30 +354,28 @@ def disasm_window(mmu: PyMMU, pc: int, before: int = 16, after: int = 32) -> Lis
     
     while offset < len(bytes_data):
         addr = (start_addr + offset) & 0xFFFF
-        
-        # Determinar longitud de instrucción
-        opcode = bytes_data[offset]
-        if opcode == 0xCB:
-            bytes_read = 2  # CB prefix consume 2 bytes
-        elif opcode in [0xE0, 0xF0, 0xEA, 0xFA]:
-            bytes_read = 2 if opcode in [0xE0, 0xF0] else 3  # LDH 2 bytes, LD (a16) 3 bytes
-        else:
-            # Usar disasm_lr35902 para obtener bytes_read
-            inst_list = disasm_lr35902(bytes_data[offset:], addr, max_instructions=1)
-            if inst_list:
-                _, _, bytes_read = inst_list[0]
-            else:
-                bytes_read = 1  # Default: 1 byte
-        
-        # Marcar si es el PC actual
         is_current = (addr == current_pc)
         
-        # Obtener mnemónico
+        # Obtener mnemónico usando disasm_lr35902
         inst_list = disasm_lr35902(bytes_data[offset:], addr, max_instructions=1)
         if inst_list:
-            _, mnemonic, _ = inst_list[0]
+            _, mnemonic, bytes_read = inst_list[0]
         else:
+            # Fallback: determinar bytes_read básico
+            opcode = bytes_data[offset]
+            if opcode == 0xCB:
+                bytes_read = 2  # CB prefix consume 2 bytes
+            elif opcode in [0xE0, 0xF0]:
+                bytes_read = 2  # LDH consume 2 bytes
+            elif opcode in [0xEA, 0xFA]:
+                bytes_read = 3  # LD (a16) consume 3 bytes
+            else:
+                bytes_read = 1  # Default: 1 byte
             mnemonic = f"DB 0x{opcode:02X}"
+        
+        # Marcar PC actual explícitamente
+        if is_current:
+            mnemonic = f">>> {mnemonic} <<< PC ACTUAL"
         
         instructions.append((addr, mnemonic, is_current))
         offset += bytes_read
@@ -393,8 +391,10 @@ def parse_loop_io_pattern(disasm_window: List[Tuple[int, str, bool]]) -> Dict[st
     """
     Parsea el disasm window y detecta automáticamente patrones de I/O.
     
-    Step 0479: Esta función analiza el disasm window para identificar qué I/O
-    está esperando el loop (LY, STAT, IF, CGB I/O) y con qué condición.
+    Step 0480: Reglas corregidas para evitar falsos positivos:
+    - Solo declarar loop_waits_on si hay I/O read (addr < 0xFF80) Y jump de vuelta
+    - FF80-FFFE = HRAM, no I/O (no marcar como wait loop)
+    - Debe haber jump de vuelta al hotspot para ser considerado loop real
     
     Args:
         disasm_window: Lista de tuplas (addr, instruction, is_current_pc)
@@ -412,94 +412,120 @@ def parse_loop_io_pattern(disasm_window: List[Tuple[int, str, bool]]) -> Dict[st
     mask = None
     cmp_val = None
     pattern = None
+    hotspot_pc = None
     
-    # Buscar LDH A,(addr) o LD A,(addr) que leen I/O
+    # Encontrar PC actual (hotspot)
     for addr, instruction, is_current in disasm_window:
-        # Detectar LDH A,(FF44), LDH A,(FF41), etc.
+        if is_current:
+            hotspot_pc = addr
+            break
+    
+    if hotspot_pc is None:
+        return {"waits_on": None, "mask": None, "cmp": None, "pattern": "UNKNOWN"}
+    
+    # Buscar I/O read y jump de vuelta
+    io_read_addr = None
+    jump_back_found = False
+    
+    for addr, instruction, is_current in disasm_window:
+        # Detectar LDH A,(addr) con addr < 0xFF80 (I/O, no HRAM)
         if "LDH A,(" in instruction or "LD A,(" in instruction:
-            # Extraer dirección I/O del mnemónico
-            # Formato: "LDH A,(LY)" o "LD A,(0xFF44)" o "LDH A,(FF44)"
+            # Extraer dirección del mnemónico
+            # Formato: "LDH A,(LY)" o "LD A,(0xFF44)" o "LDH A,(FF44)" o "LDH A,(0xFF92)"
             if "0xFF" in instruction:
-                # Buscar dirección hexadecimal
                 matches = re.findall(r'0x([0-9A-F]{2,4})', instruction)
                 if matches:
                     io_addr_hex = matches[0]
                     io_addr = int(io_addr_hex, 16)
-                    if 0xFF00 <= io_addr <= 0xFFFF:
+                    # Solo considerar I/O (0xFF00-0xFF7F), no HRAM (0xFF80-0xFFFF)
+                    if 0xFF00 <= io_addr < 0xFF80:
+                        io_read_addr = io_addr
                         waits_on = io_addr
             elif "LY" in instruction:
+                io_read_addr = 0xFF44
                 waits_on = 0xFF44
             elif "STAT" in instruction:
+                io_read_addr = 0xFF41
                 waits_on = 0xFF41
             elif "IF" in instruction:
+                io_read_addr = 0xFF0F
                 waits_on = 0xFF0F
             elif "IE" in instruction:
+                io_read_addr = 0xFFFF
                 waits_on = 0xFFFF
             elif "JOYP" in instruction:
+                io_read_addr = 0xFF00
                 waits_on = 0xFF00
             elif "KEY1" in instruction:
+                io_read_addr = 0xFF4D
                 waits_on = 0xFF4D
             elif "VBK" in instruction:
+                io_read_addr = 0xFF4F
                 waits_on = 0xFF4F
             elif "SVBK" in instruction:
+                io_read_addr = 0xFF70
                 waits_on = 0xFF70
-            # Detectar I/O CGB no estándar (0xFF92, 0xFFBE, etc.)
-            elif "0xFF" in instruction:
-                # Buscar dirección hexadecimal en el mnemónico
-                matches = re.findall(r'0x([0-9A-F]{2,4})', instruction)
-                for match in matches:
-                    io_addr_hex = match
-                    io_addr = int(io_addr_hex, 16)
-                    if 0xFF00 <= io_addr <= 0xFFFF:
-                        waits_on = io_addr
-                        break
         
-        # Detectar AND mask (ej: "AND 0x01", "AND 0x03")
+        # Detectar AND mask
         if waits_on and "AND" in instruction:
             matches = re.findall(r'AND\s+0x([0-9A-Fa-f]+)', instruction)
             if matches:
                 mask = int(matches[0], 16)
         
-        # Detectar CP (compare) (ej: "CP 0x90")
+        # Detectar CP (compare)
         if waits_on and "CP" in instruction:
             matches = re.findall(r'CP\s+0x([0-9A-Fa-f]+)', instruction)
             if matches:
                 cmp_val = int(matches[0], 16)
         
-        # Detectar BIT n (opcode CB, pero el disassembler puede no decodificarlo)
-        # Por ahora, si hay AND 0x01, 0x02, 0x04, etc., asumimos que es un test de bit
-        # (El mask ya se capturó arriba, no necesitamos hacer nada más aquí)
+        # Detectar BIT n
+        if waits_on and "BIT" in instruction:
+            matches = re.findall(r'BIT\s+(\d+)', instruction)
+            if matches:
+                bit_num = int(matches[0])
+                mask = 1 << bit_num
+        
+        # Detectar jump de vuelta al hotspot
+        if waits_on and ("JR" in instruction or "JP" in instruction):
+            # Extraer target del jump
+            matches = re.findall(r'(JR|JP)\s+(?:Z|NZ|C|NC)?\s*0x([0-9A-Fa-f]+)', instruction)
+            if matches:
+                target = int(matches[0][1], 16)
+                # Verificar si el target está cerca del hotspot (ventana de ±32 bytes)
+                if abs(target - hotspot_pc) <= 32:
+                    jump_back_found = True
     
-    # Determinar pattern basado en waits_on y mask/cmp
-    if waits_on == 0xFF44:  # LY
-        if cmp_val is not None:
-            pattern = "LY_GE"  # LY >= cmp_val (o LY == cmp_val, según el contexto)
+    # Solo declarar loop si hay I/O read Y jump de vuelta
+    if not jump_back_found:
+        waits_on = None
+        mask = None
+        cmp_val = None
+        pattern = "NO_LOOP"  # No es un wait loop, es otra cosa
+    else:
+        # Determinar pattern
+        if waits_on == 0xFF44:  # LY
+            if cmp_val is not None:
+                pattern = "LY_GE"
+            else:
+                pattern = "LY_POLL"
+        elif waits_on == 0xFF41:  # STAT
+            if mask == 0x03:
+                pattern = "STAT_MODE"
+            else:
+                pattern = "STAT_POLL"
+        elif waits_on == 0xFF0F:  # IF
+            if mask:
+                pattern = f"IF_BIT{mask.bit_length()-1}"
+            else:
+                pattern = "IF_POLL"
+        elif waits_on == 0xFF00:  # JOYP
+            pattern = "JOYP_POLL"
+        elif waits_on in [0xFF4D, 0xFF4F, 0xFF70]:  # CGB I/O
+            pattern = "CGB_IO"
+        elif waits_on == 0xFFFF:  # IE
+            pattern = "IE_POLL"
         else:
-            pattern = "LY_POLL"
-    elif waits_on == 0xFF41:  # STAT
-        if mask == 0x03:
-            pattern = "STAT_MODE"
-        elif mask:
-            pattern = f"STAT_BIT{mask.bit_length()-1}"
-        else:
-            pattern = "STAT_POLL"
-    elif waits_on == 0xFF0F:  # IF
-        if mask:
-            # Determinar número de bit
-            bit_num = 0
-            temp_mask = mask
-            while temp_mask > 1:
-                bit_num += 1
-                temp_mask >>= 1
-            pattern = f"IF_BIT{bit_num}"
-        else:
-            pattern = "IF_POLL"
-    elif waits_on in [0xFF00, 0xFF4D, 0xFF4F, 0xFF70]:  # CGB I/O
-        pattern = "CGB_IO"
-    elif waits_on == 0xFFFF:  # IE
-        pattern = "IE_POLL"
-    elif waits_on:
-        pattern = "UNKNOWN"
+            pattern = "UNKNOWN"
     
     return {
         "waits_on": waits_on,
@@ -1192,6 +1218,18 @@ class ROMSmokeRunner:
                 # Step 0475: Boot logo prefill status
                 boot_logo_prefill_enabled = metrics.get('boot_logo_prefill_enabled', 0)
                 
+                # Step 0480: HRAM FF92 metrics (quirúrgico, gated por VIBOY_DEBUG_IO)
+                hram_ff92_write_count = self.mmu.get_hram_ff92_write_count() if hasattr(self.mmu, 'get_hram_ff92_write_count') else 0
+                hram_ff92_read_count_program = self.mmu.get_hram_ff92_read_count_program() if hasattr(self.mmu, 'get_hram_ff92_read_count_program') else 0
+                last_hram_ff92_write_pc = self.mmu.get_last_hram_ff92_write_pc() if hasattr(self.mmu, 'get_last_hram_ff92_write_pc') else 0xFFFF
+                last_hram_ff92_write_value = self.mmu.get_last_hram_ff92_write_value() if hasattr(self.mmu, 'get_last_hram_ff92_write_value') else 0
+                last_hram_ff92_write_timestamp = self.mmu.get_last_hram_ff92_write_timestamp() if hasattr(self.mmu, 'get_last_hram_ff92_write_timestamp') else 0
+                last_hram_ff92_read_pc = self.mmu.get_last_hram_ff92_read_pc() if hasattr(self.mmu, 'get_last_hram_ff92_read_pc') else 0xFFFF
+                last_hram_ff92_read_value = self.mmu.get_last_hram_ff92_read_value() if hasattr(self.mmu, 'get_last_hram_ff92_read_value') else 0
+                
+                # Step 0480: JOYP read metrics (último valor leído)
+                last_joyp_read_value = joyp  # Ya leído arriba
+                
                 # Step 0474/0479: Obtener PC hotspot #1 y disasembly
                 pc_hotspot_1 = None
                 disasm_snippet = ""
@@ -1276,7 +1314,11 @@ class ROMSmokeRunner:
                       f"IE_ReadsProg={ie_reads_program} IE_ReadsPoll={ie_reads_cpu_poll} IE_WritesProg={ie_writes_program} | "
                       f"LastIRQVec=0x{last_irq_serviced_vector:04X} LastIRQTS={last_irq_serviced_timestamp} | "
                       f"IF_BeforeSvc=0x{last_if_before_service:02X} IF_AfterSvc=0x{last_if_after_service:02X} IF_ClearMask=0x{last_if_clear_mask:02X} | "
-                      f"BootLogoPrefill={boot_logo_prefill_enabled}")
+                      f"BootLogoPrefill={boot_logo_prefill_enabled} | "
+                      f"HRAM_FF92_WriteCount={hram_ff92_write_count} HRAM_FF92_ReadCountProg={hram_ff92_read_count_program} | "
+                      f"HRAM_FF92_LastWritePC=0x{last_hram_ff92_write_pc:04X} HRAM_FF92_LastWriteVal=0x{last_hram_ff92_write_value:02X} HRAM_FF92_LastWriteTS={last_hram_ff92_write_timestamp} | "
+                      f"HRAM_FF92_LastReadPC=0x{last_hram_ff92_read_pc:04X} HRAM_FF92_LastReadVal=0x{last_hram_ff92_read_value:02X} | "
+                      f"JOYP_ReadVal=0x{last_joyp_read_value:02X}")
                 
                 # Step 0477: Clasificador automático (Caso A/B/C/D)
                 classification = self._classify_ime_ie_state(
