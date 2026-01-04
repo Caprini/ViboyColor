@@ -1420,6 +1420,21 @@ const uint8_t* PPU::get_framebuffer_indices_ptr() const {
     return framebuffer_front_.data();
 }
 
+const uint8_t* PPU::get_presented_framebuffer_indices_ptr() {
+    // --- Step 0468: Present automático si hay swap pendiente ---
+    // Si hay contenido renderizado en el back buffer que no se ha presentado,
+    // hacemos el swap automáticamente para que los tests vean el contenido actualizado
+    // (igual que get_framebuffer_ptr())
+    if (framebuffer_swap_pending_) {
+        swap_framebuffers();
+        framebuffer_swap_pending_ = false;
+    }
+    // -------------------------------------------
+    
+    // Devolver el buffer front (estable, actualizado con el contenido más reciente)
+    return framebuffer_front_.data();
+}
+
 void PPU::swap_framebuffers() {
     // --- Step 0365: Verificación Detallada del Intercambio ---
     // Contar píxeles no-blancos en ambos buffers antes del intercambio

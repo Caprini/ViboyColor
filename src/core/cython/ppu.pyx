@@ -261,6 +261,26 @@ cdef class PyPPU:
         # Crear bytes desde el puntero (23040 bytes = 160*144)
         return <bytes>(<uint8_t[:23040]>indices_ptr)
     
+    def get_presented_framebuffer_indices(self):
+        """
+        Step 0468: Obtiene el framebuffer de índices presentado.
+        
+        Garantiza que devuelve el último frame presentado (hace present automático
+        si hay swap pendiente, igual que get_framebuffer()).
+        
+        Returns:
+            bytes de 23040 bytes (160*144), valores 0..3 del frame presentado
+        """
+        if self._ppu == NULL:
+            return None
+        
+        cdef const uint8_t* indices_ptr = self._ppu.get_presented_framebuffer_indices_ptr()
+        if indices_ptr == NULL:
+            return None
+        
+        # Crear bytes desde el puntero (23040 bytes = 160*144)
+        return <bytes>(<uint8_t[:23040]>indices_ptr)
+    
     def get_last_palette_regs_used(self):
         """
         Step 0457: Debug API para tests - Obtiene paleta regs usados en última conversión.

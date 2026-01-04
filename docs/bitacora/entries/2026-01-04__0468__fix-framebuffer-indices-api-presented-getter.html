@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix Mínimo y Correcto (Cerrar Bug de API) - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Fix Mínimo y Correcto (Cerrar Bug de API)</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-04
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0468
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-03__0467__cerrar-framebuffer-0-con-prueba-corta-y-concluyente.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Corrección del bug de API identificado en Step 0467: <code>get_framebuffer_indices()</code> no "presenta" automáticamente como <code>get_framebuffer()</code>, causando que tests lean el buffer equivocado (front limpio antes del swap en lugar del frame presentado). Se implementó un nuevo getter <code>get_presented_framebuffer_indices_ptr()</code> que garantiza present automático si hay swap pendiente (igual que <code>get_framebuffer_ptr()</code>). Todos los tests 0464 fueron actualizados para usar el nuevo getter y ahora pasan correctamente. ✅ Bug de API cerrado.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Bug de API Identificado en Step 0467</strong>: El problema NO era que BG no renderizara (bg_pixels_written=23040), ni que los bytes leídos fueran incorrectos (last_tile_bytes=[85, 51]). El problema era que <code>get_framebuffer_indices_ptr()</code> NO hacía "present automático" como <code>get_framebuffer_ptr()</code>.
+                </p>
+                <p>
+                    <strong>Present Automático</strong>: Cuando un frame se completa (LY=144), el contenido renderizado está en el back buffer. El swap al front buffer ocurre cuando se llama a <code>get_frame_ready_and_reset()</code>. Sin embargo, para que los tests puedan leer el frame más reciente sin tener que llamar explícitamente a reset, los getters de framebuffer deben hacer "present automático": si hay un swap pendiente (<code>framebuffer_swap_pending_</code>), hacer el swap antes de devolver el puntero.
+                </p>
+                <p>
+                    <strong>Diseño Problemático</strong>:
+                </p>
+                <ul>
+                    <li><code>get_framebuffer_ptr()</code>: Hace present automático si hay swap pendiente (línea 1389)</li>
+                    <li><code>get_framebuffer_indices_ptr()</code>: NO hace present automático, solo devuelve <code>framebuffer_front_.data()</code> (línea 1420)</li>
+                </ul>
+                <p>
+                    <strong>Problema</strong>: Tener dos getters con contratos distintos sobre cuándo se "presenta" el frame es fuente de bugs. Tests leen el buffer equivocado (front limpio antes del swap en lugar del frame presentado).
+                </p>
+                <p>
+                    <strong>Solución</strong>: Crear un getter nuevo <code>get_presented_framebuffer_indices_ptr()</code> que garantice present. Este método NO es <code>const</code> porque puede hacer swap (mutar estado), igual que <code>get_framebuffer_ptr()</code>.
+                </p>
+                <p>
+                    <strong>Referencia</strong>: Step 0364 - Doble Buffering. Step 0428 - Present Automático en <code>get_framebuffer_ptr()</code>. Step 0457 - Debug API para tests. Step 0467 - Diagnóstico del bug.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó un nuevo getter "presented" que garantiza present automático, sin romper compatibilidad (el getter antiguo sigue existiendo).
+                </p>
+                
+                <h3>Fase A: Getter "Presented Indices" Explícito</h3>
+                <p>
+                    Se añadió <code>get_presented_framebuffer_indices_ptr()</code> en C++:
+                </p>
+                <pre><code>// En PPU.hpp:
+/**
+ * Step 0468: Getter "presented" para framebuffer indices.
+ * 
+ * Garantiza que devuelve el último frame presentado (hace present automático
+ * si hay swap pendiente, igual que get_framebuffer_ptr()).
+ * 
+ * Contrato: Siempre devuelve el frame más reciente renderizado y presentado.
+ * 
+ * @return Puntero al framebuffer de índices presentado (23040 bytes)
+ */
+const uint8_t* get_presented_framebuffer_indices_ptr();
+
+// En PPU.cpp:
+const uint8_t* PPU::get_presented_framebuffer_indices_ptr() {
+    // --- Step 0468: Present automático si hay swap pendiente ---
+    if (framebuffer_swap_pending_) {
+        swap_framebuffers();
+        framebuffer_swap_pending_ = false;
+    }
+    
+    // Devolver el buffer front (estable, actualizado con el contenido más reciente)
+    return framebuffer_front_.data();
+}</code></pre>
+                <p>
+                    <strong>Nota</strong>: Este método NO es <code>const</code> porque puede hacer swap (mutar estado). Esto es consistente con <code>get_framebuffer_ptr()</code> que tampoco es <code>const</code>.
+                </p>
+
+                <h3>Fase B: Exposición a Python</h3>
+                <p>
+                    Se expuso el nuevo método a Python en <code>ppu.pxd</code> y <code>ppu.pyx</code>:
+                </p>
+                <pre><code>// En ppu.pxd:
+const uint8_t* get_presented_framebuffer_indices_ptr()  # Step 0468
+
+// En ppu.pyx:
+def get_presented_framebuffer_indices(self):
+    """
+    Step 0468: Obtiene el framebuffer de índices presentado.
+    
+    Garantiza que devuelve el último frame presentado (hace present automático
+    si hay swap pendiente, igual que get_framebuffer()).
+    
+    Returns:
+        bytes de 23040 bytes (160*144), valores 0..3 del frame presentado
+    """
+    if self._ppu == NULL:
+        return None
+    
+    cdef const uint8_t* indices_ptr = self._ppu.get_presented_framebuffer_indices_ptr()
+    if indices_ptr == NULL:
+        return None
+    
+    # Crear bytes desde el puntero (23040 bytes = 160*144)
+    return <bytes>(<uint8_t[:23040]>indices_ptr)</code></pre>
+
+                <h3>Fase C: Actualización de Tests 0464</h3>
+                <p>
+                    Todos los tests 0464 fueron actualizados para usar <code>get_presented_framebuffer_indices()</code> en lugar de <code>get_framebuffer_indices()</code>:
+                </p>
+                <ul>
+                    <li><code>test_tilemap_base_select_9800()</code>: Eliminado experimento pre/post reset (ya no es necesario), usar getter "presented"</li>
+                    <li><code>test_tilemap_base_select_9C00()</code>: Usar getter "presented"</li>
+                    <li><code>test_scx_pixel_scroll_0_to_7()</code>: Usar getter "presented"</li>
+                </ul>
+                <p>
+                    <strong>Ejemplo de cambio</strong>:
+                </p>
+                <pre><code># Antes (problemático):
+indices = self.ppu.get_framebuffer_indices()  # Puede leer front limpio
+
+# Después (correcto):
+indices = self.ppu.get_presented_framebuffer_indices()  # Garantiza present</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Añadido método <code>get_presented_framebuffer_indices_ptr()</code></li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementado <code>get_presented_framebuffer_indices_ptr()</code> con present automático</li>
+                    <li><code>src/core/cython/ppu.pxd</code> - Añadida declaración de <code>get_presented_framebuffer_indices_ptr()</code></li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Añadido wrapper Python <code>get_presented_framebuffer_indices()</code></li>
+                    <li><code>tests/test_bg_tilemap_base_and_scroll_0464.py</code> - Actualizados todos los tests para usar <code>get_presented_framebuffer_indices()</code>, eliminado experimento pre/post reset</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado</strong>:
+                </p>
+                <pre><code>pytest -q tests/test_bg_tilemap_base_and_scroll_0464.py</code></pre>
+                <p>
+                    <strong>Resultado</strong>: ✅ 3 passed in 1.19s
+                </p>
+                <p>
+                    <strong>Tests que pasan</strong>:
+                </p>
+                <ul>
+                    <li>✅ <code>test_tilemap_base_select_9800()</code> - Verifica selección de tilemap base 0x9800</li>
+                    <li>✅ <code>test_tilemap_base_select_9C00()</code> - Verifica selección de tilemap base 0x9C00</li>
+                    <li>✅ <code>test_scx_pixel_scroll_0_to_7()</code> - Verifica scroll horizontal SCX 0-7</li>
+                </ul>
+                <p>
+                    <strong>Código del Test</strong>:
+                </p>
+                <pre><code>def test_tilemap_base_select_9800(self):
+    # ... setup tiles y tilemaps ...
+    
+    # Correr frame
+    self.run_one_frame()
+    
+    # Usar getter "presented" que garantiza present automático
+    indices = self.ppu.get_presented_framebuffer_indices()
+    assert indices is not None
+    assert len(indices) == 23040
+    
+    # Verificar patrón esperado
+    row0_start = 0 * 160
+    expected_p0 = [0, 1, 2, 3, 0, 1, 2, 3]
+    for i in range(8):
+        actual_idx = indices[row0_start + i] & 0x03
+        expected_idx = expected_p0[i]
+        assert actual_idx == expected_idx</code></pre>
+                <p>
+                    <strong>Validación Nativa</strong>: ✅ Compilación exitosa. Módulo C++ compilado correctamente. Método <code>get_presented_framebuffer_indices_ptr()</code> expuesto correctamente a Python.
+                </p>
+                <p>
+                    <strong>Validación Real (ROMs)</strong>: Se ejecutaron rom_smoke para tetris.gb, pkmn.gb, tetris_dx.gbc, mario.gbc (240 frames cada uno) y grid UI. Todos completaron sin crashes. Logs muestran diagnóstico PPU-TILEMAP-DIAG cuando está gated.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Step 0364: Doble Buffering en PPU</li>
+                    <li>Step 0428: Present Automático en <code>get_framebuffer_ptr()</code></li>
+                    <li>Step 0457: Debug API para tests - <code>get_framebuffer_indices_ptr()</code></li>
+                    <li>Step 0467: Diagnóstico del bug - Evidencias recopiladas (nz_pre=0, nz_post=17280)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Consistencia de API</strong>: Todos los getters de framebuffer deben tener el mismo contrato sobre cuándo se "presenta" el frame. Tener getters con contratos distintos es fuente de bugs.</li>
+                        <li><strong>Present Automático</strong>: Los getters que devuelven el framebuffer deben hacer present automático si hay swap pendiente. Esto asegura que Python siempre vea el contenido más reciente sin tener que llamar explícitamente a reset.</li>
+                        <li><strong>Métodos No-Const</strong>: Los métodos que hacen present automático NO pueden ser <code>const</code> porque mutan el estado (hacen swap). Esto es consistente con el diseño de <code>get_framebuffer_ptr()</code>.</li>
+                        <li><strong>Compatibilidad hacia atrás</strong>: Se puede añadir nuevos getters sin romper compatibilidad. El getter antiguo <code>get_framebuffer_indices_ptr()</code> sigue existiendo (puede ser útil para casos donde se quiere leer sin hacer present).</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Impacto en otros tests</strong>: Verificar si hay otros tests que usen <code>get_framebuffer_indices()</code> y deban actualizarse a <code>get_presented_framebuffer_indices()</code>.</li>
+                        <li><strong>Uso del getter antiguo</strong>: Si hay casos donde se quiere leer sin hacer present, el getter antiguo puede ser útil. Por ahora, todos los tests usan el getter "presented".</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis confirmada</strong>: El problema era puramente de API/sincronización de presentación. <code>get_framebuffer_indices_ptr()</code> no hacía present automático como <code>get_framebuffer_ptr()</code>. Con el nuevo getter "presented", todos los tests pasan correctamente.
+                    </p>
+                    <p>
+                        <strong>Decisión de diseño</strong>: Se eligió crear un nuevo getter en lugar de modificar el existente para mantener compatibilidad hacia atrás. El getter antiguo puede ser útil para casos donde se quiera leer sin hacer present (aunque por ahora no hay casos conocidos).
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[x] Implementar <code>get_presented_framebuffer_indices_ptr()</code></li>
+                    <li>[x] Exponer a Python como <code>get_presented_framebuffer_indices()</code></li>
+                    <li>[x] Actualizar tests 0464 para usar el nuevo getter</li>
+                    <li>[x] Verificar que todos los tests pasan</li>
+                    <li>[ ] Verificar si hay otros tests que deban actualizarse</li>
+                    <li>[ ] Continuar con bugs de emulación real (no de infraestructura de test)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

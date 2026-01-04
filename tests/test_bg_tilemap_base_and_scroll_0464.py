@@ -56,7 +56,7 @@ class TestBGTilemapBaseAndScroll:
     def test_tilemap_base_select_9800(self):
         """Test 1: tilemap base select (0x9800 vs 0x9C00) - Caso 0x9800.
         
-        Step 0467: Modificado para experimento pre/post reset.
+        Step 0468: Actualizado para usar get_presented_framebuffer_indices().
         
         Tile0 produce patrón P0 en primeros 8 px: [0,1,2,3,0,1,2,3]
         Tile1 produce patrón P1 distinto: [3,2,1,0,3,2,1,0]
@@ -113,81 +113,27 @@ class TestBGTilemapBaseAndScroll:
         assert self.mmu.read_raw(0x9C00) == 0x01, \
             f"Tilemap 0x9C00[0] debe ser 0x01, es 0x{self.mmu.read_raw(0x9C00):02X}"
         
-        # --- Step 0467: Experimento Pre/Post Reset ---
-        # Step hasta que frame esté listo (sin resetear)
-        max_cycles = 70224 * 4
-        cycles_accumulated = 0
+        # Correr frame
+        self.run_one_frame()
         
-        while not self.ppu.is_frame_ready() and cycles_accumulated < max_cycles:
-            cycles = self.cpu.step()
-            cycles_accumulated += cycles
-            self.timer.step(cycles)
-            self.ppu.step(cycles)
+        # Usar getter "presented" que garantiza present automático
+        indices = self.ppu.get_presented_framebuffer_indices()
+        assert indices is not None, "Framebuffer indices no disponible"
+        assert len(indices) == 23040, f"Framebuffer debe tener 23040 bytes, tiene {len(indices)}"
         
-        # Leer ANTES de reset
-        buf_pre = self.ppu.get_framebuffer_indices()
-        assert buf_pre is not None, "Framebuffer indices no disponible"
-        assert len(buf_pre) == 23040, f"Framebuffer debe tener 23040 bytes, tiene {len(buf_pre)}"
+        # Verificar que no está todo en 0
+        non_zero_count = sum(1 for i in range(160 * 144) if (indices[i] & 0x03) != 0)
+        assert non_zero_count > 0, \
+            f"Framebuffer está todo en 0 (non_zero_count={non_zero_count})"
         
-        nz_pre = sum(1 for i in range(160 * 144) if (buf_pre[i] & 0x03) != 0)
-        row0_indices_pre = [buf_pre[i] & 0x03 for i in range(16)]
-        
-        # Ahora sí resetear
-        ready = self.ppu.get_frame_ready_and_reset()
-        assert ready, f"Frame debe estar listo después de {cycles_accumulated} ciclos"
-        
-        # Leer DESPUÉS de reset
-        buf_post = self.ppu.get_framebuffer_indices()
-        assert buf_post is not None, "Framebuffer indices no disponible"
-        assert len(buf_post) == 23040, f"Framebuffer debe tener 23040 bytes, tiene {len(buf_post)}"
-        
-        nz_post = sum(1 for i in range(160 * 144) if (buf_post[i] & 0x03) != 0)
-        row0_indices_post = [buf_post[i] & 0x03 for i in range(16)]
-        
-        # --- Step 0467: Recopilar Evidencias ---
-        # Evidencia 1: Resultado del experimento pre/post reset
-        print(f"[TEST-DIAG] nz_pre={nz_pre}, nz_post={nz_post}")
-        print(f"[TEST-DIAG] row0_pre={row0_indices_pre[:8]}")
-        print(f"[TEST-DIAG] row0_post={row0_indices_post[:8]}")
-        print(f"[TEST-DIAG] get_frame_ready_and_reset() devolvió: {ready}")
-        print(f"[TEST-DIAG] Ciclos hasta frame_ready: {cycles_accumulated}")
-        
-        # Evidencia 2: Contador de píxeles BG escritos
-        bg_stats = self.ppu.get_bg_render_stats()
-        bg_pixels_written = bg_stats['pixels_written'] if bg_stats else 0
-        print(f"[TEST-DIAG] bg_pixels_written={bg_pixels_written}")
-        
-        # Evidencia 3: Últimos bytes de tile leídos
-        tile_bytes_info = self.ppu.get_last_tile_bytes_read_info()
-        if tile_bytes_info:
-            print(f"[TEST-DIAG] last_tile_bytes={tile_bytes_info['bytes']}, addr=0x{tile_bytes_info['addr']:04X}, valid={tile_bytes_info['valid']}")
-        else:
-            print(f"[TEST-DIAG] last_tile_bytes_info no disponible (requiere VIBOY_DEBUG_PPU)")
-        
-        # Evidencia 4: Información sobre get_framebuffer_indices()
-        # (Esta información está en el código, no necesita ser impresa)
-        
-        # --- Interpretación del Experimento ---
-        # Si nz_pre > 0 y nz_post == 0 → problema es swap/reset
-        # Si nz_pre == 0 y nz_post == 0 → problema es que no se escribe
-        # Si ambos >0 pero asserts fallan → problema es patrón/bitplanes
-        
-        # Assert que hay datos (al menos en pre o post)
-        assert nz_pre > 0 or nz_post > 0, \
-            f"Framebuffer está todo en 0 tanto antes como después de reset. " \
-            f"nz_pre={nz_pre}, nz_post={nz_post}"
-        
-        # Usar el buffer que tenga datos para verificar patrón
-        buf_to_check = buf_pre if nz_pre > 0 else buf_post
-        row0_start = 0 * 160  # Primera fila
-        
+        # Verificar patrón esperado
+        row0_start = 0 * 160
         expected_p0 = [0, 1, 2, 3, 0, 1, 2, 3]  # Patrón P0
         for i in range(8):
-            actual_idx = buf_to_check[row0_start + i] & 0x03
+            actual_idx = indices[row0_start + i] & 0x03
             expected_idx = expected_p0[i]
             assert actual_idx == expected_idx, \
-                f"Tilemap base 0x9800: Pixel {i} en fila 0: esperado {expected_idx}, obtenido {actual_idx}. " \
-                f"Buffer usado: {'pre' if nz_pre > 0 else 'post'}"
+                f"Tilemap base 0x9800: Pixel {i} en fila 0: esperado {expected_idx}, obtenido {actual_idx}"
     
     def test_tilemap_base_select_9C00(self):
         """Test 2: tilemap base select (0x9800 vs 0x9C00) - Caso 0x9C00.
@@ -232,7 +178,8 @@ class TestBGTilemapBaseAndScroll:
         cycles = self.run_one_frame()
         
         # Verificar framebuffer: fila0 px[0..7] == P1
-        indices = self.ppu.get_framebuffer_indices()
+        # Usar getter "presented" que garantiza present automático
+        indices = self.ppu.get_presented_framebuffer_indices()
         assert indices is not None, "Framebuffer indices no disponible"
         assert len(indices) == 23040, f"Framebuffer debe tener 23040 bytes, tiene {len(indices)}"
         
@@ -282,7 +229,8 @@ class TestBGTilemapBaseAndScroll:
             cycles = self.run_one_frame()
             
             # Verificar framebuffer: fila0 px[0..7] == P0[(x+scx)&7]
-            indices = self.ppu.get_framebuffer_indices()
+            # Usar getter "presented" que garantiza present automático
+            indices = self.ppu.get_presented_framebuffer_indices()
             assert indices is not None, "Framebuffer indices no disponible"
             assert len(indices) == 23040, f"Framebuffer debe tener 23040 bytes, tiene {len(indices)}"
             

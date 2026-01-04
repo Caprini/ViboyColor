@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0468 - Fix Mínimo y Correcto (Cerrar Bug de API) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-04__0468__fix-framebuffer-indices-api-presented-getter.html" class="entry-link">
+                                    Fix Mínimo y Correcto (Cerrar Bug de API)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-04 | 
+                            <strong>Step ID:</strong> 0468 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección del bug de API identificado en Step 0467: get_framebuffer_indices() no "presenta" automáticamente como get_framebuffer(), causando que tests lean el buffer equivocado (front limpio antes del swap en lugar del frame presentado). Se implementó un nuevo getter get_presented_framebuffer_indices_ptr() que garantiza present automático si hay swap pendiente (igual que get_framebuffer_ptr()). Todos los tests 0464 fueron actualizados para usar el nuevo getter y ahora pasan correctamente. ✅ Bug de API cerrado.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0467 - Cerrar Framebuffer=0 con Prueba Corta y Concluyente -->
                     <li>
                         <div class="entry-header">

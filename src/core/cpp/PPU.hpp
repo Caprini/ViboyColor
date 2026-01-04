@@ -275,6 +275,18 @@ public:
     const uint8_t* get_framebuffer_indices_ptr() const;
     
     /**
+     * Step 0468: Getter "presented" para framebuffer indices.
+     * 
+     * Garantiza que devuelve el último frame presentado (hace present automático
+     * si hay swap pendiente, igual que get_framebuffer_ptr()).
+     * 
+     * Contrato: Siempre devuelve el frame más reciente renderizado y presentado.
+     * 
+     * @return Puntero al framebuffer de índices presentado (23040 bytes)
+     */
+    const uint8_t* get_presented_framebuffer_indices_ptr();
+    
+    /**
      * Step 0457: Debug - Getters para paleta regs usados en última conversión.
      * 
      * Estos valores se actualizan en convert_framebuffer_to_rgb() y permiten
