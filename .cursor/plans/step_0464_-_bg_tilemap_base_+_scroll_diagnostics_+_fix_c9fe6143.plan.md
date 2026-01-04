@@ -564,7 +564,7 @@ pytest -v                               # Sin redirección (satura contexto)
 
 3. **Resultado de pytest del nuevo test**:
    ```bash
-         pytest -q tests/test_bg_tilemap_base_and_scroll_0464.py
+            pytest -q tests/test_bg_tilemap_base_and_scroll_0464.py
    ```
 
 
@@ -615,5 +615,3 @@ git push
 ## Nota Crítica
 
 Este step es crítico porque si el tilemap base está mal seleccionado o se lee incorrectamente, el emulador renderiza tiles incorrectos o vacíos, resultando en pantallas blancas.**Decisión automática al final del Step**:
-
-- Si bit4=0 aparece en ROMs "blancas" y tras el fix empiezan a verse gráficos → causa raíz confirmada

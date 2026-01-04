@@ -1,7 +1,6 @@
 """Test clean-room para verificar selección de BG tilemap base y scroll.
 
-Step 0464: Verifica que el tilemap base se selecciona correctamente según LCDC bit3
-y que SCX/SCY se aplican correctamente.
+Step 0465: Tests corregidos con asserts de framebuffer reales (no placeholders).
 """
 
 import pytest
@@ -29,73 +28,103 @@ class TestBGTilemapBaseAndScroll:
         self.mmu.write(0xFF40, 0x91)  # LCD ON, BG ON, Window OFF, Tile Data 0x8000, BG Tilemap 0x9800
         self.mmu.write(0xFF47, 0xE4)  # BGP estándar
     
+    def run_one_frame(self):
+        """Helper: Ejecutar exactamente 70224 ciclos (no 70224 iteraciones).
+        
+        Acumula ciclos hasta llegar a 70224, no itera fijo 70224 veces.
+        """
+        cycles_per_frame = 70224
+        cycles_accumulated = 0
+        
+        while cycles_accumulated < cycles_per_frame:
+            cycles = self.cpu.step()
+            cycles_accumulated += cycles
+            self.timer.step(cycles)
+            self.ppu.step(cycles)
+    
     def test_tilemap_base_select_9800(self):
         """Test 1: tilemap base select (0x9800 vs 0x9C00) - Caso 0x9800.
         
-        Setup:
-        - Escribir tile 0 con patrón que produce idx variados (0x55/0x33 por 8 líneas)
-        - Escribir tile 1 con patrón distinto (invertido: 0xAA/0xCC)
-        - Poner en 0x9800: tile IDs = 0
-        - Poner en 0x9C00: tile IDs = 1
-        - Setear LCDC bit3=0 → debe verse patrón de tile 0
+        Tile0 produce patrón P0 en primeros 8 px: [0,1,2,3,0,1,2,3]
+        Tile1 produce patrón P1 distinto: [3,2,1,0,3,2,1,0]
         
-        Assert: sample de índices (primeros 16 píxeles) corresponde a tile 0.
+        Escribir:
+        - 0x9800 lleno de tile0
+        - 0x9C00 lleno de tile1
+        - LCDC bit3=0 → assert fila0 px[0..7] == P0
         """
-        # Escribir tile 0 en 0x8000 (patrón 0x55/0x33)
+        # Crear tile 0 con patrón P0: [0,1,2,3,0,1,2,3] por línea
+        # Codificar patrón en tile data (cada línea = 2 bytes)
+        # Patrón: índices 0,1,2,3,0,1,2,3 → bytes: 0x00, 0x11, 0x22, 0x33, 0x00, 0x11, 0x22, 0x33
+        pattern_p0_bytes = [0x00, 0x11, 0x22, 0x33, 0x00, 0x11, 0x22, 0x33]
         for line in range(8):
-            self.mmu.write(0x8000 + (line * 2), 0x55)
-            self.mmu.write(0x8000 + (line * 2) + 1, 0x33)
+            # Codificar: byte1 = bits bajos (píxeles 0-3), byte2 = bits altos (píxeles 4-7)
+            # Para índice i: bit bajo = (i & 0x01), bit alto = ((i >> 1) & 0x01)
+            # Patrón [0,1,2,3,0,1,2,3] → bits bajos: 0,1,0,1,0,1,0,1 = 0x55
+            #                          → bits altos: 0,0,1,1,0,0,1,1 = 0x33
+            byte1 = 0x55  # Bits bajos: 0,1,0,1,0,1,0,1
+            byte2 = 0x33  # Bits altos: 0,0,1,1,0,0,1,1
+            self.mmu.write(0x8000 + (line * 2), byte1)
+            self.mmu.write(0x8000 + (line * 2) + 1, byte2)
         
-        # Escribir tile 1 en 0x8010 (patrón 0xAA/0xCC)
+        # Crear tile 1 con patrón P1: [3,2,1,0,3,2,1,0] por línea
+        # Patrón [3,2,1,0,3,2,1,0] → bits bajos: 1,0,1,0,1,0,1,0 = 0xAA
+        #                          → bits altos: 1,1,0,0,1,1,0,0 = 0xCC
         for line in range(8):
-            self.mmu.write(0x8010 + (line * 2), 0xAA)
-            self.mmu.write(0x8010 + (line * 2) + 1, 0xCC)
+            byte1 = 0xAA  # Bits bajos: 1,0,1,0,1,0,1,0
+            byte2 = 0xCC  # Bits altos: 1,1,0,0,1,1,0,0
+            self.mmu.write(0x8010 + (line * 2), byte1)
+            self.mmu.write(0x8010 + (line * 2) + 1, byte2)
         
         # Poner en 0x9800: tile IDs = 0
-        for i in range(32 * 32):  # Llenar todo el tilemap 0x9800
+        for i in range(32 * 32):
             self.mmu.write(0x9800 + i, 0x00)
         
         # Poner en 0x9C00: tile IDs = 1
-        for i in range(32 * 32):  # Llenar todo el tilemap 0x9C00
+        for i in range(32 * 32):
             self.mmu.write(0x9C00 + i, 0x01)
         
         # Setear LCDC bit3=0 (tilemap base 0x9800)
         self.mmu.write(0xFF40, 0x91)  # Bit3=0 → 0x9800
+        self.mmu.write(0xFF43, 0x00)  # SCX=0
+        self.mmu.write(0xFF42, 0x00)  # SCY=0
         
-        # Correr 1 frame
-        cycles_per_frame = 70224
-        for _ in range(cycles_per_frame):
-            cycles = self.cpu.step()
-            self.timer.step(cycles)
-            self.ppu.step(cycles)
+        # Correr 1 frame (usar helper que acumula ciclos)
+        self.run_one_frame()
         
-        # Verificar que se lee tile 0 (no tile 1)
-        tile_id_9800 = self.mmu.read(0x9800)
-        tile_id_9C00 = self.mmu.read(0x9C00)
+        # Verificar framebuffer: fila0 px[0..7] == P0
+        indices = self.ppu.get_framebuffer_indices()
+        assert indices is not None, "Framebuffer indices no disponible"
+        assert len(indices) == 23040, f"Framebuffer debe tener 23040 bytes, tiene {len(indices)}"
         
-        assert tile_id_9800 == 0x00, f"Tilemap 0x9800 debe tener tile ID 0x00, es 0x{tile_id_9800:02X}"
-        assert tile_id_9C00 == 0x01, f"Tilemap 0x9C00 debe tener tile ID 0x01, es 0x{tile_id_9C00:02X}"
+        row0_start = 0 * 160  # Primera fila
         
-        # Verificar que el tile 0 tiene el patrón correcto
-        tile0_byte1 = self.mmu.read(0x8000)
-        tile0_byte2 = self.mmu.read(0x8001)
-        assert tile0_byte1 == 0x55, f"Tile 0 byte1 debe ser 0x55, es 0x{tile0_byte1:02X}"
-        assert tile0_byte2 == 0x33, f"Tile 0 byte2 debe ser 0x33, es 0x{tile0_byte2:02X}"
+        expected_p0 = [0, 1, 2, 3, 0, 1, 2, 3]  # Patrón P0
+        for i in range(8):
+            actual_idx = indices[row0_start + i] & 0x03
+            expected_idx = expected_p0[i]
+            assert actual_idx == expected_idx, \
+                f"Tilemap base 0x9800: Pixel {i} en fila 0: esperado {expected_idx}, obtenido {actual_idx}"
     
     def test_tilemap_base_select_9C00(self):
         """Test 2: tilemap base select (0x9800 vs 0x9C00) - Caso 0x9C00.
         
-        Setup similar al anterior, pero LCDC bit3=1 → debe verse patrón de tile 1.
+        LCDC bit3=1 → assert fila0 px[0..7] == P1
         """
-        # Escribir tile 0 en 0x8000 (patrón 0x55/0x33)
+        # Setup idéntico al anterior (tile0=P0, tile1=P1, 0x9800=tile0, 0x9C00=tile1)
+        # Crear tile 0 con patrón P0
         for line in range(8):
-            self.mmu.write(0x8000 + (line * 2), 0x55)
-            self.mmu.write(0x8000 + (line * 2) + 1, 0x33)
+            byte1 = 0x55
+            byte2 = 0x33
+            self.mmu.write(0x8000 + (line * 2), byte1)
+            self.mmu.write(0x8000 + (line * 2) + 1, byte2)
         
-        # Escribir tile 1 en 0x8010 (patrón 0xAA/0xCC)
+        # Crear tile 1 con patrón P1
         for line in range(8):
-            self.mmu.write(0x8010 + (line * 2), 0xAA)
-            self.mmu.write(0x8010 + (line * 2) + 1, 0xCC)
+            byte1 = 0xAA
+            byte2 = 0xCC
+            self.mmu.write(0x8010 + (line * 2), byte1)
+            self.mmu.write(0x8010 + (line * 2) + 1, byte2)
         
         # Poner en 0x9800: tile IDs = 0
         for i in range(32 * 32):
@@ -107,78 +136,66 @@ class TestBGTilemapBaseAndScroll:
         
         # Setear LCDC bit3=1 (tilemap base 0x9C00)
         self.mmu.write(0xFF40, 0x99)  # Bit3=1 → 0x9C00
+        self.mmu.write(0xFF43, 0x00)  # SCX=0
+        self.mmu.write(0xFF42, 0x00)  # SCY=0
         
         # Correr 1 frame
-        cycles_per_frame = 70224
-        for _ in range(cycles_per_frame):
-            cycles = self.cpu.step()
-            self.timer.step(cycles)
-            self.ppu.step(cycles)
+        self.run_one_frame()
         
-        # Verificar que se lee tile 1 (no tile 0)
-        tile_id_9800 = self.mmu.read(0x9800)
-        tile_id_9C00 = self.mmu.read(0x9C00)
+        # Verificar framebuffer: fila0 px[0..7] == P1
+        indices = self.ppu.get_framebuffer_indices()
+        assert indices is not None, "Framebuffer indices no disponible"
+        assert len(indices) == 23040, f"Framebuffer debe tener 23040 bytes, tiene {len(indices)}"
         
-        assert tile_id_9800 == 0x00, f"Tilemap 0x9800 debe tener tile ID 0x00, es 0x{tile_id_9800:02X}"
-        assert tile_id_9C00 == 0x01, f"Tilemap 0x9C00 debe tener tile ID 0x01, es 0x{tile_id_9C00:02X}"
+        row0_start = 0 * 160
         
-        # Verificar que el tile 1 tiene el patrón correcto
-        tile1_byte1 = self.mmu.read(0x8010)
-        tile1_byte2 = self.mmu.read(0x8011)
-        assert tile1_byte1 == 0xAA, f"Tile 1 byte1 debe ser 0xAA, es 0x{tile1_byte1:02X}"
-        assert tile1_byte2 == 0xCC, f"Tile 1 byte2 debe ser 0xCC, es 0x{tile1_byte2:02X}"
+        expected_p1 = [3, 2, 1, 0, 3, 2, 1, 0]  # Patrón P1
+        for i in range(8):
+            actual_idx = indices[row0_start + i] & 0x03
+            expected_idx = expected_p1[i]
+            assert actual_idx == expected_idx, \
+                f"Tilemap base 0x9C00: Pixel {i} en fila 0: esperado {expected_idx}, obtenido {actual_idx}"
     
-    def test_scx_scroll(self):
-        """Test 3: SCX scroll.
+    def test_scx_pixel_scroll_0_to_7(self):
+        """Test 3: SCX pixel scroll 0..7.
         
-        Setup:
-        - Tilemap lleno con tile 0
-        - Tile 0 patrón conocido [0,1,2,3,0,1,2,3] por línea
-        - Render con SCX=0: primeros 8 idx = [0,1,2,3,0,1,2,3]
-        - Render con SCX=1: debería ser shift: [1,2,3,0,1,2,3,0]
-        
-        Assert exacto sobre índices (si hay acceso a framebuffer).
+        Tilemap fijo (todo tile0 con patrón P0), SCY=0
+        Para scx=0..7:
+        - Render 1 frame
+        - Assert fila0 px[0..7] == P0[(x+scx)&7]
         """
-        # Crear tile 0 con patrón conocido
-        # Patrón por línea: 0x00, 0x11, 0x22, 0x33, 0x00, 0x11, 0x22, 0x33
-        pattern_bytes = [0x00, 0x11, 0x22, 0x33, 0x00, 0x11, 0x22, 0x33]
+        # Crear tile 0 con patrón P0
         for line in range(8):
-            byte1 = pattern_bytes[line] & 0x0F
-            byte2 = (pattern_bytes[line] >> 4) & 0x0F
-            # Codificar como tile data (cada bit representa un píxel)
-            self.mmu.write(0x8000 + (line * 2), (byte1 << 4) | byte1)
-            self.mmu.write(0x8000 + (line * 2) + 1, (byte2 << 4) | byte2)
+            byte1 = 0x55
+            byte2 = 0x33
+            self.mmu.write(0x8000 + (line * 2), byte1)
+            self.mmu.write(0x8000 + (line * 2) + 1, byte2)
         
         # Llenar tilemap 0x9800 con tile 0
         for i in range(32 * 32):
             self.mmu.write(0x9800 + i, 0x00)
         
-        # Setear LCDC
         self.mmu.write(0xFF40, 0x91)  # LCD ON, BG ON, tilemap 0x9800
-        
-        # Test con SCX=0
-        self.mmu.write(0xFF43, 0x00)  # SCX=0
         self.mmu.write(0xFF42, 0x00)  # SCY=0
         
-        # Correr 1 frame
-        cycles_per_frame = 70224
-        for _ in range(cycles_per_frame):
-            cycles = self.cpu.step()
-            self.timer.step(cycles)
-            self.ppu.step(cycles)
+        # Test para cada SCX de 0 a 7
+        pattern_p0_indices = [0, 1, 2, 3, 0, 1, 2, 3]  # Índices del patrón P0
         
-        # Verificar que SCX se aplica (verificar cálculo de map_x)
-        # Por ahora, solo verificar que no crashea
-        assert True  # Placeholder: si hay acceso a framebuffer, verificar índices aquí
-        
-        # Test con SCX=1
-        self.mmu.write(0xFF43, 0x01)  # SCX=1
-        
-        # Correr otro frame
-        for _ in range(cycles_per_frame):
-            cycles = self.cpu.step()
-            self.timer.step(cycles)
-            self.ppu.step(cycles)
-        
-        # Verificar que SCX se aplica
-        assert True  # Placeholder: si hay acceso a framebuffer, verificar shift aquí
+        for scx in range(8):
+            self.mmu.write(0xFF43, scx)  # SCX
+            
+            # Correr 1 frame
+            self.run_one_frame()
+            
+            # Verificar framebuffer: fila0 px[0..7] == P0[(x+scx)&7]
+            indices = self.ppu.get_framebuffer_indices()
+            assert indices is not None, "Framebuffer indices no disponible"
+            assert len(indices) == 23040, f"Framebuffer debe tener 23040 bytes, tiene {len(indices)}"
+            
+            row0_start = 0 * 160
+            
+            for x in range(8):
+                expected_idx = pattern_p0_indices[(x + scx) % 8]
+                actual_idx = indices[row0_start + x] & 0x03
+                assert actual_idx == expected_idx, \
+                    f"SCX={scx}, Pixel {x}: esperado {expected_idx}, obtenido {actual_idx}"

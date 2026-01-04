@@ -376,21 +376,21 @@ class ROMSmokeRunner:
         bg_tilemap_base = 0x9C00 if (lcdc & 0x08) else 0x9800
         win_tilemap_base = 0x9C00 if (lcdc & 0x40) else 0x9800
         
-        # Step 0464: Contar nonzero bytes en ambos tilemaps
+        # Step 0465: Contar nonzero bytes en ambos tilemaps usando read_raw() (RAW VRAM, sin restricciones)
         tilemap_nz_9800 = 0
         for addr in range(0x9800, 0x9C00):
-            if self.mmu.read(addr) != 0:
+            if self.mmu.read_raw(addr) != 0:  # Usar read_raw() para evitar restricciones
                 tilemap_nz_9800 += 1
         
         tilemap_nz_9C00 = 0
         for addr in range(0x9C00, 0xA000):
-            if self.mmu.read(addr) != 0:
+            if self.mmu.read_raw(addr) != 0:  # Usar read_raw()
                 tilemap_nz_9C00 += 1
         
-        # Leer 16 tile IDs desde el base actual
+        # Leer 16 tile IDs desde el base actual usando read_raw()
         tile_ids_sample = []
         for i in range(16):
-            tile_ids_sample.append(self.mmu.read(bg_tilemap_base + i))
+            tile_ids_sample.append(self.mmu.read_raw(bg_tilemap_base + i))  # Usar read_raw()
         
         metrics = {
             'frame': frame_idx,
@@ -464,6 +464,25 @@ class ROMSmokeRunner:
     
     def run(self):
         """Ejecuta el smoke test."""
+        # Step 0465: Imprimir estado de env vars para evidencia (solo en tools, no en runtime)
+        import os
+        env_vars = [
+            'VIBOY_DEBUG_INJECTION',
+            'VIBOY_FORCE_BGP',
+            'VIBOY_AUTOPRESS',
+            'VIBOY_FRAMEBUFFER_TRACE',
+            'VIBOY_DEBUG_UI',
+            'VIBOY_DEBUG_PPU',
+            'VIBOY_DEBUG_IO'
+        ]
+        
+        env_status = []
+        for var in env_vars:
+            value = os.environ.get(var, '0')
+            env_status.append(f"{var}={value}")
+        
+        print(f"[ENV] {' '.join(env_status)}")
+        
         print(f"=" * 80)
         print(f"ROM Smoke Test - Step 0443 (LY/STAT 3-Points Sampling)")
         print(f"=" * 80)

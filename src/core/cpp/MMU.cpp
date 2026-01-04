@@ -2536,6 +2536,37 @@ void MMU::write(uint16_t addr, uint8_t value) {
         return;
     }
     // -------------------------------------------
+    
+    // --- Step 0465: IO write trace (gated) para SCX/SCY ---
+    // Instrumentación gated para diagnosticar si "stripes bajando" son por writes del juego o bug
+    bool debug_ppu = (std::getenv("VIBOY_DEBUG_PPU") != nullptr && 
+                       std::string(std::getenv("VIBOY_DEBUG_PPU")) == "1");
+    bool debug_io = (std::getenv("VIBOY_DEBUG_IO") != nullptr && 
+                     std::string(std::getenv("VIBOY_DEBUG_IO")) == "1");
+    
+    if ((debug_ppu || debug_io) && (addr == 0xFF42 || addr == 0xFF43)) {
+        uint8_t old_val = memory_[addr];
+        uint8_t new_val = value;
+        
+        // Obtener LY si PPU está disponible
+        uint8_t ly = 0;
+        if (ppu_ != nullptr) {
+            ly = ppu_->get_ly();
+        }
+        
+        const char* reg_name = (addr == 0xFF42) ? "SCY" : "SCX";
+        printf("[IO-SCROLL-WRITE] addr=0x%04X %s old=%d new=%d LY=%d\n",
+               addr, reg_name, old_val, new_val, ly);
+    }
+    
+    // Opcional: también para LCDC si debug_io está activo
+    if (debug_io && addr == 0xFF40) {
+        uint8_t old_val = memory_[addr];
+        uint8_t new_val = value;
+        printf("[IO-LCDC-WRITE] addr=0x%04X LCDC old=0x%02X new=0x%02X\n",
+               addr, old_val, new_val);
+    }
+    // -------------------------------------------
 
     memory_[addr] = value;
     
