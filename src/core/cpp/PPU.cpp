@@ -1299,6 +1299,11 @@ void PPU::handle_lcd_toggle(bool lcd_on) {
     }
 }
 
+bool PPU::is_frame_ready() const {
+    // Step 0467: Solo verifica, no resetea
+    return frame_ready_;
+}
+
 bool PPU::get_frame_ready_and_reset() {
     // --- Step 0363: Diagnóstico de Rendimiento ---
     // Medir tiempo de get_frame_ready_and_reset()
@@ -2929,7 +2934,8 @@ void PPU::render_scanline() {
         // Bit 3 selecciona el banco VRAM del tile pattern (0 o 1).
         // Otros bits (paleta, flips, prioridad) se ignoran por ahora (implementación mínima).
         // Fuente: Pan Docs - CGB Registers, BG Map Attributes
-        // tile_map_offset ya está declarado arriba (Step 0464), reutilizar
+        // Calcular offset desde 0x8000 para read_vram_bank()
+        uint16_t tile_map_offset = tile_map_addr - 0x8000;
         uint8_t tile_attr = mmu_->read_vram_bank(1, tile_map_offset);  // Leer atributo desde bank 1
         uint8_t tile_bank = (tile_attr >> 3) & 0x01;  // Bit 3: banco del tile pattern
         

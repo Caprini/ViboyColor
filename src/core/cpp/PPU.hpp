@@ -220,6 +220,17 @@ public:
     void handle_lcd_toggle(bool lcd_on);
     
     /**
+     * Step 0467: Verifica si hay un frame listo sin resetear el flag.
+     * 
+     * Este método permite verificar el estado de frame_ready_ sin afectar
+     * el estado interno. Útil para tests que necesitan leer el framebuffer
+     * antes de llamar a get_frame_ready_and_reset().
+     * 
+     * @return true si hay un frame listo para renderizar, false en caso contrario
+     */
+    bool is_frame_ready() const;
+    
+    /**
      * Comprueba si hay un frame listo para renderizar y resetea el flag.
      * 
      * Este método permite desacoplar el renderizado de las interrupciones.

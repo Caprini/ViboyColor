@@ -42,6 +42,7 @@ cdef extern from "PPU.hpp":
         uint8_t get_mode()
         uint8_t get_lyc()
         void set_lyc(uint8_t value)
+        bool is_frame_ready() const  # Step 0467: Solo verifica, no resetea
         bool get_frame_ready_and_reset()
         uint8_t* get_framebuffer_ptr()
         uint8_t* get_framebuffer_rgb_ptr()  # Step 0404: Framebuffer RGB888 para CGB

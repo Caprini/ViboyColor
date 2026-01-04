@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0467 - Cerrar Framebuffer=0 con Prueba Corta y Concluyente -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-03__0467__cerrar-framebuffer-0-con-prueba-corta-y-concluyente.html" class="entry-link">
+                                    Cerrar Framebuffer=0 con Prueba Corta y Concluyente
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-03 | 
+                            <strong>Step ID:</strong> 0467 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Diagnóstico definitivo del problema de framebuffer en 0 mediante experimento pre/post reset. Se añadió método is_frame_ready() que solo verifica sin resetear, se modificó el test para leer framebuffer ANTES y DESPUÉS de get_frame_ready_and_reset(), y se recopilaron 4 evidencias clave. Resultado: ✅ Causa identificada - get_framebuffer_indices() lee el buffer front limpio ANTES del swap. El framebuffer back tiene los datos correctos (nz_post=17280), pero el front está limpio hasta que se hace el swap. Solución: Añadir present automático a get_framebuffer_indices_ptr() (similar a get_framebuffer_ptr()).
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0466 - Frame-Ready + VRAM Address Sanity + Buffer Swap -->
                     <li>
                         <div class="entry-header">

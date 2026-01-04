@@ -130,6 +130,21 @@ cdef class PyPPU:
             return
         self._ppu.set_lyc(value)
     
+    def is_frame_ready(self):
+        """
+        Step 0467: Verifica si hay un frame listo sin resetear el flag.
+        
+        Este método permite verificar el estado de frame_ready_ sin afectar
+        el estado interno. Útil para tests que necesitan leer el framebuffer
+        antes de llamar a get_frame_ready_and_reset().
+        
+        Returns:
+            True si hay un frame listo para renderizar, False en caso contrario
+        """
+        if self._ppu == NULL:
+            return False
+        return self._ppu.is_frame_ready()
+    
     def get_frame_ready_and_reset(self):
         """
         Comprueba si hay un frame listo para renderizar y resetea el flag.

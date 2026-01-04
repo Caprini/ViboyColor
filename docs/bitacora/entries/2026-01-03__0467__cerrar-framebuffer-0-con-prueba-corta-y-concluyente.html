@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cerrar Framebuffer=0 con Prueba Corta y Concluyente - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Cerrar Framebuffer=0 con Prueba Corta y Concluyente</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-03
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0467
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-03__0466__frame-ready-vram-address-sanity-buffer-swap.html">Anterior</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Diagnóstico definitivo del problema de framebuffer en 0 mediante experimento pre/post reset. Se añadió método <code>is_frame_ready()</code> que solo verifica sin resetear, se modificó el test para leer framebuffer ANTES y DESPUÉS de <code>get_frame_ready_and_reset()</code>, y se recopilaron 4 evidencias clave. Resultado: ✅ Causa identificada - <code>get_framebuffer_indices()</code> lee el buffer front limpio ANTES del swap. El framebuffer back tiene los datos correctos (nz_post=17280), pero el front está limpio hasta que se hace el swap. Solución: Añadir present automático a <code>get_framebuffer_indices_ptr()</code> (similar a <code>get_framebuffer_ptr()</code>).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    <strong>Problema observado</strong>: Después del fix del 0466 (read_vram con addr absoluta), el framebuffer sigue todo en 0. El plan identificó 3 sospechosos:
+                </p>
+                <ol>
+                    <li><strong>Semántica de <code>get_frame_ready_and_reset()</code> / swap de buffers</strong>: El reset/swap deja leyendo el buffer equivocado o limpiado</li>
+                    <li><strong>El frame "ready" no está siendo real</strong>: <code>run_one_frame()</code> espera <code>get_frame_ready_and_reset()</code> pero jamás llega</li>
+                    <li><strong>BG sí corre pero está escribiendo 0</strong>: PPU decodifica bitplanes mal o lee bytes equivocados</li>
+                </ol>
+                <p>
+                    <strong>Doble Buffering en PPU</strong>: La PPU usa doble buffering para evitar condiciones de carrera:
+                </p>
+                <ul>
+                    <li><code>framebuffer_front_</code>: Buffer que Python lee (público, estable, no se modifica durante renderizado)</li>
+                    <li><code>framebuffer_back_</code>: Buffer donde C++ escribe (privado, se modifica durante renderizado)</li>
+                </ul>
+                <p>
+                    Cuando se completa un frame (LY=144), <code>get_frame_ready_and_reset()</code> llama a <code>swap_framebuffers()</code> que intercambia los buffers y limpia el back (que ahora es el antiguo front).
+                </p>
+                <p>
+                    <strong>Present Automático</strong>: <code>get_framebuffer_ptr()</code> hace "present automático" - si hay un swap pendiente (<code>framebuffer_swap_pending_</code>), hace el swap antes de devolver el puntero. Esto asegura que Python siempre vea el contenido más reciente. Sin embargo, <code>get_framebuffer_indices_ptr()</code> NO hace present automático, por lo que puede devolver el front limpio si se llama antes del swap.
+                </p>
+                <p>
+                    <strong>Referencia</strong>: Pan Docs - PPU Modes, Frame Timing. Step 0364 - Doble Buffering. Step 0428 - Present Automático.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    El diagnóstico se implementó en cuatro fases según el plan:
+                </p>
+                
+                <h3>Fase A: Método <code>is_frame_ready()</code> (Solo Verifica, No Resetea)</h3>
+                <p>
+                    Se añadió método <code>is_frame_ready()</code> en C++ y Cython que solo verifica el estado de <code>frame_ready_</code> sin resetearlo:
+                </p>
+                <pre><code>// En PPU.hpp:
+bool is_frame_ready() const;  // Solo verifica, no resetea
+
+// En PPU.cpp:
+bool PPU::is_frame_ready() const {
+    return frame_ready_;
+}
+
+// En ppu.pyx:
+def is_frame_ready(self):
+    """Verifica si hay frame listo sin resetear."""
+    if self._ppu == NULL:
+        return False
+    return self._ppu.is_frame_ready()</code></pre>
+                <p>
+                    Esto permite leer el framebuffer ANTES de llamar a <code>get_frame_ready_and_reset()</code>.
+                </p>
+
+                <h3>Fase B: Contador de Píxeles BG Escritos (Ya Existía)</h3>
+                <p>
+                    El contador <code>bg_pixels_written_count_</code> ya existía con <code>VIBOY_DEBUG_PPU</code> y está expuesto a Python mediante <code>get_bg_render_stats()</code>. Se usó en el test para verificar que BG sí está escribiendo píxeles.
+                </p>
+
+                <h3>Fase C: Variables Debug de Últimos Bytes Leídos (Ya Existían)</h3>
+                <p>
+                    Las variables <code>last_tile_bytes_read_</code> y <code>last_tile_addr_read_</code> ya existían con <code>VIBOY_DEBUG_PPU</code> y están expuestas a Python mediante <code>get_last_tile_bytes_read_info()</code>. Se usaron en el test para verificar qué bytes está leyendo el PPU.
+                </p>
+
+                <h3>Fase D: Experimento Pre/Post Reset</h3>
+                <p>
+                    Se modificó el test <code>test_tilemap_base_select_9800()</code> para:
+                </p>
+                <ol>
+                    <li>Step hasta que <code>is_frame_ready()</code> devuelva <code>True</code> (sin resetear)</li>
+                    <li>Leer framebuffer ANTES de reset (<code>buf_pre</code>)</li>
+                    <li>Llamar a <code>get_frame_ready_and_reset()</code> (hace swap)</li>
+                    <li>Leer framebuffer DESPUÉS de reset (<code>buf_post</code>)</li>
+                    <li>Recopilar 4 evidencias: <code>nz_pre</code>, <code>nz_post</code>, <code>bg_pixels_written</code>, <code>last_tile_bytes</code></li>
+                </ol>
+                <pre><code># Step hasta que frame esté listo (sin resetear)
+while not self.ppu.is_frame_ready() and cycles_accumulated < max_cycles:
+    cycles = self.cpu.step()
+    cycles_accumulated += cycles
+    self.timer.step(cycles)
+    self.ppu.step(cycles)
+
+# Leer ANTES de reset
+buf_pre = self.ppu.get_framebuffer_indices()
+nz_pre = sum(1 for i in range(160 * 144) if (buf_pre[i] & 0x03) != 0)
+
+# Ahora sí resetear
+ready = self.ppu.get_frame_ready_and_reset()
+
+# Leer DESPUÉS de reset
+buf_post = self.ppu.get_framebuffer_indices()
+nz_post = sum(1 for i in range(160 * 144) if (buf_post[i] & 0x03) != 0)</code></pre>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Añadido método <code>is_frame_ready() const</code></li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementado <code>is_frame_ready()</code> y corregido error de compilación (<code>tile_map_offset</code> no declarado)</li>
+                    <li><code>src/core/cython/ppu.pxd</code> - Añadida declaración de <code>is_frame_ready() const</code></li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Añadido wrapper Python de <code>is_frame_ready()</code></li>
+                    <li><code>tests/test_bg_tilemap_base_and_scroll_0464.py</code> - Modificado <code>test_tilemap_base_select_9800()</code> para experimento pre/post reset</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado</strong>:
+                </p>
+                <pre><code>VIBOY_DEBUG_PPU=1 pytest -v tests/test_bg_tilemap_base_and_scroll_0464.py::TestBGTilemapBaseAndScroll::test_tilemap_base_select_9800 -s</code></pre>
+                <p>
+                    <strong>Resultado</strong>: ✅ Test pasa
+                </p>
+                <p>
+                    <strong>Evidencias Recopiladas</strong>:
+                </p>
+                <ul>
+                    <li><strong>nz_pre=0, nz_post=17280</strong>: El framebuffer está todo en 0 ANTES del reset, pero tiene datos DESPUÉS del reset. Esto confirma que el problema es que <code>get_framebuffer_indices()</code> lee el buffer front limpio ANTES del swap.</li>
+                    <li><strong>row0_pre=[0, 0, 0, 0, 0, 0, 0, 0]</strong>: Confirmación de que el buffer pre está vacío.</li>
+                    <li><strong>row0_post=[0, 1, 2, 3, 0, 1, 2, 3]</strong>: El buffer post tiene el patrón correcto (P0).</li>
+                    <li><strong>bg_pixels_written=23040</strong>: BG sí está escribiendo píxeles (todos los 23040 píxeles).</li>
+                    <li><strong>last_tile_bytes=[85, 51], addr=0x8000, valid=True</strong>: Los bytes leídos son correctos (0x55=85, 0x33=51).</li>
+                </ul>
+                <p>
+                    <strong>Diagnóstico</strong>: El problema es que <code>get_framebuffer_indices_ptr()</code> NO hace present automático como <code>get_framebuffer_ptr()</code>. Cuando se llama antes de <code>get_frame_ready_and_reset()</code>, devuelve el front limpio. Después del swap, el front tiene los datos correctos.
+                </p>
+                <p>
+                    <strong>Solución Identificada</strong>: Añadir present automático a <code>get_framebuffer_indices_ptr()</code> (similar a <code>get_framebuffer_ptr()</code>). Sin embargo, el método es <code>const</code>, por lo que se necesita hacerlo no-const o crear una versión que haga present.
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++</strong>: ✅ Compilación exitosa. Método <code>is_frame_ready()</code> expuesto correctamente a Python.
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: PPU Modes, Frame Timing, V-Blank</li>
+                    <li>Step 0364: Doble Buffering en PPU</li>
+                    <li>Step 0428: Present Automático en <code>get_framebuffer_ptr()</code></li>
+                    <li>Step 0457: Debug API para tests - <code>get_framebuffer_indices_ptr()</code></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Doble Buffering</strong>: La PPU usa doble buffering para evitar condiciones de carrera. El back buffer se escribe durante el renderizado, y se intercambia con el front cuando se completa un frame.</li>
+                        <li><strong>Present Automático</strong>: Los métodos que devuelven punteros al framebuffer deben hacer "present automático" - si hay un swap pendiente, hacer el swap antes de devolver el puntero. Esto asegura que Python siempre vea el contenido más reciente.</li>
+                        <li><strong>Experimento Pre/Post Reset</strong>: Para diagnosticar problemas de timing/buffering, es útil leer el framebuffer ANTES y DESPUÉS de operaciones críticas (como swap/reset) para identificar dónde se pierden los datos.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Fix de <code>get_framebuffer_indices_ptr()</code></strong>: Añadir present automático. El método es <code>const</code>, por lo que se necesita hacerlo no-const o crear una versión que haga present.</li>
+                        <li><strong>Impacto en otros tests</strong>: Verificar si otros tests se ven afectados por el cambio de <code>get_framebuffer_indices_ptr()</code> a no-const.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis confirmada</strong>: El problema NO es que BG no escriba (bg_pixels_written=23040), ni que los bytes leídos sean incorrectos (last_tile_bytes=[85, 51]). El problema es que <code>get_framebuffer_indices()</code> lee el buffer front limpio ANTES del swap.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Añadir present automático a <code>get_framebuffer_indices_ptr()</code> (hacerlo no-const o crear versión que haga present)</li>
+                    <li>[ ] Verificar que todos los tests pasan después del fix</li>
+                    <li>[ ] Documentar el cambio en el código (comentarios explicando por qué se hace present automático)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+
