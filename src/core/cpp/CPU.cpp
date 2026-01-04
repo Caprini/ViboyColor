@@ -39,6 +39,8 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       last_ei_pc_(0xFFFF), last_di_pc_(0xFFFF),  // Step 0477
       ei_count_(0), di_count_(0),  // Step 0482: Inicializar contadores EI/DI (convertidos de static a miembro)
       last_cond_jump_pc_(0xFFFF), last_target_(0x0000), last_taken_(false), last_flags_(0x00),  // Step 0482: Branch tracking
+      last_cmp_pc_(0xFFFF), last_cmp_a_(0x00), last_cmp_imm_(0x00), last_cmp_result_flags_(0x00),  // Step 0482: Last Compare tracking
+      last_bit_pc_(0xFFFF), last_bit_n_(0x00), last_bit_value_(0x00),  // Step 0482: Last BIT tracking
       triage_active_(false), triage_frame_limit_(0), triage_last_pc_(0xFFFF), triage_pc_sample_count_(0) {  // Step 0434
     // Step 0436: Pokemon micro trace ya está inicializado por su constructor por defecto
     // Validación básica (en producción, podríamos usar assert)
@@ -2675,12 +2677,39 @@ int CPU::step() {
             // Fuente: Pan Docs - JR Z, e: 3 M-Cycles si salta, 2 M-Cycles si no salta
             {
                 uint8_t offset_raw = fetch_byte();
+                int8_t offset = static_cast<int8_t>(offset_raw);
+                uint16_t target = (regs_->pc + offset) & 0xFFFF;
+                bool taken = regs_->get_flag_z();
                 
-                if (regs_->get_flag_z()) {
+                // --- Step 0482: Branch Decision Tracking (gated por VIBOY_DEBUG_BRANCH=1) ---
+                bool debug_branch = (std::getenv("VIBOY_DEBUG_BRANCH") != nullptr && 
+                                     std::string(std::getenv("VIBOY_DEBUG_BRANCH")) == "1");
+                if (debug_branch) {
+                    uint16_t branch_pc = original_pc;  // PC de la instrucción JR Z
+                    if (branch_decisions_.find(branch_pc) == branch_decisions_.end()) {
+                        branch_decisions_[branch_pc] = BranchDecision();
+                        branch_decisions_[branch_pc].pc = branch_pc;
+                    }
+                    auto& bd = branch_decisions_[branch_pc];
+                    if (taken) {
+                        bd.taken_count++;
+                    } else {
+                        bd.not_taken_count++;
+                    }
+                    bd.last_target = target;
+                    bd.last_taken = taken;
+                    bd.last_flags = regs_->f;
+                    
+                    last_cond_jump_pc_ = branch_pc;
+                    last_target_ = target;
+                    last_taken_ = taken;
+                    last_flags_ = regs_->f;
+                }
+                // -----------------------------------------
+                
+                if (taken) {
                     // Condición verdadera: saltar
-                    int8_t offset = static_cast<int8_t>(offset_raw);
-                    uint16_t new_pc = (regs_->pc + offset) & 0xFFFF;
-                    regs_->pc = new_pc;
+                    regs_->pc = target;
                     cycles_ += 3;  // JR Z consume 3 M-Cycles si salta
                     return 3;
                 } else {
@@ -3920,11 +3949,24 @@ int CPU::handle_cb() {
         case 0x01: {  // BIT (Test bit) - 0x40-0x7F
             // Testear si el bit 'bit_index' está encendido
             bool bit_set = (value & (1 << bit_index)) != 0;
+            uint8_t bit_value = bit_set ? 1 : 0;
             // Z = !bit_set (si bit está apagado, Z=1)
             regs_->set_flag_z(!bit_set);
             regs_->set_flag_n(false);
             regs_->set_flag_h(true);  // QUIRK: BIT siempre pone H=1
             // C no se modifica (preservado)
+            
+            // --- Step 0482: Last BIT Tracking (gated por VIBOY_DEBUG_BRANCH=1) ---
+            bool debug_branch = (std::getenv("VIBOY_DEBUG_BRANCH") != nullptr && 
+                                 std::string(std::getenv("VIBOY_DEBUG_BRANCH")) == "1");
+            if (debug_branch) {
+                uint16_t bit_pc = (regs_->pc - 2) & 0xFFFF;  // PC de la instrucción CB (ya leímos CB + opcode)
+                last_bit_pc_ = bit_pc;
+                last_bit_n_ = bit_index;
+                last_bit_value_ = bit_value;
+            }
+            // -----------------------------------------
+            
             // No modificamos result (BIT solo testea, no modifica)
             return is_memory ? 4 : 2;  // Retornar aquí porque BIT no escribe
         }
@@ -4153,6 +4195,70 @@ bool CPU::get_ei_pending() const {
     return ime_scheduled_;
 }
 // --- Fin Step 0470 ---
+
+// --- Step 0482: Implementación de getters para Branch Decision Counters ---
+uint32_t CPU::get_branch_taken_count(uint16_t pc) const {
+    auto it = branch_decisions_.find(pc);
+    if (it != branch_decisions_.end()) {
+        return it->second.taken_count;
+    }
+    return 0;
+}
+
+uint32_t CPU::get_branch_not_taken_count(uint16_t pc) const {
+    auto it = branch_decisions_.find(pc);
+    if (it != branch_decisions_.end()) {
+        return it->second.not_taken_count;
+    }
+    return 0;
+}
+
+uint16_t CPU::get_last_cond_jump_pc() const {
+    return last_cond_jump_pc_;
+}
+
+uint16_t CPU::get_last_target() const {
+    return last_target_;
+}
+
+bool CPU::get_last_taken() const {
+    return last_taken_;
+}
+
+uint8_t CPU::get_last_flags() const {
+    return last_flags_;
+}
+// --- Fin Step 0482 (Branch Decision Counters) ---
+
+// --- Step 0482: Implementación de getters para Last Compare/BIT Tracking ---
+uint16_t CPU::get_last_cmp_pc() const {
+    return last_cmp_pc_;
+}
+
+uint8_t CPU::get_last_cmp_a() const {
+    return last_cmp_a_;
+}
+
+uint8_t CPU::get_last_cmp_imm() const {
+    return last_cmp_imm_;
+}
+
+uint8_t CPU::get_last_cmp_result_flags() const {
+    return last_cmp_result_flags_;
+}
+
+uint16_t CPU::get_last_bit_pc() const {
+    return last_bit_pc_;
+}
+
+uint8_t CPU::get_last_bit_n() const {
+    return last_bit_n_;
+}
+
+uint8_t CPU::get_last_bit_value() const {
+    return last_bit_value_;
+}
+// --- Fin Step 0482 (Last Compare/BIT Tracking) ---
 
 // --- Step 0472: Implementación de getters para STOP ---
 uint32_t CPU::get_stop_executed_count() const {

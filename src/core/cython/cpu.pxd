@@ -86,4 +86,19 @@ cdef extern from "CPU.hpp":
         uint8_t get_last_if_before_service() const
         uint8_t get_last_if_after_service() const
         uint8_t get_last_if_clear_mask() const
+        # Step 0482: Branch Decision Counters (gated por VIBOY_DEBUG_BRANCH=1)
+        uint32_t get_branch_taken_count(uint16_t pc) const
+        uint32_t get_branch_not_taken_count(uint16_t pc) const
+        uint16_t get_last_cond_jump_pc() const
+        uint16_t get_last_target() const
+        bool get_last_taken() const
+        uint8_t get_last_flags() const
+        # Step 0482: Last Compare/BIT Tracking (gated por VIBOY_DEBUG_BRANCH=1)
+        uint16_t get_last_cmp_pc() const
+        uint8_t get_last_cmp_a() const
+        uint8_t get_last_cmp_imm() const
+        uint8_t get_last_cmp_result_flags() const
+        uint16_t get_last_bit_pc() const
+        uint8_t get_last_bit_n() const
+        uint8_t get_last_bit_value() const
 

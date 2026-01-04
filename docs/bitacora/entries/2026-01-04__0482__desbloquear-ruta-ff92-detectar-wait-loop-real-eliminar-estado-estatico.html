@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0482: Desbloquear Ruta FF92 (Mario) + Detectar Wait-Loop Real (Tetris DX) + Eliminar Estado Estático</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Viboy Color - Bitácora de Desarrollo</h1>
+            <nav>
+                <a href="../index.html">← Volver al índice</a>
+            </nav>
+        </header>
+
+        <article class="entry">
+            <!-- Entrada 0482 - Desbloquear Ruta FF92 (Mario) + Detectar Wait-Loop Real (Tetris DX) + Eliminar Estado Estático -->
+            <header class="entry-header">
+                <h2>Step 0482: Desbloquear Ruta FF92 (Mario) + Detectar Wait-Loop Real (Tetris DX) + Eliminar Estado Estático</h2>
+                <div class="entry-meta">
+                    <strong>Fecha:</strong> 2026-01-04 | 
+                    <strong>Step ID:</strong> 0482 | 
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </div>
+            </header>
+
+            <section class="entry-content">
+                <h3>Resumen</h3>
+                <p>
+                    Este step implementa tres objetivos principales:
+                </p>
+                <ol>
+                    <li><strong>Fase 0: Higiene</strong> - Eliminar estado estático compartido entre tests</li>
+                    <li><strong>Fase A: Mario</strong> - Instrumentación para análisis de control flow (Branch Decision Counters, Last Compare/BIT Tracking, LCDC Disable Tracking)</li>
+                    <li><strong>Fase B: Tetris DX</strong> - Detector dinámico de wait-loops y histograma de opcodes desconocidos</li>
+                </ol>
+
+                <h3>Implementación</h3>
+
+                <h4>Fase 0: Higiene - Eliminar Estado Estático</h4>
+                <p>
+                    Convertidos contadores estáticos a miembros de instancia para aislar tests:
+                </p>
+                <ul>
+                    <li><strong>MMU</strong>: <code>ie_write_count_</code>, <code>last_ie_written_</code>, <code>last_ie_write_pc_</code>, <code>last_ie_write_timestamp_</code>, <code>last_ie_read_value_</code>, <code>ie_read_count_</code>, <code>key1_write_count_</code>, <code>joyp_write_count_</code>, <code>io_read_counts_</code>, <code>lcdc_disable_events_</code></li>
+                    <li><strong>CPU</strong>: <code>ei_count_</code>, <code>di_count_</code></li>
+                </ul>
+
+                <h4>Fase A: Mario - Instrumentación para Análisis</h4>
+
+                <h5>A1) Branch Decision Counters</h5>
+                <p><strong>Gate:</strong> <code>VIBOY_DEBUG_BRANCH=1</code></p>
+                <p>
+                    Implementado en <code>CPU.cpp/CPU.hpp</code>:
+                </p>
+                <ul>
+                    <li><code>branch_decisions_</code>: map de PC → BranchDecision (taken_count, not_taken_count, last_target, last_taken, last_flags)</li>
+                    <li><code>last_cond_jump_pc_</code>, <code>last_target_</code>, <code>last_taken_</code>, <code>last_flags_</code></li>
+                    <li>Getters expuestos en Cython</li>
+                </ul>
+
+                <h5>A2) Last Compare/BIT Tracking</h5>
+                <p><strong>Gate:</strong> <code>VIBOY_DEBUG_BRANCH=1</code></p>
+                <p>
+                    Implementado en <code>CPU.cpp/CPU.hpp</code>:
+                </p>
+                <ul>
+                    <li><strong>Last Compare</strong>: <code>last_cmp_pc_</code>, <code>last_cmp_a_</code>, <code>last_cmp_imm_</code>, <code>last_cmp_result_flags_</code></li>
+                    <li><strong>Last BIT</strong>: <code>last_bit_pc_</code>, <code>last_bit_n_</code>, <code>last_bit_value_</code></li>
+                    <li>Tracking en instrucciones <code>CP n</code> (0xFE) y <code>BIT n, r</code> (CB opcodes)</li>
+                    <li>Getters expuestos en Cython</li>
+                </ul>
+
+                <h5>A3) LCDC Disable Tracking</h5>
+                <p>
+                    Implementado en <code>MMU.cpp/MMU.hpp</code> y <code>PPU.cpp/PPU.hpp</code>:
+                </p>
+                <ul>
+                    <li><code>lcdc_disable_events_</code>: contador de eventos (1→0)</li>
+                    <li><code>last_lcdc_write_pc_</code>, <code>last_lcdc_write_value_</code></li>
+                    <li><code>PPU::handle_lcd_disable()</code>: resetea LY a 0, STAT mode a HBlank</li>
+                    <li>Getters expuestos en Cython</li>
+                </ul>
+
+                <h5>A4) Test Clean-Room LCDC Disable</h5>
+                <p><strong>Archivo:</strong> <code>tests/test_lcdc_disable_resets_ly_0482.py</code></p>
+                <p><strong>Resultado:</strong> ✅ <strong>PASA</strong></p>
+                <p>
+                    Verifica que cuando LCDC bit7 pasa de 1→0:
+                </p>
+                <ul>
+                    <li>LY se resetea a 0 y se estabiliza</li>
+                    <li>STAT mode se establece en HBlank (mode 0)</li>
+                    <li><code>lcdc_disable_events == 1</code></li>
+                </ul>
+
+                <h4>Fase B: Tetris DX - Detectar Wait-Loop Real</h4>
+
+                <h5>B1) Dynamic Wait-Loop Detector</h5>
+                <p><strong>Archivo:</strong> <code>tools/rom_smoke_0442.py</code></p>
+                <p>
+                    Función <code>detect_dynamic_wait_loop()</code>:
+                </p>
+                <ul>
+                    <li>Analiza I/O reads program en hotspot</li>
+                    <li>Identifica I/O read dominante</li>
+                    <li>Correlaciona con <code>last_cmp</code>/<code>last_bit</code> para determinar condición de espera</li>
+                    <li>Retorna: <code>waits_on_addr</code>, <code>mask</code>, <code>cmp</code>, <code>bit</code>, <code>io_reads_distribution</code></li>
+                </ul>
+
+                <h5>B2) Unknown Opcode Histogram</h5>
+                <p><strong>Archivo:</strong> <code>tools/rom_smoke_0442.py</code></p>
+                <p>
+                    Función <code>get_unknown_opcode_histogram()</code>:
+                </p>
+                <ul>
+                    <li>Cuenta opcodes desconocidos (DB) en disasm window</li>
+                    <li>Retorna top 10 opcodes ordenados por frecuencia</li>
+                    <li>Permite priorizar implementación de opcodes en hotspot</li>
+                </ul>
+
+                <h5>Integración en Snapshots</h5>
+                <p>
+                    Añadidos a snapshots de <code>rom_smoke_0442.py</code>:
+                </p>
+                <ul>
+                    <li><code>BranchInfo</code>: información de branch counters (si VIBOY_DEBUG_BRANCH=1)</li>
+                    <li><code>LastCmp</code>: último CP ejecutado (PC, A, Imm)</li>
+                    <li><code>LastBit</code>: último BIT ejecutado (PC, Bit, Val)</li>
+                    <li><code>LCDC_DisableEvents</code>: contador de eventos de disable</li>
+                    <li><code>DynamicWaitLoop</code>: resultado del detector dinámico</li>
+                    <li><code>UnknownOpcodes</code>: top 5 opcodes desconocidos en hotspot</li>
+                </ul>
+
+                <h3>Concepto de Hardware</h3>
+
+                <h4>LCDC (LCD Control Register - 0xFF40)</h4>
+                <p>
+                    El registro LCDC controla el estado del LCD. El bit 7 (LCDC.7) activa/desactiva el LCD.
+                    Cuando el LCD se apaga (bit 7 pasa de 1→0), según Pan Docs:
+                </p>
+                <ul>
+                    <li>LY (Line Y) se resetea a 0</li>
+                    <li>STAT mode se establece en un estado estable (Mode 0 = HBlank)</li>
+                    <li>No debe quedar frame pending infinito</li>
+                </ul>
+                <p>
+                    Este comportamiento es crítico para muchos juegos que apagan el LCD durante transiciones
+                    de pantalla o inicialización.
+                </p>
+
+                <h4>Branch Decision Tracking</h4>
+                <p>
+                    El tracking de decisiones de branch permite analizar el flujo de control del programa:
+                </p>
+                <ul>
+                    <li><strong>Taken/Not-Taken Counts</strong>: Cuántas veces un salto condicional fue tomado vs no tomado</li>
+                    <li><strong>Last Target/Flags</strong>: Último target y flags al momento del salto</li>
+                    <li>Útil para identificar loops y condiciones que bloquean progreso</li>
+                </ul>
+
+                <h4>Last Compare/BIT Tracking</h4>
+                <p>
+                    El tracking de últimas comparaciones y test de bits permite correlacionar:
+                </p>
+                <ul>
+                    <li><strong>CP (Compare)</strong>: Último valor comparado (A vs immediate)</li>
+                    <li><strong>BIT</strong>: Último bit testeado (número de bit y valor)</li>
+                    <li>Con I/O reads para identificar condiciones de espera en wait-loops</li>
+                </ul>
+
+                <h3>Tests y Verificación</h3>
+
+                <h4>Test LCDC Disable</h4>
+                <p><strong>Comando:</strong></p>
+                <pre><code>pytest tests/test_lcdc_disable_resets_ly_0482.py -v</code></pre>
+                <p><strong>Resultado:</strong></p>
+                <pre><code>1 passed in 0.25s</code></pre>
+
+                <p><strong>Código del Test (fragmento clave):</strong></p>
+                <pre><code>def test_lcdc_disable_resets_ly(self):
+    mmu = PyMMU()
+    ppu = PyPPU(mmu)
+    mmu.set_ppu(ppu)
+    
+    # Encender LCD
+    mmu.write(IO_LCDC, 0x91)
+    ppu.step(4560)  # 10 scanlines
+    assert ppu.get_ly() == 10
+    
+    # Apagar LCD
+    mmu.write(IO_LCDC, 0x11)
+    ppu.step(1000)
+    
+    # Verificar LY reseteado
+    assert ppu.get_ly() == 0
+    assert ppu.get_mode() == 0  # HBlank
+    assert mmu.get_lcdc_disable_events() == 1</code></pre>
+
+                <p><strong>Validación:</strong> Test valida módulo compilado C++ (PPU::handle_lcd_disable)</p>
+
+                <h4>Ejecución rom_smoke</h4>
+                <p><strong>ROMs ejecutadas:</strong></p>
+                <ul>
+                    <li><code>mario.gbc</code> - 240 frames</li>
+                    <li><code>tetris_dx.gbc</code> - 240 frames</li>
+                    <li><code>tetris.gb</code> - 240 frames</li>
+                </ul>
+                <p><strong>Logs:</strong></p>
+                <ul>
+                    <li><code>/tmp/mario_smoke_0482.log</code></li>
+                    <li><code>/tmp/tetris_dx_smoke_0482.log</code></li>
+                    <li><code>/tmp/tetris_smoke_0482.log</code></li>
+                </ul>
+
+                <h3>Archivos Afectados</h3>
+                <ul>
+                    <li><code>src/core/cpp/MMU.hpp</code> / <code>MMU.cpp</code></li>
+                    <li><code>src/core/cpp/CPU.hpp</code> / <code>CPU.cpp</code></li>
+                    <li><code>src/core/cpp/PPU.hpp</code> / <code>PPU.cpp</code></li>
+                    <li><code>src/core/cython/mmu.pxd</code> / <code>mmu.pyx</code></li>
+                    <li><code>src/core/cython/cpu.pxd</code> / <code>cpu.pyx</code></li>
+                    <li><code>tests/test_lcdc_disable_resets_ly_0482.py</code> (nuevo)</li>
+                    <li><code>tools/rom_smoke_0442.py</code></li>
+                </ul>
+
+                <h3>Referencias</h3>
+                <ul>
+                    <li>Pan Docs - LCD Control Register (FF40 - LCDC)</li>
+                    <li>Pan Docs - CPU Instruction Set (CP, BIT)</li>
+                    <li>Pan Docs - LCD Status Register (STAT)</li>
+                </ul>
+            </section>
+        </article>
+    </div>
+</body>
+</html>
+

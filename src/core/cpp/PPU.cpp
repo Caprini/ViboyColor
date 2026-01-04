@@ -1305,6 +1305,35 @@ void PPU::handle_lcd_toggle(bool lcd_on) {
     }
 }
 
+void PPU::handle_lcd_disable() {
+    // Step 0482: Cuando LCD se apaga (LCDC bit7 = 0):
+    // - LY se resetea a 0
+    ly_ = 0;
+    
+    // - STAT mode en estado estable (Mode 0 = HBlank)
+    mode_ = MODE_0_HBLANK;
+    
+    // - No queda frame pending infinito
+    frame_ready_ = false;
+    scanline_rendered_ = false;
+    clock_ = 0;
+    
+    // Actualizar STAT para reflejar modo 0
+    if (mmu_ != nullptr) {
+        uint8_t stat = mmu_->read(IO_STAT);
+        stat = (stat & 0xFC) | MODE_0_HBLANK;  // Bits 0-1 = modo 0
+        
+        // Limpiar coincidencia LYC=LY (LY=0 ahora)
+        if (ly_ == lyc_) {
+            stat |= 0x04;
+        } else {
+            stat &= ~0x04;
+        }
+        
+        mmu_->write(IO_STAT, stat);
+    }
+}
+
 bool PPU::is_frame_ready() const {
     // Step 0467: Solo verifica, no resetea
     return frame_ready_;

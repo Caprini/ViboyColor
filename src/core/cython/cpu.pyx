@@ -247,6 +247,150 @@ cdef class PyCPU:
             Máscara del bit limpiado (lowest_pending)
         """
         return self._cpu.get_last_if_clear_mask()
+    
+    # --- Step 0482: Getters para Branch Decision Counters (gated por VIBOY_DEBUG_BRANCH=1) ---
+    def get_branch_taken_count(self, uint16_t pc):
+        """
+        Step 0482: Obtiene el contador de veces que un salto condicional fue tomado.
+        
+        Args:
+            pc: PC del salto condicional
+        
+        Returns:
+            Número de veces que el salto fue tomado
+        """
+        return self._cpu.get_branch_taken_count(pc)
+    
+    def get_branch_not_taken_count(self, uint16_t pc):
+        """
+        Step 0482: Obtiene el contador de veces que un salto condicional NO fue tomado.
+        
+        Args:
+            pc: PC del salto condicional
+        
+        Returns:
+            Número de veces que el salto NO fue tomado
+        """
+        return self._cpu.get_branch_not_taken_count(pc)
+    
+    def get_last_cond_jump_pc(self):
+        """
+        Step 0482: Obtiene el PC del último salto condicional ejecutado.
+        
+        Returns:
+            PC del último salto condicional (0xFFFF si ninguno)
+        """
+        return self._cpu.get_last_cond_jump_pc()
+    
+    def get_last_target(self):
+        """
+        Step 0482: Obtiene el target del último salto condicional.
+        
+        Returns:
+            Target del último salto condicional
+        """
+        return self._cpu.get_last_target()
+    
+    def get_last_taken(self):
+        """
+        Step 0482: Obtiene si el último salto condicional fue tomado.
+        
+        Returns:
+            1 si fue tomado, 0 si no fue tomado
+        """
+        cdef bool taken_val = self._cpu.get_last_taken()
+        if taken_val:
+            return 1
+        else:
+            return 0
+    
+    def get_last_flags(self):
+        """
+        Step 0482: Obtiene los flags al momento del último salto condicional.
+        
+        Returns:
+            Flags (registro F) al momento del último salto
+        """
+        return self._cpu.get_last_flags()
+    
+    # --- Step 0482: Getters para Last Compare/BIT Tracking (gated por VIBOY_DEBUG_BRANCH=1) ---
+    def get_last_cmp_pc(self):
+        """
+        Step 0482: Obtiene el PC del último CP ejecutado.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Returns:
+            PC del último CP (0xFFFF si ninguno)
+        """
+        return self._cpu.get_last_cmp_pc()
+    
+    def get_last_cmp_a(self):
+        """
+        Step 0482: Obtiene el valor de A antes del último CP.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Returns:
+            Valor de A antes del CP
+        """
+        return self._cpu.get_last_cmp_a()
+    
+    def get_last_cmp_imm(self):
+        """
+        Step 0482: Obtiene el valor inmediato usado en el último CP.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Returns:
+            Valor inmediato usado en CP
+        """
+        return self._cpu.get_last_cmp_imm()
+    
+    def get_last_cmp_result_flags(self):
+        """
+        Step 0482: Obtiene los flags después del último CP.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Returns:
+            Flags (registro F) después del CP
+        """
+        return self._cpu.get_last_cmp_result_flags()
+    
+    def get_last_bit_pc(self):
+        """
+        Step 0482: Obtiene el PC del último BIT ejecutado.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Returns:
+            PC del último BIT (0xFFFF si ninguno)
+        """
+        return self._cpu.get_last_bit_pc()
+    
+    def get_last_bit_n(self):
+        """
+        Step 0482: Obtiene el número de bit testeado en el último BIT.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Returns:
+            Número de bit (0-7)
+        """
+        return self._cpu.get_last_bit_n()
+    
+    def get_last_bit_value(self):
+        """
+        Step 0482: Obtiene el valor del bit testeado en el último BIT (0 o 1).
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Returns:
+            Valor del bit (0 o 1)
+        """
+        return self._cpu.get_last_bit_value()
+    # --- Fin Step 0482 (Branch/Compare/BIT Tracking) ---
     # --- Fin Step 0475 ---
     
     # Propiedades para acceso directo (compatibilidad con tests)

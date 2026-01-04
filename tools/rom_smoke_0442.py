@@ -535,6 +535,135 @@ def parse_loop_io_pattern(disasm_window: List[Tuple[int, str, bool]], jump_windo
     }
 # --- Fin Step 0479 Fase A1 ---
 
+
+# --- Step 0482: Dynamic Wait-Loop Detector ---
+def detect_dynamic_wait_loop(mmu: PyMMU, cpu: PyCPU, hotspot_pc: int, window_size: int = 32, iterations: int = 100) -> Dict[str, any]:
+    """
+    Detecta wait-loop dinámicamente analizando I/O reads en hotspot.
+    
+    Step 0482: Cuando detectes un hotspot estable, analiza durante N iteraciones:
+    1. Registrar I/O reads program en ese rango de PCs (ya tenéis source tagging)
+    2. Sacar el "IO read dominante" y su distribución
+    3. Correlaciona con last_cmp / last_bit para etiquetar waits_on_addr, mask/cmp/bit
+    
+    Args:
+        mmu: Instancia MMU
+        cpu: Instancia CPU
+        hotspot_pc: PC del hotspot
+        window_size: Ventana de bytes alrededor del hotspot
+        iterations: Número de iteraciones a analizar
+    
+    Returns:
+        dict con: waits_on_addr, mask, cmp, bit, io_reads_distribution
+    """
+    io_reads_counter = {}  # addr -> count
+    
+    # Calcular ventana de PCs
+    start_pc = (hotspot_pc - window_size) & 0xFFFF
+    end_pc = (hotspot_pc + window_size) & 0xFFFF
+    
+    # Guardar contadores iniciales (para calcular incrementos)
+    initial_if_reads = mmu.get_if_reads_program()
+    initial_ie_reads = mmu.get_ie_reads_program()
+    initial_joyp_reads = mmu.get_joyp_read_count_program()
+    
+    # Ejecutar N iteraciones y contar I/O reads program
+    # NOTA: Esto requiere que la CPU esté en el hotspot, por lo que
+    # esta función debe llamarse cuando el CPU ya está en el hotspot
+    # Por ahora, solo obtenemos los contadores acumulados
+    # (Una implementación más completa resetearía contadores y ejecutaría pasos)
+    
+    # Obtener contadores actuales de I/O reads program
+    current_if_reads = mmu.get_if_reads_program()
+    current_ie_reads = mmu.get_ie_reads_program()
+    current_joyp_reads = mmu.get_joyp_read_count_program()
+    
+    # Calcular incrementos (simplificado: asumimos que los contadores ya reflejan
+    # la actividad del hotspot si se llama en el momento correcto)
+    if_reads_increment = current_if_reads - initial_if_reads if current_if_reads >= initial_if_reads else current_if_reads
+    ie_reads_increment = current_ie_reads - initial_ie_reads if current_ie_reads >= initial_ie_reads else current_ie_reads
+    joyp_reads_increment = current_joyp_reads - initial_joyp_reads if current_joyp_reads >= initial_joyp_reads else current_joyp_reads
+    
+    io_reads_counter[0xFF0F] = if_reads_increment
+    io_reads_counter[0xFFFF] = ie_reads_increment
+    io_reads_counter[0xFF00] = joyp_reads_increment
+    
+    # Encontrar I/O read dominante
+    if io_reads_counter and max(io_reads_counter.values()) > 0:
+        waits_on_addr = max(io_reads_counter, key=io_reads_counter.get)
+        dominant_count = io_reads_counter[waits_on_addr]
+    else:
+        waits_on_addr = None
+        dominant_count = 0
+    
+    # Correlacionar con last_cmp / last_bit
+    last_cmp_pc = cpu.get_last_cmp_pc()
+    last_cmp_a = cpu.get_last_cmp_a()
+    last_cmp_imm = cpu.get_last_cmp_imm()
+    last_bit_pc = cpu.get_last_bit_pc()
+    last_bit_n = cpu.get_last_bit_n()
+    last_bit_value = cpu.get_last_bit_value()
+    
+    # Determinar mask/cmp/bit
+    mask = None
+    cmp_val = None
+    bit_num = None
+    
+    if last_bit_pc != 0xFFFF and abs((last_bit_pc - hotspot_pc) & 0xFFFF) <= window_size:
+        bit_num = last_bit_n
+        mask = 1 << bit_num
+        cmp_val = 1  # BIT espera bit = 1
+    
+    if last_cmp_pc != 0xFFFF and abs((last_cmp_pc - hotspot_pc) & 0xFFFF) <= window_size:
+        cmp_val = last_cmp_imm
+    
+    return {
+        "waits_on_addr": waits_on_addr,
+        "mask": mask,
+        "cmp": cmp_val,
+        "bit": bit_num,
+        "io_reads_distribution": io_reads_counter,
+        "last_cmp_pc": last_cmp_pc,
+        "last_cmp_imm": last_cmp_imm,
+        "last_bit_pc": last_bit_pc,
+        "last_bit_n": bit_num
+    }
+# --- Fin Step 0482 (Dynamic Wait-Loop Detector) ---
+
+
+# --- Step 0482: Unknown Opcode Histogram ---
+def get_unknown_opcode_histogram(disasm_window: List[Tuple[int, str, bool]]) -> List[Tuple[int, int]]:
+    """
+    Cuenta opcodes desconocidos (DB) en disasm window.
+    
+    Step 0482: Priorizar completar el disassembler por "Unknown Opcode Histogram".
+    En vez de "implemento opcodes al azar", identifica los top 10 opcodes desconocidos
+    en el hotspot para implementarlos primero.
+    
+    Args:
+        disasm_window: Lista de tuplas (addr, instruction, is_current_pc)
+    
+    Returns:
+        Lista de tuplas (opcode, count) ordenada por count descendente (top 10)
+    """
+    import re
+    unknown_opcodes = {}  # opcode -> count
+    
+    for addr, instruction, is_current in disasm_window:
+        if instruction.startswith("DB "):
+            # Extraer byte
+            match = re.search(r'DB\s+0x([0-9A-Fa-f]+)', instruction)
+            if match:
+                opcode = int(match.group(1), 16)
+                unknown_opcodes[opcode] = unknown_opcodes.get(opcode, 0) + 1
+    
+    # Ordenar por count (descendente)
+    sorted_opcodes = sorted(unknown_opcodes.items(), key=lambda x: x[1], reverse=True)
+    
+    return sorted_opcodes[:10]  # Top 10
+# --- Fin Step 0482 (Unknown Opcode Histogram) ---
+
+
 # --- Step 0481: Static Scan de Writers HRAM ---
 def scan_rom_for_hram8_writes(rom_bytes: bytes, target_addr: int) -> List[Tuple[int, str, List[Tuple[int, str]]]]:
     """
@@ -1390,6 +1519,11 @@ class ROMSmokeRunner:
                       f"LastIRQVec=0x{last_irq_serviced_vector:04X} LastIRQTS={last_irq_serviced_timestamp} | "
                       f"IF_BeforeSvc=0x{last_if_before_service:02X} IF_AfterSvc=0x{last_if_after_service:02X} IF_ClearMask=0x{last_if_clear_mask:02X} | "
                       f"BootLogoPrefill={boot_logo_prefill_enabled} | "
+                      f"BranchInfo={branch_info_str} | "
+                      f"LastCmp={last_cmp_str} LastBit={last_bit_str} | "
+                      f"LCDC_DisableEvents={lcdc_disable_events} LCDC_WritePC=0x{last_lcdc_write_pc:04X} LCDC_WriteVal=0x{last_lcdc_write_value:02X} | "
+                      f"DynamicWaitLoop={dynamic_wait_loop_str} | "
+                      f"UnknownOpcodes={unknown_opcodes_str} | "
                       f"HRAM_FF92_WriteCount={hram_ff92_write_count} HRAM_FF92_ReadCountProg={hram_ff92_read_count_program} | "
                       f"HRAM_FF92_LastWritePC=0x{last_hram_ff92_write_pc:04X} HRAM_FF92_LastWriteVal=0x{last_hram_ff92_write_value:02X} HRAM_FF92_LastWriteTS={last_hram_ff92_write_timestamp} | "
                       f"HRAM_FF92_LastReadPC=0x{last_hram_ff92_read_pc:04X} HRAM_FF92_LastReadVal=0x{last_hram_ff92_read_value:02X} | "

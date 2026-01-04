@@ -220,6 +220,16 @@ public:
     void handle_lcd_toggle(bool lcd_on);
     
     /**
+     * Step 0482: Maneja el disable del LCD (LCDC bit7 pasa de 1→0).
+     * 
+     * Cuando LCD se apaga:
+     * - LY se resetea a 0
+     * - STAT mode se establece en estado estable (Mode 0 = HBlank)
+     * - No queda frame pending infinito
+     */
+    void handle_lcd_disable();
+    
+    /**
      * Step 0467: Verifica si hay un frame listo sin resetear el flag.
      * 
      * Este método permite verificar el estado de frame_ready_ sin afectar

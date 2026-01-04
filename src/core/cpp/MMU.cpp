@@ -191,6 +191,7 @@ MMU::MMU()
     , last_hram_ff92_read_pc_(0x0000)  // Step 0480: PC del último read de HRAM[FF92]
     , last_hram_ff92_read_value_(0x00)  // Step 0480: Último valor leído de HRAM[FF92]
     , hram_watchlist_()  // Step 0481: Inicializar watchlist vacía
+    , lcdc_disable_events_(0), last_lcdc_write_pc_(0xFFFF), last_lcdc_write_value_(0x00)  // Step 0482: LCDC Disable Tracking
 {
     // Step 0450: Inicializar ring buffer de MBC writes
     for (int i = 0; i < 8; i++) {
@@ -1759,6 +1760,19 @@ void MMU::write(uint16_t addr, uint8_t value) {
             if (!bg_display_old && bg_display_new) {
                 printf("[LCDC-TRACE] ⚠️ BG DISPLAY HABILITADO en PC:0x%04X\n", debug_current_pc);
             }
+            
+            // --- Step 0482: LCDC Disable Tracking ---
+            last_lcdc_write_pc_ = debug_current_pc;
+            last_lcdc_write_value_ = value;
+            
+            // Detectar disable (1→0)
+            if (lcd_on_old && !lcd_on_new) {
+                lcdc_disable_events_++;
+                if (ppu_ != nullptr) {
+                    ppu_->handle_lcd_disable();
+                }
+            }
+            // -------------------------------------------
             
             // --- Step 0413: Detectar toggle del LCD (bit 7) ---
             if (lcd_on_old != lcd_on_new && ppu_ != nullptr) {
@@ -4467,6 +4481,20 @@ uint8_t MMU::get_last_joyp_read_value() const {
     return last_joyp_read_value;
 }
 // --- Fin Step 0472 (JOYP) ---
+
+// --- Step 0482: Implementación de getters para LCDC Disable Tracking ---
+uint32_t MMU::get_lcdc_disable_events() const {
+    return lcdc_disable_events_;
+}
+
+uint16_t MMU::get_last_lcdc_write_pc() const {
+    return last_lcdc_write_pc_;
+}
+
+uint8_t MMU::get_last_lcdc_write_value() const {
+    return last_lcdc_write_value_;
+}
+// --- Fin Step 0482 (LCDC Disable Tracking) ---
 
 // --- Step 0474: Implementación de getters para instrumentación quirúrgica de IF/LY/STAT ---
 uint32_t MMU::get_if_read_count() const {

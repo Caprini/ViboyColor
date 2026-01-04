@@ -680,6 +680,15 @@ private:
     bool last_taken_;  // Si el último salto fue tomado
     uint8_t last_flags_;  // Flags al momento del último salto
     
+    // --- Step 0482: Last Compare/BIT Tracking (gated por VIBOY_DEBUG_BRANCH=1) ---
+    uint16_t last_cmp_pc_;  // PC del último CP ejecutado
+    uint8_t last_cmp_a_;  // Valor de A antes del CP
+    uint8_t last_cmp_imm_;  // Valor inmediato usado en CP
+    uint8_t last_cmp_result_flags_;  // Flags después del CP
+    uint16_t last_bit_pc_;  // PC del último BIT ejecutado
+    uint8_t last_bit_n_;  // Número de bit testeado en BIT
+    uint8_t last_bit_value_;  // Valor del bit testeado (0 o 1)
+    
     // ========== Estado de Triage (Step 0434) ==========
     // Instrumentación para entender por qué VRAM está vacía
     bool triage_active_;               // Flag para activar triage (limitado por frames)
@@ -803,6 +812,125 @@ public:
      * @return true si EI está pendiente (IME se activará después de la siguiente instrucción)
      */
     bool get_ei_pending() const;
+    
+    /**
+     * Step 0482: Obtiene el contador de veces que un salto condicional en PC fue tomado.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @param pc Dirección del salto condicional
+     * @return Número de veces que el salto fue tomado (0 si no existe)
+     */
+    uint32_t get_branch_taken_count(uint16_t pc) const;
+    
+    /**
+     * Step 0482: Obtiene el contador de veces que un salto condicional en PC no fue tomado.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @param pc Dirección del salto condicional
+     * @return Número de veces que el salto no fue tomado (0 si no existe)
+     */
+    uint32_t get_branch_not_taken_count(uint16_t pc) const;
+    
+    /**
+     * Step 0482: Obtiene el PC del último salto condicional ejecutado.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return PC del último salto condicional (0xFFFF si ninguno)
+     */
+    uint16_t get_last_cond_jump_pc() const;
+    
+    /**
+     * Step 0482: Obtiene el target del último salto condicional.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return Target del último salto condicional
+     */
+    uint16_t get_last_target() const;
+    
+    /**
+     * Step 0482: Obtiene si el último salto condicional fue tomado.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return true si el último salto fue tomado, false si no
+     */
+    bool get_last_taken() const;
+    
+    /**
+     * Step 0482: Obtiene los flags al momento del último salto condicional.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return Flags (registro F) al momento del último salto
+     */
+    uint8_t get_last_flags() const;
+    
+    /**
+     * Step 0482: Obtiene el PC del último CP ejecutado.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return PC del último CP (0xFFFF si ninguno)
+     */
+    uint16_t get_last_cmp_pc() const;
+    
+    /**
+     * Step 0482: Obtiene el valor de A antes del último CP.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return Valor de A antes del CP
+     */
+    uint8_t get_last_cmp_a() const;
+    
+    /**
+     * Step 0482: Obtiene el valor inmediato usado en el último CP.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return Valor inmediato usado en CP
+     */
+    uint8_t get_last_cmp_imm() const;
+    
+    /**
+     * Step 0482: Obtiene los flags después del último CP.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return Flags (registro F) después del CP
+     */
+    uint8_t get_last_cmp_result_flags() const;
+    
+    /**
+     * Step 0482: Obtiene el PC del último BIT ejecutado.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return PC del último BIT (0xFFFF si ninguno)
+     */
+    uint16_t get_last_bit_pc() const;
+    
+    /**
+     * Step 0482: Obtiene el número de bit testeado en el último BIT.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return Número de bit (0-7)
+     */
+    uint8_t get_last_bit_n() const;
+    
+    /**
+     * Step 0482: Obtiene el valor del bit testeado en el último BIT (0 o 1).
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return Valor del bit (0 o 1)
+     */
+    uint8_t get_last_bit_value() const;
 };
 
 #endif // CPU_HPP

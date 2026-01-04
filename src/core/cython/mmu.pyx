@@ -724,6 +724,41 @@ cdef class PyMMU:
             return 0
         return self._mmu.get_last_joyp_read_value()
     
+    # --- Step 0482: Getters para LCDC Disable Tracking ---
+    def get_lcdc_disable_events(self):
+        """
+        Step 0482: Obtiene el contador de eventos de disable de LCDC (1→0).
+        
+        Returns:
+            Número de veces que LCDC bit7 pasó de 1 a 0
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_lcdc_disable_events()
+    
+    def get_last_lcdc_write_pc(self):
+        """
+        Step 0482: Obtiene el PC de la última escritura a LCDC.
+        
+        Returns:
+            PC de la última escritura a LCDC (0xFFFF si ninguna)
+        """
+        if self._mmu == NULL:
+            return 0xFFFF
+        return self._mmu.get_last_lcdc_write_pc()
+    
+    def get_last_lcdc_write_value(self):
+        """
+        Step 0482: Obtiene el valor de la última escritura a LCDC.
+        
+        Returns:
+            Valor de la última escritura a LCDC
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_lcdc_write_value()
+    # --- Fin Step 0482 (LCDC Disable Tracking) ---
+    
     # --- Step 0474: Getters para instrumentación quirúrgica de IF/LY/STAT ---
     def get_if_read_count(self):
         """

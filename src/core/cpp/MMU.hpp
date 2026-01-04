@@ -832,6 +832,11 @@ private:
     };
     mutable std::vector<HRAMWatchEntry> hram_watchlist_;
     
+    // --- Step 0482: LCDC Disable Tracking ---
+    mutable uint32_t lcdc_disable_events_;  // Contador de eventos de disable (1→0)
+    mutable uint16_t last_lcdc_write_pc_;  // PC de la última escritura a LCDC
+    mutable uint8_t last_lcdc_write_value_;  // Valor de la última escritura a LCDC
+    
 public:
     /**
      * Step 0450: Log summary of MBC writes (debug-gated).
@@ -973,6 +978,27 @@ public:
      * @return Último valor leído de JOYP
      */
     uint8_t get_last_joyp_read_value() const;
+    
+    /**
+     * Step 0482: Obtiene el contador de eventos de disable de LCDC (1→0).
+     * 
+     * @return Número de veces que LCDC bit7 pasó de 1 a 0
+     */
+    uint32_t get_lcdc_disable_events() const;
+    
+    /**
+     * Step 0482: Obtiene el PC de la última escritura a LCDC.
+     * 
+     * @return PC de la última escritura a LCDC (0xFFFF si ninguna)
+     */
+    uint16_t get_last_lcdc_write_pc() const;
+    
+    /**
+     * Step 0482: Obtiene el valor de la última escritura a LCDC.
+     * 
+     * @return Valor de la última escritura a LCDC
+     */
+    uint8_t get_last_lcdc_write_value() const;
     
     /**
      * Step 0474: Obtiene el contador de lecturas de IF (0xFF0F).
