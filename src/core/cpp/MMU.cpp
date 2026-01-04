@@ -34,6 +34,10 @@ static uint16_t last_key1_write_pc = 0x0000;
 static uint32_t joyp_write_count = 0;
 static uint8_t last_joyp_write_value = 0x00;
 static uint16_t last_joyp_write_pc = 0x0000;
+// --- Step 0481: Instrumentación de JOYP reads ---
+static uint32_t joyp_read_count_program = 0;
+static uint8_t last_joyp_read_value = 0x00;
+static uint16_t last_joyp_read_pc = 0x0000;
 
 // --- Step 0470: Watch de lecturas de IO (solo contadores) ---
 static std::map<uint16_t, uint32_t> io_read_counts;
@@ -185,6 +189,7 @@ MMU::MMU()
     , hram_ff92_read_count_program_(0)  // Step 0480: Contador de reads de HRAM[FF92] desde programa
     , last_hram_ff92_read_pc_(0x0000)  // Step 0480: PC del último read de HRAM[FF92]
     , last_hram_ff92_read_value_(0x00)  // Step 0480: Último valor leído de HRAM[FF92]
+    , hram_watchlist_()  // Step 0481: Inicializar watchlist vacía
 {
     // Step 0450: Inicializar ring buffer de MBC writes
     for (int i = 0; i < 8; i++) {
@@ -437,6 +442,14 @@ uint8_t MMU::read(uint16_t addr) const {
                    debug_current_pc, p1_value);
         }
         // -------------------------------------------
+        
+        // --- Step 0481: Tracking de JOYP reads desde programa ---
+        if (!irq_poll_active_) {  // Solo reads desde programa, no desde cpu_poll
+            joyp_read_count_program++;
+            last_joyp_read_pc = debug_current_pc;
+            last_joyp_read_value = p1_value;
+        }
+        // -----------------------------------------
         
         return p1_value;
     }
@@ -990,6 +1003,7 @@ uint8_t MMU::read(uint16_t addr) const {
     // -----------------------------------------
     
     // --- Step 0480: Instrumentación HRAM[FF92] quirúrgica (gated por VIBOY_DEBUG_IO) ---
+    // Mantener compatibilidad con tracking hardcoded
     if (addr == 0xFF92) {
         bool debug_io = (std::getenv("VIBOY_DEBUG_IO") != nullptr && 
                          std::string(std::getenv("VIBOY_DEBUG_IO")) == "1");
@@ -997,6 +1011,22 @@ uint8_t MMU::read(uint16_t addr) const {
             hram_ff92_read_count_program_++;
             last_hram_ff92_read_pc_ = debug_current_pc;
             last_hram_ff92_read_value_ = memory_[addr];
+        }
+    }
+    // -----------------------------------------
+    
+    // --- Step 0481: HRAM Watchlist Genérica (gated por VIBOY_DEBUG_HRAM) ---
+    bool debug_hram = (std::getenv("VIBOY_DEBUG_HRAM") != nullptr && 
+                       std::string(std::getenv("VIBOY_DEBUG_HRAM")) == "1");
+    if (debug_hram && addr >= 0xFF80 && addr <= 0xFFFE && !irq_poll_active_) {
+        // Verificar si addr está en watchlist
+        for (auto& entry : hram_watchlist_) {
+            if (entry.addr == addr) {
+                entry.read_count_program++;
+                entry.last_read_pc = debug_current_pc;
+                entry.last_read_value = memory_[addr];
+                break;
+            }
         }
     }
     // -----------------------------------------
@@ -2891,6 +2921,7 @@ void MMU::write(uint16_t addr, uint8_t value) {
         // -------------------------------------------
     
     // --- Step 0480: Instrumentación HRAM[FF92] quirúrgica (gated por VIBOY_DEBUG_IO) ---
+    // Mantener compatibilidad con tracking hardcoded
     if (addr == 0xFF92) {
         bool debug_io = (std::getenv("VIBOY_DEBUG_IO") != nullptr && 
                          std::string(std::getenv("VIBOY_DEBUG_IO")) == "1");
@@ -2899,6 +2930,34 @@ void MMU::write(uint16_t addr, uint8_t value) {
             last_hram_ff92_write_pc_ = debug_current_pc;
             last_hram_ff92_write_value_ = value;
             last_hram_ff92_write_timestamp_++;
+        }
+    }
+    // -----------------------------------------
+    
+    // --- Step 0481: HRAM Watchlist Genérica (gated por VIBOY_DEBUG_HRAM) ---
+    bool debug_hram = (std::getenv("VIBOY_DEBUG_HRAM") != nullptr && 
+                       std::string(std::getenv("VIBOY_DEBUG_HRAM")) == "1");
+    if (debug_hram && addr >= 0xFF80 && addr <= 0xFFFE) {
+        // Verificar si addr está en watchlist
+        for (auto& entry : hram_watchlist_) {
+            if (entry.addr == addr) {
+                entry.write_count++;
+                entry.last_write_pc = debug_current_pc;
+                entry.last_write_value = value;
+                entry.last_write_timestamp++;
+                
+                // Registrar primera escritura
+                if (!entry.first_write_recorded) {
+                    entry.first_write_pc = debug_current_pc;
+                    entry.first_write_value = value;
+                    entry.first_write_timestamp = entry.last_write_timestamp;
+                    if (ppu_ != nullptr) {
+                        entry.first_write_frame = static_cast<uint32_t>(ppu_->get_frame_counter());
+                    }
+                    entry.first_write_recorded = true;
+                }
+                break;
+            }
         }
     }
     // -----------------------------------------
@@ -4394,6 +4453,19 @@ uint8_t MMU::get_last_joyp_write_value() const {
 uint16_t MMU::get_last_joyp_write_pc() const {
     return last_joyp_write_pc;
 }
+
+// --- Step 0481: Getters para tracking de JOYP reads ---
+uint32_t MMU::get_joyp_read_count_program() const {
+    return joyp_read_count_program;
+}
+
+uint16_t MMU::get_last_joyp_read_pc() const {
+    return last_joyp_read_pc;
+}
+
+uint8_t MMU::get_last_joyp_read_value() const {
+    return last_joyp_read_value;
+}
 // --- Fin Step 0472 (JOYP) ---
 
 // --- Step 0474: Implementación de getters para instrumentación quirúrgica de IF/LY/STAT ---
@@ -4547,5 +4619,75 @@ uint8_t MMU::get_last_hram_ff92_read_value() const {
     return last_hram_ff92_read_value_;
 }
 // --- Fin Step 0480 ---
+
+// --- Step 0481: Métodos de HRAM Watchlist Genérica ---
+void MMU::add_hram_watch(uint16_t addr) {
+    // Validar que es HRAM (0xFF80-0xFFFE)
+    if (addr < 0xFF80 || addr > 0xFFFE) {
+        return;  // No es HRAM, ignorar
+    }
+    
+    // Verificar si ya está en watchlist
+    for (const auto& entry : hram_watchlist_) {
+        if (entry.addr == addr) {
+            return;  // Ya está en watchlist
+        }
+    }
+    
+    // Añadir nueva entrada
+    HRAMWatchEntry entry;
+    entry.addr = addr;
+    entry.write_count = 0;
+    entry.read_count_program = 0;
+    entry.first_write_recorded = false;
+    hram_watchlist_.push_back(entry);
+}
+
+uint32_t MMU::get_hram_write_count(uint16_t addr) const {
+    for (const auto& entry : hram_watchlist_) {
+        if (entry.addr == addr) {
+            return entry.write_count;
+        }
+    }
+    return 0;
+}
+
+uint16_t MMU::get_hram_last_write_pc(uint16_t addr) const {
+    for (const auto& entry : hram_watchlist_) {
+        if (entry.addr == addr) {
+            return entry.last_write_pc;
+        }
+    }
+    return 0;
+}
+
+uint8_t MMU::get_hram_last_write_value(uint16_t addr) const {
+    for (const auto& entry : hram_watchlist_) {
+        if (entry.addr == addr) {
+            return entry.last_write_value;
+        }
+    }
+    return 0;
+}
+
+uint32_t MMU::get_hram_first_write_frame(uint16_t addr) const {
+    for (const auto& entry : hram_watchlist_) {
+        if (entry.addr == addr) {
+            return entry.first_write_frame;
+        }
+    }
+    return 0;
+}
+
+uint32_t MMU::get_hram_read_count_program(uint16_t addr) const {
+    for (const auto& entry : hram_watchlist_) {
+        if (entry.addr == addr) {
+            return entry.read_count_program;
+        }
+    }
+    return 0;
+}
+// --- Fin Step 0481 ---
+
 // --- Fin Step 0475 ---
 

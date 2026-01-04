@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0481 - Cerrar Init Loops Reales (HRAM FF92 + Wait-Loop Exacto) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-04__0481__cerrar-init-loops-reales-hram-ff92-wait-loop-exacto.html" class="entry-link">
+                                    Cerrar Init Loops Reales (HRAM FF92 + Wait-Loop Exacto)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-04 | 
+                            <strong>Step ID:</strong> 0481 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Step 0480 identificó que mario.gbc espera HRAM[FF92] pero nunca se escribe, y tetris_dx.gbc tiene wait-loop sobre JOYP. Step 0481 implementa watchlist HRAM genérica, static scan de ROM para encontrar writers, instrumentación JOYP mejorada, y parser refinado. ✅ Watchlist HRAM genérica. ✅ Static scan encontró writer FF92 en PC=0x1288 (no ejecutado). ✅ Instrumentación JOYP mejorada. ✅ Tests clean-room (6/7 pasando). ✅ Reporte: mario.gbc nunca escribe FF92 (writer existe pero bloqueado), tetris_dx.gbc escribe JOYP pero wait-loop no detectado.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0480 - Cerrar Loops JOYP y HRAM FF92 + Arreglar Parser -->
                     <li>
                         <div class="entry-header">

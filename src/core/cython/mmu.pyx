@@ -29,6 +29,19 @@ cdef class PyMMU:
     """
     cdef mmu.MMU* _mmu
     
+    # --- Step 0481: Exponer debug_current_pc para tests ---
+    property debug_current_pc:
+        """Step 0481: Acceso al PC actual para tracking en tests."""
+        def __get__(self):
+            if self._mmu == NULL:
+                return 0
+            return self._mmu.debug_current_pc
+        
+        def __set__(self, uint16_t value):
+            if self._mmu != NULL:
+                self._mmu.debug_current_pc = value
+    # --- Fin Step 0481 ---
+    
     def __cinit__(self):
         """Constructor: crea la instancia C++."""
         self._mmu = new mmu.MMU()
@@ -678,6 +691,39 @@ cdef class PyMMU:
             return 0
         return self._mmu.get_last_joyp_write_pc()
     
+    def get_joyp_read_count_program(self):
+        """
+        Step 0481: Obtiene el contador de reads de JOYP desde programa.
+        
+        Returns:
+            Número de reads de JOYP desde código del programa
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_read_count_program()
+    
+    def get_last_joyp_read_pc(self):
+        """
+        Step 0481: Obtiene el PC del último read de JOYP.
+        
+        Returns:
+            PC del último read de JOYP
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_joyp_read_pc()
+    
+    def get_last_joyp_read_value(self):
+        """
+        Step 0481: Obtiene el último valor leído de JOYP.
+        
+        Returns:
+            Último valor leído de JOYP
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_joyp_read_value()
+    
     # --- Step 0474: Getters para instrumentación quirúrgica de IF/LY/STAT ---
     def get_if_read_count(self):
         """
@@ -1012,6 +1058,89 @@ cdef class PyMMU:
         
         self._mmu.log_mbc_writes_summary()
     # --- Fin Step 0450 ---
+    
+    # --- Step 0481: HRAM Watchlist Genérica ---
+    def add_hram_watch(self, uint16_t addr):
+        """
+        Step 0481: Añade una dirección HRAM a la watchlist para tracking.
+        
+        Args:
+            addr: Dirección HRAM (0xFF80-0xFFFE)
+        """
+        if self._mmu == NULL:
+            return
+        self._mmu.add_hram_watch(addr)
+    
+    def get_hram_write_count(self, uint16_t addr):
+        """
+        Step 0481: Obtiene el contador de writes a una dirección HRAM en watchlist.
+        
+        Args:
+            addr: Dirección HRAM
+        
+        Returns:
+            Número de writes, o 0 si no está en watchlist
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_hram_write_count(addr)
+    
+    def get_hram_last_write_pc(self, uint16_t addr):
+        """
+        Step 0481: Obtiene el PC del último write a una dirección HRAM en watchlist.
+        
+        Args:
+            addr: Dirección HRAM
+        
+        Returns:
+            PC del último write, o 0 si no está en watchlist
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_hram_last_write_pc(addr)
+    
+    def get_hram_last_write_value(self, uint16_t addr):
+        """
+        Step 0481: Obtiene el último valor escrito a una dirección HRAM en watchlist.
+        
+        Args:
+            addr: Dirección HRAM
+        
+        Returns:
+            Último valor escrito, o 0 si no está en watchlist
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_hram_last_write_value(addr)
+    
+    def get_hram_first_write_frame(self, uint16_t addr):
+        """
+        Step 0481: Obtiene el frame de la primera escritura a una dirección HRAM en watchlist.
+        
+        Args:
+            addr: Dirección HRAM
+        
+        Returns:
+            Frame de la primera escritura, o 0 si no se ha escrito
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_hram_first_write_frame(addr)
+    
+    def get_hram_read_count_program(self, uint16_t addr):
+        """
+        Step 0481: Obtiene el contador de reads desde programa a una dirección HRAM en watchlist.
+        
+        Args:
+            addr: Dirección HRAM
+        
+        Returns:
+            Número de reads desde programa, o 0 si no está en watchlist
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_hram_read_count_program(addr)
+    # --- Fin Step 0481 ---
     
     # Método para obtener el puntero C++ directamente (forma segura)
     cdef mmu.MMU* get_cpp_ptr(self):

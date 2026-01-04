@@ -586,5 +586,3 @@ git push
 - "FF92 = I/O CGB" (es HRAM)
 - "STAT roto" sin `stat_reads_program > 0`
 - Usar VRAMNZ/tilemapNZ como señal del juego con prefill ON
-
-6. Bitácora/informe actualizados con correcciones y resultados

@@ -387,7 +387,7 @@ def disasm_window(mmu: PyMMU, pc: int, before: int = 16, after: int = 32) -> Lis
 # --- Fin Step 0477 Fase A2 ---
 
 
-def parse_loop_io_pattern(disasm_window: List[Tuple[int, str, bool]]) -> Dict[str, Optional[int]]:
+def parse_loop_io_pattern(disasm_window: List[Tuple[int, str, bool]], jump_window: int = 16) -> Dict[str, Optional[int]]:
     """
     Parsea el disasm window y detecta automáticamente patrones de I/O.
     
@@ -491,8 +491,8 @@ def parse_loop_io_pattern(disasm_window: List[Tuple[int, str, bool]]) -> Dict[st
             matches = re.findall(r'(JR|JP)\s+(?:Z|NZ|C|NC)?\s*0x([0-9A-Fa-f]+)', instruction)
             if matches:
                 target = int(matches[0][1], 16)
-                # Verificar si el target está cerca del hotspot (ventana de ±32 bytes)
-                if abs(target - hotspot_pc) <= 32:
+                # Verificar si el target está cerca del hotspot (ventana configurable)
+                if abs(target - hotspot_pc) <= jump_window:
                     jump_back_found = True
     
     # Solo declarar loop si hay I/O read Y jump de vuelta
@@ -534,6 +534,66 @@ def parse_loop_io_pattern(disasm_window: List[Tuple[int, str, bool]]) -> Dict[st
         "pattern": pattern
     }
 # --- Fin Step 0479 Fase A1 ---
+
+# --- Step 0481: Static Scan de Writers HRAM ---
+def scan_rom_for_hram8_writes(rom_bytes: bytes, target_addr: int) -> List[Tuple[int, str, List[Tuple[int, str]]]]:
+    """
+    Escanea ROM buscando patrones típicos de escritura a HRAM.
+    
+    Args:
+        rom_bytes: bytes del ROM (array de bytes)
+        target_addr: dirección HRAM a buscar (ej: 0x92 para 0xFF92)
+    
+    Returns:
+        Lista de (pc, pattern_type, disasm_snippet)
+    """
+    writers = []
+    
+    # Patrón 1: E0 92 → LDH (0x92),A
+    pattern1 = bytes([0xE0, target_addr])
+    
+    # Patrón 2: EA 92 FF → LD (0xFF92),A
+    pattern2 = bytes([0xEA, target_addr, 0xFF])
+    
+    # Buscar patrones en ROM
+    for i in range(len(rom_bytes) - 2):
+        # Patrón 1: LDH (0x92),A
+        if rom_bytes[i:i+2] == pattern1:
+            pc = i
+            # Disasm window alrededor (16 bytes antes, 16 después)
+            start = max(0, pc - 16)
+            end = min(len(rom_bytes), pc + 16)
+            snippet_bytes = rom_bytes[start:end]
+            # Usar disasm_lr35902 para obtener snippet
+            snippet = disasm_lr35902(list(snippet_bytes), start)
+            writers.append((pc, f"LDH (0x{target_addr:02X}),A", snippet))
+        
+        # Patrón 2: LD (0xFF92),A
+        if i < len(rom_bytes) - 3 and rom_bytes[i:i+3] == pattern2:
+            pc = i
+            start = max(0, pc - 16)
+            end = min(len(rom_bytes), pc + 16)
+            snippet_bytes = rom_bytes[start:end]
+            snippet = disasm_lr35902(list(snippet_bytes), start)
+            writers.append((pc, f"LD (0xFF{target_addr:02X}),A", snippet))
+    
+    # Patrón 3: E2 con análisis básico: LD (FF00+C),A
+    # Si cerca se ve LD C,0x92
+    for i in range(len(rom_bytes) - 10):
+        if rom_bytes[i] == 0x0E and rom_bytes[i+1] == target_addr:  # LD C,0x92
+            # Buscar E2 cerca (dentro de 20 bytes)
+            for j in range(i, min(i+20, len(rom_bytes))):
+                if rom_bytes[j] == 0xE2:  # LD (FF00+C),A
+                    pc = j
+                    start = max(0, pc - 16)
+                    end = min(len(rom_bytes), pc + 16)
+                    snippet_bytes = rom_bytes[start:end]
+                    snippet = disasm_lr35902(list(snippet_bytes), start)
+                    writers.append((pc, f"LD (FF00+C),A (C=0x{target_addr:02X})", snippet))
+                    break
+    
+    return writers
+# --- Fin Step 0481 Fase B1 ---
 
 
 class ROMSmokeRunner:
@@ -584,7 +644,7 @@ class ROMSmokeRunner:
         """Inicializa componentes core C++ con wiring correcto."""
         # Leer ROM
         with open(self.rom_path, 'rb') as f:
-            rom_bytes = f.read()
+            self.rom_bytes = f.read()  # Guardar para static scan
         
         # Inicializar core (mismo wiring que runtime)
         self.mmu = PyMMU()
@@ -600,7 +660,22 @@ class ROMSmokeRunner:
         self.mmu.set_joypad(self.joypad)
         
         # Cargar ROM
-        self.mmu.load_rom_py(rom_bytes)
+        self.mmu.load_rom_py(self.rom_bytes)
+        
+        # --- Step 0481: Static scan FF92 writers (si VIBOY_DEBUG_HRAM=1) ---
+        import os
+        if os.getenv("VIBOY_DEBUG_HRAM") == "1":
+            ff92_writers = scan_rom_for_hram8_writes(self.rom_bytes, 0x92)
+            print(f"[ROM-SCAN] Writers de FF92 encontrados: {len(ff92_writers)}")
+            for pc, pattern_type, snippet in ff92_writers:
+                print(f"[ROM-SCAN] PC=0x{pc:04X} Pattern={pattern_type}")
+                print(f"[ROM-SCAN] Disasm snippet:")
+                for addr, inst, _ in snippet:
+                    print(f"  0x{addr:04X}: {inst}")
+            self.ff92_writers = ff92_writers  # Guardar para reporte
+        else:
+            self.ff92_writers = []
+        # -----------------------------------------
         
         # Estado post-boot DMG (Step 0401)
         self.regs.a = 0x01  # DMG

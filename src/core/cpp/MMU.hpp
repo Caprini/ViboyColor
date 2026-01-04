@@ -804,6 +804,31 @@ private:
     mutable uint16_t last_hram_ff92_read_pc_;
     mutable uint8_t last_hram_ff92_read_value_;
     
+    // --- Step 0481: HRAM Watchlist Genérica ---
+    // Estructura para tracking quirúrgico de direcciones HRAM
+    struct HRAMWatchEntry {
+        uint16_t addr;
+        uint32_t write_count;
+        uint32_t read_count_program;
+        uint16_t last_write_pc;
+        uint8_t last_write_value;
+        uint32_t last_write_timestamp;
+        uint16_t first_write_pc;
+        uint8_t first_write_value;
+        uint32_t first_write_timestamp;
+        uint32_t first_write_frame;
+        uint16_t last_read_pc;
+        uint8_t last_read_value;
+        bool first_write_recorded;
+        
+        HRAMWatchEntry() : addr(0), write_count(0), read_count_program(0),
+                          last_write_pc(0), last_write_value(0), last_write_timestamp(0),
+                          first_write_pc(0), first_write_value(0), first_write_timestamp(0),
+                          first_write_frame(0), last_read_pc(0), last_read_value(0),
+                          first_write_recorded(false) {}
+    };
+    mutable std::vector<HRAMWatchEntry> hram_watchlist_;
+    
 public:
     /**
      * Step 0450: Log summary of MBC writes (debug-gated).
@@ -924,6 +949,27 @@ public:
      * @return PC del último write a JOYP
      */
     uint16_t get_last_joyp_write_pc() const;
+    
+    /**
+     * Step 0481: Obtiene el contador de reads de JOYP desde programa.
+     * 
+     * @return Número de reads de JOYP desde código del programa
+     */
+    uint32_t get_joyp_read_count_program() const;
+    
+    /**
+     * Step 0481: Obtiene el PC del último read de JOYP.
+     * 
+     * @return PC del último read de JOYP
+     */
+    uint16_t get_last_joyp_read_pc() const;
+    
+    /**
+     * Step 0481: Obtiene el último valor leído de JOYP.
+     * 
+     * @return Último valor leído de JOYP
+     */
+    uint8_t get_last_joyp_read_value() const;
     
     /**
      * Step 0474: Obtiene el contador de lecturas de IF (0xFF0F).
@@ -1139,6 +1185,53 @@ public:
      * @return Último valor leído de HRAM[FF92]
      */
     uint8_t get_last_hram_ff92_read_value() const;
+    
+    /**
+     * Step 0481: Añade una dirección HRAM a la watchlist para tracking.
+     * 
+     * @param addr Dirección HRAM (0xFF80-0xFFFE)
+     */
+    void add_hram_watch(uint16_t addr);
+    
+    /**
+     * Step 0481: Obtiene el contador de writes a una dirección HRAM en watchlist.
+     * 
+     * @param addr Dirección HRAM
+     * @return Número de writes, o 0 si no está en watchlist
+     */
+    uint32_t get_hram_write_count(uint16_t addr) const;
+    
+    /**
+     * Step 0481: Obtiene el PC del último write a una dirección HRAM en watchlist.
+     * 
+     * @param addr Dirección HRAM
+     * @return PC del último write, o 0 si no está en watchlist
+     */
+    uint16_t get_hram_last_write_pc(uint16_t addr) const;
+    
+    /**
+     * Step 0481: Obtiene el último valor escrito a una dirección HRAM en watchlist.
+     * 
+     * @param addr Dirección HRAM
+     * @return Último valor escrito, o 0 si no está en watchlist
+     */
+    uint8_t get_hram_last_write_value(uint16_t addr) const;
+    
+    /**
+     * Step 0481: Obtiene el frame de la primera escritura a una dirección HRAM en watchlist.
+     * 
+     * @param addr Dirección HRAM
+     * @return Frame de la primera escritura, o 0 si no se ha escrito
+     */
+    uint32_t get_hram_first_write_frame(uint16_t addr) const;
+    
+    /**
+     * Step 0481: Obtiene el contador de reads desde programa a una dirección HRAM en watchlist.
+     * 
+     * @param addr Dirección HRAM
+     * @return Número de reads desde programa, o 0 si no está en watchlist
+     */
+    uint32_t get_hram_read_count_program(uint16_t addr) const;
 };
 
 #endif // MMU_HPP

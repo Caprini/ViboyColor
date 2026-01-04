@@ -37,6 +37,7 @@ cdef extern from "MMU.hpp":
         void setTimer(Timer* timer)
         void setJoypad(Joypad* joypad)
         void request_interrupt(uint8_t bit)
+        uint16_t debug_current_pc  # Step 0247: PC tracker público
         void load_test_tiles()
         void set_boot_rom(const uint8_t* data, size_t size)  # Step 0401
         int is_boot_rom_enabled()  # Step 0401 (devuelve int para evitar problemas de conversión)
@@ -71,6 +72,9 @@ cdef extern from "MMU.hpp":
         uint32_t get_joyp_write_count() const  # Step 0472
         uint8_t get_last_joyp_write_value() const  # Step 0472
         uint16_t get_last_joyp_write_pc() const  # Step 0472
+        uint32_t get_joyp_read_count_program() const  # Step 0481
+        uint16_t get_last_joyp_read_pc() const  # Step 0481
+        uint8_t get_last_joyp_read_value() const  # Step 0481
         uint32_t get_if_read_count() const  # Step 0474
         uint16_t get_last_if_write_pc() const  # Step 0474
         uint8_t get_last_if_write_val() const  # Step 0474
@@ -94,4 +98,10 @@ cdef extern from "MMU.hpp":
         uint32_t get_ly_changes_this_frame() const  # Step 0479
         uint32_t get_stat_mode_changes_count() const  # Step 0479
         uint32_t get_if_bit0_set_count_this_frame() const  # Step 0479
+        void add_hram_watch(uint16_t addr)  # Step 0481
+        uint32_t get_hram_write_count(uint16_t addr) const  # Step 0481
+        uint16_t get_hram_last_write_pc(uint16_t addr) const  # Step 0481
+        uint8_t get_hram_last_write_value(uint16_t addr) const  # Step 0481
+        uint32_t get_hram_first_write_frame(uint16_t addr) const  # Step 0481
+        uint32_t get_hram_read_count_program(uint16_t addr) const  # Step 0481
 
