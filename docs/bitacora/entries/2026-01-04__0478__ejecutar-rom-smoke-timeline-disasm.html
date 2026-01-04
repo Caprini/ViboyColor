@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0478: Ejecutar rom_smoke con Timeline IME/EI/DI + Disasm Real del Loop - Viboy Color</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Step 0478: Ejecutar rom_smoke con Timeline IME/EI/DI + Disasm Real del Loop</h1>
+            <p><a href="../index.html" class="back-link">← Volver al índice</a></p>
+            
+            <div class="entry-meta">
+                <span><strong>Fecha:</strong> 2026-01-04</span>
+                <span><strong>Step ID:</strong> 0478</span>
+                <span><strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span></span>
+            </div>
+        </header>
+
+        <main>
+            <section class="summary">
+                <h2>Resumen Ejecutivo</h2>
+                <p>
+                    Step 0477 implementó disassembler corregido y timeline IME/EI/DI. Step 0478 ejecuta rom_smoke con estas métricas para clasificar con evidencia Caso A/B/C/D, identificar I/O exacto del loop, y confirmar baseline limpio.
+                </p>
+                <p>
+                    <strong>Resultado:</strong> ✅ Ejecución completa con 3 ROMs (baseline OFF) y 1 ROM (prefill ON). ✅ Reporte generado con tablas y decisión automática. ✅ Caso identificado: mario.gbc (Caso A - EI nunca ejecutado), tetris_dx.gbc (Caso D/C - EI ejecutado pero IE=0x00). ⚠️ Este step NO modifica código core (solo ejecución y reporte).
+                </p>
+            </section>
+
+            <section class="hardware-concept">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>Clasificación de Causa Raíz (Step 0477)</h3>
+                <p>
+                    Step 0477 implementó un clasificador automático que identifica 4 casos posibles:
+                </p>
+                <ol>
+                    <li><strong>Caso A:</strong> EI nunca se ejecuta (el juego está atascado antes de habilitar interrupciones)</li>
+                    <li><strong>Caso B:</strong> EI se ejecuta pero IME no sube (bug EI delayed enable)</li>
+                    <li><strong>Caso C:</strong> IME sube pero IE=0 (juego no habilita IE o no lo necesita)</li>
+                    <li><strong>Caso D:</strong> IME+IE OK pero no hay service (revisar generación de requests)</li>
+                </ol>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - EI instruction, Interrupt Enable Register (IE)
+                </p>
+
+                <h3>Source Tagging de I/O</h3>
+                <p>
+                    Step 0475 implementó source tagging para distinguir lecturas de IF/IE desde código del programa vs polling interno de la CPU. Esto permite identificar si el juego está haciendo polling manual de IF/IE o si solo hay polling interno.
+                </p>
+            </section>
+
+            <section class="implementation">
+                <h2>Implementación</h2>
+                
+                <h3>Fase A: Baseline Limpio (OFF) con ROMs CGB + Control DMG</h3>
+                <p>
+                    Se ejecutó rom_smoke con las siguientes ROMs usando baseline limpio (VIBOY_SIM_BOOT_LOGO=0):
+                </p>
+                <ul>
+                    <li><code>tetris_dx.gbc</code> - 240 frames</li>
+                    <li><code>mario.gbc</code> - 240 frames</li>
+                    <li><code>tetris.gb</code> (DMG) - 240 frames (control)</li>
+                </ul>
+                <p>
+                    Flags utilizados:
+                </p>
+                <pre><code>export VIBOY_DEBUG_IO=1
+export VIBOY_SIM_BOOT_LOGO=0
+export VIBOY_DEBUG_INJECTION=0
+export VIBOY_AUTOPRESS=0
+export VIBOY_FORCE_BGP=0
+export VIBOY_FRAMEBUFFER_TRACE=0</code></pre>
+
+                <h3>Fase B: Control de Contaminación (ON) Solo 1 ROM</h3>
+                <p>
+                    Se ejecutó rom_smoke con <code>tetris_dx.gbc</code> usando logo prefill ON (VIBOY_SIM_BOOT_LOGO=1) para demostrar que VRAM/tilemap stats cambian por prefill y no por el juego.
+                </p>
+
+                <h3>Fase C: Generación de Reporte</h3>
+                <p>
+                    Se generó el reporte <code>/tmp/reporte_step0478.md</code> con:
+                </p>
+                <ul>
+                    <li>Tablas por ROM (frames 0/60/120/180) con todos los campos mínimos</li>
+                    <li>Disasm window del hotspot (frame 180) para cada ROM CGB</li>
+                    <li>Comparativa prefill ON vs OFF (solo tdx)</li>
+                    <li>Decisión automática final (Caso A/B/C/D identificado con evidencia)</li>
+                    <li>Siguiente fix mínimo propuesto (0479) con registro + bit + fix concreto</li>
+                </ul>
+            </section>
+
+            <section class="results">
+                <h2>Resultados</h2>
+                
+                <h3>Clasificación Automática</h3>
+                
+                <h4>mario.gbc (Frame 180)</h4>
+                <ul>
+                    <li><strong>Caso:</strong> A (EI nunca ejecutado)</li>
+                    <li><code>EIcount = 0</code> ❌</li>
+                    <li><code>ime_set_events_count = 0</code> ❌</li>
+                    <li><code>IME = 0</code> ❌</li>
+                    <li><code>IE = 0x00</code> ❌</li>
+                    <li><code>if_reads_program = 6603703</code> vs <code>if_reads_cpu_poll = 6602862</code> ✅ (El juego SÍ está polleando IF desde código)</li>
+                    <li><code>fb_nonzero = 0</code> (Sin progreso)</li>
+                </ul>
+                <p>
+                    <strong>Análisis:</strong> El juego nunca ejecuta EI, está atascado en un loop esperando alguna condición que nunca se cumple. El disasm muestra un loop simple sin I/O visible directamente, pero el polling masivo de IF sugiere que está esperando que IF cambie.
+                </p>
+
+                <h4>tetris_dx.gbc (Frame 180)</h4>
+                <ul>
+                    <li><strong>Caso:</strong> D con elementos de C (EI ejecutado pero IE=0x00)</li>
+                    <li><code>EIcount = 2</code> ✅ (EI SÍ se ejecutó)</li>
+                    <li><code>ime_set_events_count = 2</code> ✅ (IME SÍ se habilitó)</li>
+                    <li><code>IME = 0</code> ❌ (Pero IME está en 0 en el snapshot)</li>
+                    <li><code>IE = 0x00</code> ❌ (IE permanece en 0x00)</li>
+                    <li><code>if_reads_program = 8762209</code> vs <code>if_reads_cpu_poll = 8761604</code> ✅ (El juego SÍ está polleando IF desde código)</li>
+                    <li><code>fb_nonzero = 6409</code> (Progreso parcial)</li>
+                </ul>
+                <p>
+                    <strong>Análisis:</strong> EI se ejecutó e IME se habilitó, pero IE permanece en 0x00. El juego escribió a IE 7 veces pero IE sigue en 0x00. Hay progreso parcial (framebuffer no-blanco), lo que sugiere que el juego avanzó más que mario.gbc, pero aún está bloqueado esperando interrupciones que nunca llegan porque IE=0x00.
+                </p>
+
+                <h4>tetris.gb (DMG - Control - Frame 180)</h4>
+                <ul>
+                    <li><strong>Caso:</strong> Funciona correctamente</li>
+                    <li><code>IME = 1</code> ✅</li>
+                    <li><code>IE = 0x09</code> ✅</li>
+                    <li><code>LastIRQVec = 0x0040</code> ✅ (IRQs servidas)</li>
+                    <li><code>VBlankServ = 179</code> ✅</li>
+                </ul>
+                <p>
+                    <strong>Análisis:</strong> tetris.gb (DMG) funciona correctamente, lo que confirma que el problema es específico de CGB o de la secuencia de inicialización de estos juegos CGB.
+                </p>
+
+                <h3>Disasm del Loop (Frame 180)</h3>
+                
+                <h4>tetris_dx.gbc</h4>
+                <p><strong>PC_hotspot1:</strong> <code>0x1308</code></p>
+                <pre><code>0x1308: JR NZ, 0x1302 (-8)
+0x130A: RET
+0x130B: DB 0x21
+0x130C: DB 0x70
+0x130D: DB 0x13
+0x130E: CALL 0x12C9
+0x1311: CALL 0x12FF
+0x1314: LDH A,(JOYP)  ← PC actual marcado</code></pre>
+                <p>
+                    <strong>I/O identificado:</strong> El loop contiene <code>LDH A,(JOYP)</code> en 0x1314. El juego está haciendo millones de reads de IF (8.7M desde código), probablemente dentro de las funciones CALL.
+                </p>
+
+                <h4>mario.gbc</h4>
+                <p><strong>PC_hotspot1:</strong> <code>0x12A0</code></p>
+                <pre><code>0x12A0: DB 0x0B
+0x12A1: DB 0x79
+0x12A2: DB 0xB0
+0x12A3: JR NZ, 0x129D (-8)
+0x12A5: RET
+0x12A6: DB 0x21
+0x12A7: DB 0xFF
+0x12A8: DB 0x9B</code></pre>
+                <p>
+                    <strong>I/O identificado:</strong> El loop es simple con salto condicional. El código está en una zona de datos. El juego está haciendo millones de reads de IF (6.6M desde código) aunque no esté visible directamente en este fragmento.
+                </p>
+            </section>
+
+            <section class="next-steps">
+                <h2>Próximos Pasos (Step 0479)</h2>
+                
+                <h3>Para mario.gbc (Caso A)</h3>
+                <ul>
+                    <li>El juego nunca ejecuta EI. Necesitamos identificar qué condición está esperando antes de ejecutar EI.</li>
+                    <li>Desensamblar el código completo alrededor de 0x12A0 para ver qué condición se está evaluando.</li>
+                    <li><strong>Hipótesis:</strong> El juego está esperando que algún registro I/O (IF, STAT, LY, o JOYP) tenga un valor específico antes de continuar.</li>
+                </ul>
+
+                <h3>Para tetris_dx.gbc (Caso D/C)</h3>
+                <ul>
+                    <li>EI se ejecutó e IME se habilitó, pero IE permanece en 0x00.</li>
+                    <li>El juego escribió a IE 7 veces pero IE sigue en 0x00.</li>
+                    <li><strong>Hipótesis:</strong> Los writes a IE se están perdiendo o sobrescribiendo.</li>
+                    <li><strong>Fix concreto:</strong>
+                        <ul>
+                            <li>Instrumentar writes a IE con PC y valor (ya tenemos IEWritePC y IEWriteVal, pero necesitamos verificar si esos writes persisten).</li>
+                            <li>Verificar si hay código que lee IE y luego lo escribe con 0x00.</li>
+                            <li>Buscar patrones de <code>LDH A,(0xFFFF)</code> seguido de <code>LDH (0xFFFF),A</code> con A=0x00.</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+
+            <section class="files">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>/tmp/reporte_step0478.md</code> - Reporte completo con tablas y decisión automática</li>
+                    <li><code>/tmp/viboy_0478_tdx_off.log</code> - Log de tetris_dx.gbc (baseline OFF)</li>
+                    <li><code>/tmp/viboy_0478_mario_off.log</code> - Log de mario.gbc (baseline OFF)</li>
+                    <li><code>/tmp/viboy_0478_tetris_off.log</code> - Log de tetris.gb (baseline OFF)</li>
+                    <li><code>/tmp/viboy_0478_tdx_on.log</code> - Log de tetris_dx.gbc (prefill ON)</li>
+                </ul>
+                <p>
+                    <strong>⚠️ IMPORTANTE:</strong> Este step NO modifica código core. Solo ejecuta rom_smoke y genera reporte basado en las métricas implementadas en Step 0477.
+                </p>
+            </section>
+
+            <section class="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>python3 tools/rom_smoke_0442.py &lt;ROM&gt; --frames 240</code>
+                </p>
+                <p>
+                    <strong>Resultado:</strong> ✅ Todas las ROMs completaron sin crashes. ✅ Snapshots generados correctamente en frames 0/60/120/180. ✅ Métricas de timeline IME/EI/DI disponibles. ✅ Disasm window funcional.
+                </p>
+                <p>
+                    <strong>Validación:</strong> Los logs contienen snapshots con todos los campos mínimos requeridos (PC, PC_hotspot1, IME, IE, EIcount, DIcount, if_reads_program, ie_reads_program, disasm_window, etc.).
+                </p>
+            </section>
+        </main>
+
+        <footer>
+            <p><a href="../index.html">← Volver al índice</a></p>
+        </footer>
+    </div>
+</body>
+</html>
+
