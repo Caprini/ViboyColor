@@ -90,4 +90,8 @@ cdef extern from "MMU.hpp":
         uint32_t get_ie_reads_cpu_poll() const  # Step 0475
         uint32_t get_ie_writes_program() const  # Step 0475
         int get_boot_logo_prefill_enabled() const  # Step 0475 (devuelve int para evitar problemas de conversión en Cython)
+        void set_waits_on_addr(uint16_t addr)  # Step 0479
+        uint32_t get_ly_changes_this_frame() const  # Step 0479
+        uint32_t get_stat_mode_changes_count() const  # Step 0479
+        uint32_t get_if_bit0_set_count_this_frame() const  # Step 0479
 

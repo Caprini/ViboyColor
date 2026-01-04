@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0479 - Cerrar Wait Loop - Identificar I/O Exacto y Arreglar Solo Eso -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-04__0479__cerrar-wait-loop-identificar-i-o-exacto.html" class="entry-link">
+                                    Cerrar Wait Loop - Identificar I/O Exacto y Arreglar Solo Eso
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-04 | 
+                            <strong>Step ID:</strong> 0479 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Step 0478 identificó que las ROMs CGB están atascadas en wait loops, pero no se identificó el I/O exacto. Step 0479 implementa diagnóstico automático para identificar el I/O exacto del loop (LY, STAT, IF, CGB I/O) y aplica fixes mínimos solo si hay evidencia concluyente. ✅ Implementado parse_loop_io_pattern() para detectar automáticamente el I/O esperado. ✅ Añadida instrumentación gated por I/O esperado y específica LY/STAT/IF en MMU. ✅ Tests clean-room (2/2 pasando). ✅ I/O identificado: mario.gbc espera 0xFF92 (I/O CGB no estándar), tetris_dx.gbc espera 0xFF00 (JOYP).
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0478 - Ejecutar rom_smoke con Timeline IME/EI/DI + Disasm Real del Loop -->
                     <li>
                         <div class="entry-header">

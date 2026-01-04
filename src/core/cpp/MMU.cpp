@@ -171,6 +171,13 @@ MMU::MMU()
     , ie_reads_cpu_poll_(0)  // Step 0475: Contador de lecturas IE desde polling
     , ie_writes_program_(0)  // Step 0475: Contador de escrituras IE desde programa
     , boot_logo_prefill_enabled_(false)  // Step 0475: Prefill del logo deshabilitado por defecto
+    , waits_on_addr_(0x0000)  // Step 0479: I/O esperado (0 = no configurado)
+    , waits_on_reads_program_(0)  // Step 0479: Contador de reads desde programa
+    , last_waits_on_read_value_(0x00)  // Step 0479: Último valor leído del I/O esperado
+    , last_waits_on_read_pc_(0x0000)  // Step 0479: Último PC que leyó el I/O esperado
+    , ly_changes_this_frame_(0)  // Step 0479: Contador de cambios de LY por frame
+    , stat_mode_changes_count_(0)  // Step 0479: Contador de cambios de modo STAT por frame
+    , if_bit0_set_count_this_frame_(0)  // Step 0479: Contador de veces que IF bit0 se pone a 1 por frame
 {
     // Step 0450: Inicializar ring buffer de MBC writes
     for (int i = 0; i < 8; i++) {
@@ -584,6 +591,16 @@ uint8_t MMU::read(uint16_t addr) const {
                 ly_read_max_ = val;
             }
             
+            // --- Step 0479: Contador de cambios de LY por frame ---
+            static uint32_t last_ly_frame = 0;
+            uint32_t current_frame = (ppu_ != nullptr) ? ppu_->get_frame_counter() : 0;
+            if (current_frame != last_ly_frame) {
+                ly_changes_this_frame_ = 0;
+                last_ly_frame = current_frame;
+            }
+            ly_changes_this_frame_++;
+            // -----------------------------------------
+            
             // Log gated (solo si VIBOY_DEBUG_IO=1)
             bool debug_io = (std::getenv("VIBOY_DEBUG_IO") != nullptr && 
                              std::string(std::getenv("VIBOY_DEBUG_IO")) == "1");
@@ -616,6 +633,22 @@ uint8_t MMU::read(uint16_t addr) const {
         
         // --- Step 0474: Instrumentación quirúrgica de STAT ---
         last_stat_read_ = stat_value;
+        
+        // --- Step 0479: Contador de cambios de modo STAT por frame ---
+        static uint32_t last_stat_mode_frame = 0;
+        static uint8_t last_stat_mode = 0;
+        uint32_t current_frame = (ppu_ != nullptr) ? ppu_->get_frame_counter() : 0;
+        uint8_t current_mode = stat_value & 0x03;
+        
+        if (current_frame != last_stat_mode_frame) {
+            stat_mode_changes_count_ = 0;
+            last_stat_mode_frame = current_frame;
+            last_stat_mode = current_mode;
+        } else if (current_mode != last_stat_mode) {
+            stat_mode_changes_count_++;
+            last_stat_mode = current_mode;
+        }
+        // -----------------------------------------
         
         // Log gated (solo si VIBOY_DEBUG_IO=1)
         bool debug_io = (std::getenv("VIBOY_DEBUG_IO") != nullptr && 
@@ -929,6 +962,20 @@ uint8_t MMU::read(uint16_t addr) const {
         }
         
         return if_value;
+    }
+    // -----------------------------------------
+    
+    // --- Step 0479: Instrumentación gated por I/O esperado ---
+    // Solo si VIBOY_DEBUG_IO=1 y addr es el esperado
+    bool debug_io = (std::getenv("VIBOY_DEBUG_IO") != nullptr && 
+                     std::string(std::getenv("VIBOY_DEBUG_IO")) == "1");
+    if (debug_io && waits_on_addr_ != 0x0000 && addr == waits_on_addr_) {
+        // Contador de reads desde programa (no cpu_poll)
+        if (!irq_poll_active_) {
+            waits_on_reads_program_++;
+            last_waits_on_read_value_ = memory_[addr];
+            last_waits_on_read_pc_ = debug_current_pc;
+        }
     }
     // -----------------------------------------
     
@@ -3068,6 +3115,18 @@ void MMU::request_interrupt(uint8_t bit) {
     }
     // -------------------------------------------
     
+    // --- Step 0479: Contador de veces que IF bit0 se pone a 1 por frame ---
+    if (bit == 0) {  // VBlank
+        static uint32_t last_if_bit0_frame = 0;
+        uint32_t current_frame = (ppu_ != nullptr) ? ppu_->get_frame_counter() : 0;
+        if (current_frame != last_if_bit0_frame) {
+            if_bit0_set_count_this_frame_ = 0;
+            last_if_bit0_frame = current_frame;
+        }
+        if_bit0_set_count_this_frame_++;
+    }
+    // -------------------------------------------
+    
     // --- Step 0384: Instrumentación de request_interrupt ---
     // Leer el valor actual del registro IF (0xFF0F)
     uint8_t if_before = read(0xFF0F);
@@ -4405,5 +4464,23 @@ void MMU::prefill_boot_logo_vram() {
 int MMU::get_boot_logo_prefill_enabled() const {
     return boot_logo_prefill_enabled_ ? 1 : 0;
 }
+
+// --- Step 0479: Instrumentación gated por I/O esperado ---
+void MMU::set_waits_on_addr(uint16_t addr) {
+    waits_on_addr_ = addr;
+}
+
+uint32_t MMU::get_ly_changes_this_frame() const {
+    return ly_changes_this_frame_;
+}
+
+uint32_t MMU::get_stat_mode_changes_count() const {
+    return stat_mode_changes_count_;
+}
+
+uint32_t MMU::get_if_bit0_set_count_this_frame() const {
+    return if_bit0_set_count_this_frame_;
+}
+// --- Fin Step 0479 ---
 // --- Fin Step 0475 ---
 

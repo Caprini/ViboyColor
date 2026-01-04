@@ -896,6 +896,52 @@ cdef class PyMMU:
         return self._mmu.get_boot_logo_prefill_enabled()
     # --- Fin Step 0475 ---
     
+    # --- Step 0479: Instrumentación gated por I/O esperado ---
+    def set_waits_on_addr(self, uint16_t addr):
+        """
+        Step 0479: Configura el I/O esperado para instrumentación gated.
+        
+        Args:
+            addr: Dirección I/O esperada (0xFF44, 0xFF41, etc.)
+        """
+        if self._mmu == NULL:
+            return
+        self._mmu.set_waits_on_addr(addr)
+    
+    def get_ly_changes_this_frame(self):
+        """
+        Step 0479: Obtiene el contador de cambios de LY por frame.
+        
+        Returns:
+            Número de cambios de LY en el frame actual
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_ly_changes_this_frame()
+    
+    def get_stat_mode_changes_count(self):
+        """
+        Step 0479: Obtiene el contador de cambios de modo STAT por frame.
+        
+        Returns:
+            Número de cambios de modo STAT en el frame actual
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_stat_mode_changes_count()
+    
+    def get_if_bit0_set_count_this_frame(self):
+        """
+        Step 0479: Obtiene el contador de veces que IF bit0 se pone a 1 por frame.
+        
+        Returns:
+            Número de veces que IF bit0 se activó en el frame actual
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_if_bit0_set_count_this_frame()
+    # --- Fin Step 0479 ---
+    
     def read_raw(self, uint16_t addr):
         """
         Raw read for diagnostics (bypasses access restrictions).

@@ -784,6 +784,17 @@ private:
     // --- Step 0475: Boot Logo Prefill Gated ---
     bool boot_logo_prefill_enabled_;  // Flag para indicar si el prefill del logo está habilitado
     
+    // --- Step 0479: Instrumentación gated por I/O esperado ---
+    uint16_t waits_on_addr_;          // I/O esperado (del parseo)
+    mutable uint32_t waits_on_reads_program_;  // Contador de reads desde programa (no cpu_poll)
+    mutable uint8_t last_waits_on_read_value_; // Último valor leído del I/O esperado
+    mutable uint16_t last_waits_on_read_pc_;   // Último PC que leyó el I/O esperado
+    
+    // --- Step 0479: Instrumentación específica LY/STAT/IF ---
+    mutable uint32_t ly_changes_this_frame_;      // Contador de cambios de LY por frame
+    mutable uint32_t stat_mode_changes_count_;    // Contador de cambios de modo STAT por frame
+    mutable uint32_t if_bit0_set_count_this_frame_; // Contador de veces que IF bit0 se pone a 1 por frame
+    
 public:
     /**
      * Step 0450: Log summary of MBC writes (debug-gated).
@@ -1042,6 +1053,34 @@ public:
      *         (devuelve int para evitar problemas de conversión en Cython)
      */
     int get_boot_logo_prefill_enabled() const;
+    
+    /**
+     * Step 0479: Configura el I/O esperado para instrumentación gated.
+     * 
+     * @param addr Dirección I/O esperada (0xFF44, 0xFF41, etc.)
+     */
+    void set_waits_on_addr(uint16_t addr);
+    
+    /**
+     * Step 0479: Obtiene el contador de cambios de LY por frame.
+     * 
+     * @return Número de cambios de LY en el frame actual
+     */
+    uint32_t get_ly_changes_this_frame() const;
+    
+    /**
+     * Step 0479: Obtiene el contador de cambios de modo STAT por frame.
+     * 
+     * @return Número de cambios de modo STAT en el frame actual
+     */
+    uint32_t get_stat_mode_changes_count() const;
+    
+    /**
+     * Step 0479: Obtiene el contador de veces que IF bit0 se pone a 1 por frame.
+     * 
+     * @return Número de veces que IF bit0 se activó en el frame actual
+     */
+    uint32_t get_if_bit0_set_count_this_frame() const;
 };
 
 #endif // MMU_HPP
