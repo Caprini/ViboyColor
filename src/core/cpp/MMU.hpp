@@ -794,6 +794,34 @@ public:
      * @return Número de veces que se ha leído esa dirección
      */
     uint32_t get_io_read_count(uint16_t addr) const;
+    
+    /**
+     * Step 0471: Obtiene el último valor escrito a IE (0xFFFF).
+     * 
+     * @return Último valor escrito a IE
+     */
+    uint8_t get_last_ie_write_value() const;
+    
+    /**
+     * Step 0471: Obtiene el PC del último write a IE (0xFFFF).
+     * 
+     * @return PC del último write a IE
+     */
+    uint16_t get_last_ie_write_pc() const;
+    
+    /**
+     * Step 0471: Obtiene el último valor leído de IE (0xFFFF).
+     * 
+     * @return Último valor leído de IE
+     */
+    uint8_t get_last_ie_read_value() const;
+    
+    /**
+     * Step 0471: Obtiene el contador de lecturas de IE (0xFFFF).
+     * 
+     * @return Número de veces que se ha leído IE
+     */
+    uint32_t get_ie_read_count() const;
 };
 
 #endif // MMU_HPP

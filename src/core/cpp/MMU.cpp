@@ -19,6 +19,12 @@ static uint32_t if_write_count = 0;
 static uint8_t last_ie_written = 0x00;
 static uint8_t last_if_written = 0x00;
 
+// --- Step 0471: Instrumentación microscópica de IE ---
+static uint16_t last_ie_write_pc = 0x0000;
+static uint32_t last_ie_write_timestamp = 0;
+static uint8_t last_ie_read_value = 0x00;
+static uint32_t ie_read_count = 0;
+
 // --- Step 0470: Watch de lecturas de IO (solo contadores) ---
 static std::map<uint16_t, uint32_t> io_read_counts;
 // -------------------------------------------
@@ -788,6 +794,28 @@ uint8_t MMU::read(uint16_t addr) const {
     }
     // -------------------------------------------
     
+    // --- Step 0471: Instrumentación microscópica de IE read ---
+    if (addr == 0xFFFF) {  // IE
+        uint8_t ie_value = memory_[addr];
+        last_ie_read_value = ie_value;
+        ie_read_count++;
+        
+        // Comprobación debug (solo si VIBOY_DEBUG_PPU=1): Si hay writes pero el valor leído es 0x00, loggear
+        bool debug_ppu = (std::getenv("VIBOY_DEBUG_PPU") != nullptr && 
+                           std::string(std::getenv("VIBOY_DEBUG_PPU")) == "1");
+        if (debug_ppu && ie_write_count > 0 && ie_value == 0x00) {
+            static int ie_drop_log_count = 0;
+            if (ie_drop_log_count < 20) {
+                ie_drop_log_count++;
+                printf("[IE-DROP] wrote=0x%02X readback=0x00 | PC_write=0x%04X PC_read=0x%04X\n",
+                       last_ie_written, last_ie_write_pc, debug_current_pc);
+            }
+        }
+        
+        return ie_value;
+    }
+    // -----------------------------------------
+    
     // Resto de direcciones: memoria plana
     return memory_[addr];
 }
@@ -991,6 +1019,10 @@ void MMU::write(uint16_t addr, uint8_t value) {
     if (addr == 0xFFFF) {  // IE
         ie_write_count++;
         last_ie_written = value;
+        
+        // --- Step 0471: Instrumentación microscópica de IE write ---
+        last_ie_write_pc = debug_current_pc;
+        last_ie_write_timestamp++;
         
         // Log gated (solo si VIBOY_DEBUG_PPU=1)
         bool debug_ppu = (std::getenv("VIBOY_DEBUG_PPU") != nullptr && 
@@ -4052,4 +4084,22 @@ uint32_t MMU::get_io_read_count(uint16_t addr) const {
     return (it != io_read_counts.end()) ? it->second : 0;
 }
 // --- Fin Step 0470 ---
+
+// --- Step 0471: Getters para instrumentación microscópica de IE ---
+uint8_t MMU::get_last_ie_write_value() const {
+    return last_ie_written;
+}
+
+uint16_t MMU::get_last_ie_write_pc() const {
+    return last_ie_write_pc;
+}
+
+uint8_t MMU::get_last_ie_read_value() const {
+    return last_ie_read_value;
+}
+
+uint32_t MMU::get_ie_read_count() const {
+    return ie_read_count;
+}
+// --- Fin Step 0471 ---
 

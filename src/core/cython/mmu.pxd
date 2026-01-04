@@ -60,4 +60,8 @@ cdef extern from "MMU.hpp":
         uint8_t get_last_ie_written() const  # Step 0470
         uint8_t get_last_if_written() const  # Step 0470
         uint32_t get_io_read_count(uint16_t addr) const  # Step 0470
+        uint8_t get_last_ie_write_value() const  # Step 0471
+        uint16_t get_last_ie_write_pc() const  # Step 0471
+        uint8_t get_last_ie_read_value() const  # Step 0471
+        uint32_t get_ie_read_count() const  # Step 0471
 

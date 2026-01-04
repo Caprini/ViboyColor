@@ -577,6 +577,12 @@ class ROMSmokeRunner:
                 ei_count = self.cpu.get_ei_count() if hasattr(self.cpu, 'get_ei_count') else 0
                 di_count = self.cpu.get_di_count() if hasattr(self.cpu, 'get_di_count') else 0
                 
+                # Step 0471: Instrumentación microscópica de IE
+                last_ie_write_value = self.mmu.get_last_ie_write_value() if hasattr(self.mmu, 'get_last_ie_write_value') else 0
+                last_ie_read_value = self.mmu.get_last_ie_read_value() if hasattr(self.mmu, 'get_last_ie_read_value') else 0
+                ie_read_count = self.mmu.get_ie_read_count() if hasattr(self.mmu, 'get_ie_read_count') else 0
+                last_ie_write_pc = self.mmu.get_last_ie_write_pc() if hasattr(self.mmu, 'get_last_ie_write_pc') else 0
+                
                 # Step 0470: IO reads top 3
                 io_reads = {}
                 for io_addr in [0xFF00, 0xFF41, 0xFF44, 0xFF0F, 0xFFFF, 0xFF4D, 0xFF4F, 0xFF70]:
@@ -607,11 +613,18 @@ class ROMSmokeRunner:
                 stat = self.mmu.read(0xFF41)
                 ly = self.mmu.read(0xFF44)
                 
+                # Step 0471: Instrumentación microscópica de IE
+                last_ie_write_value = self.mmu.get_last_ie_write_value() if hasattr(self.mmu, 'get_last_ie_write_value') else 0
+                last_ie_read_value = self.mmu.get_last_ie_read_value() if hasattr(self.mmu, 'get_last_ie_read_value') else 0
+                ie_read_count = self.mmu.get_ie_read_count() if hasattr(self.mmu, 'get_ie_read_count') else 0
+                last_ie_write_pc = self.mmu.get_last_ie_write_pc() if hasattr(self.mmu, 'get_last_ie_write_pc') else 0
+                
                 print(f"[SMOKE-SNAPSHOT] Frame={frame_idx} | "
                       f"PC=0x{pc:04X} IME={ime} HALTED={halted} | "
                       f"IE=0x{ie:02X} IF=0x{if_reg:02X} | "
                       f"VBlankReq={vblank_req} VBlankServ={vblank_serv} | "
                       f"IEWrite={ie_write_count} IFWrite={if_write_count} EI={ei_count} DI={di_count} | "
+                      f"IEWriteVal=0x{last_ie_write_value:02X} IEReadVal=0x{last_ie_read_value:02X} IEReadCount={ie_read_count} IEWritePC=0x{last_ie_write_pc:04X} | "
                       f"IOReadsTop3={io_reads_str} | "
                       f"PCHotspotsTop3={pc_hotspots_str} | "
                       f"TilemapNZ_9800_RAW={tilemap_nz_9800_raw} TilemapNZ_9C00_RAW={tilemap_nz_9C00_raw} | "

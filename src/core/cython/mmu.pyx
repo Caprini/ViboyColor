@@ -557,6 +557,50 @@ cdef class PyMMU:
             return 0
         return self._mmu.get_io_read_count(addr)
     
+    def get_last_ie_write_value(self):
+        """
+        Step 0471: Obtiene el último valor escrito a IE (0xFFFF).
+        
+        Returns:
+            Último valor escrito a IE
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_ie_write_value()
+    
+    def get_last_ie_write_pc(self):
+        """
+        Step 0471: Obtiene el PC del último write a IE (0xFFFF).
+        
+        Returns:
+            PC del último write a IE
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_ie_write_pc()
+    
+    def get_last_ie_read_value(self):
+        """
+        Step 0471: Obtiene el último valor leído de IE (0xFFFF).
+        
+        Returns:
+            Último valor leído de IE
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_ie_read_value()
+    
+    def get_ie_read_count(self):
+        """
+        Step 0471: Obtiene el contador de lecturas de IE (0xFFFF).
+        
+        Returns:
+            Número de veces que se ha leído IE
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_ie_read_count()
+    
     def read_raw(self, uint16_t addr):
         """
         Raw read for diagnostics (bypasses access restrictions).

@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0471 - Fix Mínimo y Verificable para IE (0xFFFF) -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-04__0471__fix-minimo-ie-persistencia.html" class="entry-link">
+                                    Fix Mínimo y Verificable para IE (0xFFFF)
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-04 | 
+                            <strong>Step ID:</strong> 0471 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Implementación de instrumentación microscópica para diagnosticar el bug de persistencia/lectura de IE (0xFFFF) identificado en Step 0470. En Step 0470 observamos IEWrite>0 y IE leído=0 sostenido → bug en persistencia/lectura de IE. Se añadió instrumentación en MMU::write() y MMU::read() para rastrear writes y reads de IE, incluyendo PC, timestamp, y valores. Se creó test clean-room para verificar readback inmediato. ✅ Test básico pasa confirmando que write/read funciona en caso simple.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0470 - Diagnóstico de PC Stuck y Por Qué CGB Nunca Habilita IE/IME -->
                     <li>
                         <div class="entry-header">
