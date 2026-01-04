@@ -48,6 +48,7 @@ cdef extern from "PPU.hpp":
         uint8_t* get_framebuffer_rgb_ptr()  # Step 0404: Framebuffer RGB888 para CGB
         const uint8_t* get_framebuffer_indices_ptr() const  # Step 0457: Debug API para tests
         const uint8_t* get_presented_framebuffer_indices_ptr()  # Step 0468
+        uint32_t get_vblank_irq_requested_count() const  # Step 0469: Contador VBlank IRQ solicitado
         void clear_framebuffer()
         void confirm_framebuffer_read()
         void convert_framebuffer_to_rgb()  # Step 0404: Conversión índices → RGB

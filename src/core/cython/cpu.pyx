@@ -99,6 +99,19 @@ cdef class PyCPU:
         else:
             return 0
     
+    def get_vblank_irq_serviced_count(self):
+        """
+        Step 0469: Obtiene el contador de VBlank IRQ servidos.
+        
+        Este contador se incrementa cada vez que la CPU sirve una interrupción VBlank
+        (cuando IME está activo y se procesa el vector 0x0040). Útil para diagnóstico
+        de por qué los juegos no progresan (si el juego está en HALT esperando VBlank).
+        
+        Returns:
+            Número de veces que se ha servido VBlank interrupt
+        """
+        return self._cpu.get_vblank_irq_serviced_count()
+    
     # Propiedades para acceso directo (compatibilidad con tests)
     @property
     def registers(self):

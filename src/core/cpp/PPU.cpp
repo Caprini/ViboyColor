@@ -7,6 +7,9 @@
 #include <chrono>  // Step 0363: Para diagnóstico de rendimiento
 #include <vector>  // Step 0370: Para std::vector en verificación de discrepancia
 
+// --- Step 0469: Contador VBlank IRQ solicitado (nivel de archivo) ---
+static uint32_t vblank_irq_requested_count = 0;
+
 PPU::PPU(MMU* mmu) 
     : mmu_(mmu)
     , ly_(0)
@@ -618,6 +621,9 @@ void PPU::step(int cpu_cycles) {
                 // INDEPENDIENTEMENTE del estado de IME (Interrupt Master Enable).
                 // Usamos request_interrupt() para mantener consistencia con otras interrupciones.
                 mmu_->request_interrupt(0);  // Bit 0 = V-Blank Interrupt
+                
+                // --- Step 0469: Contador VBlank IRQ solicitado ---
+                vblank_irq_requested_count++;
                 
                 // Leer IF después de solicitar la interrupción
                 uint8_t if_after = mmu_->read(0xFF0F);
@@ -5686,5 +5692,10 @@ void PPU::convert_framebuffer_to_rgb() {
             }
         }
     }
+}
+
+// --- Step 0469: Implementación del getter para contador VBlank IRQ solicitado ---
+uint32_t PPU::get_vblank_irq_requested_count() const {
+    return vblank_irq_requested_count;
 }
 

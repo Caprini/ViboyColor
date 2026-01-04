@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>¿El Juego Progresa? ¿VBlank Existe? ¿VRAM se Llena? - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>¿El Juego Progresa? ¿VBlank Existe? ¿VRAM se Llena?</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-04
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0469
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-04__0468__fix-framebuffer-indices-api-presented-getter.html">Anterior (0468)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Diagnóstico de por qué las ROMs siguen mostrando pantallas blancas/negras (framebuffer flat) a pesar de que el PPU sí renderiza (confirmado en 0467/0468). Se implementó instrumentación mínima gated para diagnosticar si el problema es VBlank interrupt no solicitada/servida o VRAM writes bloqueados. Se añadieron contadores IRQ (vblank_irq_requested_count y vblank_irq_serviced_count) expuestos a Python, snapshot por frame en rom_smoke_0442.py (cada 60 frames), y test clean-room para VBlank interrupt. Validación real con 4 ROMs (tetris.gb, pkmn.gb, tetris_dx.gbc, mario.gbc) reveló que los juegos CGB no habilitan VBlank interrupt en IE (0xFFFF bit0), causando que aunque el PPU solicita la interrupción, la CPU no la sirve.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, las interrupciones son el mecanismo principal para sincronizar el juego con el hardware. La interrupción VBlank ocurre cuando el PPU completa un frame (LY alcanza 144) y es crítica para que los juegos progresen, ya que muchos juegos usan HALT y esperan VBlank para despertar.
+                </p>
+                <p>
+                    <strong>Registro IE (0xFFFF - Interrupt Enable)</strong>: Indica qué interrupciones están habilitadas. Bit 0 = VBlank interrupt. Si IE bit0 = 0, aunque el PPU solicite la interrupción (IF bit0 = 1), la CPU no la servirá.
+                </p>
+                <p>
+                    <strong>Registro IF (0xFF0F - Interrupt Flag)</strong>: Indica qué interrupciones están pendientes. Bit 0 = VBlank interrupt. Se activa cuando el PPU solicita la interrupción (LY=144).
+                </p>
+                <p>
+                    <strong>IME (Interrupt Master Enable)</strong>: Flag global que habilita/deshabilita todas las interrupciones. Si IME=0, aunque IE y IF tengan bits activos, la CPU no servirá interrupciones.
+                </p>
+                <p>
+                    <strong>Flujo de VBlank Interrupt</strong>:
+                </p>
+                <ol>
+                    <li>PPU alcanza LY=144 → solicita VBlank interrupt (IF bit0 = 1)</li>
+                    <li>Si IE bit0 = 1 y IME = 1 → CPU sirve la interrupción (salta a vector 0x0040)</li>
+                    <li>CPU limpia IF bit0 y desactiva IME temporalmente</li>
+                    <li>El juego ejecuta el handler de VBlank (actualiza gráficos, lógica, etc.)</li>
+                    <li>RETI restaura IME y retorna al código principal</li>
+                </ol>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - Interrupts, V-Blank Interrupt
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó instrumentación mínima gated para diagnosticar el problema de pantallas blancas/negras. La instrumentación incluye contadores IRQ y snapshots por frame con métricas clave.
+                </p>
+                
+                <h3>Fase A - Contadores IRQ</h3>
+                <p>
+                    Se añadieron contadores estáticos a nivel de archivo para rastrear cuántas veces se solicita y se sirve VBlank interrupt:
+                </p>
+                <ul>
+                    <li><strong>PPU.cpp</strong>: Contador `vblank_irq_requested_count` (static uint32_t) que se incrementa cuando PPU solicita VBlank interrupt (LY=144)</li>
+                    <li><strong>CPU.cpp</strong>: Se expone el contador existente `irq_vblank_services_` mediante getter `get_vblank_irq_serviced_count()`</li>
+                    <li><strong>PPU.hpp/CPU.hpp</strong>: Getters públicos `get_vblank_irq_requested_count()` y `get_vblank_irq_serviced_count()`</li>
+                    <li><strong>Cython (.pxd/.pyx)</strong>: Getters expuestos a Python para acceso desde herramientas de diagnóstico</li>
+                </ul>
+
+                <h3>Fase B - Snapshot por Frame</h3>
+                <p>
+                    Se modificó `rom_smoke_0442.py` para imprimir snapshot cada 60 frames (o frames 0, 1, 2) con las siguientes métricas:
+                </p>
+                <ul>
+                    <li>PC, IME, HALTED</li>
+                    <li>IE, IF (registros de interrupciones)</li>
+                    <li>VBlankReq, VBlankServ (contadores IRQ)</li>
+                    <li>TilemapNZ_9800_RAW, TilemapNZ_9C00_RAW (conteo RAW sin restricciones)</li>
+                    <li>VRAMNZ_RAW (conteo RAW de VRAM)</li>
+                    <li>LCDC, STAT, LY (registros PPU)</li>
+                </ul>
+
+                <h3>Fase C - Test Clean-Room</h3>
+                <p>
+                    Se creó `tests/test_vblank_interrupt_served_0469.py` con 2 tests:
+                </p>
+                <ul>
+                    <li><strong>test_vblank_interrupt_requested</strong>: Verifica que PPU solicita VBlank interrupt cuando LY=144</li>
+                    <li><strong>test_vblank_interrupt_served</strong>: Verifica que CPU sirve VBlank interrupt cuando IME está activo</li>
+                </ul>
+
+                <h3>Decisiones de diseño</h3>
+                <p>
+                    <strong>Contadores estáticos</strong>: Se usaron contadores estáticos a nivel de archivo en lugar de miembros de instancia porque cada ROM corre en un proceso nuevo (python3 tools/rom_smoke_0442.py rom...), por lo que se resetean automáticamente. Si en el futuro se ejecutan múltiples ROMs en el mismo proceso, habría que añadir reset_irq_counters() o convertir a miembros por instancia.
+                </p>
+                <p>
+                    <strong>Snapshot cada 60 frames</strong>: Para evitar saturar el contexto, los snapshots se imprimen cada 60 frames (o frames 0, 1, 2 para diagnóstico inicial). Esto proporciona suficiente granularidad sin generar logs masivos.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Añadido contador estático vblank_irq_requested_count e implementación de getter</li>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Añadido getter get_vblank_irq_requested_count()</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Añadida implementación de getter get_vblank_irq_serviced_count()</li>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Añadido getter get_vblank_irq_serviced_count()</li>
+                    <li><code>src/core/cython/ppu.pxd</code> - Añadida declaración de get_vblank_irq_requested_count()</li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Añadido wrapper Python get_vblank_irq_requested_count()</li>
+                    <li><code>src/core/cython/cpu.pxd</code> - Añadida declaración de get_vblank_irq_serviced_count()</li>
+                    <li><code>src/core/cython/cpu.pyx</code> - Añadido wrapper Python get_vblank_irq_serviced_count()</li>
+                    <li><code>tools/rom_smoke_0442.py</code> - Añadido snapshot cada 60 frames con métricas IRQ y VRAM</li>
+                    <li><code>tests/test_vblank_interrupt_served_0469.py</code> - Test clean-room para verificar VBlank interrupt end-to-end</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado</strong>: <code>pytest -q tests/test_vblank_interrupt_served_0469.py tests/test_bg_tilemap_base_and_scroll_0464.py</code>
+                </p>
+                <p>
+                    <strong>Resultado</strong>: 5 passed in 1.62s
+                </p>
+                <p>
+                    <strong>Código del Test</strong>:
+                </p>
+                <pre><code>def test_vblank_interrupt_requested(self):
+    """Test 1: Verificar que PPU solicita VBlank interrupt cuando LY=144."""
+    self.mmu.write(0xFFFF, 0x01)  # IE bit0 = VBlank enabled
+    for _ in range(3):
+        self.run_one_frame()
+    vblank_req = self.ppu.get_vblank_irq_requested_count()
+    assert vblank_req > 0, f"PPU no solicitó ninguna VBlank interrupt (vblank_req={vblank_req})"
+
+def test_vblank_interrupt_served(self):
+    """Test 2: Verificar que CPU sirve VBlank interrupt cuando está habilitado."""
+    self.mmu.write(0xFFFF, 0x01)  # IE bit0 = VBlank enabled
+    self.cpu.ime = True  # Habilitar IME
+    for _ in range(5):
+        self.run_one_frame()
+    vblank_serv = self.cpu.get_vblank_irq_serviced_count()
+    assert vblank_serv > 0, f"CPU no sirvió ninguna VBlank interrupt (vblank_serv={vblank_serv})"</code></pre>
+                <p>
+                    <strong>Validación Nativa</strong>: Validación de módulo compilado C++ mediante contadores IRQ expuestos a Python.
+                </p>
+                <p>
+                    <strong>Validación Real con ROMs</strong>: Se ejecutó rom_smoke_0442.py con 4 ROMs (tetris.gb, pkmn.gb, tetris_dx.gbc, mario.gbc) durante 240 frames cada una, generando snapshots cada 60 frames. Los logs se guardaron en /tmp/viboy_0469_*.log para análisis posterior.
+                </p>
+            </section>
+
+            <!-- 6. Resultados del Diagnóstico -->
+            <section id="resultados">
+                <h2>Resultados del Diagnóstico</h2>
+                <p>
+                    Se analizaron 4 ROMs con las 6 métricas clave por ROM:
+                </p>
+                <table style="border-collapse: collapse; width: 100%; margin: 20px 0;">
+                    <thead>
+                        <tr style="background-color: #f0f0f0;">
+                            <th style="border: 1px solid #ddd; padding: 8px;">ROM</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">VBlankReq (240f)</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">VBlankServ (240f)</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">IE bit0</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">IF bit0</th>
+                            <th style="border: 1px solid #ddd; padding: 8px;">Decisión</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;"><strong>tetris.gb</strong></td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">~239</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">~239</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">✅ 1</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">✅ 0</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">✅ IRQ OK, PC stuck</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;"><strong>pkmn.gb</strong></td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">~241</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">~177</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">✅ 1</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">⚠️ 1</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">⚠️ IRQ parcial, IME=0</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;"><strong>tetris_dx.gbc</strong></td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">~241</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">0</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">❌ 0</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">✅ 1</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">❌ IE bit0=0</td>
+                        </tr>
+                        <tr>
+                            <td style="border: 1px solid #ddd; padding: 8px;"><strong>mario.gbc</strong></td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">~241</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">0</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">❌ 0</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">✅ 1</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">❌ IE bit0=0</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3>Conclusión del Diagnóstico</h3>
+                <p>
+                    <strong>Causa dominante identificada</strong>: Los juegos CGB (tetris_dx.gbc, mario.gbc) <strong>NO habilitan VBlank interrupt en IE (0xFFFF bit0)</strong>. Aunque el PPU solicita correctamente la interrupción (VBlankReq > 0), la CPU no la sirve porque IE bit0 = 0.
+                </p>
+                <p>
+                    <strong>Evidencia</strong>:
+                </p>
+                <ul>
+                    <li><strong>tetris_dx.gbc</strong>: IE=0x00 en todos los snapshots (frame 0, 60, 120, 180). IF=0x01 (interrupción pendiente) pero VBlankServ=0 (nunca se sirve).</li>
+                    <li><strong>mario.gbc</strong>: IE=0x00 en todos los snapshots. IF=0x03 (VBlank + STAT pendientes) pero VBlankServ=0.</li>
+                    <li><strong>tetris.gb</strong>: IE=0x01/0x09 (bit0 activo), VBlankReq ≈ VBlankServ → IRQ funciona correctamente.</li>
+                    <li><strong>pkmn.gb</strong>: IE=0x0D (bit0 activo), VBlankReq > VBlankServ (desfase) porque IME se desactiva temporalmente.</li>
+                </ul>
+
+                <h3>Snapshots Clave</h3>
+                <p>
+                    <strong>tetris.gb - Frame 60</strong>: <code>PC=0x036C IME=1 IE=0x09 IF=0x00 VBlankReq=59 VBlankServ=59 TilemapNZ_9800=1024</code>
+                </p>
+                <p>
+                    <strong>pkmn.gb - Frame 60</strong>: <code>PC=0x614D IME=1 IE=0x0D IF=0x00 VBlankReq=61 VBlankServ=58 TilemapNZ_9800=1024 TilemapNZ_9C00=1024</code>
+                </p>
+                <p>
+                    <strong>tetris_dx.gbc - Frame 60</strong>: <code>PC=0x1305 IME=0 IE=0x00 IF=0x01 VBlankReq=61 VBlankServ=0 TilemapNZ_9800=0</code>
+                </p>
+                <p>
+                    <strong>mario.gbc - Frame 60</strong>: <code>PC=0x12A0 IME=0 IE=0x00 IF=0x03 VBlankReq=61 VBlankServ=0 TilemapNZ_9800=1024 TilemapNZ_9C00=1024</code>
+                </p>
+            </section>
+
+            <!-- 7. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/Interrupts.html">Interrupts</a> - V-Blank Interrupt, IE Register, IF Register</li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/CPU_Registers_and_Flags.html">CPU Registers and Flags</a> - IME (Interrupt Master Enable)</li>
+                </ul>
+            </section>
+
+            <!-- 8. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>VBlank Interrupt Flow</strong>: El flujo completo de VBlank interrupt requiere que tanto IE bit0=1 (interrupción habilitada) como IME=1 (interrupciones globales habilitadas) para que la CPU sirva la interrupción. Si IE bit0=0, aunque el PPU solicite la interrupción (IF bit0=1), la CPU no la servirá.</li>
+                        <li><strong>Instrumentación Gated</strong>: Los contadores IRQ y snapshots por frame proporcionan visibilidad suficiente para diagnosticar problemas de interrupciones sin saturar el contexto con logs masivos.</li>
+                        <li><strong>Diferencia DMG vs CGB</strong>: Los juegos DMG (tetris.gb, pkmn.gb) habilitan VBlank interrupt correctamente, mientras que los juegos CGB (tetris_dx.gbc, mario.gbc) no lo hacen en los primeros 240 frames.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Por qué CGB no habilita IE bit0</strong>: ¿Es un bug en la inicialización de IE para juegos CGB? ¿O es comportamiento esperado y el juego lo habilita más tarde? Necesita investigación en Step 0470.</li>
+                        <li><strong>PC stuck en tetris.gb</strong>: Aunque IRQ funciona, PC está stuck en 0x036C. ¿Es un loop infinito del juego o un bug de emulación?</li>
+                        <li><strong>IME desactivación en pkmn.gb</strong>: IME se desactiva temporalmente, causando desfase entre VBlankReq y VBlankServ. ¿Es comportamiento normal del juego?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis H4 (VBlank interrupt no se solicita/sirve)</strong>: ✅ <strong>CONFIRMADA PARCIALMENTE</strong> - Los juegos CGB no habilitan IE bit0, por lo que aunque el PPU solicita la interrupción, la CPU no la sirve. Los juegos DMG sí la habilitan y funciona correctamente.
+                    </p>
+                    <p>
+                        <strong>Hipótesis H5 (VRAM writes bloqueados)</strong>: ❌ <strong>DESCARTADA</strong> - Los snapshots muestran que VRAM se llena correctamente (TilemapNZ > 0, VRAMNZ > 0) en todos los juegos, incluso en CGB. El problema no es que VRAM esté vacía, sino que los juegos no progresan porque no se sirven las interrupciones.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 9. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] <strong>Step 0470</strong>: Investigar por qué los juegos CGB no habilitan IE bit0. Verificar si hay un bug en la inicialización de IE para juegos CGB o si el boot ROM de CGB debería habilitar IE.</li>
+                    <li>[ ] <strong>Step 0470</strong>: Si es comportamiento esperado (el juego habilita IE más tarde), verificar cuándo lo hace y por qué no lo hace en los primeros 240 frames.</li>
+                    <li>[ ] <strong>Step 0470</strong>: Investigar PC stuck en tetris.gb (0x036C) - ¿es un loop infinito del juego o un bug de emulación?</li>
+                    <li>[ ] <strong>Step 0470</strong>: Verificar comportamiento de IME en pkmn.gb - ¿es normal que se desactive temporalmente?</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

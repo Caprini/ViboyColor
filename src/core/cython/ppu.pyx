@@ -281,6 +281,20 @@ cdef class PyPPU:
         # Crear bytes desde el puntero (23040 bytes = 160*144)
         return <bytes>(<uint8_t[:23040]>indices_ptr)
     
+    def get_vblank_irq_requested_count(self):
+        """
+        Step 0469: Obtiene el contador de VBlank IRQ solicitados.
+        
+        Este contador se incrementa cada vez que el PPU solicita una interrupción VBlank
+        (cuando LY alcanza 144). Útil para diagnóstico de por qué los juegos no progresan.
+        
+        Returns:
+            Número de veces que se ha solicitado VBlank interrupt
+        """
+        if self._ppu == NULL:
+            return 0
+        return self._ppu.get_vblank_irq_requested_count()
+    
     def get_last_palette_regs_used(self):
         """
         Step 0457: Debug API para tests - Obtiene paleta regs usados en última conversión.

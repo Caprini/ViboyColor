@@ -32,6 +32,25 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0469 - ¿El Juego Progresa? ¿VBlank Existe? ¿VRAM se Llena? -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-04__0469__diagnostico-vblank-interrupt-vram.html" class="entry-link">
+                                    ¿El Juego Progresa? ¿VBlank Existe? ¿VRAM se Llena?
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-04 | 
+                            <strong>Step ID:</strong> 0469 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Diagnóstico de por qué las ROMs siguen mostrando pantallas blancas/negras (framebuffer flat) a pesar de que el PPU sí renderiza. Se implementó instrumentación mínima gated para diagnosticar si el problema es VBlank interrupt no solicitada/servida o VRAM writes bloqueados. Se añadieron contadores IRQ (vblank_irq_requested_count y vblank_irq_serviced_count) expuestos a Python, snapshot por frame en rom_smoke_0442.py (cada 60 frames), y test clean-room para VBlank interrupt. Validación real con 4 ROMs reveló que los juegos CGB no habilitan VBlank interrupt en IE (0xFFFF bit0), causando que aunque el PPU solicita la interrupción, la CPU no la sirve. ✅ Causa dominante identificada: IE bit0=0 en juegos CGB.
+                        </p>
+                    </li>
+                    
                     <!-- Entrada 0468 - Fix Mínimo y Correcto (Cerrar Bug de API) -->
                     <li>
                         <div class="entry-header">

@@ -3550,6 +3550,11 @@ bool CPU::get_halted() const {
     return halted_;
 }
 
+// --- Step 0469: Implementación del getter para contador VBlank IRQ servido ---
+uint32_t CPU::get_vblank_irq_serviced_count() const {
+    return irq_vblank_services_;
+}
+
 uint8_t CPU::handle_interrupts() {
     // Direcciones de registros de interrupciones
     constexpr uint16_t ADDR_IF = 0xFF0F;  // Interrupt Flag

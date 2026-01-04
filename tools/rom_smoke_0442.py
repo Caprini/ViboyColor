@@ -540,6 +540,51 @@ class ROMSmokeRunner:
             metrics = self._collect_metrics(frame_idx, ly_first, ly_mid, ly_last, stat_first, stat_mid, stat_last)
             self.metrics.append(metrics)
             
+            # --- Step 0469: Snapshot cada 60 frames (o frames 0, 60, 120, 180, 240) ---
+            should_snapshot = (frame_idx % 60 == 0) or frame_idx < 3
+            if should_snapshot:
+                # Leer registros
+                pc = self.regs.pc
+                ime = self.cpu.get_ime()
+                halted = self.cpu.get_halted()
+                
+                ie = self.mmu.read(0xFFFF)
+                if_reg = self.mmu.read(0xFF0F)
+                
+                # Contadores IRQ (si están expuestos)
+                vblank_req = self.ppu.get_vblank_irq_requested_count() if hasattr(self.ppu, 'get_vblank_irq_requested_count') else 0
+                vblank_serv = self.cpu.get_vblank_irq_serviced_count() if hasattr(self.cpu, 'get_vblank_irq_serviced_count') else 0
+                
+                # Tilemap nonzero (RAW)
+                tilemap_nz_9800_raw = 0
+                for addr in range(0x9800, 0x9C00):
+                    if self.mmu.read_raw(addr) != 0:
+                        tilemap_nz_9800_raw += 1
+                
+                tilemap_nz_9C00_raw = 0
+                for addr in range(0x9C00, 0xA000):
+                    if self.mmu.read_raw(addr) != 0:
+                        tilemap_nz_9C00_raw += 1
+                
+                # VRAM nonzero (RAW, opcional)
+                vram_nz_raw = 0
+                for addr in range(0x8000, 0xA000):
+                    if self.mmu.read_raw(addr) != 0:
+                        vram_nz_raw += 1
+                
+                # Registros PPU
+                lcdc = self.mmu.read(0xFF40)
+                stat = self.mmu.read(0xFF41)
+                ly = self.mmu.read(0xFF44)
+                
+                print(f"[SNAPSHOT] Frame={frame_idx} | "
+                      f"PC=0x{pc:04X} IME={ime} HALTED={halted} | "
+                      f"IE=0x{ie:02X} IF=0x{if_reg:02X} | "
+                      f"VBlankReq={vblank_req} VBlankServ={vblank_serv} | "
+                      f"TilemapNZ_9800_RAW={tilemap_nz_9800_raw} TilemapNZ_9C00_RAW={tilemap_nz_9C00_raw} | "
+                      f"VRAMNZ_RAW={vram_nz_raw} | "
+                      f"LCDC=0x{lcdc:02X} STAT=0x{stat:02X} LY={ly}")
+            
             # Dump periódico
             if self.dump_every > 0 and (frame_idx + 1) % self.dump_every == 0:
                 print(f"[Frame {frame_idx:04d}] PC={metrics['pc']:04X} "

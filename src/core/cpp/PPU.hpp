@@ -287,6 +287,16 @@ public:
     const uint8_t* get_presented_framebuffer_indices_ptr();
     
     /**
+     * Step 0469: Obtiene el contador de VBlank IRQ solicitados.
+     * 
+     * Este contador se incrementa cada vez que el PPU solicita una interrupción VBlank
+     * (cuando LY alcanza 144). Útil para diagnóstico de por qué los juegos no progresan.
+     * 
+     * @return Número de veces que se ha solicitado VBlank interrupt
+     */
+    uint32_t get_vblank_irq_requested_count() const;
+    
+    /**
      * Step 0457: Debug - Getters para paleta regs usados en última conversión.
      * 
      * Estos valores se actualizan en convert_framebuffer_to_rgb() y permiten

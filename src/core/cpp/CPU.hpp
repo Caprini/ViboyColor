@@ -121,6 +121,17 @@ public:
      * @return true si la CPU está en estado HALT, false en caso contrario
      */
     bool get_halted() const;
+    
+    /**
+     * Step 0469: Obtiene el contador de VBlank IRQ servidos.
+     * 
+     * Este contador se incrementa cada vez que la CPU sirve una interrupción VBlank
+     * (cuando IME está activo y se procesa el vector 0x0040). Útil para diagnóstico
+     * de por qué los juegos no progresan (si el juego está en HALT esperando VBlank).
+     * 
+     * @return Número de veces que se ha servido VBlank interrupt
+     */
+    uint32_t get_vblank_irq_serviced_count() const;
 
 private:
     /**
