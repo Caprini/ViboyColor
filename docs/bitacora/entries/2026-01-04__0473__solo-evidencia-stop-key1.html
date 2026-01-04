@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0473: Solo Evidencia — ¿Se Ejecuta STOP? ¿KEY1 se Arma? ¿Sale del Hotspot PC? - Viboy Color</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Step 0473: Solo Evidencia — ¿Se Ejecuta STOP? ¿KEY1 se Arma? ¿Sale del Hotspot PC?</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-04
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0473
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-04__0472__boot-state-stop-key1-speed-switch.html">Anterior (0472)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Step 0472 implementó STOP/KEY1 pero no está validado: siguen frames planos. Step 0473 obtiene evidencia real de si STOP/KEY1 se ejecuta en ROMs reales y si el juego sale del hotspot PC. <strong>Cero features nuevas</strong>, solo ejecución de <code>rom_smoke</code> con métricas ya implementadas en Step 0472 y decisión automática basada en los datos.
+                </p>
+                <p>
+                    <strong>Resultado:</strong> ✅ Evidencia obtenida. ❌ Speed-switch NO se está intentando en ninguna de las ROMs probadas (tetris_dx.gbc, mario.gbc). ❌ <code>key1_write_count == 0</code> y <code>stop_executed_count == 0</code> en todos los frames. ✅ <strong>Conclusión automática (Caso 1)</strong>: El problema NO es STOP/KEY1; es otra condición (init loop, otro IO, etc.). El fix STOP/KEY1 no entra en juego porque el juego no intenta hacer speed switch.
+                </p>
+            </section>
+
+            <!-- 2. Contexto -->
+            <section id="contexto">
+                <h2>Contexto</h2>
+                <p>
+                    El Step 0472 NO está validado como solución:
+                </p>
+                <ul>
+                    <li>Siguen frames planos (7 blancos + 1 negro)</li>
+                    <li>El pipeline presenta frames (FPS/tiempo corre), pero el juego no está llegando a generar un framebuffer con contenido</li>
+                    <li>El fix STOP/KEY1 puede estar bien "en test", pero no sabemos si se está ejecutando en ROM real</li>
+                </ul>
+                <p>
+                    <strong>Prioridad absoluta</strong>: No más código hasta tener evidencia de si el juego ejecuta STOP/KEY1 y sale del bucle.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    <strong>Cero código nuevo</strong>. Solo se usó la instrumentación existente de Step 0472:
+                </p>
+                <ul>
+                    <li><code>stop_executed_count</code>, <code>last_stop_pc</code> (CPU)</li>
+                    <li><code>key1_write_count</code>, <code>last_key1_write_value</code>, <code>last_key1_write_pc</code> (MMU)</li>
+                    <li><code>joyp_write_count</code>, <code>last_joyp_write_value</code>, <code>last_joyp_write_pc</code> (MMU)</li>
+                    <li><code>PC</code>, <code>IME</code>, <code>IE</code>, <code>IF</code> (CPU/MMU)</li>
+                    <li><code>fb_nonzero</code> (PPU)</li>
+                    <li><code>PC hotspots top3</code> (de Step 0470)</li>
+                </ul>
+                <p>
+                    Se ejecutó <code>rom_smoke_0442.py</code> con <code>--frames 240</code> para:
+                </p>
+                <ul>
+                    <li><code>tetris_dx.gbc</code></li>
+                    <li><code>mario.gbc</code></li>
+                </ul>
+                <p>
+                    Snapshots cada 60 frames (frames 0, 60, 120, 180) con todas las métricas listadas.
+                </p>
+            </section>
+
+            <!-- 4. Resultados -->
+            <section id="resultados">
+                <h2>Resultados</h2>
+                
+                <h3>Tabla Resumen por ROM</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ROM</th>
+                            <th>Frame 0</th>
+                            <th>Frame 60</th>
+                            <th>Frame 120</th>
+                            <th>Frame 180</th>
+                            <th>PC Hotspots Top3 (acumulado)</th>
+                            <th>Decisión Automática</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>tetris_dx.gbc</strong></td>
+                            <td>PC=0x1305<br>STOP=0<br>KEY1_w=0<br>KEY1=0x00<br>fb_nz=0</td>
+                            <td>PC=0x1305<br>STOP=0<br>KEY1_w=0<br>KEY1=0x00<br>fb_nz=0</td>
+                            <td>PC=0x1303<br>STOP=0<br>KEY1_w=0<br>KEY1=0x00<br>fb_nz=0</td>
+                            <td>PC=0x1383<br>STOP=0<br>KEY1_w=0<br>KEY1=0x00<br>fb_nz=6409</td>
+                            <td>0x1308:19320<br>0x1302:19320<br>0x1303:19320</td>
+                            <td><strong>Caso 1</strong></td>
+                        </tr>
+                        <tr>
+                            <td><strong>mario.gbc</strong></td>
+                            <td>PC=0x129D<br>STOP=0<br>KEY1_w=0<br>KEY1=0x00<br>fb_nz=0</td>
+                            <td>PC=0x12A0<br>STOP=0<br>KEY1_w=0<br>KEY1=0x00<br>fb_nz=0</td>
+                            <td>PC=0x12A0<br>STOP=0<br>KEY1_w=0<br>KEY1=0x00<br>fb_nz=0</td>
+                            <td>PC=0x12A0<br>STOP=0<br>KEY1_w=0<br>KEY1=0x00<br>fb_nz=0</td>
+                            <td>0x12A0:14358<br>0x129D:14349<br>0x12A2:14348</td>
+                            <td><strong>Caso 1</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3>Snapshots Detallados</h3>
+                
+                <h4>tetris_dx.gbc</h4>
+                <pre><code>Frame=0 | PC=0x1305 | STOP_count=0 | KEY1_write_count=0 | KEY1=0x00 | fb_nonzero=0
+Frame=60 | PC=0x1305 | STOP_count=0 | KEY1_write_count=0 | KEY1=0x00 | fb_nonzero=0
+Frame=120 | PC=0x1303 | STOP_count=0 | KEY1_write_count=0 | KEY1=0x00 | fb_nonzero=0
+Frame=180 | PC=0x1383 | STOP_count=0 | KEY1_write_count=0 | KEY1=0x00 | fb_nonzero=6409</code></pre>
+
+                <h4>mario.gbc</h4>
+                <pre><code>Frame=0 | PC=0x129D | STOP_count=0 | KEY1_write_count=0 | KEY1=0x00 | fb_nonzero=0
+Frame=60 | PC=0x12A0 | STOP_count=0 | KEY1_write_count=0 | KEY1=0x00 | fb_nonzero=0
+Frame=120 | PC=0x12A0 | STOP_count=0 | KEY1_write_count=0 | KEY1=0x00 | fb_nonzero=0
+Frame=180 | PC=0x12A0 | STOP_count=0 | KEY1_write_count=0 | KEY1=0x00 | fb_nonzero=0</code></pre>
+            </section>
+
+            <!-- 5. Decisión Automática -->
+            <section id="decision">
+                <h2>Decisión Automática</h2>
+                
+                <h3>Caso 1: Speed-switch NO se está intentando ✅ CONFIRMADO</h3>
+                <p>
+                    <strong>Condición</strong>:
+                </p>
+                <ul>
+                    <li><code>key1_write_count == 0</code> y <code>stop_executed_count == 0</code> en todas las ROMs y todos los frames</li>
+                </ul>
+                <p>
+                    <strong>Interpretación</strong>:
+                </p>
+                <ul>
+                    <li>El juego no está intentando hacer speed switch</li>
+                    <li>El fix STOP/KEY1 no entra en juego (no se ejecuta)</li>
+                    <li><strong>Conclusión</strong>: El problema NO es STOP/KEY1; es otra condición (init loop, otro IO, etc.)</li>
+                </ul>
+                <p>
+                    <strong>Próximo paso</strong>: Investigar qué condición está bloqueando (PC hotspots, IO reads, etc.)
+                </p>
+
+                <h3>Observaciones Adicionales</h3>
+                <ul>
+                    <li><strong>tetris_dx.gbc</strong>: Progreso parcial detectado (fb_nonzero=6409 en frame 180, PC hotspots cambian ligeramente pero siguen dominantes)</li>
+                    <li><strong>mario.gbc</strong>: Sin progreso (fb_nonzero=0 en todos los frames, PC hotspots muy estables: 0x12A0, 0x129D, 0x12A2)</li>
+                    <li>Ambas ROMs tienen <code>IE=0x00</code> sostenido (confirmando hallazgo de Step 0470)</li>
+                    <li>Ambas ROMs tienen <code>IME=0</code> sostenido</li>
+                </ul>
+            </section>
+
+            <!-- 6. Conceptos de Hardware -->
+            <section id="conceptos">
+                <h2>Conceptos de Hardware</h2>
+                <p>
+                    <strong>CGB Speed Switch</strong>: Mecanismo opcional que algunos juegos CGB usan para cambiar entre velocidad normal (4.19 MHz) y doble velocidad (8.38 MHz). El proceso requiere:
+                </p>
+                <ol>
+                    <li>Escribir a KEY1 (0xFF4D) con bit0=1 para preparar el switch</li>
+                    <li>Ejecutar STOP (opcode 0x10) para activar el cambio</li>
+                    <li>El hardware togglea bit7 (indica velocidad actual) y limpia bit0</li>
+                </ol>
+                <p>
+                    <strong>No todos los juegos CGB usan speed switch</strong>. Si un juego no escribe a KEY1 ni ejecuta STOP, el fix de Step 0472 no entra en juego. El problema debe ser otra cosa (init loop, espera de IO, etc.).
+                </p>
+            </section>
+
+            <!-- 7. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Comando ejecutado</strong>:
+                </p>
+                <pre><code>export PYTHONPATH=/media/fabini/8CD1-4C30/ViboyColor:$PYTHONPATH
+export VIBOY_DEBUG_PPU=0
+python3 tools/rom_smoke_0442.py roms/tetris_dx.gbc --frames 240 | tee /tmp/viboy_0473_tetris_dx.log
+python3 tools/rom_smoke_0442.py roms/mario.gbc --frames 240 | tee /tmp/viboy_0473_mario.log</code></pre>
+                <p>
+                    <strong>Resultado</strong>: ✅ Snapshots obtenidos para ambas ROMs. ✅ Métricas STOP/KEY1 disponibles en todos los frames. ✅ Decisión automática aplicada (Caso 1 confirmado).
+                </p>
+                <p>
+                    <strong>Validación Nativa</strong>: Validación de módulo compilado C++ mediante ejecución real de ROMs.
+                </p>
+            </section>
+
+            <!-- 8. Archivos Afectados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <p>
+                    <strong>Ninguno</strong> (solo ejecución de instrumentación existente de Step 0472).
+                </p>
+                <p>
+                    <strong>Logs generados</strong>:
+                </p>
+                <ul>
+                    <li><code>/tmp/viboy_0473_tetris_dx.log</code></li>
+                    <li><code>/tmp/viboy_0473_mario.log</code></li>
+                </ul>
+            </section>
+
+            <!-- 9. Próximos Pasos -->
+            <section id="proximos">
+                <h2>Próximos Pasos</h2>
+                <p>
+                    Dado que <strong>Caso 1</strong> está confirmado (speed-switch NO se intenta), el siguiente paso es investigar qué condición está bloqueando:
+                </p>
+                <ul>
+                    <li>PC hotspots muy estables (0x12A0, 0x129D, 0x12A2 en mario.gbc) → posible init loop</li>
+                    <li>IE=0x00 sostenido → confirmando hallazgo de Step 0470 (IE writes lost or overwritten)</li>
+                    <li>IME=0 sostenido → interrupciones deshabilitadas</li>
+                    <li>JOYP writes presentes en tetris_dx.gbc pero no en mario.gbc → posible diferencia en init sequence</li>
+                </ul>
+                <p>
+                    <strong>Step 0474</strong> debería investigar:
+                </p>
+                <ul>
+                    <li>¿Por qué IE permanece en 0x00 aunque hay writes? (Step 0470 identificó el problema pero no lo resolvió)</li>
+                    <li>¿Por qué PC hotspots son tan estables? (posible init loop esperando condición que nunca se cumple)</li>
+                    <li>¿Qué IO reads/writes están ocurriendo en los hotspots? (instrumentación de Step 0470 puede ayudar)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                <a href="../index.html">← Volver al índice</a>
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+
