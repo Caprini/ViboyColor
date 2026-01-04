@@ -655,6 +655,20 @@ public:
      * Muestra 10 líneas representativas del trace + conclusión.
      */
     void log_pokemon_micro_trace_summary();
+    
+    /**
+     * Step 0470: Obtiene el contador de ejecuciones de EI.
+     * 
+     * @return Número de veces que se ha ejecutado EI
+     */
+    uint32_t get_ei_count() const;
+    
+    /**
+     * Step 0470: Obtiene el contador de ejecuciones de DI.
+     * 
+     * @return Número de veces que se ha ejecutado DI
+     */
+    uint32_t get_di_count() const;
 };
 
 #endif // CPU_HPP

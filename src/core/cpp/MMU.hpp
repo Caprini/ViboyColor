@@ -758,6 +758,42 @@ public:
      * Muestra contadores y últimos 8 writes a rangos MBC (0x0000-0x7FFF).
      */
     void log_mbc_writes_summary() const;
+    
+    /**
+     * Step 0470: Obtiene el contador de writes a IE (0xFFFF).
+     * 
+     * @return Número de veces que se ha escrito a IE
+     */
+    uint32_t get_ie_write_count() const;
+    
+    /**
+     * Step 0470: Obtiene el contador de writes a IF (0xFF0F).
+     * 
+     * @return Número de veces que se ha escrito a IF
+     */
+    uint32_t get_if_write_count() const;
+    
+    /**
+     * Step 0470: Obtiene el último valor escrito a IE (0xFFFF).
+     * 
+     * @return Último valor escrito a IE
+     */
+    uint8_t get_last_ie_written() const;
+    
+    /**
+     * Step 0470: Obtiene el último valor escrito a IF (0xFF0F).
+     * 
+     * @return Último valor escrito a IF
+     */
+    uint8_t get_last_if_written() const;
+    
+    /**
+     * Step 0470: Obtiene el contador de lecturas de una dirección IO específica.
+     * 
+     * @param addr Dirección IO (0xFF00, 0xFF41, 0xFF44, 0xFF0F, 0xFFFF, 0xFF4D, 0xFF4F, 0xFF70)
+     * @return Número de veces que se ha leído esa dirección
+     */
+    uint32_t get_io_read_count(uint16_t addr) const;
 };
 
 #endif // MMU_HPP

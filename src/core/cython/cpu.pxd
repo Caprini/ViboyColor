@@ -66,4 +66,8 @@ cdef extern from "CPU.hpp":
         # Step 0436: Pokemon micro trace
         void set_pokemon_micro_trace(bool active)
         void log_pokemon_micro_trace_summary()
+        
+        # Step 0470: Contadores de EI/DI
+        uint32_t get_ei_count() const
+        uint32_t get_di_count() const
 

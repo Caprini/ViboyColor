@@ -13,6 +13,16 @@
 static bool tiles_were_loaded_recently_global = false;
 // -------------------------------------------
 
+// --- Step 0470: Contadores de writes a IE/IF ---
+static uint32_t ie_write_count = 0;
+static uint32_t if_write_count = 0;
+static uint8_t last_ie_written = 0x00;
+static uint8_t last_if_written = 0x00;
+
+// --- Step 0470: Watch de lecturas de IO (solo contadores) ---
+static std::map<uint16_t, uint32_t> io_read_counts;
+// -------------------------------------------
+
 // --- Step 0206: Datos del Logo Personalizado "Viboy Color" en Formato Tile (2bpp) ---
 // Convertido desde la imagen 'viboy_logo_48x8_debug.png' (48x8px) a formato de Tile (2bpp).
 // 
@@ -334,6 +344,27 @@ uint8_t MMU::read(uint16_t addr) const {
         }
         return 0x00;
     }
+    
+    // --- Step 0470: Watch de lecturas de IO (solo contadores) ---
+    // Direcciones IO a monitorear
+    const uint16_t io_addrs[] = {
+        0xFF00,  // JOYP
+        0xFF41,  // STAT
+        0xFF44,  // LY
+        0xFF0F,  // IF
+        0xFFFF,  // IE
+        0xFF4D,  // KEY1 (CGB)
+        0xFF4F,  // VBK (CGB)
+        0xFF70   // SVBK (CGB)
+    };
+    
+    for (uint16_t io_addr : io_addrs) {
+        if (addr == io_addr) {
+            io_read_counts[io_addr]++;
+            break;  // Solo contar una vez
+        }
+    }
+    // -----------------------------------------
     
     // CRÍTICO: El registro P1 (0xFF00) es controlado por el Joypad
     // La CPU escribe en P1 para seleccionar qué fila de botones leer, y lee
@@ -953,6 +984,30 @@ void MMU::write(uint16_t addr, uint8_t value) {
             printf("[WAIT-MMIO-WRITE] PC:0x%04X -> Addr(0x%04X) = 0x%02X\n", debug_current_pc, addr, value);
             mmio_write_count_step383++;
         }
+    }
+    // -----------------------------------------
+    
+    // --- Step 0470: Contadores de writes a IE/IF ---
+    if (addr == 0xFFFF) {  // IE
+        ie_write_count++;
+        last_ie_written = value;
+        
+        // Log gated (solo si VIBOY_DEBUG_PPU=1)
+        bool debug_ppu = (std::getenv("VIBOY_DEBUG_PPU") != nullptr && 
+                           std::string(std::getenv("VIBOY_DEBUG_PPU")) == "1");
+        if (debug_ppu) {
+            static int ie_write_log_count = 0;
+            if (ie_write_log_count < 20) {
+                ie_write_log_count++;
+                printf("[MMU-IE-WRITE] PC:0x%04X | IE write #%u | Value: 0x%02X\n",
+                       debug_current_pc, ie_write_count, value);
+            }
+        }
+    }
+    
+    if (addr == 0xFF0F) {  // IF
+        if_write_count++;
+        last_if_written = value;
     }
     // -----------------------------------------
     
@@ -3974,4 +4029,27 @@ void MMU::log_mbc_writes_summary() const {
     }
 }
 // --- Fin Step 0450 ---
+
+// --- Step 0470: Implementación de getters para contadores IE/IF writes ---
+uint32_t MMU::get_ie_write_count() const {
+    return ie_write_count;
+}
+
+uint32_t MMU::get_if_write_count() const {
+    return if_write_count;
+}
+
+uint8_t MMU::get_last_ie_written() const {
+    return last_ie_written;
+}
+
+uint8_t MMU::get_last_if_written() const {
+    return last_if_written;
+}
+
+uint32_t MMU::get_io_read_count(uint16_t addr) const {
+    auto it = io_read_counts.find(addr);
+    return (it != io_read_counts.end()) ? it->second : 0;
+}
+// --- Fin Step 0470 ---
 

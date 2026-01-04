@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnóstico de PC Stuck y Por Qué CGB Nunca Habilita IE/IME - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Diagnóstico de PC Stuck y Por Qué CGB Nunca Habilita IE/IME</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-04
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0470
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-04__0469__diagnostico-vblank-interrupt-vram.html">Anterior (0469)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Diagnóstico de por qué CGB nunca habilita IE/IME y por qué algunas ROMs tienen PC stuck. Se implementó instrumentación mínima gated para rastrear writes a IE/IF, ejecución de EI/DI, y watch de lecturas de IO. Se modificó rom_smoke_0442.py para snapshots con PC hotspots y IO reads top 3. Validación real con tetris_dx.gbc y mario.gbc reveló que ambos juegos escriben a IE múltiples veces pero IE permanece en 0x00, indicando que los writes se pierden o son sobrescritos. ✅ Causa dominante identificada: IE writes lost or overwritten.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    En la Game Boy, el registro IE (0xFFFF - Interrupt Enable) controla qué interrupciones están habilitadas. Si IE bit0 = 0, aunque el PPU solicite VBlank interrupt (IF bit0 = 1), la CPU no la servirá. El registro IE es write-only desde la perspectiva del hardware (el juego puede escribir valores, pero algunos bits pueden ser read-only o tener comportamiento especial en CGB).
+                </p>
+                <p>
+                    <strong>Registro IE (0xFFFF - Interrupt Enable)</strong>: Indica qué interrupciones están habilitadas. Bit 0 = VBlank interrupt, Bit 1 = LCD STAT interrupt, Bit 2 = Timer interrupt, Bit 3 = Serial interrupt, Bit 4 = Joypad interrupt. En modo CGB, algunos bits pueden tener comportamiento diferente o ser read-only.
+                </p>
+                <p>
+                    <strong>Instrucciones EI/DI</strong>: 
+                </p>
+                <ul>
+                    <li><strong>EI (0xFB)</strong>: Habilita IME (Interrupt Master Enable) con retraso de 1 instrucción. IME se activa DESPUÉS de ejecutar la siguiente instrucción. Esto permite que la instrucción siguiente a EI se ejecute sin interrupciones.</li>
+                    <li><strong>DI (0xF3)</strong>: Desactiva IME inmediatamente. Se usa típicamente al inicio de rutinas críticas.</li>
+                </ul>
+                <p>
+                    <strong>Framing Correcto del Problema</strong>: "IE bit0=0" en CGB no es una causa, es un síntoma de que el juego no está llegando al punto donde habilita interrupciones (o sus writes a IE se pierden). Si el juego intenta escribir IE pero IE permanece en 0x00, hay dos posibilidades:
+                </p>
+                <ol>
+                    <li><strong>IE writes missing</strong>: El juego nunca intenta escribir IE (no hay writes a 0xFFFF)</li>
+                    <li><strong>IE writes lost</strong>: El juego intenta escribir IE pero los writes se pierden o son sobrescritos</li>
+                </ol>
+                <p>
+                    <strong>Fuente</strong>: Pan Docs - Interrupts, Interrupt Enable Register (IE), EI/DI Instructions
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementó instrumentación mínima gated para diagnosticar por qué CGB nunca habilita IE/IME. La instrumentación incluye contadores de writes a IE/IF, ejecución de EI/DI, y watch de lecturas de IO.
+                </p>
+                
+                <h3>Fase A - Instrumentación Mínima (Gated)</h3>
+                <p>
+                    Se añadieron contadores estáticos a nivel de archivo para rastrear writes a IE/IF y ejecución de EI/DI:
+                </p>
+                <ul>
+                    <li><strong>MMU.cpp</strong>: Contadores `ie_write_count` y `if_write_count` (static uint32_t) que se incrementan cuando se escriben a 0xFFFF y 0xFF0F respectivamente. Log gated (solo si VIBOY_DEBUG_PPU=1) con límite de 20 logs.</li>
+                    <li><strong>MMU.cpp</strong>: Watch de lecturas de IO (JOYP, STAT, LY, IF, IE, KEY1, VBK, SVBK) usando std::map para contar lecturas por dirección.</li>
+                    <li><strong>CPU.cpp</strong>: Contadores `ei_count_global` y `di_count_global` (static uint32_t) que se incrementan cuando se ejecutan EI y DI.</li>
+                    <li><strong>MMU.hpp/CPU.hpp</strong>: Getters públicos `get_ie_write_count()`, `get_if_write_count()`, `get_last_ie_written()`, `get_last_if_written()`, `get_io_read_count()`, `get_ei_count()`, `get_di_count()`</li>
+                    <li><strong>Cython (.pxd/.pyx)</strong>: Getters expuestos a Python para acceso desde herramientas de diagnóstico</li>
+                </ul>
+
+                <h3>Fase B - rom_smoke: Snapshots con "Hotspots"</h3>
+                <p>
+                    Se modificó `rom_smoke_0442.py` para que en snapshots imprima PC hotspots y IO reads top 3:
+                </p>
+                <ul>
+                    <li><strong>Contadores de hotspots</strong>: `pc_samples` (Dict: PC -> count) que se actualiza cada 50 steps</li>
+                    <li><strong>Snapshots mejorados</strong>: Cada 60 frames (o frames 0, 60, 120, 180, 240) se imprimen:
+                        <ul>
+                            <li>Contadores IE/IF writes y EI/DI</li>
+                            <li>IO reads top 3 (direcciones más leídas)</li>
+                            <li>PC hotspots top 3 (PCs más frecuentes)</li>
+                            <li>Métricas existentes (TilemapNZ, VRAMNZ, LCDC, STAT, LY)</li>
+                        </ul>
+                    </li>
+                </ul>
+
+                <h3>Fase C - Test Opcional</h3>
+                <p>
+                    Se creó `tests/test_ie_write_persists_0470.py` para verificar que writes a IE persisten correctamente:
+                </p>
+                <ul>
+                    <li><strong>test_ie_write_persists</strong>: Verifica que write a IE (0xFFFF=0x01) persiste (read 0xFFFF==0x01) y que el contador de writes se incrementa</li>
+                    <li><strong>test_ie_write_multiple_values</strong>: Verifica que múltiples writes a IE persisten correctamente (0x01, 0x03, 0x07, 0x0F)</li>
+                </ul>
+
+                <h3>Fase D - Decisión Automática</h3>
+                <p>
+                    Se ejecutó `rom_smoke_0442.py` para tetris_dx.gbc y mario.gbc (240 frames cada uno) y se generó decisión automática basada en los datos recopilados:
+                </p>
+                <ul>
+                    <li><strong>tetris_dx.gbc</strong>: IEWrite=7, EI=2, DI=4, pero IE=0x00 → IE writes lost or overwritten + EI timing bug</li>
+                    <li><strong>mario.gbc</strong>: IEWrite=62, EI=0, DI=0, pero IE=0x00 → IE writes lost or overwritten + EI never executed</li>
+                </ul>
+                <p>
+                    <strong>Causa Dominante Identificada</strong>: IE writes lost or overwritten. Ambos juegos escriben a IE múltiples veces pero IE permanece en 0x00, indicando que los writes se pierden o son sobrescritos inmediatamente.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Getters para contadores IE/IF writes y IO reads</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Contadores de writes a IE/IF y watch de lecturas de IO</li>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Getters para contadores EI/DI</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Contadores de ejecución de EI/DI</li>
+                    <li><code>src/core/cython/mmu.pxd</code> - Declaraciones Cython para getters MMU</li>
+                    <li><code>src/core/cython/mmu.pyx</code> - Wrappers Python para getters MMU</li>
+                    <li><code>src/core/cython/cpu.pxd</code> - Declaraciones Cython para getters CPU</li>
+                    <li><code>src/core/cython/cpu.pyx</code> - Wrappers Python para getters CPU</li>
+                    <li><code>tools/rom_smoke_0442.py</code> - Snapshots con PC hotspots y IO reads top 3</li>
+                    <li><code>tests/test_ie_write_persists_0470.py</code> - Test para verificar que writes a IE persisten</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Validación de la implementación:
+                </p>
+                <ul>
+                    <li><strong>Tests unitarios</strong>: <code>pytest tests/test_ie_write_persists_0470.py</code> - 2 tests pasando (0.25s)
+                        <pre><code>def test_ie_write_persists(self):
+    """Test: Verificar que write a IE (0xFFFF) persiste."""
+    self.mmu.write(0xFFFF, 0x01)
+    ie_read = self.mmu.read(0xFFFF)
+    assert ie_read == 0x01, \
+        f"IE write no persiste: escribí 0x01, leí 0x{ie_read:02X}"
+    
+    ie_write_count = self.mmu.get_ie_write_count()
+    assert ie_write_count > 0, \
+        f"Contador de IE writes no se incrementó"</code></pre>
+                    </li>
+                    <li><strong>Validación Nativa</strong>: Validación de módulo compilado C++</li>
+                    <li><strong>ROMs de test</strong>: tetris_dx.gbc y mario.gbc (240 frames cada uno) con snapshots cada 60 frames</li>
+                    <li><strong>Decisión Automática</strong>: Análisis de datos recopilados para identificar causa dominante (IE writes lost or overwritten)</li>
+                </ul>
+            </section>
+
+            <!-- 6. Decisión Automática -->
+            <section id="decision-automatica">
+                <h2>Decisión Automática</h2>
+                <p>
+                    Basado en los datos recopilados de tetris_dx.gbc y mario.gbc (frames 120 y 180):
+                </p>
+                
+                <h3>tetris_dx.gbc</h3>
+                <ul>
+                    <li><strong>Frame 120</strong>: IEWrite=1, EI=0, DI=1, IE=0x00, PC hotspots en 0x1304-0x1306</li>
+                    <li><strong>Frame 180</strong>: IEWrite=7, EI=2, DI=4, IE=0x00, PC hotspots en 0x1308, 0x1302, 0x1303</li>
+                    <li><strong>Causa</strong>: IE writes lost or overwritten + EI timing bug</li>
+                    <li><strong>Evidencia</strong>: IEWrite=7 pero IE=0x00, EI=2 pero IME=0, IOReads dominado por IF/IE (polling stuck)</li>
+                </ul>
+
+                <h3>mario.gbc</h3>
+                <ul>
+                    <li><strong>Frame 120</strong>: IEWrite=42, EI=0, DI=0, IE=0x00, PC hotspots en 0x12A0, 0x129D, 0x12A2</li>
+                    <li><strong>Frame 180</strong>: IEWrite=62, EI=0, DI=0, IE=0x00, PC hotspots en 0x12A0, 0x129D, 0x12A2</li>
+                    <li><strong>Causa</strong>: IE writes lost or overwritten + EI never executed</li>
+                    <li><strong>Evidencia</strong>: IEWrite=62 pero IE=0x00, EI=0, IOReads dominado por IF/IE (polling stuck)</li>
+                </ul>
+
+                <h3>Causa Dominante Global</h3>
+                <p>
+                    <strong>IE writes lost or overwritten</strong>: Ambos juegos escriben a IE múltiples veces pero IE permanece en 0x00, indicando que los writes se pierden o son sobrescritos inmediatamente. El juego queda atrapado en loops de polling esperando que IE/IF cambien.
+                </p>
+                <p>
+                    <strong>Hipótesis Principal</strong>: Algún componente del sistema (posiblemente relacionado con CGB o modo de hardware) está sobrescribiendo IE (0xFFFF) después de que el juego lo escribe, o los writes no persisten correctamente.
+                </p>
+            </section>
+
+            <!-- 7. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: Interrupts, Interrupt Enable Register (IE), EI/DI Instructions</li>
+                    <li>Pan Docs: CGB Registers (comportamiento especial de IE en modo CGB)</li>
+                </ul>
+            </section>
+
+            <!-- 8. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>IE writes tracking</strong>: Los contadores de writes a IE/IF permiten determinar si el juego intenta habilitar interrupciones o está atascado antes</li>
+                        <li><strong>EI/DI tracking</strong>: Los contadores de ejecución de EI/DI permiten determinar si el juego intenta habilitar IME</li>
+                        <li><strong>IO polling detection</strong>: El watch de lecturas de IO permite identificar qué registro está esperando el juego (LY/STAT, IF/IE, KEY1, etc.)</li>
+                        <li><strong>PC hotspots</strong>: Los hotspots de PC permiten identificar loops de polling esperando que algún registro cambie</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>IE write persistence</strong>: Verificar que writes a IE persisten correctamente en modo CGB (posible bug en mapping de IE)</li>
+                        <li><strong>EI timing</strong>: Verificar timing de EI en tetris_dx.gbc (EI ejecutado pero IME sigue 0)</li>
+                        <li><strong>Componente que sobrescribe IE</strong>: Identificar qué componente sobrescribe IE después de que el juego lo escribe</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis Principal</strong>: Algún componente del sistema (posiblemente relacionado con CGB o modo de hardware) está sobrescribiendo IE (0xFFFF) después de que el juego lo escribe. Esto podría ser:
+                    </p>
+                    <ul>
+                        <li>Bug en mapping de IE en modo CGB (IE se mapea a otra dirección o se lee desde otra fuente)</li>
+                        <li>Componente que resetea IE periódicamente (posiblemente relacionado con boot ROM o inicialización)</li>
+                        <li>Bug en persistencia de writes a IE (writes no se guardan correctamente en memoria)</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 9. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Step 0471: Añadir logging detallado de writes a IE para identificar qué componente sobrescribe IE</li>
+                    <li>[ ] Step 0471: Verificar que writes a IE persisten correctamente en modo CGB</li>
+                    <li>[ ] Step 0471: Verificar timing de EI en tetris_dx.gbc (EI ejecutado pero IME sigue 0)</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

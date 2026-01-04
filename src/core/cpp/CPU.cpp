@@ -8,6 +8,11 @@
 #include <algorithm>
 #include <set>
 
+// --- Step 0470: Contadores globales de EI/DI (accesibles desde getters) ---
+static uint32_t ei_count_global = 0;
+static uint32_t di_count_global = 0;
+// -----------------------------------------
+
 CPU::CPU(MMU* mmu, CoreRegisters* registers)
     : mmu_(mmu), regs_(registers), ppu_(nullptr), timer_(nullptr), cycles_(0), ime_(false), halted_(false), ime_scheduled_(false),
       in_vblank_handler_(false), vblank_handler_steps_(0), post_delay_trace_active_(false), post_delay_count_(0),
@@ -3028,6 +3033,10 @@ int CPU::step() {
             // Esta instrucción se usa típicamente al inicio de rutinas críticas
             // Fuente: Pan Docs - DI: 1 M-Cycle
             {
+                // --- Step 0470: Contador de DI ---
+                di_count_global++;
+                // -------------------------------------------
+                
                 // --- Step 0388: Instrumentación de DI (limitada a 50) ---
                 static int di_log_count = 0;
                 if (di_log_count < 50) {
@@ -3052,6 +3061,10 @@ int CPU::step() {
             // Esto permite que la instrucción siguiente a EI se ejecute sin interrupciones
             // Fuente: Pan Docs - EI: 1 M-Cycle
             {
+                // --- Step 0470: Contador de EI ---
+                ei_count_global++;
+                // -------------------------------------------
+                
                 // --- Step 0388: Instrumentación de EI (limitada a 50) ---
                 uint8_t ie_val = mmu_->read(0xFFFF);
                 static int ei_log_count = 0;
@@ -4031,6 +4044,16 @@ void CPU::set_pokemon_micro_trace(bool active) {
         printf("[POKEMON-MICRO-TRACE] Desactivado\n");
     }
 }
+
+// --- Step 0470: Implementación de getters para contadores EI/DI ---
+uint32_t CPU::get_ei_count() const {
+    return ei_count_global;
+}
+
+uint32_t CPU::get_di_count() const {
+    return di_count_global;
+}
+// --- Fin Step 0470 ---
 
 void CPU::log_pokemon_micro_trace_summary() {
     if (pokemon_micro_trace_.sample_count == 0) {

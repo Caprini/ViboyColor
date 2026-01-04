@@ -499,6 +499,64 @@ cdef class PyMMU:
     # --- Fin Step 0436 ---
     
     # --- Step 0450: Raw read for diagnostics ---
+    def get_ie_write_count(self):
+        """
+        Step 0470: Obtiene el contador de writes a IE (0xFFFF).
+        
+        Returns:
+            Número de veces que se ha escrito a IE
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_ie_write_count()
+    
+    def get_if_write_count(self):
+        """
+        Step 0470: Obtiene el contador de writes a IF (0xFF0F).
+        
+        Returns:
+            Número de veces que se ha escrito a IF
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_if_write_count()
+    
+    def get_last_ie_written(self):
+        """
+        Step 0470: Obtiene el último valor escrito a IE (0xFFFF).
+        
+        Returns:
+            Último valor escrito a IE
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_ie_written()
+    
+    def get_last_if_written(self):
+        """
+        Step 0470: Obtiene el último valor escrito a IF (0xFF0F).
+        
+        Returns:
+            Último valor escrito a IF
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_if_written()
+    
+    def get_io_read_count(self, uint16_t addr):
+        """
+        Step 0470: Obtiene el contador de lecturas de una dirección IO específica.
+        
+        Args:
+            addr: Dirección IO (0xFF00, 0xFF41, 0xFF44, 0xFF0F, 0xFFFF, 0xFF4D, 0xFF4F, 0xFF70)
+        
+        Returns:
+            Número de veces que se ha leído esa dirección
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_io_read_count(addr)
+    
     def read_raw(self, uint16_t addr):
         """
         Raw read for diagnostics (bypasses access restrictions).

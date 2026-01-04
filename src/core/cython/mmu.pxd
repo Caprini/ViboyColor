@@ -7,7 +7,7 @@ Este archivo .pxd declara la interfaz de la clase MMU para que Cython
 pueda generar el código de enlace correcto.
 """
 
-from libc.stdint cimport uint8_t, uint16_t
+from libc.stdint cimport uint8_t, uint16_t, uint32_t
 
 # Forward declarations (evitar dependencia circular)
 cdef extern from "PPU.hpp":
@@ -55,4 +55,9 @@ cdef extern from "MMU.hpp":
         uint8_t read_raw(uint16_t addr)  # Step 0450
         void dump_raw_range(uint16_t start, uint16_t length, uint8_t* buffer)  # Step 0450
         void log_mbc_writes_summary()  # Step 0450
+        uint32_t get_ie_write_count() const  # Step 0470
+        uint32_t get_if_write_count() const  # Step 0470
+        uint8_t get_last_ie_written() const  # Step 0470
+        uint8_t get_last_if_written() const  # Step 0470
+        uint32_t get_io_read_count(uint16_t addr) const  # Step 0470
 

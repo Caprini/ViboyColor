@@ -112,6 +112,24 @@ cdef class PyCPU:
         """
         return self._cpu.get_vblank_irq_serviced_count()
     
+    def get_ei_count(self):
+        """
+        Step 0470: Obtiene el contador de ejecuciones de EI.
+        
+        Returns:
+            Número de veces que se ha ejecutado EI
+        """
+        return self._cpu.get_ei_count()
+    
+    def get_di_count(self):
+        """
+        Step 0470: Obtiene el contador de ejecuciones de DI.
+        
+        Returns:
+            Número de veces que se ha ejecutado DI
+        """
+        return self._cpu.get_di_count()
+    
     # Propiedades para acceso directo (compatibilidad con tests)
     @property
     def registers(self):

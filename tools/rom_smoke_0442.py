@@ -106,6 +106,10 @@ class ROMSmokeRunner:
         self.first_nonwhite_frame: Optional[int] = None
         self.start_time: float = 0
         
+        # Step 0470: Contadores para hotspots
+        self.pc_samples: Dict[int, int] = {}  # Dict: PC -> count
+        self.step_count = 0
+        
         # Inicializar core
         self._init_core()
     
@@ -516,6 +520,12 @@ class ROMSmokeRunner:
                 self.ppu.step(cycles)
                 self.timer.step(cycles)
                 frame_cycles += cycles
+                
+                # Step 0470: Muestrear PC cada N instrucciones
+                self.step_count += 1
+                if self.step_count % 50 == 0:  # Cada 50 steps
+                    pc = self.regs.pc
+                    self.pc_samples[pc] = self.pc_samples.get(pc, 0) + 1
             
             # Sample LY/STAT al final del segmento 1 (inicio del frame)
             ly_first = self.mmu.read(0xFF44)
@@ -527,6 +537,12 @@ class ROMSmokeRunner:
                 self.ppu.step(cycles)
                 self.timer.step(cycles)
                 frame_cycles += cycles
+                
+                # Step 0470: Muestrear PC cada N instrucciones
+                self.step_count += 1
+                if self.step_count % 50 == 0:  # Cada 50 steps
+                    pc = self.regs.pc
+                    self.pc_samples[pc] = self.pc_samples.get(pc, 0) + 1
             
             # Sample LY/STAT al final del segmento 2 (medio del frame)
             ly_mid = self.mmu.read(0xFF44)
@@ -555,6 +571,26 @@ class ROMSmokeRunner:
                 vblank_req = self.ppu.get_vblank_irq_requested_count() if hasattr(self.ppu, 'get_vblank_irq_requested_count') else 0
                 vblank_serv = self.cpu.get_vblank_irq_serviced_count() if hasattr(self.cpu, 'get_vblank_irq_serviced_count') else 0
                 
+                # Step 0470: Contadores IE/IF writes y EI/DI
+                ie_write_count = self.mmu.get_ie_write_count() if hasattr(self.mmu, 'get_ie_write_count') else 0
+                if_write_count = self.mmu.get_if_write_count() if hasattr(self.mmu, 'get_if_write_count') else 0
+                ei_count = self.cpu.get_ei_count() if hasattr(self.cpu, 'get_ei_count') else 0
+                di_count = self.cpu.get_di_count() if hasattr(self.cpu, 'get_di_count') else 0
+                
+                # Step 0470: IO reads top 3
+                io_reads = {}
+                for io_addr in [0xFF00, 0xFF41, 0xFF44, 0xFF0F, 0xFFFF, 0xFF4D, 0xFF4F, 0xFF70]:
+                    count = self.mmu.get_io_read_count(io_addr) if hasattr(self.mmu, 'get_io_read_count') else 0
+                    if count > 0:
+                        io_reads[io_addr] = count
+                
+                io_reads_top3 = sorted(io_reads.items(), key=lambda x: x[1], reverse=True)[:3]
+                io_reads_str = ' '.join([f"0x{addr:04X}:{count}" for addr, count in io_reads_top3])
+                
+                # Step 0470: PC hotspots top 3
+                pc_hotspots_top3 = sorted(self.pc_samples.items(), key=lambda x: x[1], reverse=True)[:3]
+                pc_hotspots_str = ' '.join([f"0x{pc:04X}:{count}" for pc, count in pc_hotspots_top3])
+                
                 # Tilemap nonzero (RAW)
                 tilemap_nz_9800_raw = 0
                 for addr in range(0x9800, 0x9C00):
@@ -566,23 +602,19 @@ class ROMSmokeRunner:
                     if self.mmu.read_raw(addr) != 0:
                         tilemap_nz_9C00_raw += 1
                 
-                # VRAM nonzero (RAW, opcional)
-                vram_nz_raw = 0
-                for addr in range(0x8000, 0xA000):
-                    if self.mmu.read_raw(addr) != 0:
-                        vram_nz_raw += 1
-                
                 # Registros PPU
                 lcdc = self.mmu.read(0xFF40)
                 stat = self.mmu.read(0xFF41)
                 ly = self.mmu.read(0xFF44)
                 
-                print(f"[SNAPSHOT] Frame={frame_idx} | "
+                print(f"[SMOKE-SNAPSHOT] Frame={frame_idx} | "
                       f"PC=0x{pc:04X} IME={ime} HALTED={halted} | "
                       f"IE=0x{ie:02X} IF=0x{if_reg:02X} | "
                       f"VBlankReq={vblank_req} VBlankServ={vblank_serv} | "
+                      f"IEWrite={ie_write_count} IFWrite={if_write_count} EI={ei_count} DI={di_count} | "
+                      f"IOReadsTop3={io_reads_str} | "
+                      f"PCHotspotsTop3={pc_hotspots_str} | "
                       f"TilemapNZ_9800_RAW={tilemap_nz_9800_raw} TilemapNZ_9C00_RAW={tilemap_nz_9C00_raw} | "
-                      f"VRAMNZ_RAW={vram_nz_raw} | "
                       f"LCDC=0x{lcdc:02X} STAT=0x{stat:02X} LY={ly}")
             
             # Dump periódico
