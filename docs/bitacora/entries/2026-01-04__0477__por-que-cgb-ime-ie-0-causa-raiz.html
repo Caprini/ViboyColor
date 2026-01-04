@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0477: Por Qué CGB se Queda con IME/IE en 0 - Prueba de Causa Raíz - Viboy Color</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Step 0477: Por Qué CGB se Queda con IME/IE en 0 - Prueba de Causa Raíz</h1>
+            <p><a href="../index.html" class="back-link">← Volver al índice</a></p>
+            
+            <div class="entry-meta">
+                <span><strong>Fecha:</strong> 2026-01-04</span>
+                <span><strong>Step ID:</strong> 0477</span>
+                <span><strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span></span>
+            </div>
+        </header>
+
+        <main>
+            <section class="summary">
+                <h2>Resumen Ejecutivo</h2>
+                <p>
+                    Step 0476 mostró que las ROMs CGB tienen IME=0 e IE=0x00, pero eso puede ser causa o síntoma. Step 0477 determina con evidencia por qué el juego no llega a habilitarlos: arregla el disassembler para mostrar I/O real (no DB 0xE0/0xF0), añade timeline de IME/IE/EI/DI con PC y timestamps, y aplica clasificación automática para identificar la causa raíz.
+                </p>
+                <p>
+                    <strong>Resultado:</strong> ✅ Disassembler corregido (LDH, LD (FF00+C), LD (a16), CB prefix). ✅ Tracking de transiciones IME/EI/DI implementado. ✅ Tracking de writes IE/IF con timestamps. ✅ Tests clean-room pasando (5/5). ✅ Clasificador automático implementado (Caso A/B/C/D). ✅ Métricas añadidas a snapshots de rom_smoke.
+                </p>
+            </section>
+
+            <section class="hardware-concept">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>EI Delayed Enable (Pan Docs)</h3>
+                <p>
+                    La instrucción <code>EI</code> (Enable Interrupts) habilita IME (Interrupt Master Enable) con un retraso de 1 instrucción. Esto significa que:
+                </p>
+                <ul>
+                    <li>Cuando se ejecuta <code>EI</code>, IME NO se activa inmediatamente</li>
+                    <li>IME se activa DESPUÉS de ejecutar la siguiente instrucción</li>
+                    <li>Esto permite que la instrucción siguiente a <code>EI</code> se ejecute sin interrupciones</li>
+                </ul>
+                <p>
+                    <strong>Fuente:</strong> Pan Docs - EI instruction: "The interrupt master enable flag is set one instruction after EI is executed."
+                </p>
+
+                <h3>Clasificación de Causa Raíz</h3>
+                <p>
+                    Step 0477 implementa un clasificador automático que identifica 4 casos posibles:
+                </p>
+                <ol>
+                    <li><strong>Caso A:</strong> EI nunca se ejecuta (el juego está atascado antes de habilitar interrupciones)</li>
+                    <li><strong>Caso B:</strong> EI se ejecuta pero IME no sube (bug EI delayed enable)</li>
+                    <li><strong>Caso C:</strong> IME sube pero IE=0 (juego no habilita IE o no lo necesita)</li>
+                    <li><strong>Caso D:</strong> IME+IE OK pero no hay service (revisar generación de requests)</li>
+                </ol>
+            </section>
+
+            <section class="implementation">
+                <h2>Implementación</h2>
+                
+                <h3>Fase A: Arreglar el Disassembler</h3>
+                <p>
+                    El disassembler en <code>rom_smoke_0442.py</code> mostraba <code>DB 0xE0/0xF0</code> para instrucciones LDH, ocultando el I/O real. Se añadieron:
+                </p>
+                <ul>
+                    <li><code>LDH (FF00+n),A</code> (0xE0)</li>
+                    <li><code>LDH A,(FF00+n)</code> (0xF0)</li>
+                    <li><code>LD (FF00+C),A</code> (0xE2)</li>
+                    <li><code>LD A,(FF00+C)</code> (0xF2)</li>
+                    <li><code>LD (a16),A</code> (0xEA)</li>
+                    <li><code>LD A,(a16)</code> (0xFA)</li>
+                    <li>Prefijo CB (0xCB) - consume 2 bytes</li>
+                </ul>
+                <p>
+                    También se implementó <code>disasm_window()</code> para desensamblar una ventana alrededor del PC y evitar empezar en mitad de instrucción.
+                </p>
+
+                <h3>Fase B: Tracking de Transiciones IME/EI/DI</h3>
+                <p>
+                    Se añadieron miembros privados en <code>CPU</code> para trackear:
+                </p>
+                <ul>
+                    <li><code>ime_set_events_count_</code> - Contador de veces que IME se activa</li>
+                    <li><code>last_ime_set_pc_</code> - PC donde IME se activó por última vez</li>
+                    <li><code>last_ime_set_timestamp_</code> - Timestamp de la última activación</li>
+                    <li><code>last_ei_pc_</code> - PC de la última ejecución de EI</li>
+                    <li><code>last_di_pc_</code> - PC de la última ejecución de DI</li>
+                </ul>
+                <p>
+                    En <code>MMU</code> se añadieron timestamps para writes a IE/IF:
+                </p>
+                <ul>
+                    <li><code>last_if_write_timestamp_</code> - Timestamp del último write a IF</li>
+                    <li>Getter <code>get_last_ie_write_timestamp()</code> - Timestamp del último write a IE</li>
+                </ul>
+
+                <h3>Fase C: Tests Clean-Room</h3>
+                <p>
+                    Se crearon dos tests para validar la implementación:
+                </p>
+                <ul>
+                    <li><code>test_ei_delayed_enable_0477.py</code> - Verifica que EI habilita IME con retraso de 1 instrucción (3 tests, todos pasando)</li>
+                    <li><code>test_di_cancels_pending_ei_0477.py</code> - Verifica que DI cancela un EI pendiente (2 tests, todos pasando)</li>
+                </ul>
+
+                <h3>Fase D: Métricas y Clasificador en rom_smoke</h3>
+                <p>
+                    Se añadieron métricas al snapshot de <code>rom_smoke</code>:
+                </p>
+                <ul>
+                    <li><code>IME_SetEvents</code> - Contador de activaciones de IME</li>
+                    <li><code>IME_SetPC</code> - PC donde IME se activó</li>
+                    <li><code>IME_SetTS</code> - Timestamp de activación</li>
+                    <li><code>EI_PC</code> - PC de última ejecución de EI</li>
+                    <li><code>DI_PC</code> - PC de última ejecución de DI</li>
+                    <li><code>EI_Pending</code> - Estado de EI pending (delayed enable)</li>
+                    <li><code>IEWriteTS</code> - Timestamp del último write a IE</li>
+                    <li><code>IF_WriteTS</code> - Timestamp del último write a IF</li>
+                </ul>
+                <p>
+                    Se implementó el clasificador automático <code>_classify_ime_ie_state()</code> que identifica automáticamente el caso A/B/C/D basado en las métricas.
+                </p>
+            </section>
+
+            <section class="files">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>tools/rom_smoke_0442.py</code> - Disassembler corregido, métricas añadidas, clasificador implementado</li>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Miembros privados para tracking IME/EI/DI</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Implementación de tracking y getters</li>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Timestamp para IF writes</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Implementación de timestamp tracking</li>
+                    <li><code>src/core/cython/cpu.pxd</code> - Declaraciones de getters</li>
+                    <li><code>src/core/cython/cpu.pyx</code> - Wrappers Python de getters</li>
+                    <li><code>src/core/cython/mmu.pxd</code> - Declaraciones de getters de timestamp</li>
+                    <li><code>src/core/cython/mmu.pyx</code> - Wrappers Python de getters de timestamp</li>
+                    <li><code>tests/test_ei_delayed_enable_0477.py</code> - Tests de EI delayed enable (nuevo)</li>
+                    <li><code>tests/test_di_cancels_pending_ei_0477.py</code> - Tests de DI cancela pending EI (nuevo)</li>
+                </ul>
+            </section>
+
+            <section class="tests">
+                <h2>Tests y Verificación</h2>
+                
+                <h3>Tests Clean-Room</h3>
+                <p>
+                    <strong>Comando ejecutado:</strong> <code>pytest -q tests/test_ei_delayed_enable_0477.py tests/test_di_cancels_pending_ei_0477.py</code>
+                </p>
+                <p>
+                    <strong>Resultado:</strong> <code>5 passed in 0.49s</code>
+                </p>
+                
+                <h4>Test: EI Delayed Enable Básico</h4>
+                <pre><code>def test_ei_delayed_enable_basic(self):
+    # Estado inicial: IME=0
+    assert cpu.get_ime() == 0
+    assert cpu.get_ei_pending() == False
+    
+    # Ejecutar EI
+    cpu.step()  # EI
+    assert cpu.get_ime() == 0  # NO se activa inmediatamente
+    assert cpu.get_ei_pending() == True
+    
+    # Ejecutar NOP (siguiente instrucción)
+    cpu.step()  # NOP
+    assert cpu.get_ime() == 1  # Se activa después de NOP
+    assert cpu.get_ei_pending() == False
+    assert cpu.get_ime_set_events_count() == 1</code></pre>
+                
+                <p>
+                    <strong>Validación Nativa:</strong> Validación de módulo compilado C++ con tracking de IME/EI/DI.
+                </p>
+            </section>
+
+            <section class="next-steps">
+                <h2>Próximos Pasos</h2>
+                <p>
+                    Step 0477 proporciona la instrumentación necesaria para identificar la causa raíz. El siguiente paso (Step 0478) debería:
+                </p>
+                <ol>
+                    <li>Ejecutar <code>rom_smoke</code> con las nuevas métricas en ROMs CGB problemáticas</li>
+                    <li>Analizar los snapshots para ver qué caso (A/B/C/D) se identifica automáticamente</li>
+                    <li>Usar el disassembler corregido para ver el I/O real del loop</li>
+                    <li>Revisar la timeline de IME/IE/EI/DI para entender el flujo</li>
+                </ol>
+            </section>
+        </main>
+    </div>
+</body>
+</html>
+

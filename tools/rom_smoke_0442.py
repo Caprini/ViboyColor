@@ -70,6 +70,43 @@ except Exception as e:
 
 
 # --- Step 0474: Funciones helper para disasembly ---
+def _get_io_register_name(addr: int) -> str:
+    """
+    Devuelve el nombre de un registro I/O si es conocido.
+    
+    Args:
+        addr: Dirección del registro I/O
+    
+    Returns:
+        Nombre del registro o dirección hexadecimal
+    """
+    names = {
+        0xFF00: "JOYP",
+        0xFF01: "SB",
+        0xFF02: "SC",
+        0xFF04: "DIV",
+        0xFF05: "TIMA",
+        0xFF06: "TMA",
+        0xFF07: "TAC",
+        0xFF0F: "IF",
+        0xFF40: "LCDC",
+        0xFF41: "STAT",
+        0xFF42: "SCY",
+        0xFF43: "SCX",
+        0xFF44: "LY",
+        0xFF45: "LYC",
+        0xFF46: "DMA",
+        0xFF47: "BGP",
+        0xFF48: "OBP0",
+        0xFF49: "OBP1",
+        0xFF4A: "WY",
+        0xFF4B: "WX",
+        0xFF4D: "KEY1",
+        0xFFFF: "IE",
+    }
+    return names.get(addr, f"0x{addr:04X}")
+
+
 def dump_rom_bytes(mmu: PyMMU, pc: int, count: int = 32) -> List[int]:
     """
     Dumpea bytes de ROM desde una dirección PC.
@@ -137,15 +174,61 @@ def disasm_lr35902(bytes_list: List[int], start_pc: int, max_instructions: int =
                 bytes_read = 2
             else:
                 mnemonic = "LD A, n"
-        # LD A, (n) (0xF0)
+        # LDH (FF00+n),A (0xE0) - Step 0477
+        elif opcode == 0xE0:
+            if idx + 1 < len(bytes_list):
+                n = bytes_list[idx + 1]
+                io_name = _get_io_register_name(0xFF00 + n)
+                mnemonic = f"LDH ({io_name}),A"
+                bytes_read = 2
+            else:
+                mnemonic = "LDH (FF00+n),A"
+        # LD (FF00+C),A (0xE2) - Step 0477
+        elif opcode == 0xE2:
+            mnemonic = "LD (FF00+C),A"
+        # LD A,(FF00+C) (0xF2) - Step 0477
+        elif opcode == 0xF2:
+            mnemonic = "LD A,(FF00+C)"
+        # LD A, (n) (0xF0) - LDH A,(FF00+n)
         elif opcode == 0xF0:
             if idx + 1 < len(bytes_list):
                 n = bytes_list[idx + 1]
-                io_name = f"0xFF{n:02X}" if n <= 0xFF else f"0x{n:04X}"
-                mnemonic = f"LD A, ({io_name})"
+                io_name = _get_io_register_name(0xFF00 + n)
+                mnemonic = f"LDH A,({io_name})"
                 bytes_read = 2
             else:
-                mnemonic = "LD A, (n)"
+                mnemonic = "LDH A,(FF00+n)"
+        # LD (a16),A (0xEA) - Step 0477
+        elif opcode == 0xEA:
+            if idx + 2 < len(bytes_list):
+                lo = bytes_list[idx + 1]
+                hi = bytes_list[idx + 2]
+                addr = (hi << 8) | lo
+                io_name = _get_io_register_name(addr)
+                mnemonic = f"LD ({io_name}),A"
+                bytes_read = 3
+            else:
+                mnemonic = "LD (a16),A"
+        # LD A,(a16) (0xFA) - Step 0477
+        elif opcode == 0xFA:
+            if idx + 2 < len(bytes_list):
+                lo = bytes_list[idx + 1]
+                hi = bytes_list[idx + 2]
+                addr = (hi << 8) | lo
+                io_name = _get_io_register_name(addr)
+                mnemonic = f"LD A,({io_name})"
+                bytes_read = 3
+            else:
+                mnemonic = "LD A,(a16)"
+        # Prefijo CB (0xCB) - Step 0477
+        elif opcode == 0xCB:
+            if idx + 1 < len(bytes_list):
+                cb_opcode = bytes_list[idx + 1]
+                mnemonic = f"CB {cb_opcode:02X}"
+                bytes_read = 2  # Consumir 2 bytes para no desalinear
+            else:
+                mnemonic = "CB ??"
+                bytes_read = 2
         # AND n (0xE6)
         elif opcode == 0xE6:
             if idx + 1 < len(bytes_list):
@@ -236,6 +319,74 @@ def disasm_lr35902(bytes_list: List[int], start_pc: int, max_instructions: int =
     
     return instructions
 # --- Fin Step 0474 ---
+
+
+def disasm_window(mmu: PyMMU, pc: int, before: int = 16, after: int = 32) -> List[Tuple[int, str, bool]]:
+    """
+    Desensambla ventana alrededor de PC para evitar empezar en mitad de instrucción.
+    
+    Step 0477: Esta función lee bytes alrededor del PC y desensambla desde el inicio
+    de la ventana, marcando cuál instrucción corresponde al PC actual.
+    
+    Args:
+        mmu: Instancia MMU
+        pc: PC actual (centro de la ventana)
+        before: Bytes antes de PC a leer
+        after: Bytes después de PC a leer
+    
+    Returns:
+        Lista de (addr, instruction, is_current_pc)
+    """
+    start_addr = (pc - before) & 0xFFFF
+    end_addr = (pc + after) & 0xFFFF
+    
+    # Leer bytes de ROM
+    bytes_data = []
+    for addr in range(start_addr, end_addr + 1):
+        addr_wrapped = addr & 0xFFFF
+        byte_val = mmu.read_raw(addr_wrapped) if hasattr(mmu, 'read_raw') else mmu.read(addr_wrapped)
+        bytes_data.append(byte_val)
+    
+    # Desensamblar desde start_addr
+    instructions = []
+    offset = 0
+    current_pc = pc
+    
+    while offset < len(bytes_data):
+        addr = (start_addr + offset) & 0xFFFF
+        
+        # Determinar longitud de instrucción
+        opcode = bytes_data[offset]
+        if opcode == 0xCB:
+            bytes_read = 2  # CB prefix consume 2 bytes
+        elif opcode in [0xE0, 0xF0, 0xEA, 0xFA]:
+            bytes_read = 2 if opcode in [0xE0, 0xF0] else 3  # LDH 2 bytes, LD (a16) 3 bytes
+        else:
+            # Usar disasm_lr35902 para obtener bytes_read
+            inst_list = disasm_lr35902(bytes_data[offset:], addr, max_instructions=1)
+            if inst_list:
+                _, _, bytes_read = inst_list[0]
+            else:
+                bytes_read = 1  # Default: 1 byte
+        
+        # Marcar si es el PC actual
+        is_current = (addr == current_pc)
+        
+        # Obtener mnemónico
+        inst_list = disasm_lr35902(bytes_data[offset:], addr, max_instructions=1)
+        if inst_list:
+            _, mnemonic, _ = inst_list[0]
+        else:
+            mnemonic = f"DB 0x{opcode:02X}"
+        
+        instructions.append((addr, mnemonic, is_current))
+        offset += bytes_read
+        
+        if offset >= len(bytes_data):
+            break
+    
+    return instructions
+# --- Fin Step 0477 Fase A2 ---
 
 
 class ROMSmokeRunner:
@@ -806,6 +957,18 @@ class ROMSmokeRunner:
                 ei_count = self.cpu.get_ei_count() if hasattr(self.cpu, 'get_ei_count') else 0
                 di_count = self.cpu.get_di_count() if hasattr(self.cpu, 'get_di_count') else 0
                 
+                # Step 0477: Tracking de transiciones IME + EI delayed
+                ime_set_events_count = self.cpu.get_ime_set_events_count() if hasattr(self.cpu, 'get_ime_set_events_count') else 0
+                last_ime_set_pc = self.cpu.get_last_ime_set_pc() if hasattr(self.cpu, 'get_last_ime_set_pc') else 0xFFFF
+                last_ime_set_timestamp = self.cpu.get_last_ime_set_timestamp() if hasattr(self.cpu, 'get_last_ime_set_timestamp') else 0
+                last_ei_pc = self.cpu.get_last_ei_pc() if hasattr(self.cpu, 'get_last_ei_pc') else 0xFFFF
+                last_di_pc = self.cpu.get_last_di_pc() if hasattr(self.cpu, 'get_last_di_pc') else 0xFFFF
+                ei_pending = self.cpu.get_ei_pending() if hasattr(self.cpu, 'get_ei_pending') else False
+                
+                # Step 0477: Timestamps de writes IE/IF
+                last_ie_write_timestamp = self.mmu.get_last_ie_write_timestamp() if hasattr(self.mmu, 'get_last_ie_write_timestamp') else 0
+                last_if_write_timestamp = self.mmu.get_last_if_write_timestamp() if hasattr(self.mmu, 'get_last_if_write_timestamp') else 0
+                
                 # Step 0471: Instrumentación microscópica de IE
                 last_ie_write_value = self.mmu.get_last_ie_write_value() if hasattr(self.mmu, 'get_last_ie_write_value') else 0
                 last_ie_read_value = self.mmu.get_last_ie_read_value() if hasattr(self.mmu, 'get_last_ie_read_value') else 0
@@ -953,7 +1116,10 @@ class ROMSmokeRunner:
                       f"JOYP_write_count={joyp_write_count} JOYP_write_val=0x{last_joyp_write_value:02X} JOYP_write_PC=0x{last_joyp_write_pc:04X} | "
                       f"VBlankReq={vblank_req} VBlankServ={vblank_serv} | "
                       f"IEWrite={ie_write_count} IFWrite={if_write_count} EI={ei_count} DI={di_count} | "
-                      f"IEWriteVal=0x{last_ie_write_value:02X} IEReadVal=0x{last_ie_read_value:02X} IEReadCount={ie_read_count} IEWritePC=0x{last_ie_write_pc:04X} | "
+                      f"IEWriteVal=0x{last_ie_write_value:02X} IEReadVal=0x{last_ie_read_value:02X} IEReadCount={ie_read_count} IEWritePC=0x{last_ie_write_pc:04X} IEWriteTS={last_ie_write_timestamp} | "
+                      f"IME_SetEvents={ime_set_events_count} IME_SetPC=0x{last_ime_set_pc:04X} IME_SetTS={last_ime_set_timestamp} | "
+                      f"EI_PC=0x{last_ei_pc:04X} DI_PC=0x{last_di_pc:04X} EI_Pending={1 if ei_pending else 0} | "
+                      f"IF_WriteTS={last_if_write_timestamp} | "
                       f"fb_nonzero={fb_nonzero} | "
                       f"IOReadsTop3={io_reads_str} | "
                       f"PCHotspotsTop3={pc_hotspots_str} | "
@@ -970,6 +1136,13 @@ class ROMSmokeRunner:
                       f"LastIRQVec=0x{last_irq_serviced_vector:04X} LastIRQTS={last_irq_serviced_timestamp} | "
                       f"IF_BeforeSvc=0x{last_if_before_service:02X} IF_AfterSvc=0x{last_if_after_service:02X} IF_ClearMask=0x{last_if_clear_mask:02X} | "
                       f"BootLogoPrefill={boot_logo_prefill_enabled}")
+                
+                # Step 0477: Clasificador automático (Caso A/B/C/D)
+                classification = self._classify_ime_ie_state(
+                    ei_count, ime_set_events_count, ime, ie, vblank_serv
+                )
+                if classification:
+                    print(f"[SMOKE-CLASSIFICATION] {classification}")
             
             # Dump periódico
             if self.dump_every > 0 and (frame_idx + 1) % self.dump_every == 0:
@@ -1010,6 +1183,46 @@ class ROMSmokeRunner:
         
         # Resumen final
         self._print_summary()
+    
+    def _classify_ime_ie_state(self, ei_count: int, ime_set_events_count: int, 
+                                ime: bool, ie: int, vblank_serv: int) -> Optional[str]:
+        """
+        Step 0477: Clasificador automático para identificar causa raíz de IME/IE en 0.
+        
+        Clasifica el estado en uno de los casos:
+        - Caso A: EI nunca se ejecuta (el juego está atascado antes)
+        - Caso B: EI ejecutado pero IME no sube (bug EI delayed enable)
+        - Caso C: IME sube pero IE=0 (juego no habilita IE o no lo necesita)
+        - Caso D: IME+IE OK pero no hay service (revisar generación de requests)
+        
+        Args:
+            ei_count: Número de veces que se ejecutó EI
+            ime_set_events_count: Número de veces que IME se activó
+            ime: Estado actual de IME
+            ie: Valor actual de IE
+            vblank_serv: Número de VBlank IRQs servidos
+        
+        Returns:
+            String con la clasificación o None si no aplica
+        """
+        # Caso A: EI nunca se ejecuta
+        if ei_count == 0 and ime == 0:
+            return "CASO_A: EI nunca ejecutado, IME=0 sostenido. El juego está atascado antes de habilitar interrupciones. Buscar condición del loop con disasm real."
+        
+        # Caso B: EI ejecutado pero IME no sube
+        if ei_count > 0 and ime_set_events_count == 0:
+            return "CASO_B: EI ejecutado pero IME no sube (ime_set_events_count=0). Bug EI delayed enable casi seguro. Revisar implementación de EI delayed enable en CPU::step()."
+        
+        # Caso C: IME sube pero IE=0
+        if ime == 1 and ie == 0:
+            return "CASO_C: IME=1 pero IE=0x00. Juego no habilita IE o no lo necesita. Mirar el loop con disasm para ver si espera otra condición (no IRQ)."
+        
+        # Caso D: IME+IE OK pero no hay service
+        if ime == 1 and ie != 0 and vblank_serv == 0:
+            return "CASO_D: IME=1 e IE!=0 pero vblank_serv=0. Revisar generación de requests (PPU/Timer) o masks. Verificar si PPU/Timer están generando IF correctamente."
+        
+        # Si no encaja en ningún caso, retornar None
+        return None
     
     def _print_summary(self):
         """Imprime resumen final de métricas."""

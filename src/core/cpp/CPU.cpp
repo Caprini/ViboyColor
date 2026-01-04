@@ -34,6 +34,8 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       stop_executed_count_(0), last_stop_pc_(0xFFFF),  // Step 0472
       last_irq_serviced_vector_(0), last_irq_serviced_timestamp_(0),  // Step 0475
       last_if_before_service_(0), last_if_after_service_(0), last_if_clear_mask_(0),  // Step 0475
+      ime_set_events_count_(0), last_ime_set_pc_(0xFFFF), last_ime_set_timestamp_(0),  // Step 0477
+      last_ei_pc_(0xFFFF), last_di_pc_(0xFFFF),  // Step 0477
       triage_active_(false), triage_frame_limit_(0), triage_last_pc_(0xFFFF), triage_pc_sample_count_(0) {  // Step 0434
     // Step 0436: Pokemon micro trace ya está inicializado por su constructor por defecto
     // Validación básica (en producción, podríamos usar assert)
@@ -1389,6 +1391,12 @@ int CPU::step() {
                regs_->pc, mmu_->read(0xFFFF), mmu_->read(0xFF0F));
         ime_ = true;
         ime_scheduled_ = false;
+        
+        // --- Step 0477: Tracking de activación de IME ---
+        ime_set_events_count_++;
+        last_ime_set_pc_ = regs_->pc;
+        last_ime_set_timestamp_++;
+        // -------------------------------------------
     }
     
     // ========== FASE 4: Fetch-Decode-Execute ==========
@@ -3040,6 +3048,10 @@ int CPU::step() {
                 di_count_global++;
                 // -------------------------------------------
                 
+                // --- Step 0477: Tracking de DI ---
+                last_di_pc_ = (regs_->pc - 1) & 0xFFFF;
+                // -------------------------------------------
+                
                 // --- Step 0388: Instrumentación de DI (limitada a 50) ---
                 static int di_log_count = 0;
                 if (di_log_count < 50) {
@@ -3066,6 +3078,10 @@ int CPU::step() {
             {
                 // --- Step 0470: Contador de EI ---
                 ei_count_global++;
+                // -------------------------------------------
+                
+                // --- Step 0477: Tracking de EI ---
+                last_ei_pc_ = (regs_->pc - 1) & 0xFFFF;
                 // -------------------------------------------
                 
                 // --- Step 0388: Instrumentación de EI (limitada a 50) ---
@@ -4107,6 +4123,31 @@ uint32_t CPU::get_ei_count() const {
 
 uint32_t CPU::get_di_count() const {
     return di_count_global;
+}
+
+// --- Step 0477: Implementación de getters para tracking de IME/EI/DI ---
+uint32_t CPU::get_ime_set_events_count() const {
+    return ime_set_events_count_;
+}
+
+uint16_t CPU::get_last_ime_set_pc() const {
+    return last_ime_set_pc_;
+}
+
+uint32_t CPU::get_last_ime_set_timestamp() const {
+    return last_ime_set_timestamp_;
+}
+
+uint16_t CPU::get_last_ei_pc() const {
+    return last_ei_pc_;
+}
+
+uint16_t CPU::get_last_di_pc() const {
+    return last_di_pc_;
+}
+
+bool CPU::get_ei_pending() const {
+    return ime_scheduled_;
 }
 // --- Fin Step 0470 ---
 

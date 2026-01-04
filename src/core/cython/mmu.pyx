@@ -579,6 +579,17 @@ cdef class PyMMU:
             return 0
         return self._mmu.get_last_ie_write_pc()
     
+    def get_last_ie_write_timestamp(self):
+        """
+        Step 0477: Obtiene el timestamp del último write a IE (0xFFFF).
+        
+        Returns:
+            Timestamp del último write a IE
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_ie_write_timestamp()
+    
     def get_last_ie_read_value(self):
         """
         Step 0471: Obtiene el último valor leído de IE (0xFFFF).
@@ -700,6 +711,17 @@ cdef class PyMMU:
         if self._mmu == NULL:
             return 0
         return self._mmu.get_last_if_write_val()
+    
+    def get_last_if_write_timestamp(self):
+        """
+        Step 0477: Obtiene el timestamp del último write a IF (0xFF0F).
+        
+        Returns:
+            Timestamp del último write a IF
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_last_if_write_timestamp()
     
     def get_last_if_read_val(self):
         """

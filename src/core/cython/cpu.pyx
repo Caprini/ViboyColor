@@ -130,6 +130,60 @@ cdef class PyCPU:
         """
         return self._cpu.get_di_count()
     
+    def get_ime_set_events_count(self):
+        """
+        Step 0477: Obtiene el contador de eventos de activación de IME.
+        
+        Returns:
+            Número de veces que IME se ha activado
+        """
+        return self._cpu.get_ime_set_events_count()
+    
+    def get_last_ime_set_pc(self):
+        """
+        Step 0477: Obtiene el PC donde IME se activó por última vez.
+        
+        Returns:
+            PC de la última activación de IME
+        """
+        return self._cpu.get_last_ime_set_pc()
+    
+    def get_last_ime_set_timestamp(self):
+        """
+        Step 0477: Obtiene el timestamp de la última activación de IME.
+        
+        Returns:
+            Timestamp de la última activación de IME
+        """
+        return self._cpu.get_last_ime_set_timestamp()
+    
+    def get_last_ei_pc(self):
+        """
+        Step 0477: Obtiene el PC de la última ejecución de EI.
+        
+        Returns:
+            PC de la última ejecución de EI
+        """
+        return self._cpu.get_last_ei_pc()
+    
+    def get_last_di_pc(self):
+        """
+        Step 0477: Obtiene el PC de la última ejecución de DI.
+        
+        Returns:
+            PC de la última ejecución de DI
+        """
+        return self._cpu.get_last_di_pc()
+    
+    def get_ei_pending(self):
+        """
+        Step 0477: Obtiene el estado de EI pending (delayed enable).
+        
+        Returns:
+            True si EI está pendiente (IME se activará después de la siguiente instrucción)
+        """
+        return self._cpu.get_ei_pending()
+    
     def get_stop_executed_count(self):
         """
         Step 0472: Obtiene el contador de ejecuciones de STOP.

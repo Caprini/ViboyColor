@@ -759,6 +759,7 @@ private:
     mutable uint32_t if_read_count_;
     mutable uint16_t last_if_write_pc_;
     mutable uint8_t last_if_write_val_;
+    mutable uint32_t last_if_write_timestamp_;  // Step 0477
     mutable uint8_t last_if_read_val_;
     mutable uint32_t if_writes_0_;
     mutable uint32_t if_writes_nonzero_;
@@ -842,6 +843,13 @@ public:
     uint16_t get_last_ie_write_pc() const;
     
     /**
+     * Step 0477: Obtiene el timestamp del último write a IE (0xFFFF).
+     * 
+     * @return Timestamp del último write a IE
+     */
+    uint32_t get_last_ie_write_timestamp() const;
+    
+    /**
      * Step 0471: Obtiene el último valor leído de IE (0xFFFF).
      * 
      * @return Último valor leído de IE
@@ -917,6 +925,13 @@ public:
      * @return Último valor escrito a IF
      */
     uint8_t get_last_if_write_val() const;
+    
+    /**
+     * Step 0477: Obtiene el timestamp del último write a IF (0xFF0F).
+     * 
+     * @return Timestamp del último write a IF
+     */
+    uint32_t get_last_if_write_timestamp() const;
     
     /**
      * Step 0474: Obtiene el último valor leído de IF (0xFF0F).

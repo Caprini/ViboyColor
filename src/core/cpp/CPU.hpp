@@ -651,6 +651,13 @@ private:
     uint8_t last_if_after_service_;          // IF después de servir la IRQ
     uint8_t last_if_clear_mask_;             // Máscara del bit limpiado (lowest_pending)
     
+    // --- Step 0477: Tracking de Transiciones IME + EI Delayed ---
+    uint32_t ime_set_events_count_;         // Contador de veces que IME se activa (después de EI delayed)
+    uint16_t last_ime_set_pc_;              // PC donde IME se activó por última vez
+    uint32_t last_ime_set_timestamp_;       // Timestamp de la última activación de IME
+    uint16_t last_ei_pc_;                   // PC de la última ejecución de EI
+    uint16_t last_di_pc_;                   // PC de la última ejecución de DI
+    
     // ========== Estado de Triage (Step 0434) ==========
     // Instrumentación para entender por qué VRAM está vacía
     bool triage_active_;               // Flag para activar triage (limitado por frames)
@@ -729,6 +736,51 @@ public:
      * @return Número de veces que se ha ejecutado DI
      */
     uint32_t get_di_count() const;
+    
+    /**
+     * Step 0477: Obtiene el contador de eventos de activación de IME.
+     * 
+     * IME se activa después de ejecutar EI (delayed enable). Este contador
+     * cuenta cuántas veces IME se ha activado realmente.
+     * 
+     * @return Número de veces que IME se ha activado
+     */
+    uint32_t get_ime_set_events_count() const;
+    
+    /**
+     * Step 0477: Obtiene el PC donde IME se activó por última vez.
+     * 
+     * @return PC de la última activación de IME
+     */
+    uint16_t get_last_ime_set_pc() const;
+    
+    /**
+     * Step 0477: Obtiene el timestamp de la última activación de IME.
+     * 
+     * @return Timestamp de la última activación de IME
+     */
+    uint32_t get_last_ime_set_timestamp() const;
+    
+    /**
+     * Step 0477: Obtiene el PC de la última ejecución de EI.
+     * 
+     * @return PC de la última ejecución de EI
+     */
+    uint16_t get_last_ei_pc() const;
+    
+    /**
+     * Step 0477: Obtiene el PC de la última ejecución de DI.
+     * 
+     * @return PC de la última ejecución de DI
+     */
+    uint16_t get_last_di_pc() const;
+    
+    /**
+     * Step 0477: Obtiene el estado de EI pending (delayed enable).
+     * 
+     * @return true si EI está pendiente (IME se activará después de la siguiente instrucción)
+     */
+    bool get_ei_pending() const;
 };
 
 #endif // CPU_HPP

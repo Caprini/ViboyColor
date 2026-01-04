@@ -155,6 +155,7 @@ MMU::MMU()
     , if_read_count_(0)  // Step 0474: Contador de reads de IF
     , last_if_write_pc_(0x0000)  // Step 0474: PC del último write a IF
     , last_if_write_val_(0x00)  // Step 0474: Último valor escrito a IF
+    , last_if_write_timestamp_(0)  // Step 0477: Timestamp del último write a IF
     , last_if_read_val_(0x00)  // Step 0474: Último valor leído de IF
     , if_writes_0_(0)  // Step 0474: Contador de writes a IF con valor 0
     , if_writes_nonzero_(0)  // Step 0474: Contador de writes a IF con valor no-cero
@@ -1160,6 +1161,7 @@ void MMU::write(uint16_t addr, uint8_t value) {
         if_write_count_++;
         last_if_write_pc_ = debug_current_pc;
         last_if_write_val_ = value;
+        last_if_write_timestamp_++;  // Step 0477: Incrementar timestamp
         if_writes_program_++;  // Step 0475: Escrituras siempre son desde programa
         
         // Histograma simple
@@ -4259,6 +4261,10 @@ uint16_t MMU::get_last_ie_write_pc() const {
     return last_ie_write_pc;
 }
 
+uint32_t MMU::get_last_ie_write_timestamp() const {
+    return last_ie_write_timestamp;
+}
+
 uint8_t MMU::get_last_ie_read_value() const {
     return last_ie_read_value;
 }
@@ -4307,6 +4313,10 @@ uint16_t MMU::get_last_if_write_pc() const {
 
 uint8_t MMU::get_last_if_write_val() const {
     return last_if_write_val_;
+}
+
+uint32_t MMU::get_last_if_write_timestamp() const {
+    return last_if_write_timestamp_;
 }
 
 uint8_t MMU::get_last_if_read_val() const {
