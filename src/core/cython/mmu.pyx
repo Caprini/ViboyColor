@@ -955,6 +955,125 @@ cdef class PyMMU:
             return 0
         return self._mmu.get_hram_ff92_write_readback_mismatch_count()
     
+    # --- Step 0487: HRAM FF92 Single Source of Truth ---
+    def get_ff92_write_count_total(self):
+        """
+        Step 0487: Obtiene el contador total de writes a FF92 (cumulativo, nunca se resetea).
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            Número total de writes a FF92
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_ff92_write_count_total()
+    
+    def get_ff92_last_write_pc(self):
+        """
+        Step 0487: Obtiene el PC del último write a FF92.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            PC del último write a FF92 (0xFFFF si ninguno)
+        """
+        if self._mmu == NULL:
+            return 0xFFFF
+        return self._mmu.get_ff92_last_write_pc()
+    
+    def get_ff92_last_write_val(self):
+        """
+        Step 0487: Obtiene el último valor escrito a FF92.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            Último valor escrito a FF92
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_ff92_last_write_val()
+    
+    def get_ff92_read_count_total(self):
+        """
+        Step 0487: Obtiene el contador total de reads de FF92 (cumulativo, nunca se resetea).
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            Número total de reads de FF92
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_ff92_read_count_total()
+    
+    def get_ff92_last_read_pc(self):
+        """
+        Step 0487: Obtiene el PC del último read de FF92.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            PC del último read de FF92 (0xFFFF si ninguno)
+        """
+        if self._mmu == NULL:
+            return 0xFFFF
+        return self._mmu.get_ff92_last_read_pc()
+    
+    def get_ff92_last_read_val(self):
+        """
+        Step 0487: Obtiene el último valor leído de FF92.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            Último valor leído de FF92
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_ff92_last_read_val()
+    
+    def get_ie_value_after_write(self):
+        """
+        Step 0487: Obtiene el valor de IE después del último write.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            Valor de IE después del último write
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_ie_value_after_write()
+    
+    def get_ie_last_write_pc(self):
+        """
+        Step 0487: Obtiene el PC del último write a IE.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            PC del último write a IE (0xFFFF si ninguno)
+        """
+        if self._mmu == NULL:
+            return 0xFFFF
+        return self._mmu.get_ie_last_write_pc()
+    
+    def get_ie_write_count_total(self):
+        """
+        Step 0487: Obtiene el contador total de writes a IE (cumulativo).
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            Número total de writes a IE
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_ie_write_count_total()
+    # --- Fin Step 0487 (HRAM FF92 Single Source of Truth + IE Tracking) ---
+    
     def get_ff92_to_ie_trace(self):
         """
         Step 0486: Obtiene el trace completo de FF92→IE (últimos 16 eventos).
@@ -1050,6 +1169,125 @@ cdef class PyMMU:
             return 0
         return self._mmu.get_joyp_reads_cpu_poll_none_sel()
     # --- Fin Step 0486 (JOYP Contadores por Source) ---
+    
+    # --- Step 0487: JOYP Contadores por Tipo de Selección ---
+    def get_joyp_write_buttons_selected_total(self):
+        """
+        Step 0487: Obtiene el contador de writes a JOYP con buttons selected.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de writes con buttons selected
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_write_buttons_selected_total()
+    
+    def get_joyp_write_dpad_selected_total(self):
+        """
+        Step 0487: Obtiene el contador de writes a JOYP con dpad selected.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de writes con dpad selected
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_write_dpad_selected_total()
+    
+    def get_joyp_write_none_selected_total(self):
+        """
+        Step 0487: Obtiene el contador de writes a JOYP con none selected.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de writes con none selected
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_write_none_selected_total()
+    
+    def get_joyp_read_buttons_selected_total_prog(self):
+        """
+        Step 0487: Obtiene el contador de reads de JOYP desde programa con buttons selected.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de reads desde programa con buttons selected
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_read_buttons_selected_total_prog()
+    
+    def get_joyp_read_dpad_selected_total_prog(self):
+        """
+        Step 0487: Obtiene el contador de reads de JOYP desde programa con dpad selected.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de reads desde programa con dpad selected
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_read_dpad_selected_total_prog()
+    
+    def get_joyp_read_none_selected_total_prog(self):
+        """
+        Step 0487: Obtiene el contador de reads de JOYP desde programa con none selected.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de reads desde programa con none selected
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_read_none_selected_total_prog()
+    
+    def get_joyp_read_buttons_selected_total_cpu_poll(self):
+        """
+        Step 0487: Obtiene el contador de reads de JOYP desde CPU polling con buttons selected.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de reads desde CPU polling con buttons selected
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_read_buttons_selected_total_cpu_poll()
+    
+    def get_joyp_read_dpad_selected_total_cpu_poll(self):
+        """
+        Step 0487: Obtiene el contador de reads de JOYP desde CPU polling con dpad selected.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de reads desde CPU polling con dpad selected
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_read_dpad_selected_total_cpu_poll()
+    
+    def get_joyp_read_none_selected_total_cpu_poll(self):
+        """
+        Step 0487: Obtiene el contador de reads de JOYP desde CPU polling con none selected.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de reads desde CPU polling con none selected
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_read_none_selected_total_cpu_poll()
+    # --- Fin Step 0487 (JOYP Contadores por Tipo de Selección) ---
     
     def get_last_lcdc_write_pc(self):
         """

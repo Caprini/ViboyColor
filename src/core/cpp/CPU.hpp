@@ -28,6 +28,25 @@ struct LoopTraceEvent {
 };
 
 /**
+ * Step 0487: FF92 to IE Trace Event
+ * 
+ * Estructura para rastrear la secuencia FF92 write → FF92 read → IE write
+ * en un ring-buffer de 64 eventos.
+ */
+struct FF92IETraceEvent {
+    enum Type { FF92_W, FF92_R, IE_W };
+    
+    Type type;
+    uint32_t frame;
+    uint16_t pc;
+    uint8_t a8;
+    uint16_t effective_addr;
+    uint8_t val;
+    
+    FF92IETraceEvent() : type(FF92_W), frame(0), pc(0xFFFF), a8(0), effective_addr(0), val(0) {}
+};
+
+/**
  * CPU - Procesador LR35902 de la Game Boy
  * 
  * Esta clase implementa el ciclo de instrucción (Fetch-Decode-Execute)
@@ -776,6 +795,10 @@ private:
     };
     LDHAddressWatch ldh_watch_;
     
+    // --- Step 0487: FF92 to IE Trace Ring-Buffer (gated por VIBOY_DEBUG_MARIO_FF92=1) ---
+    std::vector<FF92IETraceEvent> ff92_ie_trace_;
+    static constexpr size_t FF92_IE_TRACE_SIZE = 64;
+    
     // ========== Estado de Triage (Step 0434) ==========
     // Instrumentación para entender por qué VRAM está vacía
     bool triage_active_;               // Flag para activar triage (limitado por frames)
@@ -1283,6 +1306,25 @@ public:
      * @return Número de veces que effective_addr != (0xFF00 | a8)
      */
     uint32_t get_ldh_addr_mismatch_count() const;
+    
+    /**
+     * Step 0487: Obtiene el trace completo de FF92/IE (últimos 64 eventos).
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+     * 
+     * @return Vector de eventos del trace
+     */
+    std::vector<FF92IETraceEvent> get_ff92_ie_trace() const;
+    
+    /**
+     * Step 0487: Obtiene los últimos N eventos del trace de FF92/IE.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+     * 
+     * @param n Número de eventos a retornar
+     * @return Vector de los últimos N eventos
+     */
+    std::vector<FF92IETraceEvent> get_ff92_ie_trace_tail(size_t n) const;
 };
 
 #endif // CPU_HPP

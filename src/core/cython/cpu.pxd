@@ -48,6 +48,15 @@ cdef extern from "CPU.hpp":
         bool taken
         uint32_t timestamp
     
+    # Step 0487: Declarar estructura FF92IETraceEvent para acceso desde Cython
+    cdef struct FF92IETraceEvent:
+        uint32_t type  # 0=FF92_W, 1=FF92_R, 2=IE_W
+        uint32_t frame
+        uint16_t pc
+        uint8_t a8
+        uint16_t effective_addr
+        uint8_t val
+    
     cdef cppclass CPU:
         # Constructor: recibe punteros a MMU y CoreRegisters
         CPU(MMU* mmu, CoreRegisters* registers) except +
@@ -156,4 +165,7 @@ cdef extern from "CPU.hpp":
         uint16_t get_last_ldh_effective_addr() const
         bool get_last_ldh_is_read() const
         uint32_t get_ldh_addr_mismatch_count() const
+        # Step 0487: FF92 to IE Trace
+        vector[FF92IETraceEvent] get_ff92_ie_trace() const
+        vector[FF92IETraceEvent] get_ff92_ie_trace_tail(size_t n) const
 

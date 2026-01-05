@@ -138,18 +138,39 @@ cdef extern from "MMU.hpp":
         uint32_t get_joyp_reads_with_none_selected_count() const
         uint16_t get_last_lcdc_write_pc() const  # Step 0482
         uint8_t get_last_lcdc_write_value() const  # Step 0482
-        # Step 0486: HRAM FF92 Watch
+        # Step 0486: HRAM FF92 Watch (métodos antiguos, mantener compatibilidad)
         uint16_t get_hram_ff92_last_write_pc() const
         uint8_t get_hram_ff92_last_write_val() const
         uint16_t get_hram_ff92_last_read_pc() const
         uint8_t get_hram_ff92_last_read_val() const
         uint8_t get_hram_ff92_readback_after_write_val() const
         uint32_t get_hram_ff92_write_readback_mismatch_count() const
-        # Step 0486: JOYP Contadores por Source
+        # Step 0487: FF92 Single Source of Truth (nuevos métodos)
+        uint32_t get_ff92_write_count_total() const
+        uint16_t get_ff92_last_write_pc() const
+        uint8_t get_ff92_last_write_val() const
+        uint32_t get_ff92_read_count_total() const
+        uint16_t get_ff92_last_read_pc() const
+        uint8_t get_ff92_last_read_val() const
+        # Step 0487: IE Write Tracking
+        uint8_t get_ie_value_after_write() const
+        uint16_t get_ie_last_write_pc() const
+        uint32_t get_ie_write_count_total() const
+        # Step 0486: JOYP Contadores por Source (métodos antiguos, mantener compatibilidad)
         uint32_t get_joyp_reads_prog_buttons_sel() const
         uint32_t get_joyp_reads_prog_dpad_sel() const
         uint32_t get_joyp_reads_prog_none_sel() const
         uint32_t get_joyp_reads_cpu_poll_buttons_sel() const
         uint32_t get_joyp_reads_cpu_poll_dpad_sel() const
         uint32_t get_joyp_reads_cpu_poll_none_sel() const
+        # Step 0487: JOYP Contadores por Selección (nuevos métodos)
+        uint32_t get_joyp_write_buttons_selected_total() const
+        uint32_t get_joyp_write_dpad_selected_total() const
+        uint32_t get_joyp_write_none_selected_total() const
+        uint32_t get_joyp_read_buttons_selected_total_prog() const
+        uint32_t get_joyp_read_dpad_selected_total_prog() const
+        uint32_t get_joyp_read_none_selected_total_prog() const
+        uint32_t get_joyp_read_buttons_selected_total_cpu_poll() const
+        uint32_t get_joyp_read_dpad_selected_total_cpu_poll() const
+        uint32_t get_joyp_read_none_selected_total_cpu_poll() const
 

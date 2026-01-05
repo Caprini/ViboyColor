@@ -197,7 +197,16 @@ MMU::MMU()
       joyp_reads_with_none_selected_count_(0)  // Step 0485
     , joyp_reads_prog_buttons_sel_(0), joyp_reads_prog_dpad_sel_(0), joyp_reads_prog_none_sel_(0)  // Step 0486: JOYP contadores por source
     , joyp_reads_cpu_poll_buttons_sel_(0), joyp_reads_cpu_poll_dpad_sel_(0), joyp_reads_cpu_poll_none_sel_(0)  // Step 0486
+    , joyp_write_buttons_selected_total_(0), joyp_write_dpad_selected_total_(0), joyp_write_none_selected_total_(0)  // Step 0487: JOYP write contadores
+    , joyp_read_buttons_selected_total_prog_(0), joyp_read_dpad_selected_total_prog_(0), joyp_read_none_selected_total_prog_(0)  // Step 0487: JOYP read contadores program
+    , joyp_read_buttons_selected_total_cpu_poll_(0), joyp_read_dpad_selected_total_cpu_poll_(0), joyp_read_none_selected_total_cpu_poll_(0)  // Step 0487: JOYP read contadores cpu_poll
     , ff92_to_ie_trace_()  // Step 0486: FF92 to IE Trace
+    , hram_ff92_single_source_()  // Step 0487: HRAM FF92 Single Source of Truth
+    , ff92_watch_reset_count_(0)  // Step 0487: Tracking de resets
+    , ff92_watch_reset_last_pc_(0xFFFF)  // Step 0487: PC del último reset
+    , ie_value_after_write_(0x00)  // Step 0487: IE value after write
+    , ie_last_write_pc_(0xFFFF)  // Step 0487: IE last write PC
+    , ie_write_count_total_(0)  // Step 0487: IE write count total
 {
     // Step 0450: Inicializar ring buffer de MBC writes
     for (int i = 0; i < 8; i++) {
@@ -489,6 +498,8 @@ uint8_t MMU::read(uint16_t addr) const {
             }
             
             event.low_nibble_at_read = p1_value & 0x0F;  // Bits 0-3
+            // Step 0487: Añadir etiqueta legible
+            event.select_label = get_joyp_select_label(event.select_bits_at_read << 4);  // Shift para obtener valor completo
             event.timestamp = 0;  // TODO: Necesitamos exponer total_cycles_ o usar otro contador
             
             joyp_trace_.push_back(event);
@@ -496,27 +507,31 @@ uint8_t MMU::read(uint16_t addr) const {
                 joyp_trace_.erase(joyp_trace_.begin());
             }
             
-            // Contadores por source y tipo de selección (Step 0486)
+            // Step 0487: Contadores por source y tipo de selección usando etiquetas
             if (event.source == JOYPTraceEvent::PROGRAM) {
-                if (event.select_bits_at_read == 0x00) {  // Ambos seleccionados
-                    // No contamos ambos
-                } else if ((event.select_bits_at_read & 0x01) == 0) {  // P14=0 (buttons)
+                if (event.select_label == BUTTONS_SELECTED) {
                     joyp_reads_prog_buttons_sel_++;
-                } else if ((event.select_bits_at_read & 0x02) == 0) {  // P15=0 (dpad)
+                    joyp_read_buttons_selected_total_prog_++;
+                } else if (event.select_label == DPAD_SELECTED) {
                     joyp_reads_prog_dpad_sel_++;
-                } else {  // 0x03 (ninguno seleccionado)
+                    joyp_read_dpad_selected_total_prog_++;
+                } else if (event.select_label == NONE_SELECTED) {
                     joyp_reads_prog_none_sel_++;
+                    joyp_read_none_selected_total_prog_++;
                 }
+                // BOTH_SELECTED no se cuenta (raro)
             } else {  // CPU_POLL
-                if (event.select_bits_at_read == 0x00) {
-                    // No contamos ambos
-                } else if ((event.select_bits_at_read & 0x01) == 0) {
+                if (event.select_label == BUTTONS_SELECTED) {
                     joyp_reads_cpu_poll_buttons_sel_++;
-                } else if ((event.select_bits_at_read & 0x02) == 0) {
+                    joyp_read_buttons_selected_total_cpu_poll_++;
+                } else if (event.select_label == DPAD_SELECTED) {
                     joyp_reads_cpu_poll_dpad_sel_++;
-                } else {
+                    joyp_read_dpad_selected_total_cpu_poll_++;
+                } else if (event.select_label == NONE_SELECTED) {
                     joyp_reads_cpu_poll_none_sel_++;
+                    joyp_read_none_selected_total_cpu_poll_++;
                 }
+                // BOTH_SELECTED no se cuenta (raro)
             }
         }
         // -----------------------------------------
@@ -1085,6 +1100,20 @@ uint8_t MMU::read(uint16_t addr) const {
     }
     // -----------------------------------------
     
+    // --- Step 0487: HRAM FF92 Single Source of Truth (gated por VIBOY_DEBUG_MARIO_FF92=1) ---
+    // CRÍTICO: Tracking en la rama HRAM (0xFF80-0xFFFE), no en una abstracción distinta
+    if (addr >= 0xFF80 && addr <= 0xFFFE) {  // HRAM range
+        bool debug_mario_ff92 = (std::getenv("VIBOY_DEBUG_MARIO_FF92") != nullptr && 
+                                  std::string(std::getenv("VIBOY_DEBUG_MARIO_FF92")) == "1");
+        
+        if (addr == 0xFF92 && debug_mario_ff92) {
+            hram_ff92_single_source_.ff92_read_count_total++;
+            hram_ff92_single_source_.ff92_last_read_pc = debug_current_pc;
+            hram_ff92_single_source_.ff92_last_read_val = memory_[addr];
+        }
+    }
+    // -----------------------------------------
+    
     // --- Step 0481: HRAM Watchlist Genérica (gated por VIBOY_DEBUG_HRAM) ---
     bool debug_hram = (std::getenv("VIBOY_DEBUG_HRAM") != nullptr && 
                        std::string(std::getenv("VIBOY_DEBUG_HRAM")) == "1");
@@ -1315,6 +1344,12 @@ void MMU::write(uint16_t addr, uint8_t value) {
         bool debug_mario_ff92 = (std::getenv("VIBOY_DEBUG_MARIO_FF92") != nullptr && 
                                   std::string(std::getenv("VIBOY_DEBUG_MARIO_FF92")) == "1");
         if (debug_mario_ff92) {
+            // --- Step 0487: IE Write Tracking ---
+            ie_value_after_write_ = value;
+            ie_last_write_pc_ = debug_current_pc;
+            ie_write_count_total_++;
+            // -----------------------------------------
+            
             // Verificar si acabamos de leer FF92 (último read fue FF92)
             if (hram_ff92_watch_.last_read_pc == 0x1298 && 
                 hram_ff92_watch_.last_write_pc == 0x1288) {
@@ -1442,9 +1477,24 @@ void MMU::write(uint16_t addr, uint8_t value) {
                 event.p1_reg_after = value;  // Si no hay joypad, usar el valor escrito
             }
             
+            // Step 0487: Añadir etiqueta legible después del write
+            uint8_t select_bits_after = (event.p1_reg_after >> 4) & 0x03;
+            event.select_label_after = get_joyp_select_label(select_bits_after << 4);
+            
             event.timestamp = 0;  // TODO: Necesitamos exponer total_cycles_ o usar otro contador
             
             joyp_trace_.push_back(event);
+            
+            // Step 0487: Contadores por tipo de selección después del write
+            if (!irq_poll_active_) {  // Solo writes desde programa
+                if (event.select_label_after == BUTTONS_SELECTED) {
+                    joyp_write_buttons_selected_total_++;
+                } else if (event.select_label_after == DPAD_SELECTED) {
+                    joyp_write_dpad_selected_total_++;
+                } else if (event.select_label_after == NONE_SELECTED) {
+                    joyp_write_none_selected_total_++;
+                }
+            }
             if (joyp_trace_.size() > JOYP_TRACE_SIZE) {
                 joyp_trace_.erase(joyp_trace_.begin());
             }
@@ -3115,36 +3165,54 @@ void MMU::write(uint16_t addr, uint8_t value) {
     }
     // -----------------------------------------
     
-    // --- Step 0481: HRAM Watchlist Genérica (gated por VIBOY_DEBUG_HRAM) ---
-    bool debug_hram = (std::getenv("VIBOY_DEBUG_HRAM") != nullptr && 
-                       std::string(std::getenv("VIBOY_DEBUG_HRAM")) == "1");
-    if (debug_hram && addr >= 0xFF80 && addr <= 0xFFFE) {
-        // Verificar si addr está en watchlist
-        for (auto& entry : hram_watchlist_) {
-            if (entry.addr == addr) {
-                entry.write_count++;
-                entry.last_write_pc = debug_current_pc;
-                entry.last_write_value = value;
-                entry.last_write_timestamp++;
-                
-                // Step 0483: Actualizar frame de última escritura
-                if (ppu_ != nullptr) {
-                    entry.last_write_frame = static_cast<uint32_t>(ppu_->get_frame_counter());
-                }
-                
-                // Registrar primera escritura
-                if (!entry.first_write_recorded) {
-                    entry.first_write_pc = debug_current_pc;
-                    entry.first_write_value = value;
-                    entry.first_write_timestamp = entry.last_write_timestamp;
+    // --- Step 0487: HRAM FF92 Single Source of Truth (gated por VIBOY_DEBUG_MARIO_FF92=1) ---
+    // CRÍTICO: Tracking en la rama HRAM (0xFF80-0xFFFE), no en una abstracción distinta
+    if (addr >= 0xFF80 && addr <= 0xFFFE) {  // HRAM range
+        bool debug_mario_ff92 = (std::getenv("VIBOY_DEBUG_MARIO_FF92") != nullptr && 
+                                  std::string(std::getenv("VIBOY_DEBUG_MARIO_FF92")) == "1");
+        
+        if (addr == 0xFF92 && debug_mario_ff92) {
+            hram_ff92_single_source_.ff92_write_count_total++;
+            hram_ff92_single_source_.ff92_last_write_pc = debug_current_pc;
+            hram_ff92_single_source_.ff92_last_write_val = value;
+        }
+        
+        // --- Step 0481: HRAM Watchlist Genérica (gated por VIBOY_DEBUG_HRAM) ---
+        bool debug_hram = (std::getenv("VIBOY_DEBUG_HRAM") != nullptr && 
+                           std::string(std::getenv("VIBOY_DEBUG_HRAM")) == "1");
+        if (debug_hram) {
+            // Verificar si addr está en watchlist
+            for (auto& entry : hram_watchlist_) {
+                if (entry.addr == addr) {
+                    entry.write_count++;
+                    entry.last_write_pc = debug_current_pc;
+                    entry.last_write_value = value;
+                    entry.last_write_timestamp++;
+                    
+                    // Step 0483: Actualizar frame de última escritura
                     if (ppu_ != nullptr) {
-                        entry.first_write_frame = static_cast<uint32_t>(ppu_->get_frame_counter());
+                        entry.last_write_frame = static_cast<uint32_t>(ppu_->get_frame_counter());
                     }
-                    entry.first_write_recorded = true;
+                    
+                    // Registrar primera escritura
+                    if (!entry.first_write_recorded) {
+                        entry.first_write_pc = debug_current_pc;
+                        entry.first_write_value = value;
+                        entry.first_write_timestamp = entry.last_write_timestamp;
+                        if (ppu_ != nullptr) {
+                            entry.first_write_frame = static_cast<uint32_t>(ppu_->get_frame_counter());
+                        }
+                        entry.first_write_recorded = true;
+                    }
+                    break;
                 }
-                break;
             }
         }
+        // -----------------------------------------
+        
+        // Escribir en HRAM (después del tracking)
+        memory_[addr] = value;
+        return;  // Early return para HRAM
     }
     // -----------------------------------------
     
@@ -4752,6 +4820,44 @@ uint32_t MMU::get_joyp_reads_cpu_poll_none_sel() const {
     return joyp_reads_cpu_poll_none_sel_;
 }
 // --- Fin Step 0486 (JOYP contadores por source) ---
+
+// --- Step 0487: Implementación de getters para contadores JOYP por tipo de selección ---
+uint32_t MMU::get_joyp_write_buttons_selected_total() const {
+    return joyp_write_buttons_selected_total_;
+}
+
+uint32_t MMU::get_joyp_write_dpad_selected_total() const {
+    return joyp_write_dpad_selected_total_;
+}
+
+uint32_t MMU::get_joyp_write_none_selected_total() const {
+    return joyp_write_none_selected_total_;
+}
+
+uint32_t MMU::get_joyp_read_buttons_selected_total_prog() const {
+    return joyp_read_buttons_selected_total_prog_;
+}
+
+uint32_t MMU::get_joyp_read_dpad_selected_total_prog() const {
+    return joyp_read_dpad_selected_total_prog_;
+}
+
+uint32_t MMU::get_joyp_read_none_selected_total_prog() const {
+    return joyp_read_none_selected_total_prog_;
+}
+
+uint32_t MMU::get_joyp_read_buttons_selected_total_cpu_poll() const {
+    return joyp_read_buttons_selected_total_cpu_poll_;
+}
+
+uint32_t MMU::get_joyp_read_dpad_selected_total_cpu_poll() const {
+    return joyp_read_dpad_selected_total_cpu_poll_;
+}
+
+uint32_t MMU::get_joyp_read_none_selected_total_cpu_poll() const {
+    return joyp_read_none_selected_total_cpu_poll_;
+}
+// --- Fin Step 0487 (JOYP contadores por tipo de selección) ---
 // --- Fin Step 0485 (JOYP Trace) ---
 // --- Fin Step 0484 ---
 // --- Fin Step 0482 (LCDC Disable Tracking) ---
@@ -4937,6 +5043,44 @@ std::vector<FF92ToIETrace> MMU::get_ff92_to_ie_trace() const {
     return ff92_to_ie_trace_;
 }
 // --- Fin Step 0486 (HRAM FF92 Watch + FF92→IE Trace) ---
+
+// --- Step 0487: Implementación de getters para HRAM FF92 Single Source of Truth ---
+uint32_t MMU::get_ff92_write_count_total() const {
+    return hram_ff92_single_source_.ff92_write_count_total;
+}
+
+uint16_t MMU::get_ff92_last_write_pc() const {
+    return hram_ff92_single_source_.ff92_last_write_pc;
+}
+
+uint8_t MMU::get_ff92_last_write_val() const {
+    return hram_ff92_single_source_.ff92_last_write_val;
+}
+
+uint32_t MMU::get_ff92_read_count_total() const {
+    return hram_ff92_single_source_.ff92_read_count_total;
+}
+
+uint16_t MMU::get_ff92_last_read_pc() const {
+    return hram_ff92_single_source_.ff92_last_read_pc;
+}
+
+uint8_t MMU::get_ff92_last_read_val() const {
+    return hram_ff92_single_source_.ff92_last_read_val;
+}
+
+uint8_t MMU::get_ie_value_after_write() const {
+    return ie_value_after_write_;
+}
+
+uint16_t MMU::get_ie_last_write_pc() const {
+    return ie_last_write_pc_;
+}
+
+uint32_t MMU::get_ie_write_count_total() const {
+    return ie_write_count_total_;
+}
+// --- Fin Step 0487 (HRAM FF92 Single Source of Truth + IE Tracking) ---
 
 // --- Step 0481: Métodos de HRAM Watchlist Genérica ---
 void MMU::add_hram_watch(uint16_t addr) {

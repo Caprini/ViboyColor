@@ -2016,7 +2016,194 @@ class ROMSmokeRunner:
             print(f"  ✅ Framebuffer NO BLANCO (max={max_nw} píxeles non-white)")
             print(f"     → Sistema funciona correctamente")
         
+        # Step 0487: Reporte específico para Mario (FF92/IE trace)
+        report_lines = []
+        if 'mario' in self.rom_path.name.lower():
+            report_lines.extend(self._print_mario_ff92_ie_report())
+        
+        # Step 0487: Reporte específico para Tetris DX (JOYP semantics)
+        if 'tetris' in self.rom_path.name.lower():
+            report_lines.extend(self._print_tetris_joyp_report())
+        
+        # Escribir reporte a /tmp/reporte_step0487.md si hay contenido
+        if report_lines:
+            self._write_report_to_file(report_lines)
+        
         print(f"=" * 80)
+    
+    def _print_mario_ff92_ie_report(self):
+        """
+        Step 0487: Genera reporte detallado de FF92/IE trace para Mario.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            Lista de líneas del reporte (para escribir a archivo)
+        """
+        import os
+        if not os.getenv('VIBOY_DEBUG_MARIO_FF92'):
+            return []
+        
+        report_lines = []
+        
+        header = f"\n" + "=" * 80 + f"\nMARIO FF92/IE TRACE REPORT (Step 0487)\n" + "=" * 80
+        print(header)
+        report_lines.append(header)
+        
+        # FF92 Single Source of Truth
+        ff92_write_count = self.mmu.get_ff92_write_count_total()
+        ff92_read_count = self.mmu.get_ff92_read_count_total()
+        ff92_last_write_pc = self.mmu.get_ff92_last_write_pc()
+        ff92_last_write_val = self.mmu.get_ff92_last_write_val()
+        ff92_last_read_pc = self.mmu.get_ff92_last_read_pc()
+        ff92_last_read_val = self.mmu.get_ff92_last_read_val()
+        
+        section1 = f"\nFF92 Single Source of Truth:\n  Writes totales: {ff92_write_count}\n  Reads totales: {ff92_read_count}\n  Último write: PC=0x{ff92_last_write_pc:04X}, val=0x{ff92_last_write_val:02X}\n  Último read: PC=0x{ff92_last_read_pc:04X}, val=0x{ff92_last_read_val:02X}"
+        print(section1)
+        report_lines.append(section1)
+        
+        # IE Write Tracking
+        ie_write_count = self.mmu.get_ie_write_count_total()
+        ie_last_write_pc = self.mmu.get_ie_last_write_pc()
+        ie_value_after_write = self.mmu.get_ie_value_after_write()
+        
+        section2 = f"\nIE Write Tracking:\n  Writes totales: {ie_write_count}\n  Último write: PC=0x{ie_last_write_pc:04X}, val=0x{ie_value_after_write:02X}"
+        print(section2)
+        report_lines.append(section2)
+        
+        # FF92/IE Trace (últimos 50 eventos)
+        trace_tail = self.cpu.get_ff92_ie_trace_tail(50)
+        trace_full = self.cpu.get_ff92_ie_trace()
+        
+        section3 = f"\nFF92/IE Trace (últimos 50 eventos):\n  Total eventos en trace: {len(trace_full)}"
+        print(section3)
+        report_lines.append(section3)
+        
+        if trace_tail:
+            header_trace = f"  Formato: [Tipo] Frame | PC | a8 | effective_addr | val\n  Tipos: 0=FF92_W, 1=FF92_R, 2=IE_W\n  ---"
+            print(header_trace)
+            report_lines.append(header_trace)
+            for event in trace_tail[-20:]:  # Mostrar últimos 20
+                type_str = {0: "FF92_W", 1: "FF92_R", 2: "IE_W"}.get(event['type'], "UNK")
+                line = f"  [{type_str:6s}] Frame {event['frame']:4d} | PC=0x{event['pc']:04X} | a8=0x{event['a8']:02X} | addr=0x{event['effective_addr']:04X} | val=0x{event['val']:02X}"
+                print(line)
+                report_lines.append(line)
+            if len(trace_tail) > 20:
+                omit_msg = f"  ... ({len(trace_tail) - 20} eventos anteriores omitidos)"
+                print(omit_msg)
+                report_lines.append(omit_msg)
+        else:
+            no_trace = f"  ⚠️  No hay eventos en el trace"
+            print(no_trace)
+            report_lines.append(no_trace)
+        
+        # Análisis de cadena FF92 → IE
+        section4 = f"\nAnálisis de Cadena FF92 → IE:"
+        print(section4)
+        report_lines.append(section4)
+        
+        if ff92_write_count > 0 and ff92_read_count > 0 and ie_write_count > 0:
+            chain_msg = f"  ✅ Evidencia de cadena: FF92_W ({ff92_write_count}) → FF92_R ({ff92_read_count}) → IE_W ({ie_write_count})"
+        elif ff92_write_count > 0:
+            chain_msg = f"  ⚠️  Solo FF92 writes detectados ({ff92_write_count}), no hay reads ni IE writes"
+        else:
+            chain_msg = f"  ⚠️  No hay actividad FF92/IE detectada"
+        print(chain_msg)
+        report_lines.append(chain_msg)
+        
+        footer = f"=" * 80
+        print(footer)
+        report_lines.append(footer)
+        
+        return report_lines
+    
+    def _print_tetris_joyp_report(self):
+        """
+        Step 0487: Genera reporte detallado de JOYP semantics para Tetris DX.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Lista de líneas del reporte (para escribir a archivo)
+        """
+        import os
+        if not os.getenv('VIBOY_DEBUG_JOYP_TRACE'):
+            return []
+        
+        report_lines = []
+        
+        header = f"\n" + "=" * 80 + f"\nTETRIS DX JOYP SEMANTICS REPORT (Step 0487)\n" + "=" * 80
+        print(header)
+        report_lines.append(header)
+        
+        # JOYP Write Counters por Selección
+        joyp_write_buttons = self.mmu.get_joyp_write_buttons_selected_total()
+        joyp_write_dpad = self.mmu.get_joyp_write_dpad_selected_total()
+        joyp_write_none = self.mmu.get_joyp_write_none_selected_total()
+        total_writes = joyp_write_buttons + joyp_write_dpad + joyp_write_none
+        
+        section1 = f"\nJOYP Write Counters (por tipo de selección):\n  BUTTONS_SELECTED writes: {joyp_write_buttons}\n  DPAD_SELECTED writes: {joyp_write_dpad}\n  NONE_SELECTED writes: {joyp_write_none}\n  Total writes: {total_writes}"
+        print(section1)
+        report_lines.append(section1)
+        
+        # JOYP Read Counters por Selección y Source
+        joyp_read_buttons_prog = self.mmu.get_joyp_read_buttons_selected_total_prog()
+        joyp_read_dpad_prog = self.mmu.get_joyp_read_dpad_selected_total_prog()
+        joyp_read_none_prog = self.mmu.get_joyp_read_none_selected_total_prog()
+        joyp_read_buttons_cpu_poll = self.mmu.get_joyp_read_buttons_selected_total_cpu_poll()
+        joyp_read_dpad_cpu_poll = self.mmu.get_joyp_read_dpad_selected_total_cpu_poll()
+        joyp_read_none_cpu_poll = self.mmu.get_joyp_read_none_selected_total_cpu_poll()
+        
+        total_reads = (joyp_read_buttons_prog + joyp_read_dpad_prog + joyp_read_none_prog +
+                      joyp_read_buttons_cpu_poll + joyp_read_dpad_cpu_poll + joyp_read_none_cpu_poll)
+        
+        section2 = f"\nJOYP Read Counters (por tipo de selección y source):\n  BUTTONS_SELECTED reads:\n    Program: {joyp_read_buttons_prog}\n    CPU Poll: {joyp_read_buttons_cpu_poll}\n  DPAD_SELECTED reads:\n    Program: {joyp_read_dpad_prog}\n    CPU Poll: {joyp_read_dpad_cpu_poll}\n  NONE_SELECTED reads:\n    Program: {joyp_read_none_prog}\n    CPU Poll: {joyp_read_none_cpu_poll}\n  Total reads: {total_reads}"
+        print(section2)
+        report_lines.append(section2)
+        
+        # Análisis de patrones
+        section3 = f"\nAnálisis de Patrones:"
+        print(section3)
+        report_lines.append(section3)
+        
+        if joyp_write_buttons > 0 and joyp_read_buttons_prog > 0:
+            pattern1 = f"  ✅ Patrón BUTTONS detectado: {joyp_write_buttons} writes, {joyp_read_buttons_prog} reads (program)"
+            print(pattern1)
+            report_lines.append(pattern1)
+            if joyp_read_buttons_cpu_poll > 0:
+                pattern1b = f"     También {joyp_read_buttons_cpu_poll} reads desde CPU poll"
+                print(pattern1b)
+                report_lines.append(pattern1b)
+        if joyp_write_dpad > 0 and joyp_read_dpad_prog > 0:
+            pattern2 = f"  ✅ Patrón DPAD detectado: {joyp_write_dpad} writes, {joyp_read_dpad_prog} reads (program)"
+            print(pattern2)
+            report_lines.append(pattern2)
+            if joyp_read_dpad_cpu_poll > 0:
+                pattern2b = f"     También {joyp_read_dpad_cpu_poll} reads desde CPU poll"
+                print(pattern2b)
+                report_lines.append(pattern2b)
+        if joyp_write_none > 0:
+            pattern3 = f"  ⚠️  {joyp_write_none} writes con NONE_SELECTED (posible deselección)"
+            print(pattern3)
+            report_lines.append(pattern3)
+        
+        footer = f"=" * 80
+        print(footer)
+        report_lines.append(footer)
+        
+        return report_lines
+    
+    def _write_report_to_file(self, report_lines: List[str]):
+        """
+        Step 0487: Escribe el reporte a /tmp/reporte_step0487.md
+        """
+        report_path = Path("/tmp/reporte_step0487.md")
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write("# Reporte Step 0487 - Fiabilidad Watch/Trace + Blindar Semántica JOYP\n\n")
+            f.write(f"ROM: {self.rom_path.name}\n")
+            f.write(f"Fecha: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            f.write("\n".join(report_lines))
+        print(f"\n✅ Reporte escrito a: {report_path}")
 
 
 def main():

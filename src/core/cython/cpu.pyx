@@ -764,6 +764,59 @@ cdef class PyCPU:
         return self._cpu.get_ldh_addr_mismatch_count()
     # --- Fin Step 0486 (LDH Address Watch) ---
     
+    # --- Step 0487: FF92 to IE Trace ---
+    def get_ff92_ie_trace(self):
+        """
+        Step 0487: Obtiene el trace completo de FF92/IE (últimos 64 eventos).
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            Lista de diccionarios con los eventos del trace
+        """
+        if self._cpu == NULL:
+            return []
+        cdef vector[cpu.FF92IETraceEvent] trace = self._cpu.get_ff92_ie_trace()
+        result = []
+        for event in trace:
+            result.append({
+                'type': event.type,  # 0=FF92_W, 1=FF92_R, 2=IE_W
+                'frame': event.frame,
+                'pc': event.pc,
+                'a8': event.a8,
+                'effective_addr': event.effective_addr,
+                'val': event.val
+            })
+        return result
+    
+    def get_ff92_ie_trace_tail(self, size_t n):
+        """
+        Step 0487: Obtiene los últimos N eventos del trace de FF92/IE.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Args:
+            n: Número de eventos a retornar
+        
+        Returns:
+            Lista de diccionarios con los últimos N eventos
+        """
+        if self._cpu == NULL:
+            return []
+        cdef vector[cpu.FF92IETraceEvent] trace = self._cpu.get_ff92_ie_trace_tail(n)
+        result = []
+        for event in trace:
+            result.append({
+                'type': event.type,
+                'frame': event.frame,
+                'pc': event.pc,
+                'a8': event.a8,
+                'effective_addr': event.effective_addr,
+                'val': event.val
+            })
+        return result
+    # --- Fin Step 0487 (FF92 to IE Trace) ---
+    
     # --- Fin Step 0475 ---
     
     # Propiedades para acceso directo (compatibilidad con tests)

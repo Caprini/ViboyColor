@@ -3322,6 +3322,24 @@ int CPU::step() {
                     if (addr != expected_addr) {
                         ldh_watch_.ldh_addr_mismatch_count++;
                     }
+                    
+                    // --- Step 0487: FF92 to IE Trace (gated por VIBOY_DEBUG_MARIO_FF92=1) ---
+                    if (offset == 0x92 || offset == 0xFF) {
+                        FF92IETraceEvent event;
+                        event.type = (offset == 0x92) ? FF92IETraceEvent::FF92_W : FF92IETraceEvent::IE_W;
+                        // Obtener frame desde PPU si está disponible
+                        event.frame = (ppu_ != nullptr) ? static_cast<uint32_t>(ppu_->get_frame_counter()) : 0;
+                        event.pc = original_pc;
+                        event.a8 = offset;
+                        event.effective_addr = addr;
+                        event.val = regs_->a;
+                        
+                        ff92_ie_trace_.push_back(event);
+                        if (ff92_ie_trace_.size() > FF92_IE_TRACE_SIZE) {
+                            ff92_ie_trace_.erase(ff92_ie_trace_.begin());
+                        }
+                    }
+                    // -----------------------------------------
                 }
                 // -----------------------------------------
                 
@@ -3347,16 +3365,41 @@ int CPU::step() {
                     ldh_watch_.effective_addr_computed = addr;
                     ldh_watch_.is_read = true;
                     
+                    // --- Step 0487: FF92 to IE Trace (gated por VIBOY_DEBUG_MARIO_FF92=1) ---
+                    if (offset == 0x92) {
+                        uint8_t value = mmu_->read(addr);
+                        
+                        FF92IETraceEvent event;
+                        event.type = FF92IETraceEvent::FF92_R;
+                        // Obtener frame desde PPU si está disponible
+                        event.frame = (ppu_ != nullptr) ? static_cast<uint32_t>(ppu_->get_frame_counter()) : 0;
+                        event.pc = original_pc;
+                        event.a8 = offset;
+                        event.effective_addr = addr;
+                        event.val = value;
+                        
+                        ff92_ie_trace_.push_back(event);
+                        if (ff92_ie_trace_.size() > FF92_IE_TRACE_SIZE) {
+                            ff92_ie_trace_.erase(ff92_ie_trace_.begin());
+                        }
+                        
+                        regs_->a = value;
+                    } else {
+                        regs_->a = mmu_->read(addr);
+                    }
+                    
                     // Verificar si el cálculo es correcto (sin sign-extension)
                     uint16_t expected_addr = 0xFF00 | offset;  // OR en lugar de suma para evitar sign-extension
                     if (addr != expected_addr) {
                         ldh_watch_.ldh_addr_mismatch_count++;
                     }
+                } else {
+                    regs_->a = mmu_->read(addr);
                 }
                 // -----------------------------------------
                 
-                uint8_t value = mmu_->read(addr);
-                regs_->a = value;
+                // Leer valor de memoria (necesario para tracking posterior)
+                uint8_t read_value = regs_->a;  // Ya está en A después del read
                 
                 // --- Step 0483: Last Load A Tracking (gated por VIBOY_DEBUG_BRANCH=1) ---
                 bool debug_branch = (std::getenv("VIBOY_DEBUG_BRANCH") != nullptr && 
@@ -3364,11 +3407,11 @@ int CPU::step() {
                 if (debug_branch) {
                     last_load_a_pc_ = original_pc;
                     last_load_a_addr_ = addr;
-                    last_load_a_value_ = value;
+                    last_load_a_value_ = read_value;
                     
                     // --- Step 0484: LY Distribution Histogram ---
                     if (addr == 0xFF44) {  // LY register
-                        ly_read_distribution_[value]++;
+                        ly_read_distribution_[read_value]++;
                     }
                     // -----------------------------------------
                 }
@@ -3381,11 +3424,11 @@ int CPU::step() {
                     // Verificar si PC está en el rango del loop
                     if (original_pc >= mario_loop_start_ && original_pc <= mario_loop_end_) {
                         mario_loop_ly_watch_.ly_reads_total++;
-                        mario_loop_ly_watch_.ly_last_value = value;
+                        mario_loop_ly_watch_.ly_last_value = read_value;
                         mario_loop_ly_watch_.ly_last_timestamp = cycles_;
                         mario_loop_ly_watch_.ly_last_pc = original_pc;
                         
-                        if (value == 0x91) {  // 145 decimal
+                        if (read_value == 0x91) {  // 145 decimal
                             mario_loop_ly_watch_.ly_eq_0x91_count++;
                         }
                     }
@@ -4619,6 +4662,20 @@ bool CPU::get_last_ldh_is_read() const {
 uint32_t CPU::get_ldh_addr_mismatch_count() const {
     return ldh_watch_.ldh_addr_mismatch_count;
 }
+
+// --- Step 0487: Implementación de getters para FF92 to IE Trace ---
+std::vector<FF92IETraceEvent> CPU::get_ff92_ie_trace() const {
+    return ff92_ie_trace_;
+}
+
+std::vector<FF92IETraceEvent> CPU::get_ff92_ie_trace_tail(size_t n) const {
+    size_t size = ff92_ie_trace_.size();
+    if (n >= size) {
+        return ff92_ie_trace_;
+    }
+    return std::vector<FF92IETraceEvent>(ff92_ie_trace_.end() - n, ff92_ie_trace_.end());
+}
+// --- Fin Step 0487 (FF92 to IE Trace) ---
 // --- Fin Step 0486 (LDH Address Watch) ---
 
 // --- Step 0472: Implementación de getters para STOP ---
