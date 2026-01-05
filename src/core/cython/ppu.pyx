@@ -13,6 +13,7 @@ from libcpp cimport bool
 # Importar la definición de la clase C++ desde el archivo .pxd
 cimport ppu
 cimport mmu
+from ppu cimport FrameBufferStats
 
 # NOTA: PyMMU está definido en mmu.pyx, que está incluido en native_core.pyx
 # El atributo _mmu es accesible directamente desde otros módulos Cython
@@ -294,6 +295,36 @@ cdef class PyPPU:
         if self._ppu == NULL:
             return 0
         return self._ppu.get_vblank_irq_requested_count()
+    
+    def get_framebuffer_stats(self):
+        """
+        Step 0488: Obtiene estadísticas del framebuffer del último frame.
+        
+        Devuelve métricas sobre diversidad de colores, cambios entre frames,
+        y distribución de índices de color en el framebuffer.
+        
+        Returns:
+            dict con estadísticas del framebuffer o None si no disponible.
+            Keys: 'fb_crc32', 'fb_unique_colors', 'fb_nonwhite_count', 
+                  'fb_nonblack_count', 'fb_top4_colors', 'fb_top4_colors_count',
+                  'fb_changed_since_last'
+        """
+        if self._ppu == NULL:
+            return None
+        
+        cdef const FrameBufferStats* stats = &self._ppu.get_framebuffer_stats()
+        if stats == NULL:
+            return None
+        
+        return {
+            'fb_crc32': stats.fb_crc32,
+            'fb_unique_colors': stats.fb_unique_colors,
+            'fb_nonwhite_count': stats.fb_nonwhite_count,
+            'fb_nonblack_count': stats.fb_nonblack_count,
+            'fb_top4_colors': [stats.fb_top4_colors[i] for i in range(4)],
+            'fb_top4_colors_count': [stats.fb_top4_colors_count[i] for i in range(4)],
+            'fb_changed_since_last': stats.fb_changed_since_last,
+        }
     
     def get_last_palette_regs_used(self):
         """

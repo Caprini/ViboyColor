@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0488 - Blank Screen Triage - Framebuffer vs Paletas vs Blit -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-05__0488__blank-screen-triage-framebuffer-vs-paletas-vs-blit.html" class="entry-link">
+                                    Blank Screen Triage - Framebuffer vs Paletas vs Blit
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-05 | 
+                            <strong>Step ID:</strong> 0488 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Instrumentación completa para diagnosticar pantalla en blanco: FrameBufferStats (CRC32, colores únicos, distribución), PaletteStats (DMG/CGB), dump PPM para evidencia visual fuera de SDL, test unitario que valida diversidad del framebuffer (✅ pasa). Resultados: tetris.gb (DMG) tiene framebuffer completamente blanco → bug en fetch/decode; tetris_dx.gbc (CGB) tiene diversidad (4 colores) pero ventana blanca → bug en blit/presentación. Reporte completo en docs/reports/reporte_step0488.md.
+                        </p>
+                    </li>
                     <!-- Entrada 0487 - Fiabilidad Watch/Trace + Blindar Semántica JOYP -->
                     <li>
                         <div class="entry-header">

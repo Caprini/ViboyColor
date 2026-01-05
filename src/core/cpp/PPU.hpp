@@ -8,6 +8,23 @@
 class MMU;
 
 /**
+ * Step 0488: Estructura para estadísticas del framebuffer.
+ * 
+ * Permite diagnosticar si el PPU está generando diversidad de colores
+ * o si el framebuffer está uniforme (blanco/negro).
+ */
+struct FrameBufferStats {
+    uint32_t fb_crc32;                    // CRC32 del framebuffer (o hash rápido equivalente)
+    uint32_t fb_unique_colors;            // Número de valores distintos en el framebuffer
+    uint32_t fb_nonwhite_count;           // Cuenta de píxeles distintos de índice 0 (blanco)
+    uint32_t fb_nonblack_count;           // Cuenta de píxeles distintos de índice 3 (negro)
+    uint32_t fb_top4_colors[4];           // Los 4 colores más frecuentes (índices 0-3)
+    uint32_t fb_top4_colors_count[4];     // Conteo de cada uno
+    bool fb_changed_since_last;            // Hash != anterior
+    uint32_t fb_last_hash;                // Hash del frame anterior (para comparar)
+};
+
+/**
  * PPU (Pixel Processing Unit) - Unidad de Procesamiento de Píxeles
  * 
  * Esta clase implementa el motor de timing y estado de la PPU de la Game Boy.
@@ -295,6 +312,16 @@ public:
      * @return Puntero al framebuffer de índices presentado (23040 bytes)
      */
     const uint8_t* get_presented_framebuffer_indices_ptr();
+    
+    /**
+     * Step 0488: Obtiene estadísticas del framebuffer del último frame.
+     * 
+     * Devuelve métricas sobre diversidad de colores, cambios entre frames,
+     * y distribución de índices de color en el framebuffer.
+     * 
+     * @return Referencia constante a FrameBufferStats con las estadísticas
+     */
+    const FrameBufferStats& get_framebuffer_stats() const;
     
     /**
      * Step 0469: Obtiene el contador de VBlank IRQ solicitados.
@@ -721,6 +748,25 @@ private:
     mutable int last_convert_sample_count_;
     mutable uint8_t last_bgp_used_debug_;  // BGP usado en última conversión (duplicado para debug)
 #endif
+    
+    /**
+     * Step 0488: Estadísticas del framebuffer.
+     * Se actualizan al final de cada frame (después de swap_framebuffers).
+     */
+    FrameBufferStats framebuffer_stats_;
+    
+    /**
+     * Step 0488: Calcula estadísticas del framebuffer actual.
+     * 
+     * Analiza el framebuffer presentado (front) y calcula:
+     * - Número de colores únicos (índices 0-3)
+     * - Conteo de píxeles no-blancos y no-negros
+     * - Top 4 colores más frecuentes
+     * - Hash/CRC32 para detectar cambios entre frames
+     * 
+     * Gateado por VIBOY_DEBUG_FB_STATS=1 para no penalizar rendimiento.
+     */
+    void compute_framebuffer_stats();
 };
 
 #endif // PPU_HPP

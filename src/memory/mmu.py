@@ -838,6 +838,39 @@ class MMU:
         """
         return sum(self._memory[0x8000:0xA000])
     
+    def get_cartridge(self):
+        """
+        Step 0488: Obtiene la instancia del cartucho.
+        
+        Returns:
+            Instancia de Cartridge o None si no está disponible
+        """
+        return self._cartridge
+    
+    def get_cgb_bg_palette_data(self) -> list[int]:
+        """
+        Step 0488: Obtiene todos los bytes de datos de paleta BG CGB (64 bytes).
+        
+        Las paletas CGB almacenan colores en formato BGR555 (15 bits por color).
+        Cada byte en el array representa un byte de datos de paleta.
+        
+        Returns:
+            Lista de 64 enteros (0-255) representando los bytes de datos de paleta BG
+        """
+        return list(self._bg_palette_data)
+    
+    def get_cgb_obj_palette_data(self) -> list[int]:
+        """
+        Step 0488: Obtiene todos los bytes de datos de paleta OBJ CGB (64 bytes).
+        
+        Las paletas CGB almacenan colores en formato BGR555 (15 bits por color).
+        Cada byte en el array representa un byte de datos de paleta.
+        
+        Returns:
+            Lista de 64 enteros (0-255) representando los bytes de datos de paleta OBJ
+        """
+        return list(self._obj_palette_data)
+    
     def write_byte_internal(self, addr: int, value: int) -> None:
         """
         Escribe un byte directamente en memoria sin pasar por las restricciones

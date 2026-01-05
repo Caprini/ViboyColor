@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blank Screen Triage - Framebuffer vs Paletas vs Blit - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Blank Screen Triage - Framebuffer vs Paletas vs Blit</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-05
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0488
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-05__0487__fiabilidad-watch-trace-blindar-semantica-joyp.html">Anterior (0487)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Step 0488 implementa instrumentación completa para diagnosticar el problema de pantalla en blanco del emulador. Se añaden estadísticas de framebuffer (FrameBufferStats) y paletas (PaletteStats) a los snapshots de rom_smoke, se implementa dump de framebuffer a PPM para evidencia visual fuera de SDL, y se crea un test unitario que valida que el PPU puede producir diversidad de colores cuando VRAM tiene datos. Los resultados muestran que el problema es diferente según el modo: en DMG (tetris.gb) el framebuffer está completamente blanco (bug en fetch/decode), mientras que en CGB (tetris_dx.gbc) el framebuffer SÍ tiene diversidad pero la ventana sigue blanca (bug en blit/presentación).
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El PPU (Picture Processing Unit) del Game Boy renderiza frames de 160x144 píxeles. El proceso de renderizado incluye:
+                </p>
+                <ol>
+                    <li><strong>Fetch de tiles</strong>: Lectura de datos de tiles desde VRAM (0x8000-0x97FF)</li>
+                    <li><strong>Decode 2bpp</strong>: Conversión de datos 2bpp a índices de color (0-3)</li>
+                    <li><strong>Aplicación de paleta</strong>: Mapeo de índices a shades (DMG: BGP) o colores RGB (CGB: paletas CGB)</li>
+                    <li><strong>Write al framebuffer</strong>: Escritura de píxeles al buffer de presentación</li>
+                    <li><strong>Blit/Presentación</strong>: Transferencia del framebuffer a la textura SDL para visualización</li>
+                </ol>
+                <p>
+                    El problema de pantalla en blanco puede ocurrir en cualquiera de estos pasos. Para diagnosticarlo, necesitamos:
+                </p>
+                <ul>
+                    <li><strong>FrameBufferStats</strong>: Verificar si el PPU está generando un framebuffer con más de 1 color/patrón</li>
+                    <li><strong>PaletteStats</strong>: Verificar si las paletas están correctamente configuradas</li>
+                    <li><strong>PPM Dump</strong>: Evidencia visual fuera de SDL para descartar problemas de blit/presentación</li>
+                </ul>
+                <p>
+                    <strong>Referencia</strong>: Pan Docs - LCD Control Register (FF40 - LCDC), Background Palette (FF47 - BGP), CGB Palettes (FF68-FF6B).
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementan 5 fases de instrumentación para diagnosticar el problema de pantalla en blanco:
+                </p>
+
+                <h3>Fase A: FrameBufferStats</h3>
+                <p>
+                    Se añade la estructura <code>FrameBufferStats</code> a <code>PPU.hpp</code> con:
+                </p>
+                <ul>
+                    <li><code>fb_crc32</code>: Hash del framebuffer para detectar cambios</li>
+                    <li><code>fb_unique_colors</code>: Número de índices únicos (0-3) presentes</li>
+                    <li><code>fb_nonwhite_count</code>: Píxeles con índice != 0</li>
+                    <li><code>fb_nonblack_count</code>: Píxeles con índice != 3</li>
+                    <li><code>fb_top4_colors</code>: Los 4 índices más frecuentes</li>
+                    <li><code>fb_top4_colors_count</code>: Conteo de cada índice</li>
+                    <li><code>fb_changed_since_last</code>: Indica si el framebuffer cambió desde el último frame</li>
+                </ul>
+                <p>
+                    La función <code>compute_framebuffer_stats()</code> se ejecuta después de <code>swap_framebuffers()</code> y está gateada por <code>VIBOY_DEBUG_FB_STATS=1</code>. Se expone a Python vía Cython wrapper.
+                </p>
+
+                <h3>Fase B: PaletteStats</h3>
+                <p>
+                    Se añade recolección de estadísticas de paletas en <code>rom_smoke_0442.py</code>:
+                </p>
+                <ul>
+                    <li>Detección de modo CGB vs DMG</li>
+                    <li>Registros DMG: BGP, OBP0, OBP1 y mapeo índice→shade derivado</li>
+                    <li>Registros CGB: BGPI, BGPD, OBPI, OBPD</li>
+                    <li>Contadores de entradas no-blancas en paletas CGB</li>
+                </ul>
+                <p>
+                    Se añaden getters en <code>MMU</code> para acceder a datos de paletas CGB (<code>get_cgb_bg_palette_data()</code>, <code>get_cgb_obj_palette_data()</code>).
+                </p>
+
+                <h3>Fase C: Dump PPM</h3>
+                <p>
+                    Se implementa <code>_dump_framebuffer_to_ppm()</code> en Python que:
+                </p>
+                <ul>
+                    <li>Lee el framebuffer de índices desde el PPU</li>
+                    <li>Convierte índices a RGB usando BGP (DMG) o paletas CGB</li>
+                    <li>Escribe un archivo PPM (formato Netpbm P6) en la ruta especificada</li>
+                    <li>Gateado por <code>VIBOY_DUMP_FB_FRAME</code> y <code>VIBOY_DUMP_FB_PATH</code>
+                </ul>
+
+                <h3>Fase D: Test Unitario</h3>
+                <p>
+                    Se crea <code>test_ppu_framebuffer_diversity_0488.py</code> que:
+                </p>
+                <ul>
+                    <li>Crea un tile checkerboard en VRAM (alterna índices 0 y 3)</li>
+                    <li>Configura tilemap y activa LCD/BG</li>
+                    <li>Ejecuta frames completos esperando explícitamente a <code>is_frame_ready()</code></li>
+                    <li>Verifica que <code>fb_unique_colors >= 2</code> y <code>fb_nonwhite_count > 0</code></li>
+                </ul>
+                <p>
+                    <strong>Resultado</strong>: ✅ El test pasa, confirmando que el PPU puede producir diversidad cuando VRAM tiene datos.
+                </p>
+
+                <h3>Fase E: Ejecución rom_smoke y Reporte</h3>
+                <p>
+                    Se ejecuta <code>rom_smoke_0442.py</code> con:
+                </p>
+                <ul>
+                    <li><code>VIBOY_SIM_BOOT_LOGO=0</code> (baseline limpio)</li>
+                    <li><code>VIBOY_DEBUG_FB_STATS=1</code> (activar estadísticas)</li>
+                    <li><code>VIBOY_DUMP_FB_FRAME=180</code> (dump en frame 180)</li>
+                    <li>ROMs: <code>tetris.gb</code> (DMG) y <code>tetris_dx.gbc</code> (CGB)</li>
+                </ul>
+                <p>
+                    Se genera reporte en <code>docs/reports/reporte_step0488.md</code> con tablas de snapshots, análisis de PPMs, y árbol de decisión.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Estructura <code>FrameBufferStats</code> y método <code>get_framebuffer_stats()</code></li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Implementación de <code>compute_framebuffer_stats()</code> y llamada después de <code>swap_framebuffers()</code></li>
+                    <li><code>src/core/cython/ppu.pxd</code> - Declaración Cython de <code>FrameBufferStats</code></li>
+                    <li><code>src/core/cython/ppu.pyx</code> - Wrapper Python de <code>get_framebuffer_stats()</code></li>
+                    <li><code>src/memory/mmu.py</code> - Getters <code>get_cgb_bg_palette_data()</code> y <code>get_cgb_obj_palette_data()</code></li>
+                    <li><code>tools/rom_smoke_0442.py</code> - Integración de FrameBufferStats y PaletteStats en snapshots, función <code>_dump_framebuffer_to_ppm()</code></li>
+                    <li><code>tests/test_ppu_framebuffer_diversity_0488.py</code> - Test unitario que valida diversidad del framebuffer</li>
+                    <li><code>docs/reports/reporte_step0488.md</code> - Reporte completo con análisis y árbol de decisión</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Test unitario</strong>: <code>test_ppu_framebuffer_diversity_0488.py::test_ppu_produces_multiple_colors_when_vram_has_pattern</code>
+                </p>
+                <pre><code>def test_ppu_produces_multiple_colors_when_vram_has_pattern(self):
+    """Test que verifica que PPU produce >1 color cuando VRAM tiene patrón."""
+    # Crea tile checkerboard en VRAM
+    # Configura tilemap y activa LCD/BG
+    # Ejecuta frames completos esperando is_frame_ready()
+    # Verifica fb_unique_colors >= 2 y fb_nonwhite_count > 0
+    assert fb_stats['fb_unique_colors'] >= 2
+    assert fb_stats['fb_nonwhite_count'] > 0</code></pre>
+                <p>
+                    <strong>Resultado</strong>: ✅ <strong>PASA</strong> (1 passed in 0.05s)
+                </p>
+                <p>
+                    <strong>Validación de módulo compilado C++</strong>: El test valida que el PPU compilado en C++ puede producir diversidad de colores cuando VRAM contiene un patrón conocido.
+                </p>
+                <p>
+                    <strong>Ejecución rom_smoke</strong>:
+                </p>
+                <ul>
+                    <li><strong>tetris.gb (DMG)</strong>: 240 frames ejecutados, PPM generado en frame 180</li>
+                    <li><strong>tetris_dx.gbc (CGB)</strong>: 240 frames ejecutados, PPM generado en frame 180</li>
+                </ul>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">LCD Control Register (FF40 - LCDC)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Background Palette (FF47 - BGP)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">CGB Palettes (FF68-FF6B)</a></li>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">PPU Rendering Pipeline</a></li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Pipeline de renderizado PPU</strong>: El proceso completo desde fetch de tiles hasta presentación, y dónde puede fallar cada paso.</li>
+                        <li><strong>FrameBufferStats</strong>: Cómo medir la diversidad del framebuffer sin depender de la visualización SDL.</li>
+                        <li><strong>PaletteStats</strong>: Cómo verificar que las paletas están correctamente configuradas en ambos modos (DMG y CGB).</li>
+                        <li><strong>Dump PPM</strong>: Cómo obtener evidencia visual fuera del sistema de presentación para aislar problemas de blit/presentación.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Bug en fetch/decode DMG</strong>: Por qué el framebuffer está completamente blanco en modo DMG a pesar de que el tilemap tiene datos.</li>
+                        <li><strong>Bug en blit/presentación CGB</strong>: Por qué la ventana SDL muestra pantalla blanca cuando el framebuffer tiene diversidad (4 colores únicos).</li>
+                        <li><strong>Timing de carga de tiles</strong>: Si hay restricciones de acceso a VRAM que impiden la carga correcta de tiles en ROMs reales.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal</strong>: El problema es diferente según el modo:
+                    </p>
+                    <ul>
+                        <li><strong>DMG</strong>: El PPU no está renderizando correctamente (framebuffer vacío). Posibles causas: bug en fetch/decode, restricciones de acceso VRAM, o inicialización incorrecta.</li>
+                        <li><strong>CGB</strong>: El PPU SÍ está renderizando (framebuffer tiene diversidad), pero el blit/presentación falla. Posibles causas: formato de textura SDL incorrecto, pitch/stride mal configurado, o blanqueo después del render.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <p>
+                    <strong>Step 0489 - Diagnóstico Específico por Modo</strong>:
+                </p>
+                <ul>
+                    <li><strong>Para tetris.gb (DMG)</strong>:
+                        <ul>
+                            <li>Instrumentar <code>render_scanline()</code> para verificar fetch/decode en modo DMG</li>
+                            <li>Comparar con tetris_dx.gbc que SÍ funciona (modo CGB)</li>
+                            <li>Verificar restricciones de acceso a VRAM durante modos PPU en DMG</li>
+                        </ul>
+                    </li>
+                    <li><strong>Para tetris_dx.gbc (CGB)</strong>:
+                        <ul>
+                            <li>Instrumentar antes y después del blit (hash del buffer fuente vs hash del buffer subido a textura)</li>
+                            <li>Verificar formato de textura SDL (RGBA vs BGRA)</li>
+                            <li>Verificar pitch/stride del framebuffer</li>
+                            <li>Verificar que no se esté blanqueando el framebuffer después del render</li>
+                        </ul>
+                    </li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

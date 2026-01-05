@@ -1218,6 +1218,81 @@ class ROMSmokeRunner:
         img.save(out_path)
         print(f"  [PNG] Guardado: {out_path}")
     
+    def _dump_framebuffer_to_ppm(self, frame_idx: int):
+        """
+        Step 0488: Dump framebuffer a archivo PPM.
+        
+        Gateado por VIBOY_DUMP_FB_FRAME y VIBOY_DUMP_FB_PATH.
+        
+        Args:
+            frame_idx: Índice del frame actual
+        """
+        import os
+        
+        env_frame = os.getenv("VIBOY_DUMP_FB_FRAME")
+        env_path = os.getenv("VIBOY_DUMP_FB_PATH")
+        
+        if not env_frame or not env_path:
+            return
+        
+        try:
+            target_frame = int(env_frame)
+        except ValueError:
+            return
+        
+        if frame_idx != target_frame:
+            return
+        
+        # Leer framebuffer de índices
+        try:
+            fb_indices = self.ppu.get_presented_framebuffer_indices()
+            if fb_indices is None:
+                return
+        except (AttributeError, TypeError):
+            return
+        
+        # Leer BGP
+        bgp = self.mmu.read(0xFF47)
+        
+        # Paleta DMG greyscale
+        shades = [
+            (bgp >> 0) & 0x03,  # idx 0
+            (bgp >> 2) & 0x03,  # idx 1
+            (bgp >> 4) & 0x03,  # idx 2
+            (bgp >> 6) & 0x03,  # idx 3
+        ]
+        
+        # Mapeo shade → RGB
+        shade_to_rgb = [
+            (255, 255, 255),  # Shade 0 = blanco
+            (192, 192, 192),  # Shade 1 = gris claro
+            (96, 96, 96),     # Shade 2 = gris oscuro
+            (0, 0, 0),        # Shade 3 = negro
+        ]
+        
+        # Construir nombre de archivo (reemplazar #### con frame_number)
+        path_template = env_path.replace("####", str(frame_idx))
+        output_path = Path(path_template)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Escribir PPM
+        try:
+            with open(output_path, 'wb') as f:
+                # Header P6 (binary RGB)
+                f.write(b"P6\n")
+                f.write(f"{160} {144}\n".encode())
+                f.write(b"255\n")
+                
+                # Píxeles
+                for idx in fb_indices:
+                    shade = shades[idx & 0x03]
+                    r, g, b = shade_to_rgb[shade]
+                    f.write(bytes([r, g, b]))
+            
+            print(f"[ROM-SMOKE] Framebuffer dump guardado en {output_path} (frame {frame_idx})")
+        except Exception as e:
+            print(f"[ROM-SMOKE] ERROR al escribir PPM: {e}")
+    
     def run(self):
         """Ejecuta el smoke test."""
         # Step 0465: Imprimir estado de env vars para evidencia (solo en tools, no en runtime)
@@ -1318,6 +1393,9 @@ class ROMSmokeRunner:
             # Recolectar métricas (incluye LY/STAT 3-points)
             metrics = self._collect_metrics(frame_idx, ly_first, ly_mid, ly_last, stat_first, stat_mid, stat_last)
             self.metrics.append(metrics)
+            
+            # Step 0488: Dump framebuffer a PPM si está activo
+            self._dump_framebuffer_to_ppm(frame_idx)
             
             # --- Step 0469: Snapshot cada 60 frames (o frames 0, 60, 120, 180, 240) ---
             should_snapshot = (frame_idx % 60 == 0) or frame_idx < 3
@@ -1706,6 +1784,76 @@ class ROMSmokeRunner:
                 # Step 0486: Añadir IE/IME/IF explícitos al snapshot
                 irq_serviced_count = vblank_serv  # Contador de IRQs servidas (VBlank por ahora)
                 
+                # Step 0488: FrameBufferStats (gateado por VIBOY_DEBUG_FB_STATS=1)
+                fb_stats = None
+                fb_stats_str = "N/A"
+                import os
+                if os.getenv("VIBOY_DEBUG_FB_STATS") == "1":
+                    try:
+                        fb_stats = self.ppu.get_framebuffer_stats()
+                        if fb_stats:
+                            fb_stats_str = (f"CRC32=0x{fb_stats['fb_crc32']:08X} "
+                                          f"UniqueColors={fb_stats['fb_unique_colors']} "
+                                          f"NonWhite={fb_stats['fb_nonwhite_count']} "
+                                          f"NonBlack={fb_stats['fb_nonblack_count']} "
+                                          f"Top4={fb_stats['fb_top4_colors']} "
+                                          f"Top4Count={fb_stats['fb_top4_colors_count']} "
+                                          f"Changed={1 if fb_stats['fb_changed_since_last'] else 0}")
+                    except (AttributeError, TypeError, KeyError) as e:
+                        fb_stats_str = f"ERROR: {e}"
+                
+                # Step 0488: PaletteStats
+                palette_stats = {}
+                try:
+                    cartridge = self.mmu.get_cartridge() if hasattr(self.mmu, 'get_cartridge') else None
+                    is_cgb = cartridge.is_cgb() if cartridge and hasattr(cartridge, 'is_cgb') else False
+                    
+                    palette_stats = {
+                        'is_cgb': is_cgb,
+                        'dmg_compat_mode': False,  # TODO: detectar si CGB está en modo DMG
+                        'bgp': bgp,
+                        'obp0': obp0,
+                        'obp1': obp1,
+                        'bgp_idx_to_shade': [
+                            (bgp >> 0) & 0x03,  # idx 0
+                            (bgp >> 2) & 0x03,  # idx 1
+                            (bgp >> 4) & 0x03,  # idx 2
+                            (bgp >> 6) & 0x03,  # idx 3
+                        ],
+                        'bgpi': self.mmu.read(0xFF68) if is_cgb else 0,  # BG Palette Index
+                        'bgpd': self.mmu.read(0xFF69) if is_cgb else 0,  # BG Palette Data
+                        'obpi': self.mmu.read(0xFF6A) if is_cgb else 0,  # OB Palette Index
+                        'obpd': self.mmu.read(0xFF6B) if is_cgb else 0,  # OB Palette Data
+                        'cgb_bg_palette_nonwhite_entries': 0,  # Se calculará si es CGB
+                        'cgb_obj_palette_nonwhite_entries': 0,  # Se calculará si es CGB
+                    }
+                    
+                    # Calcular entradas no-blancas en paletas CGB
+                    if is_cgb:
+                        try:
+                            bg_pal_data = self.mmu.get_cgb_bg_palette_data() if hasattr(self.mmu, 'get_cgb_bg_palette_data') else []
+                            obj_pal_data = self.mmu.get_cgb_obj_palette_data() if hasattr(self.mmu, 'get_cgb_obj_palette_data') else []
+                            
+                            # Contar entradas no-blancas (0x7FFF = blanco en BGR555)
+                            palette_stats['cgb_bg_palette_nonwhite_entries'] = sum(
+                                1 for val in bg_pal_data if val != 0x7FFF
+                            ) if bg_pal_data else 0
+                            palette_stats['cgb_obj_palette_nonwhite_entries'] = sum(
+                                1 for val in obj_pal_data if val != 0x7FFF
+                            ) if obj_pal_data else 0
+                        except (AttributeError, TypeError):
+                            pass
+                except Exception as e:
+                    palette_stats = {'error': str(e)}
+                
+                palette_stats_str = (f"CGB={1 if palette_stats.get('is_cgb') else 0} "
+                                   f"BGP=0x{palette_stats.get('bgp', 0):02X} "
+                                   f"OBP0=0x{palette_stats.get('obp0', 0):02X} "
+                                   f"OBP1=0x{palette_stats.get('obp1', 0):02X} "
+                                   f"BGP_Shades={palette_stats.get('bgp_idx_to_shade', [0,0,0,0])} "
+                                   f"CGB_BG_NonWhite={palette_stats.get('cgb_bg_palette_nonwhite_entries', 0)} "
+                                   f"CGB_OB_NonWhite={palette_stats.get('cgb_obj_palette_nonwhite_entries', 0)}")
+                
                 print(f"[SMOKE-SNAPSHOT] Frame={frame_idx} | "
                       f"PC=0x{pc:04X} IME={ime} HALTED={halted} | "
                       f"IE=0x{ie:02X} IF=0x{if_reg:02X} | "
@@ -1761,7 +1909,9 @@ class ROMSmokeRunner:
                       f"Branch0x1290_Eval={branch_0x1290_eval_count} Branch0x1290_Taken0485={branch_0x1290_taken_count_0485} Branch0x1290_NotTaken0485={branch_0x1290_not_taken_count_0485} | "
                       f"Branch0x1290_NotTakenLY=0x{branch_0x1290_last_not_taken_ly_value:02X} Branch0x1290_NotTakenFlags=0x{branch_0x1290_last_not_taken_flags:02X} Branch0x1290_NotTakenNextPC=0x{branch_0x1290_last_not_taken_next_pc:04X} | "
                       f"ExecCount_0x1288={exec_count_0x1288} ExecCount_0x1298={exec_count_0x1298} | "
-                      f"JOYPTrace_ButtonsSel={joyp_reads_with_buttons_selected_count} JOYPTrace_DpadSel={joyp_reads_with_dpad_selected_count} JOYPTrace_NoneSel={joyp_reads_with_none_selected_count}")
+                      f"JOYPTrace_ButtonsSel={joyp_reads_with_buttons_selected_count} JOYPTrace_DpadSel={joyp_reads_with_dpad_selected_count} JOYPTrace_NoneSel={joyp_reads_with_none_selected_count} | "
+                      f"FrameBufferStats={fb_stats_str} | "
+                      f"PaletteStats={palette_stats_str}")
                 
                 # Step 0485: Imprimir tail de JOYP trace si está activo (últimos 16 eventos compactados)
                 if debug_joyp_trace and joyp_trace_tail:

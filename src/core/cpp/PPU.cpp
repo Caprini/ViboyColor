@@ -3,7 +3,8 @@
 #include "common.hpp"  // Step 0461: Kill-switch para debug injections
 #include <algorithm>
 #include <cstdio>
-#include <cstdlib>  // Step 0321: Para abs()
+#include <cstdlib>  // Step 0321: Para abs(), Step 0488: Para std::getenv()
+#include <string>   // Step 0488: Para std::string
 #include <chrono>  // Step 0363: Para diagnóstico de rendimiento
 #include <vector>  // Step 0370: Para std::vector en verificación de discrepancia
 
@@ -32,6 +33,7 @@ PPU::PPU(MMU* mmu)
     , vram_progression_tiledata_threshold_(-1)  // Step 0400: Sin threshold detectado
     , vram_progression_tilemap_threshold_(-1)   // Step 0400: Sin threshold detectado
     , vram_progression_unique_tiles_threshold_(-1)  // Step 0400: Sin threshold detectado
+    , framebuffer_stats_()  // Step 0488: Inicializar estadísticas del framebuffer
 #ifdef VIBOY_DEBUG_PPU
     , bg_pixels_written_count_(0)              // Step 0458: Inicializar contador de píxeles BG
     , first_nonzero_color_idx_seen_(false)      // Step 0458: Inicializar flag de índice no-cero
@@ -1496,6 +1498,10 @@ void PPU::swap_framebuffers() {
     
     // --- Step 0395: Snapshot del framebuffer después del swap ---
     dump_framebuffer_snapshot();
+    // -------------------------------------------
+    
+    // --- Step 0488: Calcular estadísticas del framebuffer después del swap ---
+    compute_framebuffer_stats();
     // -------------------------------------------
     
     // --- Step 0372: Tarea 5 - Verificar Estado del Framebuffer Después del Intercambio ---
@@ -5726,5 +5732,79 @@ void PPU::convert_framebuffer_to_rgb() {
 // --- Step 0469: Implementación del getter para contador VBlank IRQ solicitado ---
 uint32_t PPU::get_vblank_irq_requested_count() const {
     return vblank_irq_requested_count;
+}
+
+// --- Step 0488: Implementación de estadísticas del framebuffer ---
+void PPU::compute_framebuffer_stats() {
+    // Gate: solo si VIBOY_DEBUG_FB_STATS está activo
+    const char* env_debug = std::getenv("VIBOY_DEBUG_FB_STATS");
+    if (!env_debug || std::string(env_debug) != "1") {
+        return;
+    }
+    
+    // Resetear stats
+    framebuffer_stats_.fb_unique_colors = 0;
+    framebuffer_stats_.fb_nonwhite_count = 0;
+    framebuffer_stats_.fb_nonblack_count = 0;
+    framebuffer_stats_.fb_changed_since_last = false;
+    
+    // Contar índices únicos (0-3)
+    uint32_t index_counts[4] = {0, 0, 0, 0};
+    uint32_t hash = 0;
+    
+    // Usar framebuffer_front_ (ya intercambiado en swap_framebuffers)
+    const uint8_t* fb = framebuffer_front_.data();
+    for (int i = 0; i < FRAMEBUFFER_SIZE; i++) {
+        uint8_t idx = fb[i] & 0x03;
+        index_counts[idx]++;
+        
+        // Hash simple (Fowler-Noll-Vo style)
+        hash = (hash * 31) + idx;
+        
+        // Contar no-blancos (índice != 0) y no-negros (índice != 3)
+        if (idx != 0) {
+            framebuffer_stats_.fb_nonwhite_count++;
+        }
+        if (idx != 3) {
+            framebuffer_stats_.fb_nonblack_count++;
+        }
+    }
+    
+    // Contar índices únicos
+    for (int i = 0; i < 4; i++) {
+        if (index_counts[i] > 0) {
+            framebuffer_stats_.fb_unique_colors++;
+        }
+    }
+    
+    // Top 4 colores (ordenar por frecuencia)
+    struct ColorFreq {
+        uint8_t idx;
+        uint32_t count;
+    };
+    ColorFreq freqs[4];
+    for (int i = 0; i < 4; i++) {
+        freqs[i].idx = i;
+        freqs[i].count = index_counts[i];
+    }
+    std::sort(freqs, freqs + 4, [](const ColorFreq& a, const ColorFreq& b) {
+        return a.count > b.count;
+    });
+    
+    for (int i = 0; i < 4; i++) {
+        framebuffer_stats_.fb_top4_colors[i] = freqs[i].idx;
+        framebuffer_stats_.fb_top4_colors_count[i] = freqs[i].count;
+    }
+    
+    // CRC32 (usar hash simple por ahora, luego CRC32 real si es necesario)
+    framebuffer_stats_.fb_crc32 = hash;
+    
+    // Comparar con frame anterior
+    framebuffer_stats_.fb_changed_since_last = (hash != framebuffer_stats_.fb_last_hash);
+    framebuffer_stats_.fb_last_hash = hash;
+}
+
+const FrameBufferStats& PPU::get_framebuffer_stats() const {
+    return framebuffer_stats_;
 }
 

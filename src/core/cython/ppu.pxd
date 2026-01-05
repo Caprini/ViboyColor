@@ -14,6 +14,18 @@ from libcpp cimport bool
 cimport mmu
 
 cdef extern from "PPU.hpp":
+    # Step 0488: Estructura para estadísticas del framebuffer
+    cdef struct FrameBufferStats:
+        uint32_t fb_crc32
+        uint32_t fb_unique_colors
+        uint32_t fb_nonwhite_count
+        uint32_t fb_nonblack_count
+        uint32_t fb_top4_colors[4]
+        uint32_t fb_top4_colors_count[4]
+        bool fb_changed_since_last
+        uint32_t fb_last_hash
+    
+cdef extern from "PPU.hpp":
     cdef cppclass PPU:
         # Constantes públicas
         @staticmethod
@@ -49,6 +61,7 @@ cdef extern from "PPU.hpp":
         const uint8_t* get_framebuffer_indices_ptr() const  # Step 0457: Debug API para tests
         const uint8_t* get_presented_framebuffer_indices_ptr()  # Step 0468
         uint32_t get_vblank_irq_requested_count() const  # Step 0469: Contador VBlank IRQ solicitado
+        const FrameBufferStats& get_framebuffer_stats() const  # Step 0488: Estadísticas del framebuffer
         void clear_framebuffer()
         void confirm_framebuffer_read()
         void convert_framebuffer_to_rgb()  # Step 0404: Conversión índices → RGB
