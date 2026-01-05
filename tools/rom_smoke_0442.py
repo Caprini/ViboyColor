@@ -1584,6 +1584,63 @@ class ROMSmokeRunner:
                 last_lcdc_write_pc = self.mmu.get_last_lcdc_write_pc() if hasattr(self.mmu, 'get_last_lcdc_write_pc') else 0xFFFF
                 last_lcdc_write_value = self.mmu.get_last_lcdc_write_value() if hasattr(self.mmu, 'get_last_lcdc_write_value') else 0
                 
+                # Step 0484: LCDC Current
+                lcdc_current = self.mmu.get_lcdc_current() if hasattr(self.mmu, 'get_lcdc_current') else 0
+                
+                # Step 0484: LY Distribution Top 5
+                ly_distribution_top5 = []
+                if debug_branch:
+                    try:
+                        ly_dist = self.cpu.get_ly_distribution_top5() if hasattr(self.cpu, 'get_ly_distribution_top5') else []
+                        ly_distribution_top5 = [(val, count) for val, count in ly_dist]
+                    except Exception:
+                        pass
+                ly_dist_str = ' '.join([f"0x{val:02X}:{cnt}" for val, cnt in ly_distribution_top5]) if ly_distribution_top5 else "N/A"
+                
+                # Step 0484: Last Load A from LY
+                last_load_a_from_ly = False
+                last_load_a_ly_value = 0
+                if debug_branch:
+                    try:
+                        last_load_a_addr = self.cpu.get_last_load_a_addr() if hasattr(self.cpu, 'get_last_load_a_addr') else 0xFFFF
+                        if last_load_a_addr == 0xFF44:  # LY register
+                            last_load_a_from_ly = True
+                            last_load_a_ly_value = self.cpu.get_last_load_a_value() if hasattr(self.cpu, 'get_last_load_a_value') else 0
+                    except Exception:
+                        pass
+                
+                # Step 0484: Branch 0x1290 Stats
+                branch_0x1290_taken_count = 0
+                branch_0x1290_not_taken_count = 0
+                branch_0x1290_last_flags = 0
+                branch_0x1290_last_taken = False
+                if debug_branch:
+                    try:
+                        branch_0x1290_taken_count = self.cpu.get_branch_0x1290_taken_count() if hasattr(self.cpu, 'get_branch_0x1290_taken_count') else 0
+                        branch_0x1290_not_taken_count = self.cpu.get_branch_0x1290_not_taken_count() if hasattr(self.cpu, 'get_branch_0x1290_not_taken_count') else 0
+                        branch_0x1290_last_flags = self.cpu.get_branch_0x1290_last_flags() if hasattr(self.cpu, 'get_branch_0x1290_last_flags') else 0
+                        branch_0x1290_last_taken = self.cpu.get_branch_0x1290_last_taken() if hasattr(self.cpu, 'get_branch_0x1290_last_taken') else False
+                    except Exception:
+                        pass
+                
+                # Step 0484: JOYP Write Distribution Top 5
+                joyp_write_distribution_top5 = []
+                try:
+                    joyp_dist = self.mmu.get_joyp_write_distribution_top5() if hasattr(self.mmu, 'get_joyp_write_distribution_top5') else []
+                    joyp_write_distribution_top5 = [(val, count) for val, count in joyp_dist]
+                except Exception:
+                    pass
+                joyp_write_dist_str = ' '.join([f"0x{val:02X}:{cnt}" for val, cnt in joyp_write_distribution_top5]) if joyp_write_distribution_top5 else "N/A"
+                
+                # Step 0484: JOYP Read Select Bits
+                joyp_last_read_select_bits = 0
+                joyp_last_read_low_nibble = 0
+                try:
+                    joyp_last_read_select_bits = self.mmu.get_joyp_last_read_select_bits() if hasattr(self.mmu, 'get_joyp_last_read_select_bits') else 0
+                    joyp_last_read_low_nibble = self.mmu.get_joyp_last_read_low_nibble() if hasattr(self.mmu, 'get_joyp_last_read_low_nibble') else 0
+                except Exception:
+                    pass
+                
                 print(f"[SMOKE-SNAPSHOT] Frame={frame_idx} | "
                       f"PC=0x{pc:04X} IME={ime} HALTED={halted} | "
                       f"IE=0x{ie:02X} IF=0x{if_reg:02X} | "
@@ -1624,7 +1681,14 @@ class ROMSmokeRunner:
                       f"HRAM_FF92_FirstWriteFrame={first_hram_ff92_write_frame} HRAM_FF92_LastWriteFrame={last_hram_ff92_write_frame} | "
                       f"HRAM_FF92_LastWritePC=0x{last_hram_ff92_write_pc:04X} HRAM_FF92_LastWriteVal=0x{last_hram_ff92_write_value:02X} | "
                       f"HRAM_FF92_LastReadPC=0x{last_hram_ff92_read_pc:04X} HRAM_FF92_LastReadVal=0x{last_hram_ff92_read_value:02X} | "
-                      f"JOYP_ReadVal=0x{last_joyp_read_value:02X}")
+                      f"JOYP_ReadVal=0x{last_joyp_read_value:02X} | "
+                      f"LCDC_Current=0x{lcdc_current:02X} | "
+                      f"LY_DistributionTop5={ly_dist_str} | "
+                      f"LastLoadA_FromLY={1 if last_load_a_from_ly else 0} LastLoadA_LYValue=0x{last_load_a_ly_value:02X} | "
+                      f"Branch0x1290_Taken={branch_0x1290_taken_count} Branch0x1290_NotTaken={branch_0x1290_not_taken_count} | "
+                      f"Branch0x1290_LastFlags=0x{branch_0x1290_last_flags:02X} Branch0x1290_LastTaken={1 if branch_0x1290_last_taken else 0} | "
+                      f"JOYP_WriteDistTop5={joyp_write_dist_str} | "
+                      f"JOYP_ReadSelectBits=0x{joyp_last_read_select_bits:02X} JOYP_ReadLowNibble=0x{joyp_last_read_low_nibble:02X}")
                 
                 # Step 0477: Clasificador automático (Caso A/B/C/D)
                 classification = self._classify_ime_ie_state(

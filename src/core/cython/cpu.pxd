@@ -122,4 +122,9 @@ cdef extern from "CPU.hpp":
         uint16_t get_last_load_a_pc() const
         uint16_t get_last_load_a_addr() const
         uint8_t get_last_load_a_value() const
+        vector[pair[uint8_t, uint32_t]] get_ly_distribution_top5() const  # Step 0484
+        uint32_t get_branch_0x1290_taken_count() const  # Step 0484
+        uint32_t get_branch_0x1290_not_taken_count() const  # Step 0484
+        uint8_t get_branch_0x1290_last_flags() const  # Step 0484
+        bool get_branch_0x1290_last_taken() const  # Step 0484
 

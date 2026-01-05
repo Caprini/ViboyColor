@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <vector>
+#include <map>  // Step 0484: Para joyp_write_distribution_
 #include <chrono>  // Step 0409: Para RTC (MBC3)
 
 // Forward declarations para evitar dependencia circular
@@ -839,6 +840,14 @@ private:
     mutable uint16_t last_lcdc_write_pc_;  // PC de la última escritura a LCDC
     mutable uint8_t last_lcdc_write_value_;  // Valor de la última escritura a LCDC
     
+    // --- Step 0484: JOYP Write Distribution ---
+    mutable std::map<uint8_t, uint32_t> joyp_write_distribution_;  // valor → count
+    mutable std::map<uint8_t, std::vector<uint16_t>> joyp_write_pcs_by_value_;  // valor → lista de PCs
+    
+    // --- Step 0484: JOYP Read Select Bits Tracking ---
+    mutable uint8_t joyp_last_read_select_bits_;  // bits 4-5 del latch
+    mutable uint8_t joyp_last_read_low_nibble_;  // bits 0-3 leídos
+    
 public:
     /**
      * Step 0450: Log summary of MBC writes (debug-gated).
@@ -1287,6 +1296,42 @@ public:
      * @return Último valor leído, o 0 si no está en watchlist
      */
     uint8_t get_hram_last_read_value(uint16_t addr) const;
+    
+    /**
+     * Step 0484: Obtiene el valor actual de LCDC (0xFF40).
+     * 
+     * @return Valor actual de LCDC
+     */
+    uint8_t get_lcdc_current() const;
+    
+    /**
+     * Step 0484: Obtiene el top 5 de valores JOYP escritos (histograma).
+     * 
+     * @return Vector de pares (valor, count) ordenados por count descendente (top 5)
+     */
+    std::vector<std::pair<uint8_t, uint32_t>> get_joyp_write_distribution_top5() const;
+    
+    /**
+     * Step 0484: Obtiene la lista de PCs donde se escribió un valor JOYP específico.
+     * 
+     * @param value Valor JOYP
+     * @return Vector de PCs (máximo 10)
+     */
+    std::vector<uint16_t> get_joyp_write_pcs_by_value(uint8_t value) const;
+    
+    /**
+     * Step 0484: Obtiene los bits de selección (4-5) del último read de JOYP.
+     * 
+     * @return Bits 4-5 del latch en el momento de la lectura
+     */
+    uint8_t get_joyp_last_read_select_bits() const;
+    
+    /**
+     * Step 0484: Obtiene el low nibble (bits 0-3) del último read de JOYP.
+     * 
+     * @return Bits 0-3 leídos
+     */
+    uint8_t get_joyp_last_read_low_nibble() const;
 };
 
 #endif // MMU_HPP

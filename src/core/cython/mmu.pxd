@@ -8,6 +8,8 @@ pueda generar el código de enlace correcto.
 """
 
 from libc.stdint cimport uint8_t, uint16_t, uint32_t
+from libcpp.vector cimport vector
+from libcpp.pair cimport pair
 
 # Forward declarations (evitar dependencia circular)
 cdef extern from "PPU.hpp":
@@ -108,6 +110,11 @@ cdef extern from "MMU.hpp":
         uint16_t get_hram_last_read_pc(uint16_t addr) const  # Step 0483
         uint8_t get_hram_last_read_value(uint16_t addr) const  # Step 0483
         uint32_t get_lcdc_disable_events() const  # Step 0482
+        uint8_t get_lcdc_current() const  # Step 0484
+        vector[pair[uint8_t, uint32_t]] get_joyp_write_distribution_top5() const  # Step 0484
+        vector[uint16_t] get_joyp_write_pcs_by_value(uint8_t value) const  # Step 0484
+        uint8_t get_joyp_last_read_select_bits() const  # Step 0484
+        uint8_t get_joyp_last_read_low_nibble() const  # Step 0484
         uint16_t get_last_lcdc_write_pc() const  # Step 0482
         uint8_t get_last_lcdc_write_value() const  # Step 0482
 

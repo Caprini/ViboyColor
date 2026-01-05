@@ -43,6 +43,7 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       last_bit_pc_(0xFFFF), last_bit_n_(0x00), last_bit_value_(0x00),  // Step 0482: Last BIT tracking
       coverage_window_start_(0x0000), coverage_window_end_(0xFFFF),  // Step 0483: Exec coverage window (inicialmente deshabilitado)
       last_load_a_pc_(0xFFFF), last_load_a_addr_(0x0000), last_load_a_value_(0x00),  // Step 0483: Last load A tracking
+      branch_0x1290_stats_(),  // Step 0484: Branch 0x1290 stats (inicializado por constructor por defecto)
       triage_active_(false), triage_frame_limit_(0), triage_last_pc_(0xFFFF), triage_pc_sample_count_(0) {  // Step 0434
     // Step 0436: Pokemon micro trace ya está inicializado por su constructor por defecto
     // Validación básica (en producción, podríamos usar assert)
@@ -2667,8 +2668,23 @@ int CPU::step() {
             // Fuente: Pan Docs - JR NZ, e: 3 M-Cycles si salta, 2 M-Cycles si no salta
             {
                 uint8_t offset_raw = fetch_byte();
+                bool taken = !regs_->get_flag_z();
                 
-                if (!regs_->get_flag_z()) {
+                // --- Step 0484: Branch 0x1290 Specific Tracking (gated por VIBOY_DEBUG_BRANCH=1) ---
+                bool debug_branch = (std::getenv("VIBOY_DEBUG_BRANCH") != nullptr && 
+                                     std::string(std::getenv("VIBOY_DEBUG_BRANCH")) == "1");
+                if (debug_branch && original_pc == 0x1290) {
+                    if (taken) {
+                        branch_0x1290_stats_.taken_count++;
+                    } else {
+                        branch_0x1290_stats_.not_taken_count++;
+                    }
+                    branch_0x1290_stats_.last_flags = regs_->f;
+                    branch_0x1290_stats_.last_taken = taken;
+                }
+                // -----------------------------------------
+                
+                if (taken) {
                     // Condición verdadera: saltar
                     int8_t offset = static_cast<int8_t>(offset_raw);
                     uint16_t new_pc = (regs_->pc + offset) & 0xFFFF;
@@ -2715,6 +2731,18 @@ int CPU::step() {
                     last_target_ = target;
                     last_taken_ = taken;
                     last_flags_ = regs_->f;
+                    
+                    // --- Step 0484: Branch 0x1290 Specific Tracking ---
+                    if (original_pc == 0x1290) {
+                        if (taken) {
+                            branch_0x1290_stats_.taken_count++;
+                        } else {
+                            branch_0x1290_stats_.not_taken_count++;
+                        }
+                        branch_0x1290_stats_.last_flags = regs_->f;
+                        branch_0x1290_stats_.last_taken = taken;
+                    }
+                    // -----------------------------------------
                 }
                 // -----------------------------------------
                 
@@ -2736,8 +2764,23 @@ int CPU::step() {
             // Fuente: Pan Docs - JR NC, e: 3 M-Cycles si salta, 2 M-Cycles si no salta
             {
                 uint8_t offset_raw = fetch_byte();
+                bool taken = !regs_->get_flag_c();
                 
-                if (!regs_->get_flag_c()) {
+                // --- Step 0484: Branch 0x1290 Specific Tracking (gated por VIBOY_DEBUG_BRANCH=1) ---
+                bool debug_branch = (std::getenv("VIBOY_DEBUG_BRANCH") != nullptr && 
+                                     std::string(std::getenv("VIBOY_DEBUG_BRANCH")) == "1");
+                if (debug_branch && original_pc == 0x1290) {
+                    if (taken) {
+                        branch_0x1290_stats_.taken_count++;
+                    } else {
+                        branch_0x1290_stats_.not_taken_count++;
+                    }
+                    branch_0x1290_stats_.last_flags = regs_->f;
+                    branch_0x1290_stats_.last_taken = taken;
+                }
+                // -----------------------------------------
+                
+                if (taken) {
                     // Condición verdadera: saltar
                     int8_t offset = static_cast<int8_t>(offset_raw);
                     uint16_t new_pc = (regs_->pc + offset) & 0xFFFF;
@@ -2757,8 +2800,23 @@ int CPU::step() {
             // Fuente: Pan Docs - JR C, e: 3 M-Cycles si salta, 2 M-Cycles si no salta
             {
                 uint8_t offset_raw = fetch_byte();
+                bool taken = regs_->get_flag_c();
                 
-                if (regs_->get_flag_c()) {
+                // --- Step 0484: Branch 0x1290 Specific Tracking (gated por VIBOY_DEBUG_BRANCH=1) ---
+                bool debug_branch = (std::getenv("VIBOY_DEBUG_BRANCH") != nullptr && 
+                                     std::string(std::getenv("VIBOY_DEBUG_BRANCH")) == "1");
+                if (debug_branch && original_pc == 0x1290) {
+                    if (taken) {
+                        branch_0x1290_stats_.taken_count++;
+                    } else {
+                        branch_0x1290_stats_.not_taken_count++;
+                    }
+                    branch_0x1290_stats_.last_flags = regs_->f;
+                    branch_0x1290_stats_.last_taken = taken;
+                }
+                // -----------------------------------------
+                
+                if (taken) {
                     // Condición verdadera: saltar
                     int8_t offset = static_cast<int8_t>(offset_raw);
                     uint16_t new_pc = (regs_->pc + offset) & 0xFFFF;
@@ -3225,6 +3283,12 @@ int CPU::step() {
                     last_load_a_pc_ = original_pc;
                     last_load_a_addr_ = addr;
                     last_load_a_value_ = value;
+                    
+                    // --- Step 0484: LY Distribution Histogram ---
+                    if (addr == 0xFF44) {  // LY register
+                        ly_read_distribution_[value]++;
+                    }
+                    // -----------------------------------------
                 }
                 // -----------------------------------------
                 
@@ -3375,6 +3439,12 @@ int CPU::step() {
                     last_load_a_pc_ = original_pc;
                     last_load_a_addr_ = addr;
                     last_load_a_value_ = value;
+                    
+                    // --- Step 0484: LY Distribution Histogram ---
+                    if (addr == 0xFF44) {  // LY register
+                        ly_read_distribution_[value]++;
+                    }
+                    // -----------------------------------------
                 }
                 // -----------------------------------------
                 
@@ -4347,6 +4417,35 @@ uint8_t CPU::get_last_load_a_value() const {
     return last_load_a_value_;
 }
 // --- Fin Step 0483 (Last Load A) ---
+
+// --- Step 0484: LY Distribution Top 5 ---
+std::vector<std::pair<uint8_t, uint32_t>> CPU::get_ly_distribution_top5() const {
+    std::vector<std::pair<uint8_t, uint32_t>> sorted(ly_read_distribution_.begin(), ly_read_distribution_.end());
+    std::sort(sorted.begin(), sorted.end(),
+              [](const auto& a, const auto& b) { return a.second > b.second; });
+    if (sorted.size() > 5) {
+        sorted.resize(5);
+    }
+    return sorted;
+}
+
+// --- Step 0484: Branch 0x1290 Getters ---
+uint32_t CPU::get_branch_0x1290_taken_count() const {
+    return branch_0x1290_stats_.taken_count;
+}
+
+uint32_t CPU::get_branch_0x1290_not_taken_count() const {
+    return branch_0x1290_stats_.not_taken_count;
+}
+
+uint8_t CPU::get_branch_0x1290_last_flags() const {
+    return branch_0x1290_stats_.last_flags;
+}
+
+bool CPU::get_branch_0x1290_last_taken() const {
+    return branch_0x1290_stats_.last_taken;
+}
+// --- Fin Step 0484 ---
 
 // --- Step 0472: Implementación de getters para STOP ---
 uint32_t CPU::get_stop_executed_count() const {

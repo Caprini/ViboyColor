@@ -736,6 +736,60 @@ cdef class PyMMU:
             return 0
         return self._mmu.get_lcdc_disable_events()
     
+    # --- Step 0484: LCDC Current Getter ---
+    def get_lcdc_current(self):
+        """
+        Step 0484: Obtiene el valor actual de LCDC (0xFF40).
+        
+        Returns:
+            Valor actual de LCDC
+        """
+        return self._mmu.get_lcdc_current()
+    
+    # --- Step 0484: JOYP Write Distribution ---
+    def get_joyp_write_distribution_top5(self):
+        """
+        Step 0484: Obtiene el top 5 de valores JOYP escritos (histograma).
+        
+        Returns:
+            Lista de tuplas (valor, count) ordenadas por count descendente (top 5)
+        """
+        dist = self._mmu.get_joyp_write_distribution_top5()
+        return [(val, count) for val, count in dist]
+    
+    def get_joyp_write_pcs_by_value(self, uint8_t value):
+        """
+        Step 0484: Obtiene la lista de PCs donde se escribió un valor JOYP específico.
+        
+        Args:
+            value: Valor JOYP
+        
+        Returns:
+            Lista de PCs (máximo 10)
+        """
+        pcs = self._mmu.get_joyp_write_pcs_by_value(value)
+        return [pc for pc in pcs]
+    
+    # --- Step 0484: JOYP Read Select Bits ---
+    def get_joyp_last_read_select_bits(self):
+        """
+        Step 0484: Obtiene los bits de selección (4-5) del último read de JOYP.
+        
+        Returns:
+            Bits 4-5 del latch en el momento de la lectura
+        """
+        return self._mmu.get_joyp_last_read_select_bits()
+    
+    def get_joyp_last_read_low_nibble(self):
+        """
+        Step 0484: Obtiene el low nibble (bits 0-3) del último read de JOYP.
+        
+        Returns:
+            Bits 0-3 leídos
+        """
+        return self._mmu.get_joyp_last_read_low_nibble()
+    # --- Fin Step 0484 ---
+    
     def get_last_lcdc_write_pc(self):
         """
         Step 0482: Obtiene el PC de la última escritura a LCDC.

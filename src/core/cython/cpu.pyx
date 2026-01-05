@@ -501,6 +501,65 @@ cdef class PyCPU:
         return self._cpu.get_last_load_a_value()
     # --- Fin Step 0483 (Last Load A) ---
     
+    # --- Step 0484: LY Distribution Top 5 ---
+    def get_ly_distribution_top5(self):
+        """
+        Step 0484: Obtiene el top 5 de valores LY leídos (histograma).
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Returns:
+            Lista de tuplas (valor LY, count) ordenadas por count descendente (top 5)
+        """
+        dist = self._cpu.get_ly_distribution_top5()
+        return [(val, count) for val, count in dist]
+    
+    # --- Step 0484: Branch 0x1290 Getters ---
+    def get_branch_0x1290_taken_count(self):
+        """
+        Step 0484: Obtiene el contador de veces que el branch en 0x1290 fue tomado.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Returns:
+            Número de veces que el branch fue tomado
+        """
+        return self._cpu.get_branch_0x1290_taken_count()
+    
+    def get_branch_0x1290_not_taken_count(self):
+        """
+        Step 0484: Obtiene el contador de veces que el branch en 0x1290 no fue tomado.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Returns:
+            Número de veces que el branch no fue tomado
+        """
+        return self._cpu.get_branch_0x1290_not_taken_count()
+    
+    def get_branch_0x1290_last_flags(self):
+        """
+        Step 0484: Obtiene los flags del último branch en 0x1290.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Returns:
+            Flags (registro F) al momento del último branch
+        """
+        return self._cpu.get_branch_0x1290_last_flags()
+    
+    def get_branch_0x1290_last_taken(self):
+        """
+        Step 0484: Obtiene si el último branch en 0x1290 fue tomado.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Returns:
+            True si el último branch fue tomado, False si no
+        """
+        return self._cpu.get_branch_0x1290_last_taken()
+    # --- Fin Step 0484 ---
+    
     # --- Fin Step 0475 ---
     
     # Propiedades para acceso directo (compatibilidad con tests)

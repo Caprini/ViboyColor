@@ -93,6 +93,13 @@ public:
      * @param mmu Puntero a la instancia de MMU (puede ser nullptr)
      */
     void setMMU(MMU* mmu);
+    
+    /**
+     * Step 0484: Obtiene el valor del registro P1 interno (latch de selección).
+     * 
+     * @return Valor del registro P1 (bits 4-5 contienen la selección de fila)
+     */
+    uint8_t get_p1_register() const;
 
 private:
     /**

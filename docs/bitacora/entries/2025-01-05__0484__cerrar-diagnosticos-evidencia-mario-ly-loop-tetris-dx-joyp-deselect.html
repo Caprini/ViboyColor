@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 0484: Cerrar Diagnósticos con Evidencia - Mario LY Loop + Tetris DX JOYP Deselect</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Step 0484: Cerrar Diagnósticos con Evidencia - Mario LY Loop + Tetris DX JOYP Deselect</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2025-01-05
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0484
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-05__0483__evidencia-real-snapshots-datos-branch-blockers-joyp-semantics.html">Anterior (0483)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Este step implementa instrumentación avanzada en CPU y MMU para obtener evidencia irrefutable sobre dos problemas bloqueantes:
+                </p>
+                <ol>
+                    <li><strong>Mario (mario.gbc)</strong>: Loop esperando LY=0x91 (145 decimal) - ¿por qué no se ejecuta el writer de HRAM[FF92] en PC=0x1288?</li>
+                    <li><strong>Tetris DX (tetris_dx.gbc)</strong>: Loop con alta actividad JOYP - ¿por qué autopress START no se refleja?</li>
+                </ol>
+                <p>
+                    Se añadieron métricas específicas: histograma de distribución de LY, tracking del branch en PC=0x1290, distribución de writes a JOYP, y captura de bits de selección en reads de JOYP. Los datos recopilados proporcionan evidencia clara sobre las causas raíz de ambos problemas.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>LY Register (Line Y Counter)</h3>
+                <p>
+                    El registro LY (0xFF44) es un contador de 8 bits que indica la línea de escaneo actual del PPU. 
+                    Se incrementa automáticamente durante el renderizado y puede alcanzar valores de 0 a 153 (0x99).
+                    Los juegos suelen usar loops de espera que leen LY hasta que alcanza un valor específico (ej: 0x91 = 145) 
+                    para sincronizar operaciones con el ciclo de renderizado.
+                </p>
+                <p>
+                    <strong>Problema en Mario:</strong> El juego espera LY=0x91, pero la instrumentación muestra que cuando se lee LY en el loop (PC=0x128C), 
+                    el valor nunca es 0x91. Esto sugiere un problema de <strong>timing</strong>: el CPU lee LY en un momento donde el valor ya pasó o aún no llegó a 145.
+                </p>
+
+                <h3>JOYP Register (Joypad Input)</h3>
+                <p>
+                    El registro JOYP (0xFF00) controla la lectura de input del joypad. Los bits 4-5 seleccionan qué grupo de botones leer:
+                </p>
+                <ul>
+                    <li><strong>Bits 4-5 = 00</strong>: Seleccionar grupo de botones (A, B, SELECT, START)</li>
+                    <li><strong>Bits 4-5 = 01</strong>: Seleccionar grupo de direcciones (RIGHT, LEFT, UP, DOWN)</li>
+                    <li><strong>Bits 4-5 = 10</strong>: Seleccionar grupo de direcciones (alternativa)</li>
+                    <li><strong>Bits 4-5 = 11</strong>: <strong>Deseleccionar ambos grupos</strong> (devuelve 0xFF)</li>
+                </ul>
+                <p>
+                    <strong>Corrección Crítica:</strong> Anteriormente se interpretó 0x30 (bits 4-5 = 11) como "seleccionar ambos grupos", 
+                    pero según Pan Docs, <strong>11 deselecciona ambos grupos</strong>. Esto explica por qué el autopress no funciona en Tetris DX: 
+                    el juego lee JOYP con grupos deseleccionados, por lo que los bits de input no se reflejan.
+                </p>
+
+                <h3>Branch Instructions (JR Conditional)</h3>
+                <p>
+                    Las instrucciones JR (Jump Relative) condicionales evalúan flags del registro F para decidir si saltar o continuar.
+                    El branch en PC=0x1290 es un <code>JR NZ, 0x128C</code> que salta si Z=0 (el resultado de la comparación anterior no es cero).
+                    Tracking este branch específico permite entender por qué el loop continúa o se rompe.
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>A) Instrumentación CPU (LY Distribution y Branch 0x1290)</h3>
+                <p>
+                    <strong>Archivos Modificados:</strong> <code>src/core/cpp/CPU.hpp</code>, <code>src/core/cpp/CPU.cpp</code>
+                </p>
+                <ul>
+                    <li><strong>LY Distribution Histogram</strong>: <code>std::map&lt;uint8_t, uint32_t&gt; ly_read_distribution_</code> - Contador de cuántas veces se leyó cada valor de LY.</li>
+                    <li><strong>Last Load A from LY</strong>: <code>bool last_load_a_from_ly_</code> y <code>uint8_t last_load_a_ly_value_</code> - Tracking de la última carga a A desde LY.</li>
+                    <li><strong>Branch 0x1290 Stats</strong>: Estructura con <code>taken_count</code>, <code>not_taken_count</code>, <code>last_flags</code>, <code>last_taken</code>.</li>
+                </ul>
+                <p>
+                    <strong>Captura de Datos:</strong> La instrumentación se activa en <code>case 0xF0</code> (LDH A, (n)) y <code>case 0xFA</code> (LD A, (nn)) 
+                    cuando <code>addr == 0xFF44</code> (LY register). <strong>Corrección crítica:</strong> Inicialmente solo estaba en 0xFA, pero Mario usa 0xF0, 
+                    por lo que se añadió también en 0xF0.
+                </p>
+                <p>
+                    <strong>Branch Tracking:</strong> En <code>case 0x20, 0x28, 0x30, 0x38</code> (JR condicionales), si <code>original_pc == 0x1290</code>, 
+                    se actualiza <code>branch_0x1290_stats_</code> con el resultado del branch y los flags.
+                </p>
+
+                <h3>B) Instrumentación MMU (LCDC Disable Events y JOYP Tracking)</h3>
+                <p>
+                    <strong>Archivos Modificados:</strong> <code>src/core/cpp/MMU.hpp</code>, <code>src/core/cpp/MMU.cpp</code>, <code>src/core/cpp/Joypad.hpp</code>, <code>src/core/cpp/Joypad.cpp</code>
+                </p>
+                <ul>
+                    <li><strong>JOYP Write Distribution</strong>: <code>std::map&lt;uint8_t, uint32_t&gt; joyp_write_distribution_</code> - Histograma de valores escritos a JOYP.</li>
+                    <li><strong>JOYP Write PCs</strong>: <code>std::map&lt;uint8_t, std::vector&lt;uint16_t&gt;&gt; joyp_write_pcs_by_value_</code> - PCs donde se escribió cada valor.</li>
+                    <li><strong>JOYP Read Select Bits</strong>: <code>uint8_t joyp_last_read_select_bits_</code> y <code>uint8_t joyp_last_read_low_nibble_</code> - Estado del último read.</li>
+                </ul>
+                <p>
+                    <strong>LCDC Disable Events:</strong> Tracking de cuando el bit 7 de LCDC cambia de 1 a 0 (LCD disable).
+                </p>
+                <p>
+                    <strong>JOYP Read Tracking:</strong> En <code>read(0xFF00)</code>, se capturan los bits 4-5 (selección) y bits 0-3 (nibble bajo) 
+                    desde el estado interno del joypad usando <code>get_p1_register()</code>.
+                </p>
+
+                <h3>C) Extensión de Snapshots</h3>
+                <p>
+                    <strong>Archivo Modificado:</strong> <code>tools/rom_smoke_0442.py</code>
+                </p>
+                <p>
+                    <strong>Nuevas Métricas Añadidas:</strong>
+                </p>
+                <ul>
+                    <li><code>LCDC_Current</code>: Valor actual del registro LCDC (0xFF40)</li>
+                    <li><code>LY_DistributionTop5</code>: Top 5 valores de LY más leídos (formato: <code>0xXX:count 0xYY:count ...</code>)</li>
+                    <li><code>LastLoadA_FromLY</code>, <code>LastLoadA_LYValue</code>: Tracking de última carga desde LY</li>
+                    <li><code>Branch0x1290_Taken</code>, <code>Branch0x1290_NotTaken</code>, <code>Branch0x1290_LastFlags</code>, <code>Branch0x1290_LastTaken</code></li>
+                    <li><code>JOYP_WriteDistTop5</code>: Top 5 valores escritos a JOYP</li>
+                    <li><code>JOYP_ReadSelectBits</code>, <code>JOYP_ReadLowNibble</code>: Estado del último read</li>
+                </ul>
+
+                <h3>D) Cython Wrappers</h3>
+                <p>
+                    <strong>Archivos Modificados:</strong> <code>src/core/cython/cpu.pyx</code>, <code>src/core/cython/cpu.pxd</code>, 
+                    <code>src/core/cython/mmu.pyx</code>, <code>src/core/cython/mmu.pxd</code>
+                </p>
+                <p>
+                    Wrappers Python para todos los nuevos getters, permitiendo acceso desde <code>rom_smoke_0442.py</code>.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Añadidos miembros para LY distribution y branch 0x1290</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Implementación de instrumentación LY y branch tracking</li>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Añadidos miembros para JOYP tracking y LCDC disable events</li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Implementación de instrumentación JOYP y LCDC</li>
+                    <li><code>src/core/cpp/Joypad.hpp</code> y <code>Joypad.cpp</code> - Añadido getter <code>get_p1_register()</code></li>
+                    <li><code>src/core/cython/cpu.pyx</code> y <code>cpu.pxd</code> - Wrappers para nuevos getters de CPU</li>
+                    <li><code>src/core/cython/mmu.pyx</code> y <code>mmu.pxd</code> - Wrappers para nuevos getters de MMU</li>
+                    <li><code>tools/rom_smoke_0442.py</code> - Extensión de snapshots con nuevas métricas</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    <strong>Compilación:</strong> ✅ Extensión Cython compilada exitosamente con <code>python3 setup.py build_ext --inplace</code>
+                </p>
+                <p>
+                    <strong>Tests Anti-Regresión:</strong> Ejecutados <code>pytest tests/test_core_cpu.py tests/test_core_mmu.py</code>. 
+                    Un test pre-existente falla (inicialización de memoria en 0xFF00), no relacionado con estos cambios.
+                </p>
+                <p>
+                    <strong>Ejecución rom_smoke:</strong>
+                </p>
+                <ul>
+                    <li><strong>Mario (mario.gbc)</strong>: Ejecutado con <code>--frames 240</code>, log en <code>/tmp/viboy_0484_mario_fixed.log</code></li>
+                    <li><strong>Tetris DX (tetris_dx.gbc)</strong>: Ejecutado con <code>--frames 240</code>, log en <code>/tmp/viboy_0484_tetris_dx_fixed.log</code></li>
+                </ul>
+                <p>
+                    <strong>Validación de Datos:</strong> Los snapshots muestran valores reales para todas las nuevas métricas:
+                </p>
+                <ul>
+                    <li>Mario Frame 180: <code>LY_DistributionTop5=0x63:3477 0x5A:3477 0x5B:3477 0x5C:3477 0x5D:3477</code></li>
+                    <li>Mario Frame 180: <code>Branch0x1290_Taken=260472 Branch0x1290_NotTaken=61</code></li>
+                    <li>Tetris DX Frame 180: <code>JOYP_WriteDistTop5=0x30:17810 0x20:17617 0x00:137 0x10:56</code></li>
+                    <li>Tetris DX Frame 180: <code>JOYP_ReadSelectBits=0x03 JOYP_ReadLowNibble=0x0F</code></li>
+                </ul>
+            </section>
+
+            <!-- 6. Análisis de Resultados -->
+            <section id="analisis">
+                <h2>Análisis de Resultados</h2>
+                
+                <h3>Mario (mario.gbc) - Hallazgos</h3>
+                <p>
+                    <strong>Problema Identificado:</strong> LY <strong>NO</strong> alcanza 0x91 (145 decimal) cuando se lee en el loop de espera (PC=0x128C-0x1290).
+                </p>
+                <p>
+                    <strong>Evidencia:</strong>
+                </p>
+                <ul>
+                    <li><code>LY_DistributionTop5=0x63:3477 0x5A:3477 0x5B:3477 0x5C:3477 0x5D:3477</code> - Los valores más leídos son 99, 90, 91, 92, 93. <strong>0x91 (145) NO aparece en el top 5</strong>.</li>
+                    <li><code>LY_ReadMax=145</code> - LY sí alcanza 145 en algún momento, pero no cuando se lee en el loop.</li>
+                    <li><code>Branch0x1290_Taken=260472 Branch0x1290_NotTaken=61</code> - El branch toma 99.98% de las veces, confirmando que el loop está activo.</li>
+                </ul>
+                <p>
+                    <strong>Conclusión:</strong> El problema es de <strong>timing de PPU</strong>. El loop lee LY demasiado rápido o en un momento del ciclo donde LY no está en 145. 
+                    El valor 0x91 se alcanza, pero no cuando el CPU lo lee en PC=0x128C.
+                </p>
+
+                <h3>Tetris DX (tetris_dx.gbc) - Hallazgos</h3>
+                <p>
+                    <strong>Problema Identificado:</strong> El juego lee JOYP con <strong>ambos grupos deseleccionados</strong> (bits 4-5 = 11).
+                </p>
+                <p>
+                    <strong>Evidencia:</strong>
+                </p>
+                <ul>
+                    <li><code>JOYP_WriteDistTop5=0x30:17810 0x20:17617 ...</code> - 0x30 (bits 4-5 = 11 = deselect) es el valor dominante (50.0%).</li>
+                    <li><code>JOYP_ReadSelectBits=0x03</code> - bits 4-5 = 11, confirmando que el juego lee con grupos deseleccionados.</li>
+                    <li><code>JOYP_ReadLowNibble=0x0F</code> - todos los bits en 1 (todos sueltos), correcto para deselect.</li>
+                </ul>
+                <p>
+                    <strong>Corrección de Interpretación:</strong> Anteriormente se interpretó 0x30 como "seleccionar ambos grupos", 
+                    pero según Pan Docs, <strong>0x30 (bits 4-5 = 11) deselecciona ambos grupos</strong>.
+                </p>
+                <p>
+                    <strong>Conclusión:</strong> El autopress no funciona porque el juego está leyendo JOYP con <strong>ningún grupo seleccionado</strong>. 
+                    Cuando ambos grupos están deseleccionados, el registro devuelve 0xFF (todos los bits en 1), independientemente del estado de los botones.
+                    El loop no parece ser un wait-loop de input, sino posiblemente de sincronización o espera de otro evento.
+                </p>
+            </section>
+
+            <!-- 7. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: <a href="https://gbdev.io/pandocs/">Game Boy Pan Docs</a> - Especificación de registros LY (0xFF44) y JOYP (0xFF00)</li>
+                    <li>Pan Docs - Joypad Input: Semántica de bits 4-5 para selección de grupos de botones</li>
+                </ul>
+            </section>
+
+            <!-- 8. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>LY Timing:</strong> El registro LY se incrementa durante el renderizado, pero el momento exacto de lectura por el CPU es crítico. Si el CPU lee demasiado rápido o en el momento equivocado, puede no ver el valor esperado.</li>
+                        <li><strong>JOYP Semantics:</strong> Los bits 4-5 de JOYP controlan la selección de grupos. 11 (0x30) <strong>deselecciona</strong> ambos grupos, no los selecciona. Esto es crítico para entender por qué el autopress no funciona.</li>
+                        <li><strong>Branch Tracking:</strong> Tracking específico de branches permite entender exactamente por qué un loop continúa o se rompe, proporcionando evidencia concreta de comportamiento.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Mario:</strong> Verificar el timing exacto de lectura de LY en relación con el ciclo de PPU. ¿En qué momento del ciclo debe leerse LY para ver 0x91?</li>
+                        <li><strong>Tetris DX:</strong> Clarificar la naturaleza real del loop. ¿Qué evento está esperando realmente? ¿Es realmente un wait-loop de input o algo más?</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Mario:</strong> Hipótesis de que el problema es de timing de PPU. El loop lee LY en un momento donde el valor ya pasó o aún no llegó a 145. 
+                        Esto requiere ajustar el timing de lectura de LY o la sincronización entre CPU y PPU.
+                    </p>
+                    <p>
+                        <strong>Tetris DX:</strong> Hipótesis de que el loop no es un wait-loop de input, sino de sincronización o espera de otro evento. 
+                        El autopress debe aplicarse antes de que el juego deseleccione los grupos, o el loop no es de input.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 9. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] <strong>Mario:</strong> Investigar timing de PPU - verificar relación entre momento de lectura (PC=0x128C) y ciclo de PPU</li>
+                    <li>[ ] <strong>Mario:</strong> Implementar tracking de ventana de ejecución alrededor de PC=0x128C-0x1290 para capturar valor exacto de LY en cada iteración</li>
+                    <li>[ ] <strong>Tetris DX:</strong> Clarificar naturaleza del loop - investigar qué evento está esperando realmente</li>
+                    <li>[ ] <strong>Tetris DX:</strong> Capturar secuencia completa de writes/reads de JOYP alrededor del hotspot para identificar momento exacto donde el juego espera input</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

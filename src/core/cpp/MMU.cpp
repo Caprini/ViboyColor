@@ -192,6 +192,7 @@ MMU::MMU()
     , last_hram_ff92_read_value_(0x00)  // Step 0480: Último valor leído de HRAM[FF92]
     , hram_watchlist_()  // Step 0481: Inicializar watchlist vacía
     , lcdc_disable_events_(0), last_lcdc_write_pc_(0xFFFF), last_lcdc_write_value_(0x00)  // Step 0482: LCDC Disable Tracking
+    , joyp_last_read_select_bits_(0x00), joyp_last_read_low_nibble_(0x0F)  // Step 0484: JOYP Read Select Bits
 {
     // Step 0450: Inicializar ring buffer de MBC writes
     for (int i = 0; i < 8; i++) {
@@ -451,6 +452,15 @@ uint8_t MMU::read(uint16_t addr) const {
             last_joyp_read_pc = debug_current_pc;
             last_joyp_read_value = p1_value;
         }
+        // -----------------------------------------
+        
+        // --- Step 0484: JOYP Read Select Bits Tracking ---
+        if (joypad_ != nullptr) {
+            // Obtener bits de selección del latch actual (del Joypad)
+            uint8_t latch = joypad_->get_p1_register();
+            joyp_last_read_select_bits_ = (latch >> 4) & 0x03;  // bits 4-5
+        }
+        joyp_last_read_low_nibble_ = p1_value & 0x0F;  // bits 0-3
         // -----------------------------------------
         
         return p1_value;
@@ -1304,6 +1314,15 @@ void MMU::write(uint16_t addr, uint8_t value) {
         joyp_write_count++;
         last_joyp_write_value = value;
         last_joyp_write_pc = debug_current_pc;
+        
+        // --- Step 0484: JOYP Write Distribution ---
+        joyp_write_distribution_[value]++;
+        joyp_write_pcs_by_value_[value].push_back(debug_current_pc);
+        // Limitar tamaño de listas (top 10 PCs por valor)
+        if (joyp_write_pcs_by_value_[value].size() > 10) {
+            joyp_write_pcs_by_value_[value].erase(joyp_write_pcs_by_value_[value].begin());
+        }
+        // -----------------------------------------
     }
     // -----------------------------------------
     
@@ -4499,6 +4518,42 @@ uint16_t MMU::get_last_lcdc_write_pc() const {
 uint8_t MMU::get_last_lcdc_write_value() const {
     return last_lcdc_write_value_;
 }
+
+// --- Step 0484: LCDC Current Getter ---
+uint8_t MMU::get_lcdc_current() const {
+    return memory_[0xFF40];
+}
+
+// --- Step 0484: JOYP Write Distribution Top 5 ---
+std::vector<std::pair<uint8_t, uint32_t>> MMU::get_joyp_write_distribution_top5() const {
+    std::vector<std::pair<uint8_t, uint32_t>> sorted(joyp_write_distribution_.begin(), joyp_write_distribution_.end());
+    std::sort(sorted.begin(), sorted.end(),
+              [](const auto& a, const auto& b) { return a.second > b.second; });
+    if (sorted.size() > 5) {
+        sorted.resize(5);
+    }
+    return sorted;
+}
+
+// --- Step 0484: JOYP Write PCs By Value ---
+std::vector<uint16_t> MMU::get_joyp_write_pcs_by_value(uint8_t value) const {
+    auto it = joyp_write_pcs_by_value_.find(value);
+    if (it != joyp_write_pcs_by_value_.end()) {
+        return it->second;
+    }
+    return std::vector<uint16_t>();
+}
+
+// --- Step 0484: JOYP Read Select Bits ---
+uint8_t MMU::get_joyp_last_read_select_bits() const {
+    return joyp_last_read_select_bits_;
+}
+
+// --- Step 0484: JOYP Read Low Nibble ---
+uint8_t MMU::get_joyp_last_read_low_nibble() const {
+    return joyp_last_read_low_nibble_;
+}
+// --- Fin Step 0484 ---
 // --- Fin Step 0482 (LCDC Disable Tracking) ---
 
 // --- Step 0474: Implementación de getters para instrumentación quirúrgica de IF/LY/STAT ---

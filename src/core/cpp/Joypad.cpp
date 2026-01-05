@@ -222,13 +222,9 @@ void Joypad::release_button(int button_index) {
 void Joypad::setMMU(MMU* mmu) {
     // --- Step 0379: Establecer puntero a MMU para solicitar interrupciones ---
     mmu_ = mmu;
-    
-    // Log temporal para diagnóstico (Step 0379)
-    static bool log_once = true;
-    if (log_once && mmu_ != nullptr) {
-        log_once = false;
-        printf("[JOYPAD-INIT] MMU connected to Joypad | Interrupt requests enabled\n");
-    }
-    // -------------------------------------------
+}
+
+uint8_t Joypad::get_p1_register() const {
+    return p1_register_;
 }
 

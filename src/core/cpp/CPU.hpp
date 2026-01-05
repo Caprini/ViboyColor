@@ -700,6 +700,20 @@ private:
     uint16_t last_load_a_addr_;  // Dirección leída
     uint8_t last_load_a_value_;  // Valor leído
     
+    // --- Step 0484: LY Distribution Histogram (gated por VIBOY_DEBUG_BRANCH=1) ---
+    std::map<uint8_t, uint32_t> ly_read_distribution_;  // valor LY → count
+    
+    // --- Step 0484: Branch 0x1290 Specific Tracking (gated por VIBOY_DEBUG_BRANCH=1) ---
+    struct Branch0x1290Stats {
+        uint32_t taken_count;
+        uint32_t not_taken_count;
+        uint8_t last_flags;  // Z, N, H, C
+        bool last_taken;
+        
+        Branch0x1290Stats() : taken_count(0), not_taken_count(0), last_flags(0x00), last_taken(false) {}
+    };
+    Branch0x1290Stats branch_0x1290_stats_;
+    
     // ========== Estado de Triage (Step 0434) ==========
     // Instrumentación para entender por qué VRAM está vacía
     bool triage_active_;               // Flag para activar triage (limitado por frames)
@@ -1009,6 +1023,51 @@ public:
      * @return Valor leído (0x00 si ninguna)
      */
     uint8_t get_last_load_a_value() const;
+    
+    /**
+     * Step 0484: Obtiene el top 5 de valores LY leídos (histograma).
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return Vector de pares (valor LY, count) ordenados por count descendente (top 5)
+     */
+    std::vector<std::pair<uint8_t, uint32_t>> get_ly_distribution_top5() const;
+    
+    /**
+     * Step 0484: Obtiene el contador de veces que el branch en 0x1290 fue tomado.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return Número de veces que el branch fue tomado
+     */
+    uint32_t get_branch_0x1290_taken_count() const;
+    
+    /**
+     * Step 0484: Obtiene el contador de veces que el branch en 0x1290 no fue tomado.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return Número de veces que el branch no fue tomado
+     */
+    uint32_t get_branch_0x1290_not_taken_count() const;
+    
+    /**
+     * Step 0484: Obtiene los flags del último branch en 0x1290.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return Flags (registro F) al momento del último branch
+     */
+    uint8_t get_branch_0x1290_last_flags() const;
+    
+    /**
+     * Step 0484: Obtiene si el último branch en 0x1290 fue tomado.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return true si el último branch fue tomado, false si no
+     */
+    bool get_branch_0x1290_last_taken() const;
 };
 
 #endif // CPU_HPP
