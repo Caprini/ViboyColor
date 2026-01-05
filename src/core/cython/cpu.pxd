@@ -150,4 +150,10 @@ cdef extern from "CPU.hpp":
         uint8_t get_branch_0x1290_last_not_taken_flags() const
         uint16_t get_branch_0x1290_last_not_taken_next_pc() const
         vector[LoopTraceEvent] get_mario_loop_trace() const
+        # Step 0486: LDH Address Watch
+        uint16_t get_last_ldh_pc() const
+        uint8_t get_last_ldh_a8_operand() const
+        uint16_t get_last_ldh_effective_addr() const
+        bool get_last_ldh_is_read() const
+        uint32_t get_ldh_addr_mismatch_count() const
 

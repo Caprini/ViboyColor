@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evidencia Dura Mario LDH a8≥0x80 + Tetris DX JOYP Estado Interno - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Evidencia Dura Mario LDH a8≥0x80 + Tetris DX JOYP Estado Interno</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-05
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0486
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-05__0485__evidencia-dura-mario-ly-tetris-joyp-trace.html">Anterior (0485)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Step 0486 implementa instrumentación quirúrgica para recopilar evidencia dura sobre dos issues bloqueantes:
+                </p>
+                <ul>
+                    <li><strong>Mario (mario.gbc):</strong> Investigar potencial bug de direccionamiento <code>LDH a8</code> cuando <code>a8 >= 0x80</code> que podría impedir que <code>HRAM[FF92]</code> se escriba y lea correctamente en <code>IE</code>.</li>
+                    <li><strong>Tetris DX (tetris_dx.gbc):</strong> Investigar comportamiento de <code>JOYP</code>, específicamente si la ROM lee con selección activa o si el emulador está manejando incorrectamente writes/reads de <code>JOYP</code>.</li>
+                </ul>
+                <p>
+                    Se implementa tracking detallado gated por variables de entorno, tests clean-room para validar <code>LDH</code>,
+                    y intelligent autopress basado en eventos para Tetris DX.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                
+                <h3>LDH (Load High) Instruction</h3>
+                <p>
+                    Las instrucciones <code>LDH A,(a8)</code> (opcode 0xF0) y <code>LDH (a8),A</code> (opcode 0xE0) acceden
+                    a la región de I/O de alta memoria (0xFF00-0xFF7F) usando un operando de 8 bits.
+                </p>
+                <p>
+                    La dirección efectiva se calcula como <code>0xFF00 | a8</code> (OR bitwise), no como suma con sign-extension.
+                    Esto significa que cuando <code>a8 >= 0x80</code>, la dirección efectiva es <code>0xFF80</code> o superior,
+                    accediendo a HRAM (High RAM) en lugar de I/O registers.
+                </p>
+                <p>
+                    <strong>Ejemplo:</strong> <code>LDH (0x92),A</code> escribe en <code>0xFF92</code> (HRAM), no en <code>0x0092</code> ni <code>0xFE92</code>.
+                </p>
+                <p>
+                    Fuente: <a href="https://gbdev.io/pandocs/CPU_Instruction_Set.html">Pan Docs - CPU Instruction Set</a>
+                </p>
+
+                <h3>HRAM (High RAM) - 0xFF80-0xFFFE</h3>
+                <p>
+                    HRAM es una región de 127 bytes de RAM de alta velocidad accesible solo por la CPU.
+                    Se usa frecuentemente para variables temporales y flags que requieren acceso rápido.
+                </p>
+                <p>
+                    <strong>0xFF92</strong> es una dirección específica en HRAM que Mario usa para almacenar temporalmente
+                    el valor de <code>IE</code> antes de escribirlo de vuelta.
+                </p>
+
+                <h3>JOYP Register (0xFF00) - Estado Interno</h3>
+                <p>
+                    El registro JOYP tiene bits de selección (4-5) que determinan qué grupo de botones se lee.
+                    Cuando se escribe un valor, los bits de selección se almacenan internamente y afectan las lecturas subsecuentes.
+                </p>
+                <p>
+                    <strong>Problema potencial:</strong> Si el emulador no preserva correctamente el estado interno de selección
+                    entre writes y reads, o si hay un delay entre write y read, la ROM podría leer con selección incorrecta.
+                </p>
+                <p>
+                    Fuente: <a href="https://gbdev.io/pandocs/Joypad_Input.html">Pan Docs - Joypad Input</a>
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                
+                <h3>Fase A: Mario - LDH Effective Address + Real HRAM Verification</h3>
+                <h4>A1) Instrumentación Quirúrgica LDH en CPU</h4>
+                <p>
+                    Se añadió <code>LDHAddressWatch</code> struct en <code>CPU.hpp</code> que trackea:
+                </p>
+                <ul>
+                    <li>PC de la última instrucción LDH ejecutada</li>
+                    <li>Operando a8 de la instrucción</li>
+                    <li>Dirección efectiva calculada</li>
+                    <li>Tipo de operación (read/write)</li>
+                    <li>Contador de discrepancias de direccionamiento</li>
+                </ul>
+                <p>
+                    Gated por <code>VIBOY_DEBUG_MARIO_FF92=1</code>.
+                </p>
+
+                <h4>A2) Tracking Específico HRAM FF92 en MMU</h4>
+                <p>
+                    Se añadió <code>HRAMFF92Watch</code> struct en <code>MMU.hpp</code> que trackea:
+                </p>
+                <ul>
+                    <li>PC y valor del último write a 0xFF92</li>
+                    <li>PC y valor del último read de 0xFF92</li>
+                    <li>Readback inmediato después de write (diagnóstico)</li>
+                    <li>Contador de discrepancias write/readback</li>
+                </ul>
+
+                <h3>Fase B: Mario - Complete Chain FF92 → IE</h3>
+                <h4>B1) Trace Mini FF92→IE</h4>
+                <p>
+                    Se añadió <code>FF92ToIETrace</code> struct (global scope) que detecta la secuencia:
+                </p>
+                <ol>
+                    <li>Write a FF92 en PC=0x1288</li>
+                    <li>Read de FF92 en PC=0x1298</li>
+                    <li>Write a IE en PC=0x129A</li>
+                </ol>
+                <p>
+                    Captura valores escritos/leídos y frame de ocurrencia.
+                </p>
+
+                <h4>B2) IE/IME/IF en Snapshots</h4>
+                <p>
+                    Se añadieron campos explícitos a snapshots en <code>rom_smoke_0442.py</code>:
+                    <code>IE_value</code>, <code>IE_last_write_pc</code>, <code>IE_last_write_val</code>,
+                    <code>IME_value</code>, <code>IF_value</code>, <code>irq_serviced_count</code>.
+                </p>
+
+                <h3>Fase C: Clean-Room Tests</h3>
+                <p>
+                    Se creó <code>tests/test_ldh_a8_ge_0x80_0486.py</code> con 4 tests que validan:
+                </p>
+                <ul>
+                    <li><code>LDH (0x92),A</code> escribe en <code>0xFF92</code></li>
+                    <li><code>LDH A,(0x92)</code> lee de <code>0xFF92</code></li>
+                    <li><code>LDH (0xFF),A</code> escribe en <code>0xFFFF</code> (IE)</li>
+                    <li><code>LDH A,(0xFF)</code> lee de <code>0xFFFF</code> (IE)</li>
+                </ul>
+                <p>
+                    <strong>Resultado:</strong> ✅ Todos los tests pasan.
+                </p>
+
+                <h3>Fase D: Tetris DX - JOYP Trace con Estado Interno</h3>
+                <h4>D1) Actualización JOYPTraceEvent</h4>
+                <p>
+                    Se actualizó <code>JOYPTraceEvent</code> con:
+                </p>
+                <ul>
+                    <li><code>Source</code> enum: <code>PROGRAM</code> o <code>CPU_POLL</code></li>
+                    <li><code>p1_reg_before</code>, <code>p1_reg_after</code>, <code>p1_reg_at_read</code></li>
+                    <li><code>select_bits_at_read</code>, <code>low_nibble_at_read</code></li>
+                </ul>
+
+                <h4>D2) Contadores JOYP por Source y Selección</h4>
+                <p>
+                    Se añadieron 6 contadores que distinguen entre reads desde programa vs cpu_poll,
+                    y entre buttons selected, dpad selected, o none selected.
+                </p>
+
+                <h3>Fase E: Intelligent Autopress</h3>
+                <p>
+                    Se implementó autopress basado en eventos en <code>src/viboy.py</code> que:
+                </p>
+                <ul>
+                    <li>Activa START cuando detecta write a JOYP con buttons selected (bit 5 = 0)</li>
+                    <li>Libera START después de read con buttons selected o timeout de 60 frames</li>
+                </ul>
+            </section>
+
+            <!-- 4. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                
+                <h3>Tests Clean-Room LDH</h3>
+                <p>
+                    <strong>Comando:</strong> <code>pytest tests/test_ldh_a8_ge_0x80_0486.py -v</code>
+                </p>
+                <p>
+                    <strong>Resultado:</strong>
+                </p>
+                <pre><code>tests/test_ldh_a8_ge_0x80_0486.py::TestLDHA8Ge0x80::test_ldh_write_0x92_writes_to_ff92 PASSED
+tests/test_ldh_a8_ge_0x80_0486.py::TestLDHA8Ge0x80::test_ldh_read_0x92_reads_from_ff92 PASSED
+tests/test_ldh_a8_ge_0x80_0486.py::TestLDHA8Ge0x80::test_ldh_write_0xFF_writes_to_ffff PASSED
+tests/test_ldh_a8_ge_0x80_0486.py::TestLDHA8Ge0x80::test_ldh_read_0xFF_reads_from_ffff PASSED
+
+============================== 4 passed in 0.14s ===============================</code></pre>
+                <p>
+                    <strong>Validación:</strong> Los tests confirman que <code>LDH</code> calcula correctamente la dirección efectiva
+                    cuando <code>a8 >= 0x80</code>. No hay bug de direccionamiento en la implementación base.
+                </p>
+            </section>
+
+            <!-- 5. Resultados -->
+            <section id="resultados">
+                <h2>Resultados</h2>
+                
+                <h3>Mario (mario.gbc) - 300 frames</h3>
+                <p>
+                    <strong>Evidencia de writes a FF92:</strong> ✅ Logs muestran <code>[HRAM-WRITE] Write FF92=00 PC:1288</code>
+                </p>
+                <p>
+                    <strong>Tracking estructurado:</strong> ⚠️ <code>HRAM_FF92_WriteCount=0</code> en snapshots
+                    (posible issue con gating o contador)
+                </p>
+                <p>
+                    <strong>IE value:</strong> ⚠️ Permanece en <code>0x00</code> durante toda la ejecución
+                </p>
+                <p>
+                    <strong>Conclusión:</strong> No hay evidencia de bug de direccionamiento en <code>LDH</code>.
+                    El problema parece estar en la cadena FF92→IE, donde <code>IE</code> no se está actualizando
+                    correctamente después de escribir en FF92.
+                </p>
+
+                <h3>Tetris DX (tetris_dx.gbc) - 300 frames</h3>
+                <p>
+                    <strong>JOYP writes:</strong> ✅ ROM escribe <code>0x30</code> (buttons selected) frecuentemente
+                    (17811 writes en 240 frames)
+                </p>
+                <p>
+                    <strong>JOYP reads:</strong> ⚠️ Reads muestran <code>select_bits=0x03</code> (ninguna selección activa)
+                    y <code>low_nibble=0x0F</code> (todos los botones "soltados")
+                </p>
+                <p>
+                    <strong>Conclusión:</strong> La ROM está escribiendo para seleccionar buttons, pero los reads ocurren
+                    cuando la selección ya se ha desactivado. Esto sugiere un problema de timing o de preservación del
+                    estado de selección entre write y read.
+                </p>
+            </section>
+
+            <!-- 6. Archivos Afectados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/CPU.hpp</code> - Añadido <code>LDHAddressWatch</code> struct y getters</li>
+                    <li><code>src/core/cpp/CPU.cpp</code> - Tracking LDH en opcodes 0xE0 y 0xF0</li>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Añadidos <code>HRAMFF92Watch</code>, <code>FF92ToIETrace</code>, actualizado <code>JOYPTraceEvent</code></li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Implementación de tracking FF92, IE, y JOYP</li>
+                    <li><code>src/core/cython/cpu.pyx</code>, <code>cpu.pxd</code> - Wrappers Cython para getters LDH</li>
+                    <li><code>src/core/cython/mmu.pyx</code>, <code>mmu.pxd</code> - Wrappers Cython para getters FF92, IE, JOYP</li>
+                    <li><code>tests/test_ldh_a8_ge_0x80_0486.py</code> - Tests clean-room para LDH</li>
+                    <li><code>tools/rom_smoke_0442.py</code> - Añadidos campos IE/IME/IF a snapshots</li>
+                    <li><code>src/viboy.py</code> - Implementado intelligent autopress</li>
+                </ul>
+            </section>
+
+            <!-- 7. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ol>
+                    <li><strong>Mario:</strong> Investigar por qué <code>HRAM_FF92_WriteCount</code> permanece en 0 a pesar de los logs. Verificar gating <code>VIBOY_DEBUG_MARIO_FF92=1</code>.</li>
+                    <li><strong>Mario:</strong> Investigar por qué <code>IE</code> no se actualiza después de escribir en FF92. Verificar secuencia FF92→IE usando <code>get_ff92_to_ie_trace()</code>.</li>
+                    <li><strong>Tetris DX:</strong> Ejecutar con intelligent autopress activo para recopilar evidencia de reads con START bit = 0.</li>
+                    <li><strong>Tetris DX:</strong> Investigar timing entre writes y reads de JOYP. Verificar si hay un delay entre write y read que cause que la selección se desactive.</li>
+                </ol>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p>
+                <a href="../index.html">Volver al índice</a> |
+                <a href="2026-01-05__0485__evidencia-dura-mario-ly-tetris-joyp-trace.html">Anterior: Step 0485</a>
+            </p>
+        </footer>
+    </div>
+</body>
+</html>
+

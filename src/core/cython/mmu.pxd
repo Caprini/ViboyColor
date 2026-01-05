@@ -26,13 +26,18 @@ cdef extern from "Joypad.hpp":
 
 cdef extern from "MMU.hpp":
     # Step 0485: Declarar estructura JOYPTraceEvent (definida fuera de la clase MMU)
+    # Step 0486: Actualizado con source tag y estado interno P1
     cdef struct JOYPTraceEvent:
         int type  # READ=0, WRITE=1
+        int source  # PROGRAM=0, CPU_POLL=1
         uint16_t pc
         uint8_t value_written
         uint8_t value_read
-        uint8_t select_bits
-        uint8_t low_nibble_read
+        uint8_t p1_reg_before  # P1 interno antes del write (solo WRITE)
+        uint8_t p1_reg_after   # P1 interno después del write (solo WRITE)
+        uint8_t p1_reg_at_read  # P1 interno en el momento del read (solo READ)
+        uint8_t select_bits_at_read  # Bits 4-5 en el momento del read (solo READ)
+        uint8_t low_nibble_at_read   # Bits 0-3 leídos (solo READ)
         uint32_t timestamp
     
     # Step 0404: Hardware Mode enum
@@ -133,4 +138,18 @@ cdef extern from "MMU.hpp":
         uint32_t get_joyp_reads_with_none_selected_count() const
         uint16_t get_last_lcdc_write_pc() const  # Step 0482
         uint8_t get_last_lcdc_write_value() const  # Step 0482
+        # Step 0486: HRAM FF92 Watch
+        uint16_t get_hram_ff92_last_write_pc() const
+        uint8_t get_hram_ff92_last_write_val() const
+        uint16_t get_hram_ff92_last_read_pc() const
+        uint8_t get_hram_ff92_last_read_val() const
+        uint8_t get_hram_ff92_readback_after_write_val() const
+        uint32_t get_hram_ff92_write_readback_mismatch_count() const
+        # Step 0486: JOYP Contadores por Source
+        uint32_t get_joyp_reads_prog_buttons_sel() const
+        uint32_t get_joyp_reads_prog_dpad_sel() const
+        uint32_t get_joyp_reads_prog_none_sel() const
+        uint32_t get_joyp_reads_cpu_poll_buttons_sel() const
+        uint32_t get_joyp_reads_cpu_poll_dpad_sel() const
+        uint32_t get_joyp_reads_cpu_poll_none_sel() const
 

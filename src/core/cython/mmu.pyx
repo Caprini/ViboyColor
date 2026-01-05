@@ -876,6 +876,181 @@ cdef class PyMMU:
     # --- Fin Step 0485 ---
     # --- Fin Step 0484 ---
     
+    # --- Step 0486: HRAM FF92 Watch Getters ---
+    def get_hram_ff92_last_write_pc(self):
+        """
+        Step 0486: Obtiene el PC del último write a HRAM[FF92].
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            PC del último write a HRAM[FF92] (0xFFFF si ninguno)
+        """
+        if self._mmu == NULL:
+            return 0xFFFF
+        return self._mmu.get_hram_ff92_last_write_pc()
+    
+    def get_hram_ff92_last_write_val(self):
+        """
+        Step 0486: Obtiene el último valor escrito a HRAM[FF92].
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            Último valor escrito a HRAM[FF92]
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_hram_ff92_last_write_val()
+    
+    def get_hram_ff92_last_read_pc(self):
+        """
+        Step 0486: Obtiene el PC del último read de HRAM[FF92].
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            PC del último read de HRAM[FF92] (0xFFFF si ninguno)
+        """
+        if self._mmu == NULL:
+            return 0xFFFF
+        return self._mmu.get_hram_ff92_last_read_pc()
+    
+    def get_hram_ff92_last_read_val(self):
+        """
+        Step 0486: Obtiene el último valor leído de HRAM[FF92].
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            Último valor leído de HRAM[FF92]
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_hram_ff92_last_read_val()
+    
+    def get_hram_ff92_readback_after_write_val(self):
+        """
+        Step 0486: Obtiene el valor leído inmediatamente después del último write a HRAM[FF92].
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            Valor leído después del write (solo diagnóstico)
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_hram_ff92_readback_after_write_val()
+    
+    def get_hram_ff92_write_readback_mismatch_count(self):
+        """
+        Step 0486: Obtiene el contador de discrepancias write-readback en HRAM[FF92].
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            Número de veces que readback != write_val
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_hram_ff92_write_readback_mismatch_count()
+    
+    def get_ff92_to_ie_trace(self):
+        """
+        Step 0486: Obtiene el trace completo de FF92→IE (últimos 16 eventos).
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            Lista de eventos del trace (cada evento es un dict con ff92_written_val, ff92_read_val, ie_written_val, etc.)
+        """
+        if self._mmu == NULL:
+            return []
+        # TODO: Necesitamos exponer FF92ToIETrace struct en mmu.pxd
+        # Por ahora retornamos lista vacía
+        return []
+    # --- Fin Step 0486 (HRAM FF92 Watch) ---
+    
+    # --- Step 0486: JOYP Contadores por Source Getters ---
+    def get_joyp_reads_prog_buttons_sel(self):
+        """
+        Step 0486: Obtiene el contador de reads de JOYP desde programa con botones seleccionados.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de reads desde programa con botones seleccionados (P14=0)
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_reads_prog_buttons_sel()
+    
+    def get_joyp_reads_prog_dpad_sel(self):
+        """
+        Step 0486: Obtiene el contador de reads de JOYP desde programa con dpad seleccionado.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de reads desde programa con dpad seleccionado (P15=0)
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_reads_prog_dpad_sel()
+    
+    def get_joyp_reads_prog_none_sel(self):
+        """
+        Step 0486: Obtiene el contador de reads de JOYP desde programa sin selección (0x30).
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de reads desde programa sin selección (0x30)
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_reads_prog_none_sel()
+    
+    def get_joyp_reads_cpu_poll_buttons_sel(self):
+        """
+        Step 0486: Obtiene el contador de reads de JOYP desde CPU polling con botones seleccionados.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de reads desde CPU polling con botones seleccionados (P14=0)
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_reads_cpu_poll_buttons_sel()
+    
+    def get_joyp_reads_cpu_poll_dpad_sel(self):
+        """
+        Step 0486: Obtiene el contador de reads de JOYP desde CPU polling con dpad seleccionado.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de reads desde CPU polling con dpad seleccionado (P15=0)
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_reads_cpu_poll_dpad_sel()
+    
+    def get_joyp_reads_cpu_poll_none_sel(self):
+        """
+        Step 0486: Obtiene el contador de reads de JOYP desde CPU polling sin selección (0x30).
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de reads desde CPU polling sin selección (0x30)
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_joyp_reads_cpu_poll_none_sel()
+    # --- Fin Step 0486 (JOYP Contadores por Source) ---
+    
     def get_last_lcdc_write_pc(self):
         """
         Step 0482: Obtiene el PC de la última escritura a LCDC.

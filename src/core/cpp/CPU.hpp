@@ -763,6 +763,19 @@ private:
     std::vector<LoopTraceEvent> mario_loop_trace_;
     static constexpr size_t MARIO_LOOP_TRACE_SIZE = 64;
     
+    // --- Step 0486: LDH Address Watch (gated por VIBOY_DEBUG_MARIO_FF92=1) ---
+    struct LDHAddressWatch {
+        uint16_t last_ldh_pc;
+        uint8_t a8_operand;
+        uint16_t effective_addr_computed;
+        bool is_read;  // true para LDH A,(a8), false para LDH (a8),A
+        uint32_t ldh_addr_mismatch_count;  // Si effective_addr != (0xFF00 | a8)
+        
+        LDHAddressWatch() : last_ldh_pc(0xFFFF), a8_operand(0), effective_addr_computed(0), 
+                           is_read(false), ldh_addr_mismatch_count(0) {}
+    };
+    LDHAddressWatch ldh_watch_;
+    
     // ========== Estado de Triage (Step 0434) ==========
     // Instrumentación para entender por qué VRAM está vacía
     bool triage_active_;               // Flag para activar triage (limitado por frames)
@@ -1225,6 +1238,51 @@ public:
      * @return Vector de eventos del trace
      */
     std::vector<LoopTraceEvent> get_mario_loop_trace() const;
+    
+    /**
+     * Step 0486: Obtiene el PC de la última ejecución de LDH.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+     * 
+     * @return PC de la última ejecución de LDH (0xFFFF si ninguna)
+     */
+    uint16_t get_last_ldh_pc() const;
+    
+    /**
+     * Step 0486: Obtiene el operando a8 de la última ejecución de LDH.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+     * 
+     * @return Operando a8 de la última ejecución de LDH
+     */
+    uint8_t get_last_ldh_a8_operand() const;
+    
+    /**
+     * Step 0486: Obtiene la dirección efectiva calculada en la última ejecución de LDH.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+     * 
+     * @return Dirección efectiva calculada (0xFF00 + a8)
+     */
+    uint16_t get_last_ldh_effective_addr() const;
+    
+    /**
+     * Step 0486: Obtiene si la última ejecución de LDH fue lectura o escritura.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+     * 
+     * @return true si fue LDH A,(a8), false si fue LDH (a8),A
+     */
+    bool get_last_ldh_is_read() const;
+    
+    /**
+     * Step 0486: Obtiene el contador de discrepancias de dirección LDH.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+     * 
+     * @return Número de veces que effective_addr != (0xFF00 | a8)
+     */
+    uint32_t get_ldh_addr_mismatch_count() const;
 };
 
 #endif // CPU_HPP

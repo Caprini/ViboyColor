@@ -707,6 +707,63 @@ cdef class PyCPU:
         return result
     # --- Fin Step 0485 ---
     
+    # --- Step 0486: LDH Address Watch Getters ---
+    def get_last_ldh_pc(self):
+        """
+        Step 0486: Obtiene el PC de la última ejecución de LDH.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            PC de la última ejecución de LDH (0xFFFF si ninguna)
+        """
+        return self._cpu.get_last_ldh_pc()
+    
+    def get_last_ldh_a8_operand(self):
+        """
+        Step 0486: Obtiene el operando a8 de la última ejecución de LDH.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            Operando a8 de la última ejecución de LDH
+        """
+        return self._cpu.get_last_ldh_a8_operand()
+    
+    def get_last_ldh_effective_addr(self):
+        """
+        Step 0486: Obtiene la dirección efectiva calculada en la última ejecución de LDH.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            Dirección efectiva calculada (0xFF00 + a8)
+        """
+        return self._cpu.get_last_ldh_effective_addr()
+    
+    def get_last_ldh_is_read(self):
+        """
+        Step 0486: Obtiene si la última ejecución de LDH fue lectura o escritura.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            True si fue LDH A,(a8), False si fue LDH (a8),A
+        """
+        return self._cpu.get_last_ldh_is_read()
+    
+    def get_ldh_addr_mismatch_count(self):
+        """
+        Step 0486: Obtiene el contador de discrepancias de dirección LDH.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+        
+        Returns:
+            Número de veces que effective_addr != (0xFF00 | a8)
+        """
+        return self._cpu.get_ldh_addr_mismatch_count()
+    # --- Fin Step 0486 (LDH Address Watch) ---
+    
     # --- Fin Step 0475 ---
     
     # Propiedades para acceso directo (compatibilidad con tests)

@@ -195,6 +195,9 @@ MMU::MMU()
     , joyp_last_read_select_bits_(0x00), joyp_last_read_low_nibble_(0x0F)  // Step 0484: JOYP Read Select Bits
     , joyp_reads_with_buttons_selected_count_(0), joyp_reads_with_dpad_selected_count_(0),  // Step 0485: JOYP Trace contadores
       joyp_reads_with_none_selected_count_(0)  // Step 0485
+    , joyp_reads_prog_buttons_sel_(0), joyp_reads_prog_dpad_sel_(0), joyp_reads_prog_none_sel_(0)  // Step 0486: JOYP contadores por source
+    , joyp_reads_cpu_poll_buttons_sel_(0), joyp_reads_cpu_poll_dpad_sel_(0), joyp_reads_cpu_poll_none_sel_(0)  // Step 0486
+    , ff92_to_ie_trace_()  // Step 0486: FF92 to IE Trace
 {
     // Step 0450: Inicializar ring buffer de MBC writes
     for (int i = 0; i < 8; i++) {
@@ -466,23 +469,26 @@ uint8_t MMU::read(uint16_t addr) const {
         // -----------------------------------------
         
         // --- Step 0485: JOYP Access Trace (gated por VIBOY_DEBUG_JOYP_TRACE=1) ---
+        // Step 0486: Actualizado con source tag y estado interno P1
         bool debug_joyp_trace = (std::getenv("VIBOY_DEBUG_JOYP_TRACE") != nullptr && 
                                   std::string(std::getenv("VIBOY_DEBUG_JOYP_TRACE")) == "1");
-        if (debug_joyp_trace && !irq_poll_active_) {  // Solo program, no CPU polling
+        if (debug_joyp_trace) {  // Ahora capturamos tanto program como cpu_poll
             JOYPTraceEvent event;
             event.type = JOYPTraceEvent::READ;
+            event.source = irq_poll_active_ ? JOYPTraceEvent::CPU_POLL : JOYPTraceEvent::PROGRAM;
             event.pc = debug_current_pc;
             event.value_read = p1_value;
             
-            // Obtener bits de selección del latch actual (del Joypad)
+            // Obtener P1 interno en el momento del read
             if (joypad_ != nullptr) {
-                uint8_t latch = joypad_->get_p1_register();
-                event.select_bits = (latch >> 4) & 0x03;  // Bits 4-5
+                event.p1_reg_at_read = joypad_->get_p1_register();
+                event.select_bits_at_read = (event.p1_reg_at_read >> 4) & 0x03;  // Bits 4-5
             } else {
-                event.select_bits = 0x03;  // Ninguno seleccionado por defecto
+                event.p1_reg_at_read = 0xCF;  // Valor por defecto
+                event.select_bits_at_read = 0x03;  // Ninguno seleccionado por defecto
             }
             
-            event.low_nibble_read = p1_value & 0x0F;  // Bits 0-3
+            event.low_nibble_at_read = p1_value & 0x0F;  // Bits 0-3
             event.timestamp = 0;  // TODO: Necesitamos exponer total_cycles_ o usar otro contador
             
             joyp_trace_.push_back(event);
@@ -490,15 +496,27 @@ uint8_t MMU::read(uint16_t addr) const {
                 joyp_trace_.erase(joyp_trace_.begin());
             }
             
-            // Contadores por tipo de selección
-            if (event.select_bits == 0x00) {  // Ambos seleccionados (P14=0, P15=0)
-                // No contamos ambos, solo uno u otro
-            } else if ((event.select_bits & 0x01) == 0) {  // P14=0 (buttons)
-                joyp_reads_with_buttons_selected_count_++;
-            } else if ((event.select_bits & 0x02) == 0) {  // P15=0 (dpad)
-                joyp_reads_with_dpad_selected_count_++;
-            } else {  // 0x03 (ninguno seleccionado)
-                joyp_reads_with_none_selected_count_++;
+            // Contadores por source y tipo de selección (Step 0486)
+            if (event.source == JOYPTraceEvent::PROGRAM) {
+                if (event.select_bits_at_read == 0x00) {  // Ambos seleccionados
+                    // No contamos ambos
+                } else if ((event.select_bits_at_read & 0x01) == 0) {  // P14=0 (buttons)
+                    joyp_reads_prog_buttons_sel_++;
+                } else if ((event.select_bits_at_read & 0x02) == 0) {  // P15=0 (dpad)
+                    joyp_reads_prog_dpad_sel_++;
+                } else {  // 0x03 (ninguno seleccionado)
+                    joyp_reads_prog_none_sel_++;
+                }
+            } else {  // CPU_POLL
+                if (event.select_bits_at_read == 0x00) {
+                    // No contamos ambos
+                } else if ((event.select_bits_at_read & 0x01) == 0) {
+                    joyp_reads_cpu_poll_buttons_sel_++;
+                } else if ((event.select_bits_at_read & 0x02) == 0) {
+                    joyp_reads_cpu_poll_dpad_sel_++;
+                } else {
+                    joyp_reads_cpu_poll_none_sel_++;
+                }
             }
         }
         // -----------------------------------------
@@ -1293,6 +1311,36 @@ void MMU::write(uint16_t addr, uint8_t value) {
         last_ie_write_pc = debug_current_pc;
         last_ie_write_timestamp++;
         
+        // --- Step 0486: FF92 to IE Trace (gated por VIBOY_DEBUG_MARIO_FF92=1) ---
+        bool debug_mario_ff92 = (std::getenv("VIBOY_DEBUG_MARIO_FF92") != nullptr && 
+                                  std::string(std::getenv("VIBOY_DEBUG_MARIO_FF92")) == "1");
+        if (debug_mario_ff92) {
+            // Verificar si acabamos de leer FF92 (último read fue FF92)
+            if (hram_ff92_watch_.last_read_pc == 0x1298 && 
+                hram_ff92_watch_.last_write_pc == 0x1288) {
+                // Secuencia completa detectada
+                FF92ToIETrace trace;
+                trace.ff92_written_val = hram_ff92_watch_.last_write_val;
+                trace.ff92_read_val = hram_ff92_watch_.last_read_val;
+                trace.ie_written_val = value;
+                trace.ff92_write_pc = hram_ff92_watch_.last_write_pc;
+                trace.ff92_read_pc = hram_ff92_watch_.last_read_pc;
+                trace.ie_write_pc = debug_current_pc;
+                trace.timestamp = last_ie_write_timestamp;  // Usar timestamp de IE write
+                if (ppu_ != nullptr) {
+                    trace.frame = static_cast<uint32_t>(ppu_->get_frame_counter());
+                } else {
+                    trace.frame = 0;
+                }
+                
+                ff92_to_ie_trace_.push_back(trace);
+                if (ff92_to_ie_trace_.size() > FF92_TO_IE_TRACE_SIZE) {
+                    ff92_to_ie_trace_.erase(ff92_to_ie_trace_.begin());
+                }
+            }
+        }
+        // -----------------------------------------
+        
         // Log gated (solo si VIBOY_DEBUG_PPU=1)
         bool debug_ppu = (std::getenv("VIBOY_DEBUG_PPU") != nullptr && 
                            std::string(std::getenv("VIBOY_DEBUG_PPU")) == "1");
@@ -1365,19 +1413,45 @@ void MMU::write(uint16_t addr, uint8_t value) {
         // -----------------------------------------
         
         // --- Step 0485: JOYP Access Trace (gated por VIBOY_DEBUG_JOYP_TRACE=1) ---
+        // Step 0486: Actualizado con source tag y estado interno P1
         bool debug_joyp_trace = (std::getenv("VIBOY_DEBUG_JOYP_TRACE") != nullptr && 
                                   std::string(std::getenv("VIBOY_DEBUG_JOYP_TRACE")) == "1");
-        if (debug_joyp_trace && !irq_poll_active_) {  // Solo program, no CPU polling
+        if (debug_joyp_trace) {  // Ahora capturamos tanto program como cpu_poll
             JOYPTraceEvent event;
             event.type = JOYPTraceEvent::WRITE;
+            event.source = irq_poll_active_ ? JOYPTraceEvent::CPU_POLL : JOYPTraceEvent::PROGRAM;
             event.pc = debug_current_pc;
             event.value_written = value;
-            event.select_bits = (value >> 4) & 0x03;  // Bits 4-5
+            
+            // Obtener P1 interno antes del write
+            if (joypad_ != nullptr) {
+                event.p1_reg_before = joypad_->get_p1_register();
+            } else {
+                event.p1_reg_before = 0xCF;  // Valor por defecto
+            }
+            
+            // Ejecutar write (esto actualiza el P1 interno en el Joypad)
+            if (joypad_ != nullptr) {
+                joypad_->write_p1(value);
+            }
+            
+            // Obtener P1 interno después del write
+            if (joypad_ != nullptr) {
+                event.p1_reg_after = joypad_->get_p1_register();
+            } else {
+                event.p1_reg_after = value;  // Si no hay joypad, usar el valor escrito
+            }
+            
             event.timestamp = 0;  // TODO: Necesitamos exponer total_cycles_ o usar otro contador
             
             joyp_trace_.push_back(event);
             if (joyp_trace_.size() > JOYP_TRACE_SIZE) {
                 joyp_trace_.erase(joyp_trace_.begin());
+            }
+        } else {
+            // Si no está en trace, ejecutar write normalmente
+            if (joypad_ != nullptr) {
+                joypad_->write_p1(value);
             }
         }
         // -----------------------------------------
@@ -1491,9 +1565,8 @@ void MMU::write(uint16_t addr, uint8_t value) {
         }
         // -------------------------------------------
         
-        if (joypad_ != nullptr) {
-            joypad_->write_p1(value);
-        }
+        // El write a joypad se maneja en el trace (Step 0486)
+        // Si no está en trace, ya se ejecutó arriba
         return;
     }
 
@@ -3022,6 +3095,23 @@ void MMU::write(uint16_t addr, uint8_t value) {
             last_hram_ff92_write_value_ = value;
             last_hram_ff92_write_timestamp_++;
         }
+        
+        // --- Step 0486: HRAM FF92 Watch (gated por VIBOY_DEBUG_MARIO_FF92=1) ---
+        bool debug_mario_ff92 = (std::getenv("VIBOY_DEBUG_MARIO_FF92") != nullptr && 
+                                  std::string(std::getenv("VIBOY_DEBUG_MARIO_FF92")) == "1");
+        if (debug_mario_ff92) {
+            hram_ff92_watch_.last_write_pc = debug_current_pc;
+            hram_ff92_watch_.last_write_val = value;
+            
+            // Readback inmediato (solo diagnóstico)
+            uint8_t readback = memory_[addr];
+            hram_ff92_watch_.readback_after_write_val = readback;
+            
+            if (readback != value) {
+                hram_ff92_watch_.write_readback_mismatch_count++;
+            }
+        }
+        // -----------------------------------------
     }
     // -----------------------------------------
     
@@ -4636,6 +4726,32 @@ uint32_t MMU::get_joyp_reads_with_dpad_selected_count() const {
 uint32_t MMU::get_joyp_reads_with_none_selected_count() const {
     return joyp_reads_with_none_selected_count_;
 }
+
+// --- Step 0486: Implementación de getters para JOYP contadores por source ---
+uint32_t MMU::get_joyp_reads_prog_buttons_sel() const {
+    return joyp_reads_prog_buttons_sel_;
+}
+
+uint32_t MMU::get_joyp_reads_prog_dpad_sel() const {
+    return joyp_reads_prog_dpad_sel_;
+}
+
+uint32_t MMU::get_joyp_reads_prog_none_sel() const {
+    return joyp_reads_prog_none_sel_;
+}
+
+uint32_t MMU::get_joyp_reads_cpu_poll_buttons_sel() const {
+    return joyp_reads_cpu_poll_buttons_sel_;
+}
+
+uint32_t MMU::get_joyp_reads_cpu_poll_dpad_sel() const {
+    return joyp_reads_cpu_poll_dpad_sel_;
+}
+
+uint32_t MMU::get_joyp_reads_cpu_poll_none_sel() const {
+    return joyp_reads_cpu_poll_none_sel_;
+}
+// --- Fin Step 0486 (JOYP contadores por source) ---
 // --- Fin Step 0485 (JOYP Trace) ---
 // --- Fin Step 0484 ---
 // --- Fin Step 0482 (LCDC Disable Tracking) ---
@@ -4791,6 +4907,36 @@ uint8_t MMU::get_last_hram_ff92_read_value() const {
     return last_hram_ff92_read_value_;
 }
 // --- Fin Step 0480 ---
+
+// --- Step 0486: Implementación de getters para HRAM FF92 Watch ---
+uint16_t MMU::get_hram_ff92_last_write_pc() const {
+    return hram_ff92_watch_.last_write_pc;
+}
+
+uint8_t MMU::get_hram_ff92_last_write_val() const {
+    return hram_ff92_watch_.last_write_val;
+}
+
+uint16_t MMU::get_hram_ff92_last_read_pc() const {
+    return hram_ff92_watch_.last_read_pc;
+}
+
+uint8_t MMU::get_hram_ff92_last_read_val() const {
+    return hram_ff92_watch_.last_read_val;
+}
+
+uint8_t MMU::get_hram_ff92_readback_after_write_val() const {
+    return hram_ff92_watch_.readback_after_write_val;
+}
+
+uint32_t MMU::get_hram_ff92_write_readback_mismatch_count() const {
+    return hram_ff92_watch_.write_readback_mismatch_count;
+}
+
+std::vector<FF92ToIETrace> MMU::get_ff92_to_ie_trace() const {
+    return ff92_to_ie_trace_;
+}
+// --- Fin Step 0486 (HRAM FF92 Watch + FF92→IE Trace) ---
 
 // --- Step 0481: Métodos de HRAM Watchlist Genérica ---
 void MMU::add_hram_watch(uint16_t addr) {

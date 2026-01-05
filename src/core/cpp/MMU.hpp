@@ -27,21 +27,49 @@ enum class HardwareMode {
 
 /**
  * Step 0485: JOYP Access Trace Event
+ * Step 0486: Actualizado con estado interno P1 y source tag
  * 
  * Estructura para rastrear accesos a JOYP (0xFF00) en un ring-buffer.
  */
 struct JOYPTraceEvent {
     enum Type { READ, WRITE };
+    enum Source { PROGRAM, CPU_POLL };
+    
     Type type;
+    Source source;
     uint16_t pc;
     uint8_t value_written;      // Si WRITE
     uint8_t value_read;         // Si READ
-    uint8_t select_bits;        // Bits 4-5 del valor vigente en P1
-    uint8_t low_nibble_read;    // Bits 0-3 leídos
+    uint8_t p1_reg_before;      // P1 interno antes del write (solo WRITE)
+    uint8_t p1_reg_after;       // P1 interno después del write (solo WRITE)
+    uint8_t p1_reg_at_read;     // P1 interno en el momento del read (solo READ)
+    uint8_t select_bits_at_read;  // Bits 4-5 en el momento del read (solo READ)
+    uint8_t low_nibble_at_read;   // Bits 0-3 leídos (solo READ)
     uint32_t timestamp;          // Cycle counter o contador monotónico
     
-    JOYPTraceEvent() : type(READ), pc(0xFFFF), value_written(0), value_read(0), 
-                       select_bits(0), low_nibble_read(0), timestamp(0) {}
+    JOYPTraceEvent() : type(READ), source(PROGRAM), pc(0xFFFF), value_written(0), value_read(0),
+                       p1_reg_before(0), p1_reg_after(0), p1_reg_at_read(0),
+                       select_bits_at_read(0), low_nibble_at_read(0), timestamp(0) {}
+};
+
+/**
+ * Step 0486: FF92 to IE Trace Event
+ * 
+ * Estructura para rastrear la secuencia FF92 write → FF92 read → IE write.
+ */
+struct FF92ToIETrace {
+    uint8_t ff92_written_val;
+    uint8_t ff92_read_val;
+    uint8_t ie_written_val;
+    uint16_t ff92_write_pc;
+    uint16_t ff92_read_pc;
+    uint16_t ie_write_pc;
+    uint32_t timestamp;
+    uint32_t frame;
+    
+    FF92ToIETrace() : ff92_written_val(0), ff92_read_val(0), ie_written_val(0),
+                     ff92_write_pc(0xFFFF), ff92_read_pc(0xFFFF), ie_write_pc(0xFFFF),
+                     timestamp(0), frame(0) {}
 };
 
 /**
@@ -827,6 +855,25 @@ private:
     mutable uint16_t last_hram_ff92_read_pc_;
     mutable uint8_t last_hram_ff92_read_value_;
     
+    // --- Step 0486: HRAM FF92 Watch (gated por VIBOY_DEBUG_MARIO_FF92=1) ---
+    struct HRAMFF92Watch {
+        uint16_t last_write_pc;
+        uint8_t last_write_val;
+        uint16_t last_read_pc;
+        uint8_t last_read_val;
+        uint8_t readback_after_write_val;  // Leer inmediatamente tras write SOLO como diagnóstico
+        uint32_t write_readback_mismatch_count;
+        
+        HRAMFF92Watch() : last_write_pc(0xFFFF), last_write_val(0), last_read_pc(0xFFFF),
+                         last_read_val(0), readback_after_write_val(0), write_readback_mismatch_count(0) {}
+    };
+    mutable HRAMFF92Watch hram_ff92_watch_;
+    
+    // --- Step 0486: FF92 to IE Trace (gated por VIBOY_DEBUG_MARIO_FF92=1) ---
+    // Estructura movida a public para acceso desde getters
+    mutable std::vector<FF92ToIETrace> ff92_to_ie_trace_;
+    static constexpr size_t FF92_TO_IE_TRACE_SIZE = 16;
+    
     // --- Step 0481: HRAM Watchlist Genérica ---
     // Estructura para tracking quirúrgico de direcciones HRAM
     struct HRAMWatchEntry {
@@ -876,6 +923,14 @@ private:
     mutable uint32_t joyp_reads_with_buttons_selected_count_;  // select buttons bit=0
     mutable uint32_t joyp_reads_with_dpad_selected_count_;     // select dpad bit=0
     mutable uint32_t joyp_reads_with_none_selected_count_;     // 0x30 (ninguno seleccionado)
+    
+    // --- Step 0486: Contadores JOYP por source y selección ---
+    mutable uint32_t joyp_reads_prog_buttons_sel_;   // Program reads con buttons selected (bit4=0)
+    mutable uint32_t joyp_reads_prog_dpad_sel_;      // Program reads con dpad selected (bit5=0)
+    mutable uint32_t joyp_reads_prog_none_sel_;      // Program reads con none selected (bits 4-5 = 11)
+    mutable uint32_t joyp_reads_cpu_poll_buttons_sel_;  // CPU polling reads con buttons selected
+    mutable uint32_t joyp_reads_cpu_poll_dpad_sel_;     // CPU polling reads con dpad selected
+    mutable uint32_t joyp_reads_cpu_poll_none_sel_;     // CPU polling reads con none selected
     
 public:
     /**
@@ -1256,6 +1311,69 @@ public:
     uint8_t get_last_hram_ff92_read_value() const;
     
     /**
+     * Step 0486: Obtiene el PC del último write a HRAM[FF92].
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+     * 
+     * @return PC del último write a HRAM[FF92] (0xFFFF si ninguno)
+     */
+    uint16_t get_hram_ff92_last_write_pc() const;
+    
+    /**
+     * Step 0486: Obtiene el último valor escrito a HRAM[FF92].
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+     * 
+     * @return Último valor escrito a HRAM[FF92]
+     */
+    uint8_t get_hram_ff92_last_write_val() const;
+    
+    /**
+     * Step 0486: Obtiene el PC del último read de HRAM[FF92].
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+     * 
+     * @return PC del último read de HRAM[FF92] (0xFFFF si ninguno)
+     */
+    uint16_t get_hram_ff92_last_read_pc() const;
+    
+    /**
+     * Step 0486: Obtiene el último valor leído de HRAM[FF92].
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+     * 
+     * @return Último valor leído de HRAM[FF92]
+     */
+    uint8_t get_hram_ff92_last_read_val() const;
+    
+    /**
+     * Step 0486: Obtiene el valor leído inmediatamente después del último write a HRAM[FF92].
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+     * 
+     * @return Valor leído después del write (solo diagnóstico)
+     */
+    uint8_t get_hram_ff92_readback_after_write_val() const;
+    
+    /**
+     * Step 0486: Obtiene el contador de discrepancias write-readback en HRAM[FF92].
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+     * 
+     * @return Número de veces que readback != write_val
+     */
+    uint32_t get_hram_ff92_write_readback_mismatch_count() const;
+    
+    /**
+     * Step 0486: Obtiene el trace completo de FF92→IE (últimos 16 eventos).
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_FF92=1
+     * 
+     * @return Vector de eventos del trace
+     */
+    std::vector<FF92ToIETrace> get_ff92_to_ie_trace() const;
+    
+    /**
      * Step 0481: Añade una dirección HRAM a la watchlist para tracking.
      * 
      * @param addr Dirección HRAM (0xFF80-0xFFFE)
@@ -1407,6 +1525,60 @@ public:
      * @return Número de reads sin selección (0x30)
      */
     uint32_t get_joyp_reads_with_none_selected_count() const;
+    
+    /**
+     * Step 0486: Obtiene el contador de reads de JOYP desde programa con botones seleccionados.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+     * 
+     * @return Número de reads desde programa con botones seleccionados (P14=0)
+     */
+    uint32_t get_joyp_reads_prog_buttons_sel() const;
+    
+    /**
+     * Step 0486: Obtiene el contador de reads de JOYP desde programa con dpad seleccionado.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+     * 
+     * @return Número de reads desde programa con dpad seleccionado (P15=0)
+     */
+    uint32_t get_joyp_reads_prog_dpad_sel() const;
+    
+    /**
+     * Step 0486: Obtiene el contador de reads de JOYP desde programa sin selección (0x30).
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+     * 
+     * @return Número de reads desde programa sin selección (0x30)
+     */
+    uint32_t get_joyp_reads_prog_none_sel() const;
+    
+    /**
+     * Step 0486: Obtiene el contador de reads de JOYP desde CPU polling con botones seleccionados.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+     * 
+     * @return Número de reads desde CPU polling con botones seleccionados (P14=0)
+     */
+    uint32_t get_joyp_reads_cpu_poll_buttons_sel() const;
+    
+    /**
+     * Step 0486: Obtiene el contador de reads de JOYP desde CPU polling con dpad seleccionado.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+     * 
+     * @return Número de reads desde CPU polling con dpad seleccionado (P15=0)
+     */
+    uint32_t get_joyp_reads_cpu_poll_dpad_sel() const;
+    
+    /**
+     * Step 0486: Obtiene el contador de reads de JOYP desde CPU polling sin selección (0x30).
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+     * 
+     * @return Número de reads desde CPU polling sin selección (0x30)
+     */
+    uint32_t get_joyp_reads_cpu_poll_none_sel() const;
 };
 
 #endif // MMU_HPP

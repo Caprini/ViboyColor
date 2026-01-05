@@ -1504,6 +1504,77 @@ class Viboy:
                         print("[Viboy-User-Interaction] Liberando START en Frame 3100")
                 # -------------------------------------------
                 
+                # --- Step 0486: Intelligent Autopress (Event-based) ---
+                # Activar START cuando hay un write a JOYP con buttons selected (bit 5 = 0)
+                # Liberar START después de un read con buttons selected o timeout
+                if self._use_cpp and self._mmu is not None and self._joypad is not None:
+                    # Inicializar estado de autopress si no existe
+                    if not hasattr(self, '_intelligent_autopress_active'):
+                        self._intelligent_autopress_active = False
+                        self._intelligent_autopress_start_frame = 0
+                        self._intelligent_autopress_timeout_frames = 60  # 1 segundo a 60 FPS
+                        self._last_joyp_write_value = 0xFF
+                        self._last_joyp_reads_prog_buttons_sel = 0
+                    
+                    # Detectar write a JOYP con buttons selected (bit 5 = 0)
+                    try:
+                        last_write_value = self._mmu.get_last_joyp_write_value() if hasattr(self._mmu, 'get_last_joyp_write_value') else 0xFF
+                        last_write_pc = self._mmu.get_last_joyp_write_pc() if hasattr(self._mmu, 'get_last_joyp_write_pc') else 0xFFFF
+                        
+                        # Si hay un nuevo write diferente al anterior
+                        if last_write_value != self._last_joyp_write_value and last_write_pc != 0xFFFF:
+                            # Verificar si buttons selected (bit 5 = 0, es decir, valor & 0x20 == 0)
+                            buttons_selected = (last_write_value & 0x20) == 0
+                            
+                            if buttons_selected and not self._intelligent_autopress_active:
+                                # Activar START
+                                if isinstance(self._joypad, PyJoypad):
+                                    self._joypad.press_button(button_index_map.get("start", 7))
+                                else:
+                                    self._joypad.press("start")
+                                self._intelligent_autopress_active = True
+                                self._intelligent_autopress_start_frame = self.frame_count
+                                print(f"[INTELLIGENT-AUTOPRESS] Frame {self.frame_count} | "
+                                      f"JOYP write 0x{last_write_value:02X} (buttons selected) at PC=0x{last_write_pc:04X} | "
+                                      f"ACTIVATING START")
+                        
+                        self._last_joyp_write_value = last_write_value
+                        
+                        # Detectar read con buttons selected
+                        current_reads_prog_buttons_sel = self._mmu.get_joyp_reads_prog_buttons_sel() if hasattr(self._mmu, 'get_joyp_reads_prog_buttons_sel') else 0
+                        
+                        if current_reads_prog_buttons_sel > self._last_joyp_reads_prog_buttons_sel:
+                            # Hubo un nuevo read con buttons selected
+                            if self._intelligent_autopress_active:
+                                # Liberar START
+                                if isinstance(self._joypad, PyJoypad):
+                                    self._joypad.release_button(button_index_map.get("start", 7))
+                                else:
+                                    self._joypad.release("start")
+                                self._intelligent_autopress_active = False
+                                print(f"[INTELLIGENT-AUTOPRESS] Frame {self.frame_count} | "
+                                      f"JOYP read with buttons selected detected | "
+                                      f"RELEASING START")
+                        
+                        self._last_joyp_reads_prog_buttons_sel = current_reads_prog_buttons_sel
+                        
+                        # Timeout: liberar START si ha pasado mucho tiempo
+                        if self._intelligent_autopress_active:
+                            frames_since_activation = self.frame_count - self._intelligent_autopress_start_frame
+                            if frames_since_activation >= self._intelligent_autopress_timeout_frames:
+                                if isinstance(self._joypad, PyJoypad):
+                                    self._joypad.release_button(button_index_map.get("start", 7))
+                                else:
+                                    self._joypad.release("start")
+                                self._intelligent_autopress_active = False
+                                print(f"[INTELLIGENT-AUTOPRESS] Frame {self.frame_count} | "
+                                      f"Timeout ({frames_since_activation} frames) | "
+                                      f"RELEASING START")
+                    except Exception as e:
+                        # Silenciar errores para no interrumpir la ejecución
+                        pass
+                # -------------------------------------------
+                
                 # --- Step 0240: Monitor GPS (Navegador) ---
                 # Reporta la posición de la CPU y el estado del hardware cada segundo (60 frames)
                 # Step 0317: Optimización - Desactivado por defecto para mejorar rendimiento

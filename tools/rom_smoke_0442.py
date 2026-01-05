@@ -1703,9 +1703,14 @@ class ROMSmokeRunner:
                     except Exception:
                         pass
                 
+                # Step 0486: Añadir IE/IME/IF explícitos al snapshot
+                irq_serviced_count = vblank_serv  # Contador de IRQs servidas (VBlank por ahora)
+                
                 print(f"[SMOKE-SNAPSHOT] Frame={frame_idx} | "
                       f"PC=0x{pc:04X} IME={ime} HALTED={halted} | "
                       f"IE=0x{ie:02X} IF=0x{if_reg:02X} | "
+                      f"IE_value=0x{ie:02X} IE_last_write_pc=0x{last_ie_write_pc:04X} IE_last_write_val=0x{last_ie_write_value:02X} | "
+                      f"IME_value={1 if ime else 0} IF_value=0x{if_reg:02X} irq_serviced_count={irq_serviced_count} | "
                       f"BGP=0x{bgp:02X} OBP0=0x{obp0:02X} OBP1=0x{obp1:02X} | "
                       f"KEY1=0x{key1:02X} JOYP=0x{joyp:02X} | "
                       f"STOP_count={stop_executed_count} STOP_PC=0x{last_stop_pc:04X} | "

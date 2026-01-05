@@ -3307,6 +3307,24 @@ int CPU::step() {
             {
                 uint8_t offset = fetch_byte();
                 uint16_t addr = 0xFF00 + static_cast<uint16_t>(offset);
+                
+                // --- Step 0486: LDH Address Watch (gated por VIBOY_DEBUG_MARIO_FF92=1) ---
+                bool debug_mario_ff92 = (std::getenv("VIBOY_DEBUG_MARIO_FF92") != nullptr && 
+                                          std::string(std::getenv("VIBOY_DEBUG_MARIO_FF92")) == "1");
+                if (debug_mario_ff92) {
+                    ldh_watch_.last_ldh_pc = original_pc;
+                    ldh_watch_.a8_operand = offset;
+                    ldh_watch_.effective_addr_computed = addr;
+                    ldh_watch_.is_read = false;
+                    
+                    // Verificar si el cálculo es correcto (sin sign-extension)
+                    uint16_t expected_addr = 0xFF00 | offset;  // OR en lugar de suma para evitar sign-extension
+                    if (addr != expected_addr) {
+                        ldh_watch_.ldh_addr_mismatch_count++;
+                    }
+                }
+                // -----------------------------------------
+                
                 mmu_->write(addr, regs_->a);
                 cycles_ += 3;  // LDH (n), A consume 3 M-Cycles
                 return 3;
@@ -3319,6 +3337,24 @@ int CPU::step() {
             {
                 uint8_t offset = fetch_byte();
                 uint16_t addr = 0xFF00 + static_cast<uint16_t>(offset);
+                
+                // --- Step 0486: LDH Address Watch (gated por VIBOY_DEBUG_MARIO_FF92=1) ---
+                bool debug_mario_ff92 = (std::getenv("VIBOY_DEBUG_MARIO_FF92") != nullptr && 
+                                          std::string(std::getenv("VIBOY_DEBUG_MARIO_FF92")) == "1");
+                if (debug_mario_ff92) {
+                    ldh_watch_.last_ldh_pc = original_pc;
+                    ldh_watch_.a8_operand = offset;
+                    ldh_watch_.effective_addr_computed = addr;
+                    ldh_watch_.is_read = true;
+                    
+                    // Verificar si el cálculo es correcto (sin sign-extension)
+                    uint16_t expected_addr = 0xFF00 | offset;  // OR en lugar de suma para evitar sign-extension
+                    if (addr != expected_addr) {
+                        ldh_watch_.ldh_addr_mismatch_count++;
+                    }
+                }
+                // -----------------------------------------
+                
                 uint8_t value = mmu_->read(addr);
                 regs_->a = value;
                 
@@ -4562,6 +4598,28 @@ std::vector<LoopTraceEvent> CPU::get_mario_loop_trace() const {
 }
 // --- Fin Step 0485 (Mario Loop) ---
 // --- Fin Step 0484 ---
+
+// --- Step 0486: Implementación de getters para LDH Address Watch ---
+uint16_t CPU::get_last_ldh_pc() const {
+    return ldh_watch_.last_ldh_pc;
+}
+
+uint8_t CPU::get_last_ldh_a8_operand() const {
+    return ldh_watch_.a8_operand;
+}
+
+uint16_t CPU::get_last_ldh_effective_addr() const {
+    return ldh_watch_.effective_addr_computed;
+}
+
+bool CPU::get_last_ldh_is_read() const {
+    return ldh_watch_.is_read;
+}
+
+uint32_t CPU::get_ldh_addr_mismatch_count() const {
+    return ldh_watch_.ldh_addr_mismatch_count;
+}
+// --- Fin Step 0486 (LDH Address Watch) ---
 
 // --- Step 0472: Implementación de getters para STOP ---
 uint32_t CPU::get_stop_executed_count() const {
