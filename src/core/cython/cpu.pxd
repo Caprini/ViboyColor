@@ -9,6 +9,8 @@ pueda generar el código de enlace correcto.
 
 from libc.stdint cimport uint8_t, uint16_t, uint32_t
 from libcpp cimport bool
+from libcpp.vector cimport vector
+from libcpp.pair cimport pair
 
 # Forward declarations (necesarios para punteros)
 cdef extern from "MMU.hpp":
@@ -28,6 +30,15 @@ cdef extern from "Timer.hpp":
         pass
 
 cdef extern from "CPU.hpp":
+    # Step 0483: Declarar estructura BranchDecision para acceso desde Cython
+    cdef struct BranchDecision:
+        uint16_t pc
+        uint32_t taken_count
+        uint32_t not_taken_count
+        uint16_t last_target
+        bool last_taken
+        uint8_t last_flags
+    
     cdef cppclass CPU:
         # Constructor: recibe punteros a MMU y CoreRegisters
         CPU(MMU* mmu, CoreRegisters* registers) except +
@@ -101,4 +112,14 @@ cdef extern from "CPU.hpp":
         uint16_t get_last_bit_pc() const
         uint8_t get_last_bit_n() const
         uint8_t get_last_bit_value() const
+        # Step 0483: Exec Coverage (gated por VIBOY_DEBUG_BRANCH=1)
+        uint32_t get_exec_count(uint16_t pc) const
+        void set_coverage_window(uint16_t start, uint16_t end)
+        vector[pair[uint16_t, uint32_t]] get_top_exec_pcs(uint32_t n) const
+        # Step 0483: Branch Blockers (gated por VIBOY_DEBUG_BRANCH=1)
+        # NOTA: get_top_branch_blockers se implementa manualmente en .pyx usando getters individuales
+        # Step 0483: Last Load A Tracking (gated por VIBOY_DEBUG_BRANCH=1)
+        uint16_t get_last_load_a_pc() const
+        uint16_t get_last_load_a_addr() const
+        uint8_t get_last_load_a_value() const
 

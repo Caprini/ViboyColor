@@ -2960,6 +2960,11 @@ void MMU::write(uint16_t addr, uint8_t value) {
                 entry.last_write_value = value;
                 entry.last_write_timestamp++;
                 
+                // Step 0483: Actualizar frame de última escritura
+                if (ppu_ != nullptr) {
+                    entry.last_write_frame = static_cast<uint32_t>(ppu_->get_frame_counter());
+                }
+                
                 // Registrar primera escritura
                 if (!entry.first_write_recorded) {
                     entry.first_write_pc = debug_current_pc;
@@ -4715,7 +4720,35 @@ uint32_t MMU::get_hram_read_count_program(uint16_t addr) const {
     }
     return 0;
 }
+
+uint32_t MMU::get_hram_last_write_frame(uint16_t addr) const {
+    for (const auto& entry : hram_watchlist_) {
+        if (entry.addr == addr) {
+            return entry.last_write_frame;
+        }
+    }
+    return 0;
+}
+
+uint16_t MMU::get_hram_last_read_pc(uint16_t addr) const {
+    for (const auto& entry : hram_watchlist_) {
+        if (entry.addr == addr) {
+            return entry.last_read_pc;
+        }
+    }
+    return 0xFFFF;
+}
+
+uint8_t MMU::get_hram_last_read_value(uint16_t addr) const {
+    for (const auto& entry : hram_watchlist_) {
+        if (entry.addr == addr) {
+            return entry.last_read_value;
+        }
+    }
+    return 0;
+}
 // --- Fin Step 0481 ---
+// --- Fin Step 0483 (HRAM last_write_frame, last_read_pc, last_read_value) ---
 
 // --- Fin Step 0475 ---
 

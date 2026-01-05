@@ -22,12 +22,12 @@ Joypad::~Joypad() {
 }
 
 uint8_t Joypad::read_p1() const {
-    // --- Step 0425: Lectura spec-correct de P1 (FF00) según Pan Docs ---
+    // --- Step 0483: Lectura spec-correct de P1 (FF00) según Pan Docs ---
     // Pan Docs: "Both lines may be selected at the same time, in that case the button
     // state is a logic AND of both line states."
     // 
     // Estructura del registro P1:
-    // - Bits 7-6: siempre 1 (no usados)
+    // - Bits 7-6: siempre 1 (no usados, implementado en MMU::read(0xFF00))
     // - Bit 5 (P15): 0 = selecciona botones de acción (A, B, Select, Start)
     // - Bit 4 (P14): 0 = selecciona botones de dirección (Right, Left, Up, Down)
     // - Bits 3-0: estado de botones (0 = presionado, 1 = suelto) [read-only]
@@ -35,35 +35,31 @@ uint8_t Joypad::read_p1() const {
     // Los bits 4-5 se leen TAL COMO fueron escritos (NO se invierten).
     // -------------------------------------------
     
-    // Empezar con bits 0-3 a 1 (todos sueltos por defecto)
-    uint8_t nibble = 0x0F; // 0000 1111
+    uint8_t result = 0xFF;  // Default: todos los bits en 1
     
-    // Selección de fila según Pan Docs: bit=0 selecciona
-    bool direction_row_selected = (p1_register_ & 0x10) == 0;
-    bool action_row_selected = (p1_register_ & 0x20) == 0;
+    // Obtener selección (bits 4-5): bit=0 selecciona (active-low)
+    bool select_buttons = !(p1_register_ & 0x10);  // P14 = bit 4 (invertido: 0 = seleccionado)
+    bool select_dpad = !(p1_register_ & 0x20);     // P15 = bit 5 (invertido: 0 = seleccionado)
     
-    if (direction_row_selected) {
-        // Aplicar AND: un botón presionado (0) en cualquier fila resulta en 0
-        nibble &= direction_keys_;
+    uint8_t low_nibble = 0x0F;  // Default: todos los bits en 1 (no pulsados)
+    
+    if (select_buttons && select_dpad) {
+        // Ambos grupos seleccionados: AND de ambos estados
+        low_nibble = action_keys_ & direction_keys_;
+    } else if (select_buttons) {
+        // Solo botones seleccionados (P14=0)
+        low_nibble = action_keys_;
+    } else if (select_dpad) {
+        // Solo direcciones seleccionadas (P15=0)
+        low_nibble = direction_keys_;
+    } else {
+        // Ningún grupo seleccionado: todos los bits en 1
+        low_nibble = 0x0F;
     }
     
-    // Si bit 5 = 0, incluir estado de botones de acción
-    if (action_row_selected) {
-        // Aplicar AND: un botón presionado (0) en cualquier fila resulta en 0
-        nibble &= action_keys_;
-    }
-    
-    // Caso especial: si ninguna fila está seleccionada (bits 4-5 = 11),
-    // el nibble bajo debe ser 0xF (todos los bits a 1)
-    if (!direction_row_selected && !action_row_selected) {
-        nibble = 0x0F;
-    }
-    
-    // Construir resultado final spec-correct:
-    // - Bits 7-6: siempre 1 (0xC0)
-    // - Bits 5-4: reflejar estado de p1_register_ SIN inversión
-    // - Bits 3-0: nibble calculado
-    uint8_t result = 0xC0 | (p1_register_ & 0x30) | (nibble & 0x0F);
+    // Combinar: bits 4-5 de p1_register_ (preservar selección), bits 0-3 del estado, bits 6-7 en 1
+    result = (p1_register_ & 0xF0) | (low_nibble & 0x0F);
+    // Bits 6-7 se pondrán a 1 en MMU::read(0xFF00)
     
     // --- Step 0381: Instrumentación de Lectura de P1 con Estado de Botones ---
     static int read_p1_log_count = 0;
@@ -72,9 +68,9 @@ uint8_t Joypad::read_p1() const {
         printf("[JOYPAD-READ-P1] Instance=%p | direction_keys=0x%02X action_keys=0x%02X | "
                "Dir_sel=%s Act_sel=%s | nibble=0x%02X result=0x%02X\n",
                (void*)this, direction_keys_, action_keys_,
-               direction_row_selected ? "YES" : "NO",
-               action_row_selected ? "YES" : "NO",
-               nibble, result);
+                select_dpad ? "YES" : "NO",
+                select_buttons ? "YES" : "NO",
+                low_nibble, result);
     }
     // -------------------------------------------
     

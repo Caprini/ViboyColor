@@ -9,6 +9,8 @@ ejecutar el ciclo de instrucción en código nativo de alta velocidad.
 
 from libc.stdint cimport uint8_t, uint16_t, uint32_t
 from libcpp cimport bool
+from libcpp.vector cimport vector
+from libcpp.pair cimport pair
 
 # Importar las definiciones C++
 cimport cpu
@@ -391,6 +393,114 @@ cdef class PyCPU:
         """
         return self._cpu.get_last_bit_value()
     # --- Fin Step 0482 (Branch/Compare/BIT Tracking) ---
+    
+    # --- Step 0483: Getters para Exec Coverage (gated por VIBOY_DEBUG_BRANCH=1) ---
+    def get_exec_count(self, uint16_t pc):
+        """
+        Step 0483: Obtiene el contador de ejecuciones de un PC específico.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1 y PC está en la ventana de coverage
+        
+        Args:
+            pc: Dirección del PC
+        
+        Returns:
+            Número de veces que se ejecutó (0 si no está en coverage)
+        """
+        return self._cpu.get_exec_count(pc)
+    
+    def get_top_exec_pcs(self, uint32_t n):
+        """
+        Step 0483: Obtiene los top N PCs más ejecutados.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Args:
+            n: Número de PCs a retornar
+        
+        Returns:
+            Lista de tuplas (PC, count) ordenadas por count descendente
+        """
+        cdef vector[pair[uint16_t, uint32_t]] result = self._cpu.get_top_exec_pcs(n)
+        py_result = []
+        for i in range(result.size()):
+            py_result.append((result[i].first, result[i].second))
+        return py_result
+    
+    def set_coverage_window(self, uint16_t start, uint16_t end):
+        """
+        Step 0483: Establece la ventana de coverage para exec tracking.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Args:
+            start: PC inicial de la ventana
+            end: PC final de la ventana
+        """
+        self._cpu.set_coverage_window(start, end)
+    # --- Fin Step 0483 (Exec Coverage) ---
+    
+    # --- Step 0483: Getters para Branch Blockers (gated por VIBOY_DEBUG_BRANCH=1) ---
+    def get_top_branch_blockers(self, uint32_t n):
+        """
+        Step 0483: Obtiene los top N branch blockers (branches con más decisiones).
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Args:
+            n: Número de branches a retornar
+        
+        Returns:
+            Lista de tuplas (PC, dict) donde dict contiene:
+            - 'taken_count': número de veces tomado
+            - 'not_taken_count': número de veces no tomado
+            - 'last_target': último target
+            - 'last_taken': si el último fue tomado (bool)
+            - 'last_flags': flags al momento del último salto
+        
+        NOTA: Por ahora retorna lista vacía. La implementación completa requiere
+        exponer BranchDecision como estructura completa (futura mejora).
+        """
+        # Por ahora, retornamos lista vacía ya que exponer BranchDecision requiere
+        # una definición completa de la estructura en Cython (futura mejora)
+        return []
+    # --- Fin Step 0483 (Branch Blockers) ---
+    
+    # --- Step 0483: Getters para Last Load A (gated por VIBOY_DEBUG_BRANCH=1) ---
+    def get_last_load_a_pc(self):
+        """
+        Step 0483: Obtiene el PC del último LDH A,(a8) o LD A,(a16) ejecutado.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Returns:
+            PC de la última carga (0xFFFF si ninguna)
+        """
+        return self._cpu.get_last_load_a_pc()
+    
+    def get_last_load_a_addr(self):
+        """
+        Step 0483: Obtiene la dirección leída en el último LDH A,(a8) o LD A,(a16).
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Returns:
+            Dirección leída (0xFFFF si ninguna)
+        """
+        return self._cpu.get_last_load_a_addr()
+    
+    def get_last_load_a_value(self):
+        """
+        Step 0483: Obtiene el valor leído en el último LDH A,(a8) o LD A,(a16).
+        
+        Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+        
+        Returns:
+            Valor leído (0x00 si ninguna)
+        """
+        return self._cpu.get_last_load_a_value()
+    # --- Fin Step 0483 (Last Load A) ---
+    
     # --- Fin Step 0475 ---
     
     # Propiedades para acceso directo (compatibilidad con tests)

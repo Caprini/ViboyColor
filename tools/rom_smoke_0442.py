@@ -1422,14 +1422,16 @@ class ROMSmokeRunner:
                 # Step 0475: Boot logo prefill status
                 boot_logo_prefill_enabled = metrics.get('boot_logo_prefill_enabled', 0)
                 
-                # Step 0480: HRAM FF92 metrics (quirúrgico, gated por VIBOY_DEBUG_IO)
-                hram_ff92_write_count = self.mmu.get_hram_ff92_write_count() if hasattr(self.mmu, 'get_hram_ff92_write_count') else 0
-                hram_ff92_read_count_program = self.mmu.get_hram_ff92_read_count_program() if hasattr(self.mmu, 'get_hram_ff92_read_count_program') else 0
-                last_hram_ff92_write_pc = self.mmu.get_last_hram_ff92_write_pc() if hasattr(self.mmu, 'get_last_hram_ff92_write_pc') else 0xFFFF
-                last_hram_ff92_write_value = self.mmu.get_last_hram_ff92_write_value() if hasattr(self.mmu, 'get_last_hram_ff92_write_value') else 0
-                last_hram_ff92_write_timestamp = self.mmu.get_last_hram_ff92_write_timestamp() if hasattr(self.mmu, 'get_last_hram_ff92_write_timestamp') else 0
-                last_hram_ff92_read_pc = self.mmu.get_last_hram_ff92_read_pc() if hasattr(self.mmu, 'get_last_hram_ff92_read_pc') else 0xFFFF
-                last_hram_ff92_read_value = self.mmu.get_last_hram_ff92_read_value() if hasattr(self.mmu, 'get_last_hram_ff92_read_value') else 0
+                # Step 0480/0483: HRAM FF92 metrics (quirúrgico, gated por VIBOY_DEBUG_HRAM)
+                hram_ff92_addr = 0xFF92
+                hram_ff92_write_count = self.mmu.get_hram_write_count(hram_ff92_addr) if hasattr(self.mmu, 'get_hram_write_count') else 0
+                hram_ff92_read_count_program = self.mmu.get_hram_read_count_program(hram_ff92_addr) if hasattr(self.mmu, 'get_hram_read_count_program') else 0
+                last_hram_ff92_write_pc = self.mmu.get_hram_last_write_pc(hram_ff92_addr) if hasattr(self.mmu, 'get_hram_last_write_pc') else 0xFFFF
+                last_hram_ff92_write_value = self.mmu.get_hram_last_write_value(hram_ff92_addr) if hasattr(self.mmu, 'get_hram_last_write_value') else 0
+                first_hram_ff92_write_frame = self.mmu.get_hram_first_write_frame(hram_ff92_addr) if hasattr(self.mmu, 'get_hram_first_write_frame') else 0
+                last_hram_ff92_write_frame = self.mmu.get_hram_last_write_frame(hram_ff92_addr) if hasattr(self.mmu, 'get_hram_last_write_frame') else 0
+                last_hram_ff92_read_pc = self.mmu.get_hram_last_read_pc(hram_ff92_addr) if hasattr(self.mmu, 'get_hram_last_read_pc') else 0xFFFF
+                last_hram_ff92_read_value = self.mmu.get_hram_last_read_value(hram_ff92_addr) if hasattr(self.mmu, 'get_hram_last_read_value') else 0
                 
                 # Step 0480: JOYP read metrics (último valor leído)
                 last_joyp_read_value = joyp  # Ya leído arriba
@@ -1488,6 +1490,68 @@ class ROMSmokeRunner:
                 loop_cmp_str = f"0x{loop_cmp:02X}" if loop_cmp is not None else "None"
                 loop_pattern_str = loop_pattern if loop_pattern is not None else "None"
                 
+                # Step 0482/0483: Branch Info, Last Cmp/Bit, Dynamic Wait Loop, Unknown Opcodes
+                # Obtener datos de CPU (gated por VIBOY_DEBUG_BRANCH=1)
+                import os
+                debug_branch = os.getenv("VIBOY_DEBUG_BRANCH") == "1"
+                
+                branch_info_str = "N/A"
+                if debug_branch and pc_hotspot_1 is not None:
+                    try:
+                        # Obtener top branch blockers
+                        top_blockers = self.cpu.get_top_branch_blockers(3) if hasattr(self.cpu, 'get_top_branch_blockers') else []
+                        if top_blockers:
+                            blocker_strs = []
+                            for pc_blk, bd_dict in top_blockers[:3]:
+                                taken = bd_dict.get('taken_count', 0)
+                                not_taken = bd_dict.get('not_taken_count', 0)
+                                blocker_strs.append(f"0x{pc_blk:04X}:{taken}/{not_taken}")
+                            branch_info_str = ' '.join(blocker_strs) if blocker_strs else "N/A"
+                    except Exception:
+                        branch_info_str = "N/A"
+                
+                last_cmp_str = "N/A"
+                last_bit_str = "N/A"
+                if debug_branch:
+                    try:
+                        last_cmp_pc = self.cpu.get_last_cmp_pc() if hasattr(self.cpu, 'get_last_cmp_pc') else 0xFFFF
+                        last_cmp_a = self.cpu.get_last_cmp_a() if hasattr(self.cpu, 'get_last_cmp_a') else 0
+                        last_cmp_imm = self.cpu.get_last_cmp_imm() if hasattr(self.cpu, 'get_last_cmp_imm') else 0
+                        if last_cmp_pc != 0xFFFF:
+                            last_cmp_str = f"PC=0x{last_cmp_pc:04X} A=0x{last_cmp_a:02X} imm=0x{last_cmp_imm:02X}"
+                        
+                        last_bit_pc = self.cpu.get_last_bit_pc() if hasattr(self.cpu, 'get_last_bit_pc') else 0xFFFF
+                        last_bit_n = self.cpu.get_last_bit_n() if hasattr(self.cpu, 'get_last_bit_n') else 0
+                        last_bit_value = self.cpu.get_last_bit_value() if hasattr(self.cpu, 'get_last_bit_value') else 0
+                        if last_bit_pc != 0xFFFF:
+                            last_bit_str = f"PC=0x{last_bit_pc:04X} bit{last_bit_n}={last_bit_value}"
+                    except Exception:
+                        pass
+                
+                dynamic_wait_loop_str = "N/A"
+                if loop_waits_on is not None:
+                    dynamic_wait_loop_str = f"waits_on=0x{loop_waits_on:04X}"
+                    if loop_mask is not None:
+                        dynamic_wait_loop_str += f" mask=0x{loop_mask:02X}"
+                    if loop_cmp is not None:
+                        dynamic_wait_loop_str += f" cmp=0x{loop_cmp:02X}"
+                
+                unknown_opcodes_str = "N/A"
+                if pc_hotspot_1 is not None:
+                    try:
+                        disasm_window_list = disasm_window(self.mmu, pc_hotspot_1, before=16, after=32)
+                        unknown_hist = get_unknown_opcode_histogram(disasm_window_list)
+                        if unknown_hist:
+                            opcode_strs = [f"0x{op:02X}:{cnt}" for op, cnt in unknown_hist[:5]]
+                            unknown_opcodes_str = ' '.join(opcode_strs) if opcode_strs else "N/A"
+                    except Exception:
+                        pass
+                
+                # Step 0482: LCDC Disable Events
+                lcdc_disable_events = self.mmu.get_lcdc_disable_events() if hasattr(self.mmu, 'get_lcdc_disable_events') else 0
+                last_lcdc_write_pc = self.mmu.get_last_lcdc_write_pc() if hasattr(self.mmu, 'get_last_lcdc_write_pc') else 0xFFFF
+                last_lcdc_write_value = self.mmu.get_last_lcdc_write_value() if hasattr(self.mmu, 'get_last_lcdc_write_value') else 0
+                
                 print(f"[SMOKE-SNAPSHOT] Frame={frame_idx} | "
                       f"PC=0x{pc:04X} IME={ime} HALTED={halted} | "
                       f"IE=0x{ie:02X} IF=0x{if_reg:02X} | "
@@ -1525,7 +1589,8 @@ class ROMSmokeRunner:
                       f"DynamicWaitLoop={dynamic_wait_loop_str} | "
                       f"UnknownOpcodes={unknown_opcodes_str} | "
                       f"HRAM_FF92_WriteCount={hram_ff92_write_count} HRAM_FF92_ReadCountProg={hram_ff92_read_count_program} | "
-                      f"HRAM_FF92_LastWritePC=0x{last_hram_ff92_write_pc:04X} HRAM_FF92_LastWriteVal=0x{last_hram_ff92_write_value:02X} HRAM_FF92_LastWriteTS={last_hram_ff92_write_timestamp} | "
+                      f"HRAM_FF92_FirstWriteFrame={first_hram_ff92_write_frame} HRAM_FF92_LastWriteFrame={last_hram_ff92_write_frame} | "
+                      f"HRAM_FF92_LastWritePC=0x{last_hram_ff92_write_pc:04X} HRAM_FF92_LastWriteVal=0x{last_hram_ff92_write_value:02X} | "
                       f"HRAM_FF92_LastReadPC=0x{last_hram_ff92_read_pc:04X} HRAM_FF92_LastReadVal=0x{last_hram_ff92_read_value:02X} | "
                       f"JOYP_ReadVal=0x{last_joyp_read_value:02X}")
                 

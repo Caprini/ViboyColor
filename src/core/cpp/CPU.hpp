@@ -5,6 +5,7 @@
 #include <iostream>
 #include <iomanip>  // Para std::hex, std::setw, std::setfill
 #include <map>  // Step 0482: Para branch_decisions_
+#include <vector>  // Step 0483: Para get_top_exec_pcs y get_top_branch_blockers
 
 // Forward declarations (evitar includes circulares)
 class MMU;
@@ -689,6 +690,16 @@ private:
     uint8_t last_bit_n_;  // Número de bit testeado en BIT
     uint8_t last_bit_value_;  // Valor del bit testeado (0 o 1)
     
+    // --- Step 0483: Exec Coverage (gated por VIBOY_DEBUG_BRANCH=1) ---
+    std::map<uint16_t, uint32_t> exec_coverage_;  // PC -> ejecution count
+    uint16_t coverage_window_start_;  // Inicio de ventana de coverage
+    uint16_t coverage_window_end_;  // Fin de ventana de coverage
+    
+    // --- Step 0483: Last Load A Tracking (gated por VIBOY_DEBUG_BRANCH=1) ---
+    uint16_t last_load_a_pc_;  // PC del último LDH A,(a8) o LD A,(a16) ejecutado
+    uint16_t last_load_a_addr_;  // Dirección leída
+    uint8_t last_load_a_value_;  // Valor leído
+    
     // ========== Estado de Triage (Step 0434) ==========
     // Instrumentación para entender por qué VRAM está vacía
     bool triage_active_;               // Flag para activar triage (limitado por frames)
@@ -931,6 +942,73 @@ public:
      * @return Valor del bit (0 o 1)
      */
     uint8_t get_last_bit_value() const;
+    
+    /**
+     * Step 0483: Obtiene el contador de ejecuciones de un PC específico.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1 y PC está en la ventana de coverage
+     * 
+     * @param pc Dirección del PC
+     * @return Número de veces que se ejecutó (0 si no está en coverage)
+     */
+    uint32_t get_exec_count(uint16_t pc) const;
+    
+    /**
+     * Step 0483: Obtiene los top N PCs más ejecutados.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @param n Número de PCs a retornar
+     * @return Vector de pares (PC, count) ordenados por count descendente
+     */
+    std::vector<std::pair<uint16_t, uint32_t>> get_top_exec_pcs(uint32_t n) const;
+    
+    /**
+     * Step 0483: Establece la ventana de coverage para exec tracking.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @param start PC inicial de la ventana
+     * @param end PC final de la ventana
+     */
+    void set_coverage_window(uint16_t start, uint16_t end);
+    
+    /**
+     * Step 0483: Obtiene los top N branch blockers (branches con más decisiones).
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @param n Número de branches a retornar
+     * @return Vector de pares (PC, BranchDecision) ordenados por total decisiones descendente
+     */
+    std::vector<std::pair<uint16_t, BranchDecision>> get_top_branch_blockers(uint32_t n) const;
+    
+    /**
+     * Step 0483: Obtiene el PC del último LDH A,(a8) o LD A,(a16) ejecutado.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return PC de la última carga (0xFFFF si ninguna)
+     */
+    uint16_t get_last_load_a_pc() const;
+    
+    /**
+     * Step 0483: Obtiene la dirección leída en el último LDH A,(a8) o LD A,(a16).
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return Dirección leída (0xFFFF si ninguna)
+     */
+    uint16_t get_last_load_a_addr() const;
+    
+    /**
+     * Step 0483: Obtiene el valor leído en el último LDH A,(a8) o LD A,(a16).
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_BRANCH=1
+     * 
+     * @return Valor leído (0x00 si ninguna)
+     */
+    uint8_t get_last_load_a_value() const;
 };
 
 #endif // CPU_HPP

@@ -792,5 +792,3 @@ git push
 4. Bitácora/informe actualizados con reporte y decisión automática
 
 ## Conclusión Crítica (Sin Azúcar)
-
-**Step 0481 os dio la prueba que necesitabais: no es FF92, es control flow bloqueado.**

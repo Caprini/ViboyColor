@@ -816,6 +816,7 @@ private:
         uint16_t last_write_pc;
         uint8_t last_write_value;
         uint32_t last_write_timestamp;
+        uint32_t last_write_frame;  // Step 0483: Frame de la última escritura
         uint16_t first_write_pc;
         uint8_t first_write_value;
         uint32_t first_write_timestamp;
@@ -826,6 +827,7 @@ private:
         
         HRAMWatchEntry() : addr(0), write_count(0), read_count_program(0),
                           last_write_pc(0), last_write_value(0), last_write_timestamp(0),
+                          last_write_frame(0),  // Step 0483
                           first_write_pc(0), first_write_value(0), first_write_timestamp(0),
                           first_write_frame(0), last_read_pc(0), last_read_value(0),
                           first_write_recorded(false) {}
@@ -1261,6 +1263,30 @@ public:
      * @return Número de reads desde programa, o 0 si no está en watchlist
      */
     uint32_t get_hram_read_count_program(uint16_t addr) const;
+    
+    /**
+     * Step 0483: Obtiene el frame de la última escritura a una dirección HRAM en watchlist.
+     * 
+     * @param addr Dirección HRAM
+     * @return Frame de la última escritura, o 0 si no se ha escrito
+     */
+    uint32_t get_hram_last_write_frame(uint16_t addr) const;
+    
+    /**
+     * Step 0483: Obtiene el PC del último read a una dirección HRAM en watchlist.
+     * 
+     * @param addr Dirección HRAM
+     * @return PC del último read, o 0xFFFF si no está en watchlist
+     */
+    uint16_t get_hram_last_read_pc(uint16_t addr) const;
+    
+    /**
+     * Step 0483: Obtiene el último valor leído de una dirección HRAM en watchlist.
+     * 
+     * @param addr Dirección HRAM
+     * @return Último valor leído, o 0 si no está en watchlist
+     */
+    uint8_t get_hram_last_read_value(uint16_t addr) const;
 };
 
 #endif // MMU_HPP

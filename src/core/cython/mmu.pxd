@@ -104,6 +104,9 @@ cdef extern from "MMU.hpp":
         uint8_t get_hram_last_write_value(uint16_t addr) const  # Step 0481
         uint32_t get_hram_first_write_frame(uint16_t addr) const  # Step 0481
         uint32_t get_hram_read_count_program(uint16_t addr) const  # Step 0481
+        uint32_t get_hram_last_write_frame(uint16_t addr) const  # Step 0483
+        uint16_t get_hram_last_read_pc(uint16_t addr) const  # Step 0483
+        uint8_t get_hram_last_read_value(uint16_t addr) const  # Step 0483
         uint32_t get_lcdc_disable_events() const  # Step 0482
         uint16_t get_last_lcdc_write_pc() const  # Step 0482
         uint8_t get_last_lcdc_write_value() const  # Step 0482

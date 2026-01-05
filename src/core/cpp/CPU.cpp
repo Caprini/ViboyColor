@@ -41,6 +41,8 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       last_cond_jump_pc_(0xFFFF), last_target_(0x0000), last_taken_(false), last_flags_(0x00),  // Step 0482: Branch tracking
       last_cmp_pc_(0xFFFF), last_cmp_a_(0x00), last_cmp_imm_(0x00), last_cmp_result_flags_(0x00),  // Step 0482: Last Compare tracking
       last_bit_pc_(0xFFFF), last_bit_n_(0x00), last_bit_value_(0x00),  // Step 0482: Last BIT tracking
+      coverage_window_start_(0x0000), coverage_window_end_(0xFFFF),  // Step 0483: Exec coverage window (inicialmente deshabilitado)
+      last_load_a_pc_(0xFFFF), last_load_a_addr_(0x0000), last_load_a_value_(0x00),  // Step 0483: Last load A tracking
       triage_active_(false), triage_frame_limit_(0), triage_last_pc_(0xFFFF), triage_pc_sample_count_(0) {  // Step 0434
     // Step 0436: Pokemon micro trace ya está inicializado por su constructor por defecto
     // Validación básica (en producción, podríamos usar assert)
@@ -1384,6 +1386,15 @@ int CPU::step() {
         cycles_ += 1;
         return 1;  // Step 0441: HALT devuelve 1 M-Cycle (bucle de HALT)
     }
+    
+    // --- Step 0483: Exec Coverage Tracking (antes del switch) ---
+    // Registrar el PC que se va a ejecutar (después de interrupciones y HALT)
+    bool debug_branch = (std::getenv("VIBOY_DEBUG_BRANCH") != nullptr && 
+                         std::string(std::getenv("VIBOY_DEBUG_BRANCH")) == "1");
+    if (debug_branch && coverage_window_start_ <= original_pc && original_pc <= coverage_window_end_) {
+        exec_coverage_[original_pc]++;
+    }
+    // -----------------------------------------
     
     // ========== FASE 3: Gestión de EI retrasado ==========
     // EI (Enable Interrupts) tiene un retraso de 1 instrucción
@@ -3204,7 +3215,18 @@ int CPU::step() {
             {
                 uint8_t offset = fetch_byte();
                 uint16_t addr = 0xFF00 + static_cast<uint16_t>(offset);
-                regs_->a = mmu_->read(addr);
+                uint8_t value = mmu_->read(addr);
+                regs_->a = value;
+                
+                // --- Step 0483: Last Load A Tracking (gated por VIBOY_DEBUG_BRANCH=1) ---
+                bool debug_branch = (std::getenv("VIBOY_DEBUG_BRANCH") != nullptr && 
+                                     std::string(std::getenv("VIBOY_DEBUG_BRANCH")) == "1");
+                if (debug_branch) {
+                    last_load_a_pc_ = original_pc;
+                    last_load_a_addr_ = addr;
+                    last_load_a_value_ = value;
+                }
+                // -----------------------------------------
                 
                 // --- Step 0438: Monitoreo de LY reads en el loop de Pokémon ---
                 // Capturar cuándo A==0x91 después de leer LY (0xFF44)
@@ -3343,7 +3365,19 @@ int CPU::step() {
         case 0xFA:  // LD A, (nn) (Load from absolute 16-bit address to A)
             {
                 uint16_t addr = fetch_word();
-                regs_->a = mmu_->read(addr);
+                uint8_t value = mmu_->read(addr);
+                regs_->a = value;
+                
+                // --- Step 0483: Last Load A Tracking (gated por VIBOY_DEBUG_BRANCH=1) ---
+                bool debug_branch = (std::getenv("VIBOY_DEBUG_BRANCH") != nullptr && 
+                                     std::string(std::getenv("VIBOY_DEBUG_BRANCH")) == "1");
+                if (debug_branch) {
+                    last_load_a_pc_ = original_pc;
+                    last_load_a_addr_ = addr;
+                    last_load_a_value_ = value;
+                }
+                // -----------------------------------------
+                
                 cycles_ += 4;  // LD A, (nn) consume 4 M-Cycles
                 return 4;
             }
@@ -4259,6 +4293,60 @@ uint8_t CPU::get_last_bit_value() const {
     return last_bit_value_;
 }
 // --- Fin Step 0482 (Last Compare/BIT Tracking) ---
+
+// --- Step 0483: Implementación de getters para Exec Coverage ---
+uint32_t CPU::get_exec_count(uint16_t pc) const {
+    auto it = exec_coverage_.find(pc);
+    if (it != exec_coverage_.end()) {
+        return it->second;
+    }
+    return 0;
+}
+
+std::vector<std::pair<uint16_t, uint32_t>> CPU::get_top_exec_pcs(uint32_t n) const {
+    std::vector<std::pair<uint16_t, uint32_t>> vec(exec_coverage_.begin(), exec_coverage_.end());
+    std::sort(vec.begin(), vec.end(), [](const auto& a, const auto& b) {
+        return a.second > b.second;
+    });
+    if (vec.size() > n) vec.resize(n);
+    return vec;
+}
+
+void CPU::set_coverage_window(uint16_t start, uint16_t end) {
+    coverage_window_start_ = start;
+    coverage_window_end_ = end;
+}
+// --- Fin Step 0483 (Exec Coverage) ---
+
+// --- Step 0483: Implementación de getter para Branch Blockers ---
+std::vector<std::pair<uint16_t, CPU::BranchDecision>> CPU::get_top_branch_blockers(uint32_t n) const {
+    std::vector<std::pair<uint16_t, BranchDecision>> vec;
+    for (const auto& pair : branch_decisions_) {
+        vec.push_back({pair.first, pair.second});
+    }
+    std::sort(vec.begin(), vec.end(), [](const auto& a, const auto& b) {
+        uint32_t total_a = a.second.taken_count + a.second.not_taken_count;
+        uint32_t total_b = b.second.taken_count + b.second.not_taken_count;
+        return total_a > total_b;
+    });
+    if (vec.size() > n) vec.resize(n);
+    return vec;
+}
+// --- Fin Step 0483 (Branch Blockers) ---
+
+// --- Step 0483: Implementación de getters para Last Load A ---
+uint16_t CPU::get_last_load_a_pc() const {
+    return last_load_a_pc_;
+}
+
+uint16_t CPU::get_last_load_a_addr() const {
+    return last_load_a_addr_;
+}
+
+uint8_t CPU::get_last_load_a_value() const {
+    return last_load_a_value_;
+}
+// --- Fin Step 0483 (Last Load A) ---
 
 // --- Step 0472: Implementación de getters para STOP ---
 uint32_t CPU::get_stop_executed_count() const {

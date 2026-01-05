@@ -1175,7 +1175,50 @@ cdef class PyMMU:
         if self._mmu == NULL:
             return 0
         return self._mmu.get_hram_read_count_program(addr)
+    
+    def get_hram_last_write_frame(self, uint16_t addr):
+        """
+        Step 0483: Obtiene el frame de la última escritura a una dirección HRAM en watchlist.
+        
+        Args:
+            addr: Dirección HRAM
+        
+        Returns:
+            Frame de la última escritura, o 0 si no se ha escrito
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_hram_last_write_frame(addr)
+    
+    def get_hram_last_read_pc(self, uint16_t addr):
+        """
+        Step 0483: Obtiene el PC del último read a una dirección HRAM en watchlist.
+        
+        Args:
+            addr: Dirección HRAM
+        
+        Returns:
+            PC del último read, o 0xFFFF si no está en watchlist
+        """
+        if self._mmu == NULL:
+            return 0xFFFF
+        return self._mmu.get_hram_last_read_pc(addr)
+    
+    def get_hram_last_read_value(self, uint16_t addr):
+        """
+        Step 0483: Obtiene el último valor leído de una dirección HRAM en watchlist.
+        
+        Args:
+            addr: Dirección HRAM
+        
+        Returns:
+            Último valor leído, o 0 si no está en watchlist
+        """
+        if self._mmu == NULL:
+            return 0
+        return self._mmu.get_hram_last_read_value(addr)
     # --- Fin Step 0481 ---
+    # --- Fin Step 0483 (HRAM last_write_frame, last_read_pc, last_read_value) ---
     
     # Método para obtener el puntero C++ directamente (forma segura)
     cdef mmu.MMU* get_cpp_ptr(self):
