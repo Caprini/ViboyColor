@@ -44,6 +44,8 @@ CPU::CPU(MMU* mmu, CoreRegisters* registers)
       coverage_window_start_(0x0000), coverage_window_end_(0xFFFF),  // Step 0483: Exec coverage window (inicialmente deshabilitado)
       last_load_a_pc_(0xFFFF), last_load_a_addr_(0x0000), last_load_a_value_(0x00),  // Step 0483: Last load A tracking
       branch_0x1290_stats_(),  // Step 0484: Branch 0x1290 stats (inicializado por constructor por defecto)
+      mario_loop_ly_watch_(), mario_loop_start_(0x128C), mario_loop_end_(0x1290),  // Step 0485: Mario Loop LY Watch
+      branch_0x1290_corr_(),  // Step 0485: Branch 0x1290 Correlation
       triage_active_(false), triage_frame_limit_(0), triage_last_pc_(0xFFFF), triage_pc_sample_count_(0) {  // Step 0434
     // Step 0436: Pokemon micro trace ya está inicializado por su constructor por defecto
     // Validación básica (en producción, podríamos usar assert)
@@ -1397,6 +1399,14 @@ int CPU::step() {
     }
     // -----------------------------------------
     
+    // --- Step 0485: Exec Coverage para ventana Mario (gated por VIBOY_DEBUG_MARIO_LOOP=1) ---
+    bool debug_mario_loop = (std::getenv("VIBOY_DEBUG_MARIO_LOOP") != nullptr && 
+                              std::string(std::getenv("VIBOY_DEBUG_MARIO_LOOP")) == "1");
+    if (debug_mario_loop && original_pc >= 0x1270 && original_pc <= 0x12B0) {
+        exec_coverage_[original_pc]++;
+    }
+    // -----------------------------------------
+    
     // ========== FASE 3: Gestión de EI retrasado ==========
     // EI (Enable Interrupts) tiene un retraso de 1 instrucción
     // Si ime_scheduled_ es true, activar IME después de procesar esta instrucción
@@ -2684,6 +2694,42 @@ int CPU::step() {
                 }
                 // -----------------------------------------
                 
+                // --- Step 0485: Branch 0x1290 Correlation (gated por VIBOY_DEBUG_MARIO_LOOP=1) ---
+                bool debug_mario_loop = (std::getenv("VIBOY_DEBUG_MARIO_LOOP") != nullptr && 
+                                         std::string(std::getenv("VIBOY_DEBUG_MARIO_LOOP")) == "1");
+                if (debug_mario_loop && original_pc == 0x1290) {
+                    branch_0x1290_corr_.branch_eval_count++;
+                    
+                    if (taken) {
+                        branch_0x1290_corr_.branch_taken_count++;
+                    } else {
+                        branch_0x1290_corr_.branch_not_taken_count++;
+                        // Guardar LY y flags del momento del not-taken
+                        branch_0x1290_corr_.branch_last_not_taken_ly_value = mario_loop_ly_watch_.ly_last_value;
+                        branch_0x1290_corr_.branch_last_not_taken_flags = regs_->f;
+                        // Guardar el siguiente PC (será actualizado después de ejecutar la instrucción)
+                        branch_0x1290_corr_.branch_last_not_taken_next_pc = regs_->pc;  // JR no-taken avanza 2 bytes
+                        
+                        // --- Step 0485: Mini Trace Ring-Buffer ---
+                        LoopTraceEvent event;
+                        // Necesitamos un frame counter - usar cycles_ como aproximación o añadir frame_counter_
+                        // Por ahora usamos cycles_ como timestamp
+                        event.frame = 0;  // TODO: Necesitamos exponer frame_counter_ o calcularlo
+                        event.pc = original_pc;
+                        event.ly_value = mario_loop_ly_watch_.ly_last_value;
+                        event.flags = regs_->f;
+                        event.taken = taken;
+                        event.timestamp = cycles_;
+                        
+                        mario_loop_trace_.push_back(event);
+                        if (mario_loop_trace_.size() > MARIO_LOOP_TRACE_SIZE) {
+                            mario_loop_trace_.erase(mario_loop_trace_.begin());
+                        }
+                        // -----------------------------------------
+                    }
+                }
+                // -----------------------------------------
+                
                 if (taken) {
                     // Condición verdadera: saltar
                     int8_t offset = static_cast<int8_t>(offset_raw);
@@ -3289,6 +3335,24 @@ int CPU::step() {
                         ly_read_distribution_[value]++;
                     }
                     // -----------------------------------------
+                }
+                // -----------------------------------------
+                
+                // --- Step 0485: Mario Loop LY Watch (gated por VIBOY_DEBUG_MARIO_LOOP=1) ---
+                bool debug_mario_loop = (std::getenv("VIBOY_DEBUG_MARIO_LOOP") != nullptr && 
+                                         std::string(std::getenv("VIBOY_DEBUG_MARIO_LOOP")) == "1");
+                if (debug_mario_loop && addr == 0xFF44) {  // LY register
+                    // Verificar si PC está en el rango del loop
+                    if (original_pc >= mario_loop_start_ && original_pc <= mario_loop_end_) {
+                        mario_loop_ly_watch_.ly_reads_total++;
+                        mario_loop_ly_watch_.ly_last_value = value;
+                        mario_loop_ly_watch_.ly_last_timestamp = cycles_;
+                        mario_loop_ly_watch_.ly_last_pc = original_pc;
+                        
+                        if (value == 0x91) {  // 145 decimal
+                            mario_loop_ly_watch_.ly_eq_0x91_count++;
+                        }
+                    }
                 }
                 // -----------------------------------------
                 
@@ -4445,6 +4509,58 @@ uint8_t CPU::get_branch_0x1290_last_flags() const {
 bool CPU::get_branch_0x1290_last_taken() const {
     return branch_0x1290_stats_.last_taken;
 }
+// --- Fin Step 0484 (Branch 0x1290) ---
+
+// --- Step 0485: Mario Loop LY Watch Getters ---
+uint32_t CPU::get_mario_loop_ly_reads_total() const {
+    return mario_loop_ly_watch_.ly_reads_total;
+}
+
+uint32_t CPU::get_mario_loop_ly_eq_0x91_count() const {
+    return mario_loop_ly_watch_.ly_eq_0x91_count;
+}
+
+uint8_t CPU::get_mario_loop_ly_last_value() const {
+    return mario_loop_ly_watch_.ly_last_value;
+}
+
+uint32_t CPU::get_mario_loop_ly_last_timestamp() const {
+    return mario_loop_ly_watch_.ly_last_timestamp;
+}
+
+uint16_t CPU::get_mario_loop_ly_last_pc() const {
+    return mario_loop_ly_watch_.ly_last_pc;
+}
+
+// --- Step 0485: Branch 0x1290 Correlation Getters ---
+uint32_t CPU::get_branch_0x1290_eval_count() const {
+    return branch_0x1290_corr_.branch_eval_count;
+}
+
+uint32_t CPU::get_branch_0x1290_taken_count_0485() const {
+    return branch_0x1290_corr_.branch_taken_count;
+}
+
+uint32_t CPU::get_branch_0x1290_not_taken_count_0485() const {
+    return branch_0x1290_corr_.branch_not_taken_count;
+}
+
+uint8_t CPU::get_branch_0x1290_last_not_taken_ly_value() const {
+    return branch_0x1290_corr_.branch_last_not_taken_ly_value;
+}
+
+uint8_t CPU::get_branch_0x1290_last_not_taken_flags() const {
+    return branch_0x1290_corr_.branch_last_not_taken_flags;
+}
+
+uint16_t CPU::get_branch_0x1290_last_not_taken_next_pc() const {
+    return branch_0x1290_corr_.branch_last_not_taken_next_pc;
+}
+
+std::vector<LoopTraceEvent> CPU::get_mario_loop_trace() const {
+    return mario_loop_trace_;
+}
+// --- Fin Step 0485 (Mario Loop) ---
 // --- Fin Step 0484 ---
 
 // --- Step 0472: Implementación de getters para STOP ---

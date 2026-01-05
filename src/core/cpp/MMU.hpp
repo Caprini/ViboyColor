@@ -26,6 +26,25 @@ enum class HardwareMode {
 };
 
 /**
+ * Step 0485: JOYP Access Trace Event
+ * 
+ * Estructura para rastrear accesos a JOYP (0xFF00) en un ring-buffer.
+ */
+struct JOYPTraceEvent {
+    enum Type { READ, WRITE };
+    Type type;
+    uint16_t pc;
+    uint8_t value_written;      // Si WRITE
+    uint8_t value_read;         // Si READ
+    uint8_t select_bits;        // Bits 4-5 del valor vigente en P1
+    uint8_t low_nibble_read;    // Bits 0-3 leídos
+    uint32_t timestamp;          // Cycle counter o contador monotónico
+    
+    JOYPTraceEvent() : type(READ), pc(0xFFFF), value_written(0), value_read(0), 
+                       select_bits(0), low_nibble_read(0), timestamp(0) {}
+};
+
+/**
  * MMU (Memory Management Unit) - Unidad de Gestión de Memoria
  * 
  * Gestiona el espacio de direcciones de 16 bits (0x0000 a 0xFFFF = 65536 bytes)
@@ -848,6 +867,16 @@ private:
     mutable uint8_t joyp_last_read_select_bits_;  // bits 4-5 del latch
     mutable uint8_t joyp_last_read_low_nibble_;  // bits 0-3 leídos
     
+    // --- Step 0485: JOYP Access Trace Ring-Buffer (gated por VIBOY_DEBUG_JOYP_TRACE=1) ---
+    // JOYPTraceEvent está definida fuera de la clase (arriba) para acceso desde Cython
+    mutable std::vector<JOYPTraceEvent> joyp_trace_;
+    static constexpr size_t JOYP_TRACE_SIZE = 256;
+    
+    // --- Step 0485: Contadores por tipo de selección JOYP ---
+    mutable uint32_t joyp_reads_with_buttons_selected_count_;  // select buttons bit=0
+    mutable uint32_t joyp_reads_with_dpad_selected_count_;     // select dpad bit=0
+    mutable uint32_t joyp_reads_with_none_selected_count_;     // 0x30 (ninguno seleccionado)
+    
 public:
     /**
      * Step 0450: Log summary of MBC writes (debug-gated).
@@ -1332,6 +1361,52 @@ public:
      * @return Bits 0-3 leídos
      */
     uint8_t get_joyp_last_read_low_nibble() const;
+    
+    /**
+     * Step 0485: Obtiene el trace completo de JOYP (últimos 256 eventos).
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+     * 
+     * @return Vector de eventos del trace
+     */
+    std::vector<JOYPTraceEvent> get_joyp_trace() const;
+    
+    /**
+     * Step 0485: Obtiene los últimos N eventos del trace de JOYP.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+     * 
+     * @param n Número de eventos a retornar
+     * @return Vector de los últimos N eventos
+     */
+    std::vector<JOYPTraceEvent> get_joyp_trace_tail(size_t n) const;
+    
+    /**
+     * Step 0485: Obtiene el contador de reads de JOYP con botones seleccionados.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+     * 
+     * @return Número de reads con botones seleccionados (P14=0)
+     */
+    uint32_t get_joyp_reads_with_buttons_selected_count() const;
+    
+    /**
+     * Step 0485: Obtiene el contador de reads de JOYP con dpad seleccionado.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+     * 
+     * @return Número de reads con dpad seleccionado (P15=0)
+     */
+    uint32_t get_joyp_reads_with_dpad_selected_count() const;
+    
+    /**
+     * Step 0485: Obtiene el contador de reads de JOYP sin selección (0x30).
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+     * 
+     * @return Número de reads sin selección (0x30)
+     */
+    uint32_t get_joyp_reads_with_none_selected_count() const;
 };
 
 #endif // MMU_HPP

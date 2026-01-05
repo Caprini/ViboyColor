@@ -193,6 +193,8 @@ MMU::MMU()
     , hram_watchlist_()  // Step 0481: Inicializar watchlist vacía
     , lcdc_disable_events_(0), last_lcdc_write_pc_(0xFFFF), last_lcdc_write_value_(0x00)  // Step 0482: LCDC Disable Tracking
     , joyp_last_read_select_bits_(0x00), joyp_last_read_low_nibble_(0x0F)  // Step 0484: JOYP Read Select Bits
+    , joyp_reads_with_buttons_selected_count_(0), joyp_reads_with_dpad_selected_count_(0),  // Step 0485: JOYP Trace contadores
+      joyp_reads_with_none_selected_count_(0)  // Step 0485
 {
     // Step 0450: Inicializar ring buffer de MBC writes
     for (int i = 0; i < 8; i++) {
@@ -461,6 +463,44 @@ uint8_t MMU::read(uint16_t addr) const {
             joyp_last_read_select_bits_ = (latch >> 4) & 0x03;  // bits 4-5
         }
         joyp_last_read_low_nibble_ = p1_value & 0x0F;  // bits 0-3
+        // -----------------------------------------
+        
+        // --- Step 0485: JOYP Access Trace (gated por VIBOY_DEBUG_JOYP_TRACE=1) ---
+        bool debug_joyp_trace = (std::getenv("VIBOY_DEBUG_JOYP_TRACE") != nullptr && 
+                                  std::string(std::getenv("VIBOY_DEBUG_JOYP_TRACE")) == "1");
+        if (debug_joyp_trace && !irq_poll_active_) {  // Solo program, no CPU polling
+            JOYPTraceEvent event;
+            event.type = JOYPTraceEvent::READ;
+            event.pc = debug_current_pc;
+            event.value_read = p1_value;
+            
+            // Obtener bits de selección del latch actual (del Joypad)
+            if (joypad_ != nullptr) {
+                uint8_t latch = joypad_->get_p1_register();
+                event.select_bits = (latch >> 4) & 0x03;  // Bits 4-5
+            } else {
+                event.select_bits = 0x03;  // Ninguno seleccionado por defecto
+            }
+            
+            event.low_nibble_read = p1_value & 0x0F;  // Bits 0-3
+            event.timestamp = 0;  // TODO: Necesitamos exponer total_cycles_ o usar otro contador
+            
+            joyp_trace_.push_back(event);
+            if (joyp_trace_.size() > JOYP_TRACE_SIZE) {
+                joyp_trace_.erase(joyp_trace_.begin());
+            }
+            
+            // Contadores por tipo de selección
+            if (event.select_bits == 0x00) {  // Ambos seleccionados (P14=0, P15=0)
+                // No contamos ambos, solo uno u otro
+            } else if ((event.select_bits & 0x01) == 0) {  // P14=0 (buttons)
+                joyp_reads_with_buttons_selected_count_++;
+            } else if ((event.select_bits & 0x02) == 0) {  // P15=0 (dpad)
+                joyp_reads_with_dpad_selected_count_++;
+            } else {  // 0x03 (ninguno seleccionado)
+                joyp_reads_with_none_selected_count_++;
+            }
+        }
         // -----------------------------------------
         
         return p1_value;
@@ -1321,6 +1361,24 @@ void MMU::write(uint16_t addr, uint8_t value) {
         // Limitar tamaño de listas (top 10 PCs por valor)
         if (joyp_write_pcs_by_value_[value].size() > 10) {
             joyp_write_pcs_by_value_[value].erase(joyp_write_pcs_by_value_[value].begin());
+        }
+        // -----------------------------------------
+        
+        // --- Step 0485: JOYP Access Trace (gated por VIBOY_DEBUG_JOYP_TRACE=1) ---
+        bool debug_joyp_trace = (std::getenv("VIBOY_DEBUG_JOYP_TRACE") != nullptr && 
+                                  std::string(std::getenv("VIBOY_DEBUG_JOYP_TRACE")) == "1");
+        if (debug_joyp_trace && !irq_poll_active_) {  // Solo program, no CPU polling
+            JOYPTraceEvent event;
+            event.type = JOYPTraceEvent::WRITE;
+            event.pc = debug_current_pc;
+            event.value_written = value;
+            event.select_bits = (value >> 4) & 0x03;  // Bits 4-5
+            event.timestamp = 0;  // TODO: Necesitamos exponer total_cycles_ o usar otro contador
+            
+            joyp_trace_.push_back(event);
+            if (joyp_trace_.size() > JOYP_TRACE_SIZE) {
+                joyp_trace_.erase(joyp_trace_.begin());
+            }
         }
         // -----------------------------------------
     }
@@ -4553,6 +4611,32 @@ uint8_t MMU::get_joyp_last_read_select_bits() const {
 uint8_t MMU::get_joyp_last_read_low_nibble() const {
     return joyp_last_read_low_nibble_;
 }
+// --- Fin Step 0484 (JOYP) ---
+
+// --- Step 0485: JOYP Trace Getters ---
+std::vector<JOYPTraceEvent> MMU::get_joyp_trace() const {
+    return joyp_trace_;
+}
+
+std::vector<JOYPTraceEvent> MMU::get_joyp_trace_tail(size_t n) const {
+    if (n >= joyp_trace_.size()) {
+        return joyp_trace_;
+    }
+    return std::vector<JOYPTraceEvent>(joyp_trace_.end() - n, joyp_trace_.end());
+}
+
+uint32_t MMU::get_joyp_reads_with_buttons_selected_count() const {
+    return joyp_reads_with_buttons_selected_count_;
+}
+
+uint32_t MMU::get_joyp_reads_with_dpad_selected_count() const {
+    return joyp_reads_with_dpad_selected_count_;
+}
+
+uint32_t MMU::get_joyp_reads_with_none_selected_count() const {
+    return joyp_reads_with_none_selected_count_;
+}
+// --- Fin Step 0485 (JOYP Trace) ---
 // --- Fin Step 0484 ---
 // --- Fin Step 0482 (LCDC Disable Tracking) ---
 

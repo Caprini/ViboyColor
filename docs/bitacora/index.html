@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0485 - Evidencia Dura - Mario LY==0x91 Count + Tetris DX JOYP Trace Secuencial -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-05__0485__evidencia-dura-mario-ly-tetris-joyp-trace.html" class="entry-link">
+                                    Evidencia Dura - Mario LY==0x91 Count + Tetris DX JOYP Trace Secuencial
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-05 | 
+                            <strong>Step ID:</strong> 0485 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Corrección de 3 errores críticos del Step 0484: confusión 0x91 vs 0x5B, flags mal decodificados, snapshot aislado. Implementación de instrumentación quirúrgica gated para obtener evidencia dura: Mario (count(LY==0x91) explícito en loop + correlación branch + exec coverage ventana 0x1270..0x12B0), Tetris DX (JOYP trace secuencial ring-buffer 256 eventos + contadores por tipo de selección). Tests clean-room mínimos para validar instrumentación.
+                        </p>
+                    </li>
                     <!-- Entrada 0484 - Cerrar Diagnósticos con Evidencia - Mario LY Loop + Tetris DX JOYP Deselect -->
                     <li>
                         <div class="entry-header">

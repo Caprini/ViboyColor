@@ -14,6 +14,20 @@ class PPU;
 class Timer;
 
 /**
+ * Step 0485: Loop Trace Event
+ * 
+ * Estructura para rastrear eventos del loop de Mario en un ring-buffer.
+ */
+struct LoopTraceEvent {
+    uint32_t frame;
+    uint16_t pc;
+    uint8_t ly_value;
+    uint8_t flags;
+    bool taken;
+    uint32_t timestamp;
+};
+
+/**
  * CPU - Procesador LR35902 de la Game Boy
  * 
  * Esta clase implementa el ciclo de instrucción (Fetch-Decode-Execute)
@@ -714,6 +728,41 @@ private:
     };
     Branch0x1290Stats branch_0x1290_stats_;
     
+    // --- Step 0485: Mario Loop LY Watch (gated por VIBOY_DEBUG_MARIO_LOOP=1) ---
+    struct MarioLoopLYWatch {
+        uint32_t ly_reads_total;           // Total de lecturas LY en el loop
+        uint32_t ly_eq_0x91_count;        // Count(LY==0x91) en el loop
+        uint8_t ly_last_value;             // Último valor de LY leído
+        uint32_t ly_last_timestamp;        // Cycle counter del último read
+        uint16_t ly_last_pc;               // PC donde se leyó LY
+        
+        MarioLoopLYWatch() : ly_reads_total(0), ly_eq_0x91_count(0), ly_last_value(0), 
+                             ly_last_timestamp(0), ly_last_pc(0xFFFF) {}
+    };
+    MarioLoopLYWatch mario_loop_ly_watch_;
+    uint16_t mario_loop_start_;  // 0x128C
+    uint16_t mario_loop_end_;     // 0x1290
+    
+    // --- Step 0485: Branch 0x1290 Correlation (gated por VIBOY_DEBUG_MARIO_LOOP=1) ---
+    struct Branch0x1290Correlation {
+        uint32_t branch_eval_count;
+        uint32_t branch_taken_count;
+        uint32_t branch_not_taken_count;
+        uint8_t branch_last_not_taken_ly_value;  // LY leído inmediatamente antes
+        uint8_t branch_last_not_taken_flags;     // Flags en el momento del not-taken
+        uint16_t branch_last_not_taken_next_pc;   // Primer PC ejecutado después del no-taken
+        
+        Branch0x1290Correlation() : branch_eval_count(0), branch_taken_count(0), 
+                                     branch_not_taken_count(0), branch_last_not_taken_ly_value(0),
+                                     branch_last_not_taken_flags(0), branch_last_not_taken_next_pc(0xFFFF) {}
+    };
+    Branch0x1290Correlation branch_0x1290_corr_;
+    
+    // --- Step 0485: Mini Trace Ring-Buffer para Mario Loop (gated por VIBOY_DEBUG_MARIO_LOOP=1) ---
+    // LoopTraceEvent está definida fuera de la clase (arriba) para acceso desde Cython
+    std::vector<LoopTraceEvent> mario_loop_trace_;
+    static constexpr size_t MARIO_LOOP_TRACE_SIZE = 64;
+    
     // ========== Estado de Triage (Step 0434) ==========
     // Instrumentación para entender por qué VRAM está vacía
     bool triage_active_;               // Flag para activar triage (limitado por frames)
@@ -1068,6 +1117,114 @@ public:
      * @return true si el último branch fue tomado, false si no
      */
     bool get_branch_0x1290_last_taken() const;
+    
+    /**
+     * Step 0485: Obtiene el contador total de lecturas LY en el loop de Mario.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+     * 
+     * @return Número total de lecturas LY en el loop
+     */
+    uint32_t get_mario_loop_ly_reads_total() const;
+    
+    /**
+     * Step 0485: Obtiene el contador de veces que LY==0x91 en el loop de Mario.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+     * 
+     * @return Número de veces que LY==0x91
+     */
+    uint32_t get_mario_loop_ly_eq_0x91_count() const;
+    
+    /**
+     * Step 0485: Obtiene el último valor de LY leído en el loop de Mario.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+     * 
+     * @return Último valor de LY leído
+     */
+    uint8_t get_mario_loop_ly_last_value() const;
+    
+    /**
+     * Step 0485: Obtiene el timestamp del último read de LY en el loop de Mario.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+     * 
+     * @return Timestamp (cycle counter) del último read
+     */
+    uint32_t get_mario_loop_ly_last_timestamp() const;
+    
+    /**
+     * Step 0485: Obtiene el PC del último read de LY en el loop de Mario.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+     * 
+     * @return PC del último read de LY
+     */
+    uint16_t get_mario_loop_ly_last_pc() const;
+    
+    /**
+     * Step 0485: Obtiene el contador de evaluaciones del branch en 0x1290.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+     * 
+     * @return Número de veces que se evaluó el branch
+     */
+    uint32_t get_branch_0x1290_eval_count() const;
+    
+    /**
+     * Step 0485: Obtiene el contador de veces que el branch en 0x1290 fue tomado.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+     * 
+     * @return Número de veces que el branch fue tomado
+     */
+    uint32_t get_branch_0x1290_taken_count_0485() const;
+    
+    /**
+     * Step 0485: Obtiene el contador de veces que el branch en 0x1290 no fue tomado.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+     * 
+     * @return Número de veces que el branch no fue tomado
+     */
+    uint32_t get_branch_0x1290_not_taken_count_0485() const;
+    
+    /**
+     * Step 0485: Obtiene el valor de LY del último not-taken del branch en 0x1290.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+     * 
+     * @return Valor de LY del último not-taken
+     */
+    uint8_t get_branch_0x1290_last_not_taken_ly_value() const;
+    
+    /**
+     * Step 0485: Obtiene los flags del último not-taken del branch en 0x1290.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+     * 
+     * @return Flags del último not-taken
+     */
+    uint8_t get_branch_0x1290_last_not_taken_flags() const;
+    
+    /**
+     * Step 0485: Obtiene el siguiente PC después del último not-taken del branch en 0x1290.
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+     * 
+     * @return Siguiente PC después del not-taken
+     */
+    uint16_t get_branch_0x1290_last_not_taken_next_pc() const;
+    
+    /**
+     * Step 0485: Obtiene el trace del loop de Mario (últimos 64 eventos).
+     * 
+     * Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+     * 
+     * @return Vector de eventos del trace
+     */
+    std::vector<LoopTraceEvent> get_mario_loop_trace() const;
 };
 
 #endif // CPU_HPP

@@ -39,6 +39,15 @@ cdef extern from "CPU.hpp":
         bool last_taken
         uint8_t last_flags
     
+    # Step 0485: Declarar estructura LoopTraceEvent para acceso desde Cython
+    cdef struct LoopTraceEvent:
+        uint32_t frame
+        uint16_t pc
+        uint8_t ly_value
+        uint8_t flags
+        bool taken
+        uint32_t timestamp
+    
     cdef cppclass CPU:
         # Constructor: recibe punteros a MMU y CoreRegisters
         CPU(MMU* mmu, CoreRegisters* registers) except +
@@ -127,4 +136,18 @@ cdef extern from "CPU.hpp":
         uint32_t get_branch_0x1290_not_taken_count() const  # Step 0484
         uint8_t get_branch_0x1290_last_flags() const  # Step 0484
         bool get_branch_0x1290_last_taken() const  # Step 0484
+        # Step 0485: Mario Loop LY Watch
+        uint32_t get_mario_loop_ly_reads_total() const
+        uint32_t get_mario_loop_ly_eq_0x91_count() const
+        uint8_t get_mario_loop_ly_last_value() const
+        uint32_t get_mario_loop_ly_last_timestamp() const
+        uint16_t get_mario_loop_ly_last_pc() const
+        # Step 0485: Branch 0x1290 Correlation
+        uint32_t get_branch_0x1290_eval_count() const
+        uint32_t get_branch_0x1290_taken_count_0485() const
+        uint32_t get_branch_0x1290_not_taken_count_0485() const
+        uint8_t get_branch_0x1290_last_not_taken_ly_value() const
+        uint8_t get_branch_0x1290_last_not_taken_flags() const
+        uint16_t get_branch_0x1290_last_not_taken_next_pc() const
+        vector[LoopTraceEvent] get_mario_loop_trace() const
 

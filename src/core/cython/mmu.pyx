@@ -788,6 +788,92 @@ cdef class PyMMU:
             Bits 0-3 leídos
         """
         return self._mmu.get_joyp_last_read_low_nibble()
+    
+    # --- Step 0485: JOYP Trace Getters ---
+    def get_joyp_trace(self):
+        """
+        Step 0485: Obtiene el trace completo de JOYP (últimos 256 eventos).
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Lista de eventos del trace (cada evento es un dict con type, pc, value_written, value_read, select_bits, low_nibble_read, timestamp)
+        """
+        cdef vector[mmu.JOYPTraceEvent] trace = self._mmu.get_joyp_trace()
+        result = []
+        for i in range(trace.size()):
+            event = trace[i]
+            result.append({
+                'type': 'READ' if event.type == 0 else 'WRITE',
+                'pc': event.pc,
+                'value_written': event.value_written,
+                'value_read': event.value_read,
+                'select_bits': event.select_bits,
+                'low_nibble_read': event.low_nibble_read,
+                'timestamp': event.timestamp
+            })
+        return result
+    
+    def get_joyp_trace_tail(self, size_t n):
+        """
+        Step 0485: Obtiene los últimos N eventos del trace de JOYP.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Args:
+            n: Número de eventos a retornar
+        
+        Returns:
+            Lista de los últimos N eventos
+        """
+        cdef vector[mmu.JOYPTraceEvent] trace = self._mmu.get_joyp_trace_tail(n)
+        result = []
+        for i in range(trace.size()):
+            event = trace[i]
+            result.append({
+                'type': 'READ' if event.type == 0 else 'WRITE',
+                'pc': event.pc,
+                'value_written': event.value_written,
+                'value_read': event.value_read,
+                'select_bits': event.select_bits,
+                'low_nibble_read': event.low_nibble_read,
+                'timestamp': event.timestamp
+            })
+        return result
+    
+    def get_joyp_reads_with_buttons_selected_count(self):
+        """
+        Step 0485: Obtiene el contador de reads de JOYP con botones seleccionados.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de reads con botones seleccionados (P14=0)
+        """
+        return self._mmu.get_joyp_reads_with_buttons_selected_count()
+    
+    def get_joyp_reads_with_dpad_selected_count(self):
+        """
+        Step 0485: Obtiene el contador de reads de JOYP con dpad seleccionado.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de reads con dpad seleccionado (P15=0)
+        """
+        return self._mmu.get_joyp_reads_with_dpad_selected_count()
+    
+    def get_joyp_reads_with_none_selected_count(self):
+        """
+        Step 0485: Obtiene el contador de reads de JOYP sin selección (0x30).
+        
+        Gate: Solo funciona si VIBOY_DEBUG_JOYP_TRACE=1
+        
+        Returns:
+            Número de reads sin selección (0x30)
+        """
+        return self._mmu.get_joyp_reads_with_none_selected_count()
+    # --- Fin Step 0485 ---
     # --- Fin Step 0484 ---
     
     def get_last_lcdc_write_pc(self):

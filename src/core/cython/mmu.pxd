@@ -25,6 +25,16 @@ cdef extern from "Joypad.hpp":
         pass
 
 cdef extern from "MMU.hpp":
+    # Step 0485: Declarar estructura JOYPTraceEvent (definida fuera de la clase MMU)
+    cdef struct JOYPTraceEvent:
+        int type  # READ=0, WRITE=1
+        uint16_t pc
+        uint8_t value_written
+        uint8_t value_read
+        uint8_t select_bits
+        uint8_t low_nibble_read
+        uint32_t timestamp
+    
     # Step 0404: Hardware Mode enum
     cdef enum class HardwareMode:
         DMG
@@ -115,6 +125,12 @@ cdef extern from "MMU.hpp":
         vector[uint16_t] get_joyp_write_pcs_by_value(uint8_t value) const  # Step 0484
         uint8_t get_joyp_last_read_select_bits() const  # Step 0484
         uint8_t get_joyp_last_read_low_nibble() const  # Step 0484
+        # Step 0485: JOYP Trace
+        vector[JOYPTraceEvent] get_joyp_trace() const
+        vector[JOYPTraceEvent] get_joyp_trace_tail(size_t n) const
+        uint32_t get_joyp_reads_with_buttons_selected_count() const
+        uint32_t get_joyp_reads_with_dpad_selected_count() const
+        uint32_t get_joyp_reads_with_none_selected_count() const
         uint16_t get_last_lcdc_write_pc() const  # Step 0482
         uint8_t get_last_lcdc_write_value() const  # Step 0482
 

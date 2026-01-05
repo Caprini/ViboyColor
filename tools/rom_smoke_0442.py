@@ -1641,6 +1641,68 @@ class ROMSmokeRunner:
                 except Exception:
                     pass
                 
+                # Step 0485: Mario Loop LY Watch (gated por VIBOY_DEBUG_MARIO_LOOP=1)
+                mario_loop_ly_reads_total = 0
+                mario_loop_ly_eq_0x91_count = 0
+                mario_loop_ly_last_value = 0
+                mario_loop_ly_last_timestamp = 0
+                mario_loop_ly_last_pc = 0xFFFF
+                debug_mario_loop = os.getenv("VIBOY_DEBUG_MARIO_LOOP") == "1"
+                if debug_mario_loop:
+                    try:
+                        mario_loop_ly_reads_total = self.cpu.get_mario_loop_ly_reads_total() if hasattr(self.cpu, 'get_mario_loop_ly_reads_total') else 0
+                        mario_loop_ly_eq_0x91_count = self.cpu.get_mario_loop_ly_eq_0x91_count() if hasattr(self.cpu, 'get_mario_loop_ly_eq_0x91_count') else 0
+                        mario_loop_ly_last_value = self.cpu.get_mario_loop_ly_last_value() if hasattr(self.cpu, 'get_mario_loop_ly_last_value') else 0
+                        mario_loop_ly_last_timestamp = self.cpu.get_mario_loop_ly_last_timestamp() if hasattr(self.cpu, 'get_mario_loop_ly_last_timestamp') else 0
+                        mario_loop_ly_last_pc = self.cpu.get_mario_loop_ly_last_pc() if hasattr(self.cpu, 'get_mario_loop_ly_last_pc') else 0xFFFF
+                    except Exception:
+                        pass
+                
+                # Step 0485: Branch 0x1290 Correlation (gated por VIBOY_DEBUG_MARIO_LOOP=1)
+                branch_0x1290_eval_count = 0
+                branch_0x1290_taken_count_0485 = 0
+                branch_0x1290_not_taken_count_0485 = 0
+                branch_0x1290_last_not_taken_ly_value = 0
+                branch_0x1290_last_not_taken_flags = 0
+                branch_0x1290_last_not_taken_next_pc = 0xFFFF
+                if debug_mario_loop:
+                    try:
+                        branch_0x1290_eval_count = self.cpu.get_branch_0x1290_eval_count() if hasattr(self.cpu, 'get_branch_0x1290_eval_count') else 0
+                        branch_0x1290_taken_count_0485 = self.cpu.get_branch_0x1290_taken_count_0485() if hasattr(self.cpu, 'get_branch_0x1290_taken_count_0485') else 0
+                        branch_0x1290_not_taken_count_0485 = self.cpu.get_branch_0x1290_not_taken_count_0485() if hasattr(self.cpu, 'get_branch_0x1290_not_taken_count_0485') else 0
+                        branch_0x1290_last_not_taken_ly_value = self.cpu.get_branch_0x1290_last_not_taken_ly_value() if hasattr(self.cpu, 'get_branch_0x1290_last_not_taken_ly_value') else 0
+                        branch_0x1290_last_not_taken_flags = self.cpu.get_branch_0x1290_last_not_taken_flags() if hasattr(self.cpu, 'get_branch_0x1290_last_not_taken_flags') else 0
+                        branch_0x1290_last_not_taken_next_pc = self.cpu.get_branch_0x1290_last_not_taken_next_pc() if hasattr(self.cpu, 'get_branch_0x1290_last_not_taken_next_pc') else 0xFFFF
+                    except Exception:
+                        pass
+                
+                # Step 0485: Exec Coverage para ventana Mario (0x1270..0x12B0)
+                exec_count_0x1288 = 0
+                exec_count_0x1298 = 0
+                if debug_mario_loop:
+                    try:
+                        exec_count_0x1288 = self.cpu.get_exec_count(0x1288) if hasattr(self.cpu, 'get_exec_count') else 0
+                        exec_count_0x1298 = self.cpu.get_exec_count(0x1298) if hasattr(self.cpu, 'get_exec_count') else 0
+                    except Exception:
+                        pass
+                
+                # Step 0485: JOYP Trace (gated por VIBOY_DEBUG_JOYP_TRACE=1)
+                joyp_trace_tail = []
+                joyp_reads_with_buttons_selected_count = 0
+                joyp_reads_with_dpad_selected_count = 0
+                joyp_reads_with_none_selected_count = 0
+                debug_joyp_trace = os.getenv("VIBOY_DEBUG_JOYP_TRACE") == "1"
+                if debug_joyp_trace:
+                    try:
+                        # Obtener últimos 16 eventos del trace
+                        trace_tail = self.mmu.get_joyp_trace_tail(16) if hasattr(self.mmu, 'get_joyp_trace_tail') else []
+                        joyp_trace_tail = trace_tail
+                        joyp_reads_with_buttons_selected_count = self.mmu.get_joyp_reads_with_buttons_selected_count() if hasattr(self.mmu, 'get_joyp_reads_with_buttons_selected_count') else 0
+                        joyp_reads_with_dpad_selected_count = self.mmu.get_joyp_reads_with_dpad_selected_count() if hasattr(self.mmu, 'get_joyp_reads_with_dpad_selected_count') else 0
+                        joyp_reads_with_none_selected_count = self.mmu.get_joyp_reads_with_none_selected_count() if hasattr(self.mmu, 'get_joyp_reads_with_none_selected_count') else 0
+                    except Exception:
+                        pass
+                
                 print(f"[SMOKE-SNAPSHOT] Frame={frame_idx} | "
                       f"PC=0x{pc:04X} IME={ime} HALTED={halted} | "
                       f"IE=0x{ie:02X} IF=0x{if_reg:02X} | "
@@ -1688,7 +1750,21 @@ class ROMSmokeRunner:
                       f"Branch0x1290_Taken={branch_0x1290_taken_count} Branch0x1290_NotTaken={branch_0x1290_not_taken_count} | "
                       f"Branch0x1290_LastFlags=0x{branch_0x1290_last_flags:02X} Branch0x1290_LastTaken={1 if branch_0x1290_last_taken else 0} | "
                       f"JOYP_WriteDistTop5={joyp_write_dist_str} | "
-                      f"JOYP_ReadSelectBits=0x{joyp_last_read_select_bits:02X} JOYP_ReadLowNibble=0x{joyp_last_read_low_nibble:02X}")
+                      f"JOYP_ReadSelectBits=0x{joyp_last_read_select_bits:02X} JOYP_ReadLowNibble=0x{joyp_last_read_low_nibble:02X} | "
+                      f"MarioLoop_LYReadsTotal={mario_loop_ly_reads_total} MarioLoop_LYEq0x91={mario_loop_ly_eq_0x91_count} | "
+                      f"MarioLoop_LYLastVal=0x{mario_loop_ly_last_value:02X} MarioLoop_LYLastPC=0x{mario_loop_ly_last_pc:04X} | "
+                      f"Branch0x1290_Eval={branch_0x1290_eval_count} Branch0x1290_Taken0485={branch_0x1290_taken_count_0485} Branch0x1290_NotTaken0485={branch_0x1290_not_taken_count_0485} | "
+                      f"Branch0x1290_NotTakenLY=0x{branch_0x1290_last_not_taken_ly_value:02X} Branch0x1290_NotTakenFlags=0x{branch_0x1290_last_not_taken_flags:02X} Branch0x1290_NotTakenNextPC=0x{branch_0x1290_last_not_taken_next_pc:04X} | "
+                      f"ExecCount_0x1288={exec_count_0x1288} ExecCount_0x1298={exec_count_0x1298} | "
+                      f"JOYPTrace_ButtonsSel={joyp_reads_with_buttons_selected_count} JOYPTrace_DpadSel={joyp_reads_with_dpad_selected_count} JOYPTrace_NoneSel={joyp_reads_with_none_selected_count}")
+                
+                # Step 0485: Imprimir tail de JOYP trace si está activo (últimos 16 eventos compactados)
+                if debug_joyp_trace and joyp_trace_tail:
+                    trace_str = " | ".join([
+                        f"{evt['type']}@0x{evt['pc']:04X}:w=0x{evt['value_written']:02X},r=0x{evt['value_read']:02X},sel=0x{evt['select_bits']:02X},low=0x{evt['low_nibble_read']:02X}"
+                        for evt in joyp_trace_tail[-8:]  # Últimos 8 eventos
+                    ])
+                    print(f"[SMOKE-JOYPTRACE] Frame={frame_idx} | Tail: {trace_str}")
                 
                 # Step 0477: Clasificador automático (Caso A/B/C/D)
                 classification = self._classify_ime_ie_state(

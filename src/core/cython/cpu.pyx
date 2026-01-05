@@ -560,6 +560,153 @@ cdef class PyCPU:
         return self._cpu.get_branch_0x1290_last_taken()
     # --- Fin Step 0484 ---
     
+    # --- Step 0485: Mario Loop LY Watch Getters ---
+    def get_mario_loop_ly_reads_total(self):
+        """
+        Step 0485: Obtiene el contador total de lecturas LY en el loop de Mario.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+        
+        Returns:
+            Número total de lecturas LY en el loop
+        """
+        return self._cpu.get_mario_loop_ly_reads_total()
+    
+    def get_mario_loop_ly_eq_0x91_count(self):
+        """
+        Step 0485: Obtiene el contador de veces que LY==0x91 en el loop de Mario.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+        
+        Returns:
+            Número de veces que LY==0x91
+        """
+        return self._cpu.get_mario_loop_ly_eq_0x91_count()
+    
+    def get_mario_loop_ly_last_value(self):
+        """
+        Step 0485: Obtiene el último valor de LY leído en el loop de Mario.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+        
+        Returns:
+            Último valor de LY leído
+        """
+        return self._cpu.get_mario_loop_ly_last_value()
+    
+    def get_mario_loop_ly_last_timestamp(self):
+        """
+        Step 0485: Obtiene el timestamp del último read de LY en el loop de Mario.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+        
+        Returns:
+            Timestamp (cycle counter) del último read
+        """
+        return self._cpu.get_mario_loop_ly_last_timestamp()
+    
+    def get_mario_loop_ly_last_pc(self):
+        """
+        Step 0485: Obtiene el PC del último read de LY en el loop de Mario.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+        
+        Returns:
+            PC del último read de LY
+        """
+        return self._cpu.get_mario_loop_ly_last_pc()
+    
+    # --- Step 0485: Branch 0x1290 Correlation Getters ---
+    def get_branch_0x1290_eval_count(self):
+        """
+        Step 0485: Obtiene el contador de evaluaciones del branch en 0x1290.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+        
+        Returns:
+            Número de veces que se evaluó el branch
+        """
+        return self._cpu.get_branch_0x1290_eval_count()
+    
+    def get_branch_0x1290_taken_count_0485(self):
+        """
+        Step 0485: Obtiene el contador de veces que el branch en 0x1290 fue tomado.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+        
+        Returns:
+            Número de veces que el branch fue tomado
+        """
+        return self._cpu.get_branch_0x1290_taken_count_0485()
+    
+    def get_branch_0x1290_not_taken_count_0485(self):
+        """
+        Step 0485: Obtiene el contador de veces que el branch en 0x1290 no fue tomado.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+        
+        Returns:
+            Número de veces que el branch no fue tomado
+        """
+        return self._cpu.get_branch_0x1290_not_taken_count_0485()
+    
+    def get_branch_0x1290_last_not_taken_ly_value(self):
+        """
+        Step 0485: Obtiene el valor de LY del último not-taken del branch en 0x1290.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+        
+        Returns:
+            Valor de LY del último not-taken
+        """
+        return self._cpu.get_branch_0x1290_last_not_taken_ly_value()
+    
+    def get_branch_0x1290_last_not_taken_flags(self):
+        """
+        Step 0485: Obtiene los flags del último not-taken del branch en 0x1290.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+        
+        Returns:
+            Flags del último not-taken
+        """
+        return self._cpu.get_branch_0x1290_last_not_taken_flags()
+    
+    def get_branch_0x1290_last_not_taken_next_pc(self):
+        """
+        Step 0485: Obtiene el siguiente PC después del último not-taken del branch en 0x1290.
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+        
+        Returns:
+            Siguiente PC después del not-taken
+        """
+        return self._cpu.get_branch_0x1290_last_not_taken_next_pc()
+    
+    def get_mario_loop_trace(self):
+        """
+        Step 0485: Obtiene el trace del loop de Mario (últimos 64 eventos).
+        
+        Gate: Solo funciona si VIBOY_DEBUG_MARIO_LOOP=1
+        
+        Returns:
+            Lista de eventos del trace (cada evento es un dict con frame, pc, ly_value, flags, taken, timestamp)
+        """
+        cdef vector[cpu.LoopTraceEvent] trace = self._cpu.get_mario_loop_trace()
+        result = []
+        for i in range(trace.size()):
+            event = trace[i]
+            result.append({
+                'frame': event.frame,
+                'pc': event.pc,
+                'ly_value': event.ly_value,
+                'flags': event.flags,
+                'taken': event.taken,
+                'timestamp': event.timestamp
+            })
+        return result
+    # --- Fin Step 0485 ---
+    
     # --- Fin Step 0475 ---
     
     # Propiedades para acceso directo (compatibilidad con tests)
