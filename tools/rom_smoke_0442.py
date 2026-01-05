@@ -791,6 +791,27 @@ class ROMSmokeRunner:
         # Cargar ROM
         self.mmu.load_rom_py(self.rom_bytes)
         
+        # --- Step 0483: Auto-press support (VIBOY_AUTOPRESS) ---
+        import os
+        autopress = os.getenv("VIBOY_AUTOPRESS", "")
+        if autopress:
+            # Mapear string a índice de botón
+            button_map = {
+                "START": 7, "A": 4, "B": 5, "SELECT": 6,
+                "UP": 2, "DOWN": 3, "LEFT": 1, "RIGHT": 0
+            }
+            button_idx = button_map.get(autopress.upper(), None)
+            if button_idx is not None:
+                print(f"[AUTOPRESS] Configurado para presionar: {autopress.upper()} (índice {button_idx})")
+                self.autopress_button = button_idx
+                self.autopress_frame = 60  # Presionar después de 60 frames
+            else:
+                print(f"[AUTOPRESS] Botón desconocido: {autopress}, ignorando")
+                self.autopress_button = None
+        else:
+            self.autopress_button = None
+        # -----------------------------------------
+        
         # --- Step 0481: Static scan FF92 writers (si VIBOY_DEBUG_HRAM=1) ---
         import os
         if os.getenv("VIBOY_DEBUG_HRAM") == "1":
@@ -1241,6 +1262,17 @@ class ROMSmokeRunner:
             if elapsed > self.max_seconds:
                 print(f"\nTIMEOUT: {self.max_seconds}s alcanzado, deteniendo en frame {frame_idx}")
                 break
+            
+            # --- Step 0483: Auto-press support (VIBOY_AUTOPRESS) ---
+            if hasattr(self, 'autopress_button') and self.autopress_button is not None:
+                if frame_idx == getattr(self, 'autopress_frame', 60):
+                    print(f"[AUTOPRESS] Frame {frame_idx}: Presionando botón índice {self.autopress_button}")
+                    self.joypad.press_button(self.autopress_button)
+                elif frame_idx == getattr(self, 'autopress_frame', 60) + 5:
+                    # Soltar después de 5 frames
+                    print(f"[AUTOPRESS] Frame {frame_idx}: Soltando botón índice {self.autopress_button}")
+                    self.joypad.release_button(self.autopress_button)
+            # -----------------------------------------
             
             # Ejecutar frame por segmentos para sampling 3-points
             frame_cycles = 0
