@@ -366,9 +366,9 @@ cdef class PyMMU:
             raise MemoryError("La instancia de MMU en C++ no existe.")
         
         if mode.upper() == "DMG":
-            self._mmu.set_hardware_mode(mmu.HardwareMode.DMG)
+            self._mmu.set_hardware_mode(<mmu.HardwareMode>0)  # HardwareMode::DMG = 0
         elif mode.upper() == "CGB":
-            self._mmu.set_hardware_mode(mmu.HardwareMode.CGB)
+            self._mmu.set_hardware_mode(<mmu.HardwareMode>1)  # HardwareMode::CGB = 1
         else:
             raise ValueError(f"Modo de hardware inválido: {mode}. Debe ser 'DMG' o 'CGB'")
     
@@ -385,8 +385,8 @@ cdef class PyMMU:
         if self._mmu == NULL:
             raise MemoryError("La instancia de MMU en C++ no existe.")
         
-        cdef mmu.HardwareMode mode = self._mmu.get_hardware_mode()
-        return "CGB" if mode == mmu.HardwareMode.CGB else "DMG"
+        cdef int mode = <int>self._mmu.get_hardware_mode()
+        return "CGB" if mode == 1 else "DMG"  # HardwareMode::CGB = 1, HardwareMode::DMG = 0
     
     def initialize_io_registers(self):
         """
@@ -1288,6 +1288,33 @@ cdef class PyMMU:
             return 0
         return self._mmu.get_joyp_read_none_selected_total_cpu_poll()
     # --- Fin Step 0487 (JOYP Contadores por Tipo de Selección) ---
+    
+    def get_cgb_palette_write_stats(self):
+        """
+        Step 0489: Obtiene estadísticas de writes a paletas CGB.
+        
+        Devuelve métricas sobre escrituras a BGPI/BGPD y OBPI/OBPD.
+        
+        Returns:
+            dict con estadísticas de writes a paletas CGB o None si no disponible.
+            Keys: 'bgpd_write_count', 'last_bgpd_write_pc', 'last_bgpd_value', 'last_bgpi',
+                  'obpd_write_count', 'last_obpd_write_pc', 'last_obpd_value', 'last_obpi'
+        """
+        if self._mmu == NULL:
+            return None
+        
+        cdef mmu.CGBPaletteWriteStats stats = self._mmu.get_cgb_palette_write_stats()
+        
+        return {
+            'bgpd_write_count': stats.bgpd_write_count,
+            'last_bgpd_write_pc': stats.last_bgpd_write_pc,
+            'last_bgpd_value': stats.last_bgpd_value,
+            'last_bgpi': stats.last_bgpi,
+            'obpd_write_count': stats.obpd_write_count,
+            'last_obpd_write_pc': stats.last_obpd_write_pc,
+            'last_obpd_value': stats.last_obpd_value,
+            'last_obpi': stats.last_obpi,
+        }
     
     def get_last_lcdc_write_pc(self):
         """

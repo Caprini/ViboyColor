@@ -25,6 +25,51 @@ struct FrameBufferStats {
 };
 
 /**
+ * Step 0489: Estructura para estadísticas de tres buffers (prueba irrefutable).
+ * 
+ * Captura CRC32 y estadísticas en 3 puntos del pipeline:
+ * - A1) FB_INDEX: Framebuffer de índices (160x144 de índices 0..3)
+ * - A2) FB_RGB: Buffer RGB después de mapear paletas (160x144 en RGB/RGBA)
+ * - A3) FB_PRESENT_SRC: Buffer exacto que se pasa a SDL/ventana/texture update
+ * 
+ * Permite diagnosticar si el blanco viene de:
+ * - Paletas CGB no aplicadas/no actualizadas (idx_crc32 ≠ 0 pero rgb_crc32 = blanco)
+ * - Presentación/blit (rgb_crc32 ≠ 0 pero present_crc32 = blanco/constante)
+ * - PPU no genera nada útil (los 3 son "todo blanco")
+ */
+struct ThreeBufferStats {
+    // A1) FB_INDEX (lo que ya medimos: 160x144 de índices 0..3)
+    uint32_t idx_crc32;
+    uint32_t idx_unique;
+    uint32_t idx_nonzero;
+    
+    // A2) FB_RGB (después de mapear paletas → buffer de 160x144 en RGB/RGBA que debería ir a pantalla)
+    uint32_t rgb_crc32;
+    uint32_t rgb_unique_colors_approx;  // Aproximación (muestreo)
+    uint32_t rgb_nonwhite_count;
+    
+    // A3) FB_PRESENT_SRC (puntero/bytes EXACTOS que se pasan a SDL/ventana/texture update)
+    uint32_t present_crc32;
+    uint32_t present_nonwhite_count;
+    uint32_t present_fmt;  // Si hay formatos: RGBA/BGRA/ARGB (codificado como número)
+    uint32_t present_pitch;
+    uint32_t present_w;
+    uint32_t present_h;
+};
+
+/**
+ * Step 0489: Estructura para estadísticas de fetch de tiles DMG.
+ * 
+ * Permite rastrear si el PPU está leyendo tile data correctamente.
+ */
+struct DMGTileFetchStats {
+    uint32_t tile_bytes_read_nonzero_count;  // Cuántas veces el fetch lee bytes (low/high) NO-cero
+    uint32_t tile_bytes_read_total_count;
+    uint16_t top_vram_read_addrs[10];  // Top 10 direcciones VRAM leídas por el PPU
+    uint32_t top_vram_read_counts[10];
+};
+
+/**
  * PPU (Pixel Processing Unit) - Unidad de Procesamiento de Píxeles
  * 
  * Esta clase implementa el motor de timing y estado de la PPU de la Game Boy.
@@ -322,6 +367,42 @@ public:
      * @return Referencia constante a FrameBufferStats con las estadísticas
      */
     const FrameBufferStats& get_framebuffer_stats() const;
+    
+    /**
+     * Step 0489: Obtiene estadísticas de los tres buffers (prueba irrefutable).
+     * 
+     * Devuelve métricas sobre FB_INDEX, FB_RGB y FB_PRESENT_SRC para diagnosticar
+     * si el blanco viene de paletas, presentación o PPU.
+     * 
+     * @return Referencia constante a ThreeBufferStats con las estadísticas
+     */
+    const ThreeBufferStats& get_three_buffer_stats() const;
+    
+    /**
+     * Step 0489: Actualiza estadísticas de presentación desde Python.
+     * 
+     * Permite que Python actualice present_crc32 y present_nonwhite_count
+     * después de capturar el buffer exacto que se pasa a SDL.
+     * 
+     * @param present_crc32 CRC32 del buffer presentado
+     * @param present_nonwhite_count Conteo de píxeles no-blancos en el buffer presentado
+     * @param present_fmt Formato del buffer (codificado como número)
+     * @param present_pitch Pitch del buffer
+     * @param present_w Ancho del buffer
+     * @param present_h Alto del buffer
+     */
+    void set_present_stats(uint32_t present_crc32, uint32_t present_nonwhite_count,
+                           uint32_t present_fmt, uint32_t present_pitch,
+                           uint32_t present_w, uint32_t present_h);
+    
+    /**
+     * Step 0489: Obtiene estadísticas de fetch de tiles DMG.
+     * 
+     * Devuelve métricas sobre lecturas de tile data por scanline.
+     * 
+     * @return Referencia constante a DMGTileFetchStats con las estadísticas
+     */
+    const DMGTileFetchStats& get_dmg_tile_fetch_stats() const;
     
     /**
      * Step 0469: Obtiene el contador de VBlank IRQ solicitados.
@@ -756,6 +837,13 @@ private:
     FrameBufferStats framebuffer_stats_;
     
     /**
+     * Step 0489: Estadísticas de los tres buffers (prueba irrefutable).
+     * Se actualizan al final de cada frame (después de swap_framebuffers).
+     */
+    ThreeBufferStats three_buffer_stats_;
+    DMGTileFetchStats dmg_tile_fetch_stats_;
+    
+    /**
      * Step 0488: Calcula estadísticas del framebuffer actual.
      * 
      * Analiza el framebuffer presentado (front) y calcula:
@@ -767,6 +855,16 @@ private:
      * Gateado por VIBOY_DEBUG_FB_STATS=1 para no penalizar rendimiento.
      */
     void compute_framebuffer_stats();
+    
+    /**
+     * Step 0489: Calcula estadísticas de los tres buffers (prueba irrefutable).
+     * 
+     * Analiza FB_INDEX, FB_RGB y FB_PRESENT_SRC para diagnosticar
+     * si el blanco viene de paletas, presentación o PPU.
+     * 
+     * Gateado por VIBOY_DEBUG_PRESENT_TRACE=1 para no penalizar rendimiento.
+     */
+    void compute_three_buffer_stats();
 };
 
 #endif // PPU_HPP

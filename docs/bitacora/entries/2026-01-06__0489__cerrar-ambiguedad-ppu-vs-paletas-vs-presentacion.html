@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cerrar Ambigüedad PPU vs Paletas vs Presentación - Viboy Color Bitácora</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Aviso Clean-Room -->
+        <div class="clean-room-notice">
+            <strong>⚠️ Clean-Room / Educativo</strong>
+            <p>Este proyecto es educativo y Open Source. No se copia código de otros emuladores. Implementación basada únicamente en documentación técnica y tests permitidas.</p>
+        </div>
+
+        <!-- Header -->
+        <header>
+            <h1>Cerrar Ambigüedad PPU vs Paletas vs Presentación</h1>
+            <div class="meta">
+                <span class="meta-item">
+                    <strong>Fecha:</strong> 2026-01-06
+                </span>
+                <span class="meta-item">
+                    <strong>Step ID:</strong> 0489
+                </span>
+                <span class="meta-item">
+                    <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                </span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Inicio</a></li>
+                    <li><a href="2026-01-05__0488__blank-screen-triage-framebuffer-vs-paletas-vs-blit.html">Anterior (0488)</a></li>
+                    <li><a href="#">Siguiente</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- 1. Resumen -->
+            <section id="resumen">
+                <h2>Resumen</h2>
+                <p>
+                    Step 0489 implementa instrumentación en tres puntos críticos del pipeline de renderizado para cerrar la ambigüedad sobre dónde ocurre el problema de pantalla en blanco: FB_INDEX (buffer de índices generado por PPU), FB_RGB (buffer RGB después de mapear paletas), y FB_PRESENT_SRC (buffer exacto pasado a SDL/ventana). Adicionalmente, se añaden instrumentaciones para tracking de writes a paletas CGB y contadores de lecturas de tile data DMG. Los resultados revelan que el PPU no está leyendo tile data (TileBytesTotal=0), lo que explica por qué el framebuffer está completamente en blanco.
+                </p>
+            </section>
+
+            <!-- 2. Concepto de Hardware -->
+            <section id="concepto-hardware">
+                <h2>Concepto de Hardware</h2>
+                <p>
+                    El pipeline de renderizado del Game Boy tiene múltiples etapas donde puede ocurrir un problema de pantalla en blanco:
+                </p>
+                <ol>
+                    <li><strong>FB_INDEX</strong>: El PPU genera un buffer de 160x144 píxeles con índices de color (0-3) basado en datos de tiles de VRAM</li>
+                    <li><strong>FB_RGB</strong>: Los índices se mapean a colores RGB usando paletas (DMG: BGP, CGB: paletas CGB)</li>
+                    <li><strong>FB_PRESENT_SRC</strong>: El buffer RGB se transfiere a la textura SDL para presentación en pantalla</li>
+                </ol>
+                <p>
+                    Para diagnosticar dónde ocurre el problema, necesitamos capturar estadísticas (CRC32, conteos de píxeles no-blancos) en cada uno de estos tres puntos. Si FB_INDEX está en blanco pero FB_RGB no, el problema está en el mapeo de paletas. Si FB_RGB tiene datos pero FB_PRESENT está en blanco, el problema está en el blit/presentación. Si los tres están en blanco, el problema está en el PPU (fetch/decode de tiles).
+                </p>
+                <p>
+                    <strong>Referencia</strong>: Pan Docs - LCD Control Register (FF40 - LCDC), Background Palette (FF47 - BGP), CGB Palettes (FF68-FF6B), Tile Data (0x8000-0x97FF).
+                </p>
+            </section>
+
+            <!-- 3. Implementación -->
+            <section id="implementacion">
+                <h2>Implementación</h2>
+                <p>
+                    Se implementan 5 fases de instrumentación para cerrar la ambigüedad:
+                </p>
+
+                <h3>Fase A: ThreeBufferStats</h3>
+                <p>
+                    Se añade la estructura <code>ThreeBufferStats</code> a <code>PPU.hpp</code> con estadísticas para los tres buffers:
+                </p>
+                <ul>
+                    <li><strong>FB_INDEX</strong>: <code>idx_crc32</code>, <code>idx_unique</code>, <code>idx_nonzero</code></li>
+                    <li><strong>FB_RGB</strong>: <code>rgb_crc32</code>, <code>rgb_unique_colors_approx</code>, <code>rgb_nonwhite_count</code></li>
+                    <li><strong>FB_PRESENT_SRC</strong>: <code>present_crc32</code>, <code>present_nonwhite_count</code>, <code>present_fmt</code>, <code>present_pitch</code>, <code>present_w</code>, <code>present_h</code></li>
+                </ul>
+                <p>
+                    La función <code>compute_three_buffer_stats()</code> se ejecuta cuando LY=144 y <code>frame_ready_</code> es true. Para FB_RGB, se maneja tanto modo CGB (usa buffer RGB directamente) como DMG (convierte índices a RGB usando BGP). FB_PRESENT_SRC se captura desde Python en <code>renderer.py</code> justo antes de <code>pygame.display.flip()</code>.
+                </p>
+                <p>
+                    <strong>Gate</strong>: <code>VIBOY_DEBUG_PRESENT_TRACE=1</code>
+                </p>
+
+                <h3>Fase B: Dump PPM RGB</h3>
+                <p>
+                    Se implementa <code>_dump_rgb_framebuffer_to_ppm()</code> en <code>rom_smoke_0442.py</code> que:
+                </p>
+                <ul>
+                    <li>Lee el framebuffer de índices desde el PPU</li>
+                    <li>Convierte índices a RGB usando BGP (DMG) o paletas CGB</li>
+                    <li>Escribe un archivo PPM (Netpbm P6) con el framebuffer RGB</li>
+                </ul>
+                <p>
+                    <strong>Gate</strong>: <code>VIBOY_DUMP_RGB_FRAME</code> y <code>VIBOY_DUMP_RGB_PATH</code>
+                </p>
+
+                <h3>Fase C: CGB Palette Write Stats</h3>
+                <p>
+                    Se añade la estructura <code>CGBPaletteWriteStats</code> a <code>MMU.hpp</code> para rastrear writes a paletas CGB:
+                </p>
+                <ul>
+                    <li><code>bgpd_write_count</code>, <code>last_bgpd_write_pc</code>, <code>last_bgpd_value</code>, <code>last_bgpi</code></li>
+                    <li><code>obpd_write_count</code>, <code>last_obpd_write_pc</code>, <code>last_obpd_value</code>, <code>last_obpi</code></li>
+                </ul>
+                <p>
+                    El tracking se realiza en <code>MMU::write()</code> cuando se escriben registros 0xFF68-0xFF6B.
+                </p>
+                <p>
+                    <strong>Gate</strong>: <code>VIBOY_DEBUG_CGB_PALETTE_WRITES=1</code>
+                </p>
+
+                <h3>Fase D: DMG Tile Fetch Stats</h3>
+                <p>
+                    Se añade la estructura <code>DMGTileFetchStats</code> a <code>PPU.hpp</code> para rastrear lecturas de tile data:
+                </p>
+                <ul>
+                    <li><code>tile_bytes_read_total_count</code>: Total de bytes de tile data leídos</li>
+                    <li><code>tile_bytes_read_nonzero_count</code>: Bytes no-cero leídos</li>
+                </ul>
+                <p>
+                    El tracking se realiza en <code>PPU::decode_tile_line()</code> cuando se leen bytes de VRAM para decodificar tiles.
+                </p>
+                <p>
+                    <strong>Gate</strong>: <code>VIBOY_DEBUG_DMG_TILE_FETCH=1</code>
+                </p>
+
+                <h3>Fase E: Ejecución y Reporte</h3>
+                <p>
+                    Se ejecuta <code>rom_smoke_0442.py</code> con todas las flags activas y ROM <code>tetris.gb</code> (DMG). Se genera reporte completo en <code>docs/reports/reporte_step0489.md</code>.
+                </p>
+            </section>
+
+            <!-- 4. Archivos Tocados -->
+            <section id="archivos">
+                <h2>Archivos Afectados</h2>
+                <ul>
+                    <li><code>src/core/cpp/PPU.hpp</code> - Estructuras <code>ThreeBufferStats</code> y <code>DMGTileFetchStats</code></li>
+                    <li><code>src/core/cpp/PPU.cpp</code> - Métodos <code>compute_three_buffer_stats()</code> y tracking en <code>decode_tile_line()</code></li>
+                    <li><code>src/core/cython/ppu.pxd</code> / <code>ppu.pyx</code> - Exposición de estructuras y métodos a Python</li>
+                    <li><code>src/core/cpp/MMU.hpp</code> - Estructura <code>CGBPaletteWriteStats</code></li>
+                    <li><code>src/core/cpp/MMU.cpp</code> - Tracking de writes a paletas CGB</li>
+                    <li><code>src/core/cython/mmu.pxd</code> / <code>mmu.pyx</code> - Exposición de <code>CGBPaletteWriteStats</code> a Python</li>
+                    <li><code>src/gpu/renderer.py</code> - Captura de <code>FB_PRESENT_SRC</code> desde Pygame Surface</li>
+                    <li><code>tools/rom_smoke_0442.py</code> - Integración de todas las estadísticas y función <code>_dump_rgb_framebuffer_to_ppm()</code></li>
+                    <li><code>docs/reports/reporte_step0489.md</code> - Reporte completo con análisis de resultados</li>
+                </ul>
+            </section>
+
+            <!-- 5. Tests y Verificación -->
+            <section id="tests">
+                <h2>Tests y Verificación</h2>
+                <p>
+                    Se ejecutó <code>rom_smoke_0442.py</code> con ROM <code>tetris.gb</code> (DMG) y flags:
+                </p>
+                <pre><code>VIBOY_DEBUG_PRESENT_TRACE=1
+VIBOY_DEBUG_CGB_PALETTE_WRITES=1
+VIBOY_DEBUG_DMG_TILE_FETCH=1
+VIBOY_DUMP_RGB_FRAME=5
+VIBOY_DUMP_RGB_PATH=docs/reports/dumps/tetris_frame_####.ppm</code></pre>
+                <p>
+                    <strong>Resultados de snapshots</strong>:
+                </p>
+                <ul>
+                    <li><strong>Frame 0</strong>: <code>ThreeBufferStats=IdxCRC32=0x00000000 IdxUnique=1 IdxNonZero=0 | RgbCRC32=0x00000000 RgbUnique=1 RgbNonWhite=2304 | PresentCRC32=0x00000000 PresentNonWhite=0</code></li>
+                    <li><strong>Frame 1</strong>: Similar a Frame 0</li>
+                    <li><strong>Frame 2</strong>: <code>RgbCRC32=0x4F0D7000</code> pero <code>RgbNonWhite=0</code> (inconsistencia detectada)</li>
+                    <li><strong>CGBPaletteWriteStats</strong>: Sin writes (esperado para DMG)</li>
+                    <li><strong>DMGTileFetchStats</strong>: <code>TileBytesTotal=0 TileBytesNonZero=0</code> ⚠️ <strong>CRÍTICO</strong></li>
+                </ul>
+                <p>
+                    <strong>Dump PPM generado</strong>: <code>docs/reports/dumps/tetris_frame_0005.ppm</code> (68KB)
+                </p>
+                <p>
+                    <strong>Compilación</strong>: ✅ Sin errores, <code>test_build.py</code> pasa correctamente
+                </p>
+            </section>
+
+            <!-- 6. Fuentes Consultadas -->
+            <section id="fuentes">
+                <h2>Fuentes Consultadas</h2>
+                <ul>
+                    <li>Pan Docs: LCD Control Register (FF40 - LCDC)</li>
+                    <li>Pan Docs: Background Palette (FF47 - BGP)</li>
+                    <li>Pan Docs: CGB Palettes (FF68-FF6B)</li>
+                    <li>Pan Docs: Tile Data (0x8000-0x97FF)</li>
+                </ul>
+            </section>
+
+            <!-- 7. Integridad Educativa -->
+            <section id="integridad">
+                <h2>Integridad Educativa</h2>
+                <div class="integridad">
+                    <h3>Lo que Entiendo Ahora</h3>
+                    <ul>
+                        <li><strong>Pipeline de renderizado</strong>: El proceso de renderizado tiene múltiples etapas (fetch → decode → palette → present) y cada una puede ser el origen de un problema de pantalla en blanco.</li>
+                        <li><strong>Instrumentación de tres buffers</strong>: Capturar estadísticas en FB_INDEX, FB_RGB y FB_PRESENT permite identificar exactamente dónde ocurre el problema.</li>
+                        <li><strong>Tracking de tile fetch</strong>: Si el PPU no está leyendo tile data, el framebuffer estará en blanco independientemente de las paletas o la presentación.</li>
+                    </ul>
+
+                    <h3>Lo que Falta Confirmar</h3>
+                    <ul>
+                        <li><strong>Por qué decode_tile_line() no se ejecuta</strong>: El tracking muestra TileBytesTotal=0, lo que indica que <code>decode_tile_line()</code> no se está llamando o las lecturas de VRAM están bloqueadas.</li>
+                        <li><strong>Locks de VRAM durante modo 3</strong>: Necesito verificar si hay locks en <code>MMU.cpp</code> que bloqueen lecturas de VRAM durante el modo Pixel Transfer.</li>
+                        <li><strong>Inconsistencia en conversión RGB</strong>: Frame 2 muestra RgbCRC32≠0 pero RgbNonWhite=0, lo que sugiere un bug en el muestreo o la conversión.</li>
+                    </ul>
+
+                    <h3>Hipótesis y Suposiciones</h3>
+                    <p>
+                        <strong>Hipótesis principal</strong>: El PPU no está leyendo tile data porque VRAM está vacía (confirmado: 0/6144 bytes no-cero) o porque hay locks que bloquean las lecturas durante el modo 3. Esto explica por qué el framebuffer está completamente en blanco.
+                    </p>
+                </div>
+            </section>
+
+            <!-- 8. Próximos Pasos -->
+            <section id="proximos-pasos">
+                <h2>Próximos Pasos</h2>
+                <ul>
+                    <li>[ ] Investigar por qué <code>decode_tile_line()</code> no se ejecuta o las lecturas de VRAM están bloqueadas</li>
+                    <li>[ ] Revisar locks de VRAM en <code>MMU.cpp</code> durante modo 3 (Pixel Transfer)</li>
+                    <li>[ ] Corregir inconsistencia en conversión RGB (muestreo cada 10 píxeles puede estar causando el problema)</li>
+                    <li>[ ] Verificar timing: el PPU podría intentar renderizar antes de que VRAM esté lista</li>
+                    <li>[ ] Ejecutar con ROM CGB (<code>tetris_dx.gbc</code>) para comparar comportamiento</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer>
+            <p><strong>Viboy Color</strong> - Emulador educativo de Game Boy Color</p>
+            <p>Proyecto Open Source - Clean-Room Implementation</p>
+            <p>No se copia código de otros emuladores. Basado únicamente en documentación técnica.</p>
+        </footer>
+    </div>
+</body>
+</html>
+

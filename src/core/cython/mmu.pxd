@@ -173,4 +173,17 @@ cdef extern from "MMU.hpp":
         uint32_t get_joyp_read_buttons_selected_total_cpu_poll() const
         uint32_t get_joyp_read_dpad_selected_total_cpu_poll() const
         uint32_t get_joyp_read_none_selected_total_cpu_poll() const
+        # Step 0489: CGB Palette Write Stats
+        const CGBPaletteWriteStats& get_cgb_palette_write_stats() const
+    
+    # Step 0489: Estructura CGBPaletteWriteStats (definida fuera de la clase MMU)
+    cdef struct CGBPaletteWriteStats:
+        uint32_t bgpd_write_count
+        uint16_t last_bgpd_write_pc
+        uint8_t last_bgpd_value
+        uint8_t last_bgpi
+        uint32_t obpd_write_count
+        uint16_t last_obpd_write_pc
+        uint8_t last_obpd_value
+        uint8_t last_obpi
 

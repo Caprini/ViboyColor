@@ -13,7 +13,7 @@ from libcpp cimport bool
 # Importar la definición de la clase C++ desde el archivo .pxd
 cimport ppu
 cimport mmu
-from ppu cimport FrameBufferStats
+from ppu cimport FrameBufferStats, ThreeBufferStats, DMGTileFetchStats
 
 # NOTA: PyMMU está definido en mmu.pyx, que está incluido en native_core.pyx
 # El atributo _mmu es accesible directamente desde otros módulos Cython
@@ -324,6 +324,91 @@ cdef class PyPPU:
             'fb_top4_colors': [stats.fb_top4_colors[i] for i in range(4)],
             'fb_top4_colors_count': [stats.fb_top4_colors_count[i] for i in range(4)],
             'fb_changed_since_last': stats.fb_changed_since_last,
+        }
+    
+    def get_three_buffer_stats(self):
+        """
+        Step 0489: Obtiene estadísticas de los tres buffers (prueba irrefutable).
+        
+        Devuelve métricas sobre FB_INDEX, FB_RGB y FB_PRESENT_SRC para diagnosticar
+        si el blanco viene de paletas, presentación o PPU.
+        
+        Returns:
+            dict con estadísticas de los tres buffers o None si no disponible.
+            Keys: 'idx_crc32', 'idx_unique', 'idx_nonzero',
+                  'rgb_crc32', 'rgb_unique_colors_approx', 'rgb_nonwhite_count',
+                  'present_crc32', 'present_nonwhite_count', 'present_fmt',
+                  'present_pitch', 'present_w', 'present_h'
+        """
+        if self._ppu == NULL:
+            return None
+        
+        cdef const ThreeBufferStats* stats = &self._ppu.get_three_buffer_stats()
+        if stats == NULL:
+            return None
+        
+        return {
+            'idx_crc32': stats.idx_crc32,
+            'idx_unique': stats.idx_unique,
+            'idx_nonzero': stats.idx_nonzero,
+            'rgb_crc32': stats.rgb_crc32,
+            'rgb_unique_colors_approx': stats.rgb_unique_colors_approx,
+            'rgb_nonwhite_count': stats.rgb_nonwhite_count,
+            'present_crc32': stats.present_crc32,
+            'present_nonwhite_count': stats.present_nonwhite_count,
+            'present_fmt': stats.present_fmt,
+            'present_pitch': stats.present_pitch,
+            'present_w': stats.present_w,
+            'present_h': stats.present_h,
+        }
+    
+    def set_present_stats(self, uint32_t present_crc32, uint32_t present_nonwhite_count,
+                         uint32_t present_fmt, uint32_t present_pitch,
+                         uint32_t present_w, uint32_t present_h):
+        """
+        Step 0489: Actualiza estadísticas de presentación desde Python.
+        
+        Permite que Python actualice present_crc32 y present_nonwhite_count
+        después de capturar el buffer exacto que se pasa a SDL.
+        
+        Args:
+            present_crc32: CRC32 del buffer presentado
+            present_nonwhite_count: Conteo de píxeles no-blancos en el buffer presentado
+            present_fmt: Formato del buffer (codificado como número)
+            present_pitch: Pitch del buffer
+            present_w: Ancho del buffer
+            present_h: Alto del buffer
+        """
+        if self._ppu == NULL:
+            return
+        
+        self._ppu.set_present_stats(present_crc32, present_nonwhite_count,
+                                    present_fmt, present_pitch,
+                                    present_w, present_h)
+    
+    def get_dmg_tile_fetch_stats(self):
+        """
+        Step 0489: Obtiene estadísticas de fetch de tiles DMG.
+        
+        Devuelve métricas sobre lecturas de tile data por scanline.
+        
+        Returns:
+            dict con estadísticas de fetch de tiles DMG o None si no disponible.
+            Keys: 'tile_bytes_read_nonzero_count', 'tile_bytes_read_total_count',
+                  'top_vram_read_addrs', 'top_vram_read_counts'
+        """
+        if self._ppu == NULL:
+            return None
+        
+        cdef const DMGTileFetchStats* stats = &self._ppu.get_dmg_tile_fetch_stats()
+        if stats == NULL:
+            return None
+        
+        return {
+            'tile_bytes_read_nonzero_count': stats.tile_bytes_read_nonzero_count,
+            'tile_bytes_read_total_count': stats.tile_bytes_read_total_count,
+            'top_vram_read_addrs': [stats.top_vram_read_addrs[i] for i in range(10)],
+            'top_vram_read_counts': [stats.top_vram_read_counts[i] for i in range(10)],
         }
     
     def get_last_palette_regs_used(self):

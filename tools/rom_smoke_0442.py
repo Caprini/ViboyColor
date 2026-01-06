@@ -1293,6 +1293,87 @@ class ROMSmokeRunner:
         except Exception as e:
             print(f"[ROM-SMOKE] ERROR al escribir PPM: {e}")
     
+    def _dump_rgb_framebuffer_to_ppm(self, frame_idx: int):
+        """
+        Step 0489: Dump framebuffer RGB a archivo PPM (Fase B).
+        
+        Gateado por VIBOY_DUMP_RGB_FRAME y VIBOY_DUMP_RGB_PATH.
+        
+        Args:
+            frame_idx: Número de frame actual
+        """
+        import os
+        
+        env_frame = os.getenv("VIBOY_DUMP_RGB_FRAME")
+        env_path = os.getenv("VIBOY_DUMP_RGB_PATH")
+        
+        if not env_frame or not env_path:
+            return
+        
+        try:
+            target_frame = int(env_frame)
+        except ValueError:
+            return
+        
+        if frame_idx != target_frame:
+            return
+        
+        # Construir nombre de archivo (reemplazar #### con frame number)
+        output_path = env_path.replace("####", f"{frame_idx:04d}")
+        
+        # Obtener framebuffer RGB desde PPU
+        try:
+            # Intentar obtener el buffer RGB directamente desde C++
+            # Nota: Necesitamos un método en PPU para obtener el buffer RGB
+            # Por ahora, convertimos desde índices usando BGP
+            
+            # Leer BGP para conversión DMG
+            bgp = self.mmu.read(0xFF47)
+            
+            # Obtener framebuffer de índices
+            fb_indices = self.ppu.get_framebuffer_indices()
+            if not fb_indices or len(fb_indices) != 160 * 144:
+                print(f"[ROM-SMOKE-RGB-DUMP] ERROR: Framebuffer inválido (len={len(fb_indices) if fb_indices else 0})")
+                return
+            
+            # Convertir índices a RGB usando BGP
+            shades = [
+                (bgp >> 0) & 0x03,  # idx 0
+                (bgp >> 2) & 0x03,  # idx 1
+                (bgp >> 4) & 0x03,  # idx 2
+                (bgp >> 6) & 0x03,  # idx 3
+            ]
+            
+            shade_to_rgb = [
+                (255, 255, 255),  # Shade 0 = blanco
+                (192, 192, 192),  # Shade 1 = gris claro
+                (96, 96, 96),     # Shade 2 = gris oscuro
+                (0, 0, 0),        # Shade 3 = negro
+            ]
+            
+            # Construir buffer RGB
+            rgb_buffer = bytearray(160 * 144 * 3)
+            for i in range(160 * 144):
+                idx = fb_indices[i] & 0x03
+                shade = shades[idx]
+                r, g, b = shade_to_rgb[shade]
+                rgb_buffer[i * 3 + 0] = r
+                rgb_buffer[i * 3 + 1] = g
+                rgb_buffer[i * 3 + 2] = b
+            
+            # Escribir PPM
+            with open(output_path, 'wb') as f:
+                # Header P6 (binary RGB)
+                f.write(f"P6\n160 144\n255\n".encode('ascii'))
+                f.write(rgb_buffer)
+            
+            print(f"[ROM-SMOKE-RGB-DUMP] Framebuffer RGB dump guardado en {output_path} (frame {frame_idx})")
+            
+        except Exception as e:
+            print(f"[ROM-SMOKE-RGB-DUMP] ERROR al escribir PPM RGB: {e}")
+            import traceback
+            traceback.print_exc()
+    
     def run(self):
         """Ejecuta el smoke test."""
         # Step 0465: Imprimir estado de env vars para evidencia (solo en tools, no en runtime)
@@ -1396,6 +1477,9 @@ class ROMSmokeRunner:
             
             # Step 0488: Dump framebuffer a PPM si está activo
             self._dump_framebuffer_to_ppm(frame_idx)
+            
+            # Step 0489: Dump framebuffer RGB a PPM si está activo (Fase B)
+            self._dump_rgb_framebuffer_to_ppm(frame_idx)
             
             # --- Step 0469: Snapshot cada 60 frames (o frames 0, 60, 120, 180, 240) ---
             should_snapshot = (frame_idx % 60 == 0) or frame_idx < 3
@@ -1802,6 +1886,54 @@ class ROMSmokeRunner:
                     except (AttributeError, TypeError, KeyError) as e:
                         fb_stats_str = f"ERROR: {e}"
                 
+                # Step 0489: ThreeBufferStats (gateado por VIBOY_DEBUG_PRESENT_TRACE=1)
+                three_buf_stats = None
+                three_buf_stats_str = "N/A"
+                if os.getenv("VIBOY_DEBUG_PRESENT_TRACE") == "1":
+                    try:
+                        three_buf_stats = self.ppu.get_three_buffer_stats()
+                        if three_buf_stats:
+                            three_buf_stats_str = (f"IdxCRC32=0x{three_buf_stats['idx_crc32']:08X} "
+                                                   f"IdxUnique={three_buf_stats['idx_unique']} "
+                                                   f"IdxNonZero={three_buf_stats['idx_nonzero']} | "
+                                                   f"RgbCRC32=0x{three_buf_stats['rgb_crc32']:08X} "
+                                                   f"RgbUnique={three_buf_stats['rgb_unique_colors_approx']} "
+                                                   f"RgbNonWhite={three_buf_stats['rgb_nonwhite_count']} | "
+                                                   f"PresentCRC32=0x{three_buf_stats['present_crc32']:08X} "
+                                                   f"PresentNonWhite={three_buf_stats['present_nonwhite_count']}")
+                    except (AttributeError, TypeError, KeyError) as e:
+                        three_buf_stats_str = f"ERROR: {e}"
+                
+                # Step 0489: CGBPaletteWriteStats (gateado por VIBOY_DEBUG_CGB_PALETTE_WRITES=1)
+                cgb_pal_stats = None
+                cgb_pal_stats_str = "N/A"
+                if os.getenv("VIBOY_DEBUG_CGB_PALETTE_WRITES") == "1":
+                    try:
+                        cgb_pal_stats = self.mmu.get_cgb_palette_write_stats()
+                        if cgb_pal_stats:
+                            cgb_pal_stats_str = (f"BGPD_Writes={cgb_pal_stats['bgpd_write_count']} "
+                                                f"BGPD_LastPC=0x{cgb_pal_stats['last_bgpd_write_pc']:04X} "
+                                                f"BGPD_LastVal=0x{cgb_pal_stats['last_bgpd_value']:02X} "
+                                                f"BGPI=0x{cgb_pal_stats['last_bgpi']:02X} | "
+                                                f"OBPD_Writes={cgb_pal_stats['obpd_write_count']} "
+                                                f"OBPD_LastPC=0x{cgb_pal_stats['last_obpd_write_pc']:04X} "
+                                                f"OBPD_LastVal=0x{cgb_pal_stats['last_obpd_value']:02X} "
+                                                f"OBPI=0x{cgb_pal_stats['last_obpi']:02X}")
+                    except (AttributeError, TypeError, KeyError) as e:
+                        cgb_pal_stats_str = f"ERROR: {e}"
+                
+                # Step 0489: DMGTileFetchStats (gateado por VIBOY_DEBUG_DMG_TILE_FETCH=1)
+                dmg_tile_stats = None
+                dmg_tile_stats_str = "N/A"
+                if os.getenv("VIBOY_DEBUG_DMG_TILE_FETCH") == "1":
+                    try:
+                        dmg_tile_stats = self.ppu.get_dmg_tile_fetch_stats()
+                        if dmg_tile_stats:
+                            dmg_tile_stats_str = (f"TileBytesTotal={dmg_tile_stats['tile_bytes_read_total_count']} "
+                                                 f"TileBytesNonZero={dmg_tile_stats['tile_bytes_read_nonzero_count']}")
+                    except (AttributeError, TypeError, KeyError) as e:
+                        dmg_tile_stats_str = f"ERROR: {e}"
+                
                 # Step 0488: PaletteStats
                 palette_stats = {}
                 try:
@@ -1911,7 +2043,10 @@ class ROMSmokeRunner:
                       f"ExecCount_0x1288={exec_count_0x1288} ExecCount_0x1298={exec_count_0x1298} | "
                       f"JOYPTrace_ButtonsSel={joyp_reads_with_buttons_selected_count} JOYPTrace_DpadSel={joyp_reads_with_dpad_selected_count} JOYPTrace_NoneSel={joyp_reads_with_none_selected_count} | "
                       f"FrameBufferStats={fb_stats_str} | "
-                      f"PaletteStats={palette_stats_str}")
+                      f"PaletteStats={palette_stats_str} | "
+                      f"ThreeBufferStats={three_buf_stats_str} | "
+                      f"CGBPaletteWriteStats={cgb_pal_stats_str} | "
+                      f"DMGTileFetchStats={dmg_tile_stats_str}")
                 
                 # Step 0485: Imprimir tail de JOYP trace si está activo (últimos 16 eventos compactados)
                 if debug_joyp_trace and joyp_trace_tail:

@@ -32,6 +32,24 @@
                 </p>
                 
                 <ul class="entry-list">
+                    <!-- Entrada 0489 - Cerrar Ambigüedad PPU vs Paletas vs Presentación -->
+                    <li>
+                        <div class="entry-header">
+                            <h3 class="entry-title">
+                                <a href="entries/2026-01-06__0489__cerrar-ambiguedad-ppu-vs-paletas-vs-presentacion.html" class="entry-link">
+                                    Cerrar Ambigüedad PPU vs Paletas vs Presentación
+                                </a>
+                            </h3>
+                        </div>
+                        <div class="entry-meta-index">
+                            <strong>Fecha:</strong> 2026-01-06 | 
+                            <strong>Step ID:</strong> 0489 | 
+                            <strong>Estado:</strong> <span class="tag tag-verified">VERIFIED</span>
+                        </div>
+                        <p class="entry-summary">
+                            Instrumentación en tres puntos críticos del pipeline de renderizado (FB_INDEX, FB_RGB, FB_PRESENT_SRC) para cerrar la ambigüedad sobre dónde ocurre el problema de pantalla en blanco. Adicionalmente, tracking de writes a paletas CGB y contadores de lecturas de tile data DMG. Resultados: PPU no está leyendo tile data (TileBytesTotal=0) → explica por qué el framebuffer está completamente en blanco. Reporte completo en docs/reports/reporte_step0489.md.
+                        </p>
+                    </li>
                     <!-- Entrada 0488 - Blank Screen Triage - Framebuffer vs Paletas vs Blit -->
                     <li>
                         <div class="entry-header">

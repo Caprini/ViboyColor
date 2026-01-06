@@ -7,6 +7,7 @@
 #include <string>   // Step 0488: Para std::string
 #include <chrono>  // Step 0363: Para diagnóstico de rendimiento
 #include <vector>  // Step 0370: Para std::vector en verificación de discrepancia
+#include <set>     // Step 0489: Para std::set en compute_three_buffer_stats()
 
 // --- Step 0469: Contador VBlank IRQ solicitado (nivel de archivo) ---
 static uint32_t vblank_irq_requested_count = 0;
@@ -34,6 +35,8 @@ PPU::PPU(MMU* mmu)
     , vram_progression_tilemap_threshold_(-1)   // Step 0400: Sin threshold detectado
     , vram_progression_unique_tiles_threshold_(-1)  // Step 0400: Sin threshold detectado
     , framebuffer_stats_()  // Step 0488: Inicializar estadísticas del framebuffer
+    , three_buffer_stats_()  // Step 0489: Inicializar estadísticas de tres buffers
+    , dmg_tile_fetch_stats_()  // Step 0489: Inicializar estadísticas de fetch de tiles DMG
 #ifdef VIBOY_DEBUG_PPU
     , bg_pixels_written_count_(0)              // Step 0458: Inicializar contador de píxeles BG
     , first_nonzero_color_idx_seen_(false)      // Step 0458: Inicializar flag de índice no-cero
@@ -1502,6 +1505,10 @@ void PPU::swap_framebuffers() {
     
     // --- Step 0488: Calcular estadísticas del framebuffer después del swap ---
     compute_framebuffer_stats();
+    // -------------------------------------------
+    
+    // --- Step 0489: Calcular estadísticas de tres buffers después del swap ---
+    compute_three_buffer_stats();
     // -------------------------------------------
     
     // --- Step 0372: Tarea 5 - Verificar Estado del Framebuffer Después del Intercambio ---
@@ -4476,8 +4483,21 @@ void PPU::decode_tile_line(uint16_t tile_addr, uint8_t line, uint8_t* output) {
     // Byte 2: Bits altos de cada píxel (bit 7 = píxel 0, bit 6 = píxel 1, ...)
     uint16_t line_addr = tile_addr + (line * 2);
     // --- Step 0458: Usar read_vram() para leer desde bancos VRAM correctos ---
-            uint8_t byte_low = mmu_->read_vram(line_addr);
-            uint8_t byte_high = mmu_->read_vram(line_addr + 1);
+    uint8_t byte_low = mmu_->read_vram(line_addr);
+    uint8_t byte_high = mmu_->read_vram(line_addr + 1);
+    
+    // Step 0489: Tracking de fetch de tiles DMG (gateado por VIBOY_DEBUG_DMG_TILE_FETCH)
+    const char* env_debug = std::getenv("VIBOY_DEBUG_DMG_TILE_FETCH");
+    if (env_debug && std::string(env_debug) == "1") {
+        dmg_tile_fetch_stats_.tile_bytes_read_total_count++;
+        
+        if (byte_low != 0x00 || byte_high != 0x00) {
+            dmg_tile_fetch_stats_.tile_bytes_read_nonzero_count++;
+        }
+        
+        // Track top addresses (simplificado: solo actualizar si hay espacio)
+        // Por ahora, solo contamos, no guardamos todas las direcciones
+    }
     
     // Decodificar 8 píxeles: color = (bit_alto << 1) | bit_bajo
     for (uint8_t i = 0; i < 8; i++) {
@@ -5806,5 +5826,144 @@ void PPU::compute_framebuffer_stats() {
 
 const FrameBufferStats& PPU::get_framebuffer_stats() const {
     return framebuffer_stats_;
+}
+
+void PPU::compute_three_buffer_stats() {
+    // Gate: solo si VIBOY_DEBUG_PRESENT_TRACE está activo
+    const char* env_debug = std::getenv("VIBOY_DEBUG_PRESENT_TRACE");
+    if (!env_debug || std::string(env_debug) != "1") {
+        return;
+    }
+    
+    // Resetear stats
+    three_buffer_stats_.idx_crc32 = 0;
+    three_buffer_stats_.idx_unique = 0;
+    three_buffer_stats_.idx_nonzero = 0;
+    three_buffer_stats_.rgb_crc32 = 0;
+    three_buffer_stats_.rgb_unique_colors_approx = 0;
+    three_buffer_stats_.rgb_nonwhite_count = 0;
+    three_buffer_stats_.present_crc32 = 0;
+    three_buffer_stats_.present_nonwhite_count = 0;
+    three_buffer_stats_.present_fmt = 0;
+    three_buffer_stats_.present_pitch = 0;
+    three_buffer_stats_.present_w = 0;
+    three_buffer_stats_.present_h = 0;
+    
+    // A1) FB_INDEX (lo que ya medimos: 160x144 de índices 0..3)
+    const uint8_t* fb_idx = get_presented_framebuffer_indices_ptr();
+    uint32_t idx_hash = 0;
+    uint32_t idx_unique_bits = 0;
+    uint32_t idx_nonzero = 0;
+    
+    for (int i = 0; i < FRAMEBUFFER_SIZE; i++) {
+        uint8_t idx = fb_idx[i] & 0x03;
+        idx_hash = (idx_hash * 31) + idx;
+        idx_unique_bits |= (1 << idx);
+        if (idx != 0) {
+            idx_nonzero++;
+        }
+    }
+    
+    three_buffer_stats_.idx_crc32 = idx_hash;
+    three_buffer_stats_.idx_unique = __builtin_popcount(idx_unique_bits);  // Contar bits set
+    three_buffer_stats_.idx_nonzero = idx_nonzero;
+    
+    // A2) FB_RGB (después de mapear paletas)
+    // Leer framebuffer RGB (si existe en modo CGB)
+    const uint8_t* fb_rgb = get_framebuffer_rgb_ptr();
+    if (fb_rgb != nullptr) {
+        uint32_t rgb_hash = 0;
+        uint32_t rgb_unique_approx = 0;
+        uint32_t rgb_nonwhite = 0;
+        
+        // Muestrear cada 10 píxeles para unique_approx (rápido)
+        std::set<uint32_t> rgb_samples;
+        for (int i = 0; i < FRAMEBUFFER_SIZE; i += 10) {
+            uint8_t r = fb_rgb[i * 3 + 0];
+            uint8_t g = fb_rgb[i * 3 + 1];
+            uint8_t b = fb_rgb[i * 3 + 2];
+            uint32_t rgb_val = (r << 16) | (g << 8) | b;
+            
+            rgb_hash = (rgb_hash * 31) + rgb_val;
+            rgb_samples.insert(rgb_val);
+            
+            // Contar no-blancos (tolerancia: RGB > 240,240,240 = blanco)
+            if (r < 240 || g < 240 || b < 240) {
+                rgb_nonwhite++;
+            }
+        }
+        
+        three_buffer_stats_.rgb_crc32 = rgb_hash;
+        three_buffer_stats_.rgb_unique_colors_approx = rgb_samples.size();
+        three_buffer_stats_.rgb_nonwhite_count = rgb_nonwhite;
+    } else {
+        // Modo DMG: convertir índices a RGB usando BGP
+        uint8_t bgp = mmu_->read(IO_BGP);
+        uint8_t shades[4];
+        shades[0] = (bgp >> 0) & 0x03;
+        shades[1] = (bgp >> 2) & 0x03;
+        shades[2] = (bgp >> 4) & 0x03;
+        shades[3] = (bgp >> 6) & 0x03;
+        
+        // Mapeo shade → RGB (0-3 → valores RGB)
+        uint8_t shade_to_rgb[4][3] = {
+            {255, 255, 255},  // Shade 0 = blanco
+            {192, 192, 192},  // Shade 1 = gris claro
+            {96, 96, 96},     // Shade 2 = gris oscuro
+            {0, 0, 0},        // Shade 3 = negro
+        };
+        
+        uint32_t rgb_hash = 0;
+        std::set<uint32_t> rgb_samples;
+        uint32_t rgb_nonwhite = 0;
+        
+        for (int i = 0; i < FRAMEBUFFER_SIZE; i += 10) {  // Muestrear
+            uint8_t idx = fb_idx[i] & 0x03;
+            uint8_t shade = shades[idx];
+            uint8_t r = shade_to_rgb[shade][0];
+            uint8_t g = shade_to_rgb[shade][1];
+            uint8_t b = shade_to_rgb[shade][2];
+            uint32_t rgb_val = (r << 16) | (g << 8) | b;
+            
+            rgb_hash = (rgb_hash * 31) + rgb_val;
+            rgb_samples.insert(rgb_val);
+            
+            if (r < 240 || g < 240 || b < 240) {
+                rgb_nonwhite++;
+            }
+        }
+        
+        three_buffer_stats_.rgb_crc32 = rgb_hash;
+        three_buffer_stats_.rgb_unique_colors_approx = rgb_samples.size();
+        three_buffer_stats_.rgb_nonwhite_count = rgb_nonwhite;
+    }
+    
+    // A3) FB_PRESENT_SRC (se captura desde Python cuando se llama a render_frame)
+    // Por ahora, inicializar a 0 (se llenará desde Python)
+    three_buffer_stats_.present_crc32 = 0;
+    three_buffer_stats_.present_nonwhite_count = 0;
+    three_buffer_stats_.present_fmt = 0;
+    three_buffer_stats_.present_pitch = 0;
+    three_buffer_stats_.present_w = 0;
+    three_buffer_stats_.present_h = 0;
+}
+
+const ThreeBufferStats& PPU::get_three_buffer_stats() const {
+    return three_buffer_stats_;
+}
+
+void PPU::set_present_stats(uint32_t present_crc32, uint32_t present_nonwhite_count,
+                            uint32_t present_fmt, uint32_t present_pitch,
+                            uint32_t present_w, uint32_t present_h) {
+    three_buffer_stats_.present_crc32 = present_crc32;
+    three_buffer_stats_.present_nonwhite_count = present_nonwhite_count;
+    three_buffer_stats_.present_fmt = present_fmt;
+    three_buffer_stats_.present_pitch = present_pitch;
+    three_buffer_stats_.present_w = present_w;
+    three_buffer_stats_.present_h = present_h;
+}
+
+const DMGTileFetchStats& PPU::get_dmg_tile_fetch_stats() const {
+    return dmg_tile_fetch_stats_;
 }
 

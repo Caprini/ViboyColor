@@ -39,6 +39,25 @@ enum JOYPSelectLabel {
 };
 
 /**
+ * Step 0489: Estructura para estadísticas de writes a paletas CGB.
+ * 
+ * Permite rastrear si el juego está escribiendo a paletas CGB y cuándo.
+ */
+struct CGBPaletteWriteStats {
+    // BGPI/BGPD
+    uint32_t bgpd_write_count;
+    uint16_t last_bgpd_write_pc;
+    uint8_t last_bgpd_value;
+    uint8_t last_bgpi;
+    
+    // OBPI/OBPD
+    uint32_t obpd_write_count;
+    uint16_t last_obpd_write_pc;
+    uint8_t last_obpd_value;
+    uint8_t last_obpi;
+};
+
+/**
  * Step 0487: Helper function para obtener etiqueta de selección JOYP
  * 
  * @param select_bits Bits 4-5 del valor escrito/leído (0x00, 0x10, 0x20, 0x30)
@@ -994,6 +1013,9 @@ private:
     mutable uint32_t joyp_read_dpad_selected_total_cpu_poll_;
     mutable uint32_t joyp_read_none_selected_total_cpu_poll_;
     
+    // --- Step 0489: Instrumentación de writes a paletas CGB ---
+    CGBPaletteWriteStats cgb_palette_write_stats_;
+    
     // --- Step 0486: Contadores JOYP por source y selección ---
     mutable uint32_t joyp_reads_prog_buttons_sel_;   // Program reads con buttons selected (bit4=0)
     mutable uint32_t joyp_reads_prog_dpad_sel_;      // Program reads con dpad selected (bit5=0)
@@ -1811,6 +1833,15 @@ public:
      * @return Número de reads desde CPU polling con none selected
      */
     uint32_t get_joyp_read_none_selected_total_cpu_poll() const;
+    
+    /**
+     * Step 0489: Obtiene estadísticas de writes a paletas CGB.
+     * 
+     * Devuelve métricas sobre escrituras a BGPI/BGPD y OBPI/OBPD.
+     * 
+     * @return Referencia constante a CGBPaletteWriteStats con las estadísticas
+     */
+    const CGBPaletteWriteStats& get_cgb_palette_write_stats() const;
 };
 
 #endif // MMU_HPP

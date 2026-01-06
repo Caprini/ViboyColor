@@ -885,6 +885,40 @@ class Renderer:
                 if should_profile:
                     stage_start = time.time() * 1000
                 
+                # --- Step 0489: Capturar FB_PRESENT_SRC antes de flip() ---
+                import os
+                if os.environ.get('VIBOY_DEBUG_PRESENT_TRACE') == '1' and self.cpp_ppu is not None:
+                    try:
+                        import zlib
+                        # Capturar buffer exacto que se pasa a SDL (self.surface)
+                        # self.surface es 160x144 en RGB
+                        present_buffer = pygame.surfarray.array3d(self.surface)  # (160, 144, 3)
+                        present_buffer_flat = present_buffer.flatten()  # (160*144*3,)
+                        present_buffer_bytes = present_buffer_flat.tobytes()
+                        
+                        # Calcular CRC32 y stats
+                        present_crc32 = zlib.crc32(present_buffer_bytes) & 0xFFFFFFFF
+                        present_nonwhite = sum(1 for i in range(0, len(present_buffer_bytes), 3) 
+                                              if present_buffer_bytes[i] < 240 or 
+                                                 present_buffer_bytes[i+1] < 240 or 
+                                                 present_buffer_bytes[i+2] < 240)
+                        
+                        # Obtener formato/pitch de la surface
+                        present_fmt = 0  # RGBA8888 codificado como 0
+                        present_pitch = 160 * 3  # RGB888
+                        present_w = 160
+                        present_h = 144
+                        
+                        # Actualizar stats en PPU
+                        self.cpp_ppu.set_present_stats(
+                            present_crc32, present_nonwhite,
+                            present_fmt, present_pitch,
+                            present_w, present_h
+                        )
+                    except Exception as e:
+                        logger.warning(f"[Renderer-Present-Stats] Error capturando present stats: {e}")
+                # -------------------------------------------
+                
                 pygame.display.flip()
                 
                 if should_profile:

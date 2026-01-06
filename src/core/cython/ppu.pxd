@@ -25,6 +25,28 @@ cdef extern from "PPU.hpp":
         bool fb_changed_since_last
         uint32_t fb_last_hash
     
+    # Step 0489: Estructura para estadísticas de tres buffers (prueba irrefutable)
+    cdef struct ThreeBufferStats:
+        uint32_t idx_crc32
+        uint32_t idx_unique
+        uint32_t idx_nonzero
+        uint32_t rgb_crc32
+        uint32_t rgb_unique_colors_approx
+        uint32_t rgb_nonwhite_count
+        uint32_t present_crc32
+        uint32_t present_nonwhite_count
+        uint32_t present_fmt
+        uint32_t present_pitch
+        uint32_t present_w
+        uint32_t present_h
+    
+    # Step 0489: Estructura para estadísticas de fetch de tiles DMG
+    cdef struct DMGTileFetchStats:
+        uint32_t tile_bytes_read_nonzero_count
+        uint32_t tile_bytes_read_total_count
+        uint16_t top_vram_read_addrs[10]
+        uint32_t top_vram_read_counts[10]
+    
 cdef extern from "PPU.hpp":
     cdef cppclass PPU:
         # Constantes públicas
@@ -62,6 +84,9 @@ cdef extern from "PPU.hpp":
         const uint8_t* get_presented_framebuffer_indices_ptr()  # Step 0468
         uint32_t get_vblank_irq_requested_count() const  # Step 0469: Contador VBlank IRQ solicitado
         const FrameBufferStats& get_framebuffer_stats() const  # Step 0488: Estadísticas del framebuffer
+        const ThreeBufferStats& get_three_buffer_stats() const  # Step 0489: Estadísticas de tres buffers
+        void set_present_stats(uint32_t present_crc32, uint32_t present_nonwhite_count, uint32_t present_fmt, uint32_t present_pitch, uint32_t present_w, uint32_t present_h)  # Step 0489: Actualizar stats de presentación
+        const DMGTileFetchStats& get_dmg_tile_fetch_stats() const  # Step 0489: Estadísticas de fetch de tiles DMG
         void clear_framebuffer()
         void confirm_framebuffer_read()
         void convert_framebuffer_to_rgb()  # Step 0404: Conversión índices → RGB

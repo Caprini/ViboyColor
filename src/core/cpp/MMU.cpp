@@ -177,6 +177,7 @@ MMU::MMU()
     , ie_write_count_(0)  // Step 0482: Contador de writes a IE (convertido de static a miembro)
     , boot_logo_prefill_enabled_(false)  // Step 0475: Prefill del logo deshabilitado por defecto
     , waits_on_addr_(0x0000)  // Step 0479: I/O esperado (0 = no configurado)
+    , cgb_palette_write_stats_()  // Step 0489: Inicializar estadísticas de writes a paletas CGB
     , waits_on_reads_program_(0)  // Step 0479: Contador de reads desde programa
     , last_waits_on_read_value_(0x00)  // Step 0479: Último valor leído del I/O esperado
     , last_waits_on_read_pc_(0x0000)  // Step 0479: Último PC que leyó el I/O esperado
@@ -2997,6 +2998,12 @@ void MMU::write(uint16_t addr, uint8_t value) {
                    debug_current_pc, bankN_rom_, value, value & 0x3F, (value & 0x80) >> 7);
             palette_write_log_count_++;
         }
+        
+        // Step 0489: Tracking de writes a paletas CGB (gateado por VIBOY_DEBUG_CGB_PALETTE_WRITES)
+        const char* env_debug = std::getenv("VIBOY_DEBUG_CGB_PALETTE_WRITES");
+        if (env_debug && std::string(env_debug) == "1") {
+            cgb_palette_write_stats_.last_bgpi = value & 0x3F;
+        }
         return;
     }
     if (addr == 0xFF69) {
@@ -3009,6 +3016,14 @@ void MMU::write(uint16_t addr, uint8_t value) {
             printf("[PALETTE-WRITE] PC:0x%04X Bank:%d | FF69(BCPD)[0x%02X] <- 0x%02X | Pal:%d Color:%d\n",
                    debug_current_pc, bankN_rom_, index, value, index / 8, (index % 8) / 2);
             palette_write_log_count_++;
+        }
+        
+        // Step 0489: Tracking de writes a paletas CGB (gateado por VIBOY_DEBUG_CGB_PALETTE_WRITES)
+        const char* env_debug = std::getenv("VIBOY_DEBUG_CGB_PALETTE_WRITES");
+        if (env_debug && std::string(env_debug) == "1") {
+            cgb_palette_write_stats_.bgpd_write_count++;
+            cgb_palette_write_stats_.last_bgpd_write_pc = debug_current_pc;
+            cgb_palette_write_stats_.last_bgpd_value = value;
         }
         
         // Auto-increment si bit 7 de BCPS está activo
@@ -3026,6 +3041,12 @@ void MMU::write(uint16_t addr, uint8_t value) {
                    debug_current_pc, bankN_rom_, value, value & 0x3F, (value & 0x80) >> 7);
             palette_write_log_count_++;
         }
+        
+        // Step 0489: Tracking de writes a paletas CGB (gateado por VIBOY_DEBUG_CGB_PALETTE_WRITES)
+        const char* env_debug = std::getenv("VIBOY_DEBUG_CGB_PALETTE_WRITES");
+        if (env_debug && std::string(env_debug) == "1") {
+            cgb_palette_write_stats_.last_obpi = value & 0x3F;
+        }
         return;
     }
     if (addr == 0xFF6B) {
@@ -3038,6 +3059,14 @@ void MMU::write(uint16_t addr, uint8_t value) {
             printf("[PALETTE-WRITE] PC:0x%04X Bank:%d | FF6B(OCPD)[0x%02X] <- 0x%02X | Pal:%d Color:%d\n",
                    debug_current_pc, bankN_rom_, index, value, index / 8, (index % 8) / 2);
             palette_write_log_count_++;
+        }
+        
+        // Step 0489: Tracking de writes a paletas CGB (gateado por VIBOY_DEBUG_CGB_PALETTE_WRITES)
+        const char* env_debug = std::getenv("VIBOY_DEBUG_CGB_PALETTE_WRITES");
+        if (env_debug && std::string(env_debug) == "1") {
+            cgb_palette_write_stats_.obpd_write_count++;
+            cgb_palette_write_stats_.last_obpd_write_pc = debug_current_pc;
+            cgb_palette_write_stats_.last_obpd_value = value;
         }
         
         // Auto-increment si bit 7 de OCPS está activo
@@ -4857,6 +4886,12 @@ uint32_t MMU::get_joyp_read_dpad_selected_total_cpu_poll() const {
 uint32_t MMU::get_joyp_read_none_selected_total_cpu_poll() const {
     return joyp_read_none_selected_total_cpu_poll_;
 }
+
+// --- Step 0489: Getter para estadísticas de writes a paletas CGB ---
+const CGBPaletteWriteStats& MMU::get_cgb_palette_write_stats() const {
+    return cgb_palette_write_stats_;
+}
+// --- Fin Step 0489 ---
 // --- Fin Step 0487 (JOYP contadores por tipo de selección) ---
 // --- Fin Step 0485 (JOYP Trace) ---
 // --- Fin Step 0484 ---
